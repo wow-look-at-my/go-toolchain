@@ -197,10 +197,10 @@ EOF
 	go build -o go-safe-build .
 
 	# Stage 2: Use go-safe-build to build itself
-	./go-safe-build --min-coverage 0 -o go-safe-build1 2>&1 || true
+	./go-safe-build -o go-safe-build1
 
 	# Stage 3: Use go-safe-build1 to build itself
-	./go-safe-build1 --min-coverage 0 -o go-safe-build2 2>&1 || true
+	./go-safe-build1 -o go-safe-build2
 
 	# Verify both stage 2 and 3 binaries exist
 	[ -f "go-safe-build1" ]
