@@ -194,7 +194,7 @@ EOF
 	rm -f go-safe-build go-safe-build1 go-safe-build2
 
 	# Stage 1: Original compile with go build
-	go build -o go-safe-build .
+	go build -o go-safe-build ./src
 
 	# Stage 2: Use go-safe-build to build itself
 	./go-safe-build -o go-safe-build1

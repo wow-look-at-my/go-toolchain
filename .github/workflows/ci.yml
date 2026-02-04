@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run tests
+        run: go test -v -coverprofile=coverage.out ./src/...
+
+      - name: Build binary
+        run: go build -o go-safe-build ./src
+
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats jq
+
+      - name: Run integration tests
+        run: bats tests/
+
+  build-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t go-safe-build-action .
+
+  self-test:
+    runs-on: ubuntu-latest
+    needs: [build-action]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test Go project
+        run: |
+          mkdir -p /tmp/test-project
+          cd /tmp/test-project
+          cat > go.mod <<EOF
+          module testproject
+          go 1.21
+          EOF
+          cat > main.go <<EOF
+          package main
+
+          func Add(a, b int) int {
+              return a + b
+          }
+
+          func main() {}
+          EOF
+          cat > main_test.go <<EOF
+          package main
+
+          import "testing"
+
+          func TestAdd(t *testing.T) {
+              if Add(1, 2) != 3 {
+                  t.Error("Add failed")
+              }
+          }
+          EOF
+
+      - name: Test action
+        uses: ./
+        with:
+          min-coverage: '80'
+          working-directory: '/tmp/test-project'

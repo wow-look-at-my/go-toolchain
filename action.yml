@@ -1,0 +1,50 @@
+name: 'Go Safe Build'
+description: 'Build Go projects with coverage enforcement - fails if coverage is below threshold'
+author: 'go-safe-build'
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  min-coverage:
+    description: 'Minimum coverage percentage required (0 = test only, no build)'
+    required: false
+    default: '80'
+  output:
+    description: 'Output binary name (default: directory name)'
+    required: false
+    default: ''
+  cov-detail:
+    description: 'Show detailed coverage: "func" or "file"'
+    required: false
+    default: ''
+  json:
+    description: 'Output coverage report as JSON'
+    required: false
+    default: 'false'
+  verbose:
+    description: 'Show test output line by line'
+    required: false
+    default: 'false'
+  working-directory:
+    description: 'Working directory for the build'
+    required: false
+    default: '.'
+
+outputs:
+  coverage:
+    description: 'Total coverage percentage'
+  binary:
+    description: 'Path to the built binary'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - ${{ inputs.min-coverage }}
+    - ${{ inputs.output }}
+    - ${{ inputs.cov-detail }}
+    - ${{ inputs.json }}
+    - ${{ inputs.verbose }}
+    - ${{ inputs.working-directory }}
