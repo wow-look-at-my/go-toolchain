@@ -3,3 +3,4 @@ go-safe-build
 
 # Test coverage
 coverage.out
+src/coverage.out
