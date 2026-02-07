@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -40,6 +39,7 @@ var (
 	covDetail   string
 	minCoverage float32
 	output      string
+	srcPath     string
 	jsonOutput  bool
 	verbose     bool
 )
@@ -56,6 +56,7 @@ func init() {
 	rootCmd.Flags().StringVar(&covDetail, "cov-detail", "", "Show detailed coverage: 'func' or 'file'")
 	rootCmd.Flags().Float32Var(&minCoverage, "min-coverage", 80.0, "Minimum coverage percentage (0 = test only, no build)")
 	rootCmd.Flags().StringVarP(&output, "output", "o", "", "Output binary name (default: directory name)")
+	rootCmd.Flags().StringVar(&srcPath, "src", ".", "Path to main package (e.g., ./cmd/myapp)")
 	rootCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
 }
@@ -181,19 +182,28 @@ func runWithRunner(runner CommandRunner) error {
 		return fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, minCoverage)
 	}
 
-	if output == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
-		}
-		output = filepath.Base(wd)
+	targets, err := resolveBuildTargets(runner)
+	if err != nil {
+		return err
 	}
 
-	if !jsonOutput {
-		fmt.Printf("==> go build -o %s ./...\n", output)
-	}
-	if err := runner.Run("go", "build", "-o", output, "./..."); err != nil {
-		return fmt.Errorf("go build failed: %w", err)
+	if len(targets) == 0 {
+		// Library-only project, just verify everything compiles
+		if !jsonOutput {
+			fmt.Println("==> go build ./... (no main packages found)")
+		}
+		if err := runner.Run("go", "build", "./..."); err != nil {
+			return fmt.Errorf("go build failed: %w", err)
+		}
+	} else {
+		for _, t := range targets {
+			if !jsonOutput {
+				fmt.Printf("==> go build -o %s %s\n", t.outputName, t.importPath)
+			}
+			if err := runner.Run("go", "build", "-o", t.outputName, t.importPath); err != nil {
+				return fmt.Errorf("go build failed: %w", err)
+			}
+		}
 	}
 
 	if !jsonOutput {
@@ -201,3 +211,4 @@ func runWithRunner(runner CommandRunner) error {
 	}
 	return nil
 }
+

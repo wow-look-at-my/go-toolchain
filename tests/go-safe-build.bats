@@ -166,6 +166,152 @@ EOF
 	[ -f "myapp" ]
 }
 
+@test "--src builds from cmd/ layout" {
+	mkdir -p "$TEST_DIR/proj/cmd/myapp"
+	cd "$TEST_DIR/proj"
+
+	cat > go.mod <<EOF
+module testproject
+go 1.21
+EOF
+
+	cat > cmd/myapp/main.go <<EOF
+package main
+
+func Add(a, b int) int {
+	return a + b
+}
+
+func main() {}
+EOF
+
+	cat > cmd/myapp/main_test.go <<EOF
+package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	if Add(1, 2) != 3 {
+		t.Error("Add failed")
+	}
+}
+EOF
+
+	run "$BINARY" --min-coverage 80 -o custombin --src ./cmd/myapp
+	[ "$status" -eq 0 ]
+	[ -f "custombin" ]
+}
+
+@test "auto-detects cmd/ layout without --src" {
+	mkdir -p "$TEST_DIR/proj/cmd/myapp"
+	cd "$TEST_DIR/proj"
+
+	cat > go.mod <<EOF
+module testproject
+go 1.21
+EOF
+
+	cat > cmd/myapp/main.go <<EOF
+package main
+
+func Add(a, b int) int {
+	return a + b
+}
+
+func main() {}
+EOF
+
+	cat > cmd/myapp/main_test.go <<EOF
+package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	if Add(1, 2) != 3 {
+		t.Error("Add failed")
+	}
+}
+EOF
+
+	run "$BINARY" --min-coverage 80
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Build successful"* ]]
+	[ -f "myapp" ]
+}
+
+@test "auto-detects main packages in non-cmd directories" {
+	mkdir -p "$TEST_DIR/proj/tools/linter"
+	cd "$TEST_DIR/proj"
+
+	cat > go.mod <<EOF
+module testproject
+go 1.21
+EOF
+
+	cat > tools/linter/main.go <<EOF
+package main
+
+func Check(s string) bool {
+	return len(s) > 0
+}
+
+func main() {}
+EOF
+
+	cat > tools/linter/main_test.go <<EOF
+package main
+
+import "testing"
+
+func TestCheck(t *testing.T) {
+	if !Check("hello") {
+		t.Error("Check failed")
+	}
+}
+EOF
+
+	run "$BINARY" --min-coverage 80
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Build successful"* ]]
+	[ -f "linter" ]
+}
+
+@test "auto-detects cmd/ layout with -o override" {
+	mkdir -p "$TEST_DIR/proj/cmd/myapp"
+	cd "$TEST_DIR/proj"
+
+	cat > go.mod <<EOF
+module testproject
+go 1.21
+EOF
+
+	cat > cmd/myapp/main.go <<EOF
+package main
+
+func Add(a, b int) int {
+	return a + b
+}
+
+func main() {}
+EOF
+
+	cat > cmd/myapp/main_test.go <<EOF
+package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	if Add(1, 2) != 3 {
+		t.Error("Add failed")
+	}
+}
+EOF
+
+	run "$BINARY" --min-coverage 80 -o customname
+	[ "$status" -eq 0 ]
+	[ -f "customname" ]
+}
+
 @test "shows package coverage in output" {
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
