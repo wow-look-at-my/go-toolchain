@@ -17,6 +17,7 @@ func (m *matrixTestRunner) RunWithPipes(name string, args ...string) (io.Reader,
 	m.mu.Lock()
 	m.Commands = append(m.Commands, MockCommand{Name: name, Args: args})
 	m.mu.Unlock()
+	writeMockCoverProfile(args, 100)
 	output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}

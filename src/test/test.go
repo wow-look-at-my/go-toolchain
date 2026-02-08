@@ -125,23 +125,9 @@ func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult
 		return packages[i].Package < packages[j].Package
 	})
 
-	// Parse coverage profile for detailed stats
-	totalCoverage, files, err := ParseProfile(coverFile)
-	if err != nil {
-		// Fallback to averaging package coverage, excluding packages
-		// with no coverable statements (they have no meaningful coverage).
-		var sum float32
-		var count int
-		for _, p := range packages {
-			if !p.NoStatements {
-				sum += p.Coverage
-				count++
-			}
-		}
-		if count > 0 {
-			totalCoverage = sum / float32(count)
-		}
-	}
+	// Parse coverage profile for total coverage computed as
+	// (total covered statements) / (total statements) across all files.
+	totalCoverage, files, _ := ParseProfile(coverFile)
 
 	// Parse function-level coverage
 	funcs, _ := ParseFuncCoverage(coverFile)

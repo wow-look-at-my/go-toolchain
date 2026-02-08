@@ -196,7 +196,7 @@ example.com/pkg/main.go:10.20,12.2 1 1
 
 func TestRunTestsNoCoverageFile(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
-	// Don't create coverage.out - should fallback to averaging
+	// Don't create coverage.out - no profile means no statement-level data
 
 	mock := NewMockRunner()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"pkg1"}
@@ -213,27 +213,41 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 		t.Fatalf("runTests failed: %v", err)
 	}
 
-	// Should average: (50 + 100) / 2 = 75
-	if result.Coverage.Total != 75.0 {
-		t.Errorf("expected total 75.0, got %v", result.Coverage.Total)
+	// Without a coverage profile we can't compute statement-weighted total.
+	// Total should be 0 rather than a misleading per-package average.
+	if result.Coverage.Total != 0 {
+		t.Errorf("expected total 0 without coverage profile, got %v", result.Coverage.Total)
+	}
+
+	// Per-package percentages are still available from test output
+	if len(result.Coverage.Packages) != 2 {
+		t.Errorf("expected 2 packages, got %d", len(result.Coverage.Packages))
 	}
 }
 
-func TestRunTestsNoStatementsExcludedFromAverage(t *testing.T) {
+func TestRunTestsNoStatementsMarkedCorrectly(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
-	// Don't create coverage.out - forces the fallback averaging path
+
+	// Profile only has pkg1 and pkg2 data; pkg3 has no statements
+	// pkg1: 1 covered + 1 uncovered = 50%, pkg2: 2 covered = 100%
+	// total: 3 covered / 4 statements = 75%
+	coverContent := `mode: set
+example.com/pkg1/main.go:10.20,12.2 1 1
+example.com/pkg1/main.go:14.20,16.2 1 0
+example.com/pkg2/main.go:10.20,12.2 2 1
+`
+	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
 	mock := NewMockRunner()
-	// pkg1 has 50% coverage, pkg2 has 100%, pkg3 has no statements
-	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"pkg1"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"pkg1","Output":"coverage: 50.0% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"pkg1"}
-{"Time":"2024-01-01T00:00:03Z","Action":"run","Package":"pkg2"}
-{"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"pkg2","Output":"coverage: 100% of statements\n"}
-{"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"pkg2"}
-{"Time":"2024-01-01T00:00:06Z","Action":"run","Package":"pkg3"}
-{"Time":"2024-01-01T00:00:07Z","Action":"output","Package":"pkg3","Output":"coverage: [no statements]\n"}
-{"Time":"2024-01-01T00:00:08Z","Action":"pass","Package":"pkg3"}
+	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 50.0% of statements\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
+{"Time":"2024-01-01T00:00:03Z","Action":"run","Package":"example.com/pkg2"}
+{"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: 100% of statements\n"}
+{"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
+{"Time":"2024-01-01T00:00:06Z","Action":"run","Package":"example.com/pkg3"}
+{"Time":"2024-01-01T00:00:07Z","Action":"output","Package":"example.com/pkg3","Output":"coverage: [no statements]\n"}
+{"Time":"2024-01-01T00:00:08Z","Action":"pass","Package":"example.com/pkg3"}
 `
 	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
@@ -242,20 +256,20 @@ func TestRunTestsNoStatementsExcludedFromAverage(t *testing.T) {
 		t.Fatalf("runTests failed: %v", err)
 	}
 
-	// Should average only pkg1 and pkg2: (50 + 100) / 2 = 75
-	// NOT (50 + 100 + 0) / 3 = 50 (the old buggy behavior)
+	// Total from profile: 3 covered / 4 statements = 75%
+	// (statement-weighted, not per-package average)
 	if result.Coverage.Total != 75.0 {
-		t.Errorf("expected total 75.0 (excluding no-statements pkg), got %v", result.Coverage.Total)
+		t.Errorf("expected total 75.0 (statement-weighted), got %v", result.Coverage.Total)
 	}
 
 	// Verify NoStatements flag is set correctly
 	for _, p := range result.Coverage.Packages {
 		switch p.Package {
-		case "pkg1", "pkg2":
+		case "example.com/pkg1", "example.com/pkg2":
 			if p.NoStatements {
 				t.Errorf("package %s should not be marked as NoStatements", p.Package)
 			}
-		case "pkg3":
+		case "example.com/pkg3":
 			if !p.NoStatements {
 				t.Errorf("package %s should be marked as NoStatements", p.Package)
 			}
