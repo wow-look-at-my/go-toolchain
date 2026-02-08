@@ -19,9 +19,28 @@ jobs:
         with:
           source: 'source'
 
-      - name: Create release
+      - name: Cross-compile
         run: |
-          mv build/go-toolchain build/go-toolchain-linux-amd64
-          gh release create "${{ github.ref_name }}" build/* --generate-notes
+          set -euo pipefail
+          mkdir -p dist
+          platforms=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+          )
+          for platform in "${platforms[@]}"; do
+            GOOS="${platform%/*}"
+            GOARCH="${platform#*/}"
+            EXT=""
+            if [ "$GOOS" = "windows" ]; then
+              EXT=".exe"
+            fi
+            GOOS="$GOOS" GOARCH="$GOARCH" go build -o "dist/go-toolchain_${GOOS}_${GOARCH}${EXT}" ./src
+          done
+
+      - name: Create release
+        run: gh release create "${{ github.ref_name }}" dist/* --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
