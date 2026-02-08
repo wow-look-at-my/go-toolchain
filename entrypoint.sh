@@ -9,7 +9,10 @@ VERBOSE="$5"
 WORKING_DIR="$6"
 
 # Change to working directory
-cd "$GITHUB_WORKSPACE/$WORKING_DIR"
+case "$WORKING_DIR" in
+    /*) cd "$WORKING_DIR" ;;
+    *)  cd "$GITHUB_WORKSPACE/$WORKING_DIR" ;;
+esac
 
 # Build command arguments
 ARGS=""

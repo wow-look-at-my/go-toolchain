@@ -12,7 +12,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Run tests
         run: go test -v -coverprofile=coverage.out ./src/...
@@ -44,8 +44,8 @@ jobs:
 
       - name: Create test Go project
         run: |
-          mkdir -p /tmp/test-project
-          cd /tmp/test-project
+          mkdir -p test-project
+          cd test-project
           cat > go.mod <<EOF
           module testproject
           go 1.21
@@ -75,4 +75,4 @@ jobs:
         uses: ./
         with:
           min-coverage: '80'
-          working-directory: '/tmp/test-project'
+          working-directory: 'test-project'
