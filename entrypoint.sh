@@ -37,6 +37,6 @@ if [ "$VERBOSE" = "true" ]; then
     ARGS="$ARGS --verbose"
 fi
 
-# Run go-safe-build
+# Run go-safe-build via go run
 # shellcheck disable=SC2086
-exec go-safe-build $ARGS
+exec go run /app/src $ARGS
