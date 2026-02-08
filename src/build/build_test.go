@@ -1,4 +1,4 @@
-package main
+package build
 
 import (
 	"os"
@@ -37,38 +37,44 @@ func TestFindMainPackagesEmpty(t *testing.T) {
 	}
 }
 
+func TestBinaryNameFromImportPath(t *testing.T) {
+	tests := []struct {
+		pkg, module, want string
+	}{
+		// Single level below module → use module name
+		{"go-safe-build/src", "go-safe-build", "go-safe-build"},
+		{"example.com/src", "example.com", "example.com"},
+		{"mymod/app", "mymod", "mymod"},
+
+		// Deeper path → use leaf directory
+		{"example.com/cmd/foo", "example.com", "foo"},
+		{"example.com/cmd/bar", "example.com", "bar"},
+		{"example.com/tools/linter", "example.com", "linter"},
+
+		// No module prefix match → fallback to basename
+		{"unrelated/pkg", "example.com", "pkg"},
+
+		// Empty module name → fallback to basename
+		{"example.com/cmd/foo", "", "foo"},
+	}
+	for _, tt := range tests {
+		got := binaryNameFromImportPath(tt.pkg, tt.module)
+		if got != tt.want {
+			t.Errorf("binaryNameFromImportPath(%q, %q) = %q, want %q", tt.pkg, tt.module, got, tt.want)
+		}
+	}
+}
+
 func TestResolveBuildTargetsExplicitSrc(t *testing.T) {
-	oldSrc, oldOut := srcPath, output
-	defer func() { srcPath, output = oldSrc, oldOut }()
-
-	srcPath = "./cmd/myapp"
-	output = "mybin"
-
-	targets, err := resolveBuildTargets(nil) // runner not needed for explicit path
+	targets, err := ResolveBuildTargets(nil, "./cmd/myapp")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(targets) != 1 {
 		t.Fatalf("expected 1 target, got %d", len(targets))
 	}
-	if targets[0].importPath != "./cmd/myapp" || targets[0].outputName != "mybin" {
+	if targets[0].ImportPath != "./cmd/myapp" || targets[0].OutputName != "myapp" {
 		t.Errorf("unexpected target: %+v", targets[0])
-	}
-}
-
-func TestResolveBuildTargetsExplicitSrcDefaultName(t *testing.T) {
-	oldSrc, oldOut := srcPath, output
-	defer func() { srcPath, output = oldSrc, oldOut }()
-
-	srcPath = "./cmd/myapp"
-	output = ""
-
-	targets, err := resolveBuildTargets(nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if targets[0].outputName != "myapp" {
-		t.Errorf("expected output name 'myapp', got %q", targets[0].outputName)
 	}
 }
 
@@ -81,41 +87,12 @@ func TestResolveBuildTargetsGoFilesInRoot(t *testing.T) {
 	// Create a .go file in root
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
 
-	oldSrc, oldOut := srcPath, output
-	defer func() { srcPath, output = oldSrc, oldOut }()
-
-	srcPath = "."
-	output = "mybin"
-
-	targets, err := resolveBuildTargets(nil)
+	targets, err := ResolveBuildTargets(nil, ".")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(targets) != 1 || targets[0].importPath != "." || targets[0].outputName != "mybin" {
+	if len(targets) != 1 || targets[0].ImportPath != "." || targets[0].OutputName != filepath.Base(tmpDir) {
 		t.Errorf("unexpected target: %+v", targets)
-	}
-}
-
-func TestResolveBuildTargetsGoFilesInRootDefaultName(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	os.WriteFile("main.go", []byte("package main\n"), 0644)
-
-	oldSrc, oldOut := srcPath, output
-	defer func() { srcPath, output = oldSrc, oldOut }()
-
-	srcPath = "."
-	output = ""
-
-	targets, err := resolveBuildTargets(nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if targets[0].outputName != filepath.Base(tmpDir) {
-		t.Errorf("expected output name %q, got %q", filepath.Base(tmpDir), targets[0].outputName)
 	}
 }
 
@@ -125,22 +102,17 @@ func TestResolveBuildTargetsAutoDetectSingle(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// No .go files in root
-	oldSrc, oldOut := srcPath, output
-	defer func() { srcPath, output = oldSrc, oldOut }()
-
-	srcPath = "."
-	output = "custom"
-
 	mock := NewMockRunner()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("example.com/cmd/myapp\n"), nil)
+	mock.SetResponse("go", []string{"list", "-m"},
+		[]byte("example.com\n"), nil)
 
-	targets, err := resolveBuildTargets(mock)
+	targets, err := ResolveBuildTargets(mock, ".")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(targets) != 1 || targets[0].importPath != "example.com/cmd/myapp" || targets[0].outputName != "custom" {
+	if len(targets) != 1 || targets[0].ImportPath != "example.com/cmd/myapp" || targets[0].OutputName != "myapp" {
 		t.Errorf("unexpected target: %+v", targets)
 	}
 }
@@ -151,46 +123,45 @@ func TestResolveBuildTargetsAutoDetectMultiple(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	oldSrc, oldOut := srcPath, output
-	defer func() { srcPath, output = oldSrc, oldOut }()
-
-	srcPath = "."
-	output = ""
-
 	mock := NewMockRunner()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("example.com/cmd/foo\nexample.com/cmd/bar\n"), nil)
+	mock.SetResponse("go", []string{"list", "-m"},
+		[]byte("example.com\n"), nil)
 
-	targets, err := resolveBuildTargets(mock)
+	targets, err := ResolveBuildTargets(mock, ".")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(targets) != 2 {
 		t.Fatalf("expected 2 targets, got %d", len(targets))
 	}
-	if targets[0].outputName != "foo" || targets[1].outputName != "bar" {
-		t.Errorf("unexpected names: %q, %q", targets[0].outputName, targets[1].outputName)
+	if targets[0].OutputName != "foo" || targets[1].OutputName != "bar" {
+		t.Errorf("unexpected names: %q, %q", targets[0].OutputName, targets[1].OutputName)
 	}
 }
 
-func TestResolveBuildTargetsMultipleWithOutputFlag(t *testing.T) {
+func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	oldSrc, oldOut := srcPath, output
-	defer func() { srcPath, output = oldSrc, oldOut }()
-
-	srcPath = "."
-	output = "conflict"
-
 	mock := NewMockRunner()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("example.com/cmd/foo\nexample.com/cmd/bar\n"), nil)
+		[]byte("go-safe-build/src\n"), nil)
+	mock.SetResponse("go", []string{"list", "-m"},
+		[]byte("go-safe-build\n"), nil)
 
-	_, err := resolveBuildTargets(mock)
-	if err == nil {
-		t.Fatal("expected error when -o used with multiple main packages")
+	targets, err := ResolveBuildTargets(mock, ".")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+	// Binary should be named after the module, not "src"
+	if targets[0].OutputName != "go-safe-build" {
+		t.Errorf("expected output name 'go-safe-build', got %q", targets[0].OutputName)
 	}
 }

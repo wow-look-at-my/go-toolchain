@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestParseCoverageProfile(t *testing.T) {
+func TestParseProfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
@@ -44,9 +44,9 @@ func TestParseCoverageProfile(t *testing.T) {
 		t.Fatalf("failed to write coverage file: %v", err)
 	}
 
-	total, files, err := parseCoverageProfile(coverFile)
+	total, files, err := ParseProfile(coverFile)
 	if err != nil {
-		t.Fatalf("parseCoverageProfile failed: %v", err)
+		t.Fatalf("ParseProfile failed: %v", err)
 	}
 
 	if total != expectedTotal {
@@ -58,14 +58,14 @@ func TestParseCoverageProfile(t *testing.T) {
 	}
 }
 
-func TestParseCoverageProfileMissingFile(t *testing.T) {
-	_, _, err := parseCoverageProfile("/nonexistent/coverage.out")
+func TestParseProfileMissingFile(t *testing.T) {
+	_, _, err := ParseProfile("/nonexistent/coverage.out")
 	if err == nil {
 		t.Error("expected error for missing file")
 	}
 }
 
-func TestParseCoverageProfileEmpty(t *testing.T) {
+func TestParseProfileEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
@@ -75,9 +75,9 @@ func TestParseCoverageProfileEmpty(t *testing.T) {
 		t.Fatalf("failed to write coverage file: %v", err)
 	}
 
-	total, files, err := parseCoverageProfile(coverFile)
+	total, files, err := ParseProfile(coverFile)
 	if err != nil {
-		t.Fatalf("parseCoverageProfile failed: %v", err)
+		t.Fatalf("ParseProfile failed: %v", err)
 	}
 
 	if total != 0 {
@@ -89,7 +89,7 @@ func TestParseCoverageProfileEmpty(t *testing.T) {
 	}
 }
 
-func TestParseCoverageProfileMalformedLines(t *testing.T) {
+func TestParseProfileMalformedLines(t *testing.T) {
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
@@ -104,9 +104,9 @@ example.com/pkg/file.go:10.20,12.2 1 1
 		t.Fatalf("failed to write coverage file: %v", err)
 	}
 
-	total, files, err := parseCoverageProfile(coverFile)
+	total, files, err := ParseProfile(coverFile)
 	if err != nil {
-		t.Fatalf("parseCoverageProfile failed: %v", err)
+		t.Fatalf("ParseProfile failed: %v", err)
 	}
 
 	// Should only have parsed the valid line
@@ -119,7 +119,7 @@ example.com/pkg/file.go:10.20,12.2 1 1
 }
 
 func TestParseFuncCoverageMissingFile(t *testing.T) {
-	_, err := parseFuncCoverage("/nonexistent/coverage.out")
+	_, err := ParseFuncCoverage("/nonexistent/coverage.out")
 	if err == nil {
 		t.Error("expected error for missing file")
 	}
@@ -131,9 +131,9 @@ func TestParseFuncCoverageWithRealFile(t *testing.T) {
 		t.Skip("coverage.out not found, skipping")
 	}
 
-	funcs, err := parseFuncCoverage("coverage.out")
+	funcs, err := ParseFuncCoverage("coverage.out")
 	if err != nil {
-		t.Fatalf("parseFuncCoverage failed: %v", err)
+		t.Fatalf("ParseFuncCoverage failed: %v", err)
 	}
 
 	// May return empty if go tool cover can't find sources (e.g., during test)

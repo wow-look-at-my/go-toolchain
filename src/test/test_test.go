@@ -1,8 +1,9 @@
-package main
+package test
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"gotest.tools/gotestsum/testjson"
@@ -124,16 +125,13 @@ func TestCoverageHandlerMultiplePackages(t *testing.T) {
 }
 
 func TestRunTestsWithMock(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
-	// Create coverage.out
+	// Create coverage file for ParseProfile
 	coverContent := `mode: set
 example.com/pkg/main.go:10.20,12.2 1 1
 `
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
+	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
 	mock := NewMockRunner()
 	// Return valid JSON test output
@@ -141,42 +139,42 @@ example.com/pkg/main.go:10.20,12.2 1 1
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=coverage.out", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := runTests(mock, false)
+	result, err := RunTests(mock, false, coverFile)
 	if err != nil {
 		t.Fatalf("runTests failed: %v", err)
 	}
 
-	if len(result.Packages) != 1 {
-		t.Errorf("expected 1 package, got %d", len(result.Packages))
+	if len(result.Coverage.Packages) != 1 {
+		t.Errorf("expected 1 package, got %d", len(result.Coverage.Packages))
 	}
 
-	if result.Packages[0].Coverage != 85.0 {
-		t.Errorf("expected coverage 85.0, got %v", result.Packages[0].Coverage)
+	if result.Coverage.Packages[0].Coverage != 85.0 {
+		t.Errorf("expected coverage 85.0, got %v", result.Coverage.Packages[0].Coverage)
 	}
 }
 
 func TestRunTestsFailure(t *testing.T) {
-	mock := NewMockRunner()
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=coverage.out", "./..."}, nil, fmt.Errorf("test failed"))
+	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
-	_, err := runTests(mock, false)
+	mock := NewMockRunner()
+	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, nil, fmt.Errorf("test failed"))
+
+	_, err := RunTests(mock, false, coverFile)
 	if err == nil {
 		t.Error("expected error when tests fail")
 	}
 }
 
 func TestRunTestsVerbose(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
+	// Create coverage file for ParseProfile
 	coverContent := `mode: set
 example.com/pkg/main.go:10.20,12.2 1 1
 `
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
+	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
 	mock := NewMockRunner()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
@@ -184,24 +182,20 @@ example.com/pkg/main.go:10.20,12.2 1 1
 {"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:03Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=coverage.out", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := runTests(mock, true) // verbose=true
+	result, err := RunTests(mock, true, coverFile) // verbose=true
 	if err != nil {
 		t.Fatalf("runTests failed: %v", err)
 	}
 
-	if len(result.Packages) != 1 {
-		t.Errorf("expected 1 package, got %d", len(result.Packages))
+	if len(result.Coverage.Packages) != 1 {
+		t.Errorf("expected 1 package, got %d", len(result.Coverage.Packages))
 	}
 }
 
 func TestRunTestsNoCoverageFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
+	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 	// Don't create coverage.out - should fallback to averaging
 
 	mock := NewMockRunner()
@@ -212,15 +206,15 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"pkg2","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=coverage.out", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := runTests(mock, false)
+	result, err := RunTests(mock, false, coverFile)
 	if err != nil {
 		t.Fatalf("runTests failed: %v", err)
 	}
 
 	// Should average: (50 + 100) / 2 = 75
-	if result.Total != 75.0 {
-		t.Errorf("expected total 75.0, got %v", result.Total)
+	if result.Coverage.Total != 75.0 {
+		t.Errorf("expected total 75.0, got %v", result.Coverage.Total)
 	}
 }

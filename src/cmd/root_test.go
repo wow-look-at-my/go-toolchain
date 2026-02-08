@@ -1,13 +1,14 @@
-package main
+package cmd
 
 import (
 	"bytes"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	gotest "go-safe-build/src/test"
 )
 
 func TestRunWithRunnerModTidyFails(t *testing.T) {
@@ -24,11 +25,7 @@ func TestRunWithRunnerModTidyFails(t *testing.T) {
 }
 
 func TestRunWithRunnerTestsFail(t *testing.T) {
-	mock := NewMockRunner()
-	// mod tidy succeeds
-	mock.SetResponse("go", []string{"mod", "tidy"}, nil, nil)
-	// tests fail
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=coverage.out", "./..."}, nil, fmt.Errorf("tests failed"))
+	mock := &testPipesFailMockRunner{}
 
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -40,14 +37,10 @@ func TestRunWithRunnerTestsFail(t *testing.T) {
 }
 
 func TestRunWithRunnerTestOnlyMode(t *testing.T) {
-	// Create temp coverage.out for parsing
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-
-	coverContent := "mode: set\nexample.com/pkg/main.go:10.20,12.2 1 1\n"
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
 
 	mock := &testPassMockRunner{}
 
@@ -76,14 +69,7 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// Create coverage.out with 50% coverage
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-example.com/pkg/main.go:14.20,16.2 1 0
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
-	mock := &testPassMockRunner{}
+	mock := &testPassMockRunner{coveragePct: 50}
 
 	jsonOutput = true
 	minCoverage = 80
@@ -104,21 +90,15 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// Create coverage.out with 100% coverage
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &testPassMockRunner{}
 
 	jsonOutput = true
 	minCoverage = 80
-	output = filepath.Join(tmpDir, "testbinary")
+	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
 		minCoverage = 80
-		output = ""
+		outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -133,22 +113,17 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false
 	minCoverage = 80
 	verbose = true
-	output = filepath.Join(tmpDir, "testbinary")
+	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
 		minCoverage = 80
 		verbose = false
-		output = ""
+		outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -157,9 +132,11 @@ example.com/pkg/main.go:10.20,12.2 1 1
 	}
 }
 
-// testPassMockRunner returns valid test JSON output
+// testPassMockRunner returns valid test JSON output with configurable coverage.
+// If coveragePct is 0, defaults to 100%.
 type testPassMockRunner struct {
-	commands []MockCommand
+	commands    []MockCommand
+	coveragePct float32
 }
 
 func (m *testPassMockRunner) Run(name string, args ...string) error {
@@ -174,12 +151,35 @@ func (m *testPassMockRunner) RunWithOutput(name string, args ...string) ([]byte,
 
 func (m *testPassMockRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
 	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
-	// Return valid JSON test output
-	output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
+	pct := m.coveragePct
+	if pct == 0 {
+		pct = 100
+	}
+	output := fmt.Sprintf(`{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: %.1f%% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
-`
+`, pct)
 	return bytes.NewReader([]byte(output)), func() error { return nil }, nil
+}
+
+// testPipesFailMockRunner fails immediately on RunWithPipes (simulating test execution failure)
+type testPipesFailMockRunner struct {
+	commands []MockCommand
+}
+
+func (m *testPipesFailMockRunner) Run(name string, args ...string) error {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil
+}
+
+func (m *testPipesFailMockRunner) RunWithOutput(name string, args ...string) ([]byte, error) {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil, nil
+}
+
+func (m *testPipesFailMockRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil, nil, fmt.Errorf("tests failed")
 }
 
 func TestRunWithRunnerNonJSON(t *testing.T) {
@@ -188,22 +188,16 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// Create coverage.out with 100% coverage
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &testPassMockRunner{}
 
 	// Test non-JSON output path
 	jsonOutput = false
 	minCoverage = 80
-	output = filepath.Join(tmpDir, "testbinary")
+	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
 		minCoverage = 80
-		output = ""
+		outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -218,22 +212,17 @@ func TestRunWithRunnerFileDetail(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false
 	minCoverage = 80
 	covDetail = "file"
-	output = filepath.Join(tmpDir, "testbinary")
+	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
 		minCoverage = 80
 		covDetail = ""
-		output = ""
+		outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -248,22 +237,17 @@ func TestRunWithRunnerFuncDetail(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false
 	minCoverage = 80
 	covDetail = "func"
-	output = filepath.Join(tmpDir, "testbinary")
+	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
 		minCoverage = 80
 		covDetail = ""
-		output = ""
+		outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -301,20 +285,15 @@ func TestRunWithRunnerBuildFails(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &buildFailMockRunner{}
 
 	jsonOutput = true
 	minCoverage = 80
-	output = filepath.Join(tmpDir, "testbinary")
+	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
 		minCoverage = 80
-		output = ""
+		outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -380,9 +359,6 @@ func TestRunWithRunnerTestOnlyNonJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := "mode: set\nexample.com/pkg/main.go:10.20,12.2 1 1\n"
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false // Non-JSON output path
@@ -404,13 +380,7 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-example.com/pkg/main.go:14.20,16.2 1 0
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
-	mock := &testPassMockRunner{}
+	mock := &testPassMockRunner{coveragePct: 50}
 
 	jsonOutput = false // Non-JSON output to hit uncovered functions display
 	minCoverage = 80
@@ -431,13 +401,7 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-example.com/pkg/main.go:14.20,16.2 1 0
-`
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
-	mock := &testPassMockRunner{}
+	mock := &testPassMockRunner{coveragePct: 50}
 
 	jsonOutput = true // JSON output path when below threshold
 	minCoverage = 80
@@ -458,9 +422,6 @@ func TestRunWithRunnerTestOnlyJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := "mode: set\nexample.com/pkg/main.go:10.20,12.2 1 1\n"
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &testPassMockRunner{}
 
 	jsonOutput = true
@@ -476,24 +437,315 @@ func TestRunWithRunnerTestOnlyJSON(t *testing.T) {
 	}
 }
 
+func TestRunWithRunnerAddWatermark(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	mock := &testPassMockRunner{}
+
+	jsonOutput = false
+	minCoverage = 80
+	addWatermark = true
+	outputDir = tmpDir
+	defer func() {
+		jsonOutput = false
+		minCoverage = 80
+		addWatermark = false
+		outputDir = "build"
+	}()
+
+	err := runWithRunner(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Verify watermark was set
+	wm, exists, werr := gotest.GetWatermark(".")
+	if werr != nil {
+		t.Fatalf("getWatermark: %v", werr)
+	}
+	if !exists {
+		t.Fatal("expected watermark to exist after --add-watermark")
+	}
+	if wm != 100.0 {
+		t.Errorf("expected watermark 100.0, got %v", wm)
+	}
+}
+
+func TestRunWithRunnerAddWatermarkJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	mock := &testPassMockRunner{}
+
+	jsonOutput = true
+	minCoverage = 80
+	addWatermark = true
+	outputDir = tmpDir
+	defer func() {
+		jsonOutput = false
+		minCoverage = 80
+		addWatermark = false
+		outputDir = "build"
+	}()
+
+	err := runWithRunner(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Set watermark to 60% — grace = 57.5, effective = min(80, 57.5) = 57.5
+	// 50 < 57.5 → should fail
+	gotest.SetWatermark(".", 60.0)
+
+	mock := &testPassMockRunner{coveragePct: 50}
+
+	jsonOutput = false
+	minCoverage = 80
+	defer func() {
+		jsonOutput = false
+		minCoverage = 80
+	}()
+
+	err := runWithRunner(mock)
+	if err == nil {
+		t.Error("expected error when coverage below watermark grace")
+	}
+	if err != nil && !strings.Contains(err.Error(), "below minimum") {
+		t.Errorf("expected 'below minimum' error, got: %v", err)
+	}
+}
+
+func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Set watermark to 52% — grace = 49.5, effective = min(80, 49.5) = 49.5
+	// 50 > 49.5 → should pass
+	gotest.SetWatermark(".", 52.0)
+
+	mock := &testPassMockRunner{coveragePct: 50}
+
+	jsonOutput = true
+	minCoverage = 80
+	outputDir = tmpDir
+	defer func() {
+		jsonOutput = false
+		minCoverage = 80
+		outputDir = "build"
+	}()
+
+	err := runWithRunner(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Set watermark to 50% — coverage is 100%, should ratchet up
+	gotest.SetWatermark(".", 50.0)
+
+	mock := &testPassMockRunner{}
+
+	jsonOutput = false
+	minCoverage = 80
+	outputDir = tmpDir
+	defer func() {
+		jsonOutput = false
+		minCoverage = 80
+		outputDir = "build"
+	}()
+
+	err := runWithRunner(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Verify watermark was ratcheted up
+	wm, _, _ := gotest.GetWatermark(".")
+	if wm != 100.0 {
+		t.Errorf("expected watermark 100.0, got %v", wm)
+	}
+}
+
+func TestHandleRemoveWatermarkNoWatermark(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := handleRemoveWatermark()
+
+	w.Close()
+	out, _ := io.ReadAll(r)
+	os.Stdout = old
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(out), "No watermark is set") {
+		t.Errorf("expected 'No watermark is set', got: %s", out)
+	}
+}
+
+func TestHandleRemoveWatermarkAborted(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	gotest.SetWatermark(".", 80.0)
+
+	// Simulate "n" input
+	oldStdin := os.Stdin
+	rIn, wIn, _ := os.Pipe()
+	wIn.WriteString("n\n")
+	wIn.Close()
+	os.Stdin = rIn
+	defer func() { os.Stdin = oldStdin }()
+
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := handleRemoveWatermark()
+
+	w.Close()
+	out, _ := io.ReadAll(r)
+	os.Stdout = old
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(out), "Aborted") {
+		t.Errorf("expected 'Aborted', got: %s", out)
+	}
+
+	// Watermark should still exist
+	_, exists, _ := gotest.GetWatermark(".")
+	if !exists {
+		t.Error("watermark should still exist after abort")
+	}
+}
+
+func TestHandleRemoveWatermarkConfirmed(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	gotest.SetWatermark(".", 80.0)
+
+	// Simulate "y" input
+	oldStdin := os.Stdin
+	rIn, wIn, _ := os.Pipe()
+	wIn.WriteString("y\n")
+	wIn.Close()
+	os.Stdin = rIn
+	defer func() { os.Stdin = oldStdin }()
+
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := handleRemoveWatermark()
+
+	w.Close()
+	out, _ := io.ReadAll(r)
+	os.Stdout = old
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(out), "Watermark removed") {
+		t.Errorf("expected 'Watermark removed', got: %s", out)
+	}
+
+	// Watermark should be gone
+	_, exists, _ := gotest.GetWatermark(".")
+	if exists {
+		t.Error("watermark should not exist after removal")
+	}
+}
+
+func TestRunWithRunnerRemoveWatermarkFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	gotest.SetWatermark(".", 80.0)
+
+	// Simulate "yes" input
+	oldStdin := os.Stdin
+	rIn, wIn, _ := os.Pipe()
+	wIn.WriteString("yes\n")
+	wIn.Close()
+	os.Stdin = rIn
+	defer func() { os.Stdin = oldStdin }()
+
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	doRemoveWmark = true
+	defer func() { doRemoveWmark = false }()
+
+	err := runWithRunner(nil) // runner not needed for remove-watermark
+
+	w.Close()
+	out, _ := io.ReadAll(r)
+	os.Stdout = old
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(out), "Watermark removed") {
+		t.Errorf("expected 'Watermark removed', got: %s", out)
+	}
+}
+
 func TestRunWithRunnerFailedTest(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	coverContent := "mode: set\nexample.com/pkg/main.go:10.20,12.2 1 1\n"
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
-
 	mock := &testFailMockRunner{}
 
 	jsonOutput = false
 	minCoverage = 80
-	output = filepath.Join(tmpDir, "testbinary")
+	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
 		minCoverage = 80
-		output = ""
+		outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -507,9 +759,6 @@ func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-
-	coverContent := "mode: set\nexample.com/pkg/main.go:10.20,12.2 1 1\n"
-	os.WriteFile("coverage.out", []byte(coverContent), 0644)
 
 	mock := &testFailWithErrorMockRunner{}
 

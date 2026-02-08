@@ -1,13 +1,21 @@
-package main
+package test
 
 import (
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strconv"
 
 	"gotest.tools/gotestsum/testjson"
 )
+
+// CommandRunner abstracts command execution for testing
+type CommandRunner interface {
+	Run(name string, args ...string) error
+	RunWithOutput(name string, args ...string) ([]byte, error)
+	RunWithPipes(name string, args ...string) (stdout io.Reader, wait func() error, err error)
+}
 
 var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
 
@@ -49,15 +57,14 @@ func (h *coverageHandler) Err(text string) error {
 
 // TestResult contains the results of running tests
 type TestResult struct {
-	Packages      []PackageCoverage
-	Total         float32
-	Files         []FileCoverage
+	Coverage      Report
 	FailureOutput string
 }
 
-// runTests executes go test with coverage and returns parsed results
-func runTests(runner CommandRunner, verbose bool) (*TestResult, error) {
-	stdout, wait, err := runner.RunWithPipes("go", "test", "-json", "-coverprofile=coverage.out", "./...")
+// RunTests executes go test with coverage and returns parsed results.
+// coverFile is the path where the coverage profile will be written.
+func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult, error) {
+	stdout, wait, err := runner.RunWithPipes("go", "test", "-json", "-coverprofile="+coverFile, "./...")
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +99,7 @@ func runTests(runner CommandRunner, verbose bool) (*TestResult, error) {
 	})
 
 	// Parse coverage profile for detailed stats
-	totalCoverage, files, err := parseCoverageProfile("coverage.out")
+	totalCoverage, files, err := ParseProfile(coverFile)
 	if err != nil {
 		// Fallback to averaging package coverage
 		var sum float32
@@ -104,10 +111,16 @@ func runTests(runner CommandRunner, verbose bool) (*TestResult, error) {
 		}
 	}
 
+	// Parse function-level coverage
+	funcs, _ := ParseFuncCoverage(coverFile)
+
 	return &TestResult{
-		Packages:      packages,
-		Total:         totalCoverage,
-		Files:         files,
+		Coverage: Report{
+			Total:    totalCoverage,
+			Packages: packages,
+			Files:    files,
+			Funcs:    funcs,
+		},
 		FailureOutput: handler.FailureOutput(),
 	}, waitErr
 }

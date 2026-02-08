@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"bufio"
@@ -9,7 +9,37 @@ import (
 	"strings"
 )
 
-func parseCoverageProfile(filename string) (float32, []FileCoverage, error) {
+// Report is the top-level coverage report for JSON output.
+type Report struct {
+	Total    float32           `json:"total"`
+	Packages []PackageCoverage `json:"packages"`
+	Files    []FileCoverage    `json:"files,omitempty"`
+	Funcs    []FuncCoverage    `json:"funcs,omitempty"`
+}
+
+type PackageCoverage struct {
+	Package  string  `json:"package"`
+	Coverage float32 `json:"coverage"`
+	Passed   bool    `json:"passed"`
+}
+
+type FileCoverage struct {
+	File       string  `json:"file"`
+	Coverage   float32 `json:"coverage"`
+	Statements int     `json:"statements"`
+	Covered    int     `json:"covered"`
+}
+
+type FuncCoverage struct {
+	File     string  `json:"file"`
+	Line     int     `json:"line"`
+	Function string  `json:"function"`
+	Coverage float32 `json:"coverage"`
+}
+
+// ParseProfile reads a Go coverage profile and returns total coverage
+// percentage and per-file coverage details.
+func ParseProfile(filename string) (float32, []FileCoverage, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return 0, nil, err
@@ -84,7 +114,9 @@ func parseCoverageProfile(filename string) (float32, []FileCoverage, error) {
 	return totalCoverage, files, nil
 }
 
-func parseFuncCoverage(coverageFile string) ([]FuncCoverage, error) {
+// ParseFuncCoverage runs `go tool cover -func` on a coverage profile and
+// returns per-function coverage details.
+func ParseFuncCoverage(coverageFile string) ([]FuncCoverage, error) {
 	cmd := exec.Command("go", "tool", "cover", "-func", coverageFile)
 	output, err := cmd.Output()
 	if err != nil {

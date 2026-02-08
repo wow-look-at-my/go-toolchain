@@ -6,7 +6,7 @@ setup() {
 	export TEST_DIR
 
 	# Path to the built binary
-	BINARY="$BATS_TEST_DIRNAME/../go-safe-build"
+	BINARY="$BATS_TEST_DIRNAME/../build/go-safe-build"
 	export BINARY
 }
 
@@ -106,7 +106,7 @@ EOF
 	[[ "$output" == *"Test-only mode"* ]]
 	[[ "$output" == *"skipping build"* ]]
 	# Should not have created a binary
-	[ ! -f "proj" ]
+	[ ! -d "build" ]
 }
 
 @test "fails when coverage below threshold" {
@@ -125,8 +125,8 @@ EOF
 	run "$BINARY" --min-coverage 80
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
-	# Should have created a binary
-	[ -f "proj" ]
+	# Should have created a binary in build/
+	[ -f "build/proj" ]
 }
 
 @test "--cov-detail=func shows function coverage" {
@@ -157,13 +157,13 @@ EOF
 	echo "$output" | jq -e '.total' > /dev/null
 }
 
-@test "-o flag sets output binary name" {
+@test "-o flag sets output directory" {
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 80 -o myapp
+	run "$BINARY" --min-coverage 80 -o dist
 	[ "$status" -eq 0 ]
-	[ -f "myapp" ]
+	[ -f "dist/proj" ]
 }
 
 @test "--src builds from cmd/ layout" {
@@ -197,9 +197,9 @@ func TestAdd(t *testing.T) {
 }
 EOF
 
-	run "$BINARY" --min-coverage 80 -o custombin --src ./cmd/myapp
+	run "$BINARY" --min-coverage 80 --src ./cmd/myapp
 	[ "$status" -eq 0 ]
-	[ -f "custombin" ]
+	[ -f "build/myapp" ]
 }
 
 @test "auto-detects cmd/ layout without --src" {
@@ -236,7 +236,7 @@ EOF
 	run "$BINARY" --min-coverage 80
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
-	[ -f "myapp" ]
+	[ -f "build/myapp" ]
 }
 
 @test "auto-detects main packages in non-cmd directories" {
@@ -273,10 +273,10 @@ EOF
 	run "$BINARY" --min-coverage 80
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
-	[ -f "linter" ]
+	[ -f "build/linter" ]
 }
 
-@test "auto-detects cmd/ layout with -o override" {
+@test "-o changes output directory for auto-detected packages" {
 	mkdir -p "$TEST_DIR/proj/cmd/myapp"
 	cd "$TEST_DIR/proj"
 
@@ -307,9 +307,9 @@ func TestAdd(t *testing.T) {
 }
 EOF
 
-	run "$BINARY" --min-coverage 80 -o customname
+	run "$BINARY" --min-coverage 80 -o out
 	[ "$status" -eq 0 ]
-	[ -f "customname" ]
+	[ -f "out/myapp" ]
 }
 
 @test "shows package coverage in output" {
@@ -331,27 +331,122 @@ EOF
 	[[ "$output" == *"%"* ]]
 }
 
+@test "--add-watermark stores watermark" {
+	create_test_project "$TEST_DIR/proj" 100
+	cd "$TEST_DIR/proj"
+
+	run "$BINARY" --min-coverage 80 --add-watermark
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Watermark set to"* ]]
+
+	# Verify xattr was written
+	wm="$(xattr -p user.go-safe-build.watermark .)"
+	[ -n "$wm" ]
+}
+
+@test "watermark auto-enforced on next run" {
+	create_test_project "$TEST_DIR/proj" 50
+	cd "$TEST_DIR/proj"
+
+	# Set watermark to 60% — coverage is ~50%, grace = 57.5%, effective = min(80,57.5) = 57.5
+	# 50 < 57.5 → should fail
+	xattr -w user.go-safe-build.watermark "60.0" .
+
+	run "$BINARY" --min-coverage 80
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"Watermark:"* ]]
+	[[ "$output" == *"below minimum"* ]]
+}
+
+@test "watermark passes when coverage drops within 2.5% grace" {
+	create_test_project "$TEST_DIR/proj" 50
+	cd "$TEST_DIR/proj"
+
+	# Set watermark to 52% — coverage is ~50%, grace = 49.5%, effective = min(80,49.5) = 49.5
+	# 50 > 49.5 → should pass
+	xattr -w user.go-safe-build.watermark "52.0" .
+
+	run "$BINARY" --min-coverage 80
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Watermark:"* ]]
+	[[ "$output" == *"Build successful"* ]]
+}
+
+@test "watermark fails when coverage drops more than 2.5%" {
+	create_test_project "$TEST_DIR/proj" 50
+	cd "$TEST_DIR/proj"
+
+	# Set watermark to 60% — coverage is ~50%, grace = 57.5%, effective = min(80,57.5) = 57.5
+	# 50 < 57.5 → should fail
+	xattr -w user.go-safe-build.watermark "60.0" .
+
+	run "$BINARY" --min-coverage 80
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"below minimum"* ]]
+}
+
+@test "watermark ratchets up when coverage improves" {
+	create_test_project "$TEST_DIR/proj" 100
+	cd "$TEST_DIR/proj"
+
+	# Set watermark to 50% — coverage is 100%, should ratchet up
+	xattr -w user.go-safe-build.watermark "50.0" .
+
+	run "$BINARY" --min-coverage 80
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Watermark updated:"* ]]
+
+	# Verify watermark was updated to 100%
+	wm="$(xattr -p user.go-safe-build.watermark .)"
+	[[ "$wm" == "100.0" ]]
+}
+
+@test "--remove-watermark removes it" {
+	create_test_project "$TEST_DIR/proj" 100
+	cd "$TEST_DIR/proj"
+
+	# Set a watermark first
+	xattr -w user.go-safe-build.watermark "85.0" .
+
+	# Pipe "y" for confirmation
+	run bash -c "echo y | '$BINARY' --remove-watermark"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Watermark removed"* ]]
+
+	# Verify xattr is gone
+	run xattr -p user.go-safe-build.watermark .
+	[ "$status" -ne 0 ]
+}
+
+@test "--remove-watermark is hidden from help" {
+	run "$BINARY" --help
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"--add-watermark"* ]]
+	[[ "$output" != *"--remove-watermark"* ]]
+}
+
 @test "bootstrap: can build itself 3x and produce identical binaries" {
 	# Copy source to temp dir
 	cp -r "$BATS_TEST_DIRNAME/.." "$TEST_DIR/go-safe-build"
 	cd "$TEST_DIR/go-safe-build"
 
 	# Clean any existing binaries
-	rm -f go-safe-build go-safe-build1 go-safe-build2
+	rm -rf build stage1 stage2
 
 	# Stage 1: Original compile with go build
-	go build -o go-safe-build ./src
+	go build -o stage1 ./src
 
-	# Stage 2: Use go-safe-build to build itself
-	./go-safe-build -o go-safe-build1
+	# Stage 2: Use stage1 to build itself (auto-derives name "go-safe-build" from module)
+	./stage1 -o build2
+	cp build2/go-safe-build stage2
 
-	# Stage 3: Use go-safe-build1 to build itself
-	./go-safe-build1 -o go-safe-build2
+	# Stage 3: Use stage2 to build itself
+	./stage2 -o build3
 
-	# Verify both stage 2 and 3 binaries exist
-	[ -f "go-safe-build1" ]
-	[ -f "go-safe-build2" ]
+	# Verify binaries exist
+	[ -f "stage2" ]
+	[ -f "build3/go-safe-build" ]
 
-	# Compare binaries - they should be identical
-	cmp go-safe-build1 go-safe-build2
+	# Compare binaries from stage 2 and 3 — they should be identical
+	cmp stage2 build3/go-safe-build
 }
