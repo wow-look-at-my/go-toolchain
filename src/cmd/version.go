@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -19,6 +21,12 @@ var (
 )
 
 const ldflagsPrefix = "github.com/wow-look-at-my/go-toolchain/src/cmd"
+
+var githubRepo = "wow-look-at-my/go-toolchain"
+var githubAPIBase = "https://api.github.com"
+
+func setGithubRepo(repo string)    { githubRepo = repo }
+func setGithubAPIBase(base string) { githubAPIBase = base }
 
 func init() {
 	versionCmd := &cobra.Command{
@@ -50,8 +58,18 @@ func printVersionInfo() {
 	}
 }
 
+// httpClient is the HTTP client used for GitHub API calls. Replaceable for testing.
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+// commitInfo holds metadata about a git commit.
+type commitInfo struct {
+	sha       string
+	timestamp int64
+}
+
 func printStaleness() {
 	if buildTimestamp == "" || buildCommit == "unknown" {
+		fmt.Println("\nNo build info embedded (dev build).")
 		return
 	}
 
@@ -60,34 +78,82 @@ func printStaleness() {
 		return
 	}
 
-	// Get latest commit timestamp from git
-	out, err := exec.Command("git", "log", "-1", "--format=%ct").Output()
+	latest, err := fetchLatestCommitFromGitHub()
 	if err != nil {
-		return // not in a git repo
-	}
-
-	latestTs, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
-	if err != nil {
+		fmt.Printf("\nCould not check for updates: %v\n", err)
 		return
 	}
 
-	if latestTs <= builtTs {
+	if latest.timestamp <= builtTs {
 		fmt.Println("\nBuild is up to date with latest commit.")
 		return
 	}
 
-	diff := time.Duration(latestTs-builtTs) * time.Second
-	fmt.Printf("\nBuild is %s behind latest commit.", formatDuration(diff))
+	diff := time.Duration(latest.timestamp-builtTs) * time.Second
+	msg := fmt.Sprintf("\nBuild is %s behind latest commit.", formatDuration(diff))
 
-	// Count commits behind
-	out, err = exec.Command("git", "rev-list", "--count", buildCommit+"..HEAD").Output()
-	if err == nil {
-		count := strings.TrimSpace(string(out))
-		if count != "0" {
-			fmt.Printf(" (%s commits)", count)
-		}
+	if count, err := fetchCommitsBehind(buildCommit, latest.sha); err == nil && count > 0 {
+		msg += fmt.Sprintf(" (%d commits)", count)
 	}
-	fmt.Println()
+
+	fmt.Println(msg)
+}
+
+func fetchLatestCommitFromGitHub() (*commitInfo, error) {
+	url := fmt.Sprintf("%s/repos/%s/commits?per_page=1", githubAPIBase, githubRepo)
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("GitHub API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned HTTP %d", resp.StatusCode)
+	}
+
+	var commits []struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Committer struct {
+				Date time.Time `json:"date"`
+			} `json:"committer"`
+		} `json:"commit"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
+		return nil, fmt.Errorf("failed to parse GitHub response: %w", err)
+	}
+
+	if len(commits) == 0 {
+		return nil, fmt.Errorf("no commits found in repository")
+	}
+
+	return &commitInfo{
+		sha:       commits[0].SHA,
+		timestamp: commits[0].Commit.Committer.Date.Unix(),
+	}, nil
+}
+
+func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
+	url := fmt.Sprintf("%s/repos/%s/compare/%s...%s", githubAPIBase, githubRepo, fromCommit, toCommit)
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	var result struct {
+		AheadBy int `json:"ahead_by"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+
+	return result.AheadBy, nil
 }
 
 // gitInfo holds version metadata collected from git.
