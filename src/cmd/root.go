@@ -72,6 +72,9 @@ func runWithRunner(runner CommandRunner) error {
 		fmt.Println("==> go mod tidy")
 	}
 	if err := runner.Run("go", "mod", "tidy"); err != nil {
+		if _, statErr := os.Stat("go.mod"); statErr != nil {
+			return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
+		}
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
