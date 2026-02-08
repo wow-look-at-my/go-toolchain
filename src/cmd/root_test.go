@@ -831,3 +831,29 @@ func (m *testFailWithErrorMockRunner) RunWithPipes(name string, args ...string) 
 `
 	return bytes.NewReader([]byte(output)), func() error { return fmt.Errorf("exit status 1") }, nil
 }
+
+func TestNeedsGenerateNoDirectives(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(dir+"/main.go", []byte("package main\nfunc main() {}\n"), 0644)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	if needsGenerate() {
+		t.Error("expected false when no go:generate directives")
+	}
+}
+
+func TestNeedsGenerateWithDirective(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(dir+"/main.go", []byte("package main\n//go:generate echo hello\nfunc main() {}\n"), 0644)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	if !needsGenerate() {
+		t.Error("expected true when go:generate directive present")
+	}
+}

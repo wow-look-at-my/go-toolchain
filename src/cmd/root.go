@@ -76,6 +76,15 @@ func runWithRunner(runner CommandRunner) error {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
+	if needsGenerate() {
+		if !jsonOutput {
+			fmt.Println("==> go generate ./...")
+		}
+		if err := runner.Run("go", "generate", "./..."); err != nil {
+			return fmt.Errorf("go generate failed: %w", err)
+		}
+	}
+
 	if !jsonOutput {
 		fmt.Println("==> go vet ./...")
 	}
@@ -230,6 +239,33 @@ func runWithRunner(runner CommandRunner) error {
 		fmt.Println("==> Build successful")
 	}
 	return nil
+}
+
+var errFound = fmt.Errorf("found")
+
+// needsGenerate returns true if any .go file contains a //go:generate directive.
+func needsGenerate() bool {
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			if strings.HasPrefix(scanner.Text(), "//go:generate ") {
+				return errFound
+			}
+		}
+		return nil
+	})
+	return err == errFound
 }
 
 func handleRemoveWatermark() error {
