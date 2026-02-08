@@ -104,28 +104,30 @@ func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult
 	var packages []PackageCoverage
 	for _, pkgName := range execution.Packages() {
 		pkg := execution.Package(pkgName)
+		cov, hasStatements := pkgCoverage[pkgName]
 		packages = append(packages, PackageCoverage{
-			Package:  pkgName,
-			Coverage: pkgCoverage[pkgName],
-			Passed:   pkg.Result() == testjson.ActionPass,
+			Package:      pkgName,
+			Coverage:     cov,
+			Passed:       pkg.Result() == testjson.ActionPass,
+			NoStatements: !hasStatements,
 		})
 	}
+	// Sort by coverage ascending (lowest first) so the most
+	// under-covered packages are visible at the top.
+	// Packages with no statements sort to the end.
 	sort.Slice(packages, func(i, j int) bool {
+		if packages[i].NoStatements != packages[j].NoStatements {
+			return !packages[i].NoStatements
+		}
+		if packages[i].Coverage != packages[j].Coverage {
+			return packages[i].Coverage < packages[j].Coverage
+		}
 		return packages[i].Package < packages[j].Package
 	})
 
-	// Parse coverage profile for detailed stats
-	totalCoverage, files, err := ParseProfile(coverFile)
-	if err != nil {
-		// Fallback to averaging package coverage
-		var sum float32
-		for _, p := range packages {
-			sum += p.Coverage
-		}
-		if len(packages) > 0 {
-			totalCoverage = sum / float32(len(packages))
-		}
-	}
+	// Parse coverage profile for total coverage computed as
+	// (total covered statements) / (total statements) across all files.
+	totalCoverage, files, _ := ParseProfile(coverFile)
 
 	// Parse function-level coverage
 	funcs, _ := ParseFuncCoverage(coverFile)

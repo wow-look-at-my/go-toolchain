@@ -11,6 +11,30 @@ import (
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
+// writeMockCoverProfile writes a minimal Go coverage profile matching the
+// given percentage. It parses the -coverprofile= flag from the args to find
+// the output path. This simulates what `go test -coverprofile` does in real
+// usage so that ParseProfile computes the correct statement-weighted total.
+func writeMockCoverProfile(args []string, pct float32) {
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "-coverprofile=") {
+			continue
+		}
+		coverFile := strings.TrimPrefix(arg, "-coverprofile=")
+		covered := int(pct + 0.5)
+		uncovered := 100 - covered
+		content := "mode: set\n"
+		if covered > 0 {
+			content += fmt.Sprintf("example.com/pkg/main.go:1.1,2.2 %d 1\n", covered)
+		}
+		if uncovered > 0 {
+			content += fmt.Sprintf("example.com/pkg/main.go:3.1,4.2 %d 0\n", uncovered)
+		}
+		os.WriteFile(coverFile, []byte(content), 0644)
+		return
+	}
+}
+
 func TestRunWithRunnerModTidyFails(t *testing.T) {
 	mock := NewMockRunner()
 	mock.SetResponse("go", []string{"mod", "tidy"}, nil, fmt.Errorf("mod tidy failed"))
@@ -155,6 +179,7 @@ func (m *testPassMockRunner) RunWithPipes(name string, args ...string) (io.Reade
 	if pct == 0 {
 		pct = 100
 	}
+	writeMockCoverProfile(args, pct)
 	output := fmt.Sprintf(`{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: %.1f%% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
@@ -361,6 +386,7 @@ func (m *buildFailMockRunner) RunWithOutput(name string, args ...string) ([]byte
 
 func (m *buildFailMockRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
 	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	writeMockCoverProfile(args, 100)
 	output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
@@ -815,6 +841,7 @@ func (m *testFailMockRunner) RunWithOutput(name string, args ...string) ([]byte,
 
 func (m *testFailMockRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
 	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	writeMockCoverProfile(args, 100)
 	// Return JSON with a failed test
 	output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}

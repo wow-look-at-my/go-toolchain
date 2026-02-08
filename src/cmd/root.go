@@ -199,7 +199,11 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 			if !p.Passed {
 				status = "[" + colorFail + "FAIL" + colorReset + "]"
 			}
-			fmt.Printf("  %s  %s  %s\n", colorPct(ColorPct{Pct: p.Coverage}), status, p.Package)
+			if p.NoStatements {
+				fmt.Printf("    n/a  %s  %s\n", status, p.Package)
+			} else {
+				fmt.Printf("  %s  %s  %s\n", colorPct(ColorPct{Pct: p.Coverage}), status, p.Package)
+			}
 		}
 
 		if covDetail == "file" && len(report.Files) > 0 {
