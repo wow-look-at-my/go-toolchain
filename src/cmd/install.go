@@ -74,6 +74,16 @@ func runInstallImpl() error {
 		fmt.Printf("==> Symlinked %s -> %s\n", targetPath, sourcePath)
 	}
 
+	// Create go-safe-build -> go-toolchain compat symlink
+	compatPath := filepath.Join(targetDir, "go-safe-build")
+	if _, err := os.Lstat(compatPath); err == nil {
+		os.Remove(compatPath)
+	}
+	if err := os.Symlink(targetPath, compatPath); err != nil {
+		return fmt.Errorf("failed to create compat symlink: %w", err)
+	}
+	fmt.Printf("==> Symlinked %s -> %s\n", compatPath, targetPath)
+
 	return nil
 }
 

@@ -188,14 +188,14 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 		t.Fatalf("second install failed: %v", err)
 	}
 
-	// Verify only one entry exists
+	// Verify entries: binary + go-safe-build compat symlink
 	expectedDir := filepath.Join(tmpDir, ".local", "bin")
 	entries, err := os.ReadDir(expectedDir)
 	if err != nil {
 		t.Fatalf("failed to read target dir: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("expected 1 entry, got %d", len(entries))
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries (binary + compat symlink), got %d", len(entries))
 	}
 }
 
