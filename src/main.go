@@ -127,6 +127,10 @@ func runWithRunner(runner CommandRunner) error {
 	} else {
 		fmt.Println("\n==> Package coverage:")
 		for _, p := range result.Packages {
+			// In non-verbose mode, hide passing packages when there are failures
+			if testErr != nil && !verbose && p.Passed {
+				continue
+			}
 			status := colorGreen + "PASS" + colorReset
 			if !p.Passed {
 				status = colorRed + "FAIL" + colorReset

@@ -529,6 +529,115 @@ func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 	// The key point: results are still displayed before the error is returned
 }
 
+// mixedResultsMockRunner returns two packages: one passes, one fails with error
+type mixedResultsMockRunner struct {
+	commands []MockCommand
+}
+
+func (m *mixedResultsMockRunner) Run(name string, args ...string) error {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil
+}
+
+func (m *mixedResultsMockRunner) RunWithOutput(name string, args ...string) ([]byte, error) {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil, nil
+}
+
+func (m *mixedResultsMockRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/passing"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/passing","Output":"coverage: 90% of statements\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/passing"}
+{"Time":"2024-01-01T00:00:03Z","Action":"run","Package":"example.com/failing","Test":"TestBad"}
+{"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/failing","Test":"TestBad","Output":"--- FAIL: TestBad (0.00s)\n"}
+{"Time":"2024-01-01T00:00:05Z","Action":"fail","Package":"example.com/failing","Test":"TestBad"}
+{"Time":"2024-01-01T00:00:06Z","Action":"output","Package":"example.com/failing","Output":"FAIL\n"}
+{"Time":"2024-01-01T00:00:07Z","Action":"fail","Package":"example.com/failing"}
+`
+	return bytes.NewReader([]byte(output)), func() error { return fmt.Errorf("exit status 1") }, nil
+}
+
+func TestHidePassingPackagesOnFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	coverContent := "mode: set\nexample.com/pkg/main.go:10.20,12.2 1 1\n"
+	os.WriteFile("coverage.out", []byte(coverContent), 0644)
+
+	mock := &mixedResultsMockRunner{}
+
+	jsonOutput = false
+	verbose = false
+	minCoverage = 80
+	defer func() {
+		jsonOutput = false
+		verbose = false
+		minCoverage = 80
+	}()
+
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	_ = runWithRunner(mock)
+
+	w.Close()
+	out, _ := io.ReadAll(r)
+	os.Stdout = old
+
+	output := string(out)
+	if strings.Contains(output, "example.com/passing") {
+		t.Error("passing package should be hidden when tests fail in non-verbose mode")
+	}
+	if !strings.Contains(output, "example.com/failing") {
+		t.Error("failing package should still be shown")
+	}
+}
+
+func TestShowPassingPackagesOnFailureVerbose(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	coverContent := "mode: set\nexample.com/pkg/main.go:10.20,12.2 1 1\n"
+	os.WriteFile("coverage.out", []byte(coverContent), 0644)
+
+	mock := &mixedResultsMockRunner{}
+
+	jsonOutput = false
+	verbose = true
+	minCoverage = 80
+	defer func() {
+		jsonOutput = false
+		verbose = false
+		minCoverage = 80
+	}()
+
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	_ = runWithRunner(mock)
+
+	w.Close()
+	out, _ := io.ReadAll(r)
+	os.Stdout = old
+
+	output := string(out)
+	if !strings.Contains(output, "example.com/passing") {
+		t.Error("passing package should be shown in verbose mode even when tests fail")
+	}
+	if !strings.Contains(output, "example.com/failing") {
+		t.Error("failing package should be shown")
+	}
+}
+
 // testFailMockRunner returns output with a failed test (but wait() succeeds)
 type testFailMockRunner struct {
 	commands []MockCommand
