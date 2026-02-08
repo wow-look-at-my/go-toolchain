@@ -56,9 +56,9 @@ runs:
         if [ "${{ inputs.verbose }}" = "true" ]; then
           ARGS="$ARGS --verbose"
         fi
-        # Self-test: use current branch when running in this repo
+        # Self-test: use commit SHA when running in this repo
         if [ "$GITHUB_REPOSITORY" = "wow-look-at-my/go-toolchain" ]; then
-          go run github.com/wow-look-at-my/go-toolchain/src@$GITHUB_REF_NAME matrix $ARGS
+          go run github.com/wow-look-at-my/go-toolchain/src@$GITHUB_SHA matrix $ARGS
         else
           go run github.com/wow-look-at-my/go-toolchain/src@latest matrix $ARGS
         fi
