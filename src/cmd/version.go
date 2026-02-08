@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -22,11 +23,18 @@ var (
 
 const ldflagsPrefix = "github.com/wow-look-at-my/go-toolchain/src/cmd"
 
-var githubRepo = "wow-look-at-my/go-toolchain"
+var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 var githubAPIBase = "https://api.github.com"
 
 func setGithubRepo(repo string)    { githubRepo = repo }
 func setGithubAPIBase(base string) { githubAPIBase = base }
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 func init() {
 	versionCmd := &cobra.Command{
@@ -163,22 +171,41 @@ type gitInfo struct {
 	timestamp string
 }
 
-// collectGitInfo runs git commands to gather version metadata.
+// collectGitInfo gathers version metadata from environment variables first
+// (GITHUB_SHA, GITHUB_REF_NAME, GITHUB_REF_TYPE), falling back to git
+// commands only when env vars are not set.
 func collectGitInfo() gitInfo {
 	var info gitInfo
-	if out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output(); err == nil {
-		info.version = strings.TrimSpace(string(out))
+
+	// Commit: GITHUB_SHA or git rev-parse HEAD
+	info.commit = os.Getenv("GITHUB_SHA")
+	if info.commit == "" {
+		if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
+			info.commit = strings.TrimSpace(string(out))
+		}
 	}
-	if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
-		info.commit = strings.TrimSpace(string(out))
+
+	// Version: use tag ref from CI, or git describe
+	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
+		info.version = os.Getenv("GITHUB_REF_NAME")
 	}
+	if info.version == "" {
+		if out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output(); err == nil {
+			info.version = strings.TrimSpace(string(out))
+		}
+	}
+
+	// Timestamp: no env var for this, always from git
 	if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
 		info.timestamp = strings.TrimSpace(string(out))
 	}
+
 	return info
 }
 
 // ldflags returns a string suitable for `go build -ldflags`.
+// Build date uses SOURCE_DATE_EPOCH or the git commit timestamp
+// for reproducible builds (never wall-clock time).
 func (g gitInfo) ldflags() string {
 	var flags []string
 	if g.version != "" {
@@ -190,7 +217,16 @@ func (g gitInfo) ldflags() string {
 	if g.timestamp != "" {
 		flags = append(flags, fmt.Sprintf("-X %s.buildTimestamp=%s", ldflagsPrefix, g.timestamp))
 	}
-	flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", ldflagsPrefix, time.Now().UTC().Format(time.RFC3339)))
+	// Build date: SOURCE_DATE_EPOCH > git commit timestamp
+	if epoch := os.Getenv("SOURCE_DATE_EPOCH"); epoch != "" {
+		if ts, err := strconv.ParseInt(epoch, 10, 64); err == nil {
+			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", ldflagsPrefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
+		}
+	} else if g.timestamp != "" {
+		if ts, err := strconv.ParseInt(g.timestamp, 10, 64); err == nil {
+			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", ldflagsPrefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
+		}
+	}
 	return strings.Join(flags, " ")
 }
 

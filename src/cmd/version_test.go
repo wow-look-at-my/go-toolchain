@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,56 @@ func TestCollectGitInfo(t *testing.T) {
 	}
 }
 
+func TestCollectGitInfoFromEnv(t *testing.T) {
+	// Set CI env vars
+	t.Setenv("GITHUB_SHA", "env-sha-123456")
+	t.Setenv("GITHUB_REF_TYPE", "tag")
+	t.Setenv("GITHUB_REF_NAME", "v2.0.0")
+
+	info := collectGitInfo()
+	if info.commit != "env-sha-123456" {
+		t.Errorf("expected commit from GITHUB_SHA, got %q", info.commit)
+	}
+	if info.version != "v2.0.0" {
+		t.Errorf("expected version from GITHUB_REF_NAME tag, got %q", info.version)
+	}
+}
+
+func TestCollectGitInfoBranchRef(t *testing.T) {
+	// Branch refs should NOT override version (only tags)
+	t.Setenv("GITHUB_REF_TYPE", "branch")
+	t.Setenv("GITHUB_REF_NAME", "main")
+
+	info := collectGitInfo()
+	// version should come from git describe, not the branch name
+	if info.version == "main" {
+		t.Error("branch name should not be used as version")
+	}
+}
+
+func TestEnvOr(t *testing.T) {
+	t.Setenv("TEST_ENVOR_SET", "from-env")
+	if got := envOr("TEST_ENVOR_SET", "fallback"); got != "from-env" {
+		t.Errorf("expected 'from-env', got %q", got)
+	}
+	os.Unsetenv("TEST_ENVOR_UNSET")
+	if got := envOr("TEST_ENVOR_UNSET", "fallback"); got != "fallback" {
+		t.Errorf("expected 'fallback', got %q", got)
+	}
+}
+
+func TestGithubRepoFromEnv(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "other-org/other-repo")
+	// Re-initialize to pick up env var
+	old := githubRepo
+	githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
+	defer func() { githubRepo = old }()
+
+	if githubRepo != "other-org/other-repo" {
+		t.Errorf("expected 'other-org/other-repo', got %q", githubRepo)
+	}
+}
+
 func TestGitInfoLdflags(t *testing.T) {
 	info := collectGitInfo()
 	ldflags := info.ldflags()
@@ -56,6 +107,33 @@ func TestGitInfoLdflags(t *testing.T) {
 		if !strings.Contains(ldflags, want) {
 			t.Errorf("expected ldflags to contain %s", want)
 		}
+	}
+}
+
+func TestGitInfoLdflagsReproducible(t *testing.T) {
+	info := collectGitInfo()
+	ldflags1 := info.ldflags()
+	ldflags2 := info.ldflags()
+	if ldflags1 != ldflags2 {
+		t.Error("ldflags should be deterministic for the same gitInfo")
+	}
+}
+
+func TestGitInfoLdflagsSourceDateEpoch(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
+	info := gitInfo{version: "v1.0.0", commit: "abc123", timestamp: "1600000000"}
+	ldflags := info.ldflags()
+	// Should use SOURCE_DATE_EPOCH (1700000000) not git timestamp (1600000000)
+	if !strings.Contains(ldflags, "2023-11-14") {
+		t.Errorf("expected SOURCE_DATE_EPOCH date in ldflags, got: %s", ldflags)
+	}
+}
+
+func TestGitInfoLdflagsNoTimestamp(t *testing.T) {
+	info := gitInfo{version: "v1.0.0", commit: "abc123"}
+	ldflags := info.ldflags()
+	if strings.Contains(ldflags, "buildDate") {
+		t.Errorf("expected no buildDate without timestamp, got: %s", ldflags)
 	}
 }
 
@@ -232,13 +310,11 @@ func TestPrintStalenessUpToDate(t *testing.T) {
 		buildCommit = oldCommit
 	}()
 
-	now := time.Now()
-	buildTimestamp = strings.TrimSpace(time.Now().Format("2006010215040500")[:10])
 	// Use a unix timestamp that's in the future relative to the mock
 	buildTimestamp = "9999999999"
 	buildCommit = "abc123"
 
-	server := newGitHubMock(t, now, "abc123", 0)
+	server := newGitHubMock(t, time.Now(), "abc123", 0)
 	defer server.Close()
 	defer withMockGitHub(t, server)()
 
