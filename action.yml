@@ -28,7 +28,7 @@ inputs:
     required: false
     default: '.'
   source:
-    description: 'How to obtain go-safe-build: "release" downloads a pre-built binary, "source" clones and builds from source via go run'
+    description: 'How to obtain go-safe-build: "release" downloads a pre-built binary, "source" builds from the action source'
     required: false
     default: 'release'
 
@@ -51,7 +51,7 @@ runs:
           aarch64) ARCH=arm64 ;;
         esac
         TAG="${{ github.action_ref }}"
-        URL="https://github.com/PazerOP/go-safe-build/releases/download/${TAG}/go-safe-build-${OS}-${ARCH}"
+        URL="https://github.com/wow-look-at-my/go-toolchain/releases/download/${TAG}/go-safe-build-${OS}-${ARCH}"
         curl -fsSL -o /usr/local/bin/go-safe-build "$URL"
         chmod +x /usr/local/bin/go-safe-build
 
@@ -66,11 +66,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        TAG="${{ github.action_ref }}"
-        CLONE_DIR="$(mktemp -d)"
-        git clone --depth 1 --branch "$TAG" https://github.com/PazerOP/go-safe-build.git "$CLONE_DIR"
-        go build -o /usr/local/bin/go-safe-build "$CLONE_DIR/src"
-        rm -rf "$CLONE_DIR"
+        cd "$GITHUB_ACTION_PATH"
+        go build -o /usr/local/bin/go-safe-build ./src
 
     - name: Run go-safe-build
       shell: bash

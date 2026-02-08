@@ -21,9 +21,10 @@ var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
 
 // coverageHandler extracts coverage percentages from test output events
 type coverageHandler struct {
-	coverage     map[string]float32
-	verbose      bool
-	failureLines []string
+	coverage   map[string]float32
+	verbose    bool
+	testOutput map[string][]string // buffer output per test until we know pass/fail
+	failedTest map[string]bool     // tests that failed
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -31,22 +32,32 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		if h.verbose {
 			fmt.Print(event.Output)
 		}
-		// Capture failure output for later display
+		// Buffer output per-test for later (if test fails)
 		if !h.verbose && event.Test != "" {
-			h.failureLines = append(h.failureLines, event.Output)
+			key := event.Package + "/" + event.Test
+			h.testOutput[key] = append(h.testOutput[key], event.Output)
 		}
 		if matches := coverageRe.FindStringSubmatch(event.Output); len(matches) == 2 {
 			cov, _ := strconv.ParseFloat(matches[1], 32)
 			h.coverage[event.Package] = float32(cov)
 		}
 	}
+	// Track failed tests
+	if event.Action == testjson.ActionFail && event.Test != "" {
+		key := event.Package + "/" + event.Test
+		h.failedTest[key] = true
+	}
 	return nil
 }
 
 func (h *coverageHandler) FailureOutput() string {
 	var result string
-	for _, line := range h.failureLines {
-		result += line
+	for key, lines := range h.testOutput {
+		if h.failedTest[key] {
+			for _, line := range lines {
+				result += line
+			}
+		}
 	}
 	return result
 }
@@ -71,7 +82,12 @@ func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult
 
 	// Parse test output using testjson
 	pkgCoverage := make(map[string]float32)
-	handler := &coverageHandler{coverage: pkgCoverage, verbose: verbose}
+	handler := &coverageHandler{
+		coverage:   pkgCoverage,
+		verbose:    verbose,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{
 		Stdout:  stdout,
