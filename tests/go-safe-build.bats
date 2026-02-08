@@ -372,6 +372,33 @@ EOF
 	[[ "$output" != *"--remove-watermark"* ]]
 }
 
+@test "benchmark subcommand runs benchmarks" {
+	create_test_project "$TEST_DIR/proj" 100
+	cd "$TEST_DIR/proj"
+
+	# Add a benchmark to the test file
+	cat >> main_test.go <<EOF
+
+func BenchmarkAdd(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		Add(1, 2)
+	}
+}
+EOF
+
+	run "$BINARY" benchmark
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Running benchmarks"* ]]
+	[[ "$output" == *"Benchmarks complete"* ]]
+}
+
+@test "benchmark subcommand shows in help" {
+	run "$BINARY" --help
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"benchmark"* ]]
+	[[ "$output" == *"Run Go benchmarks"* ]]
+}
+
 @test "bootstrap: can build itself 3x and produce identical binaries" {
 	# Copy source to temp dir
 	cp -r "$BATS_TEST_DIRNAME/.." "$TEST_DIR/go-toolchain"
