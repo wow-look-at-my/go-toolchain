@@ -2,23 +2,17 @@
 
 ## Build & Test
 
+**Important:** `go build`, `go test`, etc. are often blocked in this environment. Always use `go run ./src` which handles the full workflow (mod tidy, vet, test with coverage, build).
+
 ```bash
 # Build and test (runs mod tidy, vet, tests with coverage, then builds)
 go run ./src
 
-# Run unit tests directly
-go test ./src/...
-
-# Run a single package's tests
-go test ./src/cmd/
-go test ./src/test/
-go test ./src/build/
+# Cross-compile
+go run ./src matrix
 
 # Run integration tests (requires bats, jq, attr)
 bats tests/
-
-# Cross-compile
-go run ./src matrix
 ```
 
 ## Project Structure
