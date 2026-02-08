@@ -39,3 +39,9 @@ jobs:
         run: |
           go-toolchain matrix
           ls -la build/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-toolchain-binaries
+          path: build/go-toolchain_*
