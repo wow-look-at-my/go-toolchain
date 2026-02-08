@@ -65,3 +65,9 @@ jobs:
           source: 'source'
           min-coverage: '80'
           working-directory: 'test-project'
+
+      - name: Test matrix subcommand
+        run: |
+          cd test-project
+          go-toolchain matrix
+          ls -la build/
