@@ -50,8 +50,17 @@ runs:
           x86_64)  ARCH=amd64 ;;
           aarch64) ARCH=arm64 ;;
         esac
+        EXT=""
+        if [ "$OS" = "windows_nt" ]; then
+          OS="windows"
+          EXT=".exe"
+        fi
         TAG="${{ github.action_ref }}"
-        URL="https://github.com/wow-look-at-my/go-toolchain/releases/download/${TAG}/go-toolchain-${OS}-${ARCH}"
+        if [ -z "$TAG" ]; then
+          URL="https://github.com/wow-look-at-my/go-toolchain/releases/latest/download/go-toolchain_${OS}_${ARCH}${EXT}"
+        else
+          URL="https://github.com/wow-look-at-my/go-toolchain/releases/download/${TAG}/go-toolchain_${OS}_${ARCH}${EXT}"
+        fi
         curl -fsSL -o /usr/local/bin/go-toolchain "$URL"
         chmod +x /usr/local/bin/go-toolchain
 
