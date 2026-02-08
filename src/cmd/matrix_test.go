@@ -6,37 +6,15 @@ import (
 	"testing"
 )
 
-func TestParsePlatforms(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected []string
-	}{
-		{"linux/amd64", []string{"linux/amd64"}},
-		{"linux/amd64,darwin/arm64", []string{"linux/amd64", "darwin/arm64"}},
-		{"linux/amd64, darwin/arm64", []string{"linux/amd64", "darwin/arm64"}},
-		{"", []string{}},
-		{"invalid", []string{}},
-		{"linux/amd64,,darwin/arm64", []string{"linux/amd64", "darwin/arm64"}},
-	}
-
-	for _, tt := range tests {
-		result := parsePlatforms(tt.input)
-		if len(result) != len(tt.expected) {
-			t.Errorf("parsePlatforms(%q): got %v, want %v", tt.input, result, tt.expected)
-			continue
-		}
-		for i, v := range result {
-			if v != tt.expected[i] {
-				t.Errorf("parsePlatforms(%q)[%d]: got %q, want %q", tt.input, i, v, tt.expected[i])
-			}
-		}
-	}
-}
-
 func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
-	oldPlatforms := releasePlatforms
-	releasePlatforms = ""
-	defer func() { releasePlatforms = oldPlatforms }()
+	oldOS := matrixOS
+	oldArch := matrixArch
+	matrixOS = []string{}
+	matrixArch = []string{}
+	defer func() {
+		matrixOS = oldOS
+		matrixArch = oldArch
+	}()
 
 	mock := NewMockRunner()
 	err := runReleaseWithRunner(mock)
@@ -51,14 +29,17 @@ func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	oldPlatforms := releasePlatforms
+	oldOS := matrixOS
+	oldArch := matrixArch
 	oldOutput := outputDir
 	oldSrcPath := srcPath
-	releasePlatforms = "linux/amd64"
+	matrixOS = []string{"linux"}
+	matrixArch = []string{"amd64"}
 	outputDir = filepath.Join(tmpDir, "dist")
 	srcPath = "."
 	defer func() {
-		releasePlatforms = oldPlatforms
+		matrixOS = oldOS
+		matrixArch = oldArch
 		outputDir = oldOutput
 		srcPath = oldSrcPath
 	}()
@@ -79,16 +60,19 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 	// Create a minimal go file
 	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
 
-	oldPlatforms := releasePlatforms
+	oldOS := matrixOS
+	oldArch := matrixArch
 	oldOutput := outputDir
 	oldSrcPath := srcPath
 	oldParallel := releaseParallel
-	releasePlatforms = "linux/amd64,linux/arm64"
+	matrixOS = []string{"linux"}
+	matrixArch = []string{"amd64", "arm64"}
 	outputDir = filepath.Join(tmpDir, "dist")
 	srcPath = "."
 	releaseParallel = 2
 	defer func() {
-		releasePlatforms = oldPlatforms
+		matrixOS = oldOS
+		matrixArch = oldArch
 		outputDir = oldOutput
 		srcPath = oldSrcPath
 		releaseParallel = oldParallel
@@ -110,16 +94,19 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 	// Create a minimal go file
 	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
 
-	oldPlatforms := releasePlatforms
+	oldOS := matrixOS
+	oldArch := matrixArch
 	oldOutput := outputDir
 	oldSrcPath := srcPath
 	oldParallel := releaseParallel
-	releasePlatforms = "linux/amd64"
+	matrixOS = []string{"linux"}
+	matrixArch = []string{"amd64"}
 	outputDir = filepath.Join(tmpDir, "dist")
 	srcPath = "."
 	releaseParallel = 1
 	defer func() {
-		releasePlatforms = oldPlatforms
+		matrixOS = oldOS
+		matrixArch = oldArch
 		outputDir = oldOutput
 		srcPath = oldSrcPath
 		releaseParallel = oldParallel
@@ -151,16 +138,19 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 	// Create a minimal go file
 	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
 
-	oldPlatforms := releasePlatforms
+	oldOS := matrixOS
+	oldArch := matrixArch
 	oldOutput := outputDir
 	oldSrcPath := srcPath
 	oldParallel := releaseParallel
-	releasePlatforms = "windows/amd64"
+	matrixOS = []string{"windows"}
+	matrixArch = []string{"amd64"}
 	outputDir = filepath.Join(tmpDir, "dist")
 	srcPath = "."
 	releaseParallel = 1
 	defer func() {
-		releasePlatforms = oldPlatforms
+		matrixOS = oldOS
+		matrixArch = oldArch
 		outputDir = oldOutput
 		srcPath = oldSrcPath
 		releaseParallel = oldParallel
@@ -195,16 +185,19 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 	// Create a minimal go file
 	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
 
-	oldPlatforms := releasePlatforms
+	oldOS := matrixOS
+	oldArch := matrixArch
 	oldOutput := outputDir
 	oldSrcPath := srcPath
 	oldParallel := releaseParallel
-	releasePlatforms = "linux/amd64"
+	matrixOS = []string{"linux"}
+	matrixArch = []string{"amd64"}
 	outputDir = filepath.Join(tmpDir, "dist")
 	srcPath = "."
 	releaseParallel = 10 // More workers than jobs
 	defer func() {
-		releasePlatforms = oldPlatforms
+		matrixOS = oldOS
+		matrixArch = oldArch
 		outputDir = oldOutput
 		srcPath = oldSrcPath
 		releaseParallel = oldParallel
@@ -214,6 +207,51 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Create a minimal go file
+	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+
+	oldOS := matrixOS
+	oldArch := matrixArch
+	oldOutput := outputDir
+	oldSrcPath := srcPath
+	oldParallel := releaseParallel
+	matrixOS = []string{"linux", "darwin"}
+	matrixArch = []string{"amd64", "arm64"}
+	outputDir = filepath.Join(tmpDir, "dist")
+	srcPath = "."
+	releaseParallel = 4
+	defer func() {
+		matrixOS = oldOS
+		matrixArch = oldArch
+		outputDir = oldOutput
+		srcPath = oldSrcPath
+		releaseParallel = oldParallel
+	}()
+
+	mock := NewMockRunner()
+	err := runReleaseWithRunner(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Should have 4 builds: 2 OS x 2 arch
+	buildCount := 0
+	for _, cmd := range mock.Commands {
+		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "build" {
+			buildCount++
+		}
+	}
+	if buildCount != 4 {
+		t.Errorf("expected 4 builds (2 OS x 2 arch), got %d", buildCount)
 	}
 }
 

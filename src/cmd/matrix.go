@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -13,18 +12,15 @@ import (
 )
 
 var (
-	releasePlatforms string
-	releaseParallel  int
+	matrixOS      []string
+	matrixArch    []string
+	releaseParallel int
 )
 
-// DefaultPlatforms is the default set of GOOS/GOARCH combinations to build.
-var DefaultPlatforms = []string{
-	"linux/amd64",
-	"linux/arm64",
-	"darwin/amd64",
-	"darwin/arm64",
-	"windows/amd64",
-}
+var (
+	DefaultOS   = []string{"linux", "darwin", "windows"}
+	DefaultArch = []string{"amd64", "arm64"}
+)
 
 func init() {
 	matrixCmd := &cobra.Command{
@@ -34,7 +30,8 @@ func init() {
 		SilenceUsage: true,
 		RunE:         runRelease,
 	}
-	matrixCmd.Flags().StringVar(&releasePlatforms, "platforms", strings.Join(DefaultPlatforms, ","), "Comma-separated list of GOOS/GOARCH pairs")
+	matrixCmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
+	matrixCmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
 	matrixCmd.Flags().IntVarP(&releaseParallel, "parallel", "p", runtime.NumCPU(), "Number of parallel builds")
 	rootCmd.AddCommand(matrixCmd)
 }
@@ -57,9 +54,8 @@ func runRelease(cmd *cobra.Command, args []string) error {
 }
 
 func runReleaseWithRunner(runner CommandRunner) error {
-	platforms := parsePlatforms(releasePlatforms)
-	if len(platforms) == 0 {
-		return fmt.Errorf("no valid platforms specified")
+	if len(matrixOS) == 0 || len(matrixArch) == 0 {
+		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
 	}
 
 	// Resolve what to build
@@ -76,28 +72,27 @@ func runReleaseWithRunner(runner CommandRunner) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Build job queue
+	// Build job queue - cartesian product of OS x Arch x Targets
 	var jobs []buildJob
-	for _, platform := range platforms {
-		parts := strings.Split(platform, "/")
-		goos, goarch := parts[0], parts[1]
-
-		for _, target := range targets {
-			ext := ""
-			if goos == "windows" {
-				ext = ".exe"
+	for _, goos := range matrixOS {
+		for _, goarch := range matrixArch {
+			for _, target := range targets {
+				ext := ""
+				if goos == "windows" {
+					ext = ".exe"
+				}
+				outputName := fmt.Sprintf("%s_%s_%s%s", target.OutputName, goos, goarch, ext)
+				jobs = append(jobs, buildJob{
+					goos:       goos,
+					goarch:     goarch,
+					srcPath:    target.ImportPath,
+					outputPath: filepath.Join(outputDir, outputName),
+				})
 			}
-			outputName := fmt.Sprintf("%s_%s_%s%s", target.OutputName, goos, goarch, ext)
-			jobs = append(jobs, buildJob{
-				goos:       goos,
-				goarch:     goarch,
-				srcPath:    target.ImportPath,
-				outputPath: filepath.Join(outputDir, outputName),
-			})
 		}
 	}
 
-	fmt.Printf("==> Building %d binaries across %d platforms\n", len(jobs), len(platforms))
+	fmt.Printf("==> Building %d binaries (%d OS x %d arch)\n", len(jobs), len(matrixOS), len(matrixArch))
 
 	// Run builds in parallel
 	results := make(chan buildResult, len(jobs))
@@ -156,19 +151,3 @@ func runBuild(runner CommandRunner, job buildJob) error {
 	return runner.RunWithEnv(env, "go", "build", "-o", job.outputPath, job.srcPath)
 }
 
-func parsePlatforms(input string) []string {
-	var result []string
-	for _, p := range strings.Split(input, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		parts := strings.Split(p, "/")
-		if len(parts) != 2 {
-			fmt.Printf("Warning: invalid platform %q (expected GOOS/GOARCH)\n", p)
-			continue
-		}
-		result = append(result, p)
-	}
-	return result
-}
