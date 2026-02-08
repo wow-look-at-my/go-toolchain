@@ -18,9 +18,10 @@ type Report struct {
 }
 
 type PackageCoverage struct {
-	Package  string  `json:"package"`
-	Coverage float32 `json:"coverage"`
-	Passed   bool    `json:"passed"`
+	Package      string  `json:"package"`
+	Coverage     float32 `json:"coverage"`
+	Passed       bool    `json:"passed"`
+	NoStatements bool    `json:"no_statements,omitempty"`
 }
 
 type FileCoverage struct {
