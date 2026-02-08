@@ -4,28 +4,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	benchPattern string
-	benchTime    string
-	benchCount   int
-	benchCPU     string
-	benchMem     bool
+	benchTime  string
+	benchCount int
+	benchCPU   string
+	benchMem   bool
 )
 
 func init() {
 	benchCmd := &cobra.Command{
-		Use:          "benchmark [packages]",
+		Use:          "benchmark",
 		Short:        "Run Go benchmarks",
-		Long:         "Runs go test -bench with configurable patterns, iterations, and output options.",
+		Long:         "Runs all Go benchmarks (go test -bench .) in the current directory and all subdirectories.",
 		SilenceUsage: true,
 		RunE:         runBenchmark,
 	}
-	benchCmd.Flags().StringVarP(&benchPattern, "bench", "b", ".", "Benchmark pattern to match (passed to -bench)")
 	benchCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
 	benchCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	benchCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
@@ -35,22 +32,17 @@ func init() {
 
 func runBenchmark(cmd *cobra.Command, args []string) error {
 	runner := &RealCommandRunner{Quiet: jsonOutput}
-	return runBenchmarkWithRunner(runner, args)
+	return runBenchmarkWithRunner(runner)
 }
 
-func runBenchmarkWithRunner(runner CommandRunner, args []string) error {
-	packages := "./..."
-	if len(args) > 0 {
-		packages = strings.Join(args, " ")
-	}
-
-	goTestArgs := buildBenchArgs(packages)
+func runBenchmarkWithRunner(runner CommandRunner) error {
+	goTestArgs := buildBenchArgs()
 
 	if jsonOutput {
 		return runBenchmarkJSON(runner, goTestArgs)
 	}
 
-	fmt.Printf("==> Running benchmarks (pattern: %s)\n", benchPattern)
+	fmt.Println("==> Running benchmarks")
 	if err := runner.Run("go", goTestArgs...); err != nil {
 		return fmt.Errorf("benchmarks failed: %w", err)
 	}
@@ -58,8 +50,8 @@ func runBenchmarkWithRunner(runner CommandRunner, args []string) error {
 	return nil
 }
 
-func buildBenchArgs(packages string) []string {
-	goTestArgs := []string{"test", "-run", "^$", "-bench", benchPattern}
+func buildBenchArgs() []string {
+	goTestArgs := []string{"test", "-run", "^$", "-bench", "."}
 
 	if benchMem {
 		goTestArgs = append(goTestArgs, "-benchmem")
@@ -76,7 +68,7 @@ func buildBenchArgs(packages string) []string {
 	if verbose {
 		goTestArgs = append(goTestArgs, "-v")
 	}
-	goTestArgs = append(goTestArgs, packages)
+	goTestArgs = append(goTestArgs, "./...")
 	return goTestArgs
 }
 

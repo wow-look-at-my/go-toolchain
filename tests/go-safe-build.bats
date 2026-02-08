@@ -392,24 +392,6 @@ EOF
 	[[ "$output" == *"Benchmarks complete"* ]]
 }
 
-@test "benchmark subcommand with --bench pattern" {
-	create_test_project "$TEST_DIR/proj" 100
-	cd "$TEST_DIR/proj"
-
-	cat >> main_test.go <<EOF
-
-func BenchmarkAdd(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		Add(1, 2)
-	}
-}
-EOF
-
-	run "$BINARY" benchmark --bench BenchmarkAdd
-	[ "$status" -eq 0 ]
-	[[ "$output" == *"BenchmarkAdd"* ]]
-}
-
 @test "benchmark subcommand shows in help" {
 	run "$BINARY" --help
 	[ "$status" -eq 0 ]
