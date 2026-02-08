@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	gotest "go-safe-build/src/test"
+	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
 func TestRunWithRunnerModTidyFails(t *testing.T) {

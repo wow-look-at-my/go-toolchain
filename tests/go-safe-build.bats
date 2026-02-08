@@ -6,7 +6,7 @@ setup() {
 	export TEST_DIR
 
 	# Path to the built binary
-	BINARY="$BATS_TEST_DIRNAME/../build/go-safe-build"
+	BINARY="$BATS_TEST_DIRNAME/../build/go-toolchain"
 	export BINARY
 }
 
@@ -323,7 +323,7 @@ EOF
 	[[ "$output" == *"Watermark set to"* ]]
 
 	# Verify xattr was written
-	wm="$(get_xattr user.go-safe-build.watermark .)"
+	wm="$(get_xattr user.go-toolchain.watermark .)"
 	[ -n "$wm" ]
 }
 
@@ -333,7 +333,7 @@ EOF
 
 	# Set watermark to 60% — coverage is ~50%, grace = 57.5%, effective = min(80,57.5) = 57.5
 	# 50 < 57.5 → should fail
-	set_xattr user.go-safe-build.watermark "60.0" .
+	set_xattr user.go-toolchain.watermark "60.0" .
 
 	run "$BINARY" --min-coverage 80
 	[ "$status" -ne 0 ]
@@ -347,7 +347,7 @@ EOF
 
 	# Set watermark to 52% — coverage is ~50%, grace = 49.5%, effective = min(80,49.5) = 49.5
 	# 50 > 49.5 → should pass
-	set_xattr user.go-safe-build.watermark "52.0" .
+	set_xattr user.go-toolchain.watermark "52.0" .
 
 	run "$BINARY" --min-coverage 80
 	[ "$status" -eq 0 ]
@@ -361,7 +361,7 @@ EOF
 
 	# Set watermark to 60% — coverage is ~50%, grace = 57.5%, effective = min(80,57.5) = 57.5
 	# 50 < 57.5 → should fail
-	set_xattr user.go-safe-build.watermark "60.0" .
+	set_xattr user.go-toolchain.watermark "60.0" .
 
 	run "$BINARY" --min-coverage 80
 	[ "$status" -ne 0 ]
@@ -373,14 +373,14 @@ EOF
 	cd "$TEST_DIR/proj"
 
 	# Set watermark to 50% — coverage is 100%, should ratchet up
-	set_xattr user.go-safe-build.watermark "50.0" .
+	set_xattr user.go-toolchain.watermark "50.0" .
 
 	run "$BINARY" --min-coverage 80
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Watermark updated:"* ]]
 
 	# Verify watermark was updated to 100%
-	wm="$(get_xattr user.go-safe-build.watermark .)"
+	wm="$(get_xattr user.go-toolchain.watermark .)"
 	[[ "$wm" == "100.0" ]]
 }
 
@@ -389,7 +389,7 @@ EOF
 	cd "$TEST_DIR/proj"
 
 	# Set a watermark first
-	set_xattr user.go-safe-build.watermark "85.0" .
+	set_xattr user.go-toolchain.watermark "85.0" .
 
 	# Pipe "y" for confirmation
 	run bash -c "echo y | '$BINARY' --remove-watermark"
@@ -397,7 +397,7 @@ EOF
 	[[ "$output" == *"Watermark removed"* ]]
 
 	# Verify xattr is gone
-	run get_xattr user.go-safe-build.watermark .
+	run get_xattr user.go-toolchain.watermark .
 	[ "$status" -ne 0 ]
 }
 
@@ -410,8 +410,8 @@ EOF
 
 @test "bootstrap: can build itself 3x and produce identical binaries" {
 	# Copy source to temp dir
-	cp -r "$BATS_TEST_DIRNAME/.." "$TEST_DIR/go-safe-build"
-	cd "$TEST_DIR/go-safe-build"
+	cp -r "$BATS_TEST_DIRNAME/.." "$TEST_DIR/go-toolchain"
+	cd "$TEST_DIR/go-toolchain"
 
 	# Clean any existing binaries
 	rm -rf build stage1 stage2
@@ -421,12 +421,12 @@ EOF
 
 	# Stage 2: Use stage1 to build itself
 	./stage1
-	cp build/go-safe-build stage2
+	cp build/go-toolchain stage2
 	rm -rf build
 
 	# Stage 3: Use stage2 to build itself
 	./stage2
-	cp build/go-safe-build stage3
+	cp build/go-toolchain stage3
 
 	# Compare binaries from stage 2 and 3 — they should be identical
 	cmp stage2 stage3

@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"go-safe-build/src/build"
-	gotest "go-safe-build/src/test"
+	"github.com/wow-look-at-my/go-toolchain/src/build"
+	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
 var (
@@ -25,7 +25,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:          "go-safe-build",
+	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	RunE:         run,
@@ -98,7 +98,7 @@ func runWithRunner(runner CommandRunner) error {
 		fmt.Println("==> Running tests with coverage")
 	}
 
-	tmpDir, err := os.MkdirTemp("", "go-safe-build-*")
+	tmpDir, err := os.MkdirTemp("", "go-toolchain-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp dir: %w", err)
 	}

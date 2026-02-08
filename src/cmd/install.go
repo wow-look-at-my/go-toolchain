@@ -16,7 +16,7 @@ var installCopy bool
 func Register(root *cobra.Command) {
 	installCmd := &cobra.Command{
 		Use:          "install",
-		Short:        "Install go-safe-build to ~/.local/bin",
+		Short:        "Install go-toolchain to ~/.local/bin",
 		Long:         "Installs the currently running binary via symlink (default) or copy to ~/.local/bin.",
 		SilenceUsage: true,
 		RunE:         runInstall,

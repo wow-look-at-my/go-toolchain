@@ -1,4 +1,4 @@
-module go-safe-build
+module github.com/wow-look-at-my/go-toolchain
 
 go 1.25.0
 
