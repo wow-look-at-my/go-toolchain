@@ -58,8 +58,13 @@ func runReleaseWithRunner(runner CommandRunner) error {
 		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
 	}
 
+	// Run tests with coverage first (same as default command)
+	if err := RunTestsWithCoverage(runner); err != nil {
+		return err
+	}
+
 	// Resolve what to build
-	targets, err := build.ResolveBuildTargets(runner, srcPath)
+	targets, err := build.ResolveBuildTargets(runner)
 	if err != nil {
 		return err
 	}

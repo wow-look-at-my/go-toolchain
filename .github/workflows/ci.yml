@@ -32,12 +32,10 @@ jobs:
 
       - name: Build and test with action
         uses: ./
-        with:
-          source: 'source'
 
       - name: Test matrix subcommand
         run: |
-          go-toolchain matrix
+          go run ./src matrix
           ls -la build/
 
       - name: Upload artifacts

@@ -1,10 +1,36 @@
 package cmd
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+// matrixTestRunner provides test output with 100% coverage for matrix tests
+type matrixTestRunner struct {
+	MockCommandRunner
+}
+
+func (m *matrixTestRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
+	m.mu.Lock()
+	m.Commands = append(m.Commands, MockCommand{Name: name, Args: args})
+	m.mu.Unlock()
+	output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
+`
+	return bytes.NewReader([]byte(output)), func() error { return nil }, nil
+}
+
+func newMatrixTestRunner() *matrixTestRunner {
+	return &matrixTestRunner{
+		MockCommandRunner: MockCommandRunner{
+			Responses: make(map[string]MockResponse),
+		},
+	}
+}
 
 func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
 	oldOS := matrixOS
@@ -16,7 +42,7 @@ func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
 		matrixArch = oldArch
 	}()
 
-	mock := NewMockRunner()
+	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
 	if err == nil {
 		t.Error("expected error with no platforms")
@@ -32,19 +58,16 @@ func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
 	oldOS := matrixOS
 	oldArch := matrixArch
 	oldOutput := outputDir
-	oldSrcPath := srcPath
 	matrixOS = []string{"linux"}
 	matrixArch = []string{"amd64"}
 	outputDir = filepath.Join(tmpDir, "dist")
-	srcPath = "."
 	defer func() {
 		matrixOS = oldOS
 		matrixArch = oldArch
 		outputDir = oldOutput
-		srcPath = oldSrcPath
 	}()
 
-	mock := NewMockRunner()
+	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
 	if err == nil {
 		t.Error("expected error with no main packages")
@@ -63,22 +86,19 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 	oldOS := matrixOS
 	oldArch := matrixArch
 	oldOutput := outputDir
-	oldSrcPath := srcPath
 	oldParallel := releaseParallel
 	matrixOS = []string{"linux"}
 	matrixArch = []string{"amd64", "arm64"}
 	outputDir = filepath.Join(tmpDir, "dist")
-	srcPath = "."
 	releaseParallel = 2
 	defer func() {
 		matrixOS = oldOS
 		matrixArch = oldArch
 		outputDir = oldOutput
-		srcPath = oldSrcPath
 		releaseParallel = oldParallel
 	}()
 
-	mock := NewMockRunner()
+	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -97,18 +117,15 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 	oldOS := matrixOS
 	oldArch := matrixArch
 	oldOutput := outputDir
-	oldSrcPath := srcPath
 	oldParallel := releaseParallel
 	matrixOS = []string{"linux"}
 	matrixArch = []string{"amd64"}
 	outputDir = filepath.Join(tmpDir, "dist")
-	srcPath = "."
 	releaseParallel = 1
 	defer func() {
 		matrixOS = oldOS
 		matrixArch = oldArch
 		outputDir = oldOutput
-		srcPath = oldSrcPath
 		releaseParallel = oldParallel
 	}()
 
@@ -141,22 +158,19 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 	oldOS := matrixOS
 	oldArch := matrixArch
 	oldOutput := outputDir
-	oldSrcPath := srcPath
 	oldParallel := releaseParallel
 	matrixOS = []string{"windows"}
 	matrixArch = []string{"amd64"}
 	outputDir = filepath.Join(tmpDir, "dist")
-	srcPath = "."
 	releaseParallel = 1
 	defer func() {
 		matrixOS = oldOS
 		matrixArch = oldArch
 		outputDir = oldOutput
-		srcPath = oldSrcPath
 		releaseParallel = oldParallel
 	}()
 
-	mock := NewMockRunner()
+	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -188,22 +202,19 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 	oldOS := matrixOS
 	oldArch := matrixArch
 	oldOutput := outputDir
-	oldSrcPath := srcPath
 	oldParallel := releaseParallel
 	matrixOS = []string{"linux"}
 	matrixArch = []string{"amd64"}
 	outputDir = filepath.Join(tmpDir, "dist")
-	srcPath = "."
 	releaseParallel = 10 // More workers than jobs
 	defer func() {
 		matrixOS = oldOS
 		matrixArch = oldArch
 		outputDir = oldOutput
-		srcPath = oldSrcPath
 		releaseParallel = oldParallel
 	}()
 
-	mock := NewMockRunner()
+	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -222,22 +233,19 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 	oldOS := matrixOS
 	oldArch := matrixArch
 	oldOutput := outputDir
-	oldSrcPath := srcPath
 	oldParallel := releaseParallel
 	matrixOS = []string{"linux", "darwin"}
 	matrixArch = []string{"amd64", "arm64"}
 	outputDir = filepath.Join(tmpDir, "dist")
-	srcPath = "."
 	releaseParallel = 4
 	defer func() {
 		matrixOS = oldOS
 		matrixArch = oldArch
 		outputDir = oldOutput
-		srcPath = oldSrcPath
 		releaseParallel = oldParallel
 	}()
 
-	mock := NewMockRunner()
+	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -256,7 +264,7 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 }
 
 func TestRunBuild(t *testing.T) {
-	mock := NewMockRunner()
+	mock := newMatrixTestRunner()
 	job := buildJob{
 		goos:       "linux",
 		goarch:     "amd64",

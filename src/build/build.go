@@ -54,14 +54,9 @@ func binaryNameFromImportPath(pkg, moduleName string) string {
 }
 
 // ResolveBuildTargets determines what to build and what to name the binaries.
-// When srcPath is set explicitly (not "."), builds that single path.
-// Otherwise, uses go list to find all main packages.
+// Uses go list to find all main packages.
 // Binary names are always auto-derived from the package/directory name.
-func ResolveBuildTargets(runner CommandRunner, srcPath string) ([]Target, error) {
-	if srcPath != "." {
-		return []Target{{ImportPath: srcPath, OutputName: filepath.Base(srcPath)}}, nil
-	}
-
+func ResolveBuildTargets(runner CommandRunner) ([]Target, error) {
 	// Check if there are Go files in the current directory
 	goFiles, _ := filepath.Glob("*.go")
 	if len(goFiles) > 0 {
