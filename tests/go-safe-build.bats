@@ -372,7 +372,7 @@ EOF
 	[[ "$output" != *"--remove-watermark"* ]]
 }
 
-@test "benchmark subcommand runs benchmarks" {
+@test "--benchmark flag runs benchmarks after build" {
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
@@ -386,17 +386,18 @@ func BenchmarkAdd(b *testing.B) {
 }
 EOF
 
-	run "$BINARY" benchmark
+	run "$BINARY" --benchmark
 	[ "$status" -eq 0 ]
+	[[ "$output" == *"Build successful"* ]]
 	[[ "$output" == *"Running benchmarks"* ]]
 	[[ "$output" == *"Benchmarks complete"* ]]
 }
 
-@test "benchmark subcommand shows in help" {
+@test "--benchmark flag shows in help" {
 	run "$BINARY" --help
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"benchmark"* ]]
-	[[ "$output" == *"Run Go benchmarks"* ]]
+	[[ "$output" == *"--benchmark"* ]]
+	[[ "$output" == *"Run benchmarks after build"* ]]
 }
 
 @test "bootstrap: can build itself 3x and produce identical binaries" {
