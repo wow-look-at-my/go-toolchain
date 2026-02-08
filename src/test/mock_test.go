@@ -56,3 +56,11 @@ func (m *MockCommandRunner) RunWithPipes(name string, args ...string) (io.Reader
 	}
 	return bytes.NewReader(nil), func() error { return nil }, nil
 }
+
+func (m *MockCommandRunner) RunWithEnv(env []string, name string, args ...string) error {
+	m.Commands = append(m.Commands, MockCommand{Name: name, Args: args})
+	if resp, ok := m.Responses[m.key(name, args...)]; ok {
+		return resp.Err
+	}
+	return nil
+}

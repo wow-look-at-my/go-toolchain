@@ -162,6 +162,11 @@ func (m *testPassMockRunner) RunWithPipes(name string, args ...string) (io.Reade
 	return bytes.NewReader([]byte(output)), func() error { return nil }, nil
 }
 
+func (m *testPassMockRunner) RunWithEnv(env []string, name string, args ...string) error {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil
+}
+
 // testPipesFailMockRunner fails immediately on RunWithPipes (simulating test execution failure)
 type testPipesFailMockRunner struct {
 	commands []MockCommand
@@ -180,6 +185,11 @@ func (m *testPipesFailMockRunner) RunWithOutput(name string, args ...string) ([]
 func (m *testPipesFailMockRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
 	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
 	return nil, nil, fmt.Errorf("tests failed")
+}
+
+func (m *testPipesFailMockRunner) RunWithEnv(env []string, name string, args ...string) error {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil
 }
 
 func TestRunWithRunnerNonJSON(t *testing.T) {
@@ -339,6 +349,11 @@ func (m *vetFailMockRunner) RunWithPipes(name string, args ...string) (io.Reader
 	return bytes.NewReader([]byte{}), func() error { return nil }, nil
 }
 
+func (m *vetFailMockRunner) RunWithEnv(env []string, name string, args ...string) error {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil
+}
+
 func (m *buildFailMockRunner) RunWithOutput(name string, args ...string) ([]byte, error) {
 	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
 	return nil, nil
@@ -351,6 +366,11 @@ func (m *buildFailMockRunner) RunWithPipes(name string, args ...string) (io.Read
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
 	return bytes.NewReader([]byte(output)), func() error { return nil }, nil
+}
+
+func (m *buildFailMockRunner) RunWithEnv(env []string, name string, args ...string) error {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil
 }
 
 func TestRunWithRunnerTestOnlyNonJSON(t *testing.T) {
@@ -803,6 +823,11 @@ func (m *testFailMockRunner) RunWithPipes(name string, args ...string) (io.Reade
 	return bytes.NewReader([]byte(output)), func() error { return nil }, nil
 }
 
+func (m *testFailMockRunner) RunWithEnv(env []string, name string, args ...string) error {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil
+}
+
 // testFailWithErrorMockRunner returns output AND an error from wait()
 type testFailWithErrorMockRunner struct {
 	commands []MockCommand
@@ -830,6 +855,11 @@ func (m *testFailWithErrorMockRunner) RunWithPipes(name string, args ...string) 
 {"Time":"2024-01-01T00:00:06Z","Action":"fail","Package":"example.com/pkg"}
 `
 	return bytes.NewReader([]byte(output)), func() error { return fmt.Errorf("exit status 1") }, nil
+}
+
+func (m *testFailWithErrorMockRunner) RunWithEnv(env []string, name string, args ...string) error {
+	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
+	return nil
 }
 
 func TestNeedsGenerateNoDirectives(t *testing.T) {
