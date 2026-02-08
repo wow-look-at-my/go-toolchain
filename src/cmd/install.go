@@ -16,7 +16,7 @@ var installCopy bool
 func Register(root *cobra.Command) {
 	installCmd := &cobra.Command{
 		Use:          "install",
-		Short:        "Install go-safe-build to ~/.local/bin",
+		Short:        "Install go-toolchain to ~/.local/bin",
 		Long:         "Installs the currently running binary via symlink (default) or copy to ~/.local/bin.",
 		SilenceUsage: true,
 		RunE:         runInstall,
@@ -73,6 +73,16 @@ func runInstallImpl() error {
 		}
 		fmt.Printf("==> Symlinked %s -> %s\n", targetPath, sourcePath)
 	}
+
+	// Create go-safe-build -> go-toolchain compat symlink
+	compatPath := filepath.Join(targetDir, "go-safe-build")
+	if _, err := os.Lstat(compatPath); err == nil {
+		os.Remove(compatPath)
+	}
+	if err := os.Symlink(targetPath, compatPath); err != nil {
+		return fmt.Errorf("failed to create compat symlink: %w", err)
+	}
+	fmt.Printf("==> Symlinked %s -> %s\n", compatPath, targetPath)
 
 	return nil
 }

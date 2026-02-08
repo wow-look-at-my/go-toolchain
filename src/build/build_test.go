@@ -42,7 +42,7 @@ func TestBinaryNameFromImportPath(t *testing.T) {
 		pkg, module, want string
 	}{
 		// Single level below module → use module name
-		{"go-safe-build/src", "go-safe-build", "go-safe-build"},
+		{"github.com/wow-look-at-my/go-toolchain/src", "github.com/wow-look-at-my/go-toolchain", "go-toolchain"},
 		{"example.com/src", "example.com", "example.com"},
 		{"mymod/app", "mymod", "mymod"},
 
@@ -149,9 +149,9 @@ func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
 
 	mock := NewMockRunner()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("go-safe-build/src\n"), nil)
+		[]byte("github.com/wow-look-at-my/go-toolchain/src\n"), nil)
 	mock.SetResponse("go", []string{"list", "-m"},
-		[]byte("go-safe-build\n"), nil)
+		[]byte("github.com/wow-look-at-my/go-toolchain\n"), nil)
 
 	targets, err := ResolveBuildTargets(mock, ".")
 	if err != nil {
@@ -161,7 +161,7 @@ func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
 		t.Fatalf("expected 1 target, got %d", len(targets))
 	}
 	// Binary should be named after the module, not "src"
-	if targets[0].OutputName != "go-safe-build" {
-		t.Errorf("expected output name 'go-safe-build', got %q", targets[0].OutputName)
+	if targets[0].OutputName != "go-toolchain" {
+		t.Errorf("expected output name 'go-toolchain', got %q", targets[0].OutputName)
 	}
 }

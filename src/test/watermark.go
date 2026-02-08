@@ -7,7 +7,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const watermarkAttr = "user.go-safe-build.watermark"
+const watermarkAttr = "user.go-toolchain.watermark"
 
 // getWatermark reads the coverage watermark xattr from dir.
 // Returns (value, exists, error).

@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"go-safe-build/src/build"
-	gotest "go-safe-build/src/test"
+	"github.com/wow-look-at-my/go-toolchain/src/build"
+	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
 var (
@@ -25,17 +25,17 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:          "go-safe-build",
+	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	RunE:         run,
 }
 
 func init() {
-	rootCmd.Long = "Runs go mod tidy, go test with coverage, and go build. Fails if coverage is below threshold.\n\n" + installStatus()
+	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build. Fails if coverage is below threshold.\n\n" + installStatus()
 	rootCmd.Flags().StringVar(&covDetail, "cov-detail", "", "Show detailed coverage: 'func' or 'file'")
 	rootCmd.Flags().Float32Var(&minCoverage, "min-coverage", 80.0, "Minimum coverage percentage (0 = test only, no build)")
-rootCmd.Flags().StringVar(&srcPath, "src", ".", "Path to main package (e.g., ./cmd/myapp)")
+	rootCmd.Flags().StringVar(&srcPath, "src", ".", "Path to main package (e.g., ./cmd/myapp)")
 	rootCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
 	rootCmd.Flags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
@@ -98,7 +98,7 @@ func runWithRunner(runner CommandRunner) error {
 		fmt.Println("==> Running tests with coverage")
 	}
 
-	tmpDir, err := os.MkdirTemp("", "go-safe-build-*")
+	tmpDir, err := os.MkdirTemp("", "go-toolchain-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp dir: %w", err)
 	}

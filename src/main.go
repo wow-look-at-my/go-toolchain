@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"go-safe-build/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 )
 
 func main() {

@@ -4,7 +4,7 @@ on:
   push:
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +25,7 @@ jobs:
       - name: Run integration tests
         run: bats tests/
 
-  self-test:
+  gha-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

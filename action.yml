@@ -1,6 +1,6 @@
 name: 'Go Safe Build'
 description: 'Build Go projects with coverage enforcement - fails if coverage is below threshold'
-author: 'go-safe-build'
+author: 'go-toolchain'
 
 branding:
   icon: 'check-circle'
@@ -28,7 +28,7 @@ inputs:
     required: false
     default: '.'
   source:
-    description: 'How to obtain go-safe-build: "release" downloads a pre-built binary, "source" clones and builds from source via go run'
+    description: 'How to obtain go-toolchain: "release" downloads a pre-built binary, "source" builds from the action source'
     required: false
     default: 'release'
 
@@ -39,7 +39,7 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Install go-safe-build from release
+    - name: Install go-toolchain from release
       if: inputs.source == 'release'
       shell: bash
       run: |
@@ -51,9 +51,9 @@ runs:
           aarch64) ARCH=arm64 ;;
         esac
         TAG="${{ github.action_ref }}"
-        URL="https://github.com/PazerOP/go-safe-build/releases/download/${TAG}/go-safe-build-${OS}-${ARCH}"
-        curl -fsSL -o /usr/local/bin/go-safe-build "$URL"
-        chmod +x /usr/local/bin/go-safe-build
+        URL="https://github.com/wow-look-at-my/go-toolchain/releases/download/${TAG}/go-toolchain-${OS}-${ARCH}"
+        curl -fsSL -o /usr/local/bin/go-toolchain "$URL"
+        chmod +x /usr/local/bin/go-toolchain
 
     - name: Set up Go
       if: inputs.source == 'source'
@@ -61,18 +61,15 @@ runs:
       with:
         go-version: '1.25'
 
-    - name: Install go-safe-build from source
+    - name: Install go-toolchain from source
       if: inputs.source == 'source'
       shell: bash
       run: |
         set -euo pipefail
-        TAG="${{ github.action_ref }}"
-        CLONE_DIR="$(mktemp -d)"
-        git clone --depth 1 --branch "$TAG" https://github.com/PazerOP/go-safe-build.git "$CLONE_DIR"
-        go build -o /usr/local/bin/go-safe-build "$CLONE_DIR/src"
-        rm -rf "$CLONE_DIR"
+        cd "$GITHUB_ACTION_PATH"
+        go build -o /usr/local/bin/go-toolchain ./src
 
-    - name: Run go-safe-build
+    - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
@@ -87,4 +84,4 @@ runs:
         if [ "${{ inputs.verbose }}" = "true" ]; then
           ARGS="$ARGS --verbose"
         fi
-        go-safe-build $ARGS
+        go-toolchain $ARGS
