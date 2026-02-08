@@ -12,7 +12,8 @@ const colorReset = "\033[0m"
 const colorYellow = "\033[38;2;255;255;0m"
 const colorGreen = "\033[38;2;0;255;0m"
 const colorRed = "\033[38;2;255;0;0m"
-const colorFailure = "\033[38;2;255;128;128m"
+const colorPass = colorGreen
+const colorFail = "\033[38;2;255;128;128m" // softer red for readability
 
 type ColorPct struct {
 	Pct    float32

@@ -176,19 +176,6 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 
 	report := &result.Coverage
 
-	// If tests failed, show failures and bail — coverage is irrelevant
-	if testErr != nil {
-		if jsonOutput {
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "\t")
-			enc.Encode(report)
-		} else if result.FailureOutput != "" {
-			fmt.Println("\n==> Test failures:")
-			fmt.Print(colorFailure + result.FailureOutput + colorReset)
-		}
-		return fmt.Errorf("tests failed: %w", testErr)
-	}
-
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "\t")
@@ -198,7 +185,15 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 	} else {
 		fmt.Println("\n==> Package coverage:")
 		for _, p := range report.Packages {
-			fmt.Printf("  %s  %s\n", colorPct(ColorPct{Pct: p.Coverage}), p.Package)
+			// In non-verbose mode, hide passing packages when there are failures
+			if testErr != nil && !verbose && p.Passed {
+				continue
+			}
+			status := "[" + colorPass + "PASS" + colorReset + "]"
+			if !p.Passed {
+				status = "[" + colorFail + "FAIL" + colorReset + "]"
+			}
+			fmt.Printf("  %s  %s  %s\n", colorPct(ColorPct{Pct: p.Coverage}), status, p.Package)
 		}
 
 		if covDetail == "file" && len(report.Files) > 0 {
@@ -216,6 +211,15 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		}
 
 		fmt.Printf("\n==> Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
+	}
+
+	// If tests failed, show failure details and return error
+	if testErr != nil {
+		if !jsonOutput && result.FailureOutput != "" {
+			fmt.Println("\n==> Test failures:")
+			fmt.Print(colorFail + result.FailureOutput + colorReset)
+		}
+		return fmt.Errorf("tests failed: %w", testErr)
 	}
 
 	// Handle --add-watermark: store watermark after coverage is computed

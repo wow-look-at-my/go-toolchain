@@ -66,7 +66,10 @@ func TestColorConstants(t *testing.T) {
 	if colorYellow != "\033[38;2;255;255;0m" {
 		t.Errorf("colorYellow should be 255,255,0, got %q", colorYellow)
 	}
-	if colorFailure != "\033[38;2;255;128;128m" {
-		t.Errorf("colorFailure should be 255,128,128, got %q", colorFailure)
+	if colorFail != "\033[38;2;255;128;128m" {
+		t.Errorf("colorFail should be 255,128,128, got %q", colorFail)
+	}
+	if colorPass != colorGreen {
+		t.Errorf("colorPass should be colorGreen, got %q", colorPass)
 	}
 }
