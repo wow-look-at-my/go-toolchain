@@ -179,9 +179,13 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 	// Check that commands were recorded with .exe extension
 	found := false
 	for _, cmd := range mock.Commands {
-		if cmd.Name == "go" && len(cmd.Args) >= 3 && cmd.Args[0] == "build" {
-			if filepath.Ext(cmd.Args[2]) == ".exe" {
-				found = true
+		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "build" {
+			for i, arg := range cmd.Args {
+				if arg == "-o" && i+1 < len(cmd.Args) {
+					if filepath.Ext(cmd.Args[i+1]) == ".exe" {
+						found = true
+					}
+				}
 			}
 		}
 	}

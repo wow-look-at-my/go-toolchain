@@ -104,12 +104,18 @@ func runWithRunner(runner CommandRunner) error {
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
 			return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 		}
+		info := collectGitInfo()
+		ldflags := info.ldflags()
+		if !jsonOutput {
+			fmt.Printf("==> Embedding version: %s\n", info)
+		}
 		for _, t := range targets {
 			outPath := filepath.Join(outputDir, t.OutputName)
 			if !jsonOutput {
 				fmt.Printf("==> go build -o %s %s\n", outPath, t.ImportPath)
 			}
-			if err := runner.Run("go", "build", "-o", outPath, t.ImportPath); err != nil {
+			args := []string{"build", "-ldflags", ldflags, "-o", outPath, t.ImportPath}
+			if err := runner.Run("go", args...); err != nil {
 				return fmt.Errorf("go build failed: %w", err)
 			}
 		}
