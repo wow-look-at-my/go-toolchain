@@ -14,10 +14,9 @@ import (
 )
 
 var (
-	outputDir = "build"
+	outputDir     = "build"
 	covDetail     string
 	minCoverage   float32
-	srcPath       string
 	jsonOutput    bool
 	verbose       bool
 	addWatermark  bool
@@ -33,14 +32,14 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build. Fails if coverage is below threshold.\n\n" + installStatus()
-	rootCmd.Flags().StringVar(&covDetail, "cov-detail", "", "Show detailed coverage: 'func' or 'file'")
-	rootCmd.Flags().Float32Var(&minCoverage, "min-coverage", 80.0, "Minimum coverage percentage (0 = test only, no build)")
-	rootCmd.Flags().StringVar(&srcPath, "src", ".", "Path to main package (e.g., ./cmd/myapp)")
-	rootCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
-	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
-	rootCmd.Flags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
-	rootCmd.Flags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
-	rootCmd.Flags().MarkHidden("remove-watermark")
+	// Use PersistentFlags for flags shared with subcommands (like matrix)
+	rootCmd.PersistentFlags().StringVar(&covDetail, "cov-detail", "", "Show detailed coverage: 'func' or 'file'")
+	rootCmd.PersistentFlags().Float32Var(&minCoverage, "min-coverage", 80.0, "Minimum coverage percentage (0 = test only, no build)")
+	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
+	rootCmd.PersistentFlags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
+	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
+	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
 	Register(rootCmd)
 }
 
@@ -68,6 +67,56 @@ func runWithRunner(runner CommandRunner) error {
 		fmt.Println()
 	}
 
+	if err := RunTestsWithCoverage(runner); err != nil {
+		return err
+	}
+
+	// Test-only mode: report and exit
+	if testOnly {
+		if !jsonOutput {
+			fmt.Println("\n==> Test-only mode (--min-coverage 0), skipping build")
+		}
+		return fmt.Errorf("test-only mode")
+	}
+
+	targets, err := build.ResolveBuildTargets(runner)
+	if err != nil {
+		return err
+	}
+
+	if len(targets) == 0 {
+		// Library-only project, just verify everything compiles
+		if !jsonOutput {
+			fmt.Println("==> go build ./... (no main packages found)")
+		}
+		if err := runner.Run("go", "build", "./..."); err != nil {
+			return fmt.Errorf("go build failed: %w", err)
+		}
+	} else {
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+		}
+		for _, t := range targets {
+			outPath := filepath.Join(outputDir, t.OutputName)
+			if !jsonOutput {
+				fmt.Printf("==> go build -o %s %s\n", outPath, t.ImportPath)
+			}
+			if err := runner.Run("go", "build", "-o", outPath, t.ImportPath); err != nil {
+				return fmt.Errorf("go build failed: %w", err)
+			}
+		}
+	}
+
+	if !jsonOutput {
+		fmt.Println("==> Build successful")
+	}
+	return nil
+}
+
+// RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
+// checks coverage against the threshold. Used by both the default command
+// and the matrix command.
+func RunTestsWithCoverage(runner CommandRunner) error {
 	if !jsonOutput {
 		fmt.Println("==> go mod tidy")
 	}
@@ -189,14 +238,6 @@ func runWithRunner(runner CommandRunner) error {
 		}
 	}
 
-	// Test-only mode: report coverage and exit with error
-	if testOnly {
-		if !jsonOutput {
-			fmt.Println("\n==> Test-only mode (--min-coverage 0), skipping build")
-		}
-		return fmt.Errorf("test-only mode: coverage is %.1f%%", report.Total)
-	}
-
 	if report.Total < effectiveMin {
 		if !jsonOutput {
 			fmt.Println("\n==> Uncovered functions:")
@@ -209,37 +250,6 @@ func runWithRunner(runner CommandRunner) error {
 		return fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
 	}
 
-	targets, err := build.ResolveBuildTargets(runner, srcPath)
-	if err != nil {
-		return err
-	}
-
-	if len(targets) == 0 {
-		// Library-only project, just verify everything compiles
-		if !jsonOutput {
-			fmt.Println("==> go build ./... (no main packages found)")
-		}
-		if err := runner.Run("go", "build", "./..."); err != nil {
-			return fmt.Errorf("go build failed: %w", err)
-		}
-	} else {
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
-		}
-		for _, t := range targets {
-			outPath := filepath.Join(outputDir, t.OutputName)
-			if !jsonOutput {
-				fmt.Printf("==> go build -o %s %s\n", outPath, t.ImportPath)
-			}
-			if err := runner.Run("go", "build", "-o", outPath, t.ImportPath); err != nil {
-				return fmt.Errorf("go build failed: %w", err)
-			}
-		}
-	}
-
-	if !jsonOutput {
-		fmt.Println("==> Build successful")
-	}
 	return nil
 }
 

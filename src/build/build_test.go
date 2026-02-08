@@ -65,19 +65,6 @@ func TestBinaryNameFromImportPath(t *testing.T) {
 	}
 }
 
-func TestResolveBuildTargetsExplicitSrc(t *testing.T) {
-	targets, err := ResolveBuildTargets(nil, "./cmd/myapp")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(targets) != 1 {
-		t.Fatalf("expected 1 target, got %d", len(targets))
-	}
-	if targets[0].ImportPath != "./cmd/myapp" || targets[0].OutputName != "myapp" {
-		t.Errorf("unexpected target: %+v", targets[0])
-	}
-}
-
 func TestResolveBuildTargetsGoFilesInRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -87,7 +74,7 @@ func TestResolveBuildTargetsGoFilesInRoot(t *testing.T) {
 	// Create a .go file in root
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
 
-	targets, err := ResolveBuildTargets(nil, ".")
+	targets, err := ResolveBuildTargets(nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -108,7 +95,7 @@ func TestResolveBuildTargetsAutoDetectSingle(t *testing.T) {
 	mock.SetResponse("go", []string{"list", "-m"},
 		[]byte("example.com\n"), nil)
 
-	targets, err := ResolveBuildTargets(mock, ".")
+	targets, err := ResolveBuildTargets(mock)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +116,7 @@ func TestResolveBuildTargetsAutoDetectMultiple(t *testing.T) {
 	mock.SetResponse("go", []string{"list", "-m"},
 		[]byte("example.com\n"), nil)
 
-	targets, err := ResolveBuildTargets(mock, ".")
+	targets, err := ResolveBuildTargets(mock)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +140,7 @@ func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
 	mock.SetResponse("go", []string{"list", "-m"},
 		[]byte("github.com/wow-look-at-my/go-toolchain\n"), nil)
 
-	targets, err := ResolveBuildTargets(mock, ".")
+	targets, err := ResolveBuildTargets(mock)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

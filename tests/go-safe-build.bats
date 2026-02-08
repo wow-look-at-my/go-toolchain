@@ -185,43 +185,7 @@ EOF
 	echo "$output" | jq -e '.total' > /dev/null
 }
 
-@test "--src builds from cmd/ layout" {
-	mkdir -p "$TEST_DIR/proj/cmd/myapp"
-	cd "$TEST_DIR/proj"
-
-	cat > go.mod <<EOF
-module testproject
-go 1.21
-EOF
-
-	cat > cmd/myapp/main.go <<EOF
-package main
-
-func Add(a, b int) int {
-	return a + b
-}
-
-func main() {}
-EOF
-
-	cat > cmd/myapp/main_test.go <<EOF
-package main
-
-import "testing"
-
-func TestAdd(t *testing.T) {
-	if Add(1, 2) != 3 {
-		t.Error("Add failed")
-	}
-}
-EOF
-
-	run "$BINARY" --min-coverage 80 --src ./cmd/myapp
-	[ "$status" -eq 0 ]
-	[ -f "build/myapp" ]
-}
-
-@test "auto-detects cmd/ layout without --src" {
+@test "auto-detects cmd/ layout" {
 	mkdir -p "$TEST_DIR/proj/cmd/myapp"
 	cd "$TEST_DIR/proj"
 
