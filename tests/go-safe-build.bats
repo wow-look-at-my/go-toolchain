@@ -372,7 +372,7 @@ EOF
 	[[ "$output" != *"--remove-watermark"* ]]
 }
 
-@test "--benchmark flag runs benchmarks after build" {
+@test "--bench flag runs benchmarks after build" {
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
@@ -386,17 +386,17 @@ func BenchmarkAdd(b *testing.B) {
 }
 EOF
 
-	run "$BINARY" --benchmark
+	run "$BINARY" --bench
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
 	[[ "$output" == *"Running benchmarks"* ]]
 	[[ "$output" == *"Benchmarks complete"* ]]
 }
 
-@test "--benchmark flag shows in help" {
+@test "--bench flag shows in help" {
 	run "$BINARY" --help
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"--benchmark"* ]]
+	[[ "$output" == *"--bench"* ]]
 	[[ "$output" == *"Run benchmarks after build"* ]]
 }
 

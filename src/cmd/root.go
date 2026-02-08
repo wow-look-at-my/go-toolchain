@@ -42,10 +42,10 @@ func init() {
 	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
 
 	// Benchmark flags
-	rootCmd.Flags().BoolVar(&doBenchmark, "benchmark", false, "Run benchmarks after build")
-	rootCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
-	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
-	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
+	rootCmd.Flags().BoolVar(&doBenchmark, "bench", false, "Run benchmarks after build")
+	rootCmd.Flags().StringVar(&benchTime, "bench-time", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
+	rootCmd.Flags().IntVar(&benchRuns, "bench-runs", 1, "Number of times to run each benchmark")
+	rootCmd.Flags().StringVar(&benchCPUs, "bench-cpus", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
 
 
 	Register(rootCmd)

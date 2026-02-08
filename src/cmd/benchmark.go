@@ -9,8 +9,8 @@ import (
 var (
 	doBenchmark bool
 	benchTime   string
-	benchCount  int
-	benchCPU    string
+	benchRuns   int
+	benchCPUs   string
 )
 
 func runBenchmarkWithRunner(runner CommandRunner) error {
@@ -33,11 +33,11 @@ func buildBenchArgs() []string {
 	if benchTime != "" {
 		goTestArgs = append(goTestArgs, "-benchtime", benchTime)
 	}
-	if benchCount > 1 {
-		goTestArgs = append(goTestArgs, "-count", fmt.Sprintf("%d", benchCount))
+	if benchRuns > 1 {
+		goTestArgs = append(goTestArgs, "-count", fmt.Sprintf("%d", benchRuns))
 	}
-	if benchCPU != "" {
-		goTestArgs = append(goTestArgs, "-cpu", benchCPU)
+	if benchCPUs != "" {
+		goTestArgs = append(goTestArgs, "-cpu", benchCPUs)
 	}
 	if verbose {
 		goTestArgs = append(goTestArgs, "-v")

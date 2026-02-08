@@ -8,19 +8,19 @@ import (
 
 func TestBuildBenchArgsDefaults(t *testing.T) {
 	oldTime := benchTime
-	oldCount := benchCount
-	oldCPU := benchCPU
+	oldCount := benchRuns
+	oldCPU := benchCPUs
 	oldVerbose := verbose
 	defer func() {
 		benchTime = oldTime
-		benchCount = oldCount
-		benchCPU = oldCPU
+		benchRuns = oldCount
+		benchCPUs = oldCPU
 		verbose = oldVerbose
 	}()
 
 	benchTime = ""
-	benchCount = 1
-	benchCPU = ""
+	benchRuns = 1
+	benchCPUs = ""
 	verbose = false
 
 	args := buildBenchArgs()
@@ -37,19 +37,19 @@ func TestBuildBenchArgsDefaults(t *testing.T) {
 
 func TestBuildBenchArgsAllOptions(t *testing.T) {
 	oldTime := benchTime
-	oldCount := benchCount
-	oldCPU := benchCPU
+	oldCount := benchRuns
+	oldCPU := benchCPUs
 	oldVerbose := verbose
 	defer func() {
 		benchTime = oldTime
-		benchCount = oldCount
-		benchCPU = oldCPU
+		benchRuns = oldCount
+		benchCPUs = oldCPU
 		verbose = oldVerbose
 	}()
 
 	benchTime = "5s"
-	benchCount = 3
-	benchCPU = "1,2,4"
+	benchRuns = 3
+	benchCPUs = "1,2,4"
 	verbose = true
 
 	args := buildBenchArgs()
@@ -66,19 +66,19 @@ func TestBuildBenchArgsAllOptions(t *testing.T) {
 
 func TestBuildBenchArgsBenchmemAlwaysPresent(t *testing.T) {
 	oldTime := benchTime
-	oldCount := benchCount
-	oldCPU := benchCPU
+	oldCount := benchRuns
+	oldCPU := benchCPUs
 	oldVerbose := verbose
 	defer func() {
 		benchTime = oldTime
-		benchCount = oldCount
-		benchCPU = oldCPU
+		benchRuns = oldCount
+		benchCPUs = oldCPU
 		verbose = oldVerbose
 	}()
 
 	benchTime = ""
-	benchCount = 1
-	benchCPU = ""
+	benchRuns = 1
+	benchCPUs = ""
 	verbose = false
 
 	args := buildBenchArgs()
@@ -95,21 +95,21 @@ func TestBuildBenchArgsBenchmemAlwaysPresent(t *testing.T) {
 
 func TestRunBenchmarkWithRunnerSuccess(t *testing.T) {
 	oldTime := benchTime
-	oldCount := benchCount
-	oldCPU := benchCPU
+	oldCount := benchRuns
+	oldCPU := benchCPUs
 	oldVerbose := verbose
 	oldJSON := jsonOutput
 	defer func() {
 		benchTime = oldTime
-		benchCount = oldCount
-		benchCPU = oldCPU
+		benchRuns = oldCount
+		benchCPUs = oldCPU
 		verbose = oldVerbose
 		jsonOutput = oldJSON
 	}()
 
 	benchTime = ""
-	benchCount = 1
-	benchCPU = ""
+	benchRuns = 1
+	benchCPUs = ""
 	verbose = false
 	jsonOutput = false
 
@@ -132,19 +132,19 @@ func TestRunBenchmarkWithRunnerSuccess(t *testing.T) {
 
 func TestRunBenchmarkWithRunnerFails(t *testing.T) {
 	oldTime := benchTime
-	oldCount := benchCount
-	oldCPU := benchCPU
+	oldCount := benchRuns
+	oldCPU := benchCPUs
 	oldJSON := jsonOutput
 	defer func() {
 		benchTime = oldTime
-		benchCount = oldCount
-		benchCPU = oldCPU
+		benchRuns = oldCount
+		benchCPUs = oldCPU
 		jsonOutput = oldJSON
 	}()
 
 	benchTime = ""
-	benchCount = 1
-	benchCPU = ""
+	benchRuns = 1
+	benchCPUs = ""
 	jsonOutput = false
 
 	mock := NewMockRunner()
@@ -157,19 +157,19 @@ func TestRunBenchmarkWithRunnerFails(t *testing.T) {
 
 func TestRunBenchmarkWithRunnerJSON(t *testing.T) {
 	oldTime := benchTime
-	oldCount := benchCount
-	oldCPU := benchCPU
+	oldCount := benchRuns
+	oldCPU := benchCPUs
 	oldJSON := jsonOutput
 	defer func() {
 		benchTime = oldTime
-		benchCount = oldCount
-		benchCPU = oldCPU
+		benchRuns = oldCount
+		benchCPUs = oldCPU
 		jsonOutput = oldJSON
 	}()
 
 	benchTime = ""
-	benchCount = 1
-	benchCPU = ""
+	benchRuns = 1
+	benchCPUs = ""
 	jsonOutput = true
 
 	mock := NewMockRunner()
@@ -195,16 +195,16 @@ func TestRunWithRunnerBenchmarkFlag(t *testing.T) {
 	oldOut := outputDir
 	oldBench := doBenchmark
 	oldTime := benchTime
-	oldCount := benchCount
-	oldCPU := benchCPU
+	oldCount := benchRuns
+	oldCPU := benchCPUs
 	defer func() {
 		jsonOutput = oldJSON
 		minCoverage = oldMin
 		outputDir = oldOut
 		doBenchmark = oldBench
 		benchTime = oldTime
-		benchCount = oldCount
-		benchCPU = oldCPU
+		benchRuns = oldCount
+		benchCPUs = oldCPU
 	}()
 
 	jsonOutput = true
@@ -212,8 +212,8 @@ func TestRunWithRunnerBenchmarkFlag(t *testing.T) {
 	outputDir = tmpDir
 	doBenchmark = true
 	benchTime = ""
-	benchCount = 1
-	benchCPU = ""
+	benchRuns = 1
+	benchCPUs = ""
 
 	err := runWithRunner(mock)
 	if err != nil {
