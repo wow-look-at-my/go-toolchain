@@ -11,6 +11,7 @@ type CommandRunner interface {
 	Run(name string, args ...string) error
 	RunWithOutput(name string, args ...string) ([]byte, error)
 	RunWithPipes(name string, args ...string) (stdout io.Reader, wait func() error, err error)
+	RunWithEnv(env []string, name string, args ...string) error
 }
 
 // RealCommandRunner executes actual system commands
@@ -46,6 +47,16 @@ func (r *RealCommandRunner) RunWithPipes(name string, args ...string) (io.Reader
 	}
 
 	return stdout, cmd.Wait, nil
+}
+
+func (r *RealCommandRunner) RunWithEnv(env []string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Env = env
+	if !r.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	return cmd.Run()
 }
 
 // Default runner for production use

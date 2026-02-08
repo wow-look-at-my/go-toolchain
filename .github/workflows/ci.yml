@@ -30,38 +30,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create test Go project
-        run: |
-          mkdir -p test-project
-          cd test-project
-          cat > go.mod <<EOF
-          module testproject
-          go 1.21
-          EOF
-          cat > main.go <<EOF
-          package main
-
-          func Add(a, b int) int {
-              return a + b
-          }
-
-          func main() {}
-          EOF
-          cat > main_test.go <<EOF
-          package main
-
-          import "testing"
-
-          func TestAdd(t *testing.T) {
-              if Add(1, 2) != 3 {
-                  t.Error("Add failed")
-              }
-          }
-          EOF
-
-      - name: Test action
+      - name: Build and test with action
         uses: ./
         with:
           source: 'source'
-          min-coverage: '80'
-          working-directory: 'test-project'
+
+      - name: Test matrix subcommand
+        run: |
+          go-toolchain matrix
+          ls -la build/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-toolchain-binaries
+          path: build/go-toolchain_*
