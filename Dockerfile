@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine
+FROM golang:1.25-alpine
 
 # Install git for go mod operations
 RUN apk add --no-cache git

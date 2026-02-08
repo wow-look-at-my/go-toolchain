@@ -1,7 +1,6 @@
 package test
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 
@@ -56,8 +55,5 @@ func RemoveWatermark(dir string) error {
 	return nil
 }
 
-// isXattrNotFound returns true if the error indicates the xattr doesn't exist.
-// macOS returns ENOATTR, Linux returns ENODATA.
-func isXattrNotFound(err error) bool {
-	return errors.Is(err, unix.ENOATTR) || errors.Is(err, unix.ENODATA)
-}
+// isXattrNotFound is defined in platform-specific files:
+// watermark_darwin.go (ENOATTR) and watermark_linux.go (ENODATA).
