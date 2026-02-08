@@ -41,6 +41,7 @@ type buildJob struct {
 	goarch     string
 	srcPath    string
 	outputPath string
+	ldflags    string
 }
 
 type buildResult struct {
@@ -77,6 +78,10 @@ func runReleaseWithRunner(runner CommandRunner) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	// Collect git info once for all builds
+	info := collectGitInfo()
+	ldflags := info.ldflags()
+
 	// Build job queue - cartesian product of OS x Arch x Targets
 	var jobs []buildJob
 	for _, goos := range matrixOS {
@@ -92,6 +97,7 @@ func runReleaseWithRunner(runner CommandRunner) error {
 					goarch:     goarch,
 					srcPath:    target.ImportPath,
 					outputPath: filepath.Join(outputDir, outputName),
+					ldflags:    ldflags,
 				})
 			}
 		}
@@ -153,6 +159,7 @@ func runBuild(runner CommandRunner, job buildJob) error {
 	env := os.Environ()
 	env = append(env, "GOOS="+job.goos, "GOARCH="+job.goarch, "CGO_ENABLED=0")
 
-	return runner.RunWithEnv(env, "go", "build", "-o", job.outputPath, job.srcPath)
+	args := []string{"build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath}
+	return runner.RunWithEnv(env, "go", args...)
 }
 
