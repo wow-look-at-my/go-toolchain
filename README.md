@@ -7,7 +7,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Coverage enforcement** — fails the build if test coverage drops below a configurable minimum (default 80%)
 - **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
 - **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
-- **Benchmarks** — run Go benchmarks with configurable options via the `benchmark` subcommand
+- **Benchmarks** — run Go benchmarks after build with the `--benchmark` flag
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
 
@@ -54,8 +54,8 @@ go-toolchain --min-coverage 0
 # Cross-compile for multiple platforms
 go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
 
-# Run benchmarks
-go-toolchain benchmark --benchtime 5s --count 3 --benchmem
+# Run benchmarks after build
+go-toolchain --benchmark --benchtime 5s --count 3
 
 # Install binary to ~/.local/bin
 go-toolchain install
@@ -70,11 +70,14 @@ go-toolchain install
 | `--json`            | `false`                   | Output coverage as JSON                      |
 | `--verbose`         | `false`                   | Verbose test output                          |
 | `--add-watermark`   | `false`                   | Set coverage watermark on `go.mod`           |
+| `--benchmark`       | `false`                   | Run benchmarks after build                   |
+| `--benchtime`       | `''`                      | Duration or count for each benchmark (e.g. `5s`, `1000x`) |
+| `-n`, `--count`     | `1`                       | Number of times to run each benchmark        |
+| `--cpu`             | `''`                      | GOMAXPROCS values to test with (comma-separated) |
 
 ### Subcommands
 
 - **`matrix`** — cross-compile for multiple platforms (`--os`, `--arch`, `--parallel`)
-- **`benchmark`** — run benchmarks (`--benchtime`, `--count`, `--cpu`, `--benchmem`)
 - **`install`** — install the binary to `~/.local/bin`
 
 ## How It Works

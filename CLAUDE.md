@@ -24,7 +24,7 @@ go run ./src matrix
 ## Project Structure
 
 - `src/main.go` — entry point
-- `src/cmd/` — CLI commands (root, matrix, benchmark, install) using Cobra
+- `src/cmd/` — CLI commands (root, matrix, install) and benchmark logic using Cobra
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via `go list`
 - `tests/` — BATS integration tests
