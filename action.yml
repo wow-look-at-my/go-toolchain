@@ -31,6 +31,10 @@ inputs:
     description: 'Working directory for the build'
     required: false
     default: '.'
+  source:
+    description: 'How to obtain go-safe-build: "release" downloads a pre-built binary, "source" clones and builds from source via go run'
+    required: false
+    default: 'release'
 
 outputs:
   coverage:
@@ -39,12 +43,57 @@ outputs:
     description: 'Path to the built binary'
 
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  args:
-    - ${{ inputs.min-coverage }}
-    - ${{ inputs.output }}
-    - ${{ inputs.cov-detail }}
-    - ${{ inputs.json }}
-    - ${{ inputs.verbose }}
-    - ${{ inputs.working-directory }}
+  using: 'composite'
+  steps:
+    - name: Install go-safe-build from release
+      if: inputs.source == 'release'
+      shell: bash
+      run: |
+        set -euo pipefail
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        ARCH="$(uname -m)"
+        case "$ARCH" in
+          x86_64)  ARCH=amd64 ;;
+          aarch64) ARCH=arm64 ;;
+        esac
+        TAG="${{ github.action_ref }}"
+        URL="https://github.com/PazerOP/go-safe-build/releases/download/${TAG}/go-safe-build-${OS}-${ARCH}"
+        curl -fsSL -o /usr/local/bin/go-safe-build "$URL"
+        chmod +x /usr/local/bin/go-safe-build
+
+    - name: Set up Go
+      if: inputs.source == 'source'
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
+    - name: Install go-safe-build from source
+      if: inputs.source == 'source'
+      shell: bash
+      run: |
+        set -euo pipefail
+        TAG="${{ github.action_ref }}"
+        CLONE_DIR="$(mktemp -d)"
+        git clone --depth 1 --branch "$TAG" https://github.com/PazerOP/go-safe-build.git "$CLONE_DIR"
+        go build -o /usr/local/bin/go-safe-build "$CLONE_DIR/src"
+        rm -rf "$CLONE_DIR"
+
+    - name: Run go-safe-build
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        ARGS="--min-coverage ${{ inputs.min-coverage }}"
+        if [ -n "${{ inputs.output }}" ]; then
+          ARGS="$ARGS -o ${{ inputs.output }}"
+        fi
+        if [ -n "${{ inputs.cov-detail }}" ]; then
+          ARGS="$ARGS --cov-detail ${{ inputs.cov-detail }}"
+        fi
+        if [ "${{ inputs.json }}" = "true" ]; then
+          ARGS="$ARGS --json"
+        fi
+        if [ "${{ inputs.verbose }}" = "true" ]; then
+          ARGS="$ARGS --verbose"
+        fi
+        go-safe-build $ARGS

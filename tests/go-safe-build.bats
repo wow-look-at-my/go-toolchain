@@ -14,6 +14,34 @@ teardown() {
 	rm -rf "$TEST_DIR"
 }
 
+# Cross-platform xattr helpers (macOS uses xattr, Linux uses setfattr/getfattr)
+set_xattr() {
+	local name="$1" value="$2" path="$3"
+	if command -v xattr &>/dev/null; then
+		xattr -w "$name" "$value" "$path"
+	else
+		setfattr -n "$name" -v "$value" "$path"
+	fi
+}
+
+get_xattr() {
+	local name="$1" path="$2"
+	if command -v xattr &>/dev/null; then
+		xattr -p "$name" "$path"
+	else
+		getfattr -n "$name" --only-values "$path"
+	fi
+}
+
+remove_xattr() {
+	local name="$1" path="$2"
+	if command -v xattr &>/dev/null; then
+		xattr -d "$name" "$path"
+	else
+		setfattr -x "$name" "$path"
+	fi
+}
+
 # Helper to create a minimal Go project
 create_test_project() {
 	local dir="$1"
@@ -340,7 +368,7 @@ EOF
 	[[ "$output" == *"Watermark set to"* ]]
 
 	# Verify xattr was written
-	wm="$(xattr -p user.go-safe-build.watermark .)"
+	wm="$(get_xattr user.go-safe-build.watermark .)"
 	[ -n "$wm" ]
 }
 
@@ -350,7 +378,7 @@ EOF
 
 	# Set watermark to 60% — coverage is ~50%, grace = 57.5%, effective = min(80,57.5) = 57.5
 	# 50 < 57.5 → should fail
-	xattr -w user.go-safe-build.watermark "60.0" .
+	set_xattr user.go-safe-build.watermark "60.0" .
 
 	run "$BINARY" --min-coverage 80
 	[ "$status" -ne 0 ]
@@ -364,7 +392,7 @@ EOF
 
 	# Set watermark to 52% — coverage is ~50%, grace = 49.5%, effective = min(80,49.5) = 49.5
 	# 50 > 49.5 → should pass
-	xattr -w user.go-safe-build.watermark "52.0" .
+	set_xattr user.go-safe-build.watermark "52.0" .
 
 	run "$BINARY" --min-coverage 80
 	[ "$status" -eq 0 ]
@@ -378,7 +406,7 @@ EOF
 
 	# Set watermark to 60% — coverage is ~50%, grace = 57.5%, effective = min(80,57.5) = 57.5
 	# 50 < 57.5 → should fail
-	xattr -w user.go-safe-build.watermark "60.0" .
+	set_xattr user.go-safe-build.watermark "60.0" .
 
 	run "$BINARY" --min-coverage 80
 	[ "$status" -ne 0 ]
@@ -390,14 +418,14 @@ EOF
 	cd "$TEST_DIR/proj"
 
 	# Set watermark to 50% — coverage is 100%, should ratchet up
-	xattr -w user.go-safe-build.watermark "50.0" .
+	set_xattr user.go-safe-build.watermark "50.0" .
 
 	run "$BINARY" --min-coverage 80
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Watermark updated:"* ]]
 
 	# Verify watermark was updated to 100%
-	wm="$(xattr -p user.go-safe-build.watermark .)"
+	wm="$(get_xattr user.go-safe-build.watermark .)"
 	[[ "$wm" == "100.0" ]]
 }
 
@@ -406,7 +434,7 @@ EOF
 	cd "$TEST_DIR/proj"
 
 	# Set a watermark first
-	xattr -w user.go-safe-build.watermark "85.0" .
+	set_xattr user.go-safe-build.watermark "85.0" .
 
 	# Pipe "y" for confirmation
 	run bash -c "echo y | '$BINARY' --remove-watermark"
@@ -414,7 +442,7 @@ EOF
 	[[ "$output" == *"Watermark removed"* ]]
 
 	# Verify xattr is gone
-	run xattr -p user.go-safe-build.watermark .
+	run get_xattr user.go-safe-build.watermark .
 	[ "$status" -ne 0 ]
 }
 
