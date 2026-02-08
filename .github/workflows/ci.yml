@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build and test with action
-        uses: wow-look-at-my/go-toolchain@$GITHUB_SHA
+        uses: ./
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
