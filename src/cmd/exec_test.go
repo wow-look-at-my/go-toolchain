@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sync"
 	"testing"
 )
 
 // MockCommandRunner captures commands for testing
 type MockCommandRunner struct {
-	Commands []MockCommand
-	// Responses maps "name args..." to response
+	mu        sync.Mutex
+	Commands  []MockCommand
 	Responses map[string]MockResponse
 }
 
@@ -39,32 +40,44 @@ func (m *MockCommandRunner) SetResponse(name string, args []string, output []byt
 }
 
 func (m *MockCommandRunner) Run(name string, args ...string) error {
+	m.mu.Lock()
 	m.Commands = append(m.Commands, MockCommand{Name: name, Args: args})
-	if resp, ok := m.Responses[m.key(name, args...)]; ok {
+	resp, ok := m.Responses[m.key(name, args...)]
+	m.mu.Unlock()
+	if ok {
 		return resp.Err
 	}
 	return nil
 }
 
 func (m *MockCommandRunner) RunWithOutput(name string, args ...string) ([]byte, error) {
+	m.mu.Lock()
 	m.Commands = append(m.Commands, MockCommand{Name: name, Args: args})
-	if resp, ok := m.Responses[m.key(name, args...)]; ok {
+	resp, ok := m.Responses[m.key(name, args...)]
+	m.mu.Unlock()
+	if ok {
 		return resp.Output, resp.Err
 	}
 	return nil, nil
 }
 
 func (m *MockCommandRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
+	m.mu.Lock()
 	m.Commands = append(m.Commands, MockCommand{Name: name, Args: args})
-	if resp, ok := m.Responses[m.key(name, args...)]; ok {
+	resp, ok := m.Responses[m.key(name, args...)]
+	m.mu.Unlock()
+	if ok {
 		return bytes.NewReader(resp.Output), func() error { return resp.Err }, nil
 	}
 	return bytes.NewReader(nil), func() error { return nil }, nil
 }
 
 func (m *MockCommandRunner) RunWithEnv(env []string, name string, args ...string) error {
+	m.mu.Lock()
 	m.Commands = append(m.Commands, MockCommand{Name: name, Args: args})
-	if resp, ok := m.Responses[m.key(name, args...)]; ok {
+	resp, ok := m.Responses[m.key(name, args...)]
+	m.mu.Unlock()
+	if ok {
 		return resp.Err
 	}
 	return nil
