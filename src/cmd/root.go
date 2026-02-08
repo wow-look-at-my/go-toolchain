@@ -14,9 +14,9 @@ import (
 )
 
 var (
+	outputDir = "build"
 	covDetail     string
 	minCoverage   float32
-	outputDir     string
 	srcPath       string
 	jsonOutput    bool
 	verbose       bool
@@ -35,8 +35,7 @@ func init() {
 	rootCmd.Long = "Runs go mod tidy, go test with coverage, and go build. Fails if coverage is below threshold.\n\n" + installStatus()
 	rootCmd.Flags().StringVar(&covDetail, "cov-detail", "", "Show detailed coverage: 'func' or 'file'")
 	rootCmd.Flags().Float32Var(&minCoverage, "min-coverage", 80.0, "Minimum coverage percentage (0 = test only, no build)")
-	rootCmd.Flags().StringVarP(&outputDir, "output", "o", "build", "Output directory for binaries")
-	rootCmd.Flags().StringVar(&srcPath, "src", ".", "Path to main package (e.g., ./cmd/myapp)")
+rootCmd.Flags().StringVar(&srcPath, "src", ".", "Path to main package (e.g., ./cmd/myapp)")
 	rootCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
 	rootCmd.Flags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")

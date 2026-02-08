@@ -11,10 +11,6 @@ inputs:
     description: 'Minimum coverage percentage required (0 = test only, no build)'
     required: false
     default: '80'
-  output:
-    description: 'Output binary name (default: directory name)'
-    required: false
-    default: ''
   cov-detail:
     description: 'Show detailed coverage: "func" or "file"'
     required: false
@@ -39,8 +35,6 @@ inputs:
 outputs:
   coverage:
     description: 'Total coverage percentage'
-  binary:
-    description: 'Path to the built binary'
 
 runs:
   using: 'composite'
@@ -84,9 +78,6 @@ runs:
       run: |
         set -euo pipefail
         ARGS="--min-coverage ${{ inputs.min-coverage }}"
-        if [ -n "${{ inputs.output }}" ]; then
-          ARGS="$ARGS -o ${{ inputs.output }}"
-        fi
         if [ -n "${{ inputs.cov-detail }}" ]; then
           ARGS="$ARGS --cov-detail ${{ inputs.cov-detail }}"
         fi

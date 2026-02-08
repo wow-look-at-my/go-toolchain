@@ -185,15 +185,6 @@ EOF
 	echo "$output" | jq -e '.total' > /dev/null
 }
 
-@test "-o flag sets output directory" {
-	create_test_project "$TEST_DIR/proj" 100
-	cd "$TEST_DIR/proj"
-
-	run "$BINARY" --min-coverage 80 -o dist
-	[ "$status" -eq 0 ]
-	[ -f "dist/proj" ]
-}
-
 @test "--src builds from cmd/ layout" {
 	mkdir -p "$TEST_DIR/proj/cmd/myapp"
 	cd "$TEST_DIR/proj"
@@ -302,42 +293,6 @@ EOF
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
 	[ -f "build/linter" ]
-}
-
-@test "-o changes output directory for auto-detected packages" {
-	mkdir -p "$TEST_DIR/proj/cmd/myapp"
-	cd "$TEST_DIR/proj"
-
-	cat > go.mod <<EOF
-module testproject
-go 1.21
-EOF
-
-	cat > cmd/myapp/main.go <<EOF
-package main
-
-func Add(a, b int) int {
-	return a + b
-}
-
-func main() {}
-EOF
-
-	cat > cmd/myapp/main_test.go <<EOF
-package main
-
-import "testing"
-
-func TestAdd(t *testing.T) {
-	if Add(1, 2) != 3 {
-		t.Error("Add failed")
-	}
-}
-EOF
-
-	run "$BINARY" --min-coverage 80 -o out
-	[ "$status" -eq 0 ]
-	[ -f "out/myapp" ]
 }
 
 @test "shows package coverage in output" {
@@ -464,17 +419,15 @@ EOF
 	# Stage 1: Original compile with go build
 	go build -o stage1 ./src
 
-	# Stage 2: Use stage1 to build itself (auto-derives name "go-safe-build" from module)
-	./stage1 -o build2
-	cp build2/go-safe-build stage2
+	# Stage 2: Use stage1 to build itself
+	./stage1
+	cp build/go-safe-build stage2
+	rm -rf build
 
 	# Stage 3: Use stage2 to build itself
-	./stage2 -o build3
-
-	# Verify binaries exist
-	[ -f "stage2" ]
-	[ -f "build3/go-safe-build" ]
+	./stage2
+	cp build/go-safe-build stage3
 
 	# Compare binaries from stage 2 and 3 — they should be identical
-	cmp stage2 build3/go-safe-build
+	cmp stage2 stage3
 }
