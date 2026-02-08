@@ -40,6 +40,14 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
 	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
 	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
+
+	// Benchmark flags
+	rootCmd.Flags().BoolVar(&doBenchmark, "benchmark", false, "Run benchmarks after build")
+	rootCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
+	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
+	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
+
+
 	Register(rootCmd)
 }
 
@@ -110,6 +118,13 @@ func runWithRunner(runner CommandRunner) error {
 	if !jsonOutput {
 		fmt.Println("==> Build successful")
 	}
+
+	if doBenchmark {
+		if err := runBenchmarkWithRunner(runner); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

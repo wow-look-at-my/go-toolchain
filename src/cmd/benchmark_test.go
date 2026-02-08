@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -9,20 +10,17 @@ func TestBuildBenchArgsDefaults(t *testing.T) {
 	oldTime := benchTime
 	oldCount := benchCount
 	oldCPU := benchCPU
-	oldMem := benchMem
 	oldVerbose := verbose
 	defer func() {
 		benchTime = oldTime
 		benchCount = oldCount
 		benchCPU = oldCPU
-		benchMem = oldMem
 		verbose = oldVerbose
 	}()
 
 	benchTime = ""
 	benchCount = 1
 	benchCPU = ""
-	benchMem = true
 	verbose = false
 
 	args := buildBenchArgs()
@@ -41,20 +39,17 @@ func TestBuildBenchArgsAllOptions(t *testing.T) {
 	oldTime := benchTime
 	oldCount := benchCount
 	oldCPU := benchCPU
-	oldMem := benchMem
 	oldVerbose := verbose
 	defer func() {
 		benchTime = oldTime
 		benchCount = oldCount
 		benchCPU = oldCPU
-		benchMem = oldMem
 		verbose = oldVerbose
 	}()
 
 	benchTime = "5s"
 	benchCount = 3
 	benchCPU = "1,2,4"
-	benchMem = true
 	verbose = true
 
 	args := buildBenchArgs()
@@ -69,31 +64,32 @@ func TestBuildBenchArgsAllOptions(t *testing.T) {
 	}
 }
 
-func TestBuildBenchArgsNoMem(t *testing.T) {
+func TestBuildBenchArgsBenchmemAlwaysPresent(t *testing.T) {
 	oldTime := benchTime
 	oldCount := benchCount
 	oldCPU := benchCPU
-	oldMem := benchMem
 	oldVerbose := verbose
 	defer func() {
 		benchTime = oldTime
 		benchCount = oldCount
 		benchCPU = oldCPU
-		benchMem = oldMem
 		verbose = oldVerbose
 	}()
 
 	benchTime = ""
 	benchCount = 1
 	benchCPU = ""
-	benchMem = false
 	verbose = false
 
 	args := buildBenchArgs()
+	found := false
 	for _, a := range args {
 		if a == "-benchmem" {
-			t.Error("expected -benchmem to be absent when benchMem is false")
+			found = true
 		}
+	}
+	if !found {
+		t.Error("expected -benchmem to always be present")
 	}
 }
 
@@ -101,14 +97,12 @@ func TestRunBenchmarkWithRunnerSuccess(t *testing.T) {
 	oldTime := benchTime
 	oldCount := benchCount
 	oldCPU := benchCPU
-	oldMem := benchMem
 	oldVerbose := verbose
 	oldJSON := jsonOutput
 	defer func() {
 		benchTime = oldTime
 		benchCount = oldCount
 		benchCPU = oldCPU
-		benchMem = oldMem
 		verbose = oldVerbose
 		jsonOutput = oldJSON
 	}()
@@ -116,7 +110,6 @@ func TestRunBenchmarkWithRunnerSuccess(t *testing.T) {
 	benchTime = ""
 	benchCount = 1
 	benchCPU = ""
-	benchMem = true
 	verbose = false
 	jsonOutput = false
 
@@ -141,20 +134,17 @@ func TestRunBenchmarkWithRunnerFails(t *testing.T) {
 	oldTime := benchTime
 	oldCount := benchCount
 	oldCPU := benchCPU
-	oldMem := benchMem
 	oldJSON := jsonOutput
 	defer func() {
 		benchTime = oldTime
 		benchCount = oldCount
 		benchCPU = oldCPU
-		benchMem = oldMem
 		jsonOutput = oldJSON
 	}()
 
 	benchTime = ""
 	benchCount = 1
 	benchCPU = ""
-	benchMem = true
 	jsonOutput = false
 
 	mock := NewMockRunner()
@@ -169,20 +159,17 @@ func TestRunBenchmarkWithRunnerJSON(t *testing.T) {
 	oldTime := benchTime
 	oldCount := benchCount
 	oldCPU := benchCPU
-	oldMem := benchMem
 	oldJSON := jsonOutput
 	defer func() {
 		benchTime = oldTime
 		benchCount = oldCount
 		benchCPU = oldCPU
-		benchMem = oldMem
 		jsonOutput = oldJSON
 	}()
 
 	benchTime = ""
 	benchCount = 1
 	benchCPU = ""
-	benchMem = true
 	jsonOutput = true
 
 	mock := NewMockRunner()
@@ -192,6 +179,102 @@ func TestRunBenchmarkWithRunnerJSON(t *testing.T) {
 	err := runBenchmarkWithRunner(mock)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunWithRunnerBenchmarkFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	mock := &testPassMockRunner{}
+
+	oldJSON := jsonOutput
+	oldMin := minCoverage
+	oldOut := outputDir
+	oldBench := doBenchmark
+	oldTime := benchTime
+	oldCount := benchCount
+	oldCPU := benchCPU
+	defer func() {
+		jsonOutput = oldJSON
+		minCoverage = oldMin
+		outputDir = oldOut
+		doBenchmark = oldBench
+		benchTime = oldTime
+		benchCount = oldCount
+		benchCPU = oldCPU
+	}()
+
+	jsonOutput = true
+	minCoverage = 80
+	outputDir = tmpDir
+	doBenchmark = true
+	benchTime = ""
+	benchCount = 1
+	benchCPU = ""
+
+	err := runWithRunner(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Verify that a benchmark command was issued (go test -bench ...)
+	found := false
+	for _, cmd := range mock.commands {
+		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "test" {
+			for _, arg := range cmd.Args {
+				if arg == "-bench" {
+					found = true
+					break
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("expected benchmark command (go test -bench ...) to be run when --benchmark is set")
+	}
+}
+
+func TestRunWithRunnerNoBenchmarkByDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	mock := &testPassMockRunner{}
+
+	oldJSON := jsonOutput
+	oldMin := minCoverage
+	oldOut := outputDir
+	oldBench := doBenchmark
+	defer func() {
+		jsonOutput = oldJSON
+		minCoverage = oldMin
+		outputDir = oldOut
+		doBenchmark = oldBench
+	}()
+
+	jsonOutput = true
+	minCoverage = 80
+	outputDir = tmpDir
+	doBenchmark = false
+
+	err := runWithRunner(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Verify no benchmark command was issued
+	for _, cmd := range mock.commands {
+		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "test" {
+			for _, arg := range cmd.Args {
+				if arg == "-bench" {
+					t.Error("benchmark command should not be run when --benchmark is not set")
+				}
+			}
+		}
 	}
 }
 
