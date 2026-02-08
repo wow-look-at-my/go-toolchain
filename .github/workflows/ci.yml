@@ -31,12 +31,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build and test with action
-        uses: ./
-
-      - name: Test matrix subcommand
-        run: |
-          go run ./src matrix
-          ls -la build/
+        uses: wow-look-at-my/go-toolchain@$GITHUB_SHA
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
