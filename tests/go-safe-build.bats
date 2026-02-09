@@ -161,9 +161,10 @@ EOF
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 80 --cov-detail func
+	# Use -v to show all entries (100% coverage hides entries by default)
+	run "$BINARY" --min-coverage 80 --cov-detail func -v
 	[ "$status" -eq 0 ]
-	# Should show function names with line numbers
+	# Should show function names
 	[[ "$output" == *"main.go"* ]]
 	[[ "$output" == *"main"* ]]
 }
@@ -172,7 +173,8 @@ EOF
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 80 --cov-detail file
+	# Use -v to show all entries (100% coverage hides entries by default)
+	run "$BINARY" --min-coverage 80 --cov-detail file -v
 	[ "$status" -eq 0 ]
 	# Should show file names
 	[[ "$output" == *"main.go"* ]]
