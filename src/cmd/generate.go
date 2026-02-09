@@ -39,8 +39,11 @@ func runGenerate(quiet bool, expectedHash string) error {
 	// Compute hash of all directives
 	hash := computeDirectivesHash(directives)
 
-	// Allow explicit skip (silent)
+	// Allow explicit skip
 	if expectedHash == "skip" {
+		if !quiet {
+			fmt.Println(colorYellow + "    Generate commands skipped" + colorReset)
+		}
 		return nil
 	}
 
