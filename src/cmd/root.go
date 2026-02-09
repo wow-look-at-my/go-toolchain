@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,6 +185,15 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 
 	report := &result.Coverage
 
+	// If tests failed, show failure details and return error (no coverage output)
+	if testErr != nil {
+		if !jsonOutput && result.FailureOutput != "" {
+			fmt.Println("\n==> Test failures:")
+			fmt.Print(colorRed + result.FailureOutput + colorReset)
+		}
+		return fmt.Errorf("tests failed: %w", testErr)
+	}
+
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "\t")
@@ -192,42 +202,13 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		}
 	} else {
 		fmt.Println("\n==> Package coverage:")
-		for _, p := range report.Packages {
-			// In non-verbose mode, hide passing packages when there are failures
-			if testErr != nil && !verbose && p.Passed {
-				continue
-			}
-			if p.NoStatements {
-				fmt.Printf("       ∅  %s\n", p.Package)
-			} else {
-				fmt.Printf("  %s  %s\n", colorPct(ColorPct{Pct: p.Coverage}), p.Package)
-			}
-		}
-
-		if covDetail == "file" && len(report.Files) > 0 {
-			fmt.Println("\n==> File coverage:")
-			for _, f := range report.Files {
-				fmt.Printf("  %s  %s\n", colorPct(ColorPct{Pct: f.Coverage}), f.File)
-			}
-		}
-
-		if covDetail == "func" && len(report.Funcs) > 0 {
-			fmt.Println("\n==> Function coverage:")
-			for _, f := range report.Funcs {
-				fmt.Printf("  %s  %s:%d %s\n", colorPct(ColorPct{Pct: f.Coverage}), f.File, f.Line, f.Function)
-			}
-		}
+		report.Print(gotest.PrintOptions{
+			ShowFiles: covDetail == "file" || covDetail == "func",
+			ShowFuncs: covDetail == "func",
+			Verbose:   verbose,
+		})
 
 		fmt.Printf("\n==> Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
-	}
-
-	// If tests failed, show failure details and return error
-	if testErr != nil {
-		if !jsonOutput && result.FailureOutput != "" {
-			fmt.Println("\n==> Test failures:")
-			fmt.Print(colorFail + result.FailureOutput + colorReset)
-		}
-		return fmt.Errorf("tests failed: %w", testErr)
 	}
 
 	// Handle --add-watermark: store watermark after coverage is computed
@@ -265,15 +246,10 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		}
 	}
 
-	if report.Total < effectiveMin {
-		if !jsonOutput {
-			fmt.Println("\n==> Uncovered functions:")
-			for _, f := range report.Funcs {
-				if f.Coverage < 100 {
-					fmt.Printf("  %s  %s:%d %s\n", colorPct(ColorPct{Pct: f.Coverage}), f.File, f.Line, f.Function)
-				}
-			}
-		}
+	// Round to 1 decimal place for comparison (same precision as display)
+	roundedTotal := float32(math.Round(float64(report.Total)*10) / 10)
+	roundedMin := float32(math.Round(float64(effectiveMin)*10) / 10)
+	if roundedTotal < roundedMin {
 		return fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
 	}
 
