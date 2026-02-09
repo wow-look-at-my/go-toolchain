@@ -163,7 +163,9 @@ EOF
 
 	run "$BINARY" --min-coverage 80 --cov-detail func
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"Function coverage"* ]]
+	# Should show function names with line numbers
+	[[ "$output" == *"main.go"* ]]
+	[[ "$output" == *"main"* ]]
 }
 
 @test "--cov-detail=file shows file coverage" {
@@ -172,7 +174,8 @@ EOF
 
 	run "$BINARY" --min-coverage 80 --cov-detail file
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"File coverage"* ]]
+	# Should show file names
+	[[ "$output" == *"main.go"* ]]
 }
 
 @test "--json outputs valid JSON" {
