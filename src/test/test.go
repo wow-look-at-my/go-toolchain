@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	"gotest.tools/gotestsum/testjson"
 )
@@ -100,44 +101,53 @@ func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult
 	// Capture wait error but continue processing results
 	waitErr := wait()
 
+	// Parse coverage profile for total and file coverage (files contain functions)
+	totalCoverage, files, _ := ParseProfile(coverFile)
+
+	// Group files by package path
+	pkgFiles := make(map[string][]FileCoverage)
+	for _, f := range files {
+		// Extract package path from file path (everything before last /)
+		pkgPath := f.File
+		if idx := strings.LastIndex(f.File, "/"); idx != -1 {
+			pkgPath = f.File[:idx]
+		}
+		pkgFiles[pkgPath] = append(pkgFiles[pkgPath], f)
+	}
+
 	// Build package results from execution
 	var packages []PackageCoverage
 	for _, pkgName := range execution.Packages() {
-		pkg := execution.Package(pkgName)
-		cov, hasStatements := pkgCoverage[pkgName]
-		packages = append(packages, PackageCoverage{
-			Package:      pkgName,
-			Coverage:     cov,
-			Passed:       pkg.Result() == testjson.ActionPass,
-			NoStatements: !hasStatements,
-		})
-	}
-	// Sort by coverage ascending (lowest first) so the most
-	// under-covered packages are visible at the top.
-	// Packages with no statements sort to the end.
-	sort.Slice(packages, func(i, j int) bool {
-		if packages[i].NoStatements != packages[j].NoStatements {
-			return !packages[i].NoStatements
+		p := PackageCoverage{
+			Package: pkgName,
 		}
-		if packages[i].Coverage != packages[j].Coverage {
-			return packages[i].Coverage < packages[j].Coverage
+		// Find matching package files (match by suffix since pkgName is full import path)
+		for path, pf := range pkgFiles {
+			if strings.HasSuffix(pkgName, path) || strings.HasSuffix(path, pkgName) || path == pkgName {
+				p.Files = pf
+				for _, f := range pf {
+					p.Statements += f.Statements
+					p.Covered += f.Covered
+				}
+				break
+			}
+		}
+		packages = append(packages, p)
+	}
+
+	// Sort by uncovered statements (most uncovered first)
+	sort.Slice(packages, func(i, j int) bool {
+		if packages[i].Uncovered() != packages[j].Uncovered() {
+			return packages[i].Uncovered() > packages[j].Uncovered()
 		}
 		return packages[i].Package < packages[j].Package
 	})
-
-	// Parse coverage profile for total coverage computed as
-	// (total covered statements) / (total statements) across all files.
-	totalCoverage, files, _ := ParseProfile(coverFile)
-
-	// Parse function-level coverage
-	funcs, _ := ParseFuncCoverage(coverFile)
 
 	return &TestResult{
 		Coverage: Report{
 			Total:    totalCoverage,
 			Packages: packages,
 			Files:    files,
-			Funcs:    funcs,
 		},
 		FailureOutput: handler.FailureOutput(),
 	}, waitErr

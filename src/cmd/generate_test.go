@@ -267,10 +267,10 @@ func TestRunGenerateWithHash(t *testing.T) {
 	}
 	hash := computeDirectivesHash(directives)
 
-	// Without hash, command should NOT run
+	// Without hash, command should NOT run and should return error
 	err = runGenerate(true, "")
-	if err != nil {
-		t.Fatalf("runGenerate without hash failed: %v", err)
+	if err == nil {
+		t.Fatal("runGenerate without hash should return error")
 	}
 	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
 		t.Error("expected generated.txt to NOT be created without hash")
@@ -309,13 +309,46 @@ func TestRunGenerateWrongHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// With wrong hash, command should NOT run
+	// With wrong hash, command should NOT run and should return error
 	err = runGenerate(true, "wronghash123")
-	if err != nil {
-		t.Fatalf("runGenerate with wrong hash failed: %v", err)
+	if err == nil {
+		t.Fatal("runGenerate with wrong hash should return error")
 	}
 	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
 		t.Error("expected generated.txt to NOT be created with wrong hash")
+	}
+}
+
+func TestRunGenerateSkip(t *testing.T) {
+	// Save current directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+
+	// Create temp directory with a generate directive
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	testFile := filepath.Join(dir, "main.go")
+	outputFile := filepath.Join(dir, "generated.txt")
+
+	content := "package main\n" +
+		"//go:generate sh -c \"echo generated > generated.txt\"\n"
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// With "skip", command should NOT run but should succeed
+	err = runGenerate(true, "skip")
+	if err != nil {
+		t.Fatalf("runGenerate with skip should succeed, got: %v", err)
+	}
+	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
+		t.Error("expected generated.txt to NOT be created with skip")
 	}
 }
 
