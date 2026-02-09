@@ -4,3 +4,6 @@ go-toolchain
 # Test coverage
 coverage.out
 src/coverage.out
+
+# Claude Code
+.claude/
