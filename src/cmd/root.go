@@ -197,14 +197,10 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 			if testErr != nil && !verbose && p.Passed {
 				continue
 			}
-			status := "[" + colorPass + "PASS" + colorReset + "]"
-			if !p.Passed {
-				status = "[" + colorFail + "FAIL" + colorReset + "]"
-			}
 			if p.NoStatements {
-				fmt.Printf("    n/a  %s  %s\n", status, p.Package)
+				fmt.Printf("       ∅  %s\n", p.Package)
 			} else {
-				fmt.Printf("  %s  %s  %s\n", colorPct(ColorPct{Pct: p.Coverage}), status, p.Package)
+				fmt.Printf("  %s  %s\n", colorPct(ColorPct{Pct: p.Coverage}), p.Package)
 			}
 		}
 
