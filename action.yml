@@ -23,6 +23,10 @@ inputs:
     description: 'Show test output line by line'
     required: false
     default: 'false'
+  generate:
+    description: 'Run go:generate directives matching this hash'
+    required: false
+    default: ''
   working-directory:
     description: 'Working directory for the build'
     required: false
@@ -55,6 +59,9 @@ runs:
         fi
         if [ "${{ inputs.verbose }}" = "true" ]; then
           ARGS="$ARGS --verbose"
+        fi
+        if [ -n "${{ inputs.generate }}" ]; then
+          ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
         # Self-test: use commit SHA when running in this repo
         if [ "$GITHUB_REPOSITORY" = "wow-look-at-my/go-toolchain" ]; then

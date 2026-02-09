@@ -15,6 +15,16 @@ go run ./src matrix
 bats tests/
 ```
 
+## Coverage Analysis
+
+Use `--cov-detail func` to see which functions lack coverage:
+
+```bash
+go run ./src --cov-detail func
+```
+
+This shows a hierarchical view: packages > files > functions, sorted by uncovered statements. Fully covered items are hidden by default; add `-v` to show all.
+
 ## Project Structure
 
 - `src/main.go` — entry point
