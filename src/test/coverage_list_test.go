@@ -25,7 +25,21 @@ func captureOutput(f func()) string {
 }
 
 func TestParseCoverageStatements(t *testing.T) {
-	total, files, err := ParseProfile("testdata/coverage.out")
+	// Create temp file with coverage data
+	content := `mode: set
+example.com/pkg/foo.go:10.1,12.1 3 1
+example.com/pkg/foo.go:14.1,16.1 5 0
+example.com/pkg/bar.go:10.1,12.1 10 1
+example.com/pkg/bar.go:14.1,16.1 4 0
+`
+	f, err := os.CreateTemp("", "coverage*.out")
+	require.NoError(t, err)
+	defer os.Remove(f.Name())
+	_, err = f.WriteString(content)
+	require.NoError(t, err)
+	f.Close()
+
+	total, files, err := ParseProfile(f.Name())
 	require.NoError(t, err)
 
 	// Verify total coverage: 13 covered / 22 total = 59.09%
@@ -33,8 +47,8 @@ func TestParseCoverageStatements(t *testing.T) {
 
 	// Verify file-level statement counts
 	fileMap := make(map[string]FileCoverage)
-	for _, f := range files {
-		fileMap[f.File] = f
+	for _, fc := range files {
+		fileMap[fc.File] = fc
 	}
 
 	// foo.go: 3 covered, 8 total (5 uncovered)
@@ -49,8 +63,10 @@ func TestParseCoverageStatements(t *testing.T) {
 }
 
 func TestSortByUncovered(t *testing.T) {
-	_, files, err := ParseProfile("testdata/coverage.out")
-	require.NoError(t, err)
+	files := []FileCoverage{
+		{baseCoverageItem: baseCoverageItem{Statements: 8, Covered: 3}, File: "example.com/pkg/foo.go"},  // 5 uncovered
+		{baseCoverageItem: baseCoverageItem{Statements: 14, Covered: 10}, File: "example.com/pkg/bar.go"}, // 4 uncovered
+	}
 
 	sortByUncovered(files)
 
