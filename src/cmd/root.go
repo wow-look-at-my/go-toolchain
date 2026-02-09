@@ -21,6 +21,7 @@ var (
 	verbose       bool
 	addWatermark  bool
 	doRemoveWmark bool
+	generateHash  string
 )
 
 var rootCmd = &cobra.Command{
@@ -40,6 +41,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
 	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
 	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
+	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
 
 	// Benchmark flags
 	rootCmd.Flags().BoolVar(&doBenchmark, "benchmark", false, "Run benchmarks after build")
@@ -152,7 +154,7 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		if !jsonOutput {
 			fmt.Println("==> go generate ./...")
 		}
-		if err := runner.Run("go", "generate", "./..."); err != nil {
+		if err := runGenerate(jsonOutput, generateHash); err != nil {
 			return fmt.Errorf("go generate failed: %w", err)
 		}
 	}
