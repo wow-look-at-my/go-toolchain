@@ -39,7 +39,12 @@ func runGenerate(quiet bool, expectedHash string) error {
 	// Compute hash of all directives
 	hash := computeDirectivesHash(directives)
 
-	// If no hash provided or hash mismatch, show commands and prompt
+	// Allow explicit skip (silent)
+	if expectedHash == "skip" {
+		return nil
+	}
+
+	// If no hash provided or hash mismatch, show commands and stop
 	if expectedHash == "" || expectedHash != hash {
 		if !quiet {
 			fmt.Println(colorYellow + "    Generate commands detected (not executed):" + colorReset)
@@ -48,7 +53,7 @@ func runGenerate(quiet bool, expectedHash string) error {
 			}
 			fmt.Printf("\n%sTo run these commands, add: --generate %s%s\n", colorYellow, hash, colorReset)
 		}
-		return nil
+		return fmt.Errorf("generate commands require approval: --generate %s", hash)
 	}
 
 	// Hash matches, execute directives
