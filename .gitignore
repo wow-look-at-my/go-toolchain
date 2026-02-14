@@ -1,5 +1,6 @@
 # Build output
 go-toolchain
+src/src
 
 # Test coverage
 coverage.out
