@@ -202,7 +202,7 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
-		fmt.Println("\n==> Package coverage:")
+		fmt.Println("\n==> Package coverage (details: --cov-detail file|func):")
 		report.Print(gotest.PrintOptions{
 			ShowFiles: covDetail == "file" || covDetail == "func",
 			ShowFuncs: covDetail == "func",
