@@ -191,7 +191,6 @@ func TestRunWithRunnerBenchmarkFlag(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	oldJSON := jsonOutput
-	oldMin := minCoverage
 	oldOut := outputDir
 	oldBench := doBenchmark
 	oldTime := benchTime
@@ -199,7 +198,6 @@ func TestRunWithRunnerBenchmarkFlag(t *testing.T) {
 	oldCPU := benchCPU
 	defer func() {
 		jsonOutput = oldJSON
-		minCoverage = oldMin
 		outputDir = oldOut
 		doBenchmark = oldBench
 		benchTime = oldTime
@@ -208,7 +206,6 @@ func TestRunWithRunnerBenchmarkFlag(t *testing.T) {
 	}()
 
 	jsonOutput = true
-	minCoverage = 80
 	outputDir = tmpDir
 	doBenchmark = true
 	benchTime = ""
@@ -246,18 +243,15 @@ func TestRunWithRunnerNoBenchmarkByDefault(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	oldJSON := jsonOutput
-	oldMin := minCoverage
 	oldOut := outputDir
 	oldBench := doBenchmark
 	defer func() {
 		jsonOutput = oldJSON
-		minCoverage = oldMin
 		outputDir = oldOut
 		doBenchmark = oldBench
 	}()
 
 	jsonOutput = true
-	minCoverage = 80
 	outputDir = tmpDir
 	doBenchmark = false
 

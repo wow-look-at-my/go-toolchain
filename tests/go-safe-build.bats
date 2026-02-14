@@ -121,36 +121,23 @@ EOF
 	run "$BINARY" --help
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build Go projects with coverage enforcement"* ]]
-	[[ "$output" == *"--min-coverage"* ]]
 	[[ "$output" == *"--cov-detail"* ]]
 }
 
-@test "--min-coverage 0 runs tests only, no build, exits non-zero" {
-	create_test_project "$TEST_DIR/proj" 100
-	cd "$TEST_DIR/proj"
-
-	run "$BINARY" --min-coverage 0
-	[ "$status" -ne 0 ]
-	[[ "$output" == *"Test-only mode"* ]]
-	[[ "$output" == *"skipping build"* ]]
-	# Should not have created a binary
-	[ ! -d "build" ]
-}
-
-@test "fails when coverage below threshold" {
+@test "fails when coverage below 80% threshold" {
 	create_test_project "$TEST_DIR/proj" 50
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 90
+	run "$BINARY"
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"below minimum"* ]]
 }
 
-@test "succeeds when coverage meets threshold" {
+@test "succeeds when coverage meets 80% threshold" {
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 80
+	run "$BINARY"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
 	# Should have created a binary in build/
@@ -162,7 +149,7 @@ EOF
 	cd "$TEST_DIR/proj"
 
 	# Use -v to show all entries (100% coverage hides entries by default)
-	run "$BINARY" --min-coverage 80 --cov-detail func -v
+	run "$BINARY" --cov-detail func -v
 	[ "$status" -eq 0 ]
 	# Should show function names
 	[[ "$output" == *"main.go"* ]]
@@ -174,7 +161,7 @@ EOF
 	cd "$TEST_DIR/proj"
 
 	# Use -v to show all entries (100% coverage hides entries by default)
-	run "$BINARY" --min-coverage 80 --cov-detail file -v
+	run "$BINARY" --cov-detail file -v
 	[ "$status" -eq 0 ]
 	# Should show file names
 	[[ "$output" == *"main.go"* ]]
@@ -184,7 +171,7 @@ EOF
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 80 --json
+	run "$BINARY" --json
 	[ "$status" -eq 0 ]
 	# Verify it's valid JSON with total field
 	echo "$output" | jq -e '.total' > /dev/null
@@ -221,7 +208,7 @@ func TestAdd(t *testing.T) {
 }
 EOF
 
-	run "$BINARY" --min-coverage 80
+	run "$BINARY"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
 	[ -f "build/myapp" ]
@@ -258,7 +245,7 @@ func TestCheck(t *testing.T) {
 }
 EOF
 
-	run "$BINARY" --min-coverage 80
+	run "$BINARY"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
 	[ -f "build/linter" ]
@@ -268,7 +255,7 @@ EOF
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 80
+	run "$BINARY"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Package coverage"* ]]
 	[[ "$output" == *"testproject"* ]]
@@ -278,7 +265,7 @@ EOF
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 0
+	run "$BINARY"
 	[[ "$output" == *"Total coverage:"* ]]
 	[[ "$output" == *"%"* ]]
 }
@@ -287,7 +274,7 @@ EOF
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --min-coverage 80 --add-watermark
+	run "$BINARY" --add-watermark
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Watermark set to"* ]]
 
@@ -304,7 +291,7 @@ EOF
 	# 50 < 57.5 → should fail
 	set_xattr user.go-toolchain.watermark "60.0" .
 
-	run "$BINARY" --min-coverage 80
+	run "$BINARY"
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"Watermark:"* ]]
 	[[ "$output" == *"below minimum"* ]]
@@ -318,7 +305,7 @@ EOF
 	# 50 > 49.5 → should pass
 	set_xattr user.go-toolchain.watermark "52.0" .
 
-	run "$BINARY" --min-coverage 80
+	run "$BINARY"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Watermark:"* ]]
 	[[ "$output" == *"Build successful"* ]]
@@ -332,7 +319,7 @@ EOF
 	# 50 < 57.5 → should fail
 	set_xattr user.go-toolchain.watermark "60.0" .
 
-	run "$BINARY" --min-coverage 80
+	run "$BINARY"
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"below minimum"* ]]
 }
@@ -344,7 +331,7 @@ EOF
 	# Set watermark to 50% — coverage is 100%, should ratchet up
 	set_xattr user.go-toolchain.watermark "50.0" .
 
-	run "$BINARY" --min-coverage 80
+	run "$BINARY"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Watermark updated:"* ]]
 
