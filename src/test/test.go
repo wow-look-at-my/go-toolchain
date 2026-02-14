@@ -101,6 +101,11 @@ func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult
 	// Capture wait error but continue processing results
 	waitErr := wait()
 
+	// If go test failed and no tests ran, provide a clearer error message
+	if waitErr != nil && execution.Total() == 0 {
+		return nil, fmt.Errorf("no tests found (create *_test.go files with Test* functions)")
+	}
+
 	// Parse coverage profile for total and file coverage (files contain functions)
 	totalCoverage, files, _ := ParseProfile(coverFile)
 
