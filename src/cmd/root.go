@@ -68,6 +68,13 @@ func runWithRunner(runner CommandRunner) error {
 		return handleRemoveWatermark()
 	}
 
+	// Start async dependency freshness check (reports at end)
+	var depChecker *DepChecker
+	if !jsonOutput {
+		depChecker = CheckOutdatedDeps()
+		defer WaitForOutdatedDeps(depChecker)
+	}
+
 	if err := RunTestsWithCoverage(runner); err != nil {
 		return err
 	}
@@ -123,6 +130,11 @@ func runWithRunner(runner CommandRunner) error {
 // checks coverage against the threshold. Used by both the default command
 // and the matrix command.
 func RunTestsWithCoverage(runner CommandRunner) error {
+	// Fix any v0.0.0 dependencies before go mod tidy
+	if err := FixBogusDepsVersions(runner); err != nil {
+		return err
+	}
+
 	if !jsonOutput {
 		fmt.Println("==> go mod tidy")
 	}
@@ -139,6 +151,13 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		}
 		if err := runGenerate(jsonOutput, generateHash); err != nil {
 			return fmt.Errorf("go generate failed: %w", err)
+		}
+		// Run tidy again after generate in case new imports were added
+		if !jsonOutput {
+			fmt.Println("==> go mod tidy (post-generate)")
+		}
+		if err := runner.Run("go", "mod", "tidy"); err != nil {
+			return fmt.Errorf("go mod tidy failed: %w", err)
 		}
 	}
 
@@ -183,7 +202,7 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
-		fmt.Println("\n==> Package coverage:")
+		fmt.Println("\n==> Package coverage (details: --cov-detail file|func):")
 		report.Print(gotest.PrintOptions{
 			ShowFiles: covDetail == "file" || covDetail == "func",
 			ShowFuncs: covDetail == "func",
