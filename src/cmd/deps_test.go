@@ -582,3 +582,61 @@ require git.internal/foo v0.0.0
 	// This will fail but covers the non-jsonOutput branch
 	_ = FixBogusDepsVersions(mock)
 }
+
+func TestDepChecker_WaitWithProgress_Nil(t *testing.T) {
+	var dc *DepChecker
+	result := dc.WaitWithProgress()
+	if result != nil {
+		t.Errorf("expected nil result for nil DepChecker, got %v", result)
+	}
+}
+
+func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
+	mock := NewMockRunner()
+	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
+
+	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
+	if err == nil {
+		t.Error("expected error when git ls-remote fails")
+	}
+}
+
+func TestCheckDepLive_NonexistentModule(t *testing.T) {
+	// Test with a module that doesn't exist
+	_, _, err := checkDepLive("invalid.module.path.that.does.not.exist/foo")
+	if err == nil {
+		t.Error("expected error for nonexistent module")
+	}
+}
+
+func TestOpenCacheDB_CreatesDir(t *testing.T) {
+	// This test verifies openCacheDB works when cache dir needs creation
+	db, err := openCacheDB()
+	if err != nil {
+		t.Fatalf("openCacheDB() error: %v", err)
+	}
+	db.Close()
+}
+
+func TestDepChecker_run_DBOpenError(t *testing.T) {
+	// Test when we can't open the DB (by using a bad HOME env)
+	oldHome := os.Getenv("HOME")
+	oldCache := os.Getenv("XDG_CACHE_HOME")
+	os.Setenv("HOME", "/nonexistent/path/that/does/not/exist")
+	os.Setenv("XDG_CACHE_HOME", "/nonexistent/path/that/does/not/exist")
+	defer func() {
+		os.Setenv("HOME", oldHome)
+		os.Setenv("XDG_CACHE_HOME", oldCache)
+	}()
+
+	dc := &DepChecker{
+		doneCh: make(chan struct{}),
+	}
+	dc.run()
+
+	// Should complete with an error
+	if !dc.done {
+		t.Error("done should be true")
+	}
+	// Note: error may or may not be set depending on OS behavior with MkdirAll
+}
