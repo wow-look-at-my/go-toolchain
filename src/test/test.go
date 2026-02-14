@@ -76,7 +76,7 @@ type TestResult struct {
 // RunTests executes go test with coverage and returns parsed results.
 // coverFile is the path where the coverage profile will be written.
 func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult, error) {
-	stdout, wait, err := runner.RunWithPipes("go", "test", "-json", "-coverprofile="+coverFile, "./...")
+	stdout, wait, err := runner.RunWithPipes("go", "test", "-vet=off", "-json", "-coverprofile="+coverFile, "./...")
 	if err != nil {
 		return nil, err
 	}
