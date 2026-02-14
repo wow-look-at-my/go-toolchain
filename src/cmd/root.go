@@ -140,6 +140,13 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		if err := runGenerate(jsonOutput, generateHash); err != nil {
 			return fmt.Errorf("go generate failed: %w", err)
 		}
+		// Run tidy again after generate in case new imports were added
+		if !jsonOutput {
+			fmt.Println("==> go mod tidy (post-generate)")
+		}
+		if err := runner.Run("go", "mod", "tidy"); err != nil {
+			return fmt.Errorf("go mod tidy failed: %w", err)
+		}
 	}
 
 	if !jsonOutput {
