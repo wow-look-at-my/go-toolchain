@@ -68,6 +68,13 @@ func runWithRunner(runner CommandRunner) error {
 		return handleRemoveWatermark()
 	}
 
+	// Start async dependency freshness check (reports at end)
+	var depChecker *DepChecker
+	if !jsonOutput {
+		depChecker = CheckOutdatedDeps()
+		defer WaitForOutdatedDeps(depChecker)
+	}
+
 	if err := RunTestsWithCoverage(runner); err != nil {
 		return err
 	}
