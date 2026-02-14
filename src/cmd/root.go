@@ -17,7 +17,6 @@ import (
 var (
 	outputDir     = "build"
 	covDetail     string
-	minCoverage   float32
 	jsonOutput    bool
 	verbose       bool
 	addWatermark  bool
@@ -33,10 +32,9 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build. Fails if coverage is below threshold.\n\n" + installStatus()
+	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build. Use --add-watermark to enforce coverage floors.\n\n" + installStatus()
 	// Use PersistentFlags for flags shared with subcommands (like matrix)
 	rootCmd.PersistentFlags().StringVar(&covDetail, "cov-detail", "", "Show detailed coverage: 'func' or 'file'")
-	rootCmd.PersistentFlags().Float32Var(&minCoverage, "min-coverage", 80.0, "Minimum coverage percentage (0 = test only, no build)")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
 	rootCmd.PersistentFlags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
@@ -70,24 +68,8 @@ func runWithRunner(runner CommandRunner) error {
 		return handleRemoveWatermark()
 	}
 
-	testOnly := minCoverage == 0
-
-	if testOnly && !jsonOutput {
-		fmt.Println(warn("--min-coverage 0 runs tests ONLY. No binary will be produced."))
-		fmt.Println(warn("This mode cannot bypass testing. To build, set --min-coverage > 0."))
-		fmt.Println()
-	}
-
 	if err := RunTestsWithCoverage(runner); err != nil {
 		return err
-	}
-
-	// Test-only mode: report and exit
-	if testOnly {
-		if !jsonOutput {
-			fmt.Println("\n==> Test-only mode (--min-coverage 0), skipping build")
-		}
-		return fmt.Errorf("test-only mode")
 	}
 
 	targets, err := build.ResolveBuildTargets(runner)
@@ -221,8 +203,8 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		}
 	}
 
-	// Watermark enforcement: adjust threshold if watermark exists
-	effectiveMin := minCoverage
+	// Coverage enforcement: default 80%, or watermark-2.5% if lower
+	var effectiveMin float32 = 80.0
 	wm, wmExists, wmErr := gotest.GetWatermark(".")
 	if wmErr != nil {
 		return fmt.Errorf("failed to read watermark: %w", wmErr)

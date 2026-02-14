@@ -60,33 +60,6 @@ func TestRunWithRunnerTestsFail(t *testing.T) {
 	}
 }
 
-func TestRunWithRunnerTestOnlyMode(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	mock := &testPassMockRunner{}
-
-	jsonOutput = true
-	minCoverage = 0 // test-only mode
-	defer func() {
-		jsonOutput = false
-		minCoverage = 80
-	}()
-
-	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error in test-only mode")
-	}
-	if err != nil && err.Error() != "test-only mode: coverage is 100.0%" {
-		// Coverage might vary, just check it's test-only error
-		if !bytes.Contains([]byte(err.Error()), []byte("test-only mode")) {
-			t.Errorf("unexpected error: %v", err)
-		}
-	}
-}
-
 func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -96,11 +69,9 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 	mock := &testPassMockRunner{coveragePct: 50}
 
 	jsonOutput = true
-	minCoverage = 80
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-	}()
+		}()
 
 	err := runWithRunner(mock)
 	if err == nil {
@@ -117,12 +88,10 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	jsonOutput = true
-	minCoverage = 80
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		outputDir = "build"
+			outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -140,13 +109,11 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false
-	minCoverage = 80
 	verbose = true
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		verbose = false
+			verbose = false
 		outputDir = "build"
 	}()
 
@@ -227,12 +194,10 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 
 	// Test non-JSON output path
 	jsonOutput = false
-	minCoverage = 80
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		outputDir = "build"
+			outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -250,13 +215,11 @@ func TestRunWithRunnerFileDetail(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false
-	minCoverage = 80
 	covDetail = "file"
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		covDetail = ""
+			covDetail = ""
 		outputDir = "build"
 	}()
 
@@ -275,13 +238,11 @@ func TestRunWithRunnerFuncDetail(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false
-	minCoverage = 80
 	covDetail = "func"
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		covDetail = ""
+			covDetail = ""
 		outputDir = "build"
 	}()
 
@@ -299,11 +260,9 @@ func TestRunWithRunnerVetFails(t *testing.T) {
 	mock := &vetFailMockRunner{}
 
 	jsonOutput = false
-	minCoverage = 80
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-	}()
+		}()
 
 	err := runWithRunner(mock)
 	if err == nil {
@@ -323,12 +282,10 @@ func TestRunWithRunnerBuildFails(t *testing.T) {
 	mock := &buildFailMockRunner{}
 
 	jsonOutput = true
-	minCoverage = 80
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		outputDir = "build"
+			outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -399,27 +356,6 @@ func (m *buildFailMockRunner) RunWithEnv(env []string, name string, args ...stri
 	return nil
 }
 
-func TestRunWithRunnerTestOnlyNonJSON(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	mock := &testPassMockRunner{}
-
-	jsonOutput = false // Non-JSON output path
-	minCoverage = 0    // test-only mode
-	defer func() {
-		jsonOutput = false
-		minCoverage = 80
-	}()
-
-	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error in test-only mode")
-	}
-}
-
 func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -429,11 +365,9 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 	mock := &testPassMockRunner{coveragePct: 50}
 
 	jsonOutput = false // Non-JSON output to hit uncovered functions display
-	minCoverage = 80
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-	}()
+		}()
 
 	err := runWithRunner(mock)
 	if err == nil {
@@ -450,36 +384,13 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	mock := &testPassMockRunner{coveragePct: 50}
 
 	jsonOutput = true // JSON output path when below threshold
-	minCoverage = 80
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-	}()
+		}()
 
 	err := runWithRunner(mock)
 	if err == nil {
 		t.Error("expected error when coverage below threshold")
-	}
-}
-
-func TestRunWithRunnerTestOnlyJSON(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	mock := &testPassMockRunner{}
-
-	jsonOutput = true
-	minCoverage = 0 // test-only mode with JSON
-	defer func() {
-		jsonOutput = false
-		minCoverage = 80
-	}()
-
-	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error in test-only mode")
 	}
 }
 
@@ -492,13 +403,11 @@ func TestRunWithRunnerAddWatermark(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false
-	minCoverage = 80
 	addWatermark = true
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		addWatermark = false
+			addWatermark = false
 		outputDir = "build"
 	}()
 
@@ -529,13 +438,11 @@ func TestRunWithRunnerAddWatermarkJSON(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	jsonOutput = true
-	minCoverage = 80
 	addWatermark = true
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		addWatermark = false
+			addWatermark = false
 		outputDir = "build"
 	}()
 
@@ -558,11 +465,9 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	mock := &testPassMockRunner{coveragePct: 50}
 
 	jsonOutput = false
-	minCoverage = 80
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-	}()
+		}()
 
 	err := runWithRunner(mock)
 	if err == nil {
@@ -586,12 +491,10 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	mock := &testPassMockRunner{coveragePct: 50}
 
 	jsonOutput = true
-	minCoverage = 80
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		outputDir = "build"
+			outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -612,12 +515,10 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	mock := &testPassMockRunner{}
 
 	jsonOutput = false
-	minCoverage = 80
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		outputDir = "build"
+			outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -786,12 +687,10 @@ func TestRunWithRunnerFailedTest(t *testing.T) {
 	mock := &testFailMockRunner{}
 
 	jsonOutput = false
-	minCoverage = 80
 	outputDir = tmpDir
 	defer func() {
 		jsonOutput = false
-		minCoverage = 80
-		outputDir = "build"
+			outputDir = "build"
 	}()
 
 	err := runWithRunner(mock)
@@ -810,12 +709,10 @@ func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 
 	jsonOutput = false
 	verbose = true // Should show test output before error
-	minCoverage = 80
 	defer func() {
 		jsonOutput = false
 		verbose = false
-		minCoverage = 80
-	}()
+		}()
 
 	err := runWithRunner(mock)
 	if err == nil {

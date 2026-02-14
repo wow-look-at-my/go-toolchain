@@ -7,10 +7,6 @@ branding:
   color: 'green'
 
 inputs:
-  min-coverage:
-    description: 'Minimum coverage percentage required (0 = test only, no build)'
-    required: false
-    default: '80'
   cov-detail:
     description: 'Show detailed coverage: "func" or "file"'
     required: false
@@ -50,9 +46,9 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
-        ARGS="--min-coverage ${{ inputs.min-coverage }}"
+        ARGS=""
         if [ -n "${{ inputs.cov-detail }}" ]; then
-          ARGS="$ARGS --cov-detail ${{ inputs.cov-detail }}"
+          ARGS="--cov-detail ${{ inputs.cov-detail }}"
         fi
         if [ "${{ inputs.json }}" = "true" ]; then
           ARGS="$ARGS --json"
