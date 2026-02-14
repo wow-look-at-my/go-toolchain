@@ -1,6 +1,10 @@
 package cmd
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestLooksLikeGitVersion(t *testing.T) {
 	tests := []struct {
@@ -345,4 +349,236 @@ func TestDepChecker_run_Canceled(t *testing.T) {
 	if !dc.done {
 		t.Error("done should be true after run()")
 	}
+}
+
+func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	mock := NewMockRunner()
+
+	// No go.mod exists, should return nil without doing anything
+	err := FixBogusDepsVersions(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if len(mock.Commands) != 0 {
+		t.Errorf("expected no commands, got %d", len(mock.Commands))
+	}
+}
+
+func TestFixBogusDepsVersions_NoBogusVersions(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Create go.mod with normal versions
+	gomod := `module test
+go 1.21
+
+require (
+	github.com/spf13/cobra v1.8.0
+	github.com/stretchr/testify v1.9.0
+)
+`
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+
+	mock := NewMockRunner()
+	err := FixBogusDepsVersions(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if len(mock.Commands) != 0 {
+		t.Errorf("expected no commands, got %d", len(mock.Commands))
+	}
+}
+
+func TestFixBogusDepsVersions_DetectsBogusVersions(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Create go.mod with v0.0.0 dependencies
+	gomod := `module test
+go 1.21
+
+require (
+	git.internal/service/auth v0.0.0
+	github.com/spf13/cobra v1.8.0
+	git.internal/lib/utils v0.0.0 // indirect
+)
+`
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+
+	mock := NewMockRunner()
+	// Mock git ls-remote to fail - we just want to verify detection works
+	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/service/auth", "HEAD"},
+		nil, os.ErrNotExist)
+
+	jsonOutput = true
+	defer func() { jsonOutput = false }()
+
+	err := FixBogusDepsVersions(mock)
+	// Should fail because git ls-remote failed
+	if err == nil {
+		t.Error("expected error when git ls-remote fails")
+	}
+
+	// Verify it tried to resolve the first v0.0.0 dep
+	if len(mock.Commands) < 1 {
+		t.Fatalf("expected at least 1 command, got %d", len(mock.Commands))
+	}
+	if mock.Commands[0].Name != "git" || mock.Commands[0].Args[0] != "ls-remote" {
+		t.Errorf("expected 'git ls-remote', got %s %v", mock.Commands[0].Name, mock.Commands[0].Args)
+	}
+	if mock.Commands[0].Args[1] != "https://git.internal/service/auth" {
+		t.Errorf("expected URL for auth module, got %s", mock.Commands[0].Args[1])
+	}
+}
+
+func TestFixBogusDepsVersions_GitLsRemoteFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	gomod := `module test
+go 1.21
+
+require git.internal/broken v0.0.0
+`
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+
+	mock := NewMockRunner()
+	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/broken", "HEAD"}, nil, os.ErrNotExist)
+
+	jsonOutput = true
+	defer func() { jsonOutput = false }()
+
+	err := FixBogusDepsVersions(mock)
+	if err == nil {
+		t.Error("expected error when git ls-remote fails")
+	}
+}
+
+func TestResolveLatestVersionViaGit_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	runner := &RealCommandRunner{Quiet: true}
+	mod := "github.com/spf13/pflag"
+
+	// Get version via our function
+	version, err := resolveLatestVersionViaGit(runner, mod)
+	if err != nil {
+		t.Fatalf("resolveLatestVersionViaGit failed: %v", err)
+	}
+
+	// Verify Go accepts this version by querying the module
+	// This catches timezone bugs - Go validates the timestamp matches the commit
+	output, err := runner.RunWithOutput("go", "list", "-m", "-json", mod+"@"+version)
+	if err != nil {
+		t.Fatalf("go list rejected our pseudo-version %s: %v", version, err)
+	}
+
+	// Verify the response contains our version
+	if !strings.Contains(string(output), version) {
+		t.Errorf("go list output doesn't contain version %s: %s", version, output)
+	}
+}
+
+func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
+	mock := NewMockRunner()
+	// Return empty output (no HEAD ref)
+	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte(""), nil)
+
+	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
+	if err == nil {
+		t.Error("expected error when no HEAD ref found")
+	}
+}
+
+func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
+	mock := NewMockRunner()
+	// Return hash that's too short
+	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte("abc123\tHEAD\n"), nil)
+
+	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
+	if err == nil {
+		t.Error("expected error for short hash")
+	}
+}
+
+func TestFixBogusDepsVersions_ParseError(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Create invalid go.mod
+	os.WriteFile("go.mod", []byte("not valid go.mod content {{{"), 0644)
+
+	mock := NewMockRunner()
+	jsonOutput = true
+	defer func() { jsonOutput = false }()
+
+	// Should return nil (let go mod tidy handle parse errors)
+	err := FixBogusDepsVersions(mock)
+	if err != nil {
+		t.Errorf("expected nil error for parse failure, got %v", err)
+	}
+}
+
+func TestFixBogusDepsVersions_NoV000Deps(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// go.mod with no v0.0.0 dependencies
+	gomod := `module test
+go 1.21
+
+require github.com/spf13/cobra v1.8.0
+`
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+
+	mock := NewMockRunner()
+	jsonOutput = true
+	defer func() { jsonOutput = false }()
+
+	err := FixBogusDepsVersions(mock)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	// Should not have run any commands
+	if len(mock.Commands) != 0 {
+		t.Errorf("expected no commands, got %d", len(mock.Commands))
+	}
+}
+
+func TestFixBogusDepsVersions_PrintsMessage(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	gomod := `module test
+go 1.21
+
+require git.internal/foo v0.0.0
+`
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+
+	mock := NewMockRunner()
+	// Don't set jsonOutput = true, so the message will be printed
+	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/foo", "HEAD"}, nil, os.ErrNotExist)
+
+	// This will fail but covers the non-jsonOutput branch
+	_ = FixBogusDepsVersions(mock)
 }

@@ -130,6 +130,11 @@ func runWithRunner(runner CommandRunner) error {
 // checks coverage against the threshold. Used by both the default command
 // and the matrix command.
 func RunTestsWithCoverage(runner CommandRunner) error {
+	// Fix any v0.0.0 dependencies before go mod tidy
+	if err := FixBogusDepsVersions(runner); err != nil {
+		return err
+	}
+
 	if !jsonOutput {
 		fmt.Println("==> go mod tidy")
 	}
