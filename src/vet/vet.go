@@ -3,6 +3,7 @@ package vet
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -208,8 +209,20 @@ func vetSemantic(pattern string, fix bool) error {
 		if err := applyFixes(fixes); err != nil {
 			return fmt.Errorf("failed to apply fixes: %w", err)
 		}
+		// Get repo root for relative paths
+		cwd, _ := os.Getwd()
 		for _, f := range fixes {
-			fmt.Printf("\033[33mfixed: %s:%d\033[0m\n", f.filename, f.line)
+			// Show relative path
+			relPath := f.filename
+			if rel, err := filepath.Rel(cwd, f.filename); err == nil {
+				relPath = rel
+			}
+			// Show the replacement text (trim to first line for readability)
+			replacement := strings.TrimSpace(string(f.newText))
+			if idx := strings.Index(replacement, "\n"); idx > 0 {
+				replacement = replacement[:idx] + "..."
+			}
+			fmt.Printf("\033[33mfixed: %s:%d %s\033[0m\n", relPath, f.line, replacement)
 		}
 	}
 
