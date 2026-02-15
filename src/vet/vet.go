@@ -185,6 +185,7 @@ func vetSemantic(pattern string, fix bool) error {
 						end := action.Package.Fset.Position(edit.End)
 						fixes = append(fixes, fileFix{
 							filename: start.Filename,
+							line:     pos.Line,
 							start:    start.Offset,
 							end:      end.Offset,
 							newText:  edit.NewText,
@@ -206,6 +207,9 @@ func vetSemantic(pattern string, fix bool) error {
 	if len(fixes) > 0 {
 		if err := applyFixes(fixes); err != nil {
 			return fmt.Errorf("failed to apply fixes: %w", err)
+		}
+		for _, f := range fixes {
+			fmt.Printf("\033[33mfixed: %s:%d\033[0m\n", f.filename, f.line)
 		}
 	}
 
@@ -232,6 +236,7 @@ func vetSemantic(pattern string, fix bool) error {
 
 type fileFix struct {
 	filename string
+	line     int
 	start    int
 	end      int
 	newText  []byte

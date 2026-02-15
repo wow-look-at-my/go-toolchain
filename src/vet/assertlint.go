@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
-	"go/format"
+	//"go/format"
 	"go/token"
 	"os"
 	"strings"
