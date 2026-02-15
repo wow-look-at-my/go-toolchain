@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
+	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
 var (
@@ -22,6 +23,7 @@ var (
 	addWatermark  bool
 	doRemoveWmark bool
 	generateHash  string
+	fix           = true
 )
 
 var rootCmd = &cobra.Command{
@@ -41,6 +43,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
 	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
+	rootCmd.PersistentFlags().BoolVar(&fix, "fix", true, "Auto-fix linter violations (use --fix=false to disable)")
 
 	// Benchmark flags
 	rootCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
@@ -165,6 +168,15 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 	}
 	if err := runner.Run("go", "vet", "./..."); err != nil {
 		return fmt.Errorf("go vet failed: %w", err)
+	}
+
+	if fix {
+		if err := vet.Fix(); err != nil {
+			return fmt.Errorf("vet fix failed: %w", err)
+		}
+	}
+	if err := vet.Run(); err != nil {
+		return fmt.Errorf("vet failed: %w", err)
 	}
 
 	if !jsonOutput {
