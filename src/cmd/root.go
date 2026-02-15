@@ -43,11 +43,10 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
 
 	// Benchmark flags
-	rootCmd.Flags().BoolVar(&doBenchmark, "benchmark", false, "Run benchmarks after build")
+	rootCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
 	rootCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
 	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
-
 
 	Register(rootCmd)
 }
@@ -117,8 +116,8 @@ func runWithRunner(runner CommandRunner) error {
 		fmt.Println("==> Build successful")
 	}
 
-	if doBenchmark {
-		if err := runBenchmarkWithRunner(runner); err != nil {
+	if !noBenchmark {
+		if err := runBenchmarkInBuild(runner); err != nil {
 			return err
 		}
 	}

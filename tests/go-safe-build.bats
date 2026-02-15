@@ -171,7 +171,7 @@ EOF
 	create_test_project "$TEST_DIR/proj" 100
 	cd "$TEST_DIR/proj"
 
-	run "$BINARY" --json
+	run "$BINARY" --json --no-benchmark
 	[ "$status" -eq 0 ]
 	# Verify it's valid JSON with total field
 	echo "$output" | jq -e '.total' > /dev/null
@@ -378,18 +378,19 @@ func BenchmarkAdd(b *testing.B) {
 }
 EOF
 
-	run "$BINARY" --benchmark
+	# Benchmarks run by default now
+	run "$BINARY"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Build successful"* ]]
 	[[ "$output" == *"Running benchmarks"* ]]
 	[[ "$output" == *"Benchmarks complete"* ]]
 }
 
-@test "--benchmark flag shows in help" {
+@test "--no-benchmark flag skips benchmarks" {
 	run "$BINARY" --help
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"--benchmark"* ]]
-	[[ "$output" == *"Run benchmarks after build"* ]]
+	[[ "$output" == *"--no-benchmark"* ]]
+	[[ "$output" == *"Skip benchmarks after build"* ]]
 }
 
 @test "bootstrap: can build itself 3x and produce identical binaries" {
@@ -403,13 +404,13 @@ EOF
 	# Stage 1: Original compile with go build
 	go build -o stage1 ./src
 
-	# Stage 2: Use stage1 to build itself
-	./stage1
+	# Stage 2: Use stage1 to build itself (skip benchmarks for speed)
+	./stage1 --no-benchmark
 	cp build/go-toolchain stage2
 	rm -rf build
 
 	# Stage 3: Use stage2 to build itself
-	./stage2
+	./stage2 --no-benchmark
 	cp build/go-toolchain stage3
 
 	# Compare binaries from stage 2 and 3 — they should be identical

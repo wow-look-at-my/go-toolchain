@@ -23,6 +23,7 @@ func Register(root *cobra.Command) {
 	}
 	installCmd.Flags().BoolVar(&installCopy, "copy", false, "Copy instead of symlink")
 	root.AddCommand(installCmd)
+	root.AddCommand(benchCmd)
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
