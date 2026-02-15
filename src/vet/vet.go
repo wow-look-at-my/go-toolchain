@@ -3,10 +3,10 @@ package vet
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 
+	"github.com/go-git/go-git/v5"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
 	"golang.org/x/tools/go/analysis/passes/assign"
@@ -71,8 +71,39 @@ func Run(fix bool) error {
 
 // RunOnPattern executes all analyzers on packages matching the pattern.
 func RunOnPattern(pattern string, fix bool) error {
+	// if err := vetSyntax(pattern, fix); err != nil {
+	// 	return err
+	// }
+	return vetSemantic(pattern, fix)
+}
+
+// vetSyntax runs syntax-only checks using go/parser (no compilation required).
+// This handles things like unused imports that would block packages.Load.
+// Only used as fallback if vetSemantic can't handle them.
+func vetSyntax(pattern string, fix bool) error {
+	if !fix {
+		return nil
+	}
+
+	fixed, err := FixUnusedImports(pattern)
+	if err != nil {
+		return fmt.Errorf("fixing unused imports: %w", err)
+	}
+	for _, f := range fixed {
+		fmt.Printf("\033[33mfixed unused import: %s\033[0m\n", f)
+	}
+	return nil
+}
+
+// isUnusedImportError checks if an error is an "imported and not used" error.
+func isUnusedImportError(errMsg string) bool {
+	return strings.Contains(errMsg, "imported and not used")
+}
+
+// vetSemantic runs type-aware analysis using go/packages and the analysis framework.
+func vetSemantic(pattern string, fix bool) error {
 	cfg := &packages.Config{
-		Mode: packages.LoadAllSyntax,
+		Mode:  packages.LoadAllSyntax,
 		Tests: true,
 	}
 
@@ -81,15 +112,52 @@ func RunOnPattern(pattern string, fix bool) error {
 		return fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	// Check for load errors
+	// Check for load errors - separate unused import errors from others
 	var loadErrors []string
+	var unusedImportErrors []string
 	for _, pkg := range pkgs {
 		for _, e := range pkg.Errors {
-			loadErrors = append(loadErrors, e.Error())
+			if isUnusedImportError(e.Error()) {
+				unusedImportErrors = append(unusedImportErrors, e.Error())
+			} else {
+				loadErrors = append(loadErrors, e.Error())
+			}
 		}
 	}
+
+	// If there are non-import errors, fail
 	if len(loadErrors) > 0 {
 		return fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
+	}
+
+	// If there are unused import errors, fix them using the loaded AST and re-run
+	if len(unusedImportErrors) > 0 {
+		if !fix {
+			return fmt.Errorf("package load errors:\n%s", strings.Join(unusedImportErrors, "\n"))
+		}
+
+		// Find fixes using the already-loaded AST
+		importFixes := FindUnusedImportFixes(pkgs)
+		if len(importFixes) > 0 {
+			// Convert to fileFix and apply
+			var fixes []fileFix
+			for _, f := range importFixes {
+				fixes = append(fixes, fileFix{
+					filename: f.Filename,
+					start:    f.Start,
+					end:      f.End,
+					newText:  f.NewText,
+				})
+			}
+			if err := applyFixes(fixes); err != nil {
+				return fmt.Errorf("failed to fix unused imports: %w", err)
+			}
+			for _, f := range importFixes {
+				fmt.Printf("\033[33mfixed unused import: %s\033[0m\n", f.Filename)
+			}
+			// Re-run semantic analysis with fixed files
+			return vetSemantic(pattern, fix)
+		}
 	}
 
 	// Run analyzers
@@ -109,8 +177,8 @@ func RunOnPattern(pattern string, fix bool) error {
 		for _, d := range action.Diagnostics {
 			pos := action.Package.Fset.Position(d.Pos)
 
-			// Collect fixes from assertlint only
-			if fix && action.Analyzer.Name == "assertlint" && len(d.SuggestedFixes) > 0 {
+			// Collect fixes (only our custom analyzers provide SuggestedFixes)
+			if fix && len(d.SuggestedFixes) > 0 {
 				for _, sf := range d.SuggestedFixes {
 					for _, edit := range sf.TextEdits {
 						start := action.Package.Fset.Position(edit.Pos)
@@ -216,21 +284,35 @@ type Diagnostic struct {
 
 // checkFilesCommitted verifies all files are committed before auto-fix modifies them.
 func checkFilesCommitted(byFile map[string][]fileFix) error {
-	var files []string
-	for f := range byFile {
-		files = append(files, f)
-	}
-
-	args := append([]string{"status", "--porcelain", "--"}, files...)
-	cmd := exec.Command("git", args...)
-	out, err := cmd.Output()
+	repo, err := git.PlainOpenWithOptions(".", &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
-		// Not a git repo or git not available - skip check
+		// Not a git repo - skip check
 		return nil
 	}
 
-	if len(out) > 0 {
-		return fmt.Errorf("cannot auto-fix: files have uncommitted changes\n%s\ncommit or stash changes first", strings.TrimSpace(string(out)))
+	wt, err := repo.Worktree()
+	if err != nil {
+		return nil
+	}
+
+	status, err := wt.Status()
+	if err != nil {
+		return nil
+	}
+
+	// Check if any of the target files have changes
+	var dirty []string
+	for f := range byFile {
+		if fileStatus, ok := status[f]; ok {
+			if fileStatus.Staging != git.Unmodified || fileStatus.Worktree != git.Unmodified {
+				dirty = append(dirty, f)
+			}
+		}
+	}
+
+	if len(dirty) > 0 {
+		sort.Strings(dirty)
+		return fmt.Errorf("cannot auto-fix: files have uncommitted changes\n%s\ncommit or stash changes first", strings.Join(dirty, "\n"))
 	}
 
 	return nil
