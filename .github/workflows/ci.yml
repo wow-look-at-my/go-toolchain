@@ -3,6 +3,10 @@ name: CI
 on:
   push:
 
+env:
+  GOPROXY: direct
+  GOSUMDB: off
+
 jobs:
   build:
     runs-on: ubuntu-latest
