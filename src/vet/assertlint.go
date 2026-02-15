@@ -1,8 +1,10 @@
 package vet
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/token"
 	"os"
 	"strings"
@@ -25,6 +27,25 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			continue
 		}
 
+		// Track needed imports for this file
+		needsAssert := false
+		needsRequire := false
+
+		// Check existing imports
+		hasAssert := false
+		hasRequire := false
+		for _, imp := range file.Imports {
+			if imp.Path.Value == `"github.com/stretchr/testify/assert"` {
+				hasAssert = true
+			}
+			if imp.Path.Value == `"github.com/stretchr/testify/require"` {
+				hasRequire = true
+			}
+		}
+
+		// Collect all diagnostics for this file
+		var diagnostics []fileDiagnostic
+
 		ast.Inspect(file, func(n ast.Node) bool {
 			ifStmt, ok := n.(*ast.IfStmt)
 			if !ok {
@@ -38,26 +59,110 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 
 			// Determine the assertion type (assert vs require) and function name
 			assertPkg, assertFunc := determineAssertion(ifStmt)
-			message := fmt.Sprintf("use %s.%s instead of if + t.Error/t.Fatal", assertPkg, assertFunc)
 
-			// Generate suggested fix
-			fix := generateSuggestedFix(pass, ifStmt, assertPkg, assertFunc)
+			if assertPkg == "assert" {
+				needsAssert = true
+			} else {
+				needsRequire = true
+			}
+
+			diagnostics = append(diagnostics, fileDiagnostic{
+				ifStmt:     ifStmt,
+				assertPkg:  assertPkg,
+				assertFunc: assertFunc,
+			})
+
+			return true
+		})
+
+		// Generate import edit if needed
+		var importEdit *analysis.TextEdit
+		if (needsAssert && !hasAssert) || (needsRequire && !hasRequire) {
+			importEdit = generateImportEdit(pass, file, needsAssert && !hasAssert, needsRequire && !hasRequire)
+		}
+
+		// Report all diagnostics with fixes
+		for _, d := range diagnostics {
+			message := fmt.Sprintf("use %s.%s instead of if + t.Error/t.Fatal", d.assertPkg, d.assertFunc)
+
+			fix := generateSuggestedFix(pass, d.ifStmt, d.assertPkg, d.assertFunc)
 			if fix != nil {
+				// Add import edit to the first fix only
+				if importEdit != nil {
+					fix.TextEdits = append(fix.TextEdits, *importEdit)
+					importEdit = nil // Only add once
+				}
 				pass.Report(analysis.Diagnostic{
-					Pos:            ifStmt.Pos(),
-					End:            ifStmt.End(),
+					Pos:            d.ifStmt.Pos(),
+					End:            d.ifStmt.End(),
 					Message:        message,
 					SuggestedFixes: []analysis.SuggestedFix{*fix},
 				})
 			} else {
-				// No fix available, just report
-				pass.Reportf(ifStmt.Pos(), "%s", message)
+				pass.Reportf(d.ifStmt.Pos(), "%s", message)
 			}
-
-			return true
-		})
+		}
 	}
 	return nil, nil
+}
+
+type fileDiagnostic struct {
+	ifStmt     *ast.IfStmt
+	assertPkg  string
+	assertFunc string
+}
+
+// generateImportEdit creates a TextEdit to add the testify imports.
+func generateImportEdit(pass *analysis.Pass, file *ast.File, addAssert, addRequire bool) *analysis.TextEdit {
+	var imports []string
+	if addAssert {
+		imports = append(imports, `"github.com/stretchr/testify/assert"`)
+	}
+	if addRequire {
+		imports = append(imports, `"github.com/stretchr/testify/require"`)
+	}
+
+	if len(imports) == 0 {
+		return nil
+	}
+
+	// Find where to insert imports
+	if len(file.Imports) > 0 {
+		// Add after the last import
+		lastImport := file.Imports[len(file.Imports)-1]
+		newText := "\n"
+		for _, imp := range imports {
+			newText += "\t" + imp + "\n"
+		}
+		return &analysis.TextEdit{
+			Pos:     lastImport.End(),
+			End:     lastImport.End(),
+			NewText: []byte(newText),
+		}
+	}
+
+	// No imports exist, create import block after package declaration
+	newImport := &ast.GenDecl{
+		Tok: token.IMPORT,
+	}
+	for _, imp := range imports {
+		newImport.Specs = append(newImport.Specs, &ast.ImportSpec{
+			Path: &ast.BasicLit{Kind: token.STRING, Value: imp},
+		})
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("\n\nimport (\n")
+	for _, imp := range imports {
+		buf.WriteString("\t" + imp + "\n")
+	}
+	buf.WriteString(")\n")
+
+	return &analysis.TextEdit{
+		Pos:     file.Name.End(),
+		End:     file.Name.End(),
+		NewText: buf.Bytes(),
+	}
 }
 
 // hasTestingErrorCall checks if the block contains a call to t.Error, t.Errorf, t.Fatal, or t.Fatalf.
