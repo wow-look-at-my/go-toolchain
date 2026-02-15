@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"github.com/stretchr/testify/assert"
+
 )
 
 // matrixTestRunner provides test output with 100% coverage for matrix tests
@@ -45,9 +47,7 @@ func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
 
 	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
-	if err == nil {
-		t.Error("expected error with no platforms")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
@@ -70,9 +70,7 @@ func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
 
 	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
-	if err == nil {
-		t.Error("expected error with no main packages")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunReleaseWithRunnerSuccess(t *testing.T) {
@@ -101,9 +99,7 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 
 	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
@@ -133,9 +129,7 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 	// Use a mock that fails all RunWithEnv calls
 	mock := &buildEnvFailMockRunner{}
 	err := runReleaseWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when build fails")
-	}
+	assert.NotNil(t, err)
 }
 
 // buildEnvFailMockRunner fails all RunWithEnv calls
@@ -173,9 +167,7 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 
 	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Check that commands were recorded with .exe extension
 	found := false
@@ -190,9 +182,7 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 			}
 		}
 	}
-	if !found {
-		t.Error("expected .exe extension for windows build")
-	}
+	assert.True(t, found)
 }
 
 func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
@@ -221,9 +211,7 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 
 	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
@@ -252,9 +240,7 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 
 	mock := newMatrixTestRunner()
 	err := runReleaseWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Should have 4 builds: 2 OS x 2 arch
 	buildCount := 0
@@ -263,9 +249,7 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 			buildCount++
 		}
 	}
-	if buildCount != 4 {
-		t.Errorf("expected 4 builds (2 OS x 2 arch), got %d", buildCount)
-	}
+	assert.Equal(t, 4, buildCount)
 }
 
 func TestRunBuild(t *testing.T) {
@@ -278,12 +262,8 @@ func TestRunBuild(t *testing.T) {
 	}
 
 	err := runBuild(mock, job)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Verify command was called
-	if len(mock.Commands) != 1 {
-		t.Errorf("expected 1 command, got %d", len(mock.Commands))
-	}
+	assert.Equal(t, 1, len(mock.Commands))
 }

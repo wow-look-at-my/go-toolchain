@@ -46,9 +46,27 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		// Collect all diagnostics for this file
 		var diagnostics []fileDiagnostic
 
+		// Build set of "else if" statements (if statements that are the Else of another if)
+		elseIfStmts := make(map[*ast.IfStmt]bool)
 		ast.Inspect(file, func(n ast.Node) bool {
 			ifStmt, ok := n.(*ast.IfStmt)
 			if !ok {
+				return true
+			}
+			if elseIf, ok := ifStmt.Else.(*ast.IfStmt); ok {
+				elseIfStmts[elseIf] = true
+			}
+			return true
+		})
+
+		ast.Inspect(file, func(n ast.Node) bool {
+			ifStmt, ok := n.(*ast.IfStmt)
+			if !ok {
+				return true
+			}
+
+			// Skip "else if" statements - they can't be auto-fixed safely
+			if elseIfStmts[ifStmt] {
 				return true
 			}
 
@@ -361,6 +379,16 @@ func isNil(expr ast.Expr) bool {
 
 // generateSuggestedFix creates a SuggestedFix for the if statement.
 func generateSuggestedFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string) *analysis.SuggestedFix {
+	// Don't auto-fix if statements with init clauses - determining := vs = requires scope analysis
+	if ifStmt.Init != nil {
+		return nil
+	}
+
+	// Don't auto-fix if statements with else clauses - too complex
+	if ifStmt.Else != nil {
+		return nil
+	}
+
 	// Get the test variable name (t or b)
 	tVar := getTestVarName(ifStmt.Body)
 	if tVar == "" {
@@ -453,11 +481,20 @@ func generateCallReplacement(pass *analysis.Pass, call *ast.CallExpr, tVar, asse
 		}
 	}
 
-	return ""
+	// Fallback: wrap the entire call in True/False assertion
+	callText := sourceText(pass, call)
+	return fmt.Sprintf("%s.%s(%s, %s)", assertPkg, assertFunc, tVar, callText)
 }
 
 // generateBinaryReplacement generates replacement for binary expressions.
 func generateBinaryReplacement(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg, assertFunc string) string {
+	// For compound conditions, wrap the whole expression in parentheses
+	switch bin.Op {
+	case token.LAND, token.LOR: // && and ||
+		expr := sourceText(pass, bin)
+		return fmt.Sprintf("%s.%s(%s, %s)", assertPkg, assertFunc, tVar, expr)
+	}
+
 	left := sourceText(pass, bin.X)
 	right := sourceText(pass, bin.Y)
 
@@ -476,7 +513,7 @@ func generateBinaryReplacement(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, a
 }
 
 // sourceText extracts the source text for a node.
-func sourceText(pass *analysis.Pass, node ast.Expr) string {
+func sourceText(pass *analysis.Pass, node ast.Node) string {
 	start := pass.Fset.Position(node.Pos())
 	end := pass.Fset.Position(node.End())
 	content, err := os.ReadFile(start.Filename)

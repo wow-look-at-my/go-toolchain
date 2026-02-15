@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 )
 
 // fullMockRunner implements FullCommandRunner for testing
@@ -54,19 +57,13 @@ func TestStoreNotes(t *testing.T) {
 	}
 
 	err := StoreNotes(mock, report)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Verify git notes command was called
-	if len(mock.runCalls) != 1 {
-		t.Fatalf("expected 1 run call, got %d", len(mock.runCalls))
-	}
+	require.Equal(t, 1, len(mock.runCalls))
 
 	call := mock.runCalls[0]
-	if call[:4] != "git " {
-		t.Errorf("expected git command, got %q", call)
-	}
+	assert.Equal(t, "git ", call[:4])
 }
 
 func TestStoreNotesError(t *testing.T) {
@@ -80,9 +77,7 @@ func TestStoreNotesError(t *testing.T) {
 	mock.SetResponse("git", []string{"notes", "--ref=benchmarks", "add", "-f", "-m", string(data), "HEAD"}, nil, fmt.Errorf("git error"))
 
 	err := StoreNotes(mock, report)
-	if err == nil {
-		t.Error("expected error when git fails")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestFetchPreviousNone(t *testing.T) {
@@ -90,15 +85,9 @@ func TestFetchPreviousNone(t *testing.T) {
 	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, nil, fmt.Errorf("no notes"))
 
 	report, sha, err := FetchPrevious(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if report != nil {
-		t.Error("expected nil report when no previous")
-	}
-	if sha != "" {
-		t.Error("expected empty sha when no previous")
-	}
+	assert.Nil(t, err)
+	assert.Nil(t, report)
+	assert.Equal(t, "", sha)
 }
 
 func TestFetchPreviousEmpty(t *testing.T) {
@@ -106,15 +95,9 @@ func TestFetchPreviousEmpty(t *testing.T) {
 	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, []byte(""), nil)
 
 	report, sha, err := FetchPrevious(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if report != nil {
-		t.Error("expected nil report when empty sha")
-	}
-	if sha != "" {
-		t.Error("expected empty sha")
-	}
+	assert.Nil(t, err)
+	assert.Nil(t, report)
+	assert.Equal(t, "", sha)
 }
 
 func TestFetchPreviousWithData(t *testing.T) {
@@ -125,18 +108,10 @@ func TestFetchPreviousWithData(t *testing.T) {
 	mock.SetResponse("git", []string{"notes", "--ref=benchmarks", "show", "abc123"}, []byte(reportData), nil)
 
 	report, sha, err := FetchPrevious(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if report == nil {
-		t.Fatal("expected non-nil report")
-	}
-	if sha != "abc123" {
-		t.Errorf("expected sha 'abc123', got %q", sha)
-	}
-	if !report.HasResults() {
-		t.Error("expected report to have results")
-	}
+	assert.Nil(t, err)
+	require.NotNil(t, report)
+	assert.Equal(t, "abc123", sha)
+	assert.True(t, report.HasResults())
 }
 
 func TestFetchForCommitSuccess(t *testing.T) {
@@ -145,12 +120,8 @@ func TestFetchForCommitSuccess(t *testing.T) {
 	mock.SetResponse("git", []string{"notes", "--ref=benchmarks", "show", "abc123"}, []byte(reportData), nil)
 
 	report, err := FetchForCommit(mock, "abc123")
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if report == nil {
-		t.Fatal("expected non-nil report")
-	}
+	assert.Nil(t, err)
+	require.NotNil(t, report)
 }
 
 func TestFetchForCommitNotFound(t *testing.T) {
@@ -158,9 +129,7 @@ func TestFetchForCommitNotFound(t *testing.T) {
 	mock.SetResponse("git", []string{"notes", "--ref=benchmarks", "show", "abc123"}, nil, fmt.Errorf("no note found"))
 
 	_, err := FetchForCommit(mock, "abc123")
-	if err == nil {
-		t.Error("expected error when no note found")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestGetHeadSHA(t *testing.T) {
@@ -168,12 +137,8 @@ func TestGetHeadSHA(t *testing.T) {
 	mock.SetResponse("git", []string{"rev-parse", "--short", "HEAD"}, []byte("abc1234\n"), nil)
 
 	sha, err := GetHeadSHA(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if sha != "abc1234" {
-		t.Errorf("expected 'abc1234', got %q", sha)
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, "abc1234", sha)
 }
 
 func TestGetHeadSHAError(t *testing.T) {
@@ -181,33 +146,21 @@ func TestGetHeadSHAError(t *testing.T) {
 	mock.SetResponse("git", []string{"rev-parse", "--short", "HEAD"}, nil, fmt.Errorf("not a git repo"))
 
 	_, err := GetHeadSHA(mock)
-	if err == nil {
-		t.Error("expected error when git fails")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestParseNotesJSON(t *testing.T) {
 	data := `{"packages":{"pkg":[{"name":"BenchmarkFoo","ns_per_op":1234.5}]}}`
 	report, err := parseNotesJSON([]byte(data))
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if report == nil {
-		t.Fatal("expected non-nil report")
-	}
+	assert.Nil(t, err)
+	require.NotNil(t, report)
 
 	results := report.Packages["pkg"]
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].NsPerOp != 1234.5 {
-		t.Errorf("expected 1234.5 ns/op, got %f", results[0].NsPerOp)
-	}
+	require.Equal(t, 1, len(results))
+	assert.Equal(t, 1234.5, results[0].NsPerOp)
 }
 
 func TestParseNotesJSONInvalid(t *testing.T) {
 	_, err := parseNotesJSON([]byte("not json"))
-	if err == nil {
-		t.Error("expected error for invalid JSON")
-	}
+	assert.NotNil(t, err)
 }

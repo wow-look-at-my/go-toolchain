@@ -6,6 +6,7 @@ require (
 	github.com/go-git/go-git/v5 v5.16.5
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
+	github.com/wow-look-at-my/ansi-writer v0.0.0-20260215041003-b1e7132dc32e
 	golang.org/x/mod v0.29.0
 	golang.org/x/sys v0.38.0
 	golang.org/x/tools v0.38.0

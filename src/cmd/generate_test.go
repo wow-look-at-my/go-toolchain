@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 )
 
 func TestParseDirectives(t *testing.T) {
@@ -22,27 +25,15 @@ func TestParseDirectives(t *testing.T) {
 	}
 
 	directives, err := parseDirectives(testFile)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
-	if len(directives) != 2 {
-		t.Fatalf("expected 2 directives, got %d", len(directives))
-	}
+	require.Equal(t, 2, len(directives))
 
-	if directives[0].Command != "echo hello" {
-		t.Errorf("expected 'echo hello', got %q", directives[0].Command)
-	}
-	if directives[0].Line != 3 {
-		t.Errorf("expected line 3, got %d", directives[0].Line)
-	}
+	assert.Equal(t, "echo hello", directives[0].Command)
+	assert.Equal(t, 3, directives[0].Line)
 
-	if directives[1].Command != `sh -c "echo world"` {
-		t.Errorf("expected 'sh -c \"echo world\"', got %q", directives[1].Command)
-	}
-	if directives[1].Line != 4 {
-		t.Errorf("expected line 4, got %d", directives[1].Line)
-	}
+	assert.Equal(t, `sh -c "echo world"`, directives[1].Command)
+	assert.Equal(t, 4, directives[1].Line)
 }
 
 func TestParseDirectivesNoDirectives(t *testing.T) {
@@ -58,13 +49,9 @@ func main() {}
 	}
 
 	directives, err := parseDirectives(testFile)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
-	if len(directives) != 0 {
-		t.Fatalf("expected 0 directives, got %d", len(directives))
-	}
+	require.Equal(t, 0, len(directives))
 }
 
 func TestFindGenerateDirectives(t *testing.T) {
@@ -95,13 +82,9 @@ func TestFindGenerateDirectives(t *testing.T) {
 	}
 
 	directives, err := findGenerateDirectives(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
-	if len(directives) != 2 {
-		t.Fatalf("expected 2 directives, got %d", len(directives))
-	}
+	require.Equal(t, 2, len(directives))
 }
 
 func TestFindGenerateDirectivesSkipsVendor(t *testing.T) {
@@ -126,17 +109,11 @@ func TestFindGenerateDirectivesSkipsVendor(t *testing.T) {
 	}
 
 	directives, err := findGenerateDirectives(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
-	if len(directives) != 1 {
-		t.Fatalf("expected 1 directive (vendor should be skipped), got %d", len(directives))
-	}
+	require.Equal(t, 1, len(directives))
 
-	if directives[0].Command != "echo main" {
-		t.Errorf("expected 'echo main', got %q", directives[0].Command)
-	}
+	assert.Equal(t, "echo main", directives[0].Command)
 }
 
 func TestExecuteDirectiveSuccess(t *testing.T) {
@@ -153,9 +130,7 @@ func TestExecuteDirectiveSuccess(t *testing.T) {
 	}
 
 	err := executeDirective(d, true) // quiet mode to avoid stdout pollution
-	if err != nil {
-		t.Fatalf("expected success, got error: %v", err)
-	}
+	require.Nil(t, err)
 }
 
 func TestExecuteDirectiveFailure(t *testing.T) {
@@ -172,12 +147,8 @@ func TestExecuteDirectiveFailure(t *testing.T) {
 	}
 
 	err := executeDirective(d, true)
-	if err == nil {
-		t.Fatal("expected error for failing command")
-	}
-	if !strings.Contains(err.Error(), "generate failed") {
-		t.Errorf("expected 'generate failed' in error, got: %v", err)
-	}
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "generate failed")
 }
 
 func TestPrefixOutput(t *testing.T) {
@@ -211,9 +182,7 @@ func TestPrefixOutput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := prefixOutput(tt.input)
-			if got != tt.expect {
-				t.Errorf("prefixOutput(%q) = %q, want %q", tt.input, got, tt.expect)
-			}
+			assert.Equal(t, tt.expect, got)
 		})
 	}
 }
@@ -230,9 +199,7 @@ func TestGuessPackage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			got := guessPackage(tt.path)
-			if got != tt.expect {
-				t.Errorf("guessPackage(%q) = %q, want %q", tt.path, got, tt.expect)
-			}
+			assert.Equal(t, tt.expect, got)
 		})
 	}
 }
@@ -240,9 +207,7 @@ func TestGuessPackage(t *testing.T) {
 func TestRunGenerateWithHash(t *testing.T) {
 	// Save current directory
 	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 	defer os.Chdir(origDir)
 
 	// Create temp directory with a generate directive
@@ -262,25 +227,19 @@ func TestRunGenerateWithHash(t *testing.T) {
 
 	// First, get the hash by finding directives
 	directives, err := findGenerateDirectives(".")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 	hash := computeDirectivesHash(directives)
 
 	// Without hash, command should NOT run and should return error
 	err = runGenerate(true, "")
-	if err == nil {
-		t.Fatal("runGenerate without hash should return error")
-	}
+	require.NotNil(t, err)
 	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
 		t.Error("expected generated.txt to NOT be created without hash")
 	}
 
 	// With correct hash, command should run
 	err = runGenerate(true, hash)
-	if err != nil {
-		t.Fatalf("runGenerate with hash failed: %v", err)
-	}
+	require.Nil(t, err)
 	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
 		t.Error("expected generated.txt to be created with correct hash")
 	}
@@ -289,9 +248,7 @@ func TestRunGenerateWithHash(t *testing.T) {
 func TestRunGenerateWrongHash(t *testing.T) {
 	// Save current directory
 	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 	defer os.Chdir(origDir)
 
 	// Create temp directory with a generate directive
@@ -311,9 +268,7 @@ func TestRunGenerateWrongHash(t *testing.T) {
 
 	// With wrong hash, command should NOT run and should return error
 	err = runGenerate(true, "wronghash123")
-	if err == nil {
-		t.Fatal("runGenerate with wrong hash should return error")
-	}
+	require.NotNil(t, err)
 	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
 		t.Error("expected generated.txt to NOT be created with wrong hash")
 	}
@@ -322,9 +277,7 @@ func TestRunGenerateWrongHash(t *testing.T) {
 func TestRunGenerateSkip(t *testing.T) {
 	// Save current directory
 	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 	defer os.Chdir(origDir)
 
 	// Create temp directory with a generate directive
@@ -344,9 +297,7 @@ func TestRunGenerateSkip(t *testing.T) {
 
 	// With "skip", command should NOT run but should succeed
 	err = runGenerate(true, "skip")
-	if err != nil {
-		t.Fatalf("runGenerate with skip should succeed, got: %v", err)
-	}
+	require.Nil(t, err)
 	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
 		t.Error("expected generated.txt to NOT be created with skip")
 	}
@@ -355,9 +306,7 @@ func TestRunGenerateSkip(t *testing.T) {
 func TestRunGenerateNoDirectives(t *testing.T) {
 	// Save current directory
 	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 	defer os.Chdir(origDir)
 
 	// Create temp directory with no generate directives
@@ -372,9 +321,7 @@ func TestRunGenerateNoDirectives(t *testing.T) {
 	}
 
 	err = runGenerate(true, "")
-	if err != nil {
-		t.Fatalf("runGenerate with no directives should succeed, got: %v", err)
-	}
+	require.Nil(t, err)
 }
 
 func TestComputeDirectivesHash(t *testing.T) {
@@ -384,9 +331,7 @@ func TestComputeDirectivesHash(t *testing.T) {
 	}
 
 	hash1 := computeDirectivesHash(directives)
-	if len(hash1) != 12 {
-		t.Errorf("expected 12 char hash, got %d chars: %s", len(hash1), hash1)
-	}
+	assert.Equal(t, 12, len(hash1))
 
 	// Same directives in different order should produce same hash
 	reversed := []generateDirective{
@@ -394,16 +339,12 @@ func TestComputeDirectivesHash(t *testing.T) {
 		{File: "a.go", Line: 1, Command: "echo a"},
 	}
 	hash2 := computeDirectivesHash(reversed)
-	if hash1 != hash2 {
-		t.Errorf("hash should be stable regardless of order: %s != %s", hash1, hash2)
-	}
+	assert.Equal(t, hash2, hash1)
 
 	// Different directives should produce different hash
 	different := []generateDirective{
 		{File: "a.go", Line: 1, Command: "echo different"},
 	}
 	hash3 := computeDirectivesHash(different)
-	if hash1 == hash3 {
-		t.Errorf("different directives should produce different hash")
-	}
+	assert.NotEqual(t, hash3, hash1)
 }

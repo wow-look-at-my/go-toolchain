@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 )
 
 func TestParseProfile(t *testing.T) {
@@ -45,24 +48,16 @@ func TestParseProfile(t *testing.T) {
 	}
 
 	total, files, err := ParseProfile(coverFile)
-	if err != nil {
-		t.Fatalf("ParseProfile failed: %v", err)
-	}
+	require.Nil(t, err)
 
-	if total != expectedTotal {
-		t.Errorf("expected total coverage %.1f%%, got %.1f%%", expectedTotal, total)
-	}
+	assert.Equal(t, expectedTotal, total)
 
-	if len(files) != 2 {
-		t.Errorf("expected 2 files, got %d", len(files))
-	}
+	assert.Equal(t, 2, len(files))
 }
 
 func TestParseProfileMissingFile(t *testing.T) {
 	_, _, err := ParseProfile("/nonexistent/coverage.out")
-	if err == nil {
-		t.Error("expected error for missing file")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestParseProfileEmpty(t *testing.T) {
@@ -76,17 +71,11 @@ func TestParseProfileEmpty(t *testing.T) {
 	}
 
 	total, files, err := ParseProfile(coverFile)
-	if err != nil {
-		t.Fatalf("ParseProfile failed: %v", err)
-	}
+	require.Nil(t, err)
 
-	if total != 0 {
-		t.Errorf("expected 0%% coverage for empty profile, got %.1f%%", total)
-	}
+	assert.Equal(t, 0, total)
 
-	if len(files) != 0 {
-		t.Errorf("expected 0 files, got %d", len(files))
-	}
+	assert.Equal(t, 0, len(files))
 }
 
 func TestParseProfileMalformedLines(t *testing.T) {
@@ -105,16 +94,10 @@ example.com/pkg/file.go:10.20,12.2 1 1
 	}
 
 	total, files, err := ParseProfile(coverFile)
-	if err != nil {
-		t.Fatalf("ParseProfile failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Should only have parsed the valid line
-	if len(files) != 1 {
-		t.Errorf("expected 1 file, got %d", len(files))
-	}
-	if total != 100 {
-		t.Errorf("expected 100%% coverage, got %.1f%%", total)
-	}
+	assert.Equal(t, 1, len(files))
+	assert.Equal(t, 100, total)
 }
 

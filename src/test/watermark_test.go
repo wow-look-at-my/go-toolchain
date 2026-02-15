@@ -3,6 +3,8 @@ package test
 import (
 	"os"
 	"testing"
+	"github.com/stretchr/testify/require"
+
 )
 
 func TestWatermarkGetSetRoundTrip(t *testing.T) {
@@ -13,30 +15,18 @@ func TestWatermarkGetSetRoundTrip(t *testing.T) {
 	}
 
 	val, exists, err := GetWatermark(dir)
-	if err != nil {
-		t.Fatalf("GetWatermark: %v", err)
-	}
-	if !exists {
-		t.Fatal("expected watermark to exist")
-	}
-	if val != 85.3 {
-		t.Fatalf("expected 85.3, got %v", val)
-	}
+	require.Nil(t, err)
+	require.True(t, exists)
+	require.Equal(t, 85.3, val)
 }
 
 func TestWatermarkGetWhenNoneExists(t *testing.T) {
 	dir := t.TempDir()
 
 	val, exists, err := GetWatermark(dir)
-	if err != nil {
-		t.Fatalf("GetWatermark: %v", err)
-	}
-	if exists {
-		t.Fatal("expected watermark to not exist")
-	}
-	if val != 0 {
-		t.Fatalf("expected 0, got %v", val)
-	}
+	require.Nil(t, err)
+	require.False(t, exists)
+	require.Equal(t, 0, val)
 }
 
 func TestWatermarkRemove(t *testing.T) {
@@ -51,12 +41,8 @@ func TestWatermarkRemove(t *testing.T) {
 	}
 
 	_, exists, err := GetWatermark(dir)
-	if err != nil {
-		t.Fatalf("GetWatermark after remove: %v", err)
-	}
-	if exists {
-		t.Fatal("expected watermark to not exist after removal")
-	}
+	require.Nil(t, err)
+	require.False(t, exists)
 }
 
 func TestWatermarkRemoveWhenNoneExists(t *testing.T) {
@@ -71,9 +57,7 @@ func TestWatermarkRemoveWhenNoneExists(t *testing.T) {
 func TestWatermarkGetOnFile(t *testing.T) {
 	// Verify it works on a file too, not just directories
 	f, err := os.CreateTemp(t.TempDir(), "watermark-test")
-	if err != nil {
-		t.Fatalf("create temp file: %v", err)
-	}
+	require.Nil(t, err)
 	f.Close()
 
 	if err := SetWatermark(f.Name(), 42.5); err != nil {
@@ -81,13 +65,7 @@ func TestWatermarkGetOnFile(t *testing.T) {
 	}
 
 	val, exists, err := GetWatermark(f.Name())
-	if err != nil {
-		t.Fatalf("GetWatermark on file: %v", err)
-	}
-	if !exists {
-		t.Fatal("expected watermark to exist on file")
-	}
-	if val != 42.5 {
-		t.Fatalf("expected 42.5, got %v", val)
-	}
+	require.Nil(t, err)
+	require.True(t, exists)
+	require.Equal(t, 42.5, val)
 }

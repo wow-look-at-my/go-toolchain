@@ -6,6 +6,9 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 )
 
 // MockCommandRunner captures commands for testing
@@ -88,70 +91,50 @@ func TestRealCommandRunner(t *testing.T) {
 
 	// Test Run
 	err := r.Run("echo", "hello")
-	if err != nil {
-		t.Errorf("Run failed: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Test RunWithOutput
 	out, err := r.RunWithOutput("echo", "hello")
-	if err != nil {
-		t.Errorf("RunWithOutput failed: %v", err)
-	}
-	if string(out) != "hello\n" {
-		t.Errorf("expected 'hello\\n', got %q", out)
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, "hello\n", string(out))
 
 	// Test RunWithPipes
 	stdout, wait, err := r.RunWithPipes("echo", "piped")
-	if err != nil {
-		t.Errorf("RunWithPipes failed: %v", err)
-	}
+	assert.Nil(t, err)
 	data, _ := io.ReadAll(stdout)
 	if err := wait(); err != nil {
 		t.Errorf("wait failed: %v", err)
 	}
-	if string(data) != "piped\n" {
-		t.Errorf("expected 'piped\\n', got %q", data)
-	}
+	assert.Equal(t, "piped\n", string(data))
 }
 
 func TestRealCommandRunnerNonQuiet(t *testing.T) {
 	r := &RealCommandRunner{Quiet: false}
 	err := r.Run("true")
-	if err != nil {
-		t.Errorf("Run failed: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRealCommandRunnerRunFails(t *testing.T) {
 	r := &RealCommandRunner{Quiet: true}
 	err := r.Run("false")
-	if err == nil {
-		t.Error("expected error for failing command")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRealCommandRunnerRunWithOutputFails(t *testing.T) {
 	r := &RealCommandRunner{Quiet: true}
 	_, err := r.RunWithOutput("false")
-	if err == nil {
-		t.Error("expected error for failing command")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRealCommandRunnerRunWithPipesFails(t *testing.T) {
 	r := &RealCommandRunner{Quiet: true}
 	stdout, wait, err := r.RunWithPipes("sh", "-c", "echo hello && exit 1")
-	if err != nil {
-		t.Fatalf("RunWithPipes start failed: %v", err)
-	}
+	require.Nil(t, err)
 	// Read stdout
 	_, _ = io.ReadAll(stdout)
 	// Wait should return error
 	err = wait()
-	if err == nil {
-		t.Error("expected error for failing command")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestMockCommandRunner(t *testing.T) {
@@ -159,17 +142,9 @@ func TestMockCommandRunner(t *testing.T) {
 	m.SetResponse("test", []string{"arg1"}, []byte("output"), nil)
 
 	out, err := m.RunWithOutput("test", "arg1")
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if string(out) != "output" {
-		t.Errorf("expected 'output', got %q", out)
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, "output", string(out))
 
-	if len(m.Commands) != 1 {
-		t.Errorf("expected 1 command, got %d", len(m.Commands))
-	}
-	if m.Commands[0].Name != "test" {
-		t.Errorf("expected command 'test', got %q", m.Commands[0].Name)
-	}
+	assert.Equal(t, 1, len(m.Commands))
+	assert.Equal(t, "test", m.Commands[0].Name)
 }

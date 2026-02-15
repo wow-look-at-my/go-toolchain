@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -27,23 +30,15 @@ func TestFormatDuration(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := formatDuration(tt.d)
-		if got != tt.want {
-			t.Errorf("formatDuration(%v) = %q, want %q", tt.d, got, tt.want)
-		}
+		assert.Equal(t, tt.want, got)
 	}
 }
 
 func TestCollectGitInfo(t *testing.T) {
 	info := collectGitInfo()
-	if info.commit == "" {
-		t.Error("expected non-empty commit")
-	}
-	if info.timestamp == "" {
-		t.Error("expected non-empty timestamp")
-	}
-	if info.version == "" {
-		t.Error("expected non-empty version")
-	}
+	assert.NotEqual(t, "", info.commit)
+	assert.NotEqual(t, "", info.timestamp)
+	assert.NotEqual(t, "", info.version)
 }
 
 func TestCollectGitInfoFromEnv(t *testing.T) {
@@ -53,12 +48,8 @@ func TestCollectGitInfoFromEnv(t *testing.T) {
 	t.Setenv("GITHUB_REF_NAME", "v2.0.0")
 
 	info := collectGitInfo()
-	if info.commit != "env-sha-123456" {
-		t.Errorf("expected commit from GITHUB_SHA, got %q", info.commit)
-	}
-	if info.version != "v2.0.0" {
-		t.Errorf("expected version from GITHUB_REF_NAME tag, got %q", info.version)
-	}
+	assert.Equal(t, "env-sha-123456", info.commit)
+	assert.Equal(t, "v2.0.0", info.version)
 }
 
 func TestCollectGitInfoBranchRef(t *testing.T) {
@@ -68,9 +59,7 @@ func TestCollectGitInfoBranchRef(t *testing.T) {
 
 	info := collectGitInfo()
 	// version should come from git describe, not the branch name
-	if info.version == "main" {
-		t.Error("branch name should not be used as version")
-	}
+	assert.NotEqual(t, "main", info.version)
 }
 
 func TestEnvOr(t *testing.T) {
@@ -91,22 +80,16 @@ func TestGithubRepoFromEnv(t *testing.T) {
 	githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 	defer func() { githubRepo = old }()
 
-	if githubRepo != "other-org/other-repo" {
-		t.Errorf("expected 'other-org/other-repo', got %q", githubRepo)
-	}
+	assert.Equal(t, "other-org/other-repo", githubRepo)
 }
 
 func TestGitInfoLdflags(t *testing.T) {
 	info := collectGitInfo()
 	ldflags := info.ldflags()
 
-	if ldflags == "" {
-		t.Error("expected non-empty ldflags")
-	}
+	assert.NotEqual(t, "", ldflags)
 	for _, want := range []string{"buildVersion", "buildCommit", "buildTimestamp", "buildDate"} {
-		if !strings.Contains(ldflags, want) {
-			t.Errorf("expected ldflags to contain %s", want)
-		}
+		assert.Contains(t, ldflags, want)
 	}
 }
 
@@ -114,9 +97,7 @@ func TestGitInfoLdflagsReproducible(t *testing.T) {
 	info := collectGitInfo()
 	ldflags1 := info.ldflags()
 	ldflags2 := info.ldflags()
-	if ldflags1 != ldflags2 {
-		t.Error("ldflags should be deterministic for the same gitInfo")
-	}
+	assert.Equal(t, ldflags2, ldflags1)
 }
 
 func TestGitInfoLdflagsSourceDateEpoch(t *testing.T) {
@@ -124,17 +105,13 @@ func TestGitInfoLdflagsSourceDateEpoch(t *testing.T) {
 	info := gitInfo{version: "v1.0.0", commit: "abc123", timestamp: "1600000000"}
 	ldflags := info.ldflags()
 	// Should use SOURCE_DATE_EPOCH (1700000000) not git timestamp (1600000000)
-	if !strings.Contains(ldflags, "2023-11-14") {
-		t.Errorf("expected SOURCE_DATE_EPOCH date in ldflags, got: %s", ldflags)
-	}
+	assert.Contains(t, ldflags, "2023-11-14")
 }
 
 func TestGitInfoLdflagsNoTimestamp(t *testing.T) {
 	info := gitInfo{version: "v1.0.0", commit: "abc123"}
 	ldflags := info.ldflags()
-	if strings.Contains(ldflags, "buildDate") {
-		t.Errorf("expected no buildDate without timestamp, got: %s", ldflags)
-	}
+	assert.NotContains(t, ldflags, "buildDate")
 }
 
 func TestGitInfoString(t *testing.T) {
@@ -235,15 +212,9 @@ func TestFetchLatestCommitFromGitHub(t *testing.T) {
 	defer withMockGitHub(t, server)()
 
 	info, err := fetchLatestCommitFromGitHub()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if info.sha != "abc123def456" {
-		t.Errorf("expected sha 'abc123def456', got %q", info.sha)
-	}
-	if info.timestamp != commitTime.Unix() {
-		t.Errorf("expected timestamp %d, got %d", commitTime.Unix(), info.timestamp)
-	}
+	require.Nil(t, err)
+	assert.Equal(t, "abc123def456", info.sha)
+	assert.Equal(t, commitTime.Unix(), info.timestamp)
 }
 
 func TestFetchLatestCommitFromGitHubHTTPError(t *testing.T) {
@@ -254,12 +225,8 @@ func TestFetchLatestCommitFromGitHubHTTPError(t *testing.T) {
 	defer withMockGitHub(t, server)()
 
 	_, err := fetchLatestCommitFromGitHub()
-	if err == nil {
-		t.Error("expected error for HTTP 404")
-	}
-	if !strings.Contains(err.Error(), "HTTP 404") {
-		t.Errorf("expected HTTP 404 in error, got: %v", err)
-	}
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "HTTP 404")
 }
 
 func TestFetchLatestCommitFromGitHubEmptyResponse(t *testing.T) {
@@ -270,9 +237,7 @@ func TestFetchLatestCommitFromGitHubEmptyResponse(t *testing.T) {
 	defer withMockGitHub(t, server)()
 
 	_, err := fetchLatestCommitFromGitHub()
-	if err == nil {
-		t.Error("expected error for empty commits")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestFetchCommitsBehind(t *testing.T) {
@@ -281,12 +246,8 @@ func TestFetchCommitsBehind(t *testing.T) {
 	defer withMockGitHub(t, server)()
 
 	count, err := fetchCommitsBehind("old123", "head123")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 7 {
-		t.Errorf("expected 7 commits behind, got %d", count)
-	}
+	require.Nil(t, err)
+	assert.Equal(t, 7, count)
 }
 
 func TestFetchCommitsBehindHTTPError(t *testing.T) {
@@ -297,9 +258,7 @@ func TestFetchCommitsBehindHTTPError(t *testing.T) {
 	defer withMockGitHub(t, server)()
 
 	_, err := fetchCommitsBehind("old123", "head123")
-	if err == nil {
-		t.Error("expected error for HTTP 422")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestPrintStalenessUpToDate(t *testing.T) {

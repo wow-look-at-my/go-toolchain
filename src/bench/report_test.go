@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 )
 
 func TestParseBenchmarkOutput(t *testing.T) {
@@ -15,75 +18,43 @@ func TestParseBenchmarkOutput(t *testing.T) {
 {"Time":"2024-01-01T00:00:03Z","Action":"pass","Package":"pkg/foo"}`
 
 	report, err := ParseBenchmarkOutput([]byte(input))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Nil(t, err)
 
-	if len(report.Packages) != 1 {
-		t.Fatalf("expected 1 package, got %d", len(report.Packages))
-	}
+	require.Equal(t, 1, len(report.Packages))
 
 	results, ok := report.Packages["pkg/foo"]
-	if !ok {
-		t.Fatal("expected pkg/foo in results")
-	}
+	require.True(t, ok)
 
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
+	require.Equal(t, 2, len(results))
 
 	foo := results[0]
-	if foo.Name != "BenchmarkFoo-8" {
-		t.Errorf("expected BenchmarkFoo-8, got %s", foo.Name)
-	}
-	if foo.Iterations != 10000 {
-		t.Errorf("expected 10000 iterations, got %d", foo.Iterations)
-	}
-	if foo.NsPerOp != 123456 {
-		t.Errorf("expected 123456 ns/op, got %f", foo.NsPerOp)
-	}
-	if foo.BytesPerOp != 1024 {
-		t.Errorf("expected 1024 B/op, got %d", foo.BytesPerOp)
-	}
-	if foo.AllocsPerOp != 8 {
-		t.Errorf("expected 8 allocs/op, got %d", foo.AllocsPerOp)
-	}
+	assert.Equal(t, "BenchmarkFoo-8", foo.Name)
+	assert.Equal(t, 10000, foo.Iterations)
+	assert.Equal(t, 123456, foo.NsPerOp)
+	assert.Equal(t, 1024, foo.BytesPerOp)
+	assert.Equal(t, 8, foo.AllocsPerOp)
 }
 
 func TestParseBenchmarkOutputNoAllocStats(t *testing.T) {
 	input := `{"Action":"output","Package":"pkg","Output":"BenchmarkSimple-4   \t 1000000\t      1234 ns/op\n"}`
 
 	report, err := ParseBenchmarkOutput([]byte(input))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Nil(t, err)
 
 	results := report.Packages["pkg"]
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
+	require.Equal(t, 1, len(results))
 
-	if results[0].BytesPerOp != 0 {
-		t.Errorf("expected 0 B/op, got %d", results[0].BytesPerOp)
-	}
-	if results[0].AllocsPerOp != 0 {
-		t.Errorf("expected 0 allocs/op, got %d", results[0].AllocsPerOp)
-	}
+	assert.Equal(t, 0, results[0].BytesPerOp)
+	assert.Equal(t, 0, results[0].AllocsPerOp)
 }
 
 func TestParseBenchmarkOutputEmpty(t *testing.T) {
 	report, err := ParseBenchmarkOutput([]byte{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Nil(t, err)
 
-	if len(report.Packages) != 0 {
-		t.Errorf("expected empty packages, got %d", len(report.Packages))
-	}
+	assert.Equal(t, 0, len(report.Packages))
 
-	if report.HasResults() {
-		t.Error("expected HasResults() to be false")
-	}
+	assert.False(t, report.HasResults())
 }
 
 func TestParseBenchmarkOutputMalformedJSON(t *testing.T) {
@@ -92,14 +63,10 @@ func TestParseBenchmarkOutputMalformedJSON(t *testing.T) {
 also not json`
 
 	report, err := ParseBenchmarkOutput([]byte(input))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Should still parse the valid line
-	if len(report.Packages) != 1 {
-		t.Errorf("expected 1 package, got %d", len(report.Packages))
-	}
+	assert.Equal(t, 1, len(report.Packages))
 }
 
 func TestFormatBenchTime(t *testing.T) {
@@ -115,9 +82,7 @@ func TestFormatBenchTime(t *testing.T) {
 
 	for _, tc := range tests {
 		result := formatBenchTime(tc.ns)
-		if result != tc.expected {
-			t.Errorf("formatBenchTime(%f) = %q, expected %q", tc.ns, result, tc.expected)
-		}
+		assert.Equal(t, tc.expected, result)
 	}
 }
 
@@ -133,9 +98,7 @@ func TestFormatBenchBytes(t *testing.T) {
 
 	for _, tc := range tests {
 		result := formatBenchBytes(tc.bytes)
-		if result != tc.expected {
-			t.Errorf("formatBenchBytes(%d) = %q, expected %q", tc.bytes, result, tc.expected)
-		}
+		assert.Equal(t, tc.expected, result)
 	}
 }
 
@@ -162,12 +125,8 @@ func TestBenchmarkReportPrint(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !strings.Contains(output, "pkg") {
-		t.Error("expected output to contain package name")
-	}
-	if !strings.Contains(output, "Foo") {
-		t.Error("expected output to contain benchmark name")
-	}
+	assert.Contains(t, output, "pkg")
+	assert.Contains(t, output, "Foo")
 }
 
 func TestBenchmarkReportPrintEmpty(t *testing.T) {
@@ -188,9 +147,7 @@ func TestBenchmarkReportPrintEmpty(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !strings.Contains(output, "no benchmarks found") {
-		t.Error("expected 'no benchmarks found' message")
-	}
+	assert.Contains(t, output, "no benchmarks found")
 }
 
 func TestBenchmarkReportJSON(t *testing.T) {
@@ -213,25 +170,19 @@ func TestBenchmarkReportJSON(t *testing.T) {
 		t.Fatalf("failed to decode: %v", err)
 	}
 
-	if len(decoded.Packages["pkg"]) != 1 {
-		t.Error("expected 1 result in decoded report")
-	}
+	assert.Equal(t, 1, len(decoded.Packages["pkg"]))
 }
 
 func TestHasResults(t *testing.T) {
 	empty := &BenchmarkReport{Packages: map[string][]BenchmarkResult{}}
-	if empty.HasResults() {
-		t.Error("empty report should return false")
-	}
+	assert.False(t, empty.HasResults())
 
 	withResults := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {{Name: "BenchmarkFoo"}},
 		},
 	}
-	if !withResults.HasResults() {
-		t.Error("report with results should return true")
-	}
+	assert.True(t, withResults.HasResults())
 }
 
 func TestToBenchstat(t *testing.T) {
@@ -247,28 +198,16 @@ func TestToBenchstat(t *testing.T) {
 	output := report.ToBenchstat()
 
 	// Should be sorted by name
-	if !strings.Contains(output, "BenchmarkBar-8") {
-		t.Error("expected BenchmarkBar-8 in output")
-	}
-	if !strings.Contains(output, "BenchmarkFoo-8") {
-		t.Error("expected BenchmarkFoo-8 in output")
-	}
-	if !strings.Contains(output, "1234.56 ns/op") {
-		t.Error("expected ns/op in output")
-	}
-	if !strings.Contains(output, "256 B/op") {
-		t.Error("expected B/op in output")
-	}
-	if !strings.Contains(output, "4 allocs/op") {
-		t.Error("expected allocs/op in output")
-	}
+	assert.Contains(t, output, "BenchmarkBar-8")
+	assert.Contains(t, output, "BenchmarkFoo-8")
+	assert.Contains(t, output, "1234.56 ns/op")
+	assert.Contains(t, output, "256 B/op")
+	assert.Contains(t, output, "4 allocs/op")
 
 	// Bar should come before Foo (sorted)
 	barIdx := strings.Index(output, "BenchmarkBar")
 	fooIdx := strings.Index(output, "BenchmarkFoo")
-	if barIdx > fooIdx {
-		t.Error("expected results sorted by name")
-	}
+	assert.LessOrEqual(t, barIdx, fooIdx)
 }
 
 func TestToBenchstatNoAllocs(t *testing.T) {
@@ -282,10 +221,6 @@ func TestToBenchstatNoAllocs(t *testing.T) {
 
 	output := report.ToBenchstat()
 
-	if strings.Contains(output, "B/op") {
-		t.Error("should not include B/op when zero")
-	}
-	if strings.Contains(output, "allocs/op") {
-		t.Error("should not include allocs/op when zero")
-	}
+	assert.NotContains(t, output, "B/op")
+	assert.NotContains(t, output, "allocs/op")
 }

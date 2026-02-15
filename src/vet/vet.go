@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-git/go-git/v5"
+	ansi "github.com/wow-look-at-my/ansi-writer"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
 	"golang.org/x/tools/go/analysis/passes/assign"
@@ -222,7 +223,13 @@ func vetSemantic(pattern string, fix bool) error {
 			if idx := strings.Index(replacement, "\n"); idx > 0 {
 				replacement = replacement[:idx] + "..."
 			}
-			fmt.Printf("\033[33mfixed: %s:%d %s\033[0m\n", relPath, f.line, replacement)
+			// Format: yellow "fixed:" + grey OSC 8 link + white replacement
+			location := fmt.Sprintf("%s:%d", relPath, f.line)
+			fileURL := fmt.Sprintf("file://%s", f.filename)
+			yellow := ansi.Style("fixed:", ansi.Yellow.FG())
+			grey := ansi.Link(fileURL, ansi.Style(location, ansi.BrightBlack.FG()))
+			white := ansi.Style(replacement, ansi.White.FG())
+			fmt.Printf("%s %s %s\n", yellow, grey, white)
 		}
 	}
 

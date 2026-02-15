@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"testing"
+	"github.com/stretchr/testify/assert"
+
 )
 
 // benchMockRunner implements interfaces needed for bench testing
@@ -95,9 +97,7 @@ func TestRunBenchmarkInBuild(t *testing.T) {
 	verbose = false
 
 	err := runBenchmarkInBuild(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunBenchmarkInBuildJSON(t *testing.T) {
@@ -124,9 +124,7 @@ func TestRunBenchmarkInBuildJSON(t *testing.T) {
 	benchCPU = ""
 
 	err := runBenchmarkInBuild(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
@@ -160,9 +158,7 @@ func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
 	benchCPU = ""
 
 	err := runBenchmarkInBuild(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunBenchmarkInBuildFails(t *testing.T) {
@@ -188,9 +184,7 @@ func TestRunBenchmarkInBuildFails(t *testing.T) {
 	benchCPU = ""
 
 	err := runBenchmarkInBuild(mock)
-	if err == nil {
-		t.Error("expected error when benchmarks fail")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
@@ -224,9 +218,7 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 	benchCPU = ""
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Verify that a benchmark command was issued (go test -bench ...)
 	found := false
@@ -240,9 +232,7 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 			}
 		}
 	}
-	if !found {
-		t.Error("expected benchmark command (go test -bench ...) to be run by default")
-	}
+	assert.True(t, found)
 }
 
 func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
@@ -267,17 +257,13 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 	noBenchmark = true // --no-benchmark: skip benchmarks
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Verify no benchmark command was issued
 	for _, cmd := range mock.commands {
 		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "test" {
 			for _, arg := range cmd.Args {
-				if arg == "-bench" {
-					t.Error("benchmark command should not be run when --no-benchmark is set")
-				}
+				assert.NotEqual(t, "-bench", arg)
 			}
 		}
 	}
@@ -290,18 +276,12 @@ func TestBenchRunnerWrapper(t *testing.T) {
 	// Test RunWithOutput
 	mock.SetResponse("test", []string{"arg"}, []byte("output"), nil)
 	out, err := br.RunWithOutput("test", "arg")
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if string(out) != "output" {
-		t.Errorf("expected 'output', got %q", string(out))
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, "output", string(out))
 
 	// Test Run
 	err = br.Run("test2", "arg2")
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunBenchRunWithRunner(t *testing.T) {

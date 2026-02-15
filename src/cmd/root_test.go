@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 )
 
 // writeMockCoverProfile writes a minimal Go coverage profile matching the
@@ -43,9 +46,7 @@ func TestRunWithRunnerModTidyFails(t *testing.T) {
 	defer func() { jsonOutput = false }()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when mod tidy fails")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunWithRunnerTestsFail(t *testing.T) {
@@ -55,9 +56,7 @@ func TestRunWithRunnerTestsFail(t *testing.T) {
 	defer func() { jsonOutput = false }()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when tests fail")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
@@ -74,9 +73,7 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 		}()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when coverage below threshold")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunWithRunnerSuccess(t *testing.T) {
@@ -95,9 +92,7 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunWithRunnerSuccessVerbose(t *testing.T) {
@@ -118,9 +113,7 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 // testPassMockRunner returns valid test JSON output with configurable coverage.
@@ -201,9 +194,7 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunWithRunnerFileDetail(t *testing.T) {
@@ -224,9 +215,7 @@ func TestRunWithRunnerFileDetail(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunWithRunnerFuncDetail(t *testing.T) {
@@ -265,12 +254,8 @@ func TestRunWithRunnerVetFails(t *testing.T) {
 		}()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when vet fails")
-	}
-	if !strings.Contains(err.Error(), "go vet failed") {
-		t.Errorf("expected 'go vet failed' in error, got: %v", err)
-	}
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "go vet failed")
 }
 
 func TestRunWithRunnerBuildFails(t *testing.T) {
@@ -289,9 +274,7 @@ func TestRunWithRunnerBuildFails(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when build fails")
-	}
+	assert.NotNil(t, err)
 }
 
 // buildFailMockRunner passes tests but fails build
@@ -370,9 +353,7 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 		}()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when coverage below threshold")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
@@ -389,9 +370,7 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 		}()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when coverage below threshold")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunWithRunnerAddWatermark(t *testing.T) {
@@ -412,21 +391,13 @@ func TestRunWithRunnerAddWatermark(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Verify watermark was set
 	wm, exists, werr := gotest.GetWatermark(".")
-	if werr != nil {
-		t.Fatalf("getWatermark: %v", werr)
-	}
-	if !exists {
-		t.Fatal("expected watermark to exist after --add-watermark")
-	}
-	if wm != 100.0 {
-		t.Errorf("expected watermark 100.0, got %v", wm)
-	}
+	require.Nil(t, werr)
+	require.True(t, exists)
+	assert.Equal(t, 100.0, wm)
 }
 
 func TestRunWithRunnerAddWatermarkJSON(t *testing.T) {
@@ -447,9 +418,7 @@ func TestRunWithRunnerAddWatermarkJSON(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
@@ -470,12 +439,8 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 		}()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when coverage below watermark grace")
-	}
-	if err != nil && !strings.Contains(err.Error(), "below minimum") {
-		t.Errorf("expected 'below minimum' error, got: %v", err)
-	}
+	assert.NotNil(t, err)
+	assert.False(t, err != nil && !strings.Contains(err.Error(), "below minimum"))
 }
 
 func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
@@ -498,9 +463,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
@@ -522,15 +485,11 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Verify watermark was ratcheted up
 	wm, _, _ := gotest.GetWatermark(".")
-	if wm != 100.0 {
-		t.Errorf("expected watermark 100.0, got %v", wm)
-	}
+	assert.Equal(t, 100.0, wm)
 }
 
 func TestHandleRemoveWatermarkNoWatermark(t *testing.T) {
@@ -550,12 +509,8 @@ func TestHandleRemoveWatermarkNoWatermark(t *testing.T) {
 	out, _ := io.ReadAll(r)
 	os.Stdout = old
 
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if !strings.Contains(string(out), "No watermark is set") {
-		t.Errorf("expected 'No watermark is set', got: %s", out)
-	}
+	assert.Nil(t, err)
+	assert.Contains(t, string(out), "No watermark is set")
 }
 
 func TestHandleRemoveWatermarkAborted(t *testing.T) {
@@ -585,18 +540,12 @@ func TestHandleRemoveWatermarkAborted(t *testing.T) {
 	out, _ := io.ReadAll(r)
 	os.Stdout = old
 
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if !strings.Contains(string(out), "Aborted") {
-		t.Errorf("expected 'Aborted', got: %s", out)
-	}
+	assert.Nil(t, err)
+	assert.Contains(t, string(out), "Aborted")
 
 	// Watermark should still exist
 	_, exists, _ := gotest.GetWatermark(".")
-	if !exists {
-		t.Error("watermark should still exist after abort")
-	}
+	assert.True(t, exists)
 }
 
 func TestHandleRemoveWatermarkConfirmed(t *testing.T) {
@@ -626,18 +575,12 @@ func TestHandleRemoveWatermarkConfirmed(t *testing.T) {
 	out, _ := io.ReadAll(r)
 	os.Stdout = old
 
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if !strings.Contains(string(out), "Watermark removed") {
-		t.Errorf("expected 'Watermark removed', got: %s", out)
-	}
+	assert.Nil(t, err)
+	assert.Contains(t, string(out), "Watermark removed")
 
 	// Watermark should be gone
 	_, exists, _ := gotest.GetWatermark(".")
-	if exists {
-		t.Error("watermark should not exist after removal")
-	}
+	assert.False(t, exists)
 }
 
 func TestRunWithRunnerRemoveWatermarkFlag(t *testing.T) {
@@ -670,12 +613,8 @@ func TestRunWithRunnerRemoveWatermarkFlag(t *testing.T) {
 	out, _ := io.ReadAll(r)
 	os.Stdout = old
 
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if !strings.Contains(string(out), "Watermark removed") {
-		t.Errorf("expected 'Watermark removed', got: %s", out)
-	}
+	assert.Nil(t, err)
+	assert.Contains(t, string(out), "Watermark removed")
 }
 
 func TestRunWithRunnerFailedTest(t *testing.T) {
@@ -694,9 +633,7 @@ func TestRunWithRunnerFailedTest(t *testing.T) {
 	}()
 
 	err := runWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
@@ -715,9 +652,7 @@ func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 		}()
 
 	err := runWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when tests fail")
-	}
+	assert.NotNil(t, err)
 	// The key point: results are still displayed before the error is returned
 }
 
@@ -794,9 +729,7 @@ func TestNeedsGenerateNoDirectives(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	if needsGenerate() {
-		t.Error("expected false when no go:generate directives")
-	}
+	assert.False(t, needsGenerate())
 }
 
 func TestNeedsGenerateWithDirective(t *testing.T) {
@@ -807,7 +740,5 @@ func TestNeedsGenerateWithDirective(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	if !needsGenerate() {
-		t.Error("expected true when go:generate directive present")
-	}
+	assert.True(t, needsGenerate())
 }
