@@ -9,6 +9,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure git for private repos
+        run: git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -29,6 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure git for private repos
+        run: git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Build and test with action
         uses: ./
