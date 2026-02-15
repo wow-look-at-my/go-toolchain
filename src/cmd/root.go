@@ -166,16 +166,7 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 	if !jsonOutput {
 		fmt.Println("==> go vet ./...")
 	}
-	if err := runner.Run("go", "vet", "./..."); err != nil {
-		return fmt.Errorf("go vet failed: %w", err)
-	}
-
-	if fix {
-		if err := vet.Fix(); err != nil {
-			return fmt.Errorf("vet fix failed: %w", err)
-		}
-	}
-	if err := vet.Run(); err != nil {
+	if err := vet.Run(fix); err != nil {
 		return fmt.Errorf("vet failed: %w", err)
 	}
 

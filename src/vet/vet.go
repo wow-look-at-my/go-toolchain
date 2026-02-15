@@ -207,34 +207,3 @@ type Diagnostic struct {
 	Column  int
 	Message string
 }
-
-// runAnalyzer runs a single analyzer on the given packages.
-func runAnalyzer(a *analysis.Analyzer, pkgs []*packages.Package) ([]Diagnostic, error) {
-	var diagnostics []Diagnostic
-
-	for _, pkg := range pkgs {
-		pass := &analysis.Pass{
-			Analyzer:  a,
-			Fset:      pkg.Fset,
-			Files:     pkg.Syntax,
-			Pkg:       pkg.Types,
-			TypesInfo: pkg.TypesInfo,
-			Report: func(d analysis.Diagnostic) {
-				pos := pkg.Fset.Position(d.Pos)
-				diagnostics = append(diagnostics, Diagnostic{
-					File:    pos.Filename,
-					Line:    pos.Line,
-					Column:  pos.Column,
-					Message: d.Message,
-				})
-			},
-		}
-
-		_, err := a.Run(pass)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return diagnostics, nil
-}
