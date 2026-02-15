@@ -3,6 +3,7 @@ package vet
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -176,6 +177,11 @@ func applyFixes(fixes []fileFix) error {
 		byFile[f.filename] = append(byFile[f.filename], f)
 	}
 
+	// Check that all files are committed before modifying
+	if err := checkFilesCommitted(byFile); err != nil {
+		return err
+	}
+
 	for filename, edits := range byFile {
 		content, err := os.ReadFile(filename)
 		if err != nil {
@@ -206,4 +212,26 @@ type Diagnostic struct {
 	Line    int
 	Column  int
 	Message string
+}
+
+// checkFilesCommitted verifies all files are committed before auto-fix modifies them.
+func checkFilesCommitted(byFile map[string][]fileFix) error {
+	var files []string
+	for f := range byFile {
+		files = append(files, f)
+	}
+
+	args := append([]string{"status", "--porcelain", "--"}, files...)
+	cmd := exec.Command("git", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		// Not a git repo or git not available - skip check
+		return nil
+	}
+
+	if len(out) > 0 {
+		return fmt.Errorf("cannot auto-fix: files have uncommitted changes\n%s\ncommit or stash changes first", strings.TrimSpace(string(out)))
+	}
+
+	return nil
 }
