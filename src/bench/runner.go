@@ -2,12 +2,10 @@ package bench
 
 import (
 	"fmt"
-)
+	"io"
 
-// CommandRunner abstracts command execution for testing
-type CommandRunner interface {
-	RunWithOutput(name string, args ...string) ([]byte, error)
-}
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
+)
 
 // Options configures benchmark execution
 type Options struct {
@@ -18,20 +16,26 @@ type Options struct {
 }
 
 // RunBenchmarks executes go test -bench and returns parsed results
-func RunBenchmarks(runner CommandRunner, opts Options) (*BenchmarkReport, error) {
+func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, error) {
 	goTestArgs := buildBenchArgs(opts)
 	// Always run with -json so we can parse results
 	goTestArgs = append([]string{goTestArgs[0], "-json"}, goTestArgs[1:]...)
 
-	output, err := runner.RunWithOutput("go", goTestArgs...)
+	proc, err := runner.Cmd("go", goTestArgs...).WithQuiet().Run(r)
 	if err != nil {
+		return nil, fmt.Errorf("benchmarks failed: %w", err)
+	}
+	output, _ := io.ReadAll(proc.Stdout())
+	waitErr := proc.Wait()
+
+	if waitErr != nil {
 		// Try to parse and return partial results on failure
 		if len(output) > 0 {
 			if report, parseErr := ParseBenchmarkOutput(output); parseErr == nil && report.HasResults() {
-				return report, fmt.Errorf("benchmarks failed: %w", err)
+				return report, fmt.Errorf("benchmarks failed: %w", waitErr)
 			}
 		}
-		return nil, fmt.Errorf("benchmarks failed: %w", err)
+		return nil, fmt.Errorf("benchmarks failed: %w", waitErr)
 	}
 
 	report, err := ParseBenchmarkOutput(output)

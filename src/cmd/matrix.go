@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 var (
@@ -50,22 +51,22 @@ type buildResult struct {
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
-	runner := &RealCommandRunner{Quiet: false}
-	return runReleaseWithRunner(runner)
+	r := runner.New()
+	return runReleaseWithRunner(r)
 }
 
-func runReleaseWithRunner(runner CommandRunner) error {
+func runReleaseWithRunner(r runner.CommandRunner) error {
 	if len(matrixOS) == 0 || len(matrixArch) == 0 {
 		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
 	}
 
 	// Run tests with coverage first (same as default command)
-	if err := RunTestsWithCoverage(runner); err != nil {
+	if err := RunTestsWithCoverage(r, false); err != nil {
 		return err
 	}
 
 	// Resolve what to build
-	targets, err := build.ResolveBuildTargets(runner)
+	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err
 	}
@@ -120,7 +121,7 @@ func runReleaseWithRunner(runner CommandRunner) error {
 		go func() {
 			defer wg.Done()
 			for job := range jobChan {
-				err := runBuild(runner, job)
+				err := runBuild(r, job)
 				results <- buildResult{job: job, err: err}
 			}
 		}()
@@ -155,11 +156,16 @@ func runReleaseWithRunner(runner CommandRunner) error {
 	return nil
 }
 
-func runBuild(runner CommandRunner, job buildJob) error {
-	env := os.Environ()
-	env = append(env, "GOOS="+job.goos, "GOARCH="+job.goarch, "CGO_ENABLED=0")
-
-	args := []string{"build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath}
-	return runner.RunWithEnv(env, "go", args...)
+func runBuild(r runner.CommandRunner, job buildJob) error {
+	proc, err := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath).
+		WithEnv("GOOS", job.goos).
+		WithEnv("GOARCH", job.goarch).
+		WithEnv("CGO_ENABLED", "0").
+		WithQuiet().
+		Run(r)
+	if err != nil {
+		return err
+	}
+	return proc.Wait()
 }
 

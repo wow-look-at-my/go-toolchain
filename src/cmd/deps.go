@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
 	_ "modernc.org/sqlite"
 )
@@ -413,7 +415,7 @@ func WaitForOutdatedDeps(dc *DepChecker) {
 // FixBogusDepsVersions detects dependencies with v0.0.0 versions in go.mod and
 // resolves them to actual pseudo-versions. This happens when someone adds a
 // git-based dependency without a proper version tag.
-func FixBogusDepsVersions(runner CommandRunner) error {
+func FixBogusDepsVersions(r runner.CommandRunner) error {
 	data, err := os.ReadFile("go.mod")
 	if err != nil {
 		return nil // Let go mod tidy handle missing go.mod
@@ -441,7 +443,7 @@ func FixBogusDepsVersions(runner CommandRunner) error {
 			fmt.Printf("==> Resolving %s (v0.0.0 is not a valid version)\n", mod)
 		}
 
-		version, err := resolveLatestVersionViaGit(runner, mod)
+		version, err := resolveLatestVersionViaGit(r, mod)
 		if err != nil {
 			return fmt.Errorf("failed to resolve %s: %w", mod, err)
 		}
@@ -466,12 +468,16 @@ func FixBogusDepsVersions(runner CommandRunner) error {
 
 // resolveLatestVersionViaGit fetches the latest commit from a git repo and
 // constructs a proper pseudo-version with the correct timestamp.
-func resolveLatestVersionViaGit(runner CommandRunner, mod string) (string, error) {
+func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, error) {
 	gitURL := "https://" + mod
 
 	// Get HEAD commit hash via ls-remote
-	output, err := runner.RunWithOutput("git", "ls-remote", gitURL, "HEAD")
+	proc, err := runner.Cmd("git", "ls-remote", gitURL, "HEAD").WithQuiet().Run(r)
 	if err != nil {
+		return "", fmt.Errorf("git ls-remote failed: %w", err)
+	}
+	output, _ := io.ReadAll(proc.Stdout())
+	if proc.Wait() != nil {
 		return "", fmt.Errorf("git ls-remote failed: %w", err)
 	}
 
@@ -493,18 +499,32 @@ func resolveLatestVersionViaGit(runner CommandRunner, mod string) (string, error
 	defer os.RemoveAll(tmpDir)
 
 	// Init bare repo and fetch just the one commit
-	if err := runner.Run("git", "-C", tmpDir, "init", "--bare"); err != nil {
+	proc, err = runner.Cmd("git", "-C", tmpDir, "init", "--bare").WithQuiet().Run(r)
+	if err != nil {
 		return "", fmt.Errorf("git init failed: %w", err)
 	}
-	if err := runner.Run("git", "-C", tmpDir, "fetch", "--depth=1", gitURL, fullHash); err != nil {
+	if proc.Wait() != nil {
+		return "", fmt.Errorf("git init failed: %w", err)
+	}
+
+	proc, err = runner.Cmd("git", "-C", tmpDir, "fetch", "--depth=1", gitURL, fullHash).WithQuiet().Run(r)
+	if err != nil {
+		return "", fmt.Errorf("git fetch failed: %w", err)
+	}
+	if proc.Wait() != nil {
 		return "", fmt.Errorf("git fetch failed: %w", err)
 	}
 
 	// Get commit timestamp in UTC (use Unix epoch and convert)
-	tsOutput, err := runner.RunWithOutput("git", "-C", tmpDir, "log", "-1", "--format=%ct", fullHash)
+	proc, err = runner.Cmd("git", "-C", tmpDir, "log", "-1", "--format=%ct", fullHash).WithQuiet().Run(r)
 	if err != nil {
 		return "", fmt.Errorf("git log failed: %w", err)
 	}
+	tsOutput, _ := io.ReadAll(proc.Stdout())
+	if proc.Wait() != nil {
+		return "", fmt.Errorf("git log failed: %w", err)
+	}
+
 	epochStr := strings.TrimSpace(string(tsOutput))
 	epoch, err := strconv.ParseInt(epochStr, 10, 64)
 	if err != nil {

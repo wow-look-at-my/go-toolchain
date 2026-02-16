@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wow-look-at-my/go-set"
+	"github.com/wow-look-at-my/set"
 	"golang.org/x/tools/go/analysis"
 )
 

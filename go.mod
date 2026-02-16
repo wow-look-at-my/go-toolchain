@@ -7,7 +7,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260215041003-b1e7132dc32e
-	github.com/wow-look-at-my/go-set v0.0.0-20260216024631-c585e1123638
+	github.com/wow-look-at-my/set v0.0.0-20260216045703-7d3b706f4231
 	golang.org/x/mod v0.29.0
 	golang.org/x/sys v0.38.0
 	golang.org/x/tools v0.38.0
@@ -22,7 +22,6 @@ require (
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -37,7 +36,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
@@ -55,3 +53,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/stretchr/testify => github.com/wow-look-at-my/testify v0.0.0-20260216032759-75a264882c62

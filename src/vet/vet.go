@@ -68,7 +68,11 @@ func Analyzers() []*analysis.Analyzer {
 
 // Run executes all analyzers on the current module.
 // If fix is true, auto-fixes are applied for analyzers that support them.
+// Returns nil if no go.mod exists (nothing to vet).
 func Run(fix bool) error {
+	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
+		return nil
+	}
 	return RunOnPattern("./...", fix)
 }
 

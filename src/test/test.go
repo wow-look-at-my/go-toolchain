@@ -2,21 +2,14 @@ package test
 
 import (
 	"fmt"
-	"io"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"gotest.tools/gotestsum/testjson"
 )
-
-// CommandRunner abstracts command execution for testing
-type CommandRunner interface {
-	Run(name string, args ...string) error
-	RunWithOutput(name string, args ...string) ([]byte, error)
-	RunWithPipes(name string, args ...string) (stdout io.Reader, wait func() error, err error)
-}
 
 var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
 
@@ -75,8 +68,8 @@ type TestResult struct {
 
 // RunTests executes go test with coverage and returns parsed results.
 // coverFile is the path where the coverage profile will be written.
-func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult, error) {
-	stdout, wait, err := runner.RunWithPipes("go", "test", "-vet=off", "-json", "-coverprofile="+coverFile, "./...")
+func RunTests(r runner.CommandRunner, verbose bool, coverFile string) (*TestResult, error) {
+	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-coverprofile="+coverFile, "./...").Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +84,7 @@ func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult
 	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{
-		Stdout:  stdout,
+		Stdout:  proc.Stdout(),
 		Handler: handler,
 	})
 	if err != nil {
@@ -99,7 +92,7 @@ func RunTests(runner CommandRunner, verbose bool, coverFile string) (*TestResult
 	}
 
 	// Capture wait error but continue processing results
-	waitErr := wait()
+	waitErr := proc.Wait()
 
 	// If go test failed and no tests ran, provide a clearer error message
 	if waitErr != nil && execution.Total() == 0 {

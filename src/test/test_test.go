@@ -78,11 +78,8 @@ func TestCoverageRegex(t *testing.T) {
 		if tc.expected == "" {
 			assert.LessOrEqual(t, len(matches), 0)
 		} else {
-			if len(matches) != 2 {
-				t.Errorf("input %q: expected match, got %v", tc.input, matches)
-			} else if matches[1] != tc.expected {
-				t.Errorf("input %q: expected %q, got %q", tc.input, tc.expected, matches[1])
-			}
+			require.Equal(t, 2, len(matches), "input %q: expected match, got %v", tc.input, matches)
+			assert.Equal(t, tc.expected, matches[1], "input %q", tc.input)
 		}
 	}
 }
