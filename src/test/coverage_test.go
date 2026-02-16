@@ -43,9 +43,7 @@ func TestParseProfile(t *testing.T) {
 
 	expectedTotal := float32(coveredStmts) / float32(totalStmts) * 100
 
-	if err := os.WriteFile(coverFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write coverage file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
 
 	total, files, err := ParseProfile(coverFile)
 	require.Nil(t, err)
@@ -66,9 +64,7 @@ func TestParseProfileEmpty(t *testing.T) {
 
 	content := `mode: set
 `
-	if err := os.WriteFile(coverFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write coverage file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
 
 	total, files, err := ParseProfile(coverFile)
 	require.Nil(t, err)
@@ -89,9 +85,7 @@ too many fields here now extra
 no-colon-in-path 1 1
 example.com/pkg/file.go:10.20,12.2 1 1
 `
-	if err := os.WriteFile(coverFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write coverage file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
 
 	total, files, err := ParseProfile(coverFile)
 	require.Nil(t, err)

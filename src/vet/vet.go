@@ -246,7 +246,7 @@ type fileFix struct {
 
 // printFix prints a fix message showing old (red) and new (green) text.
 func printFix(f fileFix) {
-	fileURL := fmt.Sprintf("file://%s", f.loc.File)
+	fileURL := fmt.Sprintf("file://%s:%d", f.loc.File, f.loc.Line)
 	yellow := ansi.Style("fixed:", ansi.Yellow.FG())
 	grey := ansi.Link(fileURL, ansi.Style(f.loc.ShortLoc(), ansi.BrightBlack.FG()))
 

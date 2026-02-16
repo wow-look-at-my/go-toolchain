@@ -10,9 +10,7 @@ import (
 func TestWatermarkGetSetRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := SetWatermark(dir, 85.3); err != nil {
-		t.Fatalf("SetWatermark: %v", err)
-	}
+	require.NoError(t, SetWatermark(dir, 85.3))
 
 	val, exists, err := GetWatermark(dir)
 	require.Nil(t, err)
@@ -32,13 +30,9 @@ func TestWatermarkGetWhenNoneExists(t *testing.T) {
 func TestWatermarkRemove(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := SetWatermark(dir, 90.0); err != nil {
-		t.Fatalf("SetWatermark: %v", err)
-	}
+	require.NoError(t, SetWatermark(dir, 90.0))
 
-	if err := RemoveWatermark(dir); err != nil {
-		t.Fatalf("RemoveWatermark: %v", err)
-	}
+	require.NoError(t, RemoveWatermark(dir))
 
 	_, exists, err := GetWatermark(dir)
 	require.Nil(t, err)
@@ -49,9 +43,7 @@ func TestWatermarkRemoveWhenNoneExists(t *testing.T) {
 	dir := t.TempDir()
 
 	// Should not error when removing a non-existent watermark
-	if err := RemoveWatermark(dir); err != nil {
-		t.Fatalf("RemoveWatermark on non-existent: %v", err)
-	}
+	require.NoError(t, RemoveWatermark(dir))
 }
 
 func TestWatermarkGetOnFile(t *testing.T) {
@@ -60,9 +52,7 @@ func TestWatermarkGetOnFile(t *testing.T) {
 	require.Nil(t, err)
 	f.Close()
 
-	if err := SetWatermark(f.Name(), 42.5); err != nil {
-		t.Fatalf("SetWatermark on file: %v", err)
-	}
+	require.NoError(t, SetWatermark(f.Name(), 42.5))
 
 	val, exists, err := GetWatermark(f.Name())
 	require.Nil(t, err)

@@ -161,14 +161,10 @@ func TestBenchmarkReportJSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
-	if err := enc.Encode(report); err != nil {
-		t.Fatalf("failed to encode: %v", err)
-	}
+	require.NoError(t, enc.Encode(report))
 
 	var decoded BenchmarkReport
-	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
-		t.Fatalf("failed to decode: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
 
 	assert.Equal(t, 1, len(decoded.Packages["pkg"]))
 }

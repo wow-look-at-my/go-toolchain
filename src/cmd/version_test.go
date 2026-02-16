@@ -64,13 +64,11 @@ func TestCollectGitInfoBranchRef(t *testing.T) {
 
 func TestEnvOr(t *testing.T) {
 	t.Setenv("TEST_ENVOR_SET", "from-env")
-	if got := envOr("TEST_ENVOR_SET", "fallback"); got != "from-env" {
-		t.Errorf("expected 'from-env', got %q", got)
-	}
+	got := envOr("TEST_ENVOR_SET", "fallback")
+	assert.Equal(t, string("from-env"), got)
 	os.Unsetenv("TEST_ENVOR_UNSET")
-	if got := envOr("TEST_ENVOR_UNSET", "fallback"); got != "fallback" {
-		t.Errorf("expected 'fallback', got %q", got)
-	}
+	got := envOr("TEST_ENVOR_UNSET", "fallback")
+	assert.Equal(t, string("fallback"), got)
 }
 
 func TestGithubRepoFromEnv(t *testing.T) {
@@ -125,9 +123,8 @@ func TestGitInfoString(t *testing.T) {
 		{gitInfo{}, "unknown"},
 	}
 	for _, tt := range tests {
-		if got := tt.info.String(); got != tt.want {
-			t.Errorf("gitInfo%+v.String() = %q, want %q", tt.info, got, tt.want)
-		}
+		got := tt.info.String()
+	assert.Equal(t, tt.want, got)
 	}
 }
 

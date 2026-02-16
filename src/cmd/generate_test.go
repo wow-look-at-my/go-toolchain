@@ -20,9 +20,7 @@ func TestParseDirectives(t *testing.T) {
 		"//go:generate echo hello\n" +
 		"//go:generate sh -c \"echo world\"\n\n" +
 		"func main() {}\n"
-	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	directives, err := parseDirectives(testFile)
 	require.Nil(t, err)
@@ -44,9 +42,7 @@ func TestParseDirectivesNoDirectives(t *testing.T) {
 
 func main() {}
 `
-	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	directives, err := parseDirectives(testFile)
 	require.Nil(t, err)
@@ -59,27 +55,19 @@ func TestFindGenerateDirectives(t *testing.T) {
 
 	// Create subdirectory
 	subdir := filepath.Join(dir, "sub")
-	if err := os.Mkdir(subdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(subdir, 0755))
 
 	// File in root
 	file1 := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(file1, []byte("package main\n//go:generate echo root\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(file1, []byte("package main\n//go:generate echo root\n"), 0644))
 
 	// File in subdir
 	file2 := filepath.Join(subdir, "sub.go")
-	if err := os.WriteFile(file2, []byte("package sub\n//go:generate echo sub\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(file2, []byte("package sub\n//go:generate echo sub\n"), 0644))
 
 	// Non-go file (should be ignored)
 	file3 := filepath.Join(dir, "readme.txt")
-	if err := os.WriteFile(file3, []byte("//go:generate echo ignored\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(file3, []byte("//go:generate echo ignored\n"), 0644))
 
 	directives, err := findGenerateDirectives(dir)
 	require.Nil(t, err)
@@ -92,21 +80,15 @@ func TestFindGenerateDirectivesSkipsVendor(t *testing.T) {
 
 	// Create vendor directory
 	vendor := filepath.Join(dir, "vendor")
-	if err := os.Mkdir(vendor, 0755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(vendor, 0755))
 
 	// File in vendor (should be ignored)
 	vendorFile := filepath.Join(vendor, "vendor.go")
-	if err := os.WriteFile(vendorFile, []byte("package vendor\n//go:generate echo vendor\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(vendorFile, []byte("package vendor\n//go:generate echo vendor\n"), 0644))
 
 	// File in root
 	mainFile := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(mainFile, []byte("package main\n//go:generate echo main\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(mainFile, []byte("package main\n//go:generate echo main\n"), 0644))
 
 	directives, err := findGenerateDirectives(dir)
 	require.Nil(t, err)
@@ -119,9 +101,7 @@ func TestFindGenerateDirectivesSkipsVendor(t *testing.T) {
 func TestExecuteDirectiveSuccess(t *testing.T) {
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
-	if err := os.WriteFile(testFile, []byte("package main\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
 
 	d := generateDirective{
 		File:    testFile,
@@ -136,9 +116,7 @@ func TestExecuteDirectiveSuccess(t *testing.T) {
 func TestExecuteDirectiveFailure(t *testing.T) {
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
-	if err := os.WriteFile(testFile, []byte("package main\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
 
 	d := generateDirective{
 		File:    testFile,
@@ -212,18 +190,14 @@ func TestRunGenerateWithHash(t *testing.T) {
 
 	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Chdir(dir))
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
 
 	content := "package main\n" +
 		"//go:generate sh -c \"echo generated > generated.txt\"\n"
-	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	// First, get the hash by finding directives
 	directives, err := findGenerateDirectives(".")
@@ -233,16 +207,14 @@ func TestRunGenerateWithHash(t *testing.T) {
 	// Without hash, command should NOT run and should return error
 	err = runGenerate(true, "")
 	require.NotNil(t, err)
-	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
-		t.Error("expected generated.txt to NOT be created without hash")
-	}
+	_, err = os.Stat(outputFile)
+	assert.True(t, os.IsNotExist(err))
 
 	// With correct hash, command should run
 	err = runGenerate(true, hash)
 	require.Nil(t, err)
-	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		t.Error("expected generated.txt to be created with correct hash")
-	}
+	_, err = os.Stat(outputFile)
+	assert.False(t, os.IsNotExist(err))
 }
 
 func TestRunGenerateWrongHash(t *testing.T) {
@@ -253,25 +225,20 @@ func TestRunGenerateWrongHash(t *testing.T) {
 
 	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Chdir(dir))
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
 
 	content := "package main\n" +
 		"//go:generate sh -c \"echo generated > generated.txt\"\n"
-	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	// With wrong hash, command should NOT run and should return error
 	err = runGenerate(true, "wronghash123")
 	require.NotNil(t, err)
-	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
-		t.Error("expected generated.txt to NOT be created with wrong hash")
-	}
+	_, err = os.Stat(outputFile)
+	assert.True(t, os.IsNotExist(err))
 }
 
 func TestRunGenerateSkip(t *testing.T) {
@@ -282,25 +249,20 @@ func TestRunGenerateSkip(t *testing.T) {
 
 	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Chdir(dir))
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
 
 	content := "package main\n" +
 		"//go:generate sh -c \"echo generated > generated.txt\"\n"
-	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	// With "skip", command should NOT run but should succeed
 	err = runGenerate(true, "skip")
 	require.Nil(t, err)
-	if _, err := os.Stat(outputFile); !os.IsNotExist(err) {
-		t.Error("expected generated.txt to NOT be created with skip")
-	}
+	_, err = os.Stat(outputFile)
+	assert.True(t, os.IsNotExist(err))
 }
 
 func TestRunGenerateNoDirectives(t *testing.T) {
@@ -311,14 +273,10 @@ func TestRunGenerateNoDirectives(t *testing.T) {
 
 	// Create temp directory with no generate directives
 	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Chdir(dir))
 
 	testFile := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(testFile, []byte("package main\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
 
 	err = runGenerate(true, "")
 	require.Nil(t, err)

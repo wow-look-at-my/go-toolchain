@@ -102,9 +102,7 @@ func TestRealCommandRunner(t *testing.T) {
 	stdout, wait, err := r.RunWithPipes("echo", "piped")
 	assert.Nil(t, err)
 	data, _ := io.ReadAll(stdout)
-	if err := wait(); err != nil {
-		t.Errorf("wait failed: %v", err)
-	}
+	assert.NoError(t, wait())
 	assert.Equal(t, "piped\n", string(data))
 }
 

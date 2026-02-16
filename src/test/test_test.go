@@ -22,9 +22,7 @@ func TestCoverageHandlerExtractsCoverage(t *testing.T) {
 		Output:  "coverage: 75.5% of statements\n",
 	}
 
-	if err := h.Event(event, nil); err != nil {
-		t.Fatalf("Event returned error: %v", err)
-	}
+	require.NoError(t, h.Event(event, nil))
 
 	assert.Equal(t, 75.5, h.coverage["example.com/pkg"])
 }
@@ -38,13 +36,10 @@ func TestCoverageHandlerIgnoresNonCoverageOutput(t *testing.T) {
 		Output:  "=== RUN TestFoo\n",
 	}
 
-	if err := h.Event(event, nil); err != nil {
-		t.Fatalf("Event returned error: %v", err)
-	}
+	require.NoError(t, h.Event(event, nil))
 
-	if _, exists := h.coverage["example.com/pkg"]; exists {
-		t.Error("should not have extracted coverage from non-coverage output")
-	}
+	_, exists := h.coverage["example.com/pkg"]
+	assert.False(t, exists)
 }
 
 func TestCoverageHandlerIgnoresNonOutputActions(t *testing.T) {
@@ -55,20 +50,15 @@ func TestCoverageHandlerIgnoresNonOutputActions(t *testing.T) {
 		Package: "example.com/pkg",
 	}
 
-	if err := h.Event(event, nil); err != nil {
-		t.Fatalf("Event returned error: %v", err)
-	}
+	require.NoError(t, h.Event(event, nil))
 
-	if _, exists := h.coverage["example.com/pkg"]; exists {
-		t.Error("should not have extracted coverage from non-output action")
-	}
+	_, exists := h.coverage["example.com/pkg"]
+	assert.False(t, exists)
 }
 
 func TestCoverageHandlerErr(t *testing.T) {
 	h := &coverageHandler{coverage: make(map[string]float32)}
-	if err := h.Err("some error"); err != nil {
-		t.Errorf("Err should return nil, got %v", err)
-	}
+	assert.NoError(t, h.Err("some error"))
 }
 
 func TestCoverageRegex(t *testing.T) {
@@ -107,9 +97,7 @@ func TestCoverageHandlerMultiplePackages(t *testing.T) {
 	}
 
 	for _, event := range events {
-		if err := h.Event(event, nil); err != nil {
-			t.Fatalf("Event returned error: %v", err)
-		}
+		require.NoError(t, h.Event(event, nil))
 	}
 
 	assert.Equal(t, 50.0, h.coverage["pkg1"])

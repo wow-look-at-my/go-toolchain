@@ -379,38 +379,114 @@ func isNil(expr ast.Expr) bool {
 
 // generateSuggestedFix creates a SuggestedFix for the if statement.
 func generateSuggestedFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string) *analysis.SuggestedFix {
-	// Don't auto-fix if statements with init clauses - determining := vs = requires scope analysis
-	if ifStmt.Init != nil {
-		return nil
-	}
-
-	// Don't auto-fix if statements with else clauses - too complex
+	// Skip if/else chains (else-if is already filtered during detection)
 	if ifStmt.Else != nil {
 		return nil
 	}
 
-	// Get the test variable name (t or b)
 	tVar := getTestVarName(ifStmt.Body)
 	if tVar == "" {
 		return nil
 	}
 
-	// Generate the replacement text
-	replacement := generateReplacement(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
-	if replacement == "" {
-		return nil
+	// Try each fix generator until one succeeds
+	generators := []func() string{
+		func() string { return fixInitClause(pass, ifStmt, tVar, assertPkg) },
+		func() string { return fixInitClauseGeneral(pass, ifStmt, tVar, assertPkg, assertFunc) },
+		func() string { return fixSimpleCondition(pass, ifStmt, tVar, assertPkg, assertFunc) },
 	}
 
-	return &analysis.SuggestedFix{
-		Message: fmt.Sprintf("replace with %s.%s", assertPkg, assertFunc),
-		TextEdits: []analysis.TextEdit{
-			{
-				Pos:     ifStmt.Pos(),
-				End:     ifStmt.End(),
-				NewText: []byte(replacement),
-			},
-		},
+	for _, gen := range generators {
+		if replacement := gen(); replacement != "" {
+			return &analysis.SuggestedFix{
+				Message: fmt.Sprintf("replace with %s.%s", assertPkg, assertFunc),
+				TextEdits: []analysis.TextEdit{{Pos: ifStmt.Pos(), End: ifStmt.End(), NewText: []byte(replacement)}},
+			}
+		}
 	}
+	return nil
+}
+
+// fixInitClause handles: if err := X; err != nil { t.Fatal(err) } → require.NoError(t, X)
+func fixInitClause(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg string) string {
+	if ifStmt.Init == nil {
+		return ""
+	}
+
+	// Must be: err := X (single error return)
+	assign, ok := ifStmt.Init.(*ast.AssignStmt)
+	if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+		return ""
+	}
+
+	errVar, ok := assign.Lhs[0].(*ast.Ident)
+	if !ok {
+		return ""
+	}
+
+	// Condition must be: err != nil
+	binExpr, ok := ifStmt.Cond.(*ast.BinaryExpr)
+	if !ok || binExpr.Op != token.NEQ {
+		return ""
+	}
+	condVar, ok := binExpr.X.(*ast.Ident)
+	if !ok || condVar.Name != errVar.Name || !isNil(binExpr.Y) {
+		return ""
+	}
+
+	// Generate: require.NoError(t, X)
+	callExpr := sourceText(pass, assign.Rhs[0])
+	return fmt.Sprintf("%s.NoError(%s, %s)", assertPkg, tVar, callExpr)
+}
+
+// fixInitClauseGeneral handles any init clause by extracting it:
+// if x := expr; cond { t.Error } → x := expr; assert.X(t, ...)
+func fixInitClauseGeneral(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg, assertFunc string) string {
+	if ifStmt.Init == nil {
+		return ""
+	}
+
+	// Generate the assertion for the condition
+	assertion := generateReplacement(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
+	if assertion == "" {
+		return ""
+	}
+
+	// Get the init statement, converting := to = if all non-blank variables already exist in outer scope
+	initText := sourceText(pass, ifStmt.Init)
+	if assign, ok := ifStmt.Init.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
+		allExistInOuter := true
+		for _, lhs := range assign.Lhs {
+			ident, ok := lhs.(*ast.Ident)
+			if !ok || ident.Name == "_" {
+				continue
+			}
+			// Get the scope of this definition
+			obj := pass.TypesInfo.Defs[ident]
+			if obj == nil || obj.Parent() == nil || obj.Parent().Parent() == nil {
+				allExistInOuter = false
+				break
+			}
+			// Check if same name exists in parent scope (the scope we're extracting to)
+			if obj.Parent().Parent().Lookup(ident.Name) == nil {
+				allExistInOuter = false
+				break
+			}
+		}
+		if allExistInOuter {
+			initText = strings.Replace(initText, ":=", "=", 1)
+		}
+	}
+
+	return initText + "\n\t" + assertion
+}
+
+// fixSimpleCondition handles: if cond { t.Fatal } → assert.X(t, ...)
+func fixSimpleCondition(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg, assertFunc string) string {
+	if ifStmt.Init != nil {
+		return ""
+	}
+	return generateReplacement(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
 }
 
 // getTestVarName extracts the test variable name (t or b) from the body.
@@ -500,8 +576,18 @@ func generateBinaryReplacement(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, a
 
 	switch assertFunc {
 	case "Equal", "NotEqual":
-		// For Equal/NotEqual, expected comes first
-		return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, right, left)
+		// Cast numeric literals to match the variable's type for assert.Equal
+		expected, actual := right, left
+		if _, isLit := bin.Y.(*ast.BasicLit); isLit {
+			if typ := pass.TypesInfo.TypeOf(bin.X); typ != nil {
+				expected = fmt.Sprintf("%s(%s)", typ.String(), right)
+			}
+		} else if _, isLit := bin.X.(*ast.BasicLit); isLit {
+			if typ := pass.TypesInfo.TypeOf(bin.Y); typ != nil {
+				actual = fmt.Sprintf("%s(%s)", typ.String(), left)
+			}
+		}
+		return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, expected, actual)
 	case "Nil", "NotNil":
 		// For Nil/NotNil, only the value
 		return fmt.Sprintf("%s.%s(%s, %s)", assertPkg, assertFunc, tVar, left)
@@ -522,3 +608,4 @@ func sourceText(pass *analysis.Pass, node ast.Node) string {
 	}
 	return string(content[start.Offset:end.Offset])
 }
+

@@ -16,15 +16,11 @@ func TestCopyFile(t *testing.T) {
 	// Create source file
 	srcPath := filepath.Join(tmpDir, "source")
 	content := []byte("test content")
-	if err := os.WriteFile(srcPath, content, 0755); err != nil {
-		t.Fatalf("failed to create source file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(srcPath, content, 0755))
 
 	// Copy it
 	dstPath := filepath.Join(tmpDir, "dest")
-	if err := copyFile(srcPath, dstPath); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
-	}
+	require.NoError(t, copyFile(srcPath, dstPath))
 
 	// Verify content
 	got, err := os.ReadFile(dstPath)
@@ -48,9 +44,7 @@ func TestCopyFileInvalidDest(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	srcPath := filepath.Join(tmpDir, "source")
-	if err := os.WriteFile(srcPath, []byte("test"), 0644); err != nil {
-		t.Fatalf("failed to create source file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(srcPath, []byte("test"), 0644))
 
 	err := copyFile(srcPath, "/nonexistent/dir/dest")
 	assert.NotNil(t, err)
@@ -65,14 +59,10 @@ func TestCopyFileLargeFile(t *testing.T) {
 	for i := range content {
 		content[i] = byte(i % 256)
 	}
-	if err := os.WriteFile(srcPath, content, 0755); err != nil {
-		t.Fatalf("failed to create source file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(srcPath, content, 0755))
 
 	dstPath := filepath.Join(tmpDir, "large_copy")
-	if err := copyFile(srcPath, dstPath); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
-	}
+	require.NoError(t, copyFile(srcPath, dstPath))
 
 	got, err := os.ReadFile(dstPath)
 	require.Nil(t, err)
@@ -150,12 +140,8 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 	defer func() { installCopy = false }()
 
 	// Run install twice — second should replace the first
-	if err := runInstallImpl(); err != nil {
-		t.Fatalf("first install failed: %v", err)
-	}
-	if err := runInstallImpl(); err != nil {
-		t.Fatalf("second install failed: %v", err)
-	}
+	require.NoError(t, runInstallImpl())
+	require.NoError(t, runInstallImpl())
 
 	// Verify entries: binary + go-safe-build compat symlink
 	expectedDir := filepath.Join(tmpDir, ".local", "bin")
@@ -211,9 +197,7 @@ func TestInstallStatusSymlinkCurrent(t *testing.T) {
 	// Install via symlink first
 	installCopy = false
 	defer func() { installCopy = false }()
-	if err := runInstallImpl(); err != nil {
-		t.Fatalf("install failed: %v", err)
-	}
+	require.NoError(t, runInstallImpl())
 
 	status := installStatus()
 	assert.Contains(t, status, "current")
@@ -247,9 +231,7 @@ func TestInstallStatusCopyCurrent(t *testing.T) {
 	// Install via copy
 	installCopy = true
 	defer func() { installCopy = false }()
-	if err := runInstallImpl(); err != nil {
-		t.Fatalf("install failed: %v", err)
-	}
+	require.NoError(t, runInstallImpl())
 
 	status := installStatus()
 	assert.Contains(t, status, "up to date")
