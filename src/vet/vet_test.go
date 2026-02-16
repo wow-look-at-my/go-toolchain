@@ -697,3 +697,96 @@ func main() {}
 	fixes := findFileUnusedImportFixes(fset, f)
 	assert.Nil(t, fixes)
 }
+
+func TestImportName(t *testing.T) {
+	tests := []struct {
+		name     string
+		imp      *ast.ImportSpec
+		expected string
+	}{
+		{
+			name: "named import",
+			imp: &ast.ImportSpec{
+				Name: &ast.Ident{Name: "foo"},
+				Path: &ast.BasicLit{Value: `"bar/baz"`},
+			},
+			expected: "foo",
+		},
+		{
+			name: "unnamed import",
+			imp: &ast.ImportSpec{
+				Path: &ast.BasicLit{Value: `"bar/baz"`},
+			},
+			expected: "baz",
+		},
+		{
+			name: "nested path",
+			imp: &ast.ImportSpec{
+				Path: &ast.BasicLit{Value: `"github.com/foo/bar"`},
+			},
+			expected: "bar",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, importName(tt.imp))
+		})
+	}
+}
+
+func TestIsRedundantCast(t *testing.T) {
+	tests := []struct {
+		typeName string
+		litKind  token.Token
+		expected bool
+	}{
+		{"int", token.INT, true},
+		{"int64", token.INT, false},
+		{"float64", token.FLOAT, true},
+		{"float32", token.FLOAT, false},
+		{"string", token.STRING, true},
+		{"rune", token.CHAR, true},
+		{"int32", token.CHAR, true},
+		{"byte", token.CHAR, false},
+		{"bool", token.INT, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.typeName, func(t *testing.T) {
+			lit := &ast.BasicLit{Kind: tt.litKind, Value: "0"}
+			assert.Equal(t, tt.expected, isRedundantCast(tt.typeName, lit))
+		})
+	}
+}
+
+func TestNodeText(t *testing.T) {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "test.go", `package main; var x = 42`, 0)
+
+	var lit *ast.BasicLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if l, ok := n.(*ast.BasicLit); ok && l.Kind == token.INT {
+			lit = l
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, lit)
+	assert.Equal(t, "42", nodeText(fset, lit))
+}
+
+func TestFindFileUnusedImportFixesDotImport(t *testing.T) {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "test.go", `package main
+
+import (
+	. "fmt"
+)
+
+func main() {}
+`, parser.ParseComments)
+
+	fixes := findFileUnusedImportFixes(fset, f)
+	assert.Nil(t, fixes) // dot imports should not be flagged
+}

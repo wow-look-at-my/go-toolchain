@@ -103,3 +103,43 @@ func TestFatalf(t *testing.T) {
 		t.Fatalf("x=%d y=%d", x, y)
 	}
 }
+
+func TestInitClause(t *testing.T) {
+	// Init clause with err check
+	if err := doSomething(); err != nil { // want "use assert.NoError instead of if \\+ t.Error/t.Fatal"
+		t.Error(err)
+	}
+}
+
+func TestInitClauseFatal(t *testing.T) {
+	// Init clause with fatal
+	if err := doSomething(); err != nil { // want "use require.NoError instead of if \\+ t.Error/t.Fatal"
+		t.Fatal(err)
+	}
+}
+
+func TestBenchmark(b *testing.B) {
+	// Benchmark functions should also be detected
+	var err error
+	if err != nil { // want "use assert.Nil instead of if \\+ t.Error/t.Fatal"
+		b.Error("error")
+	}
+}
+
+func TestCompoundCondition(t *testing.T) {
+	x := true
+	y := false
+
+	// Compound conditions should use True/False
+	if x && y { // want "use assert.False instead of if \\+ t.Error/t.Fatal"
+		t.Error("should be false")
+	}
+
+	if x || y { // want "use assert.False instead of if \\+ t.Error/t.Fatal"
+		t.Error("should be false")
+	}
+}
+
+func doSomething() error {
+	return nil
+}
