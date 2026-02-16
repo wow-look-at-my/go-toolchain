@@ -51,7 +51,7 @@ func TestRunNoGoMod(t *testing.T) {
 func TestSourceLocationShortLoc(t *testing.T) {
 	loc := SourceLocation{File: "/some/path/file.go", Line: 42, Column: 10}
 	short := loc.ShortLoc()
-	assert.Contains(t, short, "42")
+	assert.Equal(t, "/some/path/file.go:42", short)
 }
 
 func TestIsUnusedImportError(t *testing.T) {
@@ -409,40 +409,286 @@ func TestSourceLocationShortLocRelative(t *testing.T) {
 	cwd, _ := os.Getwd()
 	loc := SourceLocation{File: filepath.Join(cwd, "subdir", "file.go"), Line: 10, Column: 5}
 	short := loc.ShortLoc()
-	assert.Contains(t, short, "subdir")
-	assert.Contains(t, short, "10")
+	assert.Equal(t, "subdir/file.go:10", short)
 }
 
-func TestIsRedundantCastAllTypes(t *testing.T) {
+func TestRedundantCastFixes(t *testing.T) {
 	tests := []struct {
-		typeName string
-		litKind  string
-		expected bool
+		name   string
+		before string
+		after  string
 	}{
-		{"int", "INT", true},
-		{"int64", "INT", false},
-		{"float64", "FLOAT", true},
-		{"float32", "FLOAT", false},
-		{"string", "STRING", true},
-		{"rune", "CHAR", true},
-		{"int32", "CHAR", true},
-		{"byte", "CHAR", false},
+		{
+			name:   "int literal",
+			before: "package main\n\nfunc main() { x := int(0); _ = x }",
+			after:  "package main\n\nfunc main() { x := 0; _ = x }",
+		},
+		{
+			name:   "float64 literal",
+			before: "package main\n\nfunc main() { x := float64(1.5); _ = x }",
+			after:  "package main\n\nfunc main() { x := 1.5; _ = x }",
+		},
+		{
+			name:   "string literal",
+			before: `package main` + "\n\n" + `func main() { x := string("hello"); _ = x }`,
+			after:  `package main` + "\n\n" + `func main() { x := "hello"; _ = x }`,
+		},
+		{
+			name:   "rune literal",
+			before: "package main\n\nfunc main() { x := rune('a'); _ = x }",
+			after:  "package main\n\nfunc main() { x := 'a'; _ = x }",
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.typeName+"_"+tt.litKind, func(t *testing.T) {
-			// This tests the logic without needing full AST
-			// Just verify the mapping is correct
-			switch tt.litKind {
-			case "INT":
-				assert.Equal(t, tt.expected, tt.typeName == "int")
-			case "FLOAT":
-				assert.Equal(t, tt.expected, tt.typeName == "float64")
-			case "STRING":
-				assert.Equal(t, tt.expected, tt.typeName == "string")
-			case "CHAR":
-				assert.Equal(t, tt.expected, tt.typeName == "rune" || tt.typeName == "int32")
-			}
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "test.go", tt.before, parser.ParseComments)
+			require.Nil(t, err)
+
+			var call *ast.CallExpr
+			ast.Inspect(f, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CallExpr); ok {
+					if _, ok := c.Fun.(*ast.Ident); ok {
+						call = c
+						return false
+					}
+				}
+				return true
+			})
+			require.NotNil(t, call)
+
+			fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNode: call.Args[0]}}}
+
+			var buf strings.Builder
+			err = fixes.Fprint(&buf)
+			assert.Nil(t, err)
+			assert.Equal(t, tt.after, buf.String())
 		})
 	}
+}
+
+func TestUnusedImportFixes(t *testing.T) {
+	tests := []struct {
+		name   string
+		before string
+		after  string
+	}{
+		{
+			name: "single unused import",
+			before: `package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println("hello")
+}
+`,
+			after: `package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	fmt.Println("hello")
+}
+`,
+		},
+		{
+			name: "aliased unused import",
+			before: `package main
+
+import (
+	"fmt"
+	s "strings"
+)
+
+func main() {
+	fmt.Println("hello")
+}
+`,
+			after: `package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	fmt.Println("hello")
+}
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			testFile := filepath.Join(dir, "main.go")
+			os.WriteFile(testFile, []byte(tt.before), 0644)
+
+			oldWd, _ := os.Getwd()
+			os.Chdir(dir)
+			defer os.Chdir(oldWd)
+
+			_, err := FixUnusedImports("./...")
+			assert.Nil(t, err)
+
+			content, _ := os.ReadFile(testFile)
+			assert.Equal(t, tt.after, string(content))
+		})
+	}
+}
+
+func TestASTFixesDeletion(t *testing.T) {
+	before := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("hello")
+}
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
+	require.Nil(t, err)
+
+	// Find the import spec to delete
+	var imp *ast.ImportSpec
+	for _, i := range f.Imports {
+		imp = i
+		break
+	}
+	require.NotNil(t, imp)
+
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: imp, NewNode: nil}}}
+
+	var buf strings.Builder
+	err = fixes.Fprint(&buf)
+	assert.Nil(t, err)
+	// After deletion, the import should be gone
+	assert.NotContains(t, buf.String(), `"fmt"`)
+}
+
+func TestASTFixesApplyToFile(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.go")
+
+	before := `package main
+
+func main() {
+	x := int(0)
+	_ = x
+}
+`
+	after := `package main
+
+func main() {
+	x := 0
+	_ = x
+}
+`
+	os.WriteFile(testFile, []byte(before), 0644)
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, testFile, nil, parser.ParseComments)
+	require.Nil(t, err)
+
+	var call *ast.CallExpr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "int" {
+				call = c
+				return false
+			}
+		}
+		return true
+	})
+	require.NotNil(t, call)
+
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNode: call.Args[0]}}}
+	err = fixes.Apply()
+	assert.Nil(t, err)
+
+	content, _ := os.ReadFile(testFile)
+	assert.Equal(t, after, string(content))
+}
+
+func TestASTFixesApplyEmpty(t *testing.T) {
+	fixes := &ASTFixes{Fixes: nil}
+	err := fixes.Apply()
+	assert.Nil(t, err)
+}
+
+func TestPrintFixMultiline(t *testing.T) {
+	// Test that multiline nodes get truncated in printFix output
+	fset := token.NewFileSet()
+	src := `package main
+
+func foo() {
+	if true {
+		println("a")
+		println("b")
+	}
+}
+`
+	f, _ := parser.ParseFile(fset, "test.go", src, 0)
+
+	// Find the if statement (multiline)
+	var ifStmt *ast.IfStmt
+	ast.Inspect(f, func(n ast.Node) bool {
+		if i, ok := n.(*ast.IfStmt); ok {
+			ifStmt = i
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, ifStmt)
+
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: ifStmt, NewNode: nil}}}
+
+	// Just ensure it doesn't panic
+	fixes.printFix(fixes.Fixes[0])
+}
+
+func TestSourceLocationShortLocAbsolute(t *testing.T) {
+	// filepath.Rel will return a relative path even for paths outside cwd
+	cwd, _ := os.Getwd()
+	absPath := "/nonexistent/path/file.go"
+	loc := SourceLocation{File: absPath, Line: 10}
+	short := loc.ShortLoc()
+
+	// The result should end with file.go:10
+	expected, _ := filepath.Rel(cwd, absPath)
+	assert.Equal(t, expected+":10", short)
+}
+
+func TestFindUnusedImportFixesBlankImport(t *testing.T) {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "test.go", `package main
+
+import (
+	_ "embed"
+)
+
+func main() {}
+`, parser.ParseComments)
+
+	fixes := findFileUnusedImportFixes(fset, f)
+	assert.Nil(t, fixes) // blank imports should not be flagged
+}
+
+func TestFindUnusedImportFixesNoImports(t *testing.T) {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "test.go", `package main
+
+func main() {}
+`, parser.ParseComments)
+
+	fixes := findFileUnusedImportFixes(fset, f)
+	assert.Nil(t, fixes)
 }
