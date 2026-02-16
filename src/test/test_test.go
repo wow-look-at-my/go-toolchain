@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gotest.tools/gotestsum/testjson"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"gotest.tools/gotestsum/testjson"
 )
 
 func TestCoverageHandlerExtractsCoverage(t *testing.T) {
@@ -112,7 +112,7 @@ example.com/pkg/main.go:14.20,16.2 3 0
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Return valid JSON test output
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
@@ -131,7 +131,7 @@ example.com/pkg/main.go:14.20,16.2 3 0
 func TestRunTestsFailure(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, nil, fmt.Errorf("test failed"))
 
 	_, err := RunTests(mock, false, coverFile)
@@ -147,7 +147,7 @@ example.com/pkg/main.go:10.20,12.2 1 1
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"=== RUN TestFoo\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
@@ -165,7 +165,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 	// Don't create coverage.out - no profile means no statement-level data
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"pkg1","Output":"coverage: 50.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"pkg1"}
@@ -199,7 +199,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 50.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
@@ -240,7 +240,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 50.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
@@ -274,7 +274,7 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}

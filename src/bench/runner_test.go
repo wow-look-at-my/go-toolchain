@@ -3,42 +3,11 @@ package bench
 import (
 	"fmt"
 	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
-
-// mockRunner implements CommandRunner for testing
-type mockRunner struct {
-	responses map[string]mockResponse
-}
-
-type mockResponse struct {
-	output []byte
-	err    error
-}
-
-func newMockRunner() *mockRunner {
-	return &mockRunner{
-		responses: make(map[string]mockResponse),
-	}
-}
-
-func (m *mockRunner) key(name string, args ...string) string {
-	return fmt.Sprintf("%s %v", name, args)
-}
-
-func (m *mockRunner) SetResponse(name string, args []string, output []byte, err error) {
-	m.responses[m.key(name, args...)] = mockResponse{output: output, err: err}
-}
-
-func (m *mockRunner) RunWithOutput(name string, args ...string) ([]byte, error) {
-	resp, ok := m.responses[m.key(name, args...)]
-	if ok {
-		return resp.output, resp.err
-	}
-	return nil, nil
-}
 
 func TestBuildBenchArgsDefaults(t *testing.T) {
 	opts := Options{}
@@ -83,7 +52,7 @@ func TestBuildBenchArgsBenchmemAlwaysPresent(t *testing.T) {
 }
 
 func TestRunBenchmarksSuccess(t *testing.T) {
-	mock := newMockRunner()
+	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
 	mock.SetResponse("go", jsonArgs, []byte(`{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`), nil)
@@ -95,7 +64,7 @@ func TestRunBenchmarksSuccess(t *testing.T) {
 }
 
 func TestRunBenchmarksFails(t *testing.T) {
-	mock := newMockRunner()
+	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
 	mock.SetResponse("go", jsonArgs, nil, fmt.Errorf("benchmark failed"))
@@ -106,7 +75,7 @@ func TestRunBenchmarksFails(t *testing.T) {
 }
 
 func TestRunBenchmarksFailsWithPartialResults(t *testing.T) {
-	mock := newMockRunner()
+	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
 	output := []byte(`{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`)

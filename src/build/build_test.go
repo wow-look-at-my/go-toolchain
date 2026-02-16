@@ -4,13 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 func TestFindMainPackagesParsesOutput(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("example.com/cmd/foo\n\nexample.com/cmd/bar\n"), nil)
 
@@ -21,7 +22,7 @@ func TestFindMainPackagesParsesOutput(t *testing.T) {
 }
 
 func TestFindMainPackagesEmpty(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("\n\n"), nil)
 
@@ -76,7 +77,7 @@ func TestResolveBuildTargetsAutoDetectSingle(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("example.com/cmd/myapp\n"), nil)
 	mock.SetResponse("go", []string{"list", "-m"},
@@ -93,7 +94,7 @@ func TestResolveBuildTargetsAutoDetectMultiple(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("example.com/cmd/foo\nexample.com/cmd/bar\n"), nil)
 	mock.SetResponse("go", []string{"list", "-m"},
@@ -111,7 +112,7 @@ func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("github.com/wow-look-at-my/go-toolchain/src\n"), nil)
 	mock.SetResponse("go", []string{"list", "-m"},

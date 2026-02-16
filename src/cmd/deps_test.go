@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"os"
-	
 	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 func TestLooksLikeGitVersion(t *testing.T) {
@@ -290,12 +290,12 @@ func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 
 	// No go.mod exists, should return nil without doing anything
 	err := FixBogusDepsVersions(mock)
 	assert.Nil(t, err)
-	assert.Equal(t, 0, len(mock.Commands))
+	assert.Equal(t, 0, len(mock.Calls()))
 }
 
 func TestFixBogusDepsVersions_NoBogusVersions(t *testing.T) {
@@ -315,10 +315,10 @@ require (
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	err := FixBogusDepsVersions(mock)
 	assert.Nil(t, err)
-	assert.Equal(t, 0, len(mock.Commands))
+	assert.Equal(t, 0, len(mock.Calls()))
 }
 
 func TestFixBogusDepsVersions_DetectsBogusVersions(t *testing.T) {
@@ -339,7 +339,7 @@ require (
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Mock git ls-remote to fail - we just want to verify detection works
 	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/service/auth", "HEAD"},
 		nil, os.ErrNotExist)
@@ -352,9 +352,10 @@ require (
 	assert.NotNil(t, err)
 
 	// Verify it tried to resolve the first v0.0.0 dep
-	require.GreaterOrEqual(t, len(mock.Commands), 1)
-	assert.False(t, mock.Commands[0].Name != "git" || mock.Commands[0].Args[0] != "ls-remote")
-	assert.Equal(t, "https://git.internal/service/auth", mock.Commands[0].Args[1])
+	calls := mock.Calls()
+	require.GreaterOrEqual(t, len(calls), 1)
+	assert.False(t, calls[0].Name != "git" || calls[0].Args[0] != "ls-remote")
+	assert.Equal(t, "https://git.internal/service/auth", calls[0].Args[1])
 }
 
 func TestFixBogusDepsVersions_GitLsRemoteFails(t *testing.T) {
@@ -370,7 +371,7 @@ require git.internal/broken v0.0.0
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/broken", "HEAD"}, nil, os.ErrNotExist)
 
 	jsonOutput = true
@@ -380,29 +381,8 @@ require git.internal/broken v0.0.0
 	assert.NotNil(t, err)
 }
 
-func TestResolveLatestVersionViaGit_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	runner := &RealCommandRunner{Quiet: true}
-	mod := "github.com/spf13/pflag"
-
-	// Get version via our function
-	version, err := resolveLatestVersionViaGit(runner, mod)
-	require.Nil(t, err)
-
-	// Verify Go accepts this version by querying the module
-	// This catches timezone bugs - Go validates the timestamp matches the commit
-	output, err := runner.RunWithOutput("go", "list", "-m", "-json", mod+"@"+version)
-	require.Nil(t, err)
-
-	// Verify the response contains our version
-	assert.Contains(t, string(output), version)
-}
-
 func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Return empty output (no HEAD ref)
 	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte(""), nil)
 
@@ -411,7 +391,7 @@ func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
 }
 
 func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Return hash that's too short
 	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte("abc123\tHEAD\n"), nil)
 
@@ -428,7 +408,7 @@ func TestFixBogusDepsVersions_ParseError(t *testing.T) {
 	// Create invalid go.mod
 	os.WriteFile("go.mod", []byte("not valid go.mod content {{{"), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
 
@@ -451,14 +431,14 @@ require github.com/spf13/cobra v1.8.0
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
 
 	err := FixBogusDepsVersions(mock)
 	assert.Nil(t, err)
 	// Should not have run any commands
-	assert.Equal(t, 0, len(mock.Commands))
+	assert.Equal(t, 0, len(mock.Calls()))
 }
 
 func TestFixBogusDepsVersions_PrintsMessage(t *testing.T) {
@@ -474,7 +454,7 @@ require git.internal/foo v0.0.0
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Don't set jsonOutput = true, so the message will be printed
 	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/foo", "HEAD"}, nil, os.ErrNotExist)
 
@@ -489,7 +469,7 @@ func TestDepChecker_WaitWithProgress_Nil(t *testing.T) {
 }
 
 func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")

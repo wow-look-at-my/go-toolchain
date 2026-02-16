@@ -1,73 +1,16 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"testing"
-	"github.com/stretchr/testify/assert"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// benchMockRunner implements interfaces needed for bench testing
-type benchMockRunner struct {
-	commands  []MockCommand
-	responses map[string]MockResponse
-}
-
-func newBenchMockRunner() *benchMockRunner {
-	return &benchMockRunner{
-		responses: make(map[string]MockResponse),
-	}
-}
-
-func (m *benchMockRunner) key(name string, args ...string) string {
-	return fmt.Sprintf("%s %v", name, args)
-}
-
-func (m *benchMockRunner) SetResponse(name string, args []string, output []byte, err error) {
-	m.responses[m.key(name, args...)] = MockResponse{Output: output, Err: err}
-}
-
-func (m *benchMockRunner) Run(name string, args ...string) error {
-	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
-	resp, ok := m.responses[m.key(name, args...)]
-	if ok {
-		return resp.Err
-	}
-	return nil
-}
-
-func (m *benchMockRunner) RunWithOutput(name string, args ...string) ([]byte, error) {
-	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
-	resp, ok := m.responses[m.key(name, args...)]
-	if ok {
-		return resp.Output, resp.Err
-	}
-	return nil, nil
-}
-
-func (m *benchMockRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
-	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
-	resp, ok := m.responses[m.key(name, args...)]
-	if ok {
-		return bytes.NewReader(resp.Output), func() error { return resp.Err }, nil
-	}
-	return bytes.NewReader(nil), func() error { return nil }, nil
-}
-
-func (m *benchMockRunner) RunWithEnv(env []string, name string, args ...string) error {
-	m.commands = append(m.commands, MockCommand{Name: name, Args: args})
-	resp, ok := m.responses[m.key(name, args...)]
-	if ok {
-		return resp.Err
-	}
-	return nil
-}
-
 func TestRunBenchmarkInBuild(t *testing.T) {
-	mock := newBenchMockRunner()
+	mock := runner.NewMock()
 
 	// Set up benchmark response
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
@@ -101,7 +44,7 @@ func TestRunBenchmarkInBuild(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildJSON(t *testing.T) {
-	mock := newBenchMockRunner()
+	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
 	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
@@ -128,7 +71,7 @@ func TestRunBenchmarkInBuildJSON(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
-	mock := newBenchMockRunner()
+	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
 	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
@@ -162,7 +105,7 @@ func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildFails(t *testing.T) {
-	mock := newBenchMockRunner()
+	mock := runner.NewMock()
 
 	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
 	mock.SetResponse("go", benchArgs, nil, fmt.Errorf("benchmark failed"))
@@ -222,9 +165,9 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 
 	// Verify that a benchmark command was issued (go test -bench ...)
 	found := false
-	for _, cmd := range mock.commands {
-		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "test" {
-			for _, arg := range cmd.Args {
+	for _, cfg := range mock.calls {
+		if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "test" {
+			for _, arg := range cfg.Args {
 				if arg == "-bench" {
 					found = true
 					break
@@ -260,32 +203,17 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Verify no benchmark command was issued
-	for _, cmd := range mock.commands {
-		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "test" {
-			for _, arg := range cmd.Args {
+	for _, cfg := range mock.calls {
+		if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "test" {
+			for _, arg := range cfg.Args {
 				assert.NotEqual(t, "-bench", arg)
 			}
 		}
 	}
 }
 
-func TestBenchRunnerWrapper(t *testing.T) {
-	mock := newBenchMockRunner()
-	br := &benchRunner{mock}
-
-	// Test RunWithOutput
-	mock.SetResponse("test", []string{"arg"}, []byte("output"), nil)
-	out, err := br.RunWithOutput("test", "arg")
-	assert.Nil(t, err)
-	assert.Equal(t, "output", string(out))
-
-	// Test Run
-	err = br.Run("test2", "arg2")
-	assert.Nil(t, err)
-}
-
 func TestRunBenchRunWithRunner(t *testing.T) {
-	mock := &RealCommandRunner{Quiet: true}
+	r := runner.New()
 
 	oldJSON := jsonOutput
 	oldTime := benchTime
@@ -307,11 +235,11 @@ func TestRunBenchRunWithRunner(t *testing.T) {
 	verbose = false
 
 	// This will fail because there's no go.mod, but it exercises the code path
-	_ = runBenchRunWithRunner(mock)
+	_ = runBenchRunWithRunner(r, jsonOutput)
 }
 
 func TestRunBenchSaveWithRunner(t *testing.T) {
-	mock := &RealCommandRunner{Quiet: true}
+	r := runner.New()
 
 	oldJSON := jsonOutput
 	oldTime := benchTime
@@ -333,7 +261,7 @@ func TestRunBenchSaveWithRunner(t *testing.T) {
 	verbose = false
 
 	// This will fail because there's no go.mod, but it exercises the code path
-	_ = runBenchSaveWithRunner(mock)
+	_ = runBenchSaveWithRunner(r, jsonOutput)
 }
 
 func TestRunBenchShow(t *testing.T) {
@@ -369,4 +297,3 @@ func TestRunBenchSave(t *testing.T) {
 	// This will fail but exercises the code path
 	_ = runBenchSave(benchSaveCmd, []string{})
 }
-
