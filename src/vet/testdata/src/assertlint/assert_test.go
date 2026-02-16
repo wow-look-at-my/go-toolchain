@@ -105,21 +105,22 @@ func TestFatalf(t *testing.T) {
 }
 
 func TestInitClause(t *testing.T) {
-	// Init clause with err check
+	// Init clause with err check - should use NoError
 	if err := doSomething(); err != nil { // want "use assert.NoError instead of if \\+ t.Error/t.Fatal"
 		t.Error(err)
 	}
 }
 
 func TestInitClauseFatal(t *testing.T) {
-	// Init clause with fatal
+	// Init clause with fatal - should use require.NoError
 	if err := doSomething(); err != nil { // want "use require.NoError instead of if \\+ t.Error/t.Fatal"
 		t.Fatal(err)
 	}
 }
 
-func TestBenchmark(b *testing.B) {
-	// Benchmark functions should also be detected
+func TestWithBVar(t *testing.T) {
+	// Test using b as the receiver (common in benchmarks)
+	b := t
 	var err error
 	if err != nil { // want "use assert.Nil instead of if \\+ t.Error/t.Fatal"
 		b.Error("error")

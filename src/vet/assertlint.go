@@ -275,6 +275,21 @@ func determineAssertion(ifStmt *ast.IfStmt) (string, string) {
 		}
 	}
 
+	// Check for init clause error pattern: if err := X; err != nil
+	if ifStmt.Init != nil {
+		if assign, ok := ifStmt.Init.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
+			if len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
+				if errVar, ok := assign.Lhs[0].(*ast.Ident); ok {
+					if binExpr, ok := ifStmt.Cond.(*ast.BinaryExpr); ok && binExpr.Op == token.NEQ {
+						if condVar, ok := binExpr.X.(*ast.Ident); ok && condVar.Name == errVar.Name && isNil(binExpr.Y) {
+							return assertPkg, "NoError"
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Determine the function based on the condition
 	assertFunc := determineAssertFunc(ifStmt.Cond)
 
