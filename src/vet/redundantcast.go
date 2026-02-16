@@ -1,7 +1,6 @@
 package vet
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 	"reflect"
@@ -89,25 +88,3 @@ func isRedundantCast(typeName string, lit *ast.BasicLit) bool {
 	return false
 }
 
-// generateRedundantCastFix creates a fix that removes the redundant cast.
-func generateRedundantCastFix(pass *analysis.Pass, call *ast.CallExpr, lit *ast.BasicLit) *analysis.SuggestedFix {
-	start := pass.Fset.Position(call.Pos())
-	content, err := os.ReadFile(start.Filename)
-	if err != nil {
-		return nil
-	}
-
-	// Get just the literal text
-	litStart := pass.Fset.Position(lit.Pos())
-	litEnd := pass.Fset.Position(lit.End())
-	litText := string(content[litStart.Offset:litEnd.Offset])
-
-	return &analysis.SuggestedFix{
-		Message: "remove redundant cast",
-		TextEdits: []analysis.TextEdit{{
-			Pos:     call.Pos(),
-			End:     call.End(),
-			NewText: []byte(litText),
-		}},
-	}
-}

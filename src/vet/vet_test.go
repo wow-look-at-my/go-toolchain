@@ -175,7 +175,7 @@ func main() {
 	assert.Nil(t, err)
 }
 
-func TestASTFixesWriteTo(t *testing.T) {
+func TestASTFixesFprint(t *testing.T) {
 	before := `package main
 
 func main() {
@@ -211,12 +211,12 @@ func main() {
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNode: call.Args[0]}}}
 
 	var buf strings.Builder
-	err = fixes.WriteTo(&buf)
+	err = fixes.Fprint(&buf)
 	assert.Nil(t, err)
 	assert.Equal(t, after, buf.String())
 }
 
-func TestASTFixesWriteToMultiple(t *testing.T) {
+func TestASTFixesFprintMultiple(t *testing.T) {
 	before := `package main
 
 func main() {
@@ -254,7 +254,7 @@ func main() {
 	astFixes := &ASTFixes{File: f, Fset: fset, Fixes: fixes}
 
 	var buf strings.Builder
-	err = astFixes.WriteTo(&buf)
+	err = astFixes.Fprint(&buf)
 	assert.Nil(t, err)
 	assert.Equal(t, after, buf.String())
 }

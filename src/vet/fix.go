@@ -79,8 +79,8 @@ func (f *ASTFixes) printFix(fix ASTFix) {
 	}
 }
 
-// WriteTo applies fixes and writes the result to w.
-func (f *ASTFixes) WriteTo(w io.Writer) error {
+// Fprint applies fixes and writes the result to w.
+func (f *ASTFixes) Fprint(w io.Writer) error {
 	// Apply fixes using astutil.Apply
 	astutil.Apply(f.File, nil, func(c *astutil.Cursor) bool {
 		node := c.Node()
@@ -112,7 +112,7 @@ func (f *ASTFixes) Apply() error {
 	if err != nil {
 		return err
 	}
-	if err := f.WriteTo(out); err != nil {
+	if err := f.Fprint(out); err != nil {
 		out.Close()
 		return err
 	}
