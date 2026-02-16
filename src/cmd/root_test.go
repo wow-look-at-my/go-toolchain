@@ -234,49 +234,6 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestRunWithRunnerFileDetail(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	mock := newTestPassMock(0)
-
-	jsonOutput = false
-	covDetail = "file"
-	outputDir = tmpDir
-	defer func() {
-		jsonOutput = false
-		covDetail = ""
-		outputDir = "build"
-	}()
-
-	err := runWithRunner(mock)
-	assert.Nil(t, err)
-}
-
-func TestRunWithRunnerFuncDetail(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	mock := newTestPassMock(0)
-
-	jsonOutput = false
-	covDetail = "func"
-	outputDir = tmpDir
-	defer func() {
-		jsonOutput = false
-		covDetail = ""
-		outputDir = "build"
-	}()
-
-	err := runWithRunner(mock)
-	// May fail due to go tool cover not finding sources, but covers the code path
-	_ = err
-}
-
 func TestRunWithRunnerBuildFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()

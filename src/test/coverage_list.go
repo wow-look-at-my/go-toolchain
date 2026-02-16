@@ -122,13 +122,6 @@ func printItem(c ICoverageItem, depth int) {
 	}
 }
 
-// PrintOptions controls the verbosity of coverage output
-type PrintOptions struct {
-	ShowFiles bool
-	ShowFuncs bool
-	Verbose   bool // Show all entries, including those with 0 uncovered
-}
-
 func sortByUncovered[T ICoverageItem](items []T) {
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Uncovered() != items[j].Uncovered() {
@@ -138,26 +131,73 @@ func sortByUncovered[T ICoverageItem](items []T) {
 	})
 }
 
+// funcWithPath holds a function and its path for top-N display
+type funcWithPath struct {
+	fn   *FuncCoverage
+	file *FileCoverage
+	pkg  *PackageCoverage
+}
+
 // Print prints coverage in package > file > function hierarchy
-func (r Report) Print(opts PrintOptions) {
+// Always shows packages, plus top 10 uncovered functions in tree structure
+func (r Report) Print() {
+	// Collect all functions with uncovered statements
+	var uncoveredFuncs []funcWithPath
+	for i := range r.Packages {
+		pkg := &r.Packages[i]
+		for j := range pkg.Files {
+			file := &pkg.Files[j]
+			for k := range file.Functions {
+				fn := &file.Functions[k]
+				if fn.Uncovered() > 0 {
+					uncoveredFuncs = append(uncoveredFuncs, funcWithPath{fn: fn, file: file, pkg: pkg})
+				}
+			}
+		}
+	}
+
+	// Sort by uncovered count (descending)
+	sort.Slice(uncoveredFuncs, func(i, j int) bool {
+		if uncoveredFuncs[i].fn.Uncovered() != uncoveredFuncs[j].fn.Uncovered() {
+			return uncoveredFuncs[i].fn.Uncovered() > uncoveredFuncs[j].fn.Uncovered()
+		}
+		return uncoveredFuncs[i].fn.Function < uncoveredFuncs[j].fn.Function
+	})
+
+	// Take top 10
+	if len(uncoveredFuncs) > 10 {
+		uncoveredFuncs = uncoveredFuncs[:10]
+	}
+
+	// Build sets of packages and files that contain top functions
+	pkgHasTop := make(map[*PackageCoverage]bool)
+	fileHasTop := make(map[*FileCoverage]bool)
+	fnIsTop := make(map[*FuncCoverage]bool)
+	for _, f := range uncoveredFuncs {
+		pkgHasTop[f.pkg] = true
+		fileHasTop[f.file] = true
+		fnIsTop[f.fn] = true
+	}
+
+	// Print packages, with files/funcs only for top 10
 	sortByUncovered(r.Packages)
 	fmt.Println("     cov  miss  name")
-	for _, pkg := range r.Packages {
-		printItem(pkg, 0)
-		if opts.ShowFiles {
+	for i := range r.Packages {
+		pkg := &r.Packages[i]
+		printItem(*pkg, 0)
+		if pkgHasTop[pkg] {
 			sortByUncovered(pkg.Files)
-			for _, f := range pkg.Files {
-				if !opts.Verbose && f.Uncovered() == 0 {
+			for j := range pkg.Files {
+				file := &pkg.Files[j]
+				if !fileHasTop[file] {
 					continue
 				}
-				printItem(f, 1)
-				if opts.ShowFuncs {
-					sortByUncovered(f.Functions)
-					for _, fn := range f.Functions {
-						if !opts.Verbose && fn.Uncovered() == 0 {
-							continue
-						}
-						printItem(fn, 2)
+				printItem(*file, 1)
+				sortByUncovered(file.Functions)
+				for k := range file.Functions {
+					fn := &file.Functions[k]
+					if fnIsTop[fn] {
+						printItem(*fn, 2)
 					}
 				}
 			}

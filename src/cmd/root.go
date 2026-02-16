@@ -18,7 +18,6 @@ import (
 
 var (
 	outputDir     = "build"
-	covDetail     string
 	jsonOutput    bool
 	verbose       bool
 	addWatermark  bool
@@ -37,7 +36,6 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build. Use --add-watermark to enforce coverage floors.\n\n" + installStatus()
 	// Use PersistentFlags for flags shared with subcommands (like matrix)
-	rootCmd.PersistentFlags().StringVar(&covDetail, "cov-detail", "", "Show detailed coverage: 'func' or 'file'")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
 	rootCmd.PersistentFlags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
@@ -221,12 +219,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
-		fmt.Println("\n==> Package coverage (details: --cov-detail file|func):")
-		report.Print(gotest.PrintOptions{
-			ShowFiles: covDetail == "file" || covDetail == "func",
-			ShowFuncs: covDetail == "func",
-			Verbose:   verbose,
-		})
+		fmt.Println("\n==> Package coverage:")
+		report.Print()
 
 		fmt.Printf("\n==> Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
