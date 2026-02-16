@@ -296,6 +296,9 @@ func determineAssertFunc(cond ast.Expr) string {
 // This means we want to assert that cond IS true.
 func determinePositiveAssertFunc(cond ast.Expr) string {
 	switch c := cond.(type) {
+	case *ast.ParenExpr:
+		return determinePositiveAssertFunc(c.X)
+
 	case *ast.CallExpr:
 		if funcName := getCallFuncName(c); funcName != "" {
 			switch funcName {
@@ -344,6 +347,9 @@ func determinePositiveAssertFunc(cond ast.Expr) string {
 // This means we want to assert that cond is NOT true.
 func determineNegativeAssertFunc(cond ast.Expr) string {
 	switch c := cond.(type) {
+	case *ast.ParenExpr:
+		return determineNegativeAssertFunc(c.X)
+
 	case *ast.CallExpr:
 		if funcName := getCallFuncName(c); funcName != "" {
 			switch funcName {

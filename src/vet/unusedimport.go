@@ -161,24 +161,25 @@ func importName(imp *ast.ImportSpec) string {
 	return path.Base(p)
 }
 
-// FindUnusedImportFixes analyzes loaded packages and returns fixes for unused imports.
-func FindUnusedImportFixes(pkgs []*packages.Package) []fileFix {
-	var fixes []fileFix
+// FindUnusedImportFixes analyzes loaded packages and returns AST-based fixes for unused imports.
+func FindUnusedImportFixes(pkgs []*packages.Package) []*ASTFixes {
+	var result []*ASTFixes
 
 	for _, pkg := range pkgs {
 		for i, f := range pkg.Syntax {
 			if i >= len(pkg.CompiledGoFiles) {
 				continue
 			}
-			filename := pkg.CompiledGoFiles[i]
-			fixes = append(fixes, findFileUnusedImportFixes(pkg.Fset, f, filename)...)
+			if fixes := findFileUnusedImportFixes(pkg.Fset, f); fixes != nil {
+				result = append(result, fixes)
+			}
 		}
 	}
 
-	return fixes
+	return result
 }
 
-func findFileUnusedImportFixes(fset *token.FileSet, f *ast.File, filename string) []fileFix {
+func findFileUnusedImportFixes(fset *token.FileSet, f *ast.File) *ASTFixes {
 	// Collect imports
 	imports := make(map[string]*ast.ImportSpec)
 	for _, imp := range f.Imports {
@@ -204,22 +205,25 @@ func findFileUnusedImportFixes(fset *token.FileSet, f *ast.File, filename string
 		return true
 	})
 
-	// Generate fixes for unused imports
-	var fixes []fileFix
+	// Generate fixes for unused imports (deletion = nil NewNode)
+	var fixes []ASTFix
 	for name, imp := range imports {
 		if used[name] {
 			continue
 		}
-
-		start := fset.Position(imp.Pos())
-		end := fset.Position(imp.End())
-
-		fixes = append(fixes, fileFix{
-			loc:     SourceLocation{File: filename, Line: start.Line, Column: start.Column},
-			start:   start.Offset,
-			end:     end.Offset,
+		fixes = append(fixes, ASTFix{
+			OldNode: imp,
+			NewNode: nil, // deletion
 		})
 	}
 
-	return fixes
+	if len(fixes) == 0 {
+		return nil
+	}
+
+	return &ASTFixes{
+		File:  f,
+		Fset:  fset,
+		Fixes: fixes,
+	}
 }

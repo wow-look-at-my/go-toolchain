@@ -1,14 +1,17 @@
 package vet
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/tools/go/analysis/analysistest"
 	"github.com/stretchr/testify/require"
-
+	"golang.org/x/tools/go/analysis/analysistest"
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
@@ -145,41 +148,6 @@ func main() {
 	assert.Empty(t, fixed) // blank import should be kept
 }
 
-func TestApplyFixes(t *testing.T) {
-	dir := t.TempDir()
-	testFile := filepath.Join(dir, "test.go")
-
-	before := `package main
-
-func main() {
-	x := int(0)
-	_ = x
-}
-`
-	after := `package main
-
-func main() {
-	x := 0
-	_ = x
-}
-`
-	os.WriteFile(testFile, []byte(before), 0644)
-
-	// int(0) starts at offset 31
-	fixes := []fileFix{{
-		loc:     SourceLocation{File: testFile, Line: 4, Column: 7},
-		start:   31,
-		end:     37,
-		newText: []byte("0"),
-	}}
-
-	err := applyFixes(fixes)
-	assert.Nil(t, err)
-
-	content, _ := os.ReadFile(testFile)
-	assert.Equal(t, after, string(content))
-}
-
 func TestRunOnPatternWithValidCode(t *testing.T) {
 	dir := t.TempDir()
 
@@ -207,38 +175,112 @@ func main() {
 	assert.Nil(t, err)
 }
 
-func TestPrintFix(t *testing.T) {
-	// Just ensure it doesn't panic
-	fix := fileFix{
-		loc:     SourceLocation{File: "/tmp/test.go", Line: 1, Column: 1},
-		oldText: []byte("int(0)"),
-		newText: []byte("0"),
-	}
-	printFix(fix) // Should not panic
+func TestASTFixesWriteTo(t *testing.T) {
+	before := `package main
 
-	// Test deletion (empty newText)
-	fix2 := fileFix{
-		loc:     SourceLocation{File: "/tmp/test.go", Line: 1, Column: 1},
-		oldText: []byte("unused"),
-		newText: []byte(""),
-	}
-	printFix(fix2)
+func main() {
+	x := int(0)
+	_ = x
+}
+`
+	after := `package main
 
-	// Test multiline old text (truncation)
-	fix3 := fileFix{
-		loc:     SourceLocation{File: "/tmp/test.go", Line: 1, Column: 1},
-		oldText: []byte("line1\nline2\nline3"),
-		newText: []byte("replacement"),
-	}
-	printFix(fix3)
+func main() {
+	x := 0
+	_ = x
+}
+`
 
-	// Test multiline new text (truncation)
-	fix4 := fileFix{
-		loc:     SourceLocation{File: "/tmp/test.go", Line: 1, Column: 1},
-		oldText: []byte("old"),
-		newText: []byte("new1\nnew2\nnew3"),
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
+	require.Nil(t, err)
+
+	// Find int(0) call
+	var call *ast.CallExpr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "int" {
+				call = c
+				return false
+			}
+		}
+		return true
+	})
+	require.NotNil(t, call)
+
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNode: call.Args[0]}}}
+
+	var buf strings.Builder
+	err = fixes.WriteTo(&buf)
+	assert.Nil(t, err)
+	assert.Equal(t, after, buf.String())
+}
+
+func TestASTFixesWriteToMultiple(t *testing.T) {
+	before := `package main
+
+func main() {
+	x := int(0)
+	y := int(1)
+	_ = x
+	_ = y
+}
+`
+	after := `package main
+
+func main() {
+	x := 0
+	y := 1
+	_ = x
+	_ = y
+}
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
+	require.Nil(t, err)
+
+	var fixes []ASTFix
+	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "int" {
+				fixes = append(fixes, ASTFix{OldNode: c, NewNode: c.Args[0]})
+			}
+		}
+		return true
+	})
+	require.Len(t, fixes, 2)
+
+	astFixes := &ASTFixes{File: f, Fset: fset, Fixes: fixes}
+
+	var buf strings.Builder
+	err = astFixes.WriteTo(&buf)
+	assert.Nil(t, err)
+	assert.Equal(t, after, buf.String())
+}
+
+func TestASTFixesPrintFix(t *testing.T) {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "test.go", `package main; func main() { x := int(0); _ = x }`, 0)
+
+	var call *ast.CallExpr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			call = c
+			return false
+		}
+		return true
+	})
+
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{
+		{OldNode: call, NewNode: call.Args[0]}, // replacement
+		{OldNode: call, NewNode: nil},          // deletion
+	}}
+
+	// Just ensure printFix doesn't panic
+	for _, fix := range fixes.Fixes {
+		fixes.printFix(fix)
 	}
-	printFix(fix4)
 }
 
 func TestFixUnusedImportsGlobPattern(t *testing.T) {
@@ -357,53 +399,6 @@ func main() {
 	defer os.Chdir(oldWd)
 
 	err := vetSyntax("./...", true)
-	assert.Nil(t, err)
-
-	content, _ := os.ReadFile(testFile)
-	assert.Equal(t, after, string(content))
-}
-
-func TestApplyFixesMultipleEdits(t *testing.T) {
-	dir := t.TempDir()
-	testFile := filepath.Join(dir, "test.go")
-
-	before := `package main
-
-func main() {
-	x := int(0)
-	y := int(1)
-	_ = x
-	_ = y
-}
-`
-	after := `package main
-
-func main() {
-	x := 0
-	y := 1
-	_ = x
-	_ = y
-}
-`
-	os.WriteFile(testFile, []byte(before), 0644)
-
-	// int(0) at offset 31, int(1) at offset 45
-	fixes := []fileFix{
-		{
-			loc:     SourceLocation{File: testFile, Line: 4, Column: 7},
-			start:   31,
-			end:     37,
-			newText: []byte("0"),
-		},
-		{
-			loc:     SourceLocation{File: testFile, Line: 5, Column: 7},
-			start:   45,
-			end:     51,
-			newText: []byte("1"),
-		},
-	}
-
-	err := applyFixes(fixes)
 	assert.Nil(t, err)
 
 	content, _ := os.ReadFile(testFile)
