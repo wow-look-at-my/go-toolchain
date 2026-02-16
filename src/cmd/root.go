@@ -23,7 +23,7 @@ var (
 	addWatermark  bool
 	doRemoveWmark bool
 	generateHash  string
-	fix           = true
+	fix           = os.Getenv("CI") == "" // disable auto-fix on CI
 )
 
 var rootCmd = &cobra.Command{
@@ -43,7 +43,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
 	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
-	rootCmd.PersistentFlags().BoolVar(&fix, "fix", true, "Auto-fix linter violations (use --fix=false to disable)")
+	rootCmd.PersistentFlags().BoolVar(&fix, "fix", fix, "Auto-fix linter violations")
 
 	// Benchmark flags
 	rootCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
