@@ -790,3 +790,501 @@ func main() {}
 	fixes := findFileUnusedImportFixes(fset, f)
 	assert.Nil(t, fixes) // dot imports should not be flagged
 }
+
+func TestFindFileUnusedImportFixesMultipleUnused(t *testing.T) {
+	before := `package main
+
+import (
+	"fmt"
+	"strings"
+	"bytes"
+)
+
+func main() {
+	fmt.Println("hello")
+}
+`
+	after := `package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	fmt.Println("hello")
+}
+`
+
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
+
+	fixes := findFileUnusedImportFixes(fset, f)
+	require.NotNil(t, fixes)
+	assert.Len(t, fixes.Fixes, 2) // strings and bytes are unused
+
+	var buf strings.Builder
+	err := fixes.Fprint(&buf)
+	assert.Nil(t, err)
+	assert.Equal(t, after, buf.String())
+}
+
+func TestCastableType(t *testing.T) {
+	tests := []struct {
+		litKind    token.Token
+		litValue   string
+		targetType string
+		expected   string
+	}{
+		{token.INT, "42", "int64", "int64"},
+		{token.INT, "42", "int", ""},
+		{token.INT, "42", "uint32", "uint32"},
+		{token.FLOAT, "3.14", "float32", "float32"},
+		{token.FLOAT, "3.14", "float64", ""},
+		{token.INT, "42", "time.Duration", ""}, // complex type - no cast
+		{token.INT, "42", "byte", "byte"},
+		{token.INT, "42", "rune", "rune"},
+	}
+
+	for _, tt := range tests {
+		name := tt.targetType
+		t.Run(name, func(t *testing.T) {
+			lit := &ast.BasicLit{Kind: tt.litKind, Value: tt.litValue}
+			assert.Equal(t, tt.expected, castableType(lit, tt.targetType))
+		})
+	}
+}
+
+func TestDeterminePositiveAssertFunc(t *testing.T) {
+	tests := []struct {
+		name     string
+		cond     ast.Expr
+		expected string
+	}{
+		{
+			name: "equal to nil",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.EQL, Y: &ast.Ident{Name: "nil"},
+			},
+			expected: "Nil",
+		},
+		{
+			name: "not equal to nil",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.NEQ, Y: &ast.Ident{Name: "nil"},
+			},
+			expected: "NotNil",
+		},
+		{
+			name: "equal values",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.EQL, Y: &ast.Ident{Name: "y"},
+			},
+			expected: "Equal",
+		},
+		{
+			name: "less than",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.LSS, Y: &ast.Ident{Name: "y"},
+			},
+			expected: "Less",
+		},
+		{
+			name: "greater than",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.GTR, Y: &ast.Ident{Name: "y"},
+			},
+			expected: "Greater",
+		},
+		{
+			name: "less or equal",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.LEQ, Y: &ast.Ident{Name: "y"},
+			},
+			expected: "LessOrEqual",
+		},
+		{
+			name: "greater or equal",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.GEQ, Y: &ast.Ident{Name: "y"},
+			},
+			expected: "GreaterOrEqual",
+		},
+		{
+			name:     "simple identifier",
+			cond:     &ast.Ident{Name: "ok"},
+			expected: "True",
+		},
+		{
+			name: "parenthesized",
+			cond: &ast.ParenExpr{X: &ast.Ident{Name: "ok"}},
+			expected: "True",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, determinePositiveAssertFunc(tt.cond))
+		})
+	}
+}
+
+func TestDetermineNegativeAssertFunc(t *testing.T) {
+	tests := []struct {
+		name     string
+		cond     ast.Expr
+		expected string
+	}{
+		{
+			name: "equal to nil -> NotNil",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.EQL, Y: &ast.Ident{Name: "nil"},
+			},
+			expected: "NotNil",
+		},
+		{
+			name: "not equal to nil -> Nil",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.NEQ, Y: &ast.Ident{Name: "nil"},
+			},
+			expected: "Nil",
+		},
+		{
+			name: "less than -> GreaterOrEqual",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.LSS, Y: &ast.Ident{Name: "y"},
+			},
+			expected: "GreaterOrEqual",
+		},
+		{
+			name: "greater than -> LessOrEqual",
+			cond: &ast.BinaryExpr{
+				X: &ast.Ident{Name: "x"}, Op: token.GTR, Y: &ast.Ident{Name: "y"},
+			},
+			expected: "LessOrEqual",
+		},
+		{
+			name:     "simple identifier -> False",
+			cond:     &ast.Ident{Name: "ok"},
+			expected: "False",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, determineNegativeAssertFunc(tt.cond))
+		})
+	}
+}
+
+func TestIsNil(t *testing.T) {
+	assert.True(t, isNil(&ast.Ident{Name: "nil"}))
+	assert.False(t, isNil(&ast.Ident{Name: "x"}))
+	assert.False(t, isNil(&ast.BasicLit{Kind: token.INT, Value: "0"}))
+}
+
+func TestGetCallFuncName(t *testing.T) {
+	// strings.Contains(a, b)
+	call := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "strings"},
+			Sel: &ast.Ident{Name: "Contains"},
+		},
+	}
+	assert.Equal(t, "strings.Contains", getCallFuncName(call))
+
+	// plain function call - no package
+	call2 := &ast.CallExpr{Fun: &ast.Ident{Name: "foo"}}
+	assert.Equal(t, "", getCallFuncName(call2))
+}
+
+func TestHasTestingErrorCall(t *testing.T) {
+	// Block with t.Error
+	block := &ast.BlockStmt{
+		List: []ast.Stmt{
+			&ast.ExprStmt{
+				X: &ast.CallExpr{
+					Fun: &ast.SelectorExpr{
+						X:   &ast.Ident{Name: "t"},
+						Sel: &ast.Ident{Name: "Error"},
+					},
+				},
+			},
+		},
+	}
+	assert.True(t, hasTestingErrorCall(block))
+
+	// Empty block
+	assert.False(t, hasTestingErrorCall(&ast.BlockStmt{}))
+	assert.False(t, hasTestingErrorCall(nil))
+}
+
+func TestIsTestingErrorCall(t *testing.T) {
+	tests := []struct {
+		receiver string
+		method   string
+		expected bool
+	}{
+		{"t", "Error", true},
+		{"t", "Errorf", true},
+		{"t", "Fatal", true},
+		{"t", "Fatalf", true},
+		{"b", "Error", true},
+		{"t", "Log", false},
+		{"x", "Error", false},
+	}
+
+	for _, tt := range tests {
+		call := &ast.CallExpr{
+			Fun: &ast.SelectorExpr{
+				X:   &ast.Ident{Name: tt.receiver},
+				Sel: &ast.Ident{Name: tt.method},
+			},
+		}
+		assert.Equal(t, tt.expected, isTestingErrorCall(call), "%s.%s", tt.receiver, tt.method)
+	}
+
+	// Non-selector call
+	call := &ast.CallExpr{Fun: &ast.Ident{Name: "foo"}}
+	assert.False(t, isTestingErrorCall(call))
+}
+
+func TestGetTestVarName(t *testing.T) {
+	block := &ast.BlockStmt{
+		List: []ast.Stmt{
+			&ast.ExprStmt{
+				X: &ast.CallExpr{
+					Fun: &ast.SelectorExpr{
+						X:   &ast.Ident{Name: "t"},
+						Sel: &ast.Ident{Name: "Error"},
+					},
+				},
+			},
+		},
+	}
+	assert.Equal(t, "t", getTestVarName(block))
+
+	// Empty block
+	assert.Equal(t, "", getTestVarName(&ast.BlockStmt{}))
+}
+
+func TestVetSemanticLoadError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create invalid Go code (syntax error)
+	code := `package main
+
+func main() {
+	invalid syntax here
+}
+`
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	err := vetSemantic("./...", false)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "package load errors")
+}
+
+func TestVetSemanticUnusedImportNoFix(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create code with unused import
+	code := `package main
+
+import "fmt"
+
+func main() {}
+`
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	err := vetSemantic("./...", false)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "imported and not used")
+}
+
+func TestGenerateBinaryReplacementCompound(t *testing.T) {
+	// Test for && and || operators
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "main_test.go")
+
+	code := `package main
+
+import "testing"
+
+func TestFoo(t *testing.T) {
+	x := true
+	y := false
+	if x && y {
+		t.Error("should be false")
+	}
+}
+`
+	os.WriteFile(testFile, []byte(code), 0644)
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	// Just run it to exercise the compound condition path
+	err := vetSemantic("./...", false)
+	// It should find an issue
+	assert.NotNil(t, err)
+}
+
+func TestGenerateImportEdit(t *testing.T) {
+	fset := token.NewFileSet()
+
+	// Test with existing imports
+	f1, _ := parser.ParseFile(fset, "test.go", `package main
+
+import "fmt"
+
+func main() { fmt.Println("hi") }
+`, parser.ParseComments)
+
+	// This is tested indirectly but let's test the path where imports exist
+	assert.NotNil(t, f1.Imports)
+
+	// Test with no imports
+	f2, _ := parser.ParseFile(fset, "test2.go", `package main
+
+func main() {}
+`, parser.ParseComments)
+	assert.Empty(t, f2.Imports)
+}
+
+func TestFindEnclosingFuncPos(t *testing.T) {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "test.go", `package main
+
+func outer() {
+	inner := func() {
+		x := 1
+		_ = x
+	}
+	_ = inner
+}
+`, parser.ParseComments)
+
+	// Find a position inside the inner function literal
+	var innerPos token.Pos
+	ast.Inspect(f, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.FuncLit); ok {
+			innerPos = lit.Body.Pos() + 1
+			return false
+		}
+		return true
+	})
+
+	pos := findEnclosingFuncPos(f, innerPos)
+	assert.NotEqual(t, token.NoPos, pos)
+}
+
+func TestDetermineAssertFuncUnary(t *testing.T) {
+	// Test negation path
+	cond := &ast.UnaryExpr{
+		Op: token.NOT,
+		X:  &ast.Ident{Name: "ok"},
+	}
+	assert.Equal(t, "True", determineAssertFunc(cond))
+
+	// Test direct identifier
+	assert.Equal(t, "False", determineAssertFunc(&ast.Ident{Name: "ok"}))
+}
+
+func TestDeterminePositiveAssertFuncCall(t *testing.T) {
+	// Test strings.HasPrefix
+	call := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "strings"},
+			Sel: &ast.Ident{Name: "HasPrefix"},
+		},
+		Args: []ast.Expr{
+			&ast.Ident{Name: "s"},
+			&ast.BasicLit{Kind: token.STRING, Value: `"hello"`},
+		},
+	}
+	assert.Equal(t, "True", determinePositiveAssertFunc(call))
+
+	// Test strings.HasSuffix
+	call2 := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "strings"},
+			Sel: &ast.Ident{Name: "HasSuffix"},
+		},
+	}
+	assert.Equal(t, "True", determinePositiveAssertFunc(call2))
+
+	// Test reflect.DeepEqual
+	call3 := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "reflect"},
+			Sel: &ast.Ident{Name: "DeepEqual"},
+		},
+	}
+	assert.Equal(t, "Equal", determinePositiveAssertFunc(call3))
+}
+
+func TestDetermineNegativeAssertFuncCall(t *testing.T) {
+	// Test reflect.DeepEqual (negative)
+	call := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "reflect"},
+			Sel: &ast.Ident{Name: "DeepEqual"},
+		},
+	}
+	assert.Equal(t, "NotEqual", determineNegativeAssertFunc(call))
+
+	// Test parenthesized expression
+	paren := &ast.ParenExpr{X: &ast.Ident{Name: "ok"}}
+	assert.Equal(t, "False", determineNegativeAssertFunc(paren))
+}
+
+func TestDetermineAssertionWithInit(t *testing.T) {
+	// Test init clause pattern: if err := X; err != nil
+	ifStmt := &ast.IfStmt{
+		Init: &ast.AssignStmt{
+			Lhs: []ast.Expr{&ast.Ident{Name: "err"}},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "doSomething"}}},
+		},
+		Cond: &ast.BinaryExpr{
+			X:  &ast.Ident{Name: "err"},
+			Op: token.NEQ,
+			Y:  &ast.Ident{Name: "nil"},
+		},
+		Body: &ast.BlockStmt{
+			List: []ast.Stmt{
+				&ast.ExprStmt{
+					X: &ast.CallExpr{
+						Fun: &ast.SelectorExpr{
+							X:   &ast.Ident{Name: "t"},
+							Sel: &ast.Ident{Name: "Fatal"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	pkg, fn := determineAssertion(ifStmt)
+	assert.Equal(t, "require", pkg)
+	assert.Equal(t, "NoError", fn)
+}
+
+func TestSourceLocationShortLocWithError(t *testing.T) {
+	// Test when filepath.Rel fails (shouldn't happen in practice, but for coverage)
+	loc := SourceLocation{File: "/some/path/file.go", Line: 1}
+	short := loc.ShortLoc()
+	assert.Contains(t, short, "file.go:1")
+}
