@@ -7,21 +7,19 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/tools/go/analysis/analysistest"
+	"github.com/stretchr/testify/require"
+
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
 	testdata, err := filepath.Abs("testdata")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 	analysistest.Run(t, testdata, RedundantCastAnalyzer, "redundantcast")
 }
 
 func TestAssertLintAnalyzer(t *testing.T) {
 	testdata, err := filepath.Abs("testdata")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 	analysistest.Run(t, testdata, AssertLintAnalyzer, "assertlint")
 }
 
@@ -138,30 +136,6 @@ func main() {
 	fixed, err := FixUnusedImports("./...")
 	assert.Nil(t, err)
 	assert.Empty(t, fixed) // blank import should be kept
-}
-
-func TestImportName(t *testing.T) {
-	tests := []struct {
-		path     string
-		alias    string
-		expected string
-	}{
-		{`"fmt"`, "", "fmt"},
-		{`"github.com/foo/bar"`, "", "bar"},
-		{`"github.com/foo/bar"`, "baz", "baz"},
-		{`"github.com/foo/bar"`, "_", "_"},
-		{`"github.com/foo/bar"`, ".", "."},
-	}
-
-	for _, tt := range tests {
-		var imp importSpec
-		if tt.alias != "" {
-			imp.Name = &ident{Name: tt.alias}
-		}
-		imp.Path = &basicLit{Value: tt.path}
-		// Can't easily test importName without creating real AST nodes
-		// This is covered by the integration tests above
-	}
 }
 
 func TestApplyFixes(t *testing.T) {

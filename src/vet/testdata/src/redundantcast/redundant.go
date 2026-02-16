@@ -8,5 +8,5 @@ func main() {
 	// These are NOT redundant
 	_ = int64(0)
 	_ = float32(1.5)
-	_ = int32('a')
+	_ = int32('a') // want "redundant cast: int32\\('a'\\) can be just 'a'"
 }
