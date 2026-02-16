@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/go-git/go-git/v5"
+	git "github.com/go-git/go-git/v5"
 	ansi "github.com/wow-look-at-my/ansi-writer"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
@@ -141,22 +141,8 @@ func vetSemantic(pattern string, fix bool) error {
 		// Find fixes using the already-loaded AST
 		importFixes := FindUnusedImportFixes(pkgs)
 		if len(importFixes) > 0 {
-			// Convert to fileFix and apply
-			var fixes []fileFix
-			for _, f := range importFixes {
-				fixes = append(fixes, fileFix{
-					loc:     SourceLocation{File: f.Filename, Line: f.Line},
-					start:   f.Start,
-					end:     f.End,
-					newText: f.NewText,
-				})
-			}
-			applied, err := applyFixes(fixes)
-			if err != nil {
+			if err := applyFixes(importFixes); err != nil {
 				return fmt.Errorf("failed to fix unused imports: %w", err)
-			}
-			for _, f := range applied {
-				printFix(f)
 			}
 			// Re-run semantic analysis with fixed files
 			return vetSemantic(pattern, fix)
@@ -187,11 +173,10 @@ func vetSemantic(pattern string, fix bool) error {
 						start := action.Package.Fset.Position(edit.Pos)
 						end := action.Package.Fset.Position(edit.End)
 						fixes = append(fixes, fileFix{
-							filename: start.Filename,
-							line:     pos.Line,
-							start:    start.Offset,
-							end:      end.Offset,
-							newText:  edit.NewText,
+							loc:     SourceLocation{File: start.Filename, Line: pos.Line, Column: pos.Column},
+							start:   start.Offset,
+							end:     end.Offset,
+							newText: edit.NewText,
 						})
 					}
 				}
@@ -210,9 +195,6 @@ func vetSemantic(pattern string, fix bool) error {
 	if len(fixes) > 0 {
 		if err := applyFixes(fixes); err != nil {
 			return fmt.Errorf("failed to apply fixes: %w", err)
-		}
-		for _, f := range fixes {
-			printFix(f)
 		}
 	}
 
@@ -275,36 +257,39 @@ func printFix(f fileFix) {
 	}
 	red := ansi.Style(oldStr, ansi.Red.FG())
 
-	// Format new text (green)
+	// Format output based on whether this is a deletion or replacement
 	newStr := strings.TrimSpace(string(f.newText))
 	if newStr == "" {
-		newStr = "(deleted)"
-	} else if idx := strings.Index(newStr, "\n"); idx > 0 {
-		newStr = newStr[:idx] + "..."
+		// Deletion: just show -oldText
+		fmt.Printf("%s %s -%s\n", yellow, grey, red)
+	} else {
+		// Replacement: show old → new
+		if idx := strings.Index(newStr, "\n"); idx > 0 {
+			newStr = newStr[:idx] + "..."
+		}
+		green := ansi.Style(newStr, ansi.Green.FG())
+		fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
 	}
-	green := ansi.Style(newStr, ansi.Green.FG())
-
-	fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
 }
 
 // applyFixes applies text edits to files, grouped by filename.
-// It populates oldText in each fix before modifying.
-func applyFixes(fixes []fileFix) ([]fileFix, error) {
+// It prints each fix showing old → new text.
+func applyFixes(fixes []fileFix) error {
 	// Group fixes by file
 	byFile := make(map[string][]*fileFix)
 	for i := range fixes {
-		byFile[fixes[i].filename] = append(byFile[fixes[i].filename], &fixes[i])
+		byFile[fixes[i].loc.File] = append(byFile[fixes[i].loc.File], &fixes[i])
 	}
 
 	// Check that all files are committed before modifying
-	if err := checkFilesCommitted(fixes); err != nil {
-		return nil, err
+	if err := checkFilesCommitted(byFile); err != nil {
+		return err
 	}
 
 	for filename, edits := range byFile {
 		content, err := os.ReadFile(filename)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		// Capture old text for each edit
@@ -325,11 +310,16 @@ func applyFixes(fixes []fileFix) ([]fileFix, error) {
 		}
 
 		if err := os.WriteFile(filename, content, 0644); err != nil {
-			return nil, err
+			return err
+		}
+
+		// Print all fixes for this file
+		for _, edit := range edits {
+			printFix(*edit)
 		}
 	}
 
-	return fixes, nil
+	return nil
 }
 
 // Diagnostic represents a single analyzer finding.
@@ -341,7 +331,7 @@ type Diagnostic struct {
 }
 
 // checkFilesCommitted verifies all files are committed before auto-fix modifies them.
-func checkFilesCommitted(byFile map[string][]fileFix) error {
+func checkFilesCommitted(byFile map[string][]*fileFix) error {
 	repo, err := git.PlainOpenWithOptions(".", &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
 		// Not a git repo - skip check

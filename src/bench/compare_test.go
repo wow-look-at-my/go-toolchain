@@ -3,11 +3,10 @@ package bench
 import (
 	"bytes"
 	"os"
-	"strings"
 	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 )
 
 func TestCompareNilReports(t *testing.T) {

@@ -161,17 +161,9 @@ func importName(imp *ast.ImportSpec) string {
 	return path.Base(p)
 }
 
-// UnusedImportFix represents a fix for an unused import.
-type UnusedImportFix struct {
-	Filename string
-	Start    int
-	End      int
-	NewText  []byte
-}
-
 // FindUnusedImportFixes analyzes loaded packages and returns fixes for unused imports.
-func FindUnusedImportFixes(pkgs []*packages.Package) []UnusedImportFix {
-	var fixes []UnusedImportFix
+func FindUnusedImportFixes(pkgs []*packages.Package) []fileFix {
+	var fixes []fileFix
 
 	for _, pkg := range pkgs {
 		for i, f := range pkg.Syntax {
@@ -186,7 +178,7 @@ func FindUnusedImportFixes(pkgs []*packages.Package) []UnusedImportFix {
 	return fixes
 }
 
-func findFileUnusedImportFixes(fset *token.FileSet, f *ast.File, filename string) []UnusedImportFix {
+func findFileUnusedImportFixes(fset *token.FileSet, f *ast.File, filename string) []fileFix {
 	// Collect imports
 	imports := make(map[string]*ast.ImportSpec)
 	for _, imp := range f.Imports {
@@ -213,7 +205,7 @@ func findFileUnusedImportFixes(fset *token.FileSet, f *ast.File, filename string
 	})
 
 	// Generate fixes for unused imports
-	var fixes []UnusedImportFix
+	var fixes []fileFix
 	for name, imp := range imports {
 		if used[name] {
 			continue
@@ -222,11 +214,10 @@ func findFileUnusedImportFixes(fset *token.FileSet, f *ast.File, filename string
 		start := fset.Position(imp.Pos())
 		end := fset.Position(imp.End())
 
-		fixes = append(fixes, UnusedImportFix{
-			Filename: filename,
-			Start:    start.Offset,
-			End:      end.Offset,
-			NewText:  nil,
+		fixes = append(fixes, fileFix{
+			loc:     SourceLocation{File: filename, Line: start.Line, Column: start.Column},
+			start:   start.Offset,
+			end:     end.Offset,
 		})
 	}
 
