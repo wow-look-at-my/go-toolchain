@@ -65,10 +65,10 @@ func TestCollectGitInfoBranchRef(t *testing.T) {
 func TestEnvOr(t *testing.T) {
 	t.Setenv("TEST_ENVOR_SET", "from-env")
 	got := envOr("TEST_ENVOR_SET", "fallback")
-	assert.Equal(t, string("from-env"), got)
+	assert.Equal(t, "from-env", got)
 	os.Unsetenv("TEST_ENVOR_UNSET")
-	got := envOr("TEST_ENVOR_UNSET", "fallback")
-	assert.Equal(t, string("fallback"), got)
+	got = envOr("TEST_ENVOR_UNSET", "fallback")
+	assert.Equal(t, "fallback", got)
 }
 
 func TestGithubRepoFromEnv(t *testing.T) {

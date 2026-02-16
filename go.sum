@@ -97,6 +97,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260215041003-b1e7132dc32e h1:vo9afBZlUDTAMFjgwEZPOS2RTB2V1T3XDf/b0Wmh8Mw=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260215041003-b1e7132dc32e/go.mod h1:bC5Cb+96sWzrTj7kYM9+VMwuYsXPYKZ2X9ADtK6ZFow=
+github.com/wow-look-at-my/go-set v0.0.0-20260216024631-c585e1123638 h1:3rfjMFpnU9KsUlglOF6fQjX2rGFiOzquQcKxJhWU/YI=
+github.com/wow-look-at-my/go-set v0.0.0-20260216024631-c585e1123638/go.mod h1:dXNLHQrlQtyP5zwrAyVx3S14tDgSIbEQZlfgF4hA3cU=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
 github.com/xanzy/ssh-agent v0.3.3/go.mod h1:6dzNDKs0J9rVPHPhaGCukekBHKqfl+L3KghI1Bc68Uw=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=

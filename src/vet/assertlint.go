@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
-	//"go/format"
 	"go/token"
 	"os"
 	"strings"
 
+	"github.com/wow-look-at-my/go-set"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -99,12 +99,36 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			importEdit = generateImportEdit(pass, file, needsAssert && !hasAssert, needsRequire && !hasRequire)
 		}
 
+		// Track variables that earlier fixes will introduce (per enclosing function)
+		introducedVars := make(map[token.Pos]*set.Set[string])
+
 		// Report all diagnostics with fixes
 		for _, d := range diagnostics {
 			message := fmt.Sprintf("use %s.%s instead of if + t.Error/t.Fatal", d.assertPkg, d.assertFunc)
 
-			fix := generateSuggestedFix(pass, d.ifStmt, d.assertPkg, d.assertFunc)
+			// Find enclosing function for this if-statement
+			funcPos := findEnclosingFuncPos(file, d.ifStmt.Pos())
+
+			// Get set of variables already introduced by prior fixes in this function
+			priorVars := introducedVars[funcPos]
+			if priorVars == nil {
+				priorVars = &set.Set[string]{}
+				introducedVars[funcPos] = priorVars
+			}
+
+			fix := generateSuggestedFix(pass, d.ifStmt, d.assertPkg, d.assertFunc, priorVars)
 			if fix != nil {
+				// Track variables this fix will introduce
+				if d.ifStmt.Init != nil {
+					if assign, ok := d.ifStmt.Init.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
+						for _, lhs := range assign.Lhs {
+							if ident, ok := lhs.(*ast.Ident); ok && ident.Name != "_" {
+								priorVars.Add(ident.Name)
+							}
+						}
+					}
+				}
+
 				// Add import edit to the first fix only
 				if importEdit != nil {
 					fix.TextEdits = append(fix.TextEdits, *importEdit)
@@ -377,8 +401,28 @@ func isNil(expr ast.Expr) bool {
 	return false
 }
 
+// findEnclosingFuncPos returns the position of the enclosing function/method.
+func findEnclosingFuncPos(file *ast.File, pos token.Pos) token.Pos {
+	var funcPos token.Pos
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch f := n.(type) {
+		case *ast.FuncDecl:
+			if f.Pos() <= pos && pos < f.End() {
+				funcPos = f.Pos()
+			}
+		case *ast.FuncLit:
+			if f.Pos() <= pos && pos < f.End() {
+				funcPos = f.Pos()
+			}
+		}
+		return true
+	})
+	return funcPos
+}
+
 // generateSuggestedFix creates a SuggestedFix for the if statement.
-func generateSuggestedFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string) *analysis.SuggestedFix {
+// priorVars contains variable names that earlier fixes in the same function will introduce.
+func generateSuggestedFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string, priorVars *set.Set[string]) *analysis.SuggestedFix {
 	// Skip if/else chains (else-if is already filtered during detection)
 	if ifStmt.Else != nil {
 		return nil
@@ -392,7 +436,7 @@ func generateSuggestedFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, as
 	// Try each fix generator until one succeeds
 	generators := []func() string{
 		func() string { return fixInitClause(pass, ifStmt, tVar, assertPkg) },
-		func() string { return fixInitClauseGeneral(pass, ifStmt, tVar, assertPkg, assertFunc) },
+		func() string { return fixInitClauseGeneral(pass, ifStmt, tVar, assertPkg, assertFunc, priorVars) },
 		func() string { return fixSimpleCondition(pass, ifStmt, tVar, assertPkg, assertFunc) },
 	}
 
@@ -441,7 +485,7 @@ func fixInitClause(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg stri
 
 // fixInitClauseGeneral handles any init clause by extracting it:
 // if x := expr; cond { t.Error } → x := expr; assert.X(t, ...)
-func fixInitClauseGeneral(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg, assertFunc string) string {
+func fixInitClauseGeneral(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg, assertFunc string, priorVars *set.Set[string]) string {
 	if ifStmt.Init == nil {
 		return ""
 	}
@@ -452,28 +496,32 @@ func fixInitClauseGeneral(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertP
 		return ""
 	}
 
-	// Get the init statement, converting := to = if all non-blank variables already exist in outer scope
+	// Get the init statement, converting := to = if all non-blank variables already exist
+	// (either in outer scope OR will be introduced by a prior fix in this function)
 	initText := sourceText(pass, ifStmt.Init)
 	if assign, ok := ifStmt.Init.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
-		allExistInOuter := true
+		allExist := true
 		for _, lhs := range assign.Lhs {
 			ident, ok := lhs.(*ast.Ident)
 			if !ok || ident.Name == "_" {
 				continue
 			}
-			// Get the scope of this definition
+			// Check if a prior fix will introduce this variable
+			if priorVars.Contains(ident.Name) {
+				continue
+			}
+			// Check if same name exists in parent scope
 			obj := pass.TypesInfo.Defs[ident]
 			if obj == nil || obj.Parent() == nil || obj.Parent().Parent() == nil {
-				allExistInOuter = false
+				allExist = false
 				break
 			}
-			// Check if same name exists in parent scope (the scope we're extracting to)
 			if obj.Parent().Parent().Lookup(ident.Name) == nil {
-				allExistInOuter = false
+				allExist = false
 				break
 			}
 		}
-		if allExistInOuter {
+		if allExist {
 			initText = strings.Replace(initText, ":=", "=", 1)
 		}
 	}
