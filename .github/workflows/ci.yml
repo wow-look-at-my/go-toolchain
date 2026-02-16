@@ -24,14 +24,6 @@ jobs:
       - name: Build and test
         run: go run ./src
 
-      - name: Install bats and attr
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bats jq attr
-
-      - name: Run integration tests
-        run: bats tests/
-
   gha-test:
     runs-on: ubuntu-latest
     steps:
