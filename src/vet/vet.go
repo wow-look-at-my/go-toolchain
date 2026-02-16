@@ -145,17 +145,18 @@ func vetSemantic(pattern string, fix bool) error {
 			var fixes []fileFix
 			for _, f := range importFixes {
 				fixes = append(fixes, fileFix{
-					filename: f.Filename,
-					start:    f.Start,
-					end:      f.End,
-					newText:  f.NewText,
+					loc:     SourceLocation{File: f.Filename, Line: f.Line},
+					start:   f.Start,
+					end:     f.End,
+					newText: f.NewText,
 				})
 			}
-			if err := applyFixes(fixes); err != nil {
+			applied, err := applyFixes(fixes)
+			if err != nil {
 				return fmt.Errorf("failed to fix unused imports: %w", err)
 			}
-			for _, f := range importFixes {
-				fmt.Printf("\033[33mfixed unused import: %s\033[0m\n", f.Filename)
+			for _, f := range applied {
+				printFix(f)
 			}
 			// Re-run semantic analysis with fixed files
 			return vetSemantic(pattern, fix)
@@ -210,26 +211,8 @@ func vetSemantic(pattern string, fix bool) error {
 		if err := applyFixes(fixes); err != nil {
 			return fmt.Errorf("failed to apply fixes: %w", err)
 		}
-		// Get repo root for relative paths
-		cwd, _ := os.Getwd()
 		for _, f := range fixes {
-			// Show relative path
-			relPath := f.filename
-			if rel, err := filepath.Rel(cwd, f.filename); err == nil {
-				relPath = rel
-			}
-			// Show the replacement text (trim to first line for readability)
-			replacement := strings.TrimSpace(string(f.newText))
-			if idx := strings.Index(replacement, "\n"); idx > 0 {
-				replacement = replacement[:idx] + "..."
-			}
-			// Format: yellow "fixed:" + grey OSC 8 link + white replacement
-			location := fmt.Sprintf("%s:%d", relPath, f.line)
-			fileURL := fmt.Sprintf("file://%s", f.filename)
-			yellow := ansi.Style("fixed:", ansi.Yellow.FG())
-			grey := ansi.Link(fileURL, ansi.Style(location, ansi.BrightBlack.FG()))
-			white := ansi.Style(replacement, ansi.White.FG())
-			fmt.Printf("%s %s %s\n", yellow, grey, white)
+			printFix(f)
 		}
 	}
 
@@ -254,31 +237,81 @@ func vetSemantic(pattern string, fix bool) error {
 	return fmt.Errorf("%s", sb.String())
 }
 
+// SourceLocation identifies a position in source code.
+type SourceLocation struct {
+	File   string
+	Line   int
+	Column int
+}
+
+// ShortLoc returns "relative/path:line" for display.
+func (s SourceLocation) ShortLoc() string {
+	cwd, _ := os.Getwd()
+	relPath := s.File
+	if rel, err := filepath.Rel(cwd, s.File); err == nil {
+		relPath = rel
+	}
+	return fmt.Sprintf("%s:%d", relPath, s.Line)
+}
+
 type fileFix struct {
-	filename string
-	line     int
-	start    int
-	end      int
-	newText  []byte
+	loc     SourceLocation
+	start   int
+	end     int
+	oldText []byte
+	newText []byte
+}
+
+// printFix prints a fix message showing old (red) and new (green) text.
+func printFix(f fileFix) {
+	fileURL := fmt.Sprintf("file://%s", f.loc.File)
+	yellow := ansi.Style("fixed:", ansi.Yellow.FG())
+	grey := ansi.Link(fileURL, ansi.Style(f.loc.ShortLoc(), ansi.BrightBlack.FG()))
+
+	// Format old text (red)
+	oldStr := strings.TrimSpace(string(f.oldText))
+	if idx := strings.Index(oldStr, "\n"); idx > 0 {
+		oldStr = oldStr[:idx] + "..."
+	}
+	red := ansi.Style(oldStr, ansi.Red.FG())
+
+	// Format new text (green)
+	newStr := strings.TrimSpace(string(f.newText))
+	if newStr == "" {
+		newStr = "(deleted)"
+	} else if idx := strings.Index(newStr, "\n"); idx > 0 {
+		newStr = newStr[:idx] + "..."
+	}
+	green := ansi.Style(newStr, ansi.Green.FG())
+
+	fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
 }
 
 // applyFixes applies text edits to files, grouped by filename.
-func applyFixes(fixes []fileFix) error {
+// It populates oldText in each fix before modifying.
+func applyFixes(fixes []fileFix) ([]fileFix, error) {
 	// Group fixes by file
-	byFile := make(map[string][]fileFix)
-	for _, f := range fixes {
-		byFile[f.filename] = append(byFile[f.filename], f)
+	byFile := make(map[string][]*fileFix)
+	for i := range fixes {
+		byFile[fixes[i].filename] = append(byFile[fixes[i].filename], &fixes[i])
 	}
 
 	// Check that all files are committed before modifying
-	if err := checkFilesCommitted(byFile); err != nil {
-		return err
+	if err := checkFilesCommitted(fixes); err != nil {
+		return nil, err
 	}
 
 	for filename, edits := range byFile {
 		content, err := os.ReadFile(filename)
 		if err != nil {
-			return err
+			return nil, err
+		}
+
+		// Capture old text for each edit
+		for _, edit := range edits {
+			if edit.start < len(content) && edit.end <= len(content) {
+				edit.oldText = content[edit.start:edit.end]
+			}
 		}
 
 		// Sort edits by position (reverse order to apply from end)
@@ -292,11 +325,11 @@ func applyFixes(fixes []fileFix) error {
 		}
 
 		if err := os.WriteFile(filename, content, 0644); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return fixes, nil
 }
 
 // Diagnostic represents a single analyzer finding.
