@@ -62,10 +62,11 @@ func Execute() error {
 
 func run(cmd *cobra.Command, args []string) error {
 	r := runner.New()
-	return runWithRunner(r, jsonOutput)
+	return runWithRunner(r)
 }
 
-func runWithRunner(r runner.CommandRunner, quiet bool) error {
+func runWithRunner(r runner.CommandRunner) error {
+	quiet := jsonOutput
 	// Handle --remove-watermark early, before any build steps
 	if doRemoveWmark {
 		return handleRemoveWatermark()
