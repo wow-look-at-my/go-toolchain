@@ -69,7 +69,7 @@ func TestParseProfileEmpty(t *testing.T) {
 	total, files, err := ParseProfile(coverFile)
 	require.Nil(t, err)
 
-	assert.Equal(t, 0, total)
+	assert.Equal(t, float32(0), total)
 
 	assert.Equal(t, 0, len(files))
 }
@@ -92,6 +92,6 @@ example.com/pkg/file.go:10.20,12.2 1 1
 
 	// Should only have parsed the valid line
 	assert.Equal(t, 1, len(files))
-	assert.Equal(t, 100, total)
+	assert.Equal(t, float32(100), total)
 }
 

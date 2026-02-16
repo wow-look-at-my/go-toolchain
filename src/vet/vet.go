@@ -62,6 +62,7 @@ func Analyzers() []*analysis.Analyzer {
 		unusedresult.Analyzer,
 		// Custom analyzers
 		AssertLintAnalyzer,
+		RedundantCastAnalyzer,
 	}
 }
 
@@ -246,7 +247,7 @@ type fileFix struct {
 
 // printFix prints a fix message showing old (red) and new (green) text.
 func printFix(f fileFix) {
-	fileURL := fmt.Sprintf("file://%s:%d", f.loc.File, f.loc.Line)
+	fileURL := fmt.Sprintf("vscode://file/%s:%d:%d", f.loc.File, f.loc.Line, f.loc.Column)
 	yellow := ansi.Style("fixed:", ansi.Yellow.FG())
 	grey := ansi.Link(fileURL, ansi.Style(f.loc.ShortLoc(), ansi.BrightBlack.FG()))
 

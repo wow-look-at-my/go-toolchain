@@ -24,7 +24,7 @@ func TestCoverageHandlerExtractsCoverage(t *testing.T) {
 
 	require.NoError(t, h.Event(event, nil))
 
-	assert.Equal(t, 75.5, h.coverage["example.com/pkg"])
+	assert.Equal(t, float32(75.5), h.coverage["example.com/pkg"])
 }
 
 func TestCoverageHandlerIgnoresNonCoverageOutput(t *testing.T) {
@@ -78,8 +78,11 @@ func TestCoverageRegex(t *testing.T) {
 		if tc.expected == "" {
 			assert.LessOrEqual(t, len(matches), 0)
 		} else {
-			require.Equal(t, 2, len(matches), "input %q: expected match, got %v", tc.input, matches)
-			assert.Equal(t, tc.expected, matches[1], "input %q", tc.input)
+			if len(matches) != 2 {
+				t.Errorf("input %q: expected match, got %v", tc.input, matches)
+			} else if matches[1] != tc.expected {
+				t.Errorf("input %q: expected %q, got %q", tc.input, tc.expected, matches[1])
+			}
 		}
 	}
 }
@@ -97,9 +100,9 @@ func TestCoverageHandlerMultiplePackages(t *testing.T) {
 		require.NoError(t, h.Event(event, nil))
 	}
 
-	assert.Equal(t, 50.0, h.coverage["pkg1"])
-	assert.Equal(t, 75.0, h.coverage["pkg2"])
-	assert.Equal(t, 100.0, h.coverage["pkg3"])
+	assert.Equal(t, float32(50.0), h.coverage["pkg1"])
+	assert.Equal(t, float32(75.0), h.coverage["pkg2"])
+	assert.Equal(t, float32(100.0), h.coverage["pkg3"])
 }
 
 func TestRunTestsWithMock(t *testing.T) {
@@ -125,7 +128,7 @@ example.com/pkg/main.go:14.20,16.2 3 0
 
 	assert.Equal(t, 1, len(result.Coverage.Packages))
 
-	assert.Equal(t, 85.0, result.Coverage.Packages[0].Pct())
+	assert.Equal(t, float32(85.0), result.Coverage.Packages[0].Pct())
 }
 
 func TestRunTestsFailure(t *testing.T) {
@@ -180,7 +183,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 
 	// Without a coverage profile we can't compute statement-weighted total.
 	// Total should be 0 rather than a misleading per-package average.
-	assert.Equal(t, 0, result.Coverage.Total)
+	assert.Equal(t, float32(0), result.Coverage.Total)
 
 	// Per-package percentages are still available from test output
 	assert.Equal(t, 2, len(result.Coverage.Packages))
@@ -217,7 +220,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 
 	// Total from profile: 3 covered / 4 statements = 75%
 	// (statement-weighted, not per-package average)
-	assert.Equal(t, 75.0, result.Coverage.Total)
+	assert.Equal(t, float32(75.0), result.Coverage.Total)
 
 	// Verify statements are set correctly
 	for _, p := range result.Coverage.Packages {
@@ -254,7 +257,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 	require.Nil(t, err)
 
 	// Total comes from ParseProfile: 1 covered / 2 statements = 50%
-	assert.Equal(t, 50.0, result.Coverage.Total)
+	assert.Equal(t, float32(50.0), result.Coverage.Total)
 
 	// Verify statements are set on the right package
 	for _, p := range result.Coverage.Packages {

@@ -29,10 +29,10 @@ func TestParseBenchmarkOutput(t *testing.T) {
 
 	foo := results[0]
 	assert.Equal(t, "BenchmarkFoo-8", foo.Name)
-	assert.Equal(t, 10000, foo.Iterations)
-	assert.Equal(t, 123456, foo.NsPerOp)
-	assert.Equal(t, 1024, foo.BytesPerOp)
-	assert.Equal(t, 8, foo.AllocsPerOp)
+	assert.Equal(t, int64(10000), foo.Iterations)
+	assert.Equal(t, float64(123456), foo.NsPerOp)
+	assert.Equal(t, int64(1024), foo.BytesPerOp)
+	assert.Equal(t, int64(8), foo.AllocsPerOp)
 }
 
 func TestParseBenchmarkOutputNoAllocStats(t *testing.T) {
@@ -44,8 +44,8 @@ func TestParseBenchmarkOutputNoAllocStats(t *testing.T) {
 	results := report.Packages["pkg"]
 	require.Equal(t, 1, len(results))
 
-	assert.Equal(t, 0, results[0].BytesPerOp)
-	assert.Equal(t, 0, results[0].AllocsPerOp)
+	assert.Equal(t, int64(0), results[0].BytesPerOp)
+	assert.Equal(t, int64(0), results[0].AllocsPerOp)
 }
 
 func TestParseBenchmarkOutputEmpty(t *testing.T) {

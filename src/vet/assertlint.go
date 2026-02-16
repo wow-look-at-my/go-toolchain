@@ -624,15 +624,28 @@ func generateBinaryReplacement(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, a
 
 	switch assertFunc {
 	case "Equal", "NotEqual":
-		// Cast numeric literals to match the variable's type for assert.Equal
+		// Cast numeric literals only when their default type differs from target
+		// Only cast to basic types that don't require imports
 		expected, actual := right, left
-		if _, isLit := bin.Y.(*ast.BasicLit); isLit {
-			if typ := pass.TypesInfo.TypeOf(bin.X); typ != nil {
-				expected = fmt.Sprintf("%s(%s)", typ.String(), right)
+		if lit, isLit := bin.Y.(*ast.BasicLit); isLit {
+			typ := pass.TypesInfo.TypeOf(bin.X)
+			fmt.Printf("[assertlint] Y is literal %q, X type: %v\n", lit.Value, typ)
+			if typ != nil {
+				typeName := typ.String()
+				if castType := castableType(lit, typeName); castType != "" {
+					expected = fmt.Sprintf("%s(%s)", castType, right)
+					fmt.Printf("[assertlint] cast expected to: %s\n", expected)
+				}
 			}
-		} else if _, isLit := bin.X.(*ast.BasicLit); isLit {
-			if typ := pass.TypesInfo.TypeOf(bin.Y); typ != nil {
-				actual = fmt.Sprintf("%s(%s)", typ.String(), left)
+		} else if lit, isLit := bin.X.(*ast.BasicLit); isLit {
+			typ := pass.TypesInfo.TypeOf(bin.Y)
+			fmt.Printf("[assertlint] X is literal %q, Y type: %v\n", lit.Value, typ)
+			if typ != nil {
+				typeName := typ.String()
+				if castType := castableType(lit, typeName); castType != "" {
+					actual = fmt.Sprintf("%s(%s)", castType, left)
+					fmt.Printf("[assertlint] cast actual to: %s\n", actual)
+				}
 			}
 		}
 		return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, expected, actual)
@@ -644,6 +657,36 @@ func generateBinaryReplacement(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, a
 	}
 
 	return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, left, right)
+}
+
+// castableType returns the type to cast the literal to, or empty string if no cast needed.
+// Only returns basic types that don't require imports.
+func castableType(lit *ast.BasicLit, targetType string) string {
+	// Only cast to simple builtin types (no package imports needed)
+	basicTypes := map[string]bool{
+		"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
+		"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
+		"float32": true, "float64": true,
+		"byte": true, "rune": true,
+	}
+
+	if !basicTypes[targetType] {
+		return "" // Skip complex types that would require imports
+	}
+
+	switch lit.Kind {
+	case token.INT:
+		// Integer literals default to int, need cast for other integer types
+		if targetType != "int" {
+			return targetType
+		}
+	case token.FLOAT:
+		// Float literals default to float64, need cast for float32
+		if targetType != "float64" {
+			return targetType
+		}
+	}
+	return ""
 }
 
 // sourceText extracts the source text for a node.

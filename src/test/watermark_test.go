@@ -15,7 +15,7 @@ func TestWatermarkGetSetRoundTrip(t *testing.T) {
 	val, exists, err := GetWatermark(dir)
 	require.Nil(t, err)
 	require.True(t, exists)
-	require.Equal(t, 85.3, val)
+	require.Equal(t, float32(85.3), val)
 }
 
 func TestWatermarkGetWhenNoneExists(t *testing.T) {
@@ -24,7 +24,7 @@ func TestWatermarkGetWhenNoneExists(t *testing.T) {
 	val, exists, err := GetWatermark(dir)
 	require.Nil(t, err)
 	require.False(t, exists)
-	require.Equal(t, 0, val)
+	require.Equal(t, float32(0), val)
 }
 
 func TestWatermarkRemove(t *testing.T) {
@@ -57,5 +57,5 @@ func TestWatermarkGetOnFile(t *testing.T) {
 	val, exists, err := GetWatermark(f.Name())
 	require.Nil(t, err)
 	require.True(t, exists)
-	require.Equal(t, 42.5, val)
+	require.Equal(t, float32(42.5), val)
 }

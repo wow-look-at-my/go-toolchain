@@ -7,6 +7,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260215041003-b1e7132dc32e
+	github.com/wow-look-at-my/go-set v0.0.0-20260216024631-c585e1123638
 	golang.org/x/mod v0.29.0
 	golang.org/x/sys v0.38.0
 	golang.org/x/tools v0.38.0
@@ -41,7 +42,6 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	github.com/wow-look-at-my/go-set v0.0.0-20260216024631-c585e1123638 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
