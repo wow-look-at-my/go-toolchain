@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -38,77 +37,111 @@ func writeMockCoverProfile(args []string, pct float32) {
 	}
 }
 
-// mockProcess implements runner.IProcess for testing
-type mockProcess struct {
-	stdout  []byte
-	stderr  []byte
-	waitErr error
-}
-
-func (p *mockProcess) Wait() error    { return p.waitErr }
-func (p *mockProcess) Stdout() io.Reader { return bytes.NewReader(p.stdout) }
-func (p *mockProcess) Stderr() io.Reader { return bytes.NewReader(p.stderr) }
-
-// testPassMockRunner returns valid test JSON output with configurable coverage.
-// If coveragePct is 0, defaults to 100%.
-type testPassMockRunner struct {
-	calls       []runner.Config
-	coveragePct float32
-}
-
-func (m *testPassMockRunner) Run(cfg runner.Config) (runner.IProcess, error) {
-	m.calls = append(m.calls, cfg)
-
-	// For go test commands, write cover profile and return JSON output
-	if cfg.Name == "go" && len(cfg.Args) > 0 && (cfg.Args[0] == "test" || (len(cfg.Args) > 1 && cfg.Args[1] == "test")) {
-		pct := m.coveragePct
-		if pct == 0 {
-			pct = 100
-		}
-		writeMockCoverProfile(cfg.Args, pct)
-		output := fmt.Sprintf(`{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
+// newTestPassMock creates a mock runner that passes tests with the given coverage percentage.
+// If pct is 0, it defaults to 100%.
+func newTestPassMock(pct float32) *runner.Mock {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") {
+			covPct := pct
+			if covPct == 0 {
+				covPct = 100
+			}
+			writeMockCoverProfile(cfg.Args, covPct)
+			output := fmt.Sprintf(`{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: %.1f%% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
-`, pct)
-		return &mockProcess{stdout: []byte(output)}, nil
+`, covPct)
+			return runner.MockProcess([]byte(output), nil), nil
+		}
+		return nil, nil // fall through to default
 	}
-
-	return &mockProcess{}, nil
+	return mock
 }
 
-// testPipesFailMockRunner fails immediately on test execution
-type testPipesFailMockRunner struct {
-	calls []runner.Config
-}
-
-func (m *testPipesFailMockRunner) Run(cfg runner.Config) (runner.IProcess, error) {
-	m.calls = append(m.calls, cfg)
-
-	// Fail on go test
-	if cfg.Name == "go" && len(cfg.Args) > 0 && (cfg.Args[0] == "test" || (len(cfg.Args) > 1 && cfg.Args[1] == "test")) {
-		return nil, fmt.Errorf("tests failed")
+// newTestPipesFailMock creates a mock runner that returns an error when running tests.
+func newTestPipesFailMock() *runner.Mock {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") {
+			return nil, fmt.Errorf("tests failed")
+		}
+		return nil, nil
 	}
-
-	return &mockProcess{}, nil
+	return mock
 }
 
-// modTidyFailMockRunner fails on go mod tidy
-type modTidyFailMockRunner struct {
-	calls []runner.Config
-}
-
-func (m *modTidyFailMockRunner) Run(cfg runner.Config) (runner.IProcess, error) {
-	m.calls = append(m.calls, cfg)
-
-	if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "mod" {
-		return &mockProcess{waitErr: fmt.Errorf("mod tidy failed")}, nil
+// newModTidyFailMock creates a mock runner that fails on go mod tidy.
+func newModTidyFailMock() *runner.Mock {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "mod") {
+			return runner.MockProcess(nil, fmt.Errorf("mod tidy failed")), nil
+		}
+		return nil, nil
 	}
+	return mock
+}
 
-	return &mockProcess{}, nil
+// newBuildFailMock creates a mock runner that passes tests but fails on go build.
+func newBuildFailMock() *runner.Mock {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "build") {
+			return runner.MockProcess(nil, fmt.Errorf("build failed")), nil
+		}
+		if cfg.IsCmd("go", "test") {
+			writeMockCoverProfile(cfg.Args, 100)
+			output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
+`
+			return runner.MockProcess([]byte(output), nil), nil
+		}
+		return nil, nil
+	}
+	return mock
+}
+
+// newTestFailMock creates a mock runner that returns output with a failed test (but wait() succeeds).
+func newTestFailMock() *runner.Mock {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") {
+			writeMockCoverProfile(cfg.Args, 100)
+			output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"fail","Package":"example.com/pkg"}
+`
+			return runner.MockProcess([]byte(output), nil), nil
+		}
+		return nil, nil
+	}
+	return mock
+}
+
+// newTestFailWithErrorMock creates a mock runner that returns output AND an error from wait().
+func newTestFailWithErrorMock() *runner.Mock {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") {
+			output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestFoo"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Test":"TestFoo","Output":"=== RUN   TestFoo\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Test":"TestFoo","Output":"    foo_test.go:10: assertion failed\n"}
+{"Time":"2024-01-01T00:00:03Z","Action":"output","Package":"example.com/pkg","Test":"TestFoo","Output":"--- FAIL: TestFoo (0.00s)\n"}
+{"Time":"2024-01-01T00:00:04Z","Action":"fail","Package":"example.com/pkg","Test":"TestFoo"}
+{"Time":"2024-01-01T00:00:05Z","Action":"output","Package":"example.com/pkg","Output":"FAIL\n"}
+{"Time":"2024-01-01T00:00:06Z","Action":"fail","Package":"example.com/pkg"}
+`
+			return runner.MockProcess([]byte(output), fmt.Errorf("exit status 1")), nil
+		}
+		return nil, nil
+	}
+	return mock
 }
 
 func TestRunWithRunnerModTidyFails(t *testing.T) {
-	mock := &modTidyFailMockRunner{}
+	mock := newModTidyFailMock()
 
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -118,7 +151,7 @@ func TestRunWithRunnerModTidyFails(t *testing.T) {
 }
 
 func TestRunWithRunnerTestsFail(t *testing.T) {
-	mock := &testPipesFailMockRunner{}
+	mock := newTestPipesFailMock()
 
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -133,7 +166,7 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{coveragePct: 50}
+	mock := newTestPassMock(50)
 
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -148,7 +181,7 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	jsonOutput = true
 	outputDir = tmpDir
@@ -167,7 +200,7 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	jsonOutput = false
 	verbose = true
@@ -188,7 +221,7 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	jsonOutput = false
 	outputDir = tmpDir
@@ -207,7 +240,7 @@ func TestRunWithRunnerFileDetail(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	jsonOutput = false
 	covDetail = "file"
@@ -228,7 +261,7 @@ func TestRunWithRunnerFuncDetail(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	jsonOutput = false
 	covDetail = "func"
@@ -244,39 +277,13 @@ func TestRunWithRunnerFuncDetail(t *testing.T) {
 	_ = err
 }
 
-// buildFailMockRunner passes tests but fails build
-type buildFailMockRunner struct {
-	calls []runner.Config
-}
-
-func (m *buildFailMockRunner) Run(cfg runner.Config) (runner.IProcess, error) {
-	m.calls = append(m.calls, cfg)
-
-	// Fail on go build
-	if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
-		return &mockProcess{waitErr: fmt.Errorf("build failed")}, nil
-	}
-
-	// For go test commands, return success
-	if cfg.Name == "go" && len(cfg.Args) > 0 && (cfg.Args[0] == "test" || (len(cfg.Args) > 1 && cfg.Args[1] == "test")) {
-		writeMockCoverProfile(cfg.Args, 100)
-		output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
-`
-		return &mockProcess{stdout: []byte(output)}, nil
-	}
-
-	return &mockProcess{}, nil
-}
-
 func TestRunWithRunnerBuildFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &buildFailMockRunner{}
+	mock := newBuildFailMock()
 
 	jsonOutput = true
 	outputDir = tmpDir
@@ -295,7 +302,7 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{coveragePct: 50}
+	mock := newTestPassMock(50)
 
 	jsonOutput = false // Non-JSON output to hit uncovered functions display
 	defer func() { jsonOutput = false }()
@@ -310,7 +317,7 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{coveragePct: 50}
+	mock := newTestPassMock(50)
 
 	jsonOutput = true // JSON output path when below threshold
 	defer func() { jsonOutput = false }()
@@ -325,7 +332,7 @@ func TestRunWithRunnerAddWatermark(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	jsonOutput = false
 	addWatermark = true
@@ -352,7 +359,7 @@ func TestRunWithRunnerAddWatermarkJSON(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	jsonOutput = true
 	addWatermark = true
@@ -377,7 +384,7 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	// 50 < 57.5 → should fail
 	gotest.SetWatermark(".", 60.0)
 
-	mock := &testPassMockRunner{coveragePct: 50}
+	mock := newTestPassMock(50)
 
 	jsonOutput = false
 	defer func() { jsonOutput = false }()
@@ -397,7 +404,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	// 50 > 49.5 → should pass
 	gotest.SetWatermark(".", 52.0)
 
-	mock := &testPassMockRunner{coveragePct: 50}
+	mock := newTestPassMock(50)
 
 	jsonOutput = true
 	outputDir = tmpDir
@@ -419,7 +426,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	// Set watermark to 50% — coverage is 100%, should ratchet up
 	gotest.SetWatermark(".", 50.0)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	jsonOutput = false
 	outputDir = tmpDir
@@ -561,34 +568,13 @@ func TestRunWithRunnerRemoveWatermarkFlag(t *testing.T) {
 	assert.Contains(t, string(out), "Watermark removed")
 }
 
-// testFailMockRunner returns output with a failed test (but wait() succeeds)
-type testFailMockRunner struct {
-	calls []runner.Config
-}
-
-func (m *testFailMockRunner) Run(cfg runner.Config) (runner.IProcess, error) {
-	m.calls = append(m.calls, cfg)
-
-	// For go test commands, return JSON with a failed test
-	if cfg.Name == "go" && len(cfg.Args) > 0 && (cfg.Args[0] == "test" || (len(cfg.Args) > 1 && cfg.Args[1] == "test")) {
-		writeMockCoverProfile(cfg.Args, 100)
-		output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"fail","Package":"example.com/pkg"}
-`
-		return &mockProcess{stdout: []byte(output)}, nil
-	}
-
-	return &mockProcess{}, nil
-}
-
 func TestRunWithRunnerFailedTest(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testFailMockRunner{}
+	mock := newTestFailMock()
 
 	jsonOutput = false
 	outputDir = tmpDir
@@ -601,37 +587,13 @@ func TestRunWithRunnerFailedTest(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-// testFailWithErrorMockRunner returns output AND an error from wait()
-type testFailWithErrorMockRunner struct {
-	calls []runner.Config
-}
-
-func (m *testFailWithErrorMockRunner) Run(cfg runner.Config) (runner.IProcess, error) {
-	m.calls = append(m.calls, cfg)
-
-	// For go test commands, return JSON with test output showing a failure
-	if cfg.Name == "go" && len(cfg.Args) > 0 && (cfg.Args[0] == "test" || (len(cfg.Args) > 1 && cfg.Args[1] == "test")) {
-		output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestFoo"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Test":"TestFoo","Output":"=== RUN   TestFoo\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Test":"TestFoo","Output":"    foo_test.go:10: assertion failed\n"}
-{"Time":"2024-01-01T00:00:03Z","Action":"output","Package":"example.com/pkg","Test":"TestFoo","Output":"--- FAIL: TestFoo (0.00s)\n"}
-{"Time":"2024-01-01T00:00:04Z","Action":"fail","Package":"example.com/pkg","Test":"TestFoo"}
-{"Time":"2024-01-01T00:00:05Z","Action":"output","Package":"example.com/pkg","Output":"FAIL\n"}
-{"Time":"2024-01-01T00:00:06Z","Action":"fail","Package":"example.com/pkg"}
-`
-		return &mockProcess{stdout: []byte(output), waitErr: fmt.Errorf("exit status 1")}, nil
-	}
-
-	return &mockProcess{}, nil
-}
-
 func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testFailWithErrorMockRunner{}
+	mock := newTestFailWithErrorMock()
 
 	jsonOutput = false
 	verbose = true // Should show test output before error

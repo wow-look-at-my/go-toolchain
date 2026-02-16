@@ -24,6 +24,33 @@ type Config struct {
 	Quiet bool              // Don't tee stdout/stderr to console
 }
 
+// IsCmd checks if this config runs the given command with the given prefix args.
+// e.g., cfg.IsCmd("go", "test") matches "go test ...", cfg.IsCmd("go") matches any go command
+func (c *Config) IsCmd(name string, args ...string) bool {
+	if c.Name != name {
+		return false
+	}
+	for i, arg := range args {
+		if i >= len(c.Args) || c.Args[i] != arg {
+			return false
+		}
+	}
+	return true
+}
+
+// HasArg checks if any of the given arguments appear anywhere in Args.
+// e.g., cfg.HasArg("-bench") or cfg.HasArg("-v", "--verbose")
+func (c *Config) HasArg(args ...string) bool {
+	for _, a := range c.Args {
+		for _, want := range args {
+			if a == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Cmd creates a new Config with the given command and arguments
 func Cmd(name string, args ...string) *Config {
 	return &Config{Name: name, Args: args}

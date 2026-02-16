@@ -136,7 +136,7 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	oldJSON := jsonOutput
 	oldOut := outputDir
@@ -165,14 +165,10 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 
 	// Verify that a benchmark command was issued (go test -bench ...)
 	found := false
-	for _, cfg := range mock.calls {
-		if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "test" {
-			for _, arg := range cfg.Args {
-				if arg == "-bench" {
-					found = true
-					break
-				}
-			}
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "test") && cfg.HasArg("-bench") {
+			found = true
+			break
 		}
 	}
 	assert.True(t, found)
@@ -184,7 +180,7 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 
 	oldJSON := jsonOutput
 	oldOut := outputDir
@@ -203,11 +199,9 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Verify no benchmark command was issued
-	for _, cfg := range mock.calls {
-		if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "test" {
-			for _, arg := range cfg.Args {
-				assert.NotEqual(t, "-bench", arg)
-			}
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "test") {
+			assert.False(t, cfg.HasArg("-bench"), "should not have -bench flag")
 		}
 	}
 }

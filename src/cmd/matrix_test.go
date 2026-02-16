@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +21,7 @@ func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
 		matrixArch = oldArch
 	}()
 
-	mock := &testPassMockRunner{}
+	mock := runner.NewMock()
 	err := runReleaseWithRunner(mock)
 	assert.NotNil(t, err)
 }
@@ -45,7 +44,7 @@ func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
 		outputDir = oldOutput
 	}()
 
-	mock := &testPassMockRunner{}
+	mock := runner.NewMock()
 	err := runReleaseWithRunner(mock)
 	assert.NotNil(t, err)
 }
@@ -74,7 +73,7 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 }
@@ -103,27 +102,18 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	// Use a custom mock that fails builds
-	mock := &buildFailRunner{}
+	// Use a mock that passes tests but fails builds
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "build") {
+			return nil, fmt.Errorf("build failed")
+		}
+		return origHandler(cfg)
+	}
 	err := runReleaseWithRunner(mock)
 	assert.NotNil(t, err)
 }
-
-// buildFailRunner fails all go build commands
-type buildFailRunner struct{}
-
-func (m *buildFailRunner) Run(cfg runner.Config) (runner.IProcess, error) {
-	if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
-		return nil, fmt.Errorf("build failed")
-	}
-	return &simpleProcess{}, nil
-}
-
-type simpleProcess struct{}
-
-func (p *simpleProcess) Wait() error        { return nil }
-func (p *simpleProcess) Stdout() io.Reader  { return strings.NewReader("") }
-func (p *simpleProcess) Stderr() io.Reader  { return strings.NewReader("") }
 
 func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -149,14 +139,14 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 
 	// Check that commands were recorded with .exe extension
 	found := false
-	for _, cfg := range mock.calls {
-		if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "build") {
 			for i, arg := range cfg.Args {
 				if arg == "-o" && i+1 < len(cfg.Args) {
 					if filepath.Ext(cfg.Args[i+1]) == ".exe" {
@@ -193,7 +183,7 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 }
@@ -222,14 +212,14 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := &testPassMockRunner{}
+	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 
 	// Should have 4 builds: 2 OS x 2 arch
 	buildCount := 0
-	for _, cfg := range mock.calls {
-		if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "build") {
 			buildCount++
 		}
 	}
@@ -237,7 +227,7 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 }
 
 func TestRunBuild(t *testing.T) {
-	mock := &testPassMockRunner{}
+	mock := runner.NewMock()
 	job := buildJob{
 		goos:       "linux",
 		goarch:     "amd64",
@@ -249,7 +239,7 @@ func TestRunBuild(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Verify command was called
-	calls := mock.calls
+	calls := mock.Calls()
 	assert.Equal(t, 1, len(calls))
 
 	// Verify env vars were set
