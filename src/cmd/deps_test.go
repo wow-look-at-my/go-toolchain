@@ -130,7 +130,7 @@ func TestDepChecker_Cancel(t *testing.T) {
 	dc := &DepChecker{}
 	assert.False(t, dc.canceled)
 	dc.Cancel()
-	assert.True(t, !dc.canceled)
+	assert.True(t, dc.canceled)
 }
 
 func TestCheckOutdatedDeps(t *testing.T) {
@@ -281,7 +281,7 @@ func TestDepChecker_run_Canceled(t *testing.T) {
 	// Run should exit early due to cancellation
 	dc.run()
 
-	assert.True(t, !dc.done)
+	assert.True(t, dc.done)
 }
 
 func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
@@ -505,7 +505,7 @@ func TestDepChecker_run_DBOpenError(t *testing.T) {
 	}
 	dc.run()
 
-	// Should complete with an error
-	assert.True(t, !dc.done)
+	// Should complete (done=true) with an error
+	assert.True(t, dc.done)
 	// Note: error may or may not be set depending on OS behavior with MkdirAll
 }

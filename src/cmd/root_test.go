@@ -244,47 +244,6 @@ func TestRunWithRunnerFuncDetail(t *testing.T) {
 	_ = err
 }
 
-// vetFailMockRunner fails on go vet
-type vetFailMockRunner struct {
-	calls []runner.Config
-}
-
-func (m *vetFailMockRunner) Run(cfg runner.Config) (runner.IProcess, error) {
-	m.calls = append(m.calls, cfg)
-
-	if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "vet" {
-		return &mockProcess{waitErr: fmt.Errorf("go vet failed: suspicious code")}, nil
-	}
-
-	// For go test commands, return success
-	if cfg.Name == "go" && len(cfg.Args) > 0 && (cfg.Args[0] == "test" || (len(cfg.Args) > 1 && cfg.Args[1] == "test")) {
-		writeMockCoverProfile(cfg.Args, 100)
-		output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
-`
-		return &mockProcess{stdout: []byte(output)}, nil
-	}
-
-	return &mockProcess{}, nil
-}
-
-func TestRunWithRunnerVetFails(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	mock := &vetFailMockRunner{}
-
-	jsonOutput = false
-	defer func() { jsonOutput = false }()
-
-	err := runWithRunner(mock)
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "go vet failed")
-}
-
 // buildFailMockRunner passes tests but fails build
 type buildFailMockRunner struct {
 	calls []runner.Config

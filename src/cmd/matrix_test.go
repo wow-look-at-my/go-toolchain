@@ -22,7 +22,7 @@ func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
 		matrixArch = oldArch
 	}()
 
-	mock := runner.NewMock()
+	mock := &testPassMockRunner{}
 	err := runReleaseWithRunner(mock)
 	assert.NotNil(t, err)
 }
@@ -45,7 +45,7 @@ func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
 		outputDir = oldOutput
 	}()
 
-	mock := runner.NewMock()
+	mock := &testPassMockRunner{}
 	err := runReleaseWithRunner(mock)
 	assert.NotNil(t, err)
 }
@@ -74,7 +74,7 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := runner.NewMock()
+	mock := &testPassMockRunner{}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 }
@@ -149,13 +149,13 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := runner.NewMock()
+	mock := &testPassMockRunner{}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 
 	// Check that commands were recorded with .exe extension
 	found := false
-	for _, cfg := range mock.Calls() {
+	for _, cfg := range mock.calls {
 		if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			for i, arg := range cfg.Args {
 				if arg == "-o" && i+1 < len(cfg.Args) {
@@ -193,7 +193,7 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := runner.NewMock()
+	mock := &testPassMockRunner{}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 }
@@ -222,13 +222,13 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := runner.NewMock()
+	mock := &testPassMockRunner{}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 
 	// Should have 4 builds: 2 OS x 2 arch
 	buildCount := 0
-	for _, cfg := range mock.Calls() {
+	for _, cfg := range mock.calls {
 		if cfg.Name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			buildCount++
 		}
@@ -237,7 +237,7 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 }
 
 func TestRunBuild(t *testing.T) {
-	mock := runner.NewMock()
+	mock := &testPassMockRunner{}
 	job := buildJob{
 		goos:       "linux",
 		goarch:     "amd64",
@@ -249,7 +249,7 @@ func TestRunBuild(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Verify command was called
-	calls := mock.Calls()
+	calls := mock.calls
 	assert.Equal(t, 1, len(calls))
 
 	// Verify env vars were set
