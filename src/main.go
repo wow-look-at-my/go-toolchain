@@ -6,6 +6,12 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 )
 
+func init() {
+	// Disable Go's phone-home behavior - bypass proxy and checksum database
+	os.Setenv("GOPROXY", "direct")
+	os.Setenv("GOSUMDB", "off")
+}
+
 func main() {
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)

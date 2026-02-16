@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 var (
@@ -63,12 +64,12 @@ func init() {
 }
 
 func runBenchRun(cmd *cobra.Command, args []string) error {
-	runner := &RealCommandRunner{Quiet: jsonOutput}
-	return runBenchRunWithRunner(runner)
+	r := runner.New()
+	return runBenchRunWithRunner(r, jsonOutput)
 }
 
-func runBenchRunWithRunner(runner *RealCommandRunner) error {
-	if !jsonOutput {
+func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
+	if !quiet {
 		fmt.Println("==> Running benchmarks")
 	}
 
@@ -79,7 +80,7 @@ func runBenchRunWithRunner(runner *RealCommandRunner) error {
 		Verbose: verbose,
 	}
 
-	report, err := bench.RunBenchmarks(runner, opts)
+	report, err := bench.RunBenchmarks(r, opts)
 	if err != nil {
 		if report != nil && report.HasResults() {
 			report.Print()
@@ -88,9 +89,9 @@ func runBenchRunWithRunner(runner *RealCommandRunner) error {
 	}
 
 	// Fetch previous results for comparison
-	prev, prevSHA, _ := bench.FetchPrevious(runner)
+	prev, prevSHA, _ := bench.FetchPrevious(r)
 
-	if jsonOutput {
+	if quiet {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "\t")
 		return enc.Encode(report)
@@ -111,12 +112,12 @@ func runBenchRunWithRunner(runner *RealCommandRunner) error {
 }
 
 func runBenchSave(cmd *cobra.Command, args []string) error {
-	runner := &RealCommandRunner{Quiet: jsonOutput}
-	return runBenchSaveWithRunner(runner)
+	r := runner.New()
+	return runBenchSaveWithRunner(r, jsonOutput)
 }
 
-func runBenchSaveWithRunner(runner *RealCommandRunner) error {
-	if !jsonOutput {
+func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
+	if !quiet {
 		fmt.Println("==> Running benchmarks")
 	}
 
@@ -127,7 +128,7 @@ func runBenchSaveWithRunner(runner *RealCommandRunner) error {
 		Verbose: verbose,
 	}
 
-	report, err := bench.RunBenchmarks(runner, opts)
+	report, err := bench.RunBenchmarks(r, opts)
 	if err != nil {
 		if report != nil && report.HasResults() {
 			report.Print()
@@ -139,12 +140,12 @@ func runBenchSaveWithRunner(runner *RealCommandRunner) error {
 		return fmt.Errorf("no benchmark results to save")
 	}
 
-	if err := bench.StoreNotes(runner, report); err != nil {
+	if err := bench.StoreNotes(r, report); err != nil {
 		return err
 	}
 
-	sha, _ := bench.GetHeadSHA(runner)
-	if !jsonOutput {
+	sha, _ := bench.GetHeadSHA(r)
+	if !quiet {
 		fmt.Printf("==> Benchmark results stored for %s\n", sha)
 	}
 
@@ -152,14 +153,14 @@ func runBenchSaveWithRunner(runner *RealCommandRunner) error {
 }
 
 func runBenchShow(cmd *cobra.Command, args []string) error {
-	runner := &RealCommandRunner{Quiet: jsonOutput}
+	r := runner.New()
 
 	sha := "HEAD"
 	if len(args) > 0 {
 		sha = args[0]
 	}
 
-	report, err := bench.FetchForCommit(runner, sha)
+	report, err := bench.FetchForCommit(r, sha)
 	if err != nil {
 		return err
 	}
@@ -176,14 +177,14 @@ func runBenchShow(cmd *cobra.Command, args []string) error {
 }
 
 func runBenchCompare(cmd *cobra.Command, args []string) error {
-	runner := &RealCommandRunner{Quiet: jsonOutput}
+	r := runner.New()
 
-	report1, err := bench.FetchForCommit(runner, args[0])
+	report1, err := bench.FetchForCommit(r, args[0])
 	if err != nil {
 		return fmt.Errorf("commit %s: %w", args[0], err)
 	}
 
-	report2, err := bench.FetchForCommit(runner, args[1])
+	report2, err := bench.FetchForCommit(r, args[1])
 	if err != nil {
 		return fmt.Errorf("commit %s: %w", args[1], err)
 	}
@@ -202,15 +203,9 @@ func runBenchCompare(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// benchRunner wraps CommandRunner to satisfy bench package interfaces
-type benchRunner struct {
-	CommandRunner
-}
-
 // runBenchmarkInBuild runs benchmarks as part of the default build
 // and shows comparison against previous stored results
-func runBenchmarkInBuild(runner CommandRunner) error {
-	br := &benchRunner{runner}
+func runBenchmarkInBuild(r runner.CommandRunner) error {
 	if !jsonOutput {
 		fmt.Println("==> Running benchmarks")
 	}
@@ -222,7 +217,7 @@ func runBenchmarkInBuild(runner CommandRunner) error {
 		Verbose: verbose,
 	}
 
-	report, err := bench.RunBenchmarks(br, opts)
+	report, err := bench.RunBenchmarks(r, opts)
 	if err != nil {
 		if report != nil && report.HasResults() {
 			report.Print()
@@ -237,7 +232,7 @@ func runBenchmarkInBuild(runner CommandRunner) error {
 	}
 
 	// Fetch previous results for comparison
-	prev, prevSHA, _ := bench.FetchPrevious(br)
+	prev, prevSHA, _ := bench.FetchPrevious(r)
 
 	if prev != nil && prevSHA != "" {
 		fmt.Printf("\n==> Benchmark comparison vs %s\n", prevSHA)

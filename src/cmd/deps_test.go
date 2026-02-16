@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"os"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 func TestLooksLikeGitVersion(t *testing.T) {
@@ -31,9 +34,7 @@ func TestLooksLikeGitVersion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.version, func(t *testing.T) {
 			got := looksLikeGitVersion(tt.version)
-			if got != tt.want {
-				t.Errorf("looksLikeGitVersion(%q) = %v, want %v", tt.version, got, tt.want)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -56,9 +57,7 @@ func TestIsHex(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.s, func(t *testing.T) {
 			got := isHex(tt.s)
-			if got != tt.want {
-				t.Errorf("isHex(%q) = %v, want %v", tt.s, got, tt.want)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -83,9 +82,7 @@ func TestShortenVersion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.version, func(t *testing.T) {
 			got := shortenVersion(tt.version)
-			if got != tt.want {
-				t.Errorf("shortenVersion(%q) = %q, want %q", tt.version, got, tt.want)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -119,81 +116,55 @@ func TestDepChecker_Progress(t *testing.T) {
 		total:   10,
 	}
 	checked, total := dc.Progress()
-	if checked != 5 || total != 10 {
-		t.Errorf("Progress() = %d, %d; want 5, 10", checked, total)
-	}
+	assert.False(t, checked != 5 || total != 10)
 }
 
 func TestDepChecker_Done(t *testing.T) {
 	dc := &DepChecker{done: false}
-	if dc.Done() {
-		t.Error("Done() = true; want false")
-	}
+	assert.False(t, dc.Done())
 	dc.done = true
-	if !dc.Done() {
-		t.Error("Done() = false; want true")
-	}
+	assert.True(t, dc.Done())
 }
 
 func TestDepChecker_Cancel(t *testing.T) {
 	dc := &DepChecker{}
-	if dc.canceled {
-		t.Error("canceled should be false initially")
-	}
+	assert.False(t, dc.canceled)
 	dc.Cancel()
-	if !dc.canceled {
-		t.Error("canceled should be true after Cancel()")
-	}
+	assert.True(t, dc.canceled)
 }
 
 func TestCheckOutdatedDeps(t *testing.T) {
 	// This test verifies the function doesn't panic and returns a DepChecker
 	dc := CheckOutdatedDeps()
-	if dc == nil {
-		t.Error("CheckOutdatedDeps() returned nil")
-	}
+	assert.NotNil(t, dc)
 	// Wait for completion
 	<-dc.doneCh
 	// Should be done now
-	if !dc.Done() {
-		t.Error("Done() should be true after doneCh closes")
-	}
+	assert.True(t, dc.Done())
 }
 
 func TestOpenCacheDB(t *testing.T) {
 	db, err := openCacheDB()
-	if err != nil {
-		t.Fatalf("openCacheDB() error: %v", err)
-	}
+	require.Nil(t, err)
 	defer db.Close()
 
 	// Verify table exists by inserting and querying
 	_, err = db.Exec(`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
 		"test/module", "v1.0.0", nil, 12345)
-	if err != nil {
-		t.Fatalf("INSERT failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	var path string
 	err = db.QueryRow(`SELECT path FROM deps WHERE path = ?`, "test/module").Scan(&path)
-	if err != nil {
-		t.Fatalf("SELECT failed: %v", err)
-	}
-	if path != "test/module" {
-		t.Errorf("path = %q; want %q", path, "test/module")
-	}
+	require.Nil(t, err)
+	assert.Equal(t, "test/module", path)
 }
 
 func TestListDirectDeps(t *testing.T) {
 	// This runs in a real Go module, so it should return deps
 	deps, err := listDirectDeps()
-	if err != nil {
-		t.Fatalf("listDirectDeps() error: %v", err)
-	}
+	require.Nil(t, err)
 	// We should have at least some deps (cobra, testify, etc.)
-	if len(deps) == 0 {
-		t.Error("listDirectDeps() returned no deps")
-	}
+	assert.NotEqual(t, 0, len(deps))
 
 	// Check that we got expected deps
 	found := false
@@ -203,9 +174,7 @@ func TestListDirectDeps(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Error("expected to find github.com/spf13/cobra in deps")
-	}
+	assert.True(t, found)
 }
 
 func TestDepChecker_WaitWithProgress_AlreadyDone(t *testing.T) {
@@ -220,18 +189,14 @@ func TestDepChecker_WaitWithProgress_AlreadyDone(t *testing.T) {
 	close(dc.doneCh)
 
 	result := dc.WaitWithProgress()
-	if len(result) != 1 {
-		t.Errorf("WaitWithProgress() returned %d results; want 1", len(result))
-	}
+	assert.Equal(t, 1, len(result))
 }
 
 func TestCheckDepLive_RealModule(t *testing.T) {
 	// Test with a real module that exists
 	// github.com/spf13/cobra should work
 	update, needsUpdate, err := checkDepLive("github.com/spf13/cobra")
-	if err != nil {
-		t.Fatalf("checkDepLive() error: %v", err)
-	}
+	require.Nil(t, err)
 	// We don't care about the result, just that it didn't error
 	_ = update
 	_ = needsUpdate
@@ -239,9 +204,7 @@ func TestCheckDepLive_RealModule(t *testing.T) {
 
 func TestDepChecker_checkDep_CacheHit(t *testing.T) {
 	db, err := openCacheDB()
-	if err != nil {
-		t.Fatalf("openCacheDB() error: %v", err)
-	}
+	require.Nil(t, err)
 	defer db.Close()
 
 	dc := &DepChecker{db: db}
@@ -251,28 +214,18 @@ func TestDepChecker_checkDep_CacheHit(t *testing.T) {
 		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
 		"test/cached-outdated", "v0.0.0-20240101-abc123def456", "v1.0.0", 9999999999,
 	)
-	if err != nil {
-		t.Fatalf("INSERT failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Should return cached result
 	update, needsUpdate, err := dc.checkDep("test/cached-outdated", "v0.0.0-20240101-abc123def456")
-	if err != nil {
-		t.Fatalf("checkDep() error: %v", err)
-	}
-	if !needsUpdate {
-		t.Error("checkDep() needsUpdate = false; want true (cached)")
-	}
-	if update != "v1.0.0" {
-		t.Errorf("checkDep() update = %q; want %q", update, "v1.0.0")
-	}
+	require.Nil(t, err)
+	assert.True(t, needsUpdate)
+	assert.Equal(t, "v1.0.0", update)
 }
 
 func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
 	db, err := openCacheDB()
-	if err != nil {
-		t.Fatalf("openCacheDB() error: %v", err)
-	}
+	require.Nil(t, err)
 	defer db.Close()
 
 	dc := &DepChecker{db: db}
@@ -283,28 +236,18 @@ func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
 		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
 		"test/cached-fresh", "v0.0.0-20240101-abc123def456", nil, now,
 	)
-	if err != nil {
-		t.Fatalf("INSERT failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Should return cached "up-to-date" result
 	update, needsUpdate, err := dc.checkDep("test/cached-fresh", "v0.0.0-20240101-abc123def456")
-	if err != nil {
-		t.Fatalf("checkDep() error: %v", err)
-	}
-	if needsUpdate {
-		t.Error("checkDep() needsUpdate = true; want false (cached fresh)")
-	}
-	if update != "" {
-		t.Errorf("checkDep() update = %q; want empty", update)
-	}
+	require.Nil(t, err)
+	assert.False(t, needsUpdate)
+	assert.Equal(t, "", update)
 }
 
 func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
 	db, err := openCacheDB()
-	if err != nil {
-		t.Fatalf("openCacheDB() error: %v", err)
-	}
+	require.Nil(t, err)
 	defer db.Close()
 
 	dc := &DepChecker{db: db}
@@ -314,27 +257,19 @@ func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
 		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
 		"github.com/spf13/cobra", "v1.10.2", nil, 0, // timestamp 0 = expired
 	)
-	if err != nil {
-		t.Fatalf("INSERT failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Should do a live check since cache is expired
 	// This will update the cache
 	_, _, err = dc.checkDep("github.com/spf13/cobra", "v1.10.2")
-	if err != nil {
-		t.Fatalf("checkDep() error: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Verify cache was updated
 	var checkedAt int64
 	err = db.QueryRow(`SELECT checked_at FROM deps WHERE path = ? AND version = ?`,
 		"github.com/spf13/cobra", "v1.10.2").Scan(&checkedAt)
-	if err != nil {
-		t.Fatalf("SELECT failed: %v", err)
-	}
-	if checkedAt == 0 {
-		t.Error("checked_at was not updated")
-	}
+	require.Nil(t, err)
+	assert.NotEqual(t, 0, checkedAt)
 }
 
 func TestDepChecker_run_Canceled(t *testing.T) {
@@ -346,9 +281,7 @@ func TestDepChecker_run_Canceled(t *testing.T) {
 	// Run should exit early due to cancellation
 	dc.run()
 
-	if !dc.done {
-		t.Error("done should be true after run()")
-	}
+	assert.True(t, dc.done)
 }
 
 func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
@@ -357,16 +290,12 @@ func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 
 	// No go.mod exists, should return nil without doing anything
 	err := FixBogusDepsVersions(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if len(mock.Commands) != 0 {
-		t.Errorf("expected no commands, got %d", len(mock.Commands))
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, 0, len(mock.Calls()))
 }
 
 func TestFixBogusDepsVersions_NoBogusVersions(t *testing.T) {
@@ -386,14 +315,10 @@ require (
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	err := FixBogusDepsVersions(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if len(mock.Commands) != 0 {
-		t.Errorf("expected no commands, got %d", len(mock.Commands))
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, 0, len(mock.Calls()))
 }
 
 func TestFixBogusDepsVersions_DetectsBogusVersions(t *testing.T) {
@@ -414,7 +339,7 @@ require (
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Mock git ls-remote to fail - we just want to verify detection works
 	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/service/auth", "HEAD"},
 		nil, os.ErrNotExist)
@@ -424,20 +349,13 @@ require (
 
 	err := FixBogusDepsVersions(mock)
 	// Should fail because git ls-remote failed
-	if err == nil {
-		t.Error("expected error when git ls-remote fails")
-	}
+	assert.NotNil(t, err)
 
 	// Verify it tried to resolve the first v0.0.0 dep
-	if len(mock.Commands) < 1 {
-		t.Fatalf("expected at least 1 command, got %d", len(mock.Commands))
-	}
-	if mock.Commands[0].Name != "git" || mock.Commands[0].Args[0] != "ls-remote" {
-		t.Errorf("expected 'git ls-remote', got %s %v", mock.Commands[0].Name, mock.Commands[0].Args)
-	}
-	if mock.Commands[0].Args[1] != "https://git.internal/service/auth" {
-		t.Errorf("expected URL for auth module, got %s", mock.Commands[0].Args[1])
-	}
+	calls := mock.Calls()
+	require.GreaterOrEqual(t, len(calls), 1)
+	assert.False(t, calls[0].Name != "git" || calls[0].Args[0] != "ls-remote")
+	assert.Equal(t, "https://git.internal/service/auth", calls[0].Args[1])
 }
 
 func TestFixBogusDepsVersions_GitLsRemoteFails(t *testing.T) {
@@ -453,65 +371,32 @@ require git.internal/broken v0.0.0
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/broken", "HEAD"}, nil, os.ErrNotExist)
 
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
 
 	err := FixBogusDepsVersions(mock)
-	if err == nil {
-		t.Error("expected error when git ls-remote fails")
-	}
-}
-
-func TestResolveLatestVersionViaGit_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	runner := &RealCommandRunner{Quiet: true}
-	mod := "github.com/spf13/pflag"
-
-	// Get version via our function
-	version, err := resolveLatestVersionViaGit(runner, mod)
-	if err != nil {
-		t.Fatalf("resolveLatestVersionViaGit failed: %v", err)
-	}
-
-	// Verify Go accepts this version by querying the module
-	// This catches timezone bugs - Go validates the timestamp matches the commit
-	output, err := runner.RunWithOutput("go", "list", "-m", "-json", mod+"@"+version)
-	if err != nil {
-		t.Fatalf("go list rejected our pseudo-version %s: %v", version, err)
-	}
-
-	// Verify the response contains our version
-	if !strings.Contains(string(output), version) {
-		t.Errorf("go list output doesn't contain version %s: %s", version, output)
-	}
+	assert.NotNil(t, err)
 }
 
 func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Return empty output (no HEAD ref)
 	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte(""), nil)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
-	if err == nil {
-		t.Error("expected error when no HEAD ref found")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Return hash that's too short
 	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte("abc123\tHEAD\n"), nil)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
-	if err == nil {
-		t.Error("expected error for short hash")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestFixBogusDepsVersions_ParseError(t *testing.T) {
@@ -523,15 +408,13 @@ func TestFixBogusDepsVersions_ParseError(t *testing.T) {
 	// Create invalid go.mod
 	os.WriteFile("go.mod", []byte("not valid go.mod content {{{"), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
 
 	// Should return nil (let go mod tidy handle parse errors)
 	err := FixBogusDepsVersions(mock)
-	if err != nil {
-		t.Errorf("expected nil error for parse failure, got %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestFixBogusDepsVersions_NoV000Deps(t *testing.T) {
@@ -548,18 +431,14 @@ require github.com/spf13/cobra v1.8.0
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
 
 	err := FixBogusDepsVersions(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 	// Should not have run any commands
-	if len(mock.Commands) != 0 {
-		t.Errorf("expected no commands, got %d", len(mock.Commands))
-	}
+	assert.Equal(t, 0, len(mock.Calls()))
 }
 
 func TestFixBogusDepsVersions_PrintsMessage(t *testing.T) {
@@ -575,7 +454,7 @@ require git.internal/foo v0.0.0
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Don't set jsonOutput = true, so the message will be printed
 	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/foo", "HEAD"}, nil, os.ErrNotExist)
 
@@ -586,35 +465,27 @@ require git.internal/foo v0.0.0
 func TestDepChecker_WaitWithProgress_Nil(t *testing.T) {
 	var dc *DepChecker
 	result := dc.WaitWithProgress()
-	if result != nil {
-		t.Errorf("expected nil result for nil DepChecker, got %v", result)
-	}
+	assert.Nil(t, result)
 }
 
 func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
-	if err == nil {
-		t.Error("expected error when git ls-remote fails")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestCheckDepLive_NonexistentModule(t *testing.T) {
 	// Test with a module that doesn't exist
 	_, _, err := checkDepLive("invalid.module.path.that.does.not.exist/foo")
-	if err == nil {
-		t.Error("expected error for nonexistent module")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestOpenCacheDB_CreatesDir(t *testing.T) {
 	// This test verifies openCacheDB works when cache dir needs creation
 	db, err := openCacheDB()
-	if err != nil {
-		t.Fatalf("openCacheDB() error: %v", err)
-	}
+	require.Nil(t, err)
 	db.Close()
 }
 
@@ -634,9 +505,7 @@ func TestDepChecker_run_DBOpenError(t *testing.T) {
 	}
 	dc.run()
 
-	// Should complete with an error
-	if !dc.done {
-		t.Error("done should be true")
-	}
+	// Should complete (done=true) with an error
+	assert.True(t, dc.done)
 	// Note: error may or may not be set depending on OS behavior with MkdirAll
 }

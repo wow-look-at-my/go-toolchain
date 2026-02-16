@@ -3,15 +3,15 @@ package bench
 import (
 	"bytes"
 	"os"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompareNilReports(t *testing.T) {
 	comp := Compare(nil, nil)
-	if len(comp.Packages) != 0 {
-		t.Error("expected empty packages for nil reports")
-	}
+	assert.Equal(t, 0, len(comp.Packages))
 }
 
 func TestCompareNoPrevious(t *testing.T) {
@@ -22,21 +22,13 @@ func TestCompareNoPrevious(t *testing.T) {
 	}
 
 	comp := Compare(current, nil)
-	if len(comp.Packages) != 1 {
-		t.Fatalf("expected 1 package, got %d", len(comp.Packages))
-	}
+	require.Equal(t, 1, len(comp.Packages))
 
 	deltas := comp.Packages["pkg"]
-	if len(deltas) != 1 {
-		t.Fatalf("expected 1 delta, got %d", len(deltas))
-	}
+	require.Equal(t, 1, len(deltas))
 
-	if deltas[0].Previous != nil {
-		t.Error("expected nil previous when no previous report")
-	}
-	if deltas[0].NsPerOpDelta != 0 {
-		t.Errorf("expected 0 delta, got %f", deltas[0].NsPerOpDelta)
-	}
+	assert.Nil(t, deltas[0].Previous)
+	assert.Equal(t, 0, deltas[0].NsPerOpDelta)
 }
 
 func TestCompareWithPrevious(t *testing.T) {
@@ -53,29 +45,19 @@ func TestCompareWithPrevious(t *testing.T) {
 
 	comp := Compare(current, previous)
 	deltas := comp.Packages["pkg"]
-	if len(deltas) != 1 {
-		t.Fatalf("expected 1 delta, got %d", len(deltas))
-	}
+	require.Equal(t, 1, len(deltas))
 
 	d := deltas[0]
-	if d.Previous == nil {
-		t.Fatal("expected non-nil previous")
-	}
+	require.NotNil(t, d.Previous)
 
 	// 900 vs 1000 = -10%
-	if d.NsPerOpDelta < -10.1 || d.NsPerOpDelta > -9.9 {
-		t.Errorf("expected ~-10%% ns/op delta, got %f", d.NsPerOpDelta)
-	}
+	assert.False(t, d.NsPerOpDelta < -10.1 || d.NsPerOpDelta > -9.9)
 
 	// 200 vs 250 = -20%
-	if d.BytesDelta < -20.1 || d.BytesDelta > -19.9 {
-		t.Errorf("expected ~-20%% bytes delta, got %f", d.BytesDelta)
-	}
+	assert.False(t, d.BytesDelta < -20.1 || d.BytesDelta > -19.9)
 
 	// 4 vs 5 = -20%
-	if d.AllocsDelta < -20.1 || d.AllocsDelta > -19.9 {
-		t.Errorf("expected ~-20%% allocs delta, got %f", d.AllocsDelta)
-	}
+	assert.False(t, d.AllocsDelta < -20.1 || d.AllocsDelta > -19.9)
 }
 
 func TestCompareRegression(t *testing.T) {
@@ -94,9 +76,7 @@ func TestCompareRegression(t *testing.T) {
 	d := comp.Packages["pkg"][0]
 
 	// 1100 vs 1000 = +10%
-	if d.NsPerOpDelta < 9.9 || d.NsPerOpDelta > 10.1 {
-		t.Errorf("expected ~+10%% delta, got %f", d.NsPerOpDelta)
-	}
+	assert.False(t, d.NsPerOpDelta < 9.9 || d.NsPerOpDelta > 10.1)
 }
 
 func TestCompareNewBenchmark(t *testing.T) {
@@ -116,9 +96,7 @@ func TestCompareNewBenchmark(t *testing.T) {
 
 	comp := Compare(current, previous)
 	deltas := comp.Packages["pkg"]
-	if len(deltas) != 2 {
-		t.Fatalf("expected 2 deltas, got %d", len(deltas))
-	}
+	require.Equal(t, 2, len(deltas))
 
 	// Find the new benchmark
 	var newDelta *Delta
@@ -129,12 +107,8 @@ func TestCompareNewBenchmark(t *testing.T) {
 		}
 	}
 
-	if newDelta == nil {
-		t.Fatal("expected to find BenchmarkNew delta")
-	}
-	if newDelta.Previous != nil {
-		t.Error("expected nil previous for new benchmark")
-	}
+	require.NotNil(t, newDelta)
+	assert.Nil(t, newDelta.Previous)
 }
 
 func TestHasDeltas(t *testing.T) {
@@ -144,16 +118,12 @@ func TestHasDeltas(t *testing.T) {
 			"pkg": {{Name: "Foo", Previous: nil}},
 		},
 	}
-	if comp.HasDeltas() {
-		t.Error("expected HasDeltas() false when no previous data")
-	}
+	assert.False(t, comp.HasDeltas())
 
 	// With previous data
 	prev := BenchmarkResult{Name: "Foo"}
 	comp.Packages["pkg"][0].Previous = &prev
-	if !comp.HasDeltas() {
-		t.Error("expected HasDeltas() true when previous data exists")
-	}
+	assert.True(t, comp.HasDeltas())
 }
 
 func TestStripCPUSuffix(t *testing.T) {
@@ -169,9 +139,7 @@ func TestStripCPUSuffix(t *testing.T) {
 
 	for _, tc := range tests {
 		result := stripCPUSuffix(tc.input)
-		if result != tc.expected {
-			t.Errorf("stripCPUSuffix(%q) = %q, expected %q", tc.input, result, tc.expected)
-		}
+		assert.Equal(t, tc.expected, result)
 	}
 }
 
@@ -201,12 +169,8 @@ func TestComparisonPrint(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !strings.Contains(output, "pkg") {
-		t.Error("expected output to contain package name")
-	}
-	if !strings.Contains(output, "Foo") {
-		t.Error("expected output to contain benchmark name")
-	}
+	assert.Contains(t, output, "pkg")
+	assert.Contains(t, output, "Foo")
 }
 
 func TestComparisonPrintEmpty(t *testing.T) {
@@ -227,27 +191,19 @@ func TestComparisonPrintEmpty(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !strings.Contains(output, "no benchmarks") {
-		t.Error("expected 'no benchmarks' message")
-	}
+	assert.Contains(t, output, "no benchmarks")
 }
 
 func TestFormatDelta(t *testing.T) {
 	// No previous - should show dash
 	result := formatDelta(0, false)
-	if !strings.Contains(result, "-") {
-		t.Errorf("expected dash for no previous, got %q", result)
-	}
+	assert.Contains(t, result, "-")
 
 	// Improvement (negative)
 	result = formatDelta(-15.5, true)
-	if !strings.Contains(result, "-15.5%") {
-		t.Errorf("expected -15.5%% in result, got %q", result)
-	}
+	assert.Contains(t, result, "-15.5%")
 
 	// Regression (positive)
 	result = formatDelta(10.2, true)
-	if !strings.Contains(result, "+10.2%") {
-		t.Errorf("expected +10.2%% in result, got %q", result)
-	}
+	assert.Contains(t, result, "+10.2%")
 }

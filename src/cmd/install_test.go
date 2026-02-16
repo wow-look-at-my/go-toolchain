@@ -3,8 +3,11 @@ package cmd
 import (
 	"os"
 	"path/filepath"
-	"strings"
+	
 	"testing"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 )
 
 func TestCopyFile(t *testing.T) {
@@ -13,54 +16,38 @@ func TestCopyFile(t *testing.T) {
 	// Create source file
 	srcPath := filepath.Join(tmpDir, "source")
 	content := []byte("test content")
-	if err := os.WriteFile(srcPath, content, 0755); err != nil {
-		t.Fatalf("failed to create source file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(srcPath, content, 0755))
 
 	// Copy it
 	dstPath := filepath.Join(tmpDir, "dest")
-	if err := copyFile(srcPath, dstPath); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
-	}
+	require.NoError(t, copyFile(srcPath, dstPath))
 
 	// Verify content
 	got, err := os.ReadFile(dstPath)
-	if err != nil {
-		t.Fatalf("failed to read dest file: %v", err)
-	}
+	require.Nil(t, err)
 
-	if string(got) != string(content) {
-		t.Errorf("content mismatch: expected %q, got %q", content, got)
-	}
+	assert.Equal(t, string(content), string(got))
 
 	// Verify permissions preserved
 	srcInfo, _ := os.Stat(srcPath)
 	dstInfo, _ := os.Stat(dstPath)
-	if srcInfo.Mode() != dstInfo.Mode() {
-		t.Errorf("mode mismatch: expected %v, got %v", srcInfo.Mode(), dstInfo.Mode())
-	}
+	assert.Equal(t, dstInfo.Mode(), srcInfo.Mode())
 }
 
 func TestCopyFileMissingSource(t *testing.T) {
 	tmpDir := t.TempDir()
 	err := copyFile("/nonexistent/file", filepath.Join(tmpDir, "dest"))
-	if err == nil {
-		t.Error("expected error for missing source")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestCopyFileInvalidDest(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	srcPath := filepath.Join(tmpDir, "source")
-	if err := os.WriteFile(srcPath, []byte("test"), 0644); err != nil {
-		t.Fatalf("failed to create source file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(srcPath, []byte("test"), 0644))
 
 	err := copyFile(srcPath, "/nonexistent/dir/dest")
-	if err == nil {
-		t.Error("expected error for invalid dest path")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestCopyFileLargeFile(t *testing.T) {
@@ -72,23 +59,15 @@ func TestCopyFileLargeFile(t *testing.T) {
 	for i := range content {
 		content[i] = byte(i % 256)
 	}
-	if err := os.WriteFile(srcPath, content, 0755); err != nil {
-		t.Fatalf("failed to create source file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(srcPath, content, 0755))
 
 	dstPath := filepath.Join(tmpDir, "large_copy")
-	if err := copyFile(srcPath, dstPath); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
-	}
+	require.NoError(t, copyFile(srcPath, dstPath))
 
 	got, err := os.ReadFile(dstPath)
-	if err != nil {
-		t.Fatalf("failed to read dest file: %v", err)
-	}
+	require.Nil(t, err)
 
-	if len(got) != len(content) {
-		t.Errorf("size mismatch: expected %d, got %d", len(content), len(got))
-	}
+	assert.Equal(t, len(content), len(got))
 }
 
 func TestRunInstallImplSymlink(t *testing.T) {
@@ -107,29 +86,19 @@ func TestRunInstallImplSymlink(t *testing.T) {
 	defer func() { installCopy = false }()
 
 	err := runInstallImpl()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Check that something was created in ~/.local/bin
 	expectedDir := filepath.Join(tmpDir, ".local", "bin")
 	entries, err := os.ReadDir(expectedDir)
-	if err != nil {
-		t.Fatalf("failed to read target dir: %v", err)
-	}
-	if len(entries) == 0 {
-		t.Fatal("expected at least one file in target dir")
-	}
+	require.Nil(t, err)
+	require.NotEqual(t, 0, len(entries))
 
 	// Verify it's a symlink
 	targetPath := filepath.Join(expectedDir, entries[0].Name())
 	info, err := os.Lstat(targetPath)
-	if err != nil {
-		t.Fatalf("failed to lstat target: %v", err)
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Error("expected symlink, got regular file")
-	}
+	require.Nil(t, err)
+	assert.NotEqual(t, 0, info.Mode()&os.ModeSymlink)
 
 	_ = targetDir // suppress unused warning
 }
@@ -145,29 +114,19 @@ func TestRunInstallImplCopy(t *testing.T) {
 	defer func() { installCopy = false }()
 
 	err := runInstallImpl()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Check that something was created in ~/.local/bin
 	expectedDir := filepath.Join(tmpDir, ".local", "bin")
 	entries, err := os.ReadDir(expectedDir)
-	if err != nil {
-		t.Fatalf("failed to read target dir: %v", err)
-	}
-	if len(entries) == 0 {
-		t.Fatal("expected at least one file in target dir")
-	}
+	require.Nil(t, err)
+	require.NotEqual(t, 0, len(entries))
 
 	// Verify it's NOT a symlink
 	targetPath := filepath.Join(expectedDir, entries[0].Name())
 	info, err := os.Lstat(targetPath)
-	if err != nil {
-		t.Fatalf("failed to lstat target: %v", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		t.Error("expected regular file, got symlink")
-	}
+	require.Nil(t, err)
+	assert.Equal(t, 0, info.Mode()&os.ModeSymlink)
 }
 
 func TestRunInstallImplReplacesExisting(t *testing.T) {
@@ -181,22 +140,14 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 	defer func() { installCopy = false }()
 
 	// Run install twice — second should replace the first
-	if err := runInstallImpl(); err != nil {
-		t.Fatalf("first install failed: %v", err)
-	}
-	if err := runInstallImpl(); err != nil {
-		t.Fatalf("second install failed: %v", err)
-	}
+	require.NoError(t, runInstallImpl())
+	require.NoError(t, runInstallImpl())
 
 	// Verify entries: binary + go-safe-build compat symlink
 	expectedDir := filepath.Join(tmpDir, ".local", "bin")
 	entries, err := os.ReadDir(expectedDir)
-	if err != nil {
-		t.Fatalf("failed to read target dir: %v", err)
-	}
-	if len(entries) != 2 {
-		t.Errorf("expected 2 entries (binary + compat symlink), got %d", len(entries))
-	}
+	require.Nil(t, err)
+	assert.Equal(t, 2, len(entries))
 }
 
 func TestFileHash(t *testing.T) {
@@ -212,31 +163,19 @@ func TestFileHash(t *testing.T) {
 	os.WriteFile(f3, []byte("different"), 0644)
 
 	h1, err := fileHash(f1)
-	if err != nil {
-		t.Fatalf("fileHash(a): %v", err)
-	}
+	require.Nil(t, err)
 	h2, err := fileHash(f2)
-	if err != nil {
-		t.Fatalf("fileHash(b): %v", err)
-	}
+	require.Nil(t, err)
 	h3, err := fileHash(f3)
-	if err != nil {
-		t.Fatalf("fileHash(c): %v", err)
-	}
+	require.Nil(t, err)
 
-	if h1 != h2 {
-		t.Error("identical files should have same hash")
-	}
-	if h1 == h3 {
-		t.Error("different files should have different hashes")
-	}
+	assert.Equal(t, h2, h1)
+	assert.NotEqual(t, h3, h1)
 }
 
 func TestFileHashMissing(t *testing.T) {
 	_, err := fileHash("/nonexistent/file")
-	if err == nil {
-		t.Error("expected error for missing file")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestInstallStatusNotInstalled(t *testing.T) {
@@ -246,9 +185,7 @@ func TestInstallStatusNotInstalled(t *testing.T) {
 	defer os.Setenv("HOME", oldHome)
 
 	status := installStatus()
-	if !strings.Contains(status, "not installed") {
-		t.Errorf("expected 'not installed', got: %s", status)
-	}
+	assert.Contains(t, status, "not installed")
 }
 
 func TestInstallStatusSymlinkCurrent(t *testing.T) {
@@ -260,14 +197,10 @@ func TestInstallStatusSymlinkCurrent(t *testing.T) {
 	// Install via symlink first
 	installCopy = false
 	defer func() { installCopy = false }()
-	if err := runInstallImpl(); err != nil {
-		t.Fatalf("install failed: %v", err)
-	}
+	require.NoError(t, runInstallImpl())
 
 	status := installStatus()
-	if !strings.Contains(status, "current") {
-		t.Errorf("expected 'current' for symlink to self, got: %s", status)
-	}
+	assert.Contains(t, status, "current")
 }
 
 func TestInstallStatusSymlinkElsewhere(t *testing.T) {
@@ -286,9 +219,7 @@ func TestInstallStatusSymlinkElsewhere(t *testing.T) {
 	os.Symlink("/some/other/path", filepath.Join(binDir, binName))
 
 	status := installStatus()
-	if !strings.Contains(status, "points elsewhere") {
-		t.Errorf("expected 'points elsewhere', got: %s", status)
-	}
+	assert.Contains(t, status, "points elsewhere")
 }
 
 func TestInstallStatusCopyCurrent(t *testing.T) {
@@ -300,14 +231,10 @@ func TestInstallStatusCopyCurrent(t *testing.T) {
 	// Install via copy
 	installCopy = true
 	defer func() { installCopy = false }()
-	if err := runInstallImpl(); err != nil {
-		t.Fatalf("install failed: %v", err)
-	}
+	require.NoError(t, runInstallImpl())
 
 	status := installStatus()
-	if !strings.Contains(status, "up to date") {
-		t.Errorf("expected 'up to date' for matching copy, got: %s", status)
-	}
+	assert.Contains(t, status, "up to date")
 }
 
 func TestInstallStatusCopyOutdated(t *testing.T) {
@@ -327,7 +254,5 @@ func TestInstallStatusCopyOutdated(t *testing.T) {
 	os.WriteFile(filepath.Join(binDir, binName), []byte("old binary"), 0755)
 
 	status := installStatus()
-	if !strings.Contains(status, "OUTDATED") {
-		t.Errorf("expected 'OUTDATED' for mismatched copy, got: %s", status)
-	}
+	assert.Contains(t, status, "OUTDATED")
 }

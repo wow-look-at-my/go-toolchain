@@ -2,16 +2,13 @@ package build
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-// CommandRunner abstracts command execution for testing
-type CommandRunner interface {
-	Run(name string, args ...string) error
-	RunWithOutput(name string, args ...string) ([]byte, error)
-}
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
+)
 
 type Target struct {
 	ImportPath string
@@ -19,9 +16,15 @@ type Target struct {
 }
 
 // findMainPackages uses go list to discover all main packages in the module.
-func findMainPackages(runner CommandRunner) ([]string, error) {
-	out, err := runner.RunWithOutput("go", "list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./...")
+func findMainPackages(r runner.CommandRunner) ([]string, error) {
+	proc, err := runner.Cmd("go", "list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./...").
+		WithQuiet().
+		Run(r)
 	if err != nil {
+		return nil, fmt.Errorf("go list failed: %w", err)
+	}
+	out, _ := io.ReadAll(proc.Stdout())
+	if err := proc.Wait(); err != nil {
 		return nil, fmt.Errorf("go list failed: %w", err)
 	}
 
@@ -56,7 +59,7 @@ func binaryNameFromImportPath(pkg, moduleName string) string {
 // ResolveBuildTargets determines what to build and what to name the binaries.
 // Uses go list to find all main packages.
 // Binary names are always auto-derived from the package/directory name.
-func ResolveBuildTargets(runner CommandRunner) ([]Target, error) {
+func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	// Check if there are Go files in the current directory
 	goFiles, _ := filepath.Glob("*.go")
 	if len(goFiles) > 0 {
@@ -69,15 +72,17 @@ func ResolveBuildTargets(runner CommandRunner) ([]Target, error) {
 	}
 
 	// No Go files in root — find main packages in subdirectories
-	pkgs, err := findMainPackages(runner)
+	pkgs, err := findMainPackages(r)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get module name for smart binary naming
-	modOut, modErr := runner.RunWithOutput("go", "list", "-m")
+	proc, modErr := runner.Cmd("go", "list", "-m").WithQuiet().Run(r)
 	moduleName := ""
 	if modErr == nil {
+		modOut, _ := io.ReadAll(proc.Stdout())
+		proc.Wait()
 		moduleName = strings.TrimSpace(string(modOut))
 	}
 

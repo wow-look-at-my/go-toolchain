@@ -1,37 +1,15 @@
 package cmd
 
 import (
-	"bytes"
-	"io"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
-
-// matrixTestRunner provides test output with 100% coverage for matrix tests
-type matrixTestRunner struct {
-	MockCommandRunner
-}
-
-func (m *matrixTestRunner) RunWithPipes(name string, args ...string) (io.Reader, func() error, error) {
-	m.mu.Lock()
-	m.Commands = append(m.Commands, MockCommand{Name: name, Args: args})
-	m.mu.Unlock()
-	writeMockCoverProfile(args, 100)
-	output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
-`
-	return bytes.NewReader([]byte(output)), func() error { return nil }, nil
-}
-
-func newMatrixTestRunner() *matrixTestRunner {
-	return &matrixTestRunner{
-		MockCommandRunner: MockCommandRunner{
-			Responses: make(map[string]MockResponse),
-		},
-	}
-}
 
 func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
 	oldOS := matrixOS
@@ -43,11 +21,9 @@ func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
 		matrixArch = oldArch
 	}()
 
-	mock := newMatrixTestRunner()
+	mock := runner.NewMock()
 	err := runReleaseWithRunner(mock)
-	if err == nil {
-		t.Error("expected error with no platforms")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
@@ -68,11 +44,9 @@ func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
 		outputDir = oldOutput
 	}()
 
-	mock := newMatrixTestRunner()
+	mock := runner.NewMock()
 	err := runReleaseWithRunner(mock)
-	if err == nil {
-		t.Error("expected error with no main packages")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunReleaseWithRunnerSuccess(t *testing.T) {
@@ -99,11 +73,9 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := newMatrixTestRunner()
+	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
@@ -130,21 +102,17 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	// Use a mock that fails all RunWithEnv calls
-	mock := &buildEnvFailMockRunner{}
-	err := runReleaseWithRunner(mock)
-	if err == nil {
-		t.Error("expected error when build fails")
+	// Use a mock that passes tests but fails builds
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "build") {
+			return nil, fmt.Errorf("build failed")
+		}
+		return origHandler(cfg)
 	}
-}
-
-// buildEnvFailMockRunner fails all RunWithEnv calls
-type buildEnvFailMockRunner struct {
-	MockCommandRunner
-}
-
-func (m *buildEnvFailMockRunner) RunWithEnv(env []string, name string, args ...string) error {
-	return os.ErrPermission
+	err := runReleaseWithRunner(mock)
+	assert.NotNil(t, err)
 }
 
 func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
@@ -171,28 +139,24 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := newMatrixTestRunner()
+	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Check that commands were recorded with .exe extension
 	found := false
-	for _, cmd := range mock.Commands {
-		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "build" {
-			for i, arg := range cmd.Args {
-				if arg == "-o" && i+1 < len(cmd.Args) {
-					if filepath.Ext(cmd.Args[i+1]) == ".exe" {
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "build") {
+			for i, arg := range cfg.Args {
+				if arg == "-o" && i+1 < len(cfg.Args) {
+					if filepath.Ext(cfg.Args[i+1]) == ".exe" {
 						found = true
 					}
 				}
 			}
 		}
 	}
-	if !found {
-		t.Error("expected .exe extension for windows build")
-	}
+	assert.True(t, found)
 }
 
 func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
@@ -219,11 +183,9 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := newMatrixTestRunner()
+	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 }
 
 func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
@@ -250,26 +212,22 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 		releaseParallel = oldParallel
 	}()
 
-	mock := newMatrixTestRunner()
+	mock := newTestPassMock(0)
 	err := runReleaseWithRunner(mock)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Should have 4 builds: 2 OS x 2 arch
 	buildCount := 0
-	for _, cmd := range mock.Commands {
-		if cmd.Name == "go" && len(cmd.Args) > 0 && cmd.Args[0] == "build" {
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "build") {
 			buildCount++
 		}
 	}
-	if buildCount != 4 {
-		t.Errorf("expected 4 builds (2 OS x 2 arch), got %d", buildCount)
-	}
+	assert.Equal(t, 4, buildCount)
 }
 
 func TestRunBuild(t *testing.T) {
-	mock := newMatrixTestRunner()
+	mock := runner.NewMock()
 	job := buildJob{
 		goos:       "linux",
 		goarch:     "amd64",
@@ -278,12 +236,24 @@ func TestRunBuild(t *testing.T) {
 	}
 
 	err := runBuild(mock, job)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.Nil(t, err)
 
 	// Verify command was called
-	if len(mock.Commands) != 1 {
-		t.Errorf("expected 1 command, got %d", len(mock.Commands))
+	calls := mock.Calls()
+	assert.Equal(t, 1, len(calls))
+
+	// Verify env vars were set
+	cfg := calls[0]
+	assert.Equal(t, "linux", cfg.Env["GOOS"])
+	assert.Equal(t, "amd64", cfg.Env["GOARCH"])
+	assert.Equal(t, "0", cfg.Env["CGO_ENABLED"])
+
+	// Verify -o flag
+	hasOutput := false
+	for i, arg := range cfg.Args {
+		if arg == "-o" && i+1 < len(cfg.Args) {
+			hasOutput = strings.Contains(cfg.Args[i+1], "/tmp/test")
+		}
 	}
+	assert.True(t, hasOutput)
 }

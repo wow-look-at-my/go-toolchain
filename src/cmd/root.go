@@ -11,17 +11,19 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
+	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
 var (
 	outputDir     = "build"
-	covDetail     string
 	jsonOutput    bool
 	verbose       bool
 	addWatermark  bool
 	doRemoveWmark bool
 	generateHash  string
+	fix           = os.Getenv("CI") == "" // disable auto-fix on CI
 )
 
 var rootCmd = &cobra.Command{
@@ -34,13 +36,13 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build. Use --add-watermark to enforce coverage floors.\n\n" + installStatus()
 	// Use PersistentFlags for flags shared with subcommands (like matrix)
-	rootCmd.PersistentFlags().StringVar(&covDetail, "cov-detail", "", "Show detailed coverage: 'func' or 'file'")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
 	rootCmd.PersistentFlags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
 	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
 	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
+	rootCmd.PersistentFlags().BoolVar(&fix, "fix", fix, "Auto-fix linter violations")
 
 	// Benchmark flags
 	rootCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
@@ -57,11 +59,12 @@ func Execute() error {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	runner := &RealCommandRunner{Quiet: jsonOutput}
-	return runWithRunner(runner)
+	r := runner.New()
+	return runWithRunner(r)
 }
 
-func runWithRunner(runner CommandRunner) error {
+func runWithRunner(r runner.CommandRunner) error {
+	quiet := jsonOutput
 	// Handle --remove-watermark early, before any build steps
 	if doRemoveWmark {
 		return handleRemoveWatermark()
@@ -69,26 +72,30 @@ func runWithRunner(runner CommandRunner) error {
 
 	// Start async dependency freshness check (reports at end)
 	var depChecker *DepChecker
-	if !jsonOutput {
+	if !quiet {
 		depChecker = CheckOutdatedDeps()
 		defer WaitForOutdatedDeps(depChecker)
 	}
 
-	if err := RunTestsWithCoverage(runner); err != nil {
+	if err := RunTestsWithCoverage(r, quiet); err != nil {
 		return err
 	}
 
-	targets, err := build.ResolveBuildTargets(runner)
+	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err
 	}
 
 	if len(targets) == 0 {
 		// Library-only project, just verify everything compiles
-		if !jsonOutput {
+		if !quiet {
 			fmt.Println("==> go build ./... (no main packages found)")
 		}
-		if err := runner.Run("go", "build", "./..."); err != nil {
+		proc, err := runner.Cmd("go", "build", "./...").Run(r)
+		if err != nil {
+			return fmt.Errorf("go build failed: %w", err)
+		}
+		if err := proc.Wait(); err != nil {
 			return fmt.Errorf("go build failed: %w", err)
 		}
 	} else {
@@ -97,27 +104,30 @@ func runWithRunner(runner CommandRunner) error {
 		}
 		info := collectGitInfo()
 		ldflags := info.ldflags()
-		if !jsonOutput {
+		if !quiet {
 			fmt.Printf("==> Embedding version: %s\n", info)
 		}
 		for _, t := range targets {
 			outPath := filepath.Join(outputDir, t.OutputName)
-			if !jsonOutput {
+			if !quiet {
 				fmt.Printf("==> go build -o %s %s\n", outPath, t.ImportPath)
 			}
-			args := []string{"build", "-ldflags", ldflags, "-o", outPath, t.ImportPath}
-			if err := runner.Run("go", args...); err != nil {
+			proc, err := runner.Cmd("go", "build", "-ldflags", ldflags, "-o", outPath, t.ImportPath).Run(r)
+			if err != nil {
+				return fmt.Errorf("go build failed: %w", err)
+			}
+			if err := proc.Wait(); err != nil {
 				return fmt.Errorf("go build failed: %w", err)
 			}
 		}
 	}
 
-	if !jsonOutput {
+	if !quiet {
 		fmt.Println("==> Build successful")
 	}
 
 	if !noBenchmark {
-		if err := runBenchmarkInBuild(runner); err != nil {
+		if err := runBenchmarkInBuild(r); err != nil {
 			return err
 		}
 	}
@@ -128,16 +138,20 @@ func runWithRunner(runner CommandRunner) error {
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
 // checks coverage against the threshold. Used by both the default command
 // and the matrix command.
-func RunTestsWithCoverage(runner CommandRunner) error {
+func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 	// Fix any v0.0.0 dependencies before go mod tidy
-	if err := FixBogusDepsVersions(runner); err != nil {
+	if err := FixBogusDepsVersions(r); err != nil {
 		return err
 	}
 
-	if !jsonOutput {
+	if !quiet {
 		fmt.Println("==> go mod tidy")
 	}
-	if err := runner.Run("go", "mod", "tidy"); err != nil {
+	proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
+	if err != nil {
+		return fmt.Errorf("go mod tidy failed: %w", err)
+	}
+	if err := proc.Wait(); err != nil {
 		if _, statErr := os.Stat("go.mod"); statErr != nil {
 			return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
 		}
@@ -145,29 +159,33 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 	}
 
 	if needsGenerate() {
-		if !jsonOutput {
+		if !quiet {
 			fmt.Println("==> go generate ./...")
 		}
-		if err := runGenerate(jsonOutput, generateHash); err != nil {
+		if err := runGenerate(quiet, generateHash); err != nil {
 			return fmt.Errorf("go generate failed: %w", err)
 		}
 		// Run tidy again after generate in case new imports were added
-		if !jsonOutput {
+		if !quiet {
 			fmt.Println("==> go mod tidy (post-generate)")
 		}
-		if err := runner.Run("go", "mod", "tidy"); err != nil {
+		proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
+		if err != nil {
+			return fmt.Errorf("go mod tidy failed: %w", err)
+		}
+		if err := proc.Wait(); err != nil {
 			return fmt.Errorf("go mod tidy failed: %w", err)
 		}
 	}
 
-	if !jsonOutput {
+	if !quiet {
 		fmt.Println("==> go vet ./...")
 	}
-	if err := runner.Run("go", "vet", "./..."); err != nil {
-		return fmt.Errorf("go vet failed: %w", err)
+	if err := vet.Run(fix); err != nil {
+		return fmt.Errorf("vet failed: %w", err)
 	}
 
-	if !jsonOutput {
+	if !quiet {
 		fmt.Println("==> Running tests with coverage")
 	}
 
@@ -178,7 +196,7 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 	defer os.RemoveAll(tmpDir)
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
-	result, testErr := gotest.RunTests(runner, verbose, coverFile)
+	result, testErr := gotest.RunTests(r, verbose, coverFile)
 	if result == nil {
 		return fmt.Errorf("tests failed: %w", testErr)
 	}
@@ -187,26 +205,22 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 
 	// If tests failed, show failure details and return error (no coverage output)
 	if testErr != nil {
-		if !jsonOutput && result.FailureOutput != "" {
+		if !quiet && result.FailureOutput != "" {
 			fmt.Println("\n==> Test failures:")
 			fmt.Print(colorRed + result.FailureOutput + colorReset)
 		}
 		return fmt.Errorf("tests failed: %w", testErr)
 	}
 
-	if jsonOutput {
+	if quiet {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "\t")
 		if err := enc.Encode(report); err != nil {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
-		fmt.Println("\n==> Package coverage (details: --cov-detail file|func):")
-		report.Print(gotest.PrintOptions{
-			ShowFiles: covDetail == "file" || covDetail == "func",
-			ShowFuncs: covDetail == "func",
-			Verbose:   verbose,
-		})
+		fmt.Println("\n==> Package coverage:")
+		report.Print()
 
 		fmt.Printf("\n==> Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
@@ -216,7 +230,7 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		if err := gotest.SetWatermark(".", report.Total); err != nil {
 			return fmt.Errorf("failed to set watermark: %w", err)
 		}
-		if !jsonOutput {
+		if !quiet {
 			fmt.Printf("\n==> Watermark set to %.1f%% (will be enforced on future runs)\n", report.Total)
 		}
 	}
@@ -232,7 +246,7 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 		if grace < effectiveMin {
 			effectiveMin = grace
 		}
-		if !jsonOutput {
+		if !quiet {
 			fmt.Printf("==> Watermark: %.1f%% (effective minimum: %.1f%%)\n", wm, effectiveMin)
 		}
 		// Ratchet up: update watermark if coverage improved
@@ -240,7 +254,7 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 			if err := gotest.SetWatermark(".", report.Total); err != nil {
 				return fmt.Errorf("failed to update watermark: %w", err)
 			}
-			if !jsonOutput {
+			if !quiet {
 				fmt.Printf("==> Watermark updated: %.1f%% -> %.1f%%\n", wm, report.Total)
 			}
 		}
