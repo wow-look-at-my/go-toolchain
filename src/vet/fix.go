@@ -14,10 +14,10 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 )
 
-// ASTFix represents an AST-based fix: replace OldNode with NewNode.
+// ASTFix represents an AST-based fix: replace OldNode with NewNodes.
 type ASTFix struct {
-	OldNode ast.Node
-	NewNode ast.Node // nil for deletion
+	OldNode  ast.Node
+	NewNodes []ast.Node // empty=delete, 1=replace, >1=replace+insert
 }
 
 // ASTFixes targets a single file with multiple fixes.
@@ -67,13 +67,19 @@ func (f *ASTFixes) printFix(fix ASTFix) {
 	red := ansi.Style(oldStr, ansi.Red.FG())
 
 	// Format output based on whether this is a deletion or replacement
-	if fix.NewNode == nil {
+	if len(fix.NewNodes) == 0 {
 		fmt.Printf("%s %s -%s\n", yellow, grey, red)
 	} else {
-		newStr := strings.TrimSpace(nodeText(f.Fset, fix.NewNode))
-		if idx := strings.Index(newStr, "\n"); idx > 0 {
-			newStr = newStr[:idx] + "..."
+		// Combine all new nodes into a single string
+		var newParts []string
+		for _, n := range fix.NewNodes {
+			part := strings.TrimSpace(nodeText(f.Fset, n))
+			if idx := strings.Index(part, "\n"); idx > 0 {
+				part = part[:idx] + "..."
+			}
+			newParts = append(newParts, part)
 		}
+		newStr := strings.Join(newParts, "; ")
 		green := ansi.Style(newStr, ansi.Green.FG())
 		fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
 	}
@@ -86,10 +92,14 @@ func (f *ASTFixes) Fprint(w io.Writer) error {
 		node := c.Node()
 		for _, fix := range f.Fixes {
 			if node == fix.OldNode {
-				if fix.NewNode != nil {
-					c.Replace(fix.NewNode)
-				} else {
+				if len(fix.NewNodes) == 0 {
 					c.Delete()
+				} else {
+					c.Replace(fix.NewNodes[0])
+					// Insert remaining nodes in reverse order (InsertAfter prepends)
+					for i := len(fix.NewNodes) - 1; i > 0; i-- {
+						c.InsertAfter(fix.NewNodes[i])
+					}
 				}
 				break
 			}

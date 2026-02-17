@@ -1,25 +1,28 @@
 package vet
 
 import (
-	"bytes"
 	"fmt"
 	"go/ast"
 	"go/token"
-	"os"
+	"reflect"
 	"strings"
 
-	"github.com/wow-look-at-my/set"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/ast/astutil"
 )
 
 // AssertLintAnalyzer detects manual assertion patterns that should use helper functions.
 var AssertLintAnalyzer = &analysis.Analyzer{
-	Name: "assertlint",
-	Doc:  "detects manual assertion patterns that should use helper functions",
-	Run:  runAssertLint,
+	Name:       "assertlint",
+	Doc:        "detects manual assertion patterns that should use helper functions",
+	Run:        runAssertLint,
+	ResultType: reflect.TypeOf([]*ASTFixes{}),
 }
 
 func runAssertLint(pass *analysis.Pass) (any, error) {
+	// Group fixes by file
+	fileToFixes := make(map[*ast.File][]ASTFix)
+
 	for _, file := range pass.Files {
 		// Only check test files
 		filename := pass.Fset.File(file.Pos()).Name()
@@ -93,118 +96,49 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			return true
 		})
 
-		// Generate import edit if needed
-		var importEdit *analysis.TextEdit
-		if (needsAssert && !hasAssert) || (needsRequire && !hasRequire) {
-			importEdit = generateImportEdit(pass, file, needsAssert && !hasAssert, needsRequire && !hasRequire)
-		}
-
-		// Track variables that earlier fixes will introduce (per enclosing function)
-		introducedVars := make(map[token.Pos]*set.Set[string])
-
-		// Report all diagnostics with fixes
+		// Process diagnostics and generate AST fixes
 		for _, d := range diagnostics {
 			message := fmt.Sprintf("use %s.%s instead of if + t.Error/t.Fatal", d.assertPkg, d.assertFunc)
 
-			// Find enclosing function for this if-statement
-			funcPos := findEnclosingFuncPos(file, d.ifStmt.Pos())
-
-			// Get set of variables already introduced by prior fixes in this function
-			priorVars := introducedVars[funcPos]
-			if priorVars == nil {
-				priorVars = &set.Set[string]{}
-				introducedVars[funcPos] = priorVars
-			}
-
-			fix := generateSuggestedFix(pass, d.ifStmt, d.assertPkg, d.assertFunc, priorVars)
+			fix := generateASTFix(pass, d.ifStmt, d.assertPkg, d.assertFunc)
 			if fix != nil {
-				// Track variables this fix will introduce
-				if d.ifStmt.Init != nil {
-					if assign, ok := d.ifStmt.Init.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
-						for _, lhs := range assign.Lhs {
-							if ident, ok := lhs.(*ast.Ident); ok && ident.Name != "_" {
-								priorVars.Add(ident.Name)
-							}
-						}
-					}
-				}
+				fileToFixes[file] = append(fileToFixes[file], *fix)
+			}
+			// Always report diagnostic (without SuggestedFixes - AST fixes handle that)
+			pass.Reportf(d.ifStmt.Pos(), "%s", message)
+		}
 
-				// Add import edit to the first fix only
-				if importEdit != nil {
-					fix.TextEdits = append(fix.TextEdits, *importEdit)
-					importEdit = nil // Only add once
-				}
-				pass.Report(analysis.Diagnostic{
-					Pos:            d.ifStmt.Pos(),
-					End:            d.ifStmt.End(),
-					Message:        message,
-					SuggestedFixes: []analysis.SuggestedFix{*fix},
-				})
-			} else {
-				pass.Reportf(d.ifStmt.Pos(), "%s", message)
+		// Add imports directly to the AST if needed
+		if (needsAssert && !hasAssert) || (needsRequire && !hasRequire) {
+			if needsAssert && !hasAssert {
+				astutil.AddImport(pass.Fset, file, "github.com/wow-look-at-my/testify/assert")
+			}
+			if needsRequire && !hasRequire {
+				astutil.AddImport(pass.Fset, file, "github.com/wow-look-at-my/testify/require")
 			}
 		}
 	}
-	return nil, nil
+
+	if len(fileToFixes) == 0 {
+		return []*ASTFixes(nil), nil
+	}
+
+	// Return all files' fixes
+	var result []*ASTFixes
+	for file, fixes := range fileToFixes {
+		result = append(result, &ASTFixes{
+			File:  file,
+			Fset:  pass.Fset,
+			Fixes: fixes,
+		})
+	}
+	return result, nil
 }
 
 type fileDiagnostic struct {
 	ifStmt     *ast.IfStmt
 	assertPkg  string
 	assertFunc string
-}
-
-// generateImportEdit creates a TextEdit to add the testify imports.
-func generateImportEdit(pass *analysis.Pass, file *ast.File, addAssert, addRequire bool) *analysis.TextEdit {
-	var imports []string
-	if addAssert {
-		imports = append(imports, `"github.com/wow-look-at-my/testify/assert"`)
-	}
-	if addRequire {
-		imports = append(imports, `"github.com/wow-look-at-my/testify/require"`)
-	}
-
-	if len(imports) == 0 {
-		return nil
-	}
-
-	// Find where to insert imports
-	if len(file.Imports) > 0 {
-		// Add after the last import
-		lastImport := file.Imports[len(file.Imports)-1]
-		newText := "\n"
-		for _, imp := range imports {
-			newText += "\t" + imp + "\n"
-		}
-		return &analysis.TextEdit{
-			Pos:     lastImport.End(),
-			End:     lastImport.End(),
-			NewText: []byte(newText),
-		}
-	}
-
-	// No imports exist, create import block after package declaration
-	newImport := &ast.GenDecl{
-		Tok: token.IMPORT,
-	}
-	for _, imp := range imports {
-		newImport.Specs = append(newImport.Specs, &ast.ImportSpec{
-			Path: &ast.BasicLit{Kind: token.STRING, Value: imp},
-		})
-	}
-
-	var buf bytes.Buffer
-	buf.WriteString("\n\nimport (\n")
-	for _, imp := range imports {
-		buf.WriteString("\t" + imp + "\n")
-	}
-	buf.WriteString(")\n")
-
-	return &analysis.TextEdit{
-		Pos:     file.Name.End(),
-		End:     file.Name.End(),
-		NewText: buf.Bytes(),
-	}
 }
 
 // hasTestingErrorCall checks if the block contains a call to t.Error, t.Errorf, t.Fatal, or t.Fatalf.
@@ -422,142 +356,6 @@ func isNil(expr ast.Expr) bool {
 	return false
 }
 
-// findEnclosingFuncPos returns the position of the enclosing function/method.
-func findEnclosingFuncPos(file *ast.File, pos token.Pos) token.Pos {
-	var funcPos token.Pos
-	ast.Inspect(file, func(n ast.Node) bool {
-		switch f := n.(type) {
-		case *ast.FuncDecl:
-			if f.Pos() <= pos && pos < f.End() {
-				funcPos = f.Pos()
-			}
-		case *ast.FuncLit:
-			if f.Pos() <= pos && pos < f.End() {
-				funcPos = f.Pos()
-			}
-		}
-		return true
-	})
-	return funcPos
-}
-
-// generateSuggestedFix creates a SuggestedFix for the if statement.
-// priorVars contains variable names that earlier fixes in the same function will introduce.
-func generateSuggestedFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string, priorVars *set.Set[string]) *analysis.SuggestedFix {
-	// Skip if/else chains (else-if is already filtered during detection)
-	if ifStmt.Else != nil {
-		return nil
-	}
-
-	tVar := getTestVarName(ifStmt.Body)
-	if tVar == "" {
-		return nil
-	}
-
-	// Try each fix generator until one succeeds
-	generators := []func() string{
-		func() string { return fixInitClause(pass, ifStmt, tVar, assertPkg) },
-		func() string { return fixInitClauseGeneral(pass, ifStmt, tVar, assertPkg, assertFunc, priorVars) },
-		func() string { return fixSimpleCondition(pass, ifStmt, tVar, assertPkg, assertFunc) },
-	}
-
-	for _, gen := range generators {
-		if replacement := gen(); replacement != "" {
-			return &analysis.SuggestedFix{
-				Message: fmt.Sprintf("replace with %s.%s", assertPkg, assertFunc),
-				TextEdits: []analysis.TextEdit{{Pos: ifStmt.Pos(), End: ifStmt.End(), NewText: []byte(replacement)}},
-			}
-		}
-	}
-	return nil
-}
-
-// fixInitClause handles: if err := X; err != nil { t.Fatal(err) } → require.NoError(t, X)
-func fixInitClause(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg string) string {
-	if ifStmt.Init == nil {
-		return ""
-	}
-
-	// Must be: err := X (single error return)
-	assign, ok := ifStmt.Init.(*ast.AssignStmt)
-	if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
-		return ""
-	}
-
-	errVar, ok := assign.Lhs[0].(*ast.Ident)
-	if !ok {
-		return ""
-	}
-
-	// Condition must be: err != nil
-	binExpr, ok := ifStmt.Cond.(*ast.BinaryExpr)
-	if !ok || binExpr.Op != token.NEQ {
-		return ""
-	}
-	condVar, ok := binExpr.X.(*ast.Ident)
-	if !ok || condVar.Name != errVar.Name || !isNil(binExpr.Y) {
-		return ""
-	}
-
-	// Generate: require.NoError(t, X)
-	callExpr := sourceText(pass, assign.Rhs[0])
-	return fmt.Sprintf("%s.NoError(%s, %s)", assertPkg, tVar, callExpr)
-}
-
-// fixInitClauseGeneral handles any init clause by extracting it:
-// if x := expr; cond { t.Error } → x := expr; assert.X(t, ...)
-func fixInitClauseGeneral(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg, assertFunc string, priorVars *set.Set[string]) string {
-	if ifStmt.Init == nil {
-		return ""
-	}
-
-	// Generate the assertion for the condition
-	assertion := generateReplacement(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
-	if assertion == "" {
-		return ""
-	}
-
-	// Get the init statement, converting := to = if all non-blank variables already exist
-	// (either in outer scope OR will be introduced by a prior fix in this function)
-	initText := sourceText(pass, ifStmt.Init)
-	if assign, ok := ifStmt.Init.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
-		allExist := true
-		for _, lhs := range assign.Lhs {
-			ident, ok := lhs.(*ast.Ident)
-			if !ok || ident.Name == "_" {
-				continue
-			}
-			// Check if a prior fix will introduce this variable
-			if priorVars.Contains(ident.Name) {
-				continue
-			}
-			// Check if same name exists in parent scope
-			obj := pass.TypesInfo.Defs[ident]
-			if obj == nil || obj.Parent() == nil || obj.Parent().Parent() == nil {
-				allExist = false
-				break
-			}
-			if obj.Parent().Parent().Lookup(ident.Name) == nil {
-				allExist = false
-				break
-			}
-		}
-		if allExist {
-			initText = strings.Replace(initText, ":=", "=", 1)
-		}
-	}
-
-	return initText + "\n\t" + assertion
-}
-
-// fixSimpleCondition handles: if cond { t.Fatal } → assert.X(t, ...)
-func fixSimpleCondition(pass *analysis.Pass, ifStmt *ast.IfStmt, tVar, assertPkg, assertFunc string) string {
-	if ifStmt.Init != nil {
-		return ""
-	}
-	return generateReplacement(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
-}
-
 // getTestVarName extracts the test variable name (t or b) from the body.
 func getTestVarName(body *ast.BlockStmt) string {
 	for _, stmt := range body.List {
@@ -574,8 +372,76 @@ func getTestVarName(body *ast.BlockStmt) string {
 	return ""
 }
 
-// generateReplacement creates the replacement assertion code.
-func generateReplacement(pass *analysis.Pass, cond ast.Expr, tVar, assertPkg, assertFunc string) string {
+// generateASTFix creates an ASTFix for the if statement.
+func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string) *ASTFix {
+	// Skip if/else chains (else-if is already filtered during detection)
+	if ifStmt.Else != nil {
+		return nil
+	}
+
+	tVar := getTestVarName(ifStmt.Body)
+	if tVar == "" {
+		return nil
+	}
+
+	// Build the assertion call AST
+	assertCall := buildAssertCall(pass, ifStmt.Cond, tVar, assertPkg, assertFunc)
+	if assertCall == nil {
+		return nil
+	}
+	assertStmt := &ast.ExprStmt{X: assertCall}
+
+	// Handle init clause case: if x := expr; cond { t.Error } → x := expr; assert.X(...)
+	if ifStmt.Init != nil {
+		// Special case: if err := X; err != nil → require.NoError(t, X)
+		if assertFunc == "NoError" {
+			if assign, ok := ifStmt.Init.(*ast.AssignStmt); ok && assign.Tok == token.DEFINE {
+				if len(assign.Rhs) == 1 {
+					noErrorCall := makeCall(
+						makeSelector(assertPkg, "NoError"),
+						ast.NewIdent(tVar),
+						assign.Rhs[0],
+					)
+					return &ASTFix{
+						OldNode:  ifStmt,
+						NewNodes: []ast.Node{&ast.ExprStmt{X: noErrorCall}},
+					}
+				}
+			}
+		}
+
+		// General case: extract init statement
+		return &ASTFix{
+			OldNode:  ifStmt,
+			NewNodes: []ast.Node{ifStmt.Init, assertStmt},
+		}
+	}
+
+	// Simple case: if cond { t.Error } → assert.X(t, ...)
+	return &ASTFix{
+		OldNode:  ifStmt,
+		NewNodes: []ast.Node{assertStmt},
+	}
+}
+
+// makeSelector creates a pkg.method selector expression.
+func makeSelector(pkg, method string) *ast.SelectorExpr {
+	return &ast.SelectorExpr{
+		X:   ast.NewIdent(pkg),
+		Sel: ast.NewIdent(method),
+	}
+}
+
+// makeCall creates a function call with given arguments.
+func makeCall(fun ast.Expr, args ...ast.Expr) *ast.CallExpr {
+	return &ast.CallExpr{
+		Fun:  fun,
+		Args: args,
+	}
+}
+
+// buildAssertCall builds the assertion call AST node.
+func buildAssertCall(pass *analysis.Pass, cond ast.Expr, tVar, assertPkg, assertFunc string) *ast.CallExpr {
 	// Handle negation
 	actualCond := cond
 	if unary, ok := cond.(*ast.UnaryExpr); ok && unary.Op == token.NOT {
@@ -584,100 +450,95 @@ func generateReplacement(pass *analysis.Pass, cond ast.Expr, tVar, assertPkg, as
 
 	switch c := actualCond.(type) {
 	case *ast.CallExpr:
-		return generateCallReplacement(pass, c, tVar, assertPkg, assertFunc)
+		return buildCallAssert(pass, c, tVar, assertPkg, assertFunc)
 
 	case *ast.BinaryExpr:
-		return generateBinaryReplacement(pass, c, tVar, assertPkg, assertFunc)
+		return buildBinaryAssert(pass, c, tVar, assertPkg, assertFunc)
 
 	case *ast.Ident:
-		return fmt.Sprintf("%s.%s(%s, %s)", assertPkg, assertFunc, tVar, c.Name)
+		// assert.True(t, x) or assert.False(t, x)
+		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), c)
 	}
 
-	// Fallback: use the original condition text
-	condText := sourceText(pass, cond)
-	return fmt.Sprintf("%s.%s(%s, %s)", assertPkg, assertFunc, tVar, condText)
+	// Fallback: wrap the original condition
+	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), cond)
 }
 
-// generateCallReplacement generates replacement for call expressions.
-func generateCallReplacement(pass *analysis.Pass, call *ast.CallExpr, tVar, assertPkg, assertFunc string) string {
+// buildCallAssert generates assertion for call expressions.
+func buildCallAssert(pass *analysis.Pass, call *ast.CallExpr, tVar, assertPkg, assertFunc string) *ast.CallExpr {
 	funcName := getCallFuncName(call)
 
 	switch funcName {
 	case "strings.Contains":
 		if len(call.Args) == 2 {
-			haystack := sourceText(pass, call.Args[0])
-			needle := sourceText(pass, call.Args[1])
-			return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, haystack, needle)
+			// assert.Contains(t, haystack, needle)
+			return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), call.Args[0], call.Args[1])
 		}
 
 	case "strings.HasPrefix", "strings.HasSuffix":
 		if len(call.Args) == 2 {
-			s := sourceText(pass, call.Args[0])
-			fix := sourceText(pass, call.Args[1])
-			// No direct assert function, wrap in True/False
-			return fmt.Sprintf("%s.%s(%s, %s(%s, %s))", assertPkg, assertFunc, tVar, funcName, s, fix)
+			// assert.True(t, strings.HasPrefix(s, prefix))
+			return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), call)
 		}
 
 	case "reflect.DeepEqual":
 		if len(call.Args) == 2 {
-			a := sourceText(pass, call.Args[0])
-			b := sourceText(pass, call.Args[1])
-			return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, a, b)
+			// assert.Equal(t, a, b)
+			return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), call.Args[0], call.Args[1])
 		}
 	}
 
-	// Fallback: wrap the entire call in True/False assertion
-	callText := sourceText(pass, call)
-	return fmt.Sprintf("%s.%s(%s, %s)", assertPkg, assertFunc, tVar, callText)
+	// Fallback: wrap the entire call
+	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), call)
 }
 
-// generateBinaryReplacement generates replacement for binary expressions.
-func generateBinaryReplacement(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg, assertFunc string) string {
-	// For compound conditions, wrap the whole expression in parentheses
+// buildBinaryAssert generates assertion for binary expressions.
+func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg, assertFunc string) *ast.CallExpr {
+	// For compound conditions (&&, ||), wrap the whole expression
 	switch bin.Op {
-	case token.LAND, token.LOR: // && and ||
-		expr := sourceText(pass, bin)
-		return fmt.Sprintf("%s.%s(%s, %s)", assertPkg, assertFunc, tVar, expr)
+	case token.LAND, token.LOR:
+		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin)
 	}
-
-	left := sourceText(pass, bin.X)
-	right := sourceText(pass, bin.Y)
 
 	switch assertFunc {
 	case "Equal", "NotEqual":
-		// Cast numeric literals only when their default type differs from target
-		// Only cast to basic types that don't require imports
-		expected, actual := right, left
+		// assert.Equal(t, expected, actual)
+		expected, actual := bin.Y, bin.X
+		// Add type cast if needed for numeric literals
 		if lit, isLit := bin.Y.(*ast.BasicLit); isLit {
 			typ := pass.TypesInfo.TypeOf(bin.X)
-			fmt.Printf("[assertlint] Y is literal %q, X type: %v\n", lit.Value, typ)
 			if typ != nil {
-				typeName := typ.String()
-				if castType := castableType(lit, typeName); castType != "" {
-					expected = fmt.Sprintf("%s(%s)", castType, right)
-					fmt.Printf("[assertlint] cast expected to: %s\n", expected)
+				if castType := castableType(lit, typ.String()); castType != "" {
+					expected = &ast.CallExpr{
+						Fun:  ast.NewIdent(castType),
+						Args: []ast.Expr{bin.Y},
+					}
 				}
 			}
 		} else if lit, isLit := bin.X.(*ast.BasicLit); isLit {
 			typ := pass.TypesInfo.TypeOf(bin.Y)
-			fmt.Printf("[assertlint] X is literal %q, Y type: %v\n", lit.Value, typ)
 			if typ != nil {
-				typeName := typ.String()
-				if castType := castableType(lit, typeName); castType != "" {
-					actual = fmt.Sprintf("%s(%s)", castType, left)
-					fmt.Printf("[assertlint] cast actual to: %s\n", actual)
+				if castType := castableType(lit, typ.String()); castType != "" {
+					actual = &ast.CallExpr{
+						Fun:  ast.NewIdent(castType),
+						Args: []ast.Expr{bin.X},
+					}
 				}
 			}
 		}
-		return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, expected, actual)
+		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), expected, actual)
+
 	case "Nil", "NotNil":
-		// For Nil/NotNil, only the value
-		return fmt.Sprintf("%s.%s(%s, %s)", assertPkg, assertFunc, tVar, left)
+		// assert.Nil(t, value)
+		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X)
+
 	case "Less", "Greater", "LessOrEqual", "GreaterOrEqual":
-		return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, left, right)
+		// assert.Less(t, left, right)
+		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 	}
 
-	return fmt.Sprintf("%s.%s(%s, %s, %s)", assertPkg, assertFunc, tVar, left, right)
+	// Default: two args
+	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 }
 
 // castableType returns the type to cast the literal to, or empty string if no cast needed.
@@ -708,16 +569,5 @@ func castableType(lit *ast.BasicLit, targetType string) string {
 		}
 	}
 	return ""
-}
-
-// sourceText extracts the source text for a node.
-func sourceText(pass *analysis.Pass, node ast.Node) string {
-	start := pass.Fset.Position(node.Pos())
-	end := pass.Fset.Position(node.End())
-	content, err := os.ReadFile(start.Filename)
-	if err != nil {
-		return ""
-	}
-	return string(content[start.Offset:end.Offset])
 }
 
