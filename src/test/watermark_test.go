@@ -3,7 +3,7 @@ package test
 import (
 	"os"
 	"testing"
-	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/testify/require"
 
 )
 

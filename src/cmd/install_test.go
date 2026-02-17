@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	
 	"testing"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 
 )
 
@@ -126,7 +126,7 @@ func TestRunInstallImplCopy(t *testing.T) {
 	targetPath := filepath.Join(expectedDir, entries[0].Name())
 	info, err := os.Lstat(targetPath)
 	require.Nil(t, err)
-	assert.Equal(t, 0, info.Mode()&os.ModeSymlink)
+	assert.Equal(t, os.FileMode(0), info.Mode()&os.ModeSymlink)
 }
 
 func TestRunInstallImplReplacesExisting(t *testing.T) {

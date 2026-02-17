@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestCompareNilReports(t *testing.T) {
@@ -28,7 +28,7 @@ func TestCompareNoPrevious(t *testing.T) {
 	require.Equal(t, 1, len(deltas))
 
 	assert.Nil(t, deltas[0].Previous)
-	assert.Equal(t, 0, deltas[0].NsPerOpDelta)
+	assert.Equal(t, float64(0), deltas[0].NsPerOpDelta)
 }
 
 func TestCompareWithPrevious(t *testing.T) {

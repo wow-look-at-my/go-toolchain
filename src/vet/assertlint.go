@@ -35,10 +35,10 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		hasAssert := false
 		hasRequire := false
 		for _, imp := range file.Imports {
-			if imp.Path.Value == `"github.com/stretchr/testify/assert"` {
+			if imp.Path.Value == `"github.com/wow-look-at-my/testify/assert"` {
 				hasAssert = true
 			}
-			if imp.Path.Value == `"github.com/stretchr/testify/require"` {
+			if imp.Path.Value == `"github.com/wow-look-at-my/testify/require"` {
 				hasRequire = true
 			}
 		}
@@ -158,10 +158,10 @@ type fileDiagnostic struct {
 func generateImportEdit(pass *analysis.Pass, file *ast.File, addAssert, addRequire bool) *analysis.TextEdit {
 	var imports []string
 	if addAssert {
-		imports = append(imports, `"github.com/stretchr/testify/assert"`)
+		imports = append(imports, `"github.com/wow-look-at-my/testify/assert"`)
 	}
 	if addRequire {
-		imports = append(imports, `"github.com/stretchr/testify/require"`)
+		imports = append(imports, `"github.com/wow-look-at-my/testify/require"`)
 	}
 
 	if len(imports) == 0 {

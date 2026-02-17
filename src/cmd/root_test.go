@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
@@ -307,7 +307,7 @@ func TestRunWithRunnerAddWatermark(t *testing.T) {
 	wm, exists, werr := gotest.GetWatermark(".")
 	require.Nil(t, werr)
 	require.True(t, exists)
-	assert.Equal(t, 100.0, wm)
+	assert.Equal(t, float32(100.0), wm)
 }
 
 func TestRunWithRunnerAddWatermarkJSON(t *testing.T) {
@@ -397,7 +397,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 
 	// Verify watermark was ratcheted up
 	wm, _, _ := gotest.GetWatermark(".")
-	assert.Equal(t, 100.0, wm)
+	assert.Equal(t, float32(100.0), wm)
 }
 
 func TestHandleRemoveWatermarkNoWatermark(t *testing.T) {
