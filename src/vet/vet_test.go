@@ -214,7 +214,7 @@ func main() {
 	})
 	require.NotNil(t, call)
 
-	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNode: call.Args[0]}}}
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}}}
 
 	var buf strings.Builder
 	err = fixes.Fprint(&buf)
@@ -250,7 +250,7 @@ func main() {
 	ast.Inspect(f, func(n ast.Node) bool {
 		if c, ok := n.(*ast.CallExpr); ok {
 			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "int" {
-				fixes = append(fixes, ASTFix{OldNode: c, NewNode: c.Args[0]})
+				fixes = append(fixes, ASTFix{OldNode: c, NewNodes: []ast.Node{c.Args[0]}})
 			}
 		}
 		return true
@@ -279,8 +279,8 @@ func TestASTFixesPrintFix(t *testing.T) {
 	})
 
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{
-		{OldNode: call, NewNode: call.Args[0]}, // replacement
-		{OldNode: call, NewNode: nil},          // deletion
+		{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}, // replacement
+		{OldNode: call, NewNodes: nil},          // deletion
 	}}
 
 	// Just ensure printFix doesn't panic
@@ -464,7 +464,7 @@ func TestRedundantCastFixes(t *testing.T) {
 			})
 			require.NotNil(t, call)
 
-			fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNode: call.Args[0]}}}
+			fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}}}
 
 			var buf strings.Builder
 			err = fixes.Fprint(&buf)
@@ -571,7 +571,7 @@ func main() {
 	}
 	require.NotNil(t, imp)
 
-	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: imp, NewNode: nil}}}
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: imp, NewNodes: nil}}}
 
 	var buf strings.Builder
 	err = fixes.Fprint(&buf)
@@ -616,7 +616,7 @@ func main() {
 	})
 	require.NotNil(t, call)
 
-	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNode: call.Args[0]}}}
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}}}
 	err = fixes.Apply()
 	assert.Nil(t, err)
 
@@ -655,7 +655,7 @@ func foo() {
 	})
 	require.NotNil(t, ifStmt)
 
-	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: ifStmt, NewNode: nil}}}
+	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: ifStmt, NewNodes: nil}}}
 
 	// Just ensure it doesn't panic
 	fixes.printFix(fixes.Fixes[0])
