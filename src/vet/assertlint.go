@@ -35,10 +35,10 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		hasAssert := false
 		hasRequire := false
 		for _, imp := range file.Imports {
-			if imp.Path.Value == `"github.com/stretchr/testify/assert"` {
+			if imp.Path.Value == `"github.com/stretchr/testify/assert"` || imp.Path.Value == `"github.com/wow-look-at-my/testify/assert"` {
 				hasAssert = true
 			}
-			if imp.Path.Value == `"github.com/stretchr/testify/require"` {
+			if imp.Path.Value == `"github.com/stretchr/testify/require"` || imp.Path.Value == `"github.com/wow-look-at-my/testify/require"` {
 				hasRequire = true
 			}
 		}
