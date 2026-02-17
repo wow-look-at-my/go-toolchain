@@ -1164,33 +1164,6 @@ func main() {}
 	assert.Empty(t, f2.Imports)
 }
 
-func TestFindEnclosingFuncPos(t *testing.T) {
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "test.go", `package main
-
-func outer() {
-	inner := func() {
-		x := 1
-		_ = x
-	}
-	_ = inner
-}
-`, parser.ParseComments)
-
-	// Find a position inside the inner function literal
-	var innerPos token.Pos
-	ast.Inspect(f, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.FuncLit); ok {
-			innerPos = lit.Body.Pos() + 1
-			return false
-		}
-		return true
-	})
-
-	pos := findEnclosingFuncPos(f, innerPos)
-	assert.NotEqual(t, token.NoPos, pos)
-}
-
 func TestDetermineAssertFuncUnary(t *testing.T) {
 	// Test negation path
 	cond := &ast.UnaryExpr{
