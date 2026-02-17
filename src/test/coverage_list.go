@@ -105,8 +105,10 @@ func printItem(c ICoverageItem, depth int) {
 	}
 
 	name := c.Name()
-	if url := resolveToFileURL(c.ImportPath(), c.Line()); url != "" {
-		name = osc8Link(url, name)
+	if os.Getenv("CI") == "" {
+		if url := resolveToFileURL(c.ImportPath(), c.Line()); url != "" {
+			name = osc8Link(url, name)
+		}
 	}
 
 	sat, val := depthToStyle(depth)
