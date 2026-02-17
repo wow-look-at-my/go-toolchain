@@ -28,7 +28,7 @@ func TestCompareNoPrevious(t *testing.T) {
 	require.Equal(t, 1, len(deltas))
 
 	assert.Nil(t, deltas[0].Previous)
-	assert.Equal(t, 0, deltas[0].NsPerOpDelta)
+	assert.Equal(t, float64(0), deltas[0].NsPerOpDelta)
 }
 
 func TestCompareWithPrevious(t *testing.T) {
