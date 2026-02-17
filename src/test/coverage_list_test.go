@@ -98,6 +98,23 @@ func TestPrintItemIndentation(t *testing.T) {
 	}
 }
 
+func TestPrintItemNoOSC8InCI(t *testing.T) {
+	// When CI env var is set, OSC 8 links should be suppressed
+	item := FileCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 8},
+		File:             "test.go",
+	}
+
+	t.Setenv("CI", "true")
+
+	output := captureOutput(func() {
+		printItem(item, 0)
+	})
+
+	assert.NotContains(t, output, "\033]8;;", "should not contain OSC 8 escape sequences in CI")
+	assert.Contains(t, output, "test.go")
+}
+
 func TestDimText(t *testing.T) {
 	// Full brightness
 	assert.Equal(t, "\033[38;2;255;255;255m", dimText(1.0))
