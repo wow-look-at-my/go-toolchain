@@ -14,11 +14,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 )
 
-var (
-	lintThreshold float64
-	lintMinNodes  int
-)
-
 func init() {
 	lintCmd := &cobra.Command{
 		Use:   "lint [packages/directories...]",
@@ -30,6 +25,9 @@ Reports pairs of functions whose structural similarity exceeds the
 threshold and suggests refactoring by identifying the varying concrete
 values that would become parameters of an extracted function.
 
+This check also runs automatically during builds (warnings only).
+Use --dupcode=false to disable it during builds.
+
 Examples:
   go-toolchain lint ./...
   go-toolchain lint --threshold 0.90 ./cmd ./internal
@@ -37,10 +35,6 @@ Examples:
 		SilenceUsage: true,
 		RunE:         runLint,
 	}
-	lintCmd.Flags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold,
-		"Minimum similarity score (0.0-1.0) to report as duplicate")
-	lintCmd.Flags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes,
-		"Minimum AST node count for a block to be considered")
 
 	rootCmd.AddCommand(lintCmd)
 }
@@ -103,7 +97,7 @@ func runLintImpl(args []string) error {
 		fmt.Printf("   %s\n\n", r.Suggestion.Description)
 	}
 
-	return fmt.Errorf("found %d near-duplicate pair(s)", len(reports))
+	return nil
 }
 
 // resolveGoFiles expands a pattern (directory, ./..., or file) into

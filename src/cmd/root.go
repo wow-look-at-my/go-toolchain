@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"math"
 	"os"
 	"path/filepath"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
@@ -23,6 +27,9 @@ var (
 	addWatermark  bool
 	doRemoveWmark bool
 	generateHash  string
+	dupcode       bool
+	lintThreshold float64
+	lintMinNodes  int
 )
 
 var rootCmd = &cobra.Command{
@@ -43,6 +50,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
 	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
+	rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
+	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
+	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 
 	// Benchmark flags
 	rootCmd.Flags().BoolVar(&doBenchmark, "benchmark", false, "Run benchmarks after build")
@@ -165,6 +175,10 @@ func RunTestsWithCoverage(runner CommandRunner) error {
 	}
 	if err := runner.Run("go", "vet", "./..."); err != nil {
 		return fmt.Errorf("go vet failed: %w", err)
+	}
+
+	if dupcode {
+		runDuplicateCheck()
 	}
 
 	if !jsonOutput {
@@ -311,4 +325,53 @@ func handleRemoveWatermark() error {
 	}
 	fmt.Println("Watermark removed.")
 	return nil
+}
+
+// runDuplicateCheck scans Go source files for near-duplicate function bodies
+// and prints warnings. It never causes a build failure.
+func runDuplicateCheck() {
+	if !jsonOutput {
+		fmt.Println("==> Checking for near-duplicate code")
+	}
+
+	paths, err := walkGoFiles(".")
+	if err != nil || len(paths) == 0 {
+		return
+	}
+
+	fset := token.NewFileSet()
+	allFiles := make(map[string]*ast.File)
+	for _, path := range paths {
+		f, parseErr := parser.ParseFile(fset, path, nil, 0)
+		if parseErr != nil {
+			continue
+		}
+		allFiles[path] = f
+	}
+
+	if len(allFiles) == 0 {
+		return
+	}
+
+	reports := lint.RunOnFiles(allFiles, fset, lintThreshold, lintMinNodes)
+	if len(reports) == 0 {
+		return
+	}
+
+	if jsonOutput {
+		return
+	}
+
+	fmt.Printf("\n%s near-duplicate code: found %d pair(s)%s\n", colorYellow, len(reports), colorReset)
+	for i, r := range reports {
+		fmt.Printf("  %d. %.0f%% similar: %s (%s:%d) and %s (%s:%d)\n",
+			i+1, r.Similarity*100,
+			r.FuncA, r.FileA, r.LineA,
+			r.FuncB, r.FileB, r.LineB,
+		)
+		if verbose {
+			fmt.Printf("     %s\n", r.Suggestion.Description)
+		}
+	}
+	fmt.Println()
 }
