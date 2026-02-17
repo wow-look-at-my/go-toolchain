@@ -8,7 +8,99 @@ import (
 
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
+	"golang.org/x/tools/go/analysis"
 )
+
+func TestAnalyzerRun_DetectsDuplicates(t *testing.T) {
+	// Test the analysis.Pass-based run function with duplicate code
+	src := `package p
+
+func handleUser(name string) {
+	result := validate(name)
+	if result != nil {
+		log("failed for user")
+		return
+	}
+	data := transform(name)
+	if data == nil {
+		log("transform failed")
+		return
+	}
+	save(data)
+	log("saved user")
+}
+
+func handleOrder(id string) {
+	result := validate(id)
+	if result != nil {
+		log("failed for order")
+		return
+	}
+	data := transform(id)
+	if data == nil {
+		log("transform failed")
+		return
+	}
+	save(data)
+	log("saved order")
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", src, 0)
+	require.NoError(t, err)
+
+	var diagnostics []analysis.Diagnostic
+	pass := &analysis.Pass{
+		Analyzer: Analyzer,
+		Fset:     fset,
+		Files:    []*ast.File{f},
+		Report: func(d analysis.Diagnostic) {
+			diagnostics = append(diagnostics, d)
+		},
+	}
+
+	result, err := run(pass)
+	require.NoError(t, err)
+	assert.Nil(t, result)
+	assert.NotEmpty(t, diagnostics, "should report diagnostics for near-duplicate functions")
+	assert.Contains(t, diagnostics[0].Message, "near-duplicate code")
+	assert.NotEmpty(t, diagnostics[0].SuggestedFixes)
+}
+
+func TestAnalyzerRun_NoDuplicates(t *testing.T) {
+	src := `package p
+
+func add(a, b int) int {
+	return a + b
+}
+
+func sub(a, b int) int {
+	result := a - b
+	if result < 0 {
+		result = -result
+	}
+	return result
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", src, 0)
+	require.NoError(t, err)
+
+	var diagnostics []analysis.Diagnostic
+	pass := &analysis.Pass{
+		Analyzer: Analyzer,
+		Fset:     fset,
+		Files:    []*ast.File{f},
+		Report: func(d analysis.Diagnostic) {
+			diagnostics = append(diagnostics, d)
+		},
+	}
+
+	result, err := run(pass)
+	require.NoError(t, err)
+	assert.Nil(t, result)
+	assert.Empty(t, diagnostics, "should not report diagnostics for different functions")
+}
 
 func TestRunOnFiles_DetectsNearDuplicates(t *testing.T) {
 	// Two functions with identical structure, different variable names

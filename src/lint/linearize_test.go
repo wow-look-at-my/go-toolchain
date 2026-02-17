@@ -162,9 +162,152 @@ func TestSequenceString(t *testing.T) {
 }
 
 func TestNodeTypeName(t *testing.T) {
-	assert.Equal(t, "IfStmt", nodeTypeName(&ast.IfStmt{}))
-	assert.Equal(t, "ForStmt", nodeTypeName(&ast.ForStmt{}))
-	assert.Equal(t, "CallExpr", nodeTypeName(&ast.CallExpr{}))
-	assert.Equal(t, "ReturnStmt", nodeTypeName(&ast.ReturnStmt{}))
-	assert.Equal(t, "", nodeTypeName(&ast.File{})) // unmapped type
+	tests := []struct {
+		node     ast.Node
+		expected string
+	}{
+		{&ast.IfStmt{}, "IfStmt"},
+		{&ast.ForStmt{}, "ForStmt"},
+		{&ast.RangeStmt{}, "RangeStmt"},
+		{&ast.SwitchStmt{}, "SwitchStmt"},
+		{&ast.TypeSwitchStmt{}, "TypeSwitchStmt"},
+		{&ast.SelectStmt{}, "SelectStmt"},
+		{&ast.CaseClause{}, "CaseClause"},
+		{&ast.CommClause{}, "CommClause"},
+		{&ast.ReturnStmt{}, "ReturnStmt"},
+		{&ast.AssignStmt{}, "AssignStmt"},
+		{&ast.DeclStmt{}, "DeclStmt"},
+		{&ast.ExprStmt{}, "ExprStmt"},
+		{&ast.GoStmt{}, "GoStmt"},
+		{&ast.DeferStmt{}, "DeferStmt"},
+		{&ast.SendStmt{}, "SendStmt"},
+		{&ast.IncDecStmt{}, "IncDecStmt"},
+		{&ast.BranchStmt{}, "BranchStmt"},
+		{&ast.LabeledStmt{}, "LabeledStmt"},
+		{&ast.BlockStmt{}, "BlockStmt"},
+		{&ast.CallExpr{}, "CallExpr"},
+		{&ast.UnaryExpr{}, "UnaryExpr"},
+		{&ast.BinaryExpr{}, "BinaryExpr"},
+		{&ast.IndexExpr{}, "IndexExpr"},
+		{&ast.SliceExpr{}, "SliceExpr"},
+		{&ast.TypeAssertExpr{}, "TypeAssertExpr"},
+		{&ast.KeyValueExpr{}, "KeyValueExpr"},
+		{&ast.CompositeLit{}, "CompositeLit"},
+		{&ast.FuncLit{Body: &ast.BlockStmt{}}, "FuncLit"},
+		{&ast.SelectorExpr{}, "SelectorExpr"},
+		{&ast.StarExpr{}, "StarExpr"},
+		{&ast.File{}, ""},  // unmapped type
+		{&ast.Field{}, ""}, // unmapped type
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, nodeTypeName(tt.node))
+	}
+}
+
+func TestLinearize_AllNodeTypes(t *testing.T) {
+	// Exercise as many AST node types as possible in a single function
+	src := `package p
+
+import "fmt"
+
+func allNodes() {
+	// AssignStmt, BinaryExpr, BasicLit, Ident
+	x := 1 + 2
+	// IncDecStmt
+	x++
+	// ExprStmt, CallExpr, SelectorExpr
+	fmt.Println(x)
+	// IfStmt
+	if x > 0 {
+		// ReturnStmt
+		return
+	}
+	// ForStmt, BlockStmt
+	for i := 0; i < x; i++ {
+		_ = i
+	}
+	// RangeStmt
+	for _, v := range []int{1, 2} {
+		_ = v
+	}
+	// SwitchStmt, CaseClause
+	switch x {
+	case 1:
+		_ = x
+	}
+	// DeferStmt
+	defer fmt.Println("done")
+	// UnaryExpr, StarExpr
+	p := &x
+	_ = *p
+	// CompositeLit, KeyValueExpr
+	m := map[string]int{"a": 1}
+	// IndexExpr
+	_ = m["a"]
+	// SliceExpr
+	s := []int{1, 2, 3}
+	_ = s[0:1]
+	// FuncLit
+	f := func() {}
+	f()
+	// GoStmt
+	go f()
+	// DeclStmt
+	var y int
+	_ = y
+	// TypeAssertExpr
+	var iface interface{} = 42
+	_ = iface.(int)
+	// SendStmt
+	ch := make(chan int, 1)
+	ch <- 1
+	// SelectStmt, CommClause
+	select {
+	case v := <-ch:
+		_ = v
+	}
+	// BranchStmt
+	for {
+		break
+	}
+	// LabeledStmt
+done:
+	_ = x
+	goto done
+}
+`
+	f, fset := parseSource(t, src)
+	blocks := ExtractBlocks(f, fset, 1)
+	require.NotEmpty(t, blocks)
+
+	seq := blocks[0].Sequence
+	// Verify key structural symbols are present
+	assert.Contains(t, seq, "A") // AssignStmt
+	assert.Contains(t, seq, "N") // IncDecStmt
+	assert.Contains(t, seq, "X") // ExprStmt
+	assert.Contains(t, seq, "C") // CallExpr
+	assert.Contains(t, seq, ".") // SelectorExpr
+	assert.Contains(t, seq, "I") // IfStmt
+	assert.Contains(t, seq, "R") // ReturnStmt
+	assert.Contains(t, seq, "F") // ForStmt
+	assert.Contains(t, seq, "G") // RangeStmt
+	assert.Contains(t, seq, "W") // SwitchStmt
+	assert.Contains(t, seq, "K") // CaseClause
+	assert.Contains(t, seq, "P") // DeferStmt
+	assert.Contains(t, seq, "U") // UnaryExpr
+	assert.Contains(t, seq, "*") // StarExpr
+	assert.Contains(t, seq, "Q") // CompositeLit
+	assert.Contains(t, seq, "H") // KeyValueExpr
+	assert.Contains(t, seq, "J") // IndexExpr
+	assert.Contains(t, seq, "Z") // SliceExpr
+	assert.Contains(t, seq, "#") // FuncLit
+	assert.Contains(t, seq, "O") // GoStmt
+	assert.Contains(t, seq, "D") // DeclStmt
+	assert.Contains(t, seq, "T") // TypeAssertExpr
+	assert.Contains(t, seq, "S") // SendStmt
+	assert.Contains(t, seq, "E") // SelectStmt
+	assert.Contains(t, seq, "M") // CommClause
+	assert.Contains(t, seq, "B") // BranchStmt
+	assert.Contains(t, seq, "L") // LabeledStmt
+	assert.Contains(t, seq, "V") // BinaryExpr
 }
