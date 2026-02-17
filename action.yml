@@ -7,14 +7,6 @@ branding:
   color: 'green'
 
 inputs:
-  min-coverage:
-    description: 'Minimum coverage percentage required (0 = test only, no build)'
-    required: false
-    default: '80'
-  cov-detail:
-    description: 'Show detailed coverage: "func" or "file"'
-    required: false
-    default: ''
   json:
     description: 'Output coverage report as JSON'
     required: false
@@ -50,10 +42,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
-        ARGS="--min-coverage ${{ inputs.min-coverage }}"
-        if [ -n "${{ inputs.cov-detail }}" ]; then
-          ARGS="$ARGS --cov-detail ${{ inputs.cov-detail }}"
-        fi
+        ARGS=""
         if [ "${{ inputs.json }}" = "true" ]; then
           ARGS="$ARGS --json"
         fi
@@ -63,9 +52,9 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
-        # Self-test: use commit SHA when running in this repo
+        # Self-test: use local source (go.mod has replace directives)
         if [ "$GITHUB_REPOSITORY" = "wow-look-at-my/go-toolchain" ]; then
-          go run github.com/wow-look-at-my/go-toolchain/src@$GITHUB_SHA matrix $ARGS
+          go run ./src matrix $ARGS
         else
           go run github.com/wow-look-at-my/go-toolchain/src@latest matrix $ARGS
         fi

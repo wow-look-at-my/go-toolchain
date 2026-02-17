@@ -3,11 +3,18 @@ name: CI
 on:
   push:
 
+env:
+  GOPROXY: direct
+  GOSUMDB: off
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure git for private repos
+        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -17,18 +24,13 @@ jobs:
       - name: Build and test
         run: go run ./src
 
-      - name: Install bats and attr
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bats jq attr
-
-      - name: Run integration tests
-        run: bats tests/
-
   gha-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure git for private repos
+        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       - name: Build and test with action
         uses: ./

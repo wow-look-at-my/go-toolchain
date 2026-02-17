@@ -4,37 +4,31 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 func TestFindMainPackagesParsesOutput(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("example.com/cmd/foo\n\nexample.com/cmd/bar\n"), nil)
 
 	pkgs, err := findMainPackages(mock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages, got %d", len(pkgs))
-	}
-	if pkgs[0] != "example.com/cmd/foo" || pkgs[1] != "example.com/cmd/bar" {
-		t.Errorf("unexpected packages: %v", pkgs)
-	}
+	require.Nil(t, err)
+	require.Equal(t, 2, len(pkgs))
+	assert.False(t, pkgs[0] != "example.com/cmd/foo" || pkgs[1] != "example.com/cmd/bar")
 }
 
 func TestFindMainPackagesEmpty(t *testing.T) {
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("\n\n"), nil)
 
 	pkgs, err := findMainPackages(mock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pkgs) != 0 {
-		t.Errorf("expected 0 packages, got %d", len(pkgs))
-	}
+	require.Nil(t, err)
+	assert.Equal(t, 0, len(pkgs))
 }
 
 func TestBinaryNameFromImportPath(t *testing.T) {
@@ -59,9 +53,7 @@ func TestBinaryNameFromImportPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := binaryNameFromImportPath(tt.pkg, tt.module)
-		if got != tt.want {
-			t.Errorf("binaryNameFromImportPath(%q, %q) = %q, want %q", tt.pkg, tt.module, got, tt.want)
-		}
+		assert.Equal(t, tt.want, got)
 	}
 }
 
@@ -75,12 +67,8 @@ func TestResolveBuildTargetsGoFilesInRoot(t *testing.T) {
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
 
 	targets, err := ResolveBuildTargets(nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(targets) != 1 || targets[0].ImportPath != "." || targets[0].OutputName != filepath.Base(tmpDir) {
-		t.Errorf("unexpected target: %+v", targets)
-	}
+	require.Nil(t, err)
+	assert.False(t, len(targets) != 1 || targets[0].ImportPath != "." || targets[0].OutputName != filepath.Base(tmpDir))
 }
 
 func TestResolveBuildTargetsAutoDetectSingle(t *testing.T) {
@@ -89,19 +77,15 @@ func TestResolveBuildTargetsAutoDetectSingle(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("example.com/cmd/myapp\n"), nil)
 	mock.SetResponse("go", []string{"list", "-m"},
 		[]byte("example.com\n"), nil)
 
 	targets, err := ResolveBuildTargets(mock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(targets) != 1 || targets[0].ImportPath != "example.com/cmd/myapp" || targets[0].OutputName != "myapp" {
-		t.Errorf("unexpected target: %+v", targets)
-	}
+	require.Nil(t, err)
+	assert.False(t, len(targets) != 1 || targets[0].ImportPath != "example.com/cmd/myapp" || targets[0].OutputName != "myapp")
 }
 
 func TestResolveBuildTargetsAutoDetectMultiple(t *testing.T) {
@@ -110,22 +94,16 @@ func TestResolveBuildTargetsAutoDetectMultiple(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("example.com/cmd/foo\nexample.com/cmd/bar\n"), nil)
 	mock.SetResponse("go", []string{"list", "-m"},
 		[]byte("example.com\n"), nil)
 
 	targets, err := ResolveBuildTargets(mock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(targets) != 2 {
-		t.Fatalf("expected 2 targets, got %d", len(targets))
-	}
-	if targets[0].OutputName != "foo" || targets[1].OutputName != "bar" {
-		t.Errorf("unexpected names: %q, %q", targets[0].OutputName, targets[1].OutputName)
-	}
+	require.Nil(t, err)
+	require.Equal(t, 2, len(targets))
+	assert.False(t, targets[0].OutputName != "foo" || targets[1].OutputName != "bar")
 }
 
 func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
@@ -134,21 +112,15 @@ func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
 		[]byte("github.com/wow-look-at-my/go-toolchain/src\n"), nil)
 	mock.SetResponse("go", []string{"list", "-m"},
 		[]byte("github.com/wow-look-at-my/go-toolchain\n"), nil)
 
 	targets, err := ResolveBuildTargets(mock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(targets) != 1 {
-		t.Fatalf("expected 1 target, got %d", len(targets))
-	}
+	require.Nil(t, err)
+	require.Equal(t, 1, len(targets))
 	// Binary should be named after the module, not "src"
-	if targets[0].OutputName != "go-toolchain" {
-		t.Errorf("expected output name 'go-toolchain', got %q", targets[0].OutputName)
-	}
+	assert.Equal(t, "go-toolchain", targets[0].OutputName)
 }

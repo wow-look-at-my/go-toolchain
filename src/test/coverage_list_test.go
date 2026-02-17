@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func captureOutput(f func()) string {
@@ -159,31 +159,56 @@ func TestPrintEmptyPackage(t *testing.T) {
 	assert.Contains(t, output, "empty.go")
 }
 
-func TestPrintHidesZeroUncoveredUnlessVerbose(t *testing.T) {
+func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
+	// Create file coverage with functions
+	file1 := FileCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 20, Covered: 10},
+		File:             "example.com/pkg/partial.go",
+	}
+	fn1 := FuncCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 5},
+		FuncLine:         10,
+		Function:         "NeedsCoverage",
+		File:             &file1,
+	}
+	file1.Functions = []FuncCoverage{fn1}
+
+	file2 := FileCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 5, Covered: 5},
+		File:             "example.com/pkg/full.go",
+	}
+	fn2 := FuncCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 5, Covered: 5},
+		FuncLine:         20,
+		Function:         "FullyCovered",
+		File:             &file2,
+	}
+	file2.Functions = []FuncCoverage{fn2}
+
 	report := Report{
 		Packages: []PackageCoverage{
 			{
-				baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 5},
-				Package:          "pkg",
-				Files: []FileCoverage{
-					{baseCoverageItem: baseCoverageItem{Statements: 5, Covered: 5}, File: "full.go"},
-					{baseCoverageItem: baseCoverageItem{Statements: 5, Covered: 0}, File: "partial.go"},
-				},
+				baseCoverageItem: baseCoverageItem{Statements: 25, Covered: 15},
+				Package:          "example.com/pkg",
+				Files:            []FileCoverage{file1, file2},
 			},
 		},
 	}
 
-	// Without verbose, should hide 0-uncovered files
 	output := captureOutput(func() {
-		report.Print(PrintOptions{ShowFiles: true, Verbose: false})
+		report.Print()
 	})
-	assert.NotContains(t, output, "full.go", "should hide fully covered file")
-	assert.Contains(t, output, "partial.go", "should show file with uncovered code")
 
-	// With verbose, should show all files
-	outputVerbose := captureOutput(func() {
-		report.Print(PrintOptions{ShowFiles: true, Verbose: true})
-	})
-	assert.Contains(t, outputVerbose, "full.go", "verbose should show fully covered file")
-	assert.Contains(t, outputVerbose, "partial.go", "verbose should show file with uncovered code")
+	// Should show package
+	assert.Contains(t, output, "example.com/pkg", "should show package")
+
+	// Should show file with uncovered function
+	assert.Contains(t, output, "partial.go", "should show file with uncovered function")
+
+	// Should show uncovered function
+	assert.Contains(t, output, "NeedsCoverage", "should show uncovered function")
+
+	// Should NOT show fully covered file/function (not in top 10 uncovered)
+	assert.NotContains(t, output, "full.go", "should not show fully covered file")
+	assert.NotContains(t, output, "FullyCovered", "should not show covered function")
 }

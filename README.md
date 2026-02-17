@@ -4,7 +4,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 ## Features
 
-- **Coverage enforcement** — fails the build if test coverage drops below a configurable minimum (default 80%)
+- **Coverage enforcement** — fails the build if test coverage drops below 80%
 - **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
 - **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
 - **Benchmarks** — run Go benchmarks after build with the `--benchmark` flag
@@ -16,7 +16,6 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 ```yaml
 - uses: wow-look-at-my/go-toolchain@latest
   with:
-    min-coverage: '80'        # minimum coverage % (0 = test only, no build)
     cov-detail: ''            # 'func' or 'file' for detailed coverage
     json: 'false'             # output coverage report as JSON
     verbose: 'false'          # show test output line by line
@@ -27,7 +26,6 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 | Input               | Default | Description                                         |
 |---------------------|---------|-----------------------------------------------------|
-| `min-coverage`      | `80`    | Minimum coverage percentage (0 = test only)         |
 | `cov-detail`        | `''`    | Show detailed coverage: `func` or `file`            |
 | `json`              | `false` | Output coverage report as JSON                      |
 | `verbose`           | `false` | Show test output line by line                       |
@@ -46,10 +44,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 go install github.com/wow-look-at-my/go-toolchain/src@latest
 
 # Run tests and build (default workflow)
-go-toolchain --min-coverage 80
-
-# Test only, no build
-go-toolchain --min-coverage 0
+go-toolchain
 
 # Cross-compile for multiple platforms
 go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
@@ -65,11 +60,10 @@ go-toolchain install
 
 | Flag                | Default                   | Description                                  |
 |---------------------|---------------------------|----------------------------------------------|
-| `--min-coverage`    | `80`                      | Minimum coverage percentage (0 = test only)  |
 | `--cov-detail`      | `''`                      | Detailed coverage: `func` or `file`          |
 | `--json`            | `false`                   | Output coverage as JSON                      |
 | `--verbose`         | `false`                   | Verbose test output                          |
-| `--add-watermark`   | `false`                   | Set coverage watermark on `go.mod`           |
+| `--add-watermark`   | `false`                   | Set coverage watermark on project directory  |
 | `--benchmark`       | `false`                   | Run benchmarks after build                   |
 | `--benchtime`       | `''`                      | Duration or count for each benchmark (e.g. `5s`, `1000x`) |
 | `-n`, `--count`     | `1`                       | Number of times to run each benchmark        |

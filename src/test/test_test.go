@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"gotest.tools/gotestsum/testjson"
 )
 
@@ -19,13 +22,9 @@ func TestCoverageHandlerExtractsCoverage(t *testing.T) {
 		Output:  "coverage: 75.5% of statements\n",
 	}
 
-	if err := h.Event(event, nil); err != nil {
-		t.Fatalf("Event returned error: %v", err)
-	}
+	require.NoError(t, h.Event(event, nil))
 
-	if h.coverage["example.com/pkg"] != 75.5 {
-		t.Errorf("expected coverage 75.5, got %v", h.coverage["example.com/pkg"])
-	}
+	assert.Equal(t, float32(75.5), h.coverage["example.com/pkg"])
 }
 
 func TestCoverageHandlerIgnoresNonCoverageOutput(t *testing.T) {
@@ -37,13 +36,10 @@ func TestCoverageHandlerIgnoresNonCoverageOutput(t *testing.T) {
 		Output:  "=== RUN TestFoo\n",
 	}
 
-	if err := h.Event(event, nil); err != nil {
-		t.Fatalf("Event returned error: %v", err)
-	}
+	require.NoError(t, h.Event(event, nil))
 
-	if _, exists := h.coverage["example.com/pkg"]; exists {
-		t.Error("should not have extracted coverage from non-coverage output")
-	}
+	_, exists := h.coverage["example.com/pkg"]
+	assert.False(t, exists)
 }
 
 func TestCoverageHandlerIgnoresNonOutputActions(t *testing.T) {
@@ -54,20 +50,15 @@ func TestCoverageHandlerIgnoresNonOutputActions(t *testing.T) {
 		Package: "example.com/pkg",
 	}
 
-	if err := h.Event(event, nil); err != nil {
-		t.Fatalf("Event returned error: %v", err)
-	}
+	require.NoError(t, h.Event(event, nil))
 
-	if _, exists := h.coverage["example.com/pkg"]; exists {
-		t.Error("should not have extracted coverage from non-output action")
-	}
+	_, exists := h.coverage["example.com/pkg"]
+	assert.False(t, exists)
 }
 
 func TestCoverageHandlerErr(t *testing.T) {
 	h := &coverageHandler{coverage: make(map[string]float32)}
-	if err := h.Err("some error"); err != nil {
-		t.Errorf("Err should return nil, got %v", err)
-	}
+	assert.NoError(t, h.Err("some error"))
 }
 
 func TestCoverageRegex(t *testing.T) {
@@ -85,15 +76,10 @@ func TestCoverageRegex(t *testing.T) {
 	for _, tc := range tests {
 		matches := coverageRe.FindStringSubmatch(tc.input)
 		if tc.expected == "" {
-			if len(matches) > 0 {
-				t.Errorf("input %q: expected no match, got %v", tc.input, matches)
-			}
+			assert.LessOrEqual(t, len(matches), 0)
 		} else {
-			if len(matches) != 2 {
-				t.Errorf("input %q: expected match, got %v", tc.input, matches)
-			} else if matches[1] != tc.expected {
-				t.Errorf("input %q: expected %q, got %q", tc.input, tc.expected, matches[1])
-			}
+			require.Equal(t, 2, len(matches), "input %q: expected match, got %v", tc.input, matches)
+			assert.Equal(t, tc.expected, matches[1], "input %q", tc.input)
 		}
 	}
 }
@@ -108,20 +94,12 @@ func TestCoverageHandlerMultiplePackages(t *testing.T) {
 	}
 
 	for _, event := range events {
-		if err := h.Event(event, nil); err != nil {
-			t.Fatalf("Event returned error: %v", err)
-		}
+		require.NoError(t, h.Event(event, nil))
 	}
 
-	if h.coverage["pkg1"] != 50.0 {
-		t.Errorf("pkg1: expected 50.0, got %v", h.coverage["pkg1"])
-	}
-	if h.coverage["pkg2"] != 75.0 {
-		t.Errorf("pkg2: expected 75.0, got %v", h.coverage["pkg2"])
-	}
-	if h.coverage["pkg3"] != 100.0 {
-		t.Errorf("pkg3: expected 100.0, got %v", h.coverage["pkg3"])
-	}
+	assert.Equal(t, float32(50.0), h.coverage["pkg1"])
+	assert.Equal(t, float32(75.0), h.coverage["pkg2"])
+	assert.Equal(t, float32(100.0), h.coverage["pkg3"])
 }
 
 func TestRunTestsWithMock(t *testing.T) {
@@ -134,38 +112,30 @@ example.com/pkg/main.go:14.20,16.2 3 0
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	// Return valid JSON test output
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile)
-	if err != nil {
-		t.Fatalf("runTests failed: %v", err)
-	}
+	require.Nil(t, err)
 
-	if len(result.Coverage.Packages) != 1 {
-		t.Errorf("expected 1 package, got %d", len(result.Coverage.Packages))
-	}
+	assert.Equal(t, 1, len(result.Coverage.Packages))
 
-	if result.Coverage.Packages[0].Pct() != 85.0 {
-		t.Errorf("expected coverage 85.0, got %v", result.Coverage.Packages[0].Pct())
-	}
+	assert.Equal(t, float32(85.0), result.Coverage.Packages[0].Pct())
 }
 
 func TestRunTestsFailure(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
-	mock := NewMockRunner()
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, nil, fmt.Errorf("test failed"))
+	mock := runner.NewMock()
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, nil, fmt.Errorf("test failed"))
 
 	_, err := RunTests(mock, false, coverFile)
-	if err == nil {
-		t.Error("expected error when tests fail")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestRunTestsVerbose(t *testing.T) {
@@ -177,29 +147,25 @@ example.com/pkg/main.go:10.20,12.2 1 1
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"=== RUN TestFoo\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:03Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, true, coverFile) // verbose=true
-	if err != nil {
-		t.Fatalf("runTests failed: %v", err)
-	}
+	require.Nil(t, err)
 
-	if len(result.Coverage.Packages) != 1 {
-		t.Errorf("expected 1 package, got %d", len(result.Coverage.Packages))
-	}
+	assert.Equal(t, 1, len(result.Coverage.Packages))
 }
 
 func TestRunTestsNoCoverageFile(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 	// Don't create coverage.out - no profile means no statement-level data
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"pkg1","Output":"coverage: 50.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"pkg1"}
@@ -207,23 +173,17 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"pkg2","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile)
-	if err != nil {
-		t.Fatalf("runTests failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Without a coverage profile we can't compute statement-weighted total.
 	// Total should be 0 rather than a misleading per-package average.
-	if result.Coverage.Total != 0 {
-		t.Errorf("expected total 0 without coverage profile, got %v", result.Coverage.Total)
-	}
+	assert.Equal(t, float32(0), result.Coverage.Total)
 
 	// Per-package percentages are still available from test output
-	if len(result.Coverage.Packages) != 2 {
-		t.Errorf("expected 2 packages, got %d", len(result.Coverage.Packages))
-	}
+	assert.Equal(t, 2, len(result.Coverage.Packages))
 }
 
 func TestRunTestsNoStatementsMarkedCorrectly(t *testing.T) {
@@ -239,7 +199,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 50.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
@@ -250,30 +210,22 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 {"Time":"2024-01-01T00:00:07Z","Action":"output","Package":"example.com/pkg3","Output":"coverage: [no statements]\n"}
 {"Time":"2024-01-01T00:00:08Z","Action":"pass","Package":"example.com/pkg3"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile)
-	if err != nil {
-		t.Fatalf("runTests failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Total from profile: 3 covered / 4 statements = 75%
 	// (statement-weighted, not per-package average)
-	if result.Coverage.Total != 75.0 {
-		t.Errorf("expected total 75.0 (statement-weighted), got %v", result.Coverage.Total)
-	}
+	assert.Equal(t, float32(75.0), result.Coverage.Total)
 
 	// Verify statements are set correctly
 	for _, p := range result.Coverage.Packages {
 		switch p.Package {
 		case "example.com/pkg1", "example.com/pkg2":
-			if p.Statements == 0 {
-				t.Errorf("package %s should have statements", p.Package)
-			}
+			assert.NotEqual(t, 0, p.Statements)
 		case "example.com/pkg3":
-			if p.Statements != 0 {
-				t.Errorf("package %s should have no statements", p.Package)
-			}
+			assert.Equal(t, 0, p.Statements)
 		}
 	}
 }
@@ -288,7 +240,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 50.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
@@ -296,26 +248,18 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: [no statements]\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile)
-	if err != nil {
-		t.Fatalf("runTests failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Total comes from ParseProfile: 1 covered / 2 statements = 50%
-	if result.Coverage.Total != 50.0 {
-		t.Errorf("expected total 50.0, got %v", result.Coverage.Total)
-	}
+	assert.Equal(t, float32(50.0), result.Coverage.Total)
 
 	// Verify statements are set on the right package
 	for _, p := range result.Coverage.Packages {
-		if p.Package == "example.com/pkg2" && p.Statements != 0 {
-			t.Error("pkg2 should have no statements")
-		}
-		if p.Package == "example.com/pkg1" && p.Statements == 0 {
-			t.Error("pkg1 should have statements")
-		}
+		assert.False(t, p.Package == "example.com/pkg2" && p.Statements != 0)
+		assert.False(t, p.Package == "example.com/pkg1" && p.Statements == 0)
 	}
 }
 
@@ -330,7 +274,7 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 `
 	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
-	mock := NewMockRunner()
+	mock := runner.NewMock()
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
@@ -338,24 +282,18 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: 0% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile)
-	if err != nil {
-		t.Fatalf("runTests failed: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Verify packages contain their files
 	for _, p := range result.Coverage.Packages {
 		switch p.Package {
 		case "example.com/pkg1":
-			if len(p.Files) != 2 {
-				t.Errorf("pkg1: expected 2 files, got %d", len(p.Files))
-			}
+			assert.Equal(t, 2, len(p.Files))
 		case "example.com/pkg2":
-			if len(p.Files) != 1 {
-				t.Errorf("pkg2: expected 1 file, got %d", len(p.Files))
-			}
+			assert.Equal(t, 1, len(p.Files))
 		}
 	}
 }
