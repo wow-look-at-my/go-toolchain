@@ -205,15 +205,15 @@ func findFileUnusedImportFixes(fset *token.FileSet, f *ast.File) *ASTFixes {
 		return true
 	})
 
-	// Generate fixes for unused imports (deletion = nil NewNode)
+	// Generate fixes for unused imports (deletion = empty NewNodes)
 	var fixes []ASTFix
 	for name, imp := range imports {
 		if used[name] {
 			continue
 		}
 		fixes = append(fixes, ASTFix{
-			OldNode: imp,
-			NewNode: nil, // deletion
+			OldNode:  imp,
+			NewNodes: nil, // deletion
 		})
 	}
 
