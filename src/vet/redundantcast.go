@@ -44,8 +44,8 @@ func runRedundantCast(pass *analysis.Pass) (any, error) {
 			if isRedundantCast(typeIdent.Name, lit) {
 				pass.Reportf(call.Pos(), "redundant cast: %s(%s) can be just %s", typeIdent.Name, lit.Value, lit.Value)
 				fileToFixes[file] = append(fileToFixes[file], ASTFix{
-					OldNode: call,
-					NewNode: lit,
+					OldNode:  call,
+					NewNodes: []ast.Node{lit},
 				})
 			}
 
