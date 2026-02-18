@@ -143,7 +143,17 @@ type funcWithPath struct {
 // Print prints coverage in package > file > function hierarchy
 // Always shows packages, plus top 10 uncovered functions in tree structure
 func (r Report) Print() {
-	// Collect all functions with uncovered statements
+	// Sort everything FIRST before collecting pointers
+	// (sorting moves elements in memory, invalidating pointers)
+	sortByUncovered(r.Packages)
+	for i := range r.Packages {
+		sortByUncovered(r.Packages[i].Files)
+		for j := range r.Packages[i].Files {
+			sortByUncovered(r.Packages[i].Files[j].Functions)
+		}
+	}
+
+	// Now collect all functions with uncovered statements (pointers are stable)
 	var uncoveredFuncs []funcWithPath
 	for i := range r.Packages {
 		pkg := &r.Packages[i]
@@ -158,7 +168,7 @@ func (r Report) Print() {
 		}
 	}
 
-	// Sort by uncovered count (descending)
+	// Sort by uncovered count (descending) - this only sorts our slice of pointers
 	sort.Slice(uncoveredFuncs, func(i, j int) bool {
 		if uncoveredFuncs[i].fn.Uncovered() != uncoveredFuncs[j].fn.Uncovered() {
 			return uncoveredFuncs[i].fn.Uncovered() > uncoveredFuncs[j].fn.Uncovered()
@@ -182,20 +192,17 @@ func (r Report) Print() {
 	}
 
 	// Print packages, with files/funcs only for top 10
-	sortByUncovered(r.Packages)
 	fmt.Println("     cov  miss  name")
 	for i := range r.Packages {
 		pkg := &r.Packages[i]
 		printItem(*pkg, 0)
 		if pkgHasTop[pkg] {
-			sortByUncovered(pkg.Files)
 			for j := range pkg.Files {
 				file := &pkg.Files[j]
 				if !fileHasTop[file] {
 					continue
 				}
 				printItem(*file, 1)
-				sortByUncovered(file.Functions)
 				for k := range file.Functions {
 					fn := &file.Functions[k]
 					if fnIsTop[fn] {
