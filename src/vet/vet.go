@@ -67,16 +67,18 @@ func Analyzers() []*analysis.Analyzer {
 
 // Run executes all analyzers on the current module.
 // If fix is true, auto-fixes are applied for analyzers that support them.
-// Returns nil if no go.mod exists (nothing to vet).
-func Run(fix bool) error {
+// Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
+// Returns (false, nil) if no go.mod exists (nothing to vet).
+func Run(fix bool) (bool, error) {
 	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
-		return nil
+		return false, nil
 	}
 	return RunOnPattern("./...", fix)
 }
 
 // RunOnPattern executes all analyzers on packages matching the pattern.
-func RunOnPattern(pattern string, fix bool) error {
+// Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
+func RunOnPattern(pattern string, fix bool) (bool, error) {
 	return vetSemantic(pattern, fix)
 }
 
@@ -103,7 +105,8 @@ func isUnusedImportError(errMsg string) bool {
 }
 
 // vetSemantic runs type-aware analysis using go/packages and the analysis framework.
-func vetSemantic(pattern string, fix bool) error {
+// Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
+func vetSemantic(pattern string, fix bool) (bool, error) {
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
@@ -111,7 +114,7 @@ func vetSemantic(pattern string, fix bool) error {
 
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
-		return fmt.Errorf("failed to load packages: %w", err)
+		return false, fmt.Errorf("failed to load packages: %w", err)
 	}
 
 	// Check for load errors - separate unused import errors from others
@@ -129,36 +132,38 @@ func vetSemantic(pattern string, fix bool) error {
 
 	// If there are non-import errors, fail
 	if len(loadErrors) > 0 {
-		return fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
+		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
 	}
 
 	// If there are unused import errors, fix them and re-run
 	if len(unusedImportErrors) > 0 {
 		if !fix {
-			return fmt.Errorf("package load errors:\n%s", strings.Join(unusedImportErrors, "\n"))
+			return false, fmt.Errorf("package load errors:\n%s", strings.Join(unusedImportErrors, "\n"))
 		}
 
 		// Find and apply fixes using the loaded AST
 		importFixes := FindUnusedImportFixes(pkgs)
 		for _, f := range importFixes {
 			if err := f.Apply(); err != nil {
-				return fmt.Errorf("failed to fix unused imports: %w", err)
+				return false, fmt.Errorf("failed to fix unused imports: %w", err)
 			}
 		}
 		if len(importFixes) > 0 {
-			// Re-run semantic analysis with fixed files
-			return vetSemantic(pattern, fix)
+			// Re-run semantic analysis with fixed files (already changed files)
+			_, err := vetSemantic(pattern, fix)
+			return true, err
 		}
 	}
 
 	// Run analyzers
 	graph, err := checker.Analyze(Analyzers(), pkgs, nil)
 	if err != nil {
-		return fmt.Errorf("analysis failed: %w", err)
+		return false, fmt.Errorf("analysis failed: %w", err)
 	}
 
 	// Collect diagnostics
 	var diagnostics []Diagnostic
+	filesChanged := false
 
 	for action := range graph.All() {
 		if !action.IsRoot {
@@ -182,18 +187,19 @@ func vetSemantic(pattern string, fix bool) error {
 						continue
 					}
 					if err := checkFileCommitted(result); err != nil {
-						return err
+						return false, err
 					}
 					if err := result.Apply(); err != nil {
-						return fmt.Errorf("failed to apply fixes: %w", err)
+						return false, fmt.Errorf("failed to apply fixes: %w", err)
 					}
+					filesChanged = true
 				}
 			}
 		}
 	}
 
 	if len(diagnostics) == 0 {
-		return nil
+		return filesChanged, nil
 	}
 
 	// Sort diagnostics by file, then line
@@ -210,7 +216,7 @@ func vetSemantic(pattern string, fix bool) error {
 	for _, d := range diagnostics {
 		fmt.Fprintf(&sb, "%s:%d:%d: %s\n", d.File, d.Line, d.Column, d.Message)
 	}
-	return fmt.Errorf("%s", sb.String())
+	return filesChanged, fmt.Errorf("%s", sb.String())
 }
 
 // Diagnostic represents a single analyzer finding.

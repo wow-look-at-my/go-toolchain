@@ -74,6 +74,10 @@ func run(cmd *cobra.Command, args []string) error {
 }
 
 func runWithRunner(r runner.CommandRunner) error {
+	return runWithRunnerOnce(r, false)
+}
+
+func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 	quiet := jsonOutput
 	// Handle --remove-watermark early, before any build steps
 	if doRemoveWmark {
@@ -82,15 +86,32 @@ func runWithRunner(r runner.CommandRunner) error {
 
 	// Start async dependency freshness check (reports at end)
 	var depChecker *DepChecker
-	if !quiet {
+	if !quiet && !isRetry {
 		depChecker = CheckOutdatedDeps()
-		defer WaitForOutdatedDeps(depChecker)
 	}
 
-	if err := RunTestsWithCoverage(r, quiet); err != nil {
+	filesChanged, err := RunTestsWithCoverage(r, quiet)
+	if err != nil {
 		return err
 	}
 
+	// Check for dep updates after tests (runs in parallel)
+	depsUpdated := WaitForOutdatedDeps(depChecker)
+
+	// If anything changed, rebuild
+	if !isRetry && (filesChanged || depsUpdated) {
+		fmt.Println("\n==> Files changed, rebuilding...")
+		return runWithRunnerOnce(r, true)
+	}
+
+	if err := runBuildPhase(r, quiet); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err
@@ -148,10 +169,11 @@ func runWithRunner(r runner.CommandRunner) error {
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
 // checks coverage against the threshold. Used by both the default command
 // and the matrix command.
-func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
+// Returns (filesChanged, error) where filesChanged indicates if vet applied any fixes.
+func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	// Fix any v0.0.0 dependencies before go mod tidy
 	if err := FixBogusDepsVersions(r); err != nil {
-		return err
+		return false, err
 	}
 
 	if !quiet {
@@ -159,13 +181,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 	}
 	proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
 	if err != nil {
-		return fmt.Errorf("go mod tidy failed: %w", err)
+		return false, fmt.Errorf("go mod tidy failed: %w", err)
 	}
 	if err := proc.Wait(); err != nil {
 		if _, statErr := os.Stat("go.mod"); statErr != nil {
-			return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
+			return false, fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
 		}
-		return fmt.Errorf("go mod tidy failed: %w", err)
+		return false, fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
 	if needsGenerate() {
@@ -173,7 +195,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 			fmt.Println("==> go generate ./...")
 		}
 		if err := runGenerate(quiet, generateHash); err != nil {
-			return fmt.Errorf("go generate failed: %w", err)
+			return false, fmt.Errorf("go generate failed: %w", err)
 		}
 		// Run tidy again after generate in case new imports were added
 		if !quiet {
@@ -181,18 +203,19 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 		}
 		proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
 		if err != nil {
-			return fmt.Errorf("go mod tidy failed: %w", err)
+			return false, fmt.Errorf("go mod tidy failed: %w", err)
 		}
 		if err := proc.Wait(); err != nil {
-			return fmt.Errorf("go mod tidy failed: %w", err)
+			return false, fmt.Errorf("go mod tidy failed: %w", err)
 		}
 	}
 
 	if !quiet {
 		fmt.Println("==> go vet ./...")
 	}
-	if err := vet.Run(fix); err != nil {
-		return fmt.Errorf("vet failed: %w", err)
+	filesChanged, err := vet.Run(fix)
+	if err != nil {
+		return false, fmt.Errorf("vet failed: %w", err)
 	}
 
 	if dupcode {
@@ -205,14 +228,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 
 	tmpDir, err := os.MkdirTemp("", "go-toolchain-*")
 	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %w", err)
+		return false, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
 	result, testErr := gotest.RunTests(r, verbose, coverFile)
 	if result == nil {
-		return fmt.Errorf("tests failed: %w", testErr)
+		return false, fmt.Errorf("tests failed: %w", testErr)
 	}
 
 	report := &result.Coverage
@@ -223,14 +246,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 			fmt.Println("\n==> Test failures:")
 			fmt.Print(colorRed + result.FailureOutput + colorReset)
 		}
-		return fmt.Errorf("tests failed: %w", testErr)
+		return false, fmt.Errorf("tests failed: %w", testErr)
 	}
 
 	if quiet {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "\t")
 		if err := enc.Encode(report); err != nil {
-			return fmt.Errorf("failed to encode JSON: %w", err)
+			return false, fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
 		fmt.Println("\n==> Package coverage:")
@@ -242,7 +265,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 	// Handle --add-watermark: store watermark after coverage is computed
 	if addWatermark {
 		if err := gotest.SetWatermark(".", report.Total); err != nil {
-			return fmt.Errorf("failed to set watermark: %w", err)
+			return false, fmt.Errorf("failed to set watermark: %w", err)
 		}
 		if !quiet {
 			fmt.Printf("\n==> Watermark set to %.1f%% (will be enforced on future runs)\n", report.Total)
@@ -253,7 +276,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 	var effectiveMin float32 = 80.0
 	wm, wmExists, wmErr := gotest.GetWatermark(".")
 	if wmErr != nil {
-		return fmt.Errorf("failed to read watermark: %w", wmErr)
+		return false, fmt.Errorf("failed to read watermark: %w", wmErr)
 	}
 	if wmExists {
 		grace := wm - 2.5
@@ -266,7 +289,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 		// Ratchet up: update watermark if coverage improved
 		if report.Total > wm {
 			if err := gotest.SetWatermark(".", report.Total); err != nil {
-				return fmt.Errorf("failed to update watermark: %w", err)
+				return false, fmt.Errorf("failed to update watermark: %w", err)
 			}
 			if !quiet {
 				fmt.Printf("==> Watermark updated: %.1f%% -> %.1f%%\n", wm, report.Total)
@@ -278,10 +301,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) error {
 	roundedTotal := float32(math.Round(float64(report.Total)*10) / 10)
 	roundedMin := float32(math.Round(float64(effectiveMin)*10) / 10)
 	if roundedTotal < roundedMin {
-		return fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
+		return false, fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
 	}
 
-	return nil
+	return filesChanged, nil
 }
 
 var errFound = fmt.Errorf("found")

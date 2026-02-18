@@ -56,15 +56,15 @@ func (f *ASTFixes) printFix(fix ASTFix) {
 	pos := f.Fset.Position(fix.OldNode.Pos())
 	loc := SourceLocation{File: pos.Filename, Line: pos.Line, Column: pos.Column}
 	fileURL := fmt.Sprintf("vscode://file/%s:%d:%d", loc.File, loc.Line, loc.Column)
-	yellow := ansi.Style("fixed:", ansi.Yellow.FG())
-	grey := ansi.Link(fileURL, ansi.Style(loc.ShortLoc(), ansi.BrightBlack.FG()))
+	yellow := ansi.Concat(ansi.Yellow.FG, "fixed:", ansi.Reset)
+	grey := ansi.Link(fileURL, ansi.Concat(ansi.BrightBlack.FG, loc.ShortLoc(), ansi.Reset))
 
 	// Format old text (red)
 	oldStr := strings.TrimSpace(nodeText(f.Fset, fix.OldNode))
 	if idx := strings.Index(oldStr, "\n"); idx > 0 {
 		oldStr = oldStr[:idx] + "..."
 	}
-	red := ansi.Style(oldStr, ansi.Red.FG())
+	red := ansi.Concat(ansi.Red.FG, oldStr, ansi.Reset)
 
 	// Format output based on whether this is a deletion or replacement
 	if len(fix.NewNodes) == 0 {
@@ -80,7 +80,7 @@ func (f *ASTFixes) printFix(fix ASTFix) {
 			newParts = append(newParts, part)
 		}
 		newStr := strings.Join(newParts, "; ")
-		green := ansi.Style(newStr, ansi.Green.FG())
+		green := ansi.Concat(ansi.Green.FG, newStr, ansi.Reset)
 		fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
 	}
 }

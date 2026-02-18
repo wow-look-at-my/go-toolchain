@@ -45,7 +45,7 @@ func TestRunNoGoMod(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	err := Run(false)
+	_, err := Run(false)
 	assert.Nil(t, err)
 }
 
@@ -177,7 +177,7 @@ func main() {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	err := RunOnPattern("./...", false)
+	_, err := RunOnPattern("./...", false)
 	assert.Nil(t, err)
 }
 
@@ -1546,7 +1546,7 @@ func main() {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	err := Run(false)
+	_, err := Run(false)
 	assert.Nil(t, err)
 }
 
