@@ -1085,7 +1085,7 @@ func main() {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "package load errors")
 }
@@ -1107,7 +1107,7 @@ func main() {}
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "imported and not used")
 }
@@ -1137,7 +1137,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Just run it to exercise the compound condition path
-	err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false)
 	// It should find an issue
 	assert.NotNil(t, err)
 }
@@ -1286,7 +1286,7 @@ func main() {
 	defer os.Chdir(oldWd)
 
 	// With fix=true, it should fix the unused import and succeed
-	err := vetSemantic("./...", true)
+	_, err := vetSemantic("./...", true)
 	assert.Nil(t, err)
 
 	// Verify the import was removed
@@ -1479,7 +1479,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Run to exercise the path
-	err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false)
 	assert.NotNil(t, err)
 }
 
@@ -1733,7 +1733,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Should find issues and return error with diagnostics
-	err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "vet found issues")
 }
