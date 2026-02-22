@@ -5,7 +5,7 @@ go 1.24.7
 require (
 	github.com/go-git/go-git/v5 v5.16.5
 	github.com/spf13/cobra v1.10.2
-	github.com/wow-look-at-my/ansi-writer v0.0.0-20260215041003-b1e7132dc32e
+	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
 	github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb
 	golang.org/x/mod v0.29.0
 	golang.org/x/sys v0.38.0

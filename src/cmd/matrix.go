@@ -61,7 +61,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 
 	// Run tests with coverage first (same as default command)
-	if err := RunTestsWithCoverage(r, false); err != nil {
+	if _, err := RunTestsWithCoverage(r, false); err != nil {
 		return err
 	}
 

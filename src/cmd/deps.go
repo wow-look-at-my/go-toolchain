@@ -334,19 +334,19 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 		}
 	}()
 
-	// Wait with progress display
-	ticker := time.NewTicker(100 * time.Millisecond)
+	// Wait with progress display (throttled to 1/sec, no reprints if unchanged)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	showProgress := false
+	lastPct := -1
 	startWait := time.Now()
 
 	for {
 		select {
 		case <-dc.doneCh:
 			if showProgress {
-				// Clear progress line
-				fmt.Print("\r\033[K")
+				fmt.Println() // finish the progress line
 			}
 			dc.mu.Lock()
 			result := dc.results
@@ -355,19 +355,25 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 		case <-ticker.C:
 			// Show progress if waiting more than 500ms
 			if time.Since(startWait) > 500*time.Millisecond {
-				showProgress = true
 				checked, total := dc.Progress()
+				pct := 0
 				if total > 0 {
-					pct := checked * 100 / total
-					fmt.Printf("\rChecking for dependency updates... %d%% (Ctrl+C to skip)", pct)
-				} else {
-					fmt.Print("\rChecking for dependency updates... (Ctrl+C to skip)")
+					pct = checked * 100 / total
+				}
+				// Only print if progress changed
+				if pct != lastPct {
+					if !showProgress {
+						showProgress = true
+						fmt.Printf("Checking for dependency updates... %d%%", pct)
+					} else {
+						fmt.Printf(" %d%%", pct)
+					}
+					lastPct = pct
 				}
 			}
 		case <-ctx.Done():
 			if showProgress {
-				fmt.Print("\r\033[K")
-				fmt.Println("Dependency check skipped")
+				fmt.Println(" skipped")
 			}
 			return nil
 		}
@@ -403,13 +409,78 @@ func shortenVersion(v string) string {
 	return v
 }
 
-// WaitForOutdatedDeps waits for the dependency check to complete and prints results
-func WaitForOutdatedDeps(dc *DepChecker) {
+// WaitForOutdatedDeps waits for the dependency check to complete and prints results.
+// Dependencies from the same org/prefix as the current module are automatically updated.
+// Returns true if any dependencies were auto-updated (caller should rebuild).
+func WaitForOutdatedDeps(dc *DepChecker) bool {
 	if dc == nil {
-		return
+		return false
 	}
 	deps := dc.WaitWithProgress()
-	PrintOutdatedDeps(deps)
+
+	// Get auto-update prefix from current module
+	autoUpdatePrefix := getAutoUpdatePrefix()
+
+	// Separate auto-update deps from manual deps
+	var toAutoUpdate, manual []OutdatedDep
+	for _, dep := range deps {
+		if autoUpdatePrefix != "" && strings.HasPrefix(dep.Path, autoUpdatePrefix) {
+			toAutoUpdate = append(toAutoUpdate, dep)
+		} else {
+			manual = append(manual, dep)
+		}
+	}
+
+	// Auto-update trusted dependencies
+	if len(toAutoUpdate) > 0 {
+		autoUpdateDeps(toAutoUpdate)
+	}
+
+	// Print remaining manual deps
+	PrintOutdatedDeps(manual)
+
+	return len(toAutoUpdate) > 0
+}
+
+// getAutoUpdatePrefix returns the org prefix from the current module path.
+// e.g., "github.com/org/repo" -> "github.com/org/"
+// e.g., "gitlab.com/group/repo" -> "gitlab.com/group/"
+func getAutoUpdatePrefix() string {
+	data, err := os.ReadFile("go.mod")
+	if err != nil {
+		return ""
+	}
+
+	f, err := modfile.Parse("go.mod", data, nil)
+	if err != nil || f.Module == nil {
+		return ""
+	}
+
+	// Extract host + org: "host.com/org/repo" -> "host.com/org/"
+	parts := strings.Split(f.Module.Mod.Path, "/")
+	if len(parts) >= 2 {
+		return parts[0] + "/" + parts[1] + "/"
+	}
+	return ""
+}
+
+// autoUpdateDeps runs go get -u for each dependency
+func autoUpdateDeps(deps []OutdatedDep) {
+	fmt.Println()
+	fmt.Println("==> Auto-updating trusted dependencies:")
+	for _, dep := range deps {
+		current := shortenVersion(dep.Version)
+		update := shortenVersion(dep.Update)
+		fmt.Printf("    %s: %s -> %s\n", dep.Path, current, update)
+
+		cmd := exec.Command("go", "get", "-u", dep.Path+"@latest")
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("    %s failed to update: %v\n", warn("WARNING:"), err)
+		}
+	}
+	// Run go mod tidy to clean up
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Run()
 }
 
 // FixBogusDepsVersions detects dependencies with v0.0.0 versions in go.mod and
