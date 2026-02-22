@@ -107,6 +107,19 @@ func isUnusedImportError(errMsg string) bool {
 // vetSemantic runs type-aware analysis using go/packages and the analysis framework.
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
 func vetSemantic(pattern string, fix bool) (bool, error) {
+	filesChanged := false
+
+	// Fix broken testify imports before loading packages
+	if fix {
+		fixed, err := FixTestifyImports()
+		if err != nil {
+			return false, fmt.Errorf("fixing testify imports: %w", err)
+		}
+		if fixed {
+			filesChanged = true
+		}
+	}
+
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
@@ -163,7 +176,6 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 
 	// Collect diagnostics
 	var diagnostics []Diagnostic
-	filesChanged := false
 
 	for action := range graph.All() {
 		if !action.IsRoot {
