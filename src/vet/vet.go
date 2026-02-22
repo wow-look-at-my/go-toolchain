@@ -3,6 +3,7 @@ package vet
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -208,6 +209,26 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 				}
 			}
 		}
+	}
+
+	// After applying fixes, clean up any side effects (unused vars/imports)
+	if filesChanged && fix {
+		if _, err := FixUnusedRangeVars("./..."); err != nil {
+			return filesChanged, fmt.Errorf("fixing unused range vars: %w", err)
+		}
+		if _, err := FixUnusedImports("./..."); err != nil {
+			return filesChanged, fmt.Errorf("fixing unused imports: %w", err)
+		}
+		// Run go mod tidy to add any new dependencies (e.g., testify)
+		tidyCmd := exec.Command("go", "mod", "tidy")
+		tidyCmd.Stdout = os.Stdout
+		tidyCmd.Stderr = os.Stderr
+		if err := tidyCmd.Run(); err != nil {
+			return filesChanged, fmt.Errorf("go mod tidy failed: %w", err)
+		}
+		// Re-run analysis to verify fixes worked (don't report old diagnostics)
+		_, err := vetSemantic(pattern, fix)
+		return true, err
 	}
 
 	if len(diagnostics) == 0 {

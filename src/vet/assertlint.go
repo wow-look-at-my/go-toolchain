@@ -460,8 +460,8 @@ func buildAssertCall(pass *analysis.Pass, cond ast.Expr, tVar, assertPkg, assert
 		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), c)
 	}
 
-	// Fallback: wrap the original condition
-	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), cond)
+	// Fallback: use actualCond (with negation unwrapped)
+	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), actualCond)
 }
 
 // buildCallAssert generates assertion for call expressions.
