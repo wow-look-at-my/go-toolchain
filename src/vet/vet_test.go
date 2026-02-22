@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1744,4 +1745,50 @@ func TestIsRedundantCastChar(t *testing.T) {
 	assert.True(t, isRedundantCast("int32", &ast.BasicLit{Kind: token.CHAR, Value: "'a'"}))
 	assert.False(t, isRedundantCast("byte", &ast.BasicLit{Kind: token.CHAR, Value: "'a'"}))
 	assert.False(t, isRedundantCast("uint8", &ast.BasicLit{Kind: token.CHAR, Value: "'a'"}))
+}
+
+func TestVetSemanticWithFixRecursive(t *testing.T) {
+	// Test that after applying fixes, vetSemantic re-runs and go mod tidy is called
+	dir := t.TempDir()
+
+	// Create test file that will trigger assertlint fixes
+	code := `package main
+
+import "testing"
+
+func TestFoo(t *testing.T) {
+	x := 5
+	if x != 5 {
+		t.Error("x should be 5")
+	}
+}
+`
+	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644)
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
+
+	// Initialize git repo and commit the file (required by checkFileCommitted)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	// Initialize git repo
+	gitInit := exec.Command("git", "init")
+	gitInit.Run()
+	gitConfig1 := exec.Command("git", "config", "user.email", "test@test.com")
+	gitConfig1.Run()
+	gitConfig2 := exec.Command("git", "config", "user.name", "Test")
+	gitConfig2.Run()
+	gitAdd := exec.Command("git", "add", ".")
+	gitAdd.Run()
+	gitCommit := exec.Command("git", "commit", "-m", "initial")
+	gitCommit.Run()
+
+	// With fix=true, it should apply fixes, run go mod tidy, and re-run vetSemantic
+	changed, err := vetSemantic("./...", true)
+	assert.Nil(t, err)
+	assert.True(t, changed)
+
+	// Verify the fix was applied (should use assert.Equal)
+	content, _ := os.ReadFile(filepath.Join(dir, "main_test.go"))
+	assert.Contains(t, string(content), "assert.Equal")
 }
