@@ -210,6 +210,13 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 		}
 	}
 
+	// After applying fixes, clean up any unused range variables that may have been created
+	if filesChanged && fix {
+		if _, err := FixUnusedRangeVars("./..."); err != nil {
+			return filesChanged, fmt.Errorf("fixing unused range vars: %w", err)
+		}
+	}
+
 	if len(diagnostics) == 0 {
 		return filesChanged, nil
 	}
