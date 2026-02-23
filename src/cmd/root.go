@@ -265,9 +265,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	// Handle --add-watermark: store watermark after coverage is computed
 	if addWatermark {
 		if err := gotest.SetWatermark(".", report.Total); err != nil {
-			return false, fmt.Errorf("failed to set watermark: %w", err)
-		}
-		if !quiet {
+			if !quiet {
+				fmt.Printf("\n==> Warning: failed to set watermark: %v\n", err)
+			}
+		} else if !quiet {
 			fmt.Printf("\n==> Watermark set to %.1f%% (will be enforced on future runs)\n", report.Total)
 		}
 	}
@@ -276,7 +277,11 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	var effectiveMin float32 = 80.0
 	wm, wmExists, wmErr := gotest.GetWatermark(".")
 	if wmErr != nil {
-		return false, fmt.Errorf("failed to read watermark: %w", wmErr)
+		// Watermark read failed (e.g., xattrs not supported) - warn and use default
+		if !quiet {
+			fmt.Printf("==> Warning: %v (using default %.0f%%)\n", wmErr, effectiveMin)
+		}
+		wmExists = false
 	}
 	if wmExists {
 		grace := wm - 2.5
@@ -289,9 +294,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		// Ratchet up: update watermark if coverage improved
 		if report.Total > wm {
 			if err := gotest.SetWatermark(".", report.Total); err != nil {
-				return false, fmt.Errorf("failed to update watermark: %w", err)
-			}
-			if !quiet {
+				if !quiet {
+					fmt.Printf("==> Warning: failed to update watermark: %v\n", err)
+				}
+			} else if !quiet {
 				fmt.Printf("==> Watermark updated: %.1f%% -> %.1f%%\n", wm, report.Total)
 			}
 		}
@@ -337,7 +343,10 @@ func needsGenerate() bool {
 func handleRemoveWatermark() error {
 	_, exists, err := gotest.GetWatermark(".")
 	if err != nil {
-		return fmt.Errorf("failed to read watermark: %w", err)
+		// Watermark read failed (e.g., xattrs not supported) - treat as no watermark
+		fmt.Printf("Warning: %v\n", err)
+		fmt.Println("No watermark is set.")
+		return nil
 	}
 	if !exists {
 		fmt.Println("No watermark is set.")
