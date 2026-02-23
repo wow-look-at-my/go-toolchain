@@ -3,13 +3,14 @@ package vet
 import (
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/printer"
 	"go/token"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -152,13 +153,42 @@ func removeImport(f *ast.File, imp *ast.ImportSpec) {
 	}
 }
 
+// packageNameCache caches import path -> package name lookups.
+var (
+	packageNameCache   = make(map[string]string)
+	packageNameCacheMu sync.RWMutex
+)
+
 // importName returns the local name for an import.
 func importName(imp *ast.ImportSpec) string {
 	if imp.Name != nil {
 		return imp.Name.Name
 	}
-	p := strings.Trim(imp.Path.Value, `"`)
-	return path.Base(p)
+	importPath := strings.Trim(imp.Path.Value, `"`)
+
+	// Check cache first
+	packageNameCacheMu.RLock()
+	if name, ok := packageNameCache[importPath]; ok {
+		packageNameCacheMu.RUnlock()
+		return name
+	}
+	packageNameCacheMu.RUnlock()
+
+	// Use go/build to get the actual package name
+	pkg, err := build.Import(importPath, ".", build.FindOnly)
+	if err == nil && pkg.Name != "" {
+		packageNameCacheMu.Lock()
+		packageNameCache[importPath] = pkg.Name
+		packageNameCacheMu.Unlock()
+		return pkg.Name
+	}
+
+	// Fallback: use last path component
+	name := filepath.Base(importPath)
+	packageNameCacheMu.Lock()
+	packageNameCache[importPath] = name
+	packageNameCacheMu.Unlock()
+	return name
 }
 
 // FindUnusedImportFixes analyzes loaded packages and returns AST-based fixes for unused imports.
