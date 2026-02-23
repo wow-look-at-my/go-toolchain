@@ -41,7 +41,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 ```bash
 # Install
-go install github.com/wow-look-at-my/go-toolchain/src@latest
+go install github.com/wow-look-at-my/go-toolchain@latest
 
 # Run tests and build (default workflow)
 go-toolchain
