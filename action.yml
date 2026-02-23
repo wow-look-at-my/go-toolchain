@@ -56,5 +56,5 @@ runs:
         if [ "$GITHUB_REPOSITORY" = "wow-look-at-my/go-toolchain" ]; then
           go run ./src matrix $ARGS
         else
-          go run github.com/wow-look-at-my/go-toolchain/src@latest matrix $ARGS
+          go run github.com/wow-look-at-my/go-toolchain@latest matrix $ARGS
         fi
