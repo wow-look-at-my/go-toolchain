@@ -365,6 +365,37 @@ func TestRunWithRunnerAddWatermarkJSON(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestRunWithRunnerAddWatermarkAlreadyExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Set an existing watermark
+	gotest.SetWatermark(".", 85.0)
+
+	mock := newTestPassMock(0)
+
+	jsonOutput = false
+	addWatermark = true
+	outputDir = tmpDir
+	defer func() {
+		jsonOutput = false
+		addWatermark = false
+		outputDir = "build"
+	}()
+
+	err := runWithRunner(mock)
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "watermark already exists")
+	assert.Contains(t, err.Error(), "85.0")
+
+	// Verify watermark was NOT changed
+	wm, exists, _ := gotest.GetWatermark(".")
+	assert.True(t, exists)
+	assert.Equal(t, float32(85.0), wm)
+}
+
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()

@@ -319,6 +319,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 
 	// Handle --add-watermark: store watermark after coverage is computed
 	if addWatermark {
+		// Check if watermark already exists
+		existingWm, wmAlreadyExists, wmCheckErr := gotest.GetWatermark(".")
+		if wmCheckErr != nil {
+			return false, fmt.Errorf("--add-watermark: failed to check existing watermark: %w", wmCheckErr)
+		}
+		if wmAlreadyExists {
+			return false, fmt.Errorf("--add-watermark: watermark already exists (%.1f%%). Use --remove-watermark first if you want to reset it", existingWm)
+		}
 		if err := gotest.SetWatermark(".", report.Total); err != nil {
 			if !quiet {
 				fmt.Printf("\n==> Warning: failed to set watermark: %v\n", err)
