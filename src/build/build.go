@@ -3,7 +3,6 @@ package build
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -39,10 +38,14 @@ func findMainPackages(r runner.CommandRunner) ([]string, error) {
 }
 
 // binaryNameFromImportPath derives a binary name from a package's import path
-// and its module name. When the package is one level below the module root
-// (e.g., module/src), the binary is named after the module. When deeper
+// and its module name. When the package is at or one level below the module root
+// (e.g., module or module/src), the binary is named after the module. When deeper
 // (e.g., module/cmd/foo), the binary is named after the leaf directory.
 func binaryNameFromImportPath(pkg, moduleName string) string {
+	if pkg == moduleName {
+		// Package is at module root — use module name
+		return filepath.Base(moduleName)
+	}
 	rel := strings.TrimPrefix(pkg, moduleName+"/")
 	if rel == pkg {
 		// Package doesn't start with module prefix — just use basename
@@ -57,21 +60,10 @@ func binaryNameFromImportPath(pkg, moduleName string) string {
 }
 
 // ResolveBuildTargets determines what to build and what to name the binaries.
-// Uses go list to find all main packages.
+// Uses go list to find all main packages in the module.
 // Binary names are always auto-derived from the package/directory name.
 func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
-	// Check if there are Go files in the current directory
-	goFiles, _ := filepath.Glob("*.go")
-	if len(goFiles) > 0 {
-		// Main package in root — name from working directory
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get working directory: %w", err)
-		}
-		return []Target{{ImportPath: ".", OutputName: filepath.Base(wd)}}, nil
-	}
-
-	// No Go files in root — find main packages in subdirectories
+	// Find all main packages in the module
 	pkgs, err := findMainPackages(r)
 	if err != nil {
 		return nil, err
