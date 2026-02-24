@@ -69,8 +69,63 @@ func Execute() error {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	modules := findGoModules()
+	if len(modules) == 0 {
+		return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
+	}
+
 	r := runner.New()
-	return runWithRunner(r)
+	startDir, _ := os.Getwd()
+
+	for i, modDir := range modules {
+		if len(modules) > 1 {
+			if i > 0 {
+				fmt.Println()
+			}
+			fmt.Printf("==> Module: %s\n", modDir)
+		}
+
+		if modDir != "." {
+			if err := os.Chdir(filepath.Join(startDir, modDir)); err != nil {
+				return fmt.Errorf("failed to enter %s: %w", modDir, err)
+			}
+		}
+
+		if err := runWithRunner(r); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// findGoModules searches for go.mod files in the current directory and subdirectories.
+func findGoModules() []string {
+	// Check current directory first
+	if _, err := os.Stat("go.mod"); err == nil {
+		return []string{"."}
+	}
+
+	// Search subdirectories
+	var found []string
+	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == "go.mod" {
+			found = append(found, filepath.Dir(path))
+		}
+		return nil
+	})
+
+	return found
 }
 
 func runWithRunner(r runner.CommandRunner) error {
