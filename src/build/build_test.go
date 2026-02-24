@@ -2,7 +2,7 @@ package build
 
 import (
 	"os"
-	"path/filepath"
+
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
@@ -63,12 +63,17 @@ func TestResolveBuildTargetsGoFilesInRoot(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// Create a .go file in root
-	os.WriteFile("main.go", []byte("package main\n"), 0644)
+	mock := runner.NewMock()
+	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
+		[]byte("example.com\n"), nil)
+	mock.SetResponse("go", []string{"list", "-m"},
+		[]byte("example.com\n"), nil)
 
-	targets, err := ResolveBuildTargets(nil)
+	targets, err := ResolveBuildTargets(mock)
 	require.Nil(t, err)
-	assert.False(t, len(targets) != 1 || targets[0].ImportPath != "." || targets[0].OutputName != filepath.Base(tmpDir))
+	require.Equal(t, 1, len(targets))
+	assert.Equal(t, "example.com", targets[0].ImportPath)
+	assert.Equal(t, "example.com", targets[0].OutputName)
 }
 
 func TestResolveBuildTargetsAutoDetectSingle(t *testing.T) {

@@ -37,6 +37,22 @@ func writeMockCoverProfile(args []string, pct float32) {
 	}
 }
 
+// handleGoList handles go list commands for mocks, returning fake main package info.
+func handleGoList(cfg runner.Config) (runner.IProcess, bool) {
+	if !cfg.IsCmd("go", "list") {
+		return nil, false
+	}
+	for _, arg := range cfg.Args {
+		if strings.Contains(arg, "main") {
+			return runner.MockProcess([]byte("example.com/pkg\n"), nil), true
+		}
+		if arg == "-m" {
+			return runner.MockProcess([]byte("example.com\n"), nil), true
+		}
+	}
+	return nil, false
+}
+
 // newTestPassMock creates a mock runner that passes tests with the given coverage percentage.
 // If pct is 0, it defaults to 100%.
 func newTestPassMock(pct float32) *runner.Mock {
@@ -54,6 +70,9 @@ func newTestPassMock(pct float32) *runner.Mock {
 `, covPct)
 			return runner.MockProcess([]byte(output), nil), nil
 		}
+		if proc, ok := handleGoList(cfg); ok {
+			return proc, nil
+		}
 		return nil, nil // fall through to default
 	}
 	return mock
@@ -66,6 +85,9 @@ func newTestPipesFailMock() *runner.Mock {
 		if cfg.IsCmd("go", "test") {
 			return nil, fmt.Errorf("tests failed")
 		}
+		if proc, ok := handleGoList(cfg); ok {
+			return proc, nil
+		}
 		return nil, nil
 	}
 	return mock
@@ -77,6 +99,9 @@ func newModTidyFailMock() *runner.Mock {
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "mod") {
 			return runner.MockProcess(nil, fmt.Errorf("mod tidy failed")), nil
+		}
+		if proc, ok := handleGoList(cfg); ok {
+			return proc, nil
 		}
 		return nil, nil
 	}
@@ -98,6 +123,9 @@ func newBuildFailMock() *runner.Mock {
 `
 			return runner.MockProcess([]byte(output), nil), nil
 		}
+		if proc, ok := handleGoList(cfg); ok {
+			return proc, nil
+		}
 		return nil, nil
 	}
 	return mock
@@ -114,6 +142,9 @@ func newTestFailMock() *runner.Mock {
 {"Time":"2024-01-01T00:00:02Z","Action":"fail","Package":"example.com/pkg"}
 `
 			return runner.MockProcess([]byte(output), nil), nil
+		}
+		if proc, ok := handleGoList(cfg); ok {
+			return proc, nil
 		}
 		return nil, nil
 	}
@@ -134,6 +165,9 @@ func newTestFailWithErrorMock() *runner.Mock {
 {"Time":"2024-01-01T00:00:06Z","Action":"fail","Package":"example.com/pkg"}
 `
 			return runner.MockProcess([]byte(output), fmt.Errorf("exit status 1")), nil
+		}
+		if proc, ok := handleGoList(cfg); ok {
+			return proc, nil
 		}
 		return nil, nil
 	}
