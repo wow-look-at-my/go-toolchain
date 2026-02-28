@@ -172,39 +172,25 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 		return err
 	}
 
-	if len(targets) == 0 {
-		// Library-only project, just verify everything compiles
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+	}
+	info := collectGitInfo()
+	ldflags := info.ldflags()
+	if !quiet {
+		fmt.Printf("==> Embedding version: %s\n", info)
+	}
+	for _, t := range targets {
+		outPath := filepath.Join(outputDir, t.OutputName)
 		if !quiet {
-			fmt.Println("==> go build ./... (no main packages found)")
+			fmt.Printf("==> go build -o %s %s\n", outPath, t.ImportPath)
 		}
-		proc, err := runner.Cmd("go", "build", "./...").Run(r)
+		proc, err := runner.Cmd("go", "build", "-ldflags", ldflags, "-o", outPath, t.ImportPath).Run(r)
 		if err != nil {
 			return fmt.Errorf("go build failed: %w", err)
 		}
 		if err := proc.Wait(); err != nil {
 			return fmt.Errorf("go build failed: %w", err)
-		}
-	} else {
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
-		}
-		info := collectGitInfo()
-		ldflags := info.ldflags()
-		if !quiet {
-			fmt.Printf("==> Embedding version: %s\n", info)
-		}
-		for _, t := range targets {
-			outPath := filepath.Join(outputDir, t.OutputName)
-			if !quiet {
-				fmt.Printf("==> go build -o %s %s\n", outPath, t.ImportPath)
-			}
-			proc, err := runner.Cmd("go", "build", "-ldflags", ldflags, "-o", outPath, t.ImportPath).Run(r)
-			if err != nil {
-				return fmt.Errorf("go build failed: %w", err)
-			}
-			if err := proc.Wait(); err != nil {
-				return fmt.Errorf("go build failed: %w", err)
-			}
 		}
 	}
 

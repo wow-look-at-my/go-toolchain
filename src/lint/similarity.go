@@ -61,6 +61,12 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 
 				ea, eb := all[ai], all[bi]
 
+				// Skip pairs where one block contains the other
+				// (e.g. function body vs its inner if-block).
+				if ea.file == eb.file && posContains(ea.block, eb.block) {
+					continue
+				}
+
 				// Quick length-ratio pre-filter.
 				la, lb := len(ea.block.Sequence), len(eb.block.Sequence)
 				if la == 0 || lb == 0 {
@@ -197,4 +203,12 @@ func LCSDiff(a, b []Token) (diffA, diffB []int) {
 		}
 	}
 	return diffA, diffB
+}
+
+// posContains returns true if one block's source range entirely contains
+// the other's. This detects parent/child relationships (e.g. a function
+// body containing an if-block).
+func posContains(a, b *Block) bool {
+	return (a.Pos <= b.Pos && a.End >= b.End) ||
+		(b.Pos <= a.Pos && b.End >= a.End)
 }

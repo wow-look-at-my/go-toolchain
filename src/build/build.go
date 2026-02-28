@@ -3,9 +3,12 @@ package build
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/sortedmap"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -60,15 +63,11 @@ func binaryNameFromImportPath(pkg, moduleName string) string {
 }
 
 // ResolveBuildTargets determines what to build and what to name the binaries.
-// Uses go list to find all main packages in the module.
+// Uses go list to find all main packages in the module. If no main packages
+// exist (library-only project), falls back to all packages found by walking
+// the filesystem.
 // Binary names are always auto-derived from the package/directory name.
 func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
-	// Find all main packages in the module
-	pkgs, err := findMainPackages(r)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get module name for smart binary naming
 	proc, modErr := runner.Cmd("go", "list", "-m").WithQuiet().Run(r)
 	moduleName := ""
@@ -78,9 +77,67 @@ func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 		moduleName = strings.TrimSpace(string(modOut))
 	}
 
-	targets := make([]Target, len(pkgs))
-	for i, pkg := range pkgs {
-		targets[i] = Target{ImportPath: pkg, OutputName: binaryNameFromImportPath(pkg, moduleName)}
+	// Find all main packages in the module
+	pkgs, err := findMainPackages(r)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(pkgs) > 0 {
+		byName := sortedmap.New[string, Target]()
+		for _, pkg := range pkgs {
+			name := binaryNameFromImportPath(pkg, moduleName)
+			if !byName.Contains(name) {
+				byName.Put(name, Target{ImportPath: pkg, OutputName: name})
+			}
+		}
+		return slices.Collect(byName.Values()), nil
+	}
+
+	// Library-only project: walk filesystem to find all packages
+	allPkgs, err := findAllPackagesByDir(moduleName)
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]Target, len(allPkgs))
+	for i, pkg := range allPkgs {
+		targets[i] = Target{ImportPath: pkg, OutputName: filepath.Base(pkg)}
 	}
 	return targets, nil
+}
+
+// findAllPackagesByDir walks the filesystem from the current directory to find
+// all directories containing .go files, returning them as import paths.
+func findAllPackagesByDir(moduleName string) ([]string, error) {
+	var pkgs []string
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		// Skip hidden dirs, testdata, vendor
+		base := d.Name()
+		if base != "." && (strings.HasPrefix(base, ".") || base == "testdata" || base == "vendor") {
+			return filepath.SkipDir
+		}
+		// Check if dir contains any .go files
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") && !strings.HasSuffix(e.Name(), "_test.go") {
+				importPath := moduleName
+				if path != "." {
+					importPath = moduleName + "/" + filepath.ToSlash(path)
+				}
+				pkgs = append(pkgs, importPath)
+				break
+			}
+		}
+		return nil
+	})
+	return pkgs, err
 }

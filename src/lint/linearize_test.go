@@ -131,9 +131,10 @@ func bigger() {
 	assert.Len(t, blocks, 1)
 	assert.Equal(t, "bigger", blocks[0].FuncName)
 
-	// With minNodes=1, both should be included
+	// With minNodes=1, both functions + inner blocks are included
 	blocks = ExtractBlocks(f, fset, 1)
-	assert.Len(t, blocks, 2)
+	// tiny(1) + bigger(1) + bigger/if(1) + bigger/for(1) = 4
+	assert.Len(t, blocks, 4)
 }
 
 func TestExtractBlocks_FuncName(t *testing.T) {
@@ -310,4 +311,59 @@ done:
 	assert.Contains(t, seq, "B") // BranchStmt
 	assert.Contains(t, seq, "L") // LabeledStmt
 	assert.Contains(t, seq, "V") // BinaryExpr
+}
+
+func TestExtractBlocks_InnerBlocks(t *testing.T) {
+	src := `package p
+
+func example() {
+	x := compute()
+	if x > 0 {
+		a := transform(x)
+		save(a)
+		log("positive")
+	} else {
+		b := fallback(x)
+		save(b)
+		log("negative")
+	}
+}
+`
+	f, fset := parseSource(t, src)
+
+	// Use minNodes=1 to capture all blocks
+	blocks := ExtractBlocks(f, fset, 1)
+
+	// Should have: function-level + if-body + else-body = 3 blocks
+	assert.Len(t, blocks, 3)
+
+	names := make([]string, len(blocks))
+	for i, b := range blocks {
+		names[i] = b.FuncName
+	}
+
+	assert.Equal(t, "example", names[0])
+	assert.Contains(t, names[1], "example/if@")
+	assert.Contains(t, names[2], "example/else@")
+}
+
+func TestExtractBlocks_InnerBlocks_MinNodesFilter(t *testing.T) {
+	src := `package p
+
+func example() {
+	if true {
+		return
+	} else {
+		return
+	}
+}
+`
+	f, fset := parseSource(t, src)
+
+	// With high minNodes, inner blocks should be filtered out
+	blocks := ExtractBlocks(f, fset, 20)
+	for _, b := range blocks {
+		assert.NotContains(t, b.FuncName, "/if@")
+		assert.NotContains(t, b.FuncName, "/else@")
+	}
 }

@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"strings"
@@ -104,8 +105,9 @@ func SequenceString(tokens []Token) string {
 }
 
 // ExtractBlocks walks a file AST and extracts all function/method bodies
-// as linearized blocks. Only blocks with at least minNodes tokens are
-// returned, since very small blocks are uninteresting for duplication.
+// as linearized blocks, plus inner blocks from compound statements within
+// each function. Only blocks with at least minNodes tokens are returned,
+// since very small blocks are uninteresting for duplication.
 func ExtractBlocks(file *ast.File, fset *token.FileSet, minNodes int) []Block {
 	var blocks []Block
 	for _, decl := range file.Decls {
@@ -124,8 +126,104 @@ func ExtractBlocks(file *ast.File, fset *token.FileSet, minNodes int) []Block {
 			Pos:      fn.Pos(),
 			End:      fn.End(),
 		})
+		blocks = append(blocks, extractInnerBlocks(fn.Name.Name, fn.Body, fset, minNodes)...)
 	}
 	return blocks
+}
+
+// extractInnerBlocks walks a function body and extracts sub-blocks from
+// compound statements (if/else, for, range, switch cases, select cases)
+// as separate Block values for intra-function duplicate detection.
+func extractInnerBlocks(funcName string, body *ast.BlockStmt, fset *token.FileSet, minNodes int) []Block {
+	var blocks []Block
+	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil {
+			return false
+		}
+		switch v := n.(type) {
+		case *ast.IfStmt:
+			line := fset.Position(v.Pos()).Line
+			blocks = appendBlock(blocks, fmt.Sprintf("%s/if@%d", funcName, line), v.Body, minNodes)
+			if elseBlock, ok := v.Else.(*ast.BlockStmt); ok {
+				blocks = appendBlock(blocks, fmt.Sprintf("%s/else@%d", funcName, line), elseBlock, minNodes)
+			}
+		case *ast.ForStmt:
+			line := fset.Position(v.Pos()).Line
+			blocks = appendBlock(blocks, fmt.Sprintf("%s/for@%d", funcName, line), v.Body, minNodes)
+		case *ast.RangeStmt:
+			line := fset.Position(v.Pos()).Line
+			blocks = appendBlock(blocks, fmt.Sprintf("%s/range@%d", funcName, line), v.Body, minNodes)
+		case *ast.SwitchStmt:
+			for _, stmt := range v.Body.List {
+				cc, ok := stmt.(*ast.CaseClause)
+				if !ok {
+					continue
+				}
+				line := fset.Position(cc.Pos()).Line
+				blocks = appendCaseBlock(blocks, fmt.Sprintf("%s/case@%d", funcName, line), cc.Body, cc.Pos(), cc.End(), minNodes)
+			}
+		case *ast.TypeSwitchStmt:
+			for _, stmt := range v.Body.List {
+				cc, ok := stmt.(*ast.CaseClause)
+				if !ok {
+					continue
+				}
+				line := fset.Position(cc.Pos()).Line
+				blocks = appendCaseBlock(blocks, fmt.Sprintf("%s/case@%d", funcName, line), cc.Body, cc.Pos(), cc.End(), minNodes)
+			}
+		case *ast.SelectStmt:
+			for _, stmt := range v.Body.List {
+				cc, ok := stmt.(*ast.CommClause)
+				if !ok {
+					continue
+				}
+				line := fset.Position(cc.Pos()).Line
+				blocks = appendCaseBlock(blocks, fmt.Sprintf("%s/select@%d", funcName, line), cc.Body, cc.Pos(), cc.End(), minNodes)
+			}
+		}
+		return true
+	})
+	return blocks
+}
+
+// appendBlock linearizes a BlockStmt and appends it if it meets the minNodes threshold.
+func appendBlock(blocks []Block, name string, body *ast.BlockStmt, minNodes int) []Block {
+	if body == nil {
+		return blocks
+	}
+	tokens := Linearize(body)
+	if len(tokens) < minNodes {
+		return blocks
+	}
+	return append(blocks, Block{
+		Tokens:   tokens,
+		Sequence: SequenceString(tokens),
+		FuncName: name,
+		Pos:      body.Pos(),
+		End:      body.End(),
+	})
+}
+
+// appendCaseBlock linearizes a case/comm clause body ([]ast.Stmt) and appends it
+// if it meets the minNodes threshold.
+func appendCaseBlock(blocks []Block, name string, stmts []ast.Stmt, pos, end token.Pos, minNodes int) []Block {
+	if len(stmts) == 0 {
+		return blocks
+	}
+	var tokens []Token
+	for _, stmt := range stmts {
+		tokens = append(tokens, Linearize(stmt)...)
+	}
+	if len(tokens) < minNodes {
+		return blocks
+	}
+	return append(blocks, Block{
+		Tokens:   tokens,
+		Sequence: SequenceString(tokens),
+		FuncName: name,
+		Pos:      pos,
+		End:      end,
+	})
 }
 
 // nodeTypeName returns the short type name of an AST node
