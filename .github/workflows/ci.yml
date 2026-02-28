@@ -6,6 +6,7 @@ on:
 env:
   GOPROXY: direct
   GOSUMDB: off
+  GONOSUMCHECK: '*'
 
 jobs:
   build:
