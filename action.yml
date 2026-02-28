@@ -23,6 +23,14 @@ inputs:
     description: 'Working directory for the build'
     required: false
     default: '.'
+  go-version:
+    description: 'Go version to install (e.g. 1.25). Overrides go-version-file.'
+    required: false
+    default: ''
+  go-version-file:
+    description: 'Path to go.mod to read Go version from'
+    required: false
+    default: './go.mod'
 
 outputs:
   coverage:
@@ -34,12 +42,17 @@ runs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: ${{ inputs.go-version }}
+        go-version-file: ${{ inputs.go-version-file }}
         cache: true
 
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        GOPROXY: direct
+        GOSUMDB: 'off'
+        GONOSUMCHECK: '*'
       run: |
         set -euo pipefail
         ARGS=""
