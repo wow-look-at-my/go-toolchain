@@ -145,13 +145,22 @@ func processOrder(id string) error {
 	files := map[string]*ast.File{"test.go": f}
 	reports := RunOnFiles(files, fset, 0.85, 5)
 
-	assert.Len(t, reports, 1, "should detect one duplicate pair")
-	if len(reports) > 0 {
-		r := reports[0]
-		assert.Greater(t, r.Similarity, 0.85)
-		assert.Contains(t, []string{r.FuncA, r.FuncB}, "processUser")
-		assert.Contains(t, []string{r.FuncA, r.FuncB}, "processOrder")
+	// Should detect the function-level pair plus inner-block pairs
+	require.NotEmpty(t, reports, "should detect duplicate pairs")
+
+	// Find the function-level pair among the results
+	var foundFuncPair bool
+	for _, r := range reports {
+		names := []string{r.FuncA, r.FuncB}
+		if r.FuncA == "processUser" && r.FuncB == "processOrder" ||
+			r.FuncA == "processOrder" && r.FuncB == "processUser" {
+			foundFuncPair = true
+			assert.Greater(t, r.Similarity, 0.85)
+			assert.Contains(t, names, "processUser")
+			assert.Contains(t, names, "processOrder")
+		}
 	}
+	assert.True(t, foundFuncPair, "should detect the function-level duplicate pair")
 }
 
 func TestRunOnFiles_NoDuplicates(t *testing.T) {
@@ -283,4 +292,79 @@ func funcB() {
 
 	assert.LessOrEqual(t, len(reportsHigh), len(reportsLow),
 		"lower threshold should find at least as many matches")
+}
+
+func TestRunOnFiles_IntraFunctionDuplicates(t *testing.T) {
+	// Models the runBuildPhase pattern: if/else branches that both run
+	// similar sequences of setup + exec with different arguments.
+	src := `package p
+
+func runBuildPhase(targets []string) {
+	if len(targets) == 0 {
+		args := []string{"build", "-o", "output"}
+		args = append(args, defaultFlags()...)
+		result := execute(args)
+		if result != nil {
+			log("build failed")
+			return
+		}
+		log("build succeeded")
+	} else {
+		args := []string{"build", "-o", "output"}
+		args = append(args, targetFlags(targets)...)
+		result := execute(args)
+		if result != nil {
+			log("build failed")
+			return
+		}
+		log("build succeeded")
+	}
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "build.go", src, 0)
+	require.NoError(t, err)
+
+	files := map[string]*ast.File{"build.go": f}
+	reports := RunOnFiles(files, fset, 0.85, 5)
+
+	require.NotEmpty(t, reports, "should detect near-duplicate if/else branches within a single function")
+	r := reports[0]
+	assert.Greater(t, r.Similarity, 0.85)
+	assert.Contains(t, r.FuncA, "runBuildPhase/")
+	assert.Contains(t, r.FuncB, "runBuildPhase/")
+}
+
+func TestRunOnFiles_IntraFunctionNoFalsePositive(t *testing.T) {
+	// An if/else with genuinely different structure should not be flagged.
+	// The if-branch uses assignments + calls + return; the else-branch
+	// uses a for-loop + switch + defer — structurally very different.
+	src := `package p
+
+func handleResult(ok bool) {
+	if ok {
+		data := fetch()
+		transform(data)
+		save(data)
+		log("success")
+	} else {
+		for i := 0; i < retries(); i++ {
+			switch getStatus(i) {
+			case 1:
+				retry(i)
+			case 2:
+				defer cleanup(i)
+			}
+		}
+	}
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", src, 0)
+	require.NoError(t, err)
+
+	files := map[string]*ast.File{"test.go": f}
+	reports := RunOnFiles(files, fset, 0.85, 5)
+
+	assert.Empty(t, reports, "structurally different if/else branches should not be flagged")
 }

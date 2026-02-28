@@ -108,7 +108,8 @@ func TestResolveBuildTargetsAutoDetectMultiple(t *testing.T) {
 	targets, err := ResolveBuildTargets(mock)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(targets))
-	assert.False(t, targets[0].OutputName != "foo" || targets[1].OutputName != "bar")
+	assert.Equal(t, "bar", targets[0].OutputName)
+	assert.Equal(t, "foo", targets[1].OutputName)
 }
 
 func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
