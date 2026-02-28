@@ -44,13 +44,13 @@ func init() {
 	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build. Use --add-watermark to enforce coverage floors.\n\n" + installStatus()
 	// Use PersistentFlags for flags shared with subcommands (like matrix)
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
+	// rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
 	rootCmd.PersistentFlags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
 	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
 	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
 	rootCmd.PersistentFlags().BoolVar(&fix, "fix", fix, "Auto-fix linter violations")
-	rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
+	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 
@@ -305,6 +305,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 
 	// Handle --add-watermark: store watermark after coverage is computed
 	if addWatermark {
+		// Check if watermark already exists
+		existingWm, wmAlreadyExists, wmCheckErr := gotest.GetWatermark(".")
+		if wmCheckErr != nil {
+			return false, fmt.Errorf("--add-watermark: failed to check existing watermark: %w", wmCheckErr)
+		}
+		if wmAlreadyExists {
+			return false, fmt.Errorf("--add-watermark: watermark already exists (%.1f%%). Use --remove-watermark first if you want to reset it", existingWm)
+		}
 		if err := gotest.SetWatermark(".", report.Total); err != nil {
 			if !quiet {
 				fmt.Printf("\n==> Warning: failed to set watermark: %v\n", err)
