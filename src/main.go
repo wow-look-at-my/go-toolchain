@@ -10,6 +10,7 @@ func init() {
 	// Disable Go's phone-home behavior - bypass proxy and checksum database
 	os.Setenv("GOPROXY", "direct")
 	os.Setenv("GOSUMDB", "off")
+	os.Setenv("GONOSUMCHECK", "*")
 }
 
 func main() {
