@@ -1792,3 +1792,156 @@ func TestFoo(t *testing.T) {
 	content, _ := os.ReadFile(filepath.Join(dir, "main_test.go"))
 	assert.Contains(t, string(content), "assert.Equal")
 }
+
+func TestFixFileUnusedRangeVars_NoRangeStatements(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	os.WriteFile(src, []byte("package main\n\nfunc main() {\n\tx := 1\n\t_ = x\n}\n"), 0644)
+
+	fixed, err := fixFileUnusedRangeVars(src)
+	assert.Nil(t, err)
+	assert.False(t, fixed)
+}
+
+func TestFixFileUnusedRangeVars_UnusedKey(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	code := `package main
+
+func main() {
+	s := []int{1, 2, 3}
+	for i, v := range s {
+		println(v)
+		_ = i
+	}
+}
+`
+	// The 'i' is only used as _ = i, but the range key 'i' IS referenced
+	// in the body, so it should NOT be replaced.
+	os.WriteFile(src, []byte(code), 0644)
+
+	fixed, err := fixFileUnusedRangeVars(src)
+	assert.Nil(t, err)
+	// 'i' is used in `_ = i`, so it counts as referenced
+	assert.False(t, fixed)
+}
+
+func TestFixFileUnusedRangeVars_TrulyUnusedKey(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	code := `package main
+
+func main() {
+	s := []int{1, 2, 3}
+	for i, v := range s {
+		println(v)
+	}
+	_ = i
+}
+`
+	// Note: 'i' is used OUTSIDE the range body (which means the code wouldn't
+	// compile, but the AST analysis only looks inside the range body).
+	// But this actually won't compile. Let me use a version that will parse.
+	code = `package main
+
+func main() {
+	s := []int{1, 2, 3}
+	for k := range s {
+		println(s[0])
+	}
+	_ = k
+}
+`
+	// Actually k is used outside the loop body so AST-wise it's not used inside.
+	// But this code wouldn't compile either. Let me just test the core:
+	// range key not used inside body → replaced with _
+	code = `package main
+
+func foo() {
+	s := []string{"a", "b"}
+	for idx, val := range s {
+		println(val)
+	}
+	_ = idx
+}
+`
+	// This won't compile cleanly but we're only parsing AST, not compiling.
+	os.WriteFile(src, []byte(code), 0644)
+
+	fixed, err := fixFileUnusedRangeVars(src)
+	assert.Nil(t, err)
+	assert.True(t, fixed)
+
+	result, _ := os.ReadFile(src)
+	assert.Contains(t, string(result), "for _, val := range")
+}
+
+func TestFixFileUnusedRangeVars_UnusedValue(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	code := `package main
+
+func foo() {
+	m := map[string]int{"a": 1}
+	for key, val := range m {
+		println(key)
+	}
+	_ = val
+}
+`
+	os.WriteFile(src, []byte(code), 0644)
+
+	fixed, err := fixFileUnusedRangeVars(src)
+	assert.Nil(t, err)
+	assert.True(t, fixed)
+
+	result, _ := os.ReadFile(src)
+	assert.Contains(t, string(result), "for key, _ := range")
+}
+
+func TestFixFileUnusedRangeVars_BothUsed(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	code := `package main
+
+func foo() {
+	s := []string{"a", "b"}
+	for i, v := range s {
+		println(i, v)
+	}
+}
+`
+	os.WriteFile(src, []byte(code), 0644)
+
+	fixed, err := fixFileUnusedRangeVars(src)
+	assert.Nil(t, err)
+	assert.False(t, fixed)
+}
+
+func TestFixFileUnusedRangeVars_AlreadyUnderscore(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	code := `package main
+
+func foo() {
+	s := []string{"a", "b"}
+	for _, v := range s {
+		println(v)
+	}
+}
+`
+	os.WriteFile(src, []byte(code), 0644)
+
+	fixed, err := fixFileUnusedRangeVars(src)
+	assert.Nil(t, err)
+	assert.False(t, fixed)
+}
+
+func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "bad.go")
+	os.WriteFile(src, []byte("this is not valid go {{{"), 0644)
+
+	_, err := fixFileUnusedRangeVars(src)
+	assert.NotNil(t, err)
+}

@@ -10,6 +10,47 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// selfUpdater abstracts the self-update mechanism for testability.
+type selfUpdater interface {
+	detect(ctx context.Context, slug string) (version string, found bool, err error)
+	isNewer(currentVersion string) bool
+	applyUpdate(ctx context.Context, exePath string) error
+}
+
+// githubUpdater wraps go-selfupdate for real GitHub releases.
+type githubUpdater struct {
+	updater *selfupdate.Updater
+	latest  *selfupdate.Release
+}
+
+func (g *githubUpdater) detect(ctx context.Context, slug string) (string, bool, error) {
+	g.updater = selfupdate.DefaultUpdater()
+	repo := selfupdate.ParseSlug(slug)
+	rel, found, err := g.updater.DetectLatest(ctx, repo)
+	if err != nil {
+		return "", false, err
+	}
+	if !found {
+		return "", false, nil
+	}
+	g.latest = rel
+	return rel.Version(), true, nil
+}
+
+func (g *githubUpdater) isNewer(currentVersion string) bool {
+	if g.latest == nil {
+		return false
+	}
+	return g.latest.GreaterThan(currentVersion)
+}
+
+func (g *githubUpdater) applyUpdate(ctx context.Context, exePath string) error {
+	return g.updater.UpdateTo(ctx, g.latest, exePath)
+}
+
+// newUpdater is the factory for creating updaters. Replaceable for testing.
+var newUpdater = func() selfUpdater { return &githubUpdater{} }
+
 func init() {
 	updateCmd := &cobra.Command{
 		Use:          "update",
@@ -21,13 +62,13 @@ func init() {
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
-	updater := selfupdate.DefaultUpdater()
-	repo := selfupdate.ParseSlug("wow-look-at-my/go-toolchain")
+	return doUpdate(context.Background(), newUpdater())
+}
 
+func doUpdate(ctx context.Context, u selfUpdater) error {
 	fmt.Println("==> Checking for updates...")
 
-	latest, found, err := updater.DetectLatest(ctx, repo)
+	latestVersion, found, err := u.detect(ctx, "wow-look-at-my/go-toolchain")
 	if err != nil {
 		return fmt.Errorf("failed to detect latest release: %w", err)
 	}
@@ -35,12 +76,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no release found for this platform")
 	}
 
-	fmt.Printf("    Latest:  %s\n", latest.Version())
+	fmt.Printf("    Latest:  %s\n", latestVersion)
 	fmt.Printf("    Current: %s\n", buildVersion)
 
 	if buildVersion == "dev" {
 		fmt.Println("    Warning: this is a dev build (no embedded version)")
-	} else if !latest.GreaterThan(buildVersion) {
+	} else if !u.isNewer(buildVersion) {
 		fmt.Println("==> Already up to date.")
 		return nil
 	}
@@ -56,11 +97,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("==> Updating %s ...\n", exePath)
 
-	if err := updater.UpdateTo(ctx, latest, exePath); err != nil {
+	if err := u.applyUpdate(ctx, exePath); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 
-	fmt.Printf("==> Updated to %s\n", latest.Version())
+	fmt.Printf("==> Updated to %s\n", latestVersion)
 
 	// Re-create go-safe-build compat symlink if binary is in ~/.local/bin/
 	home, err := os.UserHomeDir()
