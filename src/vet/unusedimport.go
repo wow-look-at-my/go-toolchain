@@ -175,7 +175,7 @@ func importName(imp *ast.ImportSpec) string {
 	packageNameCacheMu.RUnlock()
 
 	// Use go/build to get the actual package name
-	pkg, err := build.Import(importPath, ".", build.FindOnly)
+	pkg, err := build.Import(importPath, ".", 0)
 	if err == nil && pkg.Name != "" {
 		packageNameCacheMu.Lock()
 		packageNameCache[importPath] = pkg.Name

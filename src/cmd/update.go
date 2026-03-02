@@ -19,8 +19,8 @@ type selfUpdater interface {
 
 // githubUpdater wraps go-selfupdate for real GitHub releases.
 type githubUpdater struct {
-	updater *selfupdate.Updater
-	latest  *selfupdate.Release
+	updater	*selfupdate.Updater
+	latest	*selfupdate.Release
 }
 
 func (g *githubUpdater) detect(ctx context.Context, slug string) (string, bool, error) {
@@ -53,10 +53,10 @@ var newUpdater = func() selfUpdater { return &githubUpdater{} }
 
 func init() {
 	updateCmd := &cobra.Command{
-		Use:          "update",
-		Short:        "Update go-toolchain to the latest release",
-		SilenceUsage: true,
-		RunE:         runUpdate,
+		Use:		"update",
+		Short:		"Update go-toolchain to the latest release",
+		SilenceUsage:	true,
+		RunE:		runUpdate,
 	}
 	rootCmd.AddCommand(updateCmd)
 }
@@ -106,7 +106,7 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 	// Re-create go-safe-build compat symlink if binary is in ~/.local/bin/
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil // non-fatal
+		return nil	// non-fatal
 	}
 	localBin := filepath.Join(home, ".local", "bin")
 	if filepath.Dir(exePath) == localBin {
