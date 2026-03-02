@@ -7,9 +7,10 @@ import (
 )
 
 func init() {
-	// Disable Go's phone-home behavior - bypass proxy and checksum database
+	// Disable Go's phone-home behavior - bypass proxy and checksum database.
+	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
 	os.Setenv("GOPROXY", "direct")
-	os.Setenv("GOSUMDB", "off")
+	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
 }
 

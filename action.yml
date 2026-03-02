@@ -51,7 +51,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         GOPROXY: direct
-        GOSUMDB: 'off'
+        GONOSUMDB: '*'
         GONOSUMCHECK: '*'
       run: |
         set -euo pipefail

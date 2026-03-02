@@ -9,7 +9,7 @@ permissions:
 
 env:
   GOPROXY: direct
-  GOSUMDB: off
+  GONOSUMDB: '*'
   GONOSUMCHECK: '*'
 
 jobs:
