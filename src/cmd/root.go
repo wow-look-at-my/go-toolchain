@@ -21,16 +21,17 @@ import (
 )
 
 var (
-	outputDir     = "build"
-	jsonOutput    bool
-	verbose       bool
-	addWatermark  bool
-	doRemoveWmark bool
-	generateHash  string
-	fix           = os.Getenv("CI") == "" // disable auto-fix on CI
-	dupcode       bool
-	lintThreshold float64
-	lintMinNodes  int
+	outputDir       = "build"
+	jsonOutput      bool
+	verbose         bool
+	addWatermark    bool
+	doRemoveWmark   bool
+	generateHash    string
+	fix             = os.Getenv("CI") == "" // disable auto-fix on CI
+	dupcode         bool
+	lintThreshold   float64
+	lintMinNodes    int
+	exemptLengthFile string
 )
 
 var rootCmd = &cobra.Command{
@@ -53,6 +54,8 @@ func init() {
 	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
+
+	rootCmd.PersistentFlags().StringVar(&exemptLengthFile, "exempt-length", "", "Mark a file as exempt from file-length checks")
 
 	// Benchmark flags
 	rootCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
@@ -134,6 +137,10 @@ func runWithRunner(r runner.CommandRunner) error {
 
 func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 	quiet := jsonOutput
+	// Handle --exempt-length early, before any build steps
+	if exemptLengthFile != "" {
+		return handleExemptLength(exemptLengthFile)
+	}
 	// Handle --remove-watermark early, before any build steps
 	if doRemoveWmark {
 		return handleRemoveWatermark()
@@ -391,6 +398,14 @@ func needsGenerate() bool {
 		return nil
 	})
 	return err == errFound
+}
+
+func handleExemptLength(path string) error {
+	if err := gotest.ExemptFileLength(path); err != nil {
+		return fmt.Errorf("--exempt-length: %w", err)
+	}
+	fmt.Printf("File-length exemption set for %s\n", path)
+	return nil
 }
 
 func handleRemoveWatermark() error {
