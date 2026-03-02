@@ -119,6 +119,14 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 		if fixed {
 			filesChanged = true
 		}
+
+		gtFixed, err := MigrateGotestTools()
+		if err != nil {
+			return false, fmt.Errorf("migrating gotest.tools imports: %w", err)
+		}
+		if gtFixed {
+			filesChanged = true
+		}
 	}
 
 	cfg := &packages.Config{
