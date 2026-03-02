@@ -22,6 +22,7 @@ const (
 
 // gotestFuncRenames maps gotest.tools function names to their testify/require equivalents.
 var gotestFuncRenames = map[string]string{
+	"Assert":    "True",
 	"NilError":  "NoError",
 	"Error":     "EqualError",
 	"DeepEqual": "Equal",
@@ -87,30 +88,46 @@ func migrateFileGotestTools(filename string) (bool, error) {
 	var hasCheckCalls bool    // tracks if assert.Check calls exist
 	var needAssertImport bool // whether to add testify/assert import
 
+	// Check if testify/require is already imported (before we rewrite gotest.tools)
+	hasExistingRequire := false
+	for _, imp := range f.Imports {
+		if strings.Trim(imp.Path.Value, `"`) == testifyRequire {
+			hasExistingRequire = true
+			break
+		}
+	}
+
 	// Phase 1: Rewrite imports
+	var gotestImportSpec *ast.ImportSpec
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
 
 		switch path {
 		case gotestAssert:
-			imp.Path.Value = `"` + testifyRequire + `"`
-			// If it had an explicit alias "assert", change to "require"
-			if imp.Name != nil && imp.Name.Name == "assert" {
-				imp.Name.Name = "require"
-			}
-			modified = true
 			hasAssertImport = true
-			printGotestFix(filename, path, testifyRequire)
+			gotestImportSpec = imp
 
 		case gotestAssertCmp:
 			hasCmpImport = true
-			// We'll remove this import after scanning for usages
 		}
 	}
 
 	if !hasAssertImport {
 		return false, nil
 	}
+
+	if hasExistingRequire {
+		// File already has testify/require — just remove the gotest.tools import
+		removeImport(f, gotestImportSpec)
+	} else {
+		// Rewrite gotest.tools/v3/assert → testify/require in-place
+		gotestImportSpec.Path.Value = `"` + testifyRequire + `"`
+		if gotestImportSpec.Name != nil && gotestImportSpec.Name.Name == "assert" {
+			gotestImportSpec.Name.Name = "require"
+		}
+	}
+	modified = true
+	printGotestFix(filename, gotestAssert, testifyRequire)
 
 	// Phase 2: Walk AST to rename selectors and function names
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -193,7 +210,14 @@ func migrateFileGotestTools(filename string) (bool, error) {
 }
 
 // addImport adds an import path to the file's first import declaration.
+// Does nothing if the import already exists.
 func addImport(f *ast.File, path string) {
+	for _, imp := range f.Imports {
+		if strings.Trim(imp.Path.Value, `"`) == path {
+			return // already imported
+		}
+	}
+
 	newSpec := &ast.ImportSpec{
 		Path: &ast.BasicLit{
 			Kind:  token.STRING,
