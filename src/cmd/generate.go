@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,7 +124,9 @@ func findGenerateDirectives(root string) ([]generateDirective, error) {
 
 var generateRegex = regexp.MustCompile(`^//go:generate\s+(.+)$`)
 
-// parseDirectives extracts //go:generate directives from a single file
+// parseDirectives extracts //go:generate directives from a single file.
+// Uses bufio.Reader.ReadLine instead of Scanner to handle arbitrarily long lines
+// (e.g., generated code with huge string literals) without buffering them entirely.
 func parseDirectives(path string) ([]generateDirective, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -132,24 +135,45 @@ func parseDirectives(path string) ([]generateDirective, error) {
 	defer f.Close()
 
 	var directives []generateDirective
-	scanner := bufio.NewScanner(f)
+	reader := bufio.NewReader(f)
 	lineNum := 0
 
-	for scanner.Scan() {
+	for {
 		lineNum++
-		line := scanner.Text()
+		// ReadLine returns the start of a line. For lines longer than the
+		// internal buffer, isPrefix is true and subsequent calls return the
+		// rest. Generate directives are short, so the first chunk is always
+		// enough to detect and extract them.
+		chunk, isPrefix, err := reader.ReadLine()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
 
-		matches := generateRegex.FindStringSubmatch(line)
+		matches := generateRegex.FindSubmatch(chunk)
 		if matches != nil {
 			directives = append(directives, generateDirective{
 				File:    path,
 				Line:    lineNum,
-				Command: matches[1],
+				Command: string(matches[1]),
 			})
+		}
+
+		// Discard remaining chunks of long lines without buffering
+		for isPrefix {
+			_, isPrefix, err = reader.ReadLine()
+			if err != nil {
+				if err == io.EOF {
+					return directives, nil
+				}
+				return nil, err
+			}
 		}
 	}
 
-	return directives, scanner.Err()
+	return directives, nil
 }
 
 // executeDirective runs a single generate directive
