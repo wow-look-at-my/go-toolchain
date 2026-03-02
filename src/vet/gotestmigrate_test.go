@@ -190,7 +190,7 @@ func TestFoo(t *testing.T) {
 	assert.Contains(t, s, `"github.com/wow-look-at-my/testify/require"`)
 }
 
-func TestMigrateGotestTools_CmpImportRemoved(t *testing.T) {
+func TestMigrateGotestTools_CmpUnwrap(t *testing.T) {
 	dir := t.TempDir()
 
 	content := `package example
@@ -205,6 +205,8 @@ import (
 func TestFoo(t *testing.T) {
 	assert.NilError(t, nil)
 	assert.Check(t, cmp.Equal(a, b))
+	assert.Assert(t, cmp.Nil(x))
+	assert.Assert(t, cmp.ErrorContains(err, "msg"))
 }
 `
 	filePath := filepath.Join(dir, "example_test.go")
@@ -221,6 +223,12 @@ func TestFoo(t *testing.T) {
 	s := string(result)
 	// cmp import should be removed
 	assert.NotContains(t, s, `gotest.tools/v3/assert/cmp`)
-	// require import should be present
-	assert.Contains(t, s, `"github.com/wow-look-at-my/testify/require"`)
+	// cmp.Equal unwrapped: Check → assert.Equal (non-fatal)
+	assert.Contains(t, s, "assert.Equal(t, a, b)")
+	// cmp.Nil unwrapped: Assert → require.Nil (fatal)
+	assert.Contains(t, s, "require.Nil(t, x)")
+	// cmp.ErrorContains unwrapped: Assert → require.ErrorContains (fatal)
+	assert.Contains(t, s, `require.ErrorContains(t, err, "msg")`)
+	// No remaining cmp references
+	assert.NotContains(t, s, "cmp.")
 }

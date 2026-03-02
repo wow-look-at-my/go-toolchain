@@ -32,6 +32,41 @@ var gotestFuncRenames = map[string]string{
 	"Equal":         "Equal",
 }
 
+// cmpToTestify maps gotest.tools/v3/assert/cmp function names to testify equivalents.
+var cmpToTestify = map[string]string{
+	"Equal":         "Equal",
+	"DeepEqual":     "Equal",
+	"Nil":           "Nil",
+	"ErrorContains": "ErrorContains",
+	"Error":         "EqualError",
+	"ErrorIs":       "ErrorIs",
+	"Len":           "Len",
+	"Contains":      "Contains",
+	"Panics":        "Panics",
+	"Regexp":        "Regexp",
+}
+
+// extractCmpCall checks if an expression is a cmp.X() call and returns the
+// call expression and selector if so.
+func extractCmpCall(expr ast.Expr) (*ast.CallExpr, *ast.SelectorExpr, bool) {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return nil, nil, false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return nil, nil, false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return nil, nil, false
+	}
+	if ident.Name != "cmp" {
+		return nil, nil, false
+	}
+	return call, sel, true
+}
+
 // MigrateGotestTools scans all Go files and migrates gotest.tools/v3/assert
 // imports to github.com/wow-look-at-my/testify/require. Returns true if any
 // files were modified.
@@ -82,10 +117,8 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		return false, err
 	}
 
-	var modified bool
 	var hasAssertImport bool  // tracks if gotest.tools/v3/assert was present
 	var hasCmpImport bool     // tracks if gotest.tools/v3/assert/cmp was present
-	var hasCheckCalls bool    // tracks if assert.Check calls exist
 	var needAssertImport bool // whether to add testify/assert import
 
 	// Check if testify/require is already imported (before we rewrite gotest.tools)
@@ -126,10 +159,13 @@ func migrateFileGotestTools(filename string) (bool, error) {
 			gotestImportSpec.Name.Name = "require"
 		}
 	}
-	modified = true
+
 	printGotestFix(filename, gotestAssert, testifyRequire)
 
-	// Phase 2: Walk AST to rename selectors and function names
+	// Phase 2: Walk call expressions to rename functions and unwrap cmp calls.
+	// Track which idents should stay as "assert" (non-fatal Check paths).
+	keepAsAssert := map[*ast.Ident]bool{}
+
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -152,31 +188,66 @@ func migrateFileGotestTools(filename string) (bool, error) {
 
 		funcName := sel.Sel.Name
 
-		// Special case: Check is non-fatal → maps to testify assert (not require)
+		// Handle Check/Assert with cmp.X() argument — unwrap into direct testify call
+		if (funcName == "Check" || funcName == "Assert") && len(call.Args) >= 2 {
+			if cmpCall, cmpSel, ok := extractCmpCall(call.Args[1]); ok {
+				if testifyName, ok := cmpToTestify[cmpSel.Sel.Name]; ok {
+					sel.Sel.Name = testifyName
+					// Replace args: [t, cmp.X(a, b)] → [t, a, b]
+					cmpArgs := cmpCall.Args
+					if cmpSel.Sel.Name == "DeepEqual" && len(cmpArgs) > 2 {
+						cmpArgs = cmpArgs[:2] // drop go-cmp options
+					}
+					call.Args = append(call.Args[:1], cmpArgs...)
+
+					if funcName == "Check" {
+						keepAsAssert[ident] = true
+						needAssertImport = true
+					} else {
+						ident.Name = "require"
+					}
+				
+					return true
+				}
+			}
+		}
+
+		// Check without cmp → assert.True (non-fatal)
 		if funcName == "Check" {
-			hasCheckCalls = true
 			needAssertImport = true
-			// Keep selector as "assert" — it will refer to testify/assert
+			keepAsAssert[ident] = true
 			sel.Sel.Name = "True"
-			modified = true
+		
 			return true
 		}
 
-		// Rename the package selector from assert → require
+		// Everything else: rename to require
 		ident.Name = "require"
-
-		// Apply function name renames
 		if newName, ok := gotestFuncRenames[funcName]; ok {
 			sel.Sel.Name = newName
 		}
 
-		modified = true
+	
 		return true
 	})
 
-	if !modified {
-		return false, nil
-	}
+	// Phase 2b: Rename any remaining assert.X selectors in non-call contexts
+	// (type references, value accesses, etc.)
+	ast.Inspect(f, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if ident.Name == "assert" && !keepAsAssert[ident] {
+			ident.Name = "require"
+		
+		}
+		return true
+	})
 
 	// Phase 3: Remove cmp import if present
 	if hasCmpImport {
@@ -189,10 +260,9 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		printGotestFix(filename, gotestAssertCmp, "(removed)")
 	}
 
-	// Phase 4: Add testify/assert import if Check calls were found
-	if needAssertImport && hasCheckCalls {
+	// Phase 4: Add testify/assert import if non-fatal (Check) calls were found
+	if needAssertImport {
 		addImport(f, testifyAssert)
-		printGotestFix(filename, "assert.Check", "assert.True (non-fatal)")
 	}
 
 	// Write back
