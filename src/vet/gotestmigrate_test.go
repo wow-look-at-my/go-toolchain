@@ -89,18 +89,7 @@ func TestFoo(t *testing.T) {
 func TestMigrateGotestTools_Assert(t *testing.T) {
 	dir := t.TempDir()
 
-	content := ` + "`" + `package example
-
-import (
-	"testing"
-
-	"gotest.tools/v3/assert"
-)
-
-func TestFoo(t *testing.T) {
-	assert.Assert(t, len(items) > 0)
-}
-` + "`" + `
+	content := "package example\n\nimport (\n\t\"testing\"\n\n\t\"gotest.tools/v3/assert\"\n)\n\nfunc TestFoo(t *testing.T) {\n\tassert.Assert(t, len(items) > 0)\n}\n"
 	filePath := filepath.Join(dir, "example_test.go")
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
@@ -121,20 +110,7 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 	dir := t.TempDir()
 
 	// File that already has testify/require AND gotest.tools/assert
-	content := ` + "`" + `package example
-
-import (
-	"testing"
-
-	"github.com/wow-look-at-my/testify/require"
-	"gotest.tools/v3/assert"
-)
-
-func TestFoo(t *testing.T) {
-	require.NoError(t, nil)
-	assert.NilError(t, nil)
-}
-` + "`" + `
+	content := "package example\n\nimport (\n\t\"testing\"\n\n\t\"github.com/wow-look-at-my/testify/require\"\n\t\"gotest.tools/v3/assert\"\n)\n\nfunc TestFoo(t *testing.T) {\n\trequire.NoError(t, nil)\n\tassert.NilError(t, nil)\n}\n"
 	filePath := filepath.Join(dir, "example_test.go")
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
