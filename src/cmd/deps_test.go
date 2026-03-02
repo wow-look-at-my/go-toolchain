@@ -381,6 +381,35 @@ require git.internal/broken v0.0.0
 	assert.NotNil(t, err)
 }
 
+func TestResolveLatestVersionViaGit_Success(t *testing.T) {
+	fullHash := "abc123def456789012345678901234567890abcd"
+
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("git", "ls-remote") {
+			return runner.MockProcess([]byte(fullHash+"\tHEAD\n"), nil), nil
+		}
+		if cfg.IsCmd("git") {
+			// init --bare, fetch, log
+			for _, arg := range cfg.Args {
+				if arg == "init" || arg == "fetch" {
+					return runner.MockProcess(nil, nil), nil
+				}
+				if arg == "log" {
+					// Return a Unix timestamp
+					return runner.MockProcess([]byte("1700000000\n"), nil), nil
+				}
+			}
+		}
+		return nil, nil
+	}
+
+	version, err := resolveLatestVersionViaGit(mock, "example.com/repo")
+	require.Nil(t, err)
+	assert.Contains(t, version, "v0.0.0-")
+	assert.Contains(t, version, fullHash[:12])
+}
+
 func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
 	mock := runner.NewMock()
 	// Return empty output (no HEAD ref)

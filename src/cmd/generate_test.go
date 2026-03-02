@@ -3,11 +3,11 @@ package cmd
 import (
 	"os"
 	"path/filepath"
-	
+	"strings"
 	"testing"
+
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
-
 )
 
 func TestParseDirectives(t *testing.T) {
@@ -32,6 +32,30 @@ func TestParseDirectives(t *testing.T) {
 
 	assert.Equal(t, `sh -c "echo world"`, directives[1].Command)
 	assert.Equal(t, 4, directives[1].Line)
+}
+
+func TestParseDirectivesLongLines(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.go")
+
+	// Build a file with a line far exceeding bufio's default 4KB buffer.
+	// The directive must still be found on lines before and after the long line.
+	longLine := "var x = \"" + strings.Repeat("A", 100_000) + "\"\n"
+
+	content := "package main\n\n" +
+		"//go:generate echo before\n" +
+		longLine +
+		"//go:generate echo after\n"
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
+
+	directives, err := parseDirectives(testFile)
+	require.Nil(t, err)
+
+	require.Equal(t, 2, len(directives))
+	assert.Equal(t, "echo before", directives[0].Command)
+	assert.Equal(t, 3, directives[0].Line)
+	assert.Equal(t, "echo after", directives[1].Command)
+	assert.Equal(t, 5, directives[1].Line)
 }
 
 func TestParseDirectivesNoDirectives(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -649,4 +650,65 @@ func TestNeedsGenerateWithDirective(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	assert.True(t, needsGenerate())
+}
+
+func TestFindGoModules_CurrentDir(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	modules := findGoModules()
+	require.Equal(t, 1, len(modules))
+	assert.Equal(t, ".", modules[0])
+}
+
+func TestFindGoModules_Subdirectories(t *testing.T) {
+	dir := t.TempDir()
+	// No go.mod in root — create subdirectories with go.mod
+	os.MkdirAll(filepath.Join(dir, "svc-a"), 0755)
+	os.MkdirAll(filepath.Join(dir, "svc-b"), 0755)
+	os.WriteFile(filepath.Join(dir, "svc-a", "go.mod"), []byte("module test/a\ngo 1.21\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "svc-b", "go.mod"), []byte("module test/b\ngo 1.21\n"), 0644)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	modules := findGoModules()
+	assert.Equal(t, 2, len(modules))
+}
+
+func TestFindGoModules_SkipsHiddenAndVendor(t *testing.T) {
+	dir := t.TempDir()
+	// No go.mod in root
+	os.MkdirAll(filepath.Join(dir, ".hidden"), 0755)
+	os.MkdirAll(filepath.Join(dir, "vendor"), 0755)
+	os.MkdirAll(filepath.Join(dir, "node_modules"), 0755)
+	os.MkdirAll(filepath.Join(dir, "real"), 0755)
+	os.WriteFile(filepath.Join(dir, ".hidden", "go.mod"), []byte("module hidden\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "vendor", "go.mod"), []byte("module vendor\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "node_modules", "go.mod"), []byte("module nm\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "real", "go.mod"), []byte("module real\n"), 0644)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	modules := findGoModules()
+	require.Equal(t, 1, len(modules))
+	assert.Equal(t, "real", modules[0])
+}
+
+func TestFindGoModules_NoModules(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	modules := findGoModules()
+	assert.Equal(t, 0, len(modules))
 }

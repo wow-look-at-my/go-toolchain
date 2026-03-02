@@ -263,6 +263,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		runDuplicateCheck()
 	}
 
+	if err := checkFileLength("."); err != nil {
+		return false, err
+	}
+
 	if !quiet {
 		fmt.Println("==> Running tests with coverage")
 	}
