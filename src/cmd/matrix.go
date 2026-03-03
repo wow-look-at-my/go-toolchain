@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -166,6 +167,15 @@ func runBuild(r runner.CommandRunner, job buildJob) error {
 	if err != nil {
 		return err
 	}
-	return proc.Wait()
+	// Drain pipes before Wait to capture compiler errors and prevent deadlocks
+	io.Copy(io.Discard, proc.Stdout())
+	stderr, _ := io.ReadAll(proc.Stderr())
+	if err := proc.Wait(); err != nil {
+		if len(stderr) > 0 {
+			return fmt.Errorf("%w\n%s", err, stderr)
+		}
+		return err
+	}
+	return nil
 }
 

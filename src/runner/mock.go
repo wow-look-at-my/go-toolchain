@@ -91,6 +91,11 @@ func MockProcess(stdout []byte, waitErr error) IProcess {
 	return &mockProcess{stdout: stdout, waitErr: waitErr}
 }
 
+// MockProcessWithStderr creates a mock process with stdout, stderr, and wait error
+func MockProcessWithStderr(stdout, stderr []byte, waitErr error) IProcess {
+	return &mockProcess{stdout: stdout, stderr: stderr, waitErr: waitErr}
+}
+
 type mockProcess struct {
 	stdout  []byte
 	stderr  []byte
