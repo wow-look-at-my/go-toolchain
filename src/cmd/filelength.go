@@ -59,16 +59,15 @@ func checkFileLength(root string) error {
 			}
 		}
 
-		if lineNum >= fileLengthWarn {
+		if lineNum >= fileLengthError {
 			exempt, _ := gotest.IsFileLengthExempt(path)
 			if exempt {
-				return nil
-			}
-			if lineNum >= fileLengthError {
-				errors = append(errors, fmt.Sprintf("  %s: %d lines (max %d)", path, lineNum, fileLengthError))
+				warnings = append(warnings, fmt.Sprintf("  %s: %d lines (exempt, warning at %d)", path, lineNum, fileLengthWarn))
 			} else {
-				warnings = append(warnings, fmt.Sprintf("  %s: %d lines (consider splitting, warning at %d)", path, lineNum, fileLengthWarn))
+				errors = append(errors, fmt.Sprintf("  %s: %d lines (max %d)", path, lineNum, fileLengthError))
 			}
+		} else if lineNum >= fileLengthWarn {
+			warnings = append(warnings, fmt.Sprintf("  %s: %d lines (consider splitting, warning at %d)", path, lineNum, fileLengthWarn))
 		}
 		return nil
 	})

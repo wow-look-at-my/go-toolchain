@@ -67,6 +67,11 @@ func ExemptFileLength(path string) error {
 	return setXattr(path, fileLengthAttr, []byte(value))
 }
 
+// RemoveFileLengthExemption removes the file-length exemption xattr from a file.
+func RemoveFileLengthExemption(path string) error {
+	return removeXattr(path, fileLengthAttr)
+}
+
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
