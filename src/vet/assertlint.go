@@ -402,25 +402,31 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 						ast.NewIdent(tVar),
 						assign.Rhs[0],
 					)
+					newNodes := []ast.Node{&ast.ExprStmt{X: noErrorCall}}
+					prepareFixNodes(newNodes, ifStmt.Pos())
 					return &ASTFix{
 						OldNode:  ifStmt,
-						NewNodes: []ast.Node{&ast.ExprStmt{X: noErrorCall}},
+						NewNodes: newNodes,
 					}
 				}
 			}
 		}
 
 		// General case: extract init statement
+		newNodes := []ast.Node{ifStmt.Init, assertStmt}
+		prepareFixNodes(newNodes, ifStmt.Pos())
 		return &ASTFix{
 			OldNode:  ifStmt,
-			NewNodes: []ast.Node{ifStmt.Init, assertStmt},
+			NewNodes: newNodes,
 		}
 	}
 
 	// Simple case: if cond { t.Error } → assert.X(t, ...)
+	newNodes := []ast.Node{assertStmt}
+	prepareFixNodes(newNodes, ifStmt.Pos())
 	return &ASTFix{
 		OldNode:  ifStmt,
-		NewNodes: []ast.Node{assertStmt},
+		NewNodes: newNodes,
 	}
 }
 
@@ -539,6 +545,87 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 
 	// Default: two args
 	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
+}
+
+// clearNodePositions recursively clears position information from all AST nodes
+// in the subtree. This prevents the Go printer from interleaving comments based
+// on stale position information when AST nodes are reused in a different context
+// (e.g., extracting condition operands from an if statement into assert call arguments).
+func clearNodePositions(node ast.Node) {
+	ast.Inspect(node, func(n ast.Node) bool {
+		if n == nil {
+			return false
+		}
+		switch x := n.(type) {
+		case *ast.Ident:
+			x.NamePos = token.NoPos
+		case *ast.BasicLit:
+			x.ValuePos = token.NoPos
+		case *ast.BinaryExpr:
+			x.OpPos = token.NoPos
+		case *ast.UnaryExpr:
+			x.OpPos = token.NoPos
+		case *ast.ParenExpr:
+			x.Lparen = token.NoPos
+			x.Rparen = token.NoPos
+		case *ast.CallExpr:
+			x.Lparen = token.NoPos
+			x.Rparen = token.NoPos
+			x.Ellipsis = token.NoPos
+		case *ast.IndexExpr:
+			x.Lbrack = token.NoPos
+			x.Rbrack = token.NoPos
+		case *ast.StarExpr:
+			x.Star = token.NoPos
+		case *ast.CompositeLit:
+			x.Lbrace = token.NoPos
+			x.Rbrace = token.NoPos
+		case *ast.KeyValueExpr:
+			x.Colon = token.NoPos
+		case *ast.SliceExpr:
+			x.Lbrack = token.NoPos
+			x.Rbrack = token.NoPos
+		case *ast.TypeAssertExpr:
+			x.Lparen = token.NoPos
+			x.Rparen = token.NoPos
+		case *ast.AssignStmt:
+			x.TokPos = token.NoPos
+		}
+		return true
+	})
+}
+
+// prepareFixNodes clears stale positions from all new nodes and sets the first
+// token position to pos, so the Go printer flushes leading comments correctly.
+func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
+	for _, node := range nodes {
+		clearNodePositions(node)
+	}
+	if len(nodes) > 0 {
+		setFirstTokenPos(nodes[0], pos)
+	}
+}
+
+// setFirstTokenPos walks the AST depth-first and sets the position of the first
+// positioned token (Ident or BasicLit) to pos.
+func setFirstTokenPos(node ast.Node, pos token.Pos) {
+	done := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		if done || n == nil {
+			return false
+		}
+		switch x := n.(type) {
+		case *ast.Ident:
+			x.NamePos = pos
+			done = true
+			return false
+		case *ast.BasicLit:
+			x.ValuePos = pos
+			done = true
+			return false
+		}
+		return true
+	})
 }
 
 // castableType returns the type to cast the literal to, or empty string if no cast needed.

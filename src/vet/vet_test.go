@@ -672,3 +672,62 @@ func TestSourceLocationShortLocAbsolute(t *testing.T) {
 	expected, _ := filepath.Rel(cwd, absPath)
 	assert.Equal(t, expected+":10", short)
 }
+
+func TestASTFixesCommentNotInterleaved(t *testing.T) {
+	// Regression test: comments above an if statement must not be interleaved
+	// into the replacement assert call arguments.
+	before := `package main
+
+func TestFoo(t *testing.T) {
+	hostname := ""
+	// Hostname should be non-empty
+	if hostname == "" {
+		t.Error("hostname should not be empty")
+	}
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
+	require.Nil(t, err)
+
+	// Find the if statement
+	var ifStmt *ast.IfStmt
+	ast.Inspect(f, func(n ast.Node) bool {
+		if i, ok := n.(*ast.IfStmt); ok {
+			ifStmt = i
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, ifStmt)
+
+	// Build replacement: assert.NotEqual(t, "", hostname)
+	// This simulates what generateASTFix produces for: if hostname == "" { t.Error(...) }
+	bin := ifStmt.Cond.(*ast.BinaryExpr)
+	assertCall := makeCall(
+		makeSelector("assert", "NotEqual"),
+		ast.NewIdent("t"),
+		bin.Y, // "" (reused from original, has stale position)
+		bin.X, // hostname (reused from original, has stale position)
+	)
+	assertStmt := &ast.ExprStmt{X: assertCall}
+
+	newNodes := []ast.Node{assertStmt}
+	prepareFixNodes(newNodes, ifStmt.Pos())
+
+	fixes := &ASTFixes{
+		File: f, Fset: fset,
+		Fixes: []ASTFix{{OldNode: ifStmt, NewNodes: newNodes}},
+	}
+
+	var buf strings.Builder
+	err = fixes.Fprint(&buf)
+	require.Nil(t, err)
+
+	result := buf.String()
+	// The comment must NOT appear inside the function call
+	assert.NotContains(t, result, "NotEqual(t,// Hostname")
+	assert.NotContains(t, result, "NotEqual(t, // Hostname")
+	// The comment should be on its own line before the assertion
+	assert.Contains(t, result, "// Hostname should be non-empty\n\tassert.NotEqual")
+}
