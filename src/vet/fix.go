@@ -107,7 +107,43 @@ func (f *ASTFixes) Fprint(w io.Writer) error {
 		return true
 	})
 
+	// Remove comments that were inside replaced nodes. These comments are
+	// orphaned after the replacement and would be placed incorrectly by
+	// the printer since their positions refer to code that no longer exists.
+	f.removeOrphanedComments()
+
 	return printer.Fprint(w, f.Fset, f.File)
+}
+
+// removeOrphanedComments removes comment groups from f.File.Comments that fall
+// within the source range of any replaced OldNode. Comments before the node
+// (leading comments) are preserved.
+func (f *ASTFixes) removeOrphanedComments() {
+	if len(f.Fixes) == 0 {
+		return
+	}
+
+	// Collect ranges of replaced nodes
+	type posRange struct{ start, end token.Pos }
+	var ranges []posRange
+	for _, fix := range f.Fixes {
+		ranges = append(ranges, posRange{fix.OldNode.Pos(), fix.OldNode.End()})
+	}
+
+	filtered := f.File.Comments[:0]
+	for _, cg := range f.File.Comments {
+		orphaned := false
+		for _, r := range ranges {
+			if cg.Pos() >= r.start && cg.End() <= r.end {
+				orphaned = true
+				break
+			}
+		}
+		if !orphaned {
+			filtered = append(filtered, cg)
+		}
+	}
+	f.File.Comments = filtered
 }
 
 // Apply applies all fixes to the file and writes it back.
