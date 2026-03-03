@@ -226,6 +226,41 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 	assert.Equal(t, 4, buildCount)
 }
 
+func TestRunBuildCapturesStderr(t *testing.T) {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "build") {
+			return runner.MockProcessWithStderr(nil, []byte("./main.go:5:3: undefined: foo\n"), fmt.Errorf("exit status 1")), nil
+		}
+		return nil, nil
+	}
+
+	job := buildJob{
+		goos:       "linux",
+		goarch:     "amd64",
+		srcPath:    ".",
+		outputPath: "/tmp/test",
+	}
+
+	err := runBuild(mock, job)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "exit status 1")
+	assert.Contains(t, err.Error(), "undefined: foo")
+}
+
+func TestRunBuildNoStderrOnSuccess(t *testing.T) {
+	mock := runner.NewMock()
+	job := buildJob{
+		goos:       "linux",
+		goarch:     "amd64",
+		srcPath:    ".",
+		outputPath: "/tmp/test",
+	}
+
+	err := runBuild(mock, job)
+	assert.Nil(t, err)
+}
+
 func TestRunBuild(t *testing.T) {
 	mock := runner.NewMock()
 	job := buildJob{
