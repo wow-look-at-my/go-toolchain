@@ -11,10 +11,6 @@ inputs:
     description: 'Output coverage report as JSON'
     required: false
     default: 'false'
-  verbose:
-    description: 'Show test output line by line'
-    required: false
-    default: 'false'
   generate:
     description: 'Run go:generate directives matching this hash'
     required: false
@@ -58,9 +54,6 @@ runs:
         ARGS=""
         if [ "${{ inputs.json }}" = "true" ]; then
           ARGS="$ARGS --json"
-        fi
-        if [ "${{ inputs.verbose }}" = "true" ]; then
-          ARGS="$ARGS --verbose"
         fi
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
