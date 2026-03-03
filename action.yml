@@ -43,7 +43,7 @@ runs:
         cache: true
 
     - name: Download go-toolchain
-      uses: wow-look-at-my/actions@download-release-binary#1
+      uses: wow-look-at-my/actions@download-release-binary#latest
       with:
         repo: wow-look-at-my/go-toolchain
         name: go-toolchain
