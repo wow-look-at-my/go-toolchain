@@ -318,84 +318,93 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestRunWithRunnerAddWatermark(t *testing.T) {
+func TestIgnoreCoverage(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := newTestPassMock(0)
-
-	jsonOutput = false
-	addWatermark = true
-	outputDir = tmpDir
-	defer func() {
-		jsonOutput = false
-		addWatermark = false
-		outputDir = "build"
-	}()
-
-	err := runWithRunner(mock)
+	err := runIgnoreCoverage(nil, nil)
 	assert.Nil(t, err)
 
-	// Verify watermark was set
 	wm, exists, werr := gotest.GetWatermark(".")
 	require.Nil(t, werr)
 	require.True(t, exists)
-	assert.Equal(t, float32(100.0), wm)
+	assert.Equal(t, float32(0), wm)
 }
 
-func TestRunWithRunnerAddWatermarkJSON(t *testing.T) {
+func TestIgnoreCoverageAlreadyExists(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := newTestPassMock(0)
-
-	jsonOutput = true
-	addWatermark = true
-	outputDir = tmpDir
-	defer func() {
-		jsonOutput = false
-		addWatermark = false
-		outputDir = "build"
-	}()
-
-	err := runWithRunner(mock)
-	assert.Nil(t, err)
-}
-
-func TestRunWithRunnerAddWatermarkAlreadyExists(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Set an existing watermark
 	gotest.SetWatermark(".", 85.0)
 
-	mock := newTestPassMock(0)
-
-	jsonOutput = false
-	addWatermark = true
-	outputDir = tmpDir
-	defer func() {
-		jsonOutput = false
-		addWatermark = false
-		outputDir = "build"
-	}()
-
-	err := runWithRunner(mock)
-	require.NotNil(t, err)
-	assert.Contains(t, err.Error(), "watermark already exists")
-	assert.Contains(t, err.Error(), "85.0")
+	// Should not error, just report existing
+	err := runIgnoreCoverage(nil, nil)
+	assert.Nil(t, err)
 
 	// Verify watermark was NOT changed
 	wm, exists, _ := gotest.GetWatermark(".")
 	assert.True(t, exists)
 	assert.Equal(t, float32(85.0), wm)
 }
+
+func TestUnignoreCoverage(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	gotest.SetWatermark(".", 90.0)
+
+	// runUnignoreCoverage is called after PersistentPreRunE confirmation
+	err := runUnignoreCoverage(nil, nil)
+	assert.Nil(t, err)
+
+	_, exists, _ := gotest.GetWatermark(".")
+	assert.False(t, exists)
+}
+
+func TestUnignoreCoverageNoWatermark(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Should not error when no watermark exists
+	err := runUnignoreCoverage(nil, nil)
+	assert.Nil(t, err)
+}
+
+func TestUnignoreConfirmationAbort(t *testing.T) {
+	// Simulate "n" input to PersistentPreRunE
+	oldStdin := os.Stdin
+	rIn, wIn, _ := os.Pipe()
+	wIn.WriteString("n\n")
+	wIn.Close()
+	os.Stdin = rIn
+	defer func() { os.Stdin = oldStdin }()
+
+	err := unignoreCmd.PersistentPreRunE(nil, nil)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "aborted")
+}
+
+func TestUnignoreConfirmationAccept(t *testing.T) {
+	// Simulate "y" input to PersistentPreRunE
+	oldStdin := os.Stdin
+	rIn, wIn, _ := os.Pipe()
+	wIn.WriteString("y\n")
+	wIn.Close()
+	os.Stdin = rIn
+	defer func() { os.Stdin = oldStdin }()
+
+	err := unignoreCmd.PersistentPreRunE(nil, nil)
+	assert.Nil(t, err)
+}
+
 
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -466,7 +475,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	assert.Equal(t, float32(100.0), wm)
 }
 
-func TestHandleRemoveWatermarkNoWatermark(t *testing.T) {
+func TestUnignoreCoverageNoWatermarkMessage(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -477,7 +486,7 @@ func TestHandleRemoveWatermarkNoWatermark(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := handleRemoveWatermark()
+	err := runUnignoreCoverage(nil, nil)
 
 	w.Close()
 	out, _ := io.ReadAll(r)
@@ -487,109 +496,6 @@ func TestHandleRemoveWatermarkNoWatermark(t *testing.T) {
 	assert.Contains(t, string(out), "No watermark is set")
 }
 
-func TestHandleRemoveWatermarkAborted(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	gotest.SetWatermark(".", 80.0)
-
-	// Simulate "n" input
-	oldStdin := os.Stdin
-	rIn, wIn, _ := os.Pipe()
-	wIn.WriteString("n\n")
-	wIn.Close()
-	os.Stdin = rIn
-	defer func() { os.Stdin = oldStdin }()
-
-	// Capture stdout
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := handleRemoveWatermark()
-
-	w.Close()
-	out, _ := io.ReadAll(r)
-	os.Stdout = old
-
-	assert.Nil(t, err)
-	assert.Contains(t, string(out), "Aborted")
-
-	// Watermark should still exist
-	_, exists, _ := gotest.GetWatermark(".")
-	assert.True(t, exists)
-}
-
-func TestHandleRemoveWatermarkConfirmed(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	gotest.SetWatermark(".", 80.0)
-
-	// Simulate "y" input
-	oldStdin := os.Stdin
-	rIn, wIn, _ := os.Pipe()
-	wIn.WriteString("y\n")
-	wIn.Close()
-	os.Stdin = rIn
-	defer func() { os.Stdin = oldStdin }()
-
-	// Capture stdout
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := handleRemoveWatermark()
-
-	w.Close()
-	out, _ := io.ReadAll(r)
-	os.Stdout = old
-
-	assert.Nil(t, err)
-	assert.Contains(t, string(out), "Watermark removed")
-
-	// Watermark should be gone
-	_, exists, _ := gotest.GetWatermark(".")
-	assert.False(t, exists)
-}
-
-func TestRunWithRunnerRemoveWatermarkFlag(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	gotest.SetWatermark(".", 80.0)
-
-	// Simulate "yes" input
-	oldStdin := os.Stdin
-	rIn, wIn, _ := os.Pipe()
-	wIn.WriteString("yes\n")
-	wIn.Close()
-	os.Stdin = rIn
-	defer func() { os.Stdin = oldStdin }()
-
-	// Capture stdout
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	doRemoveWmark = true
-	defer func() { doRemoveWmark = false }()
-
-	err := runWithRunner(nil) // runner not needed for remove-watermark
-
-	w.Close()
-	out, _ := io.ReadAll(r)
-	os.Stdout = old
-
-	assert.Nil(t, err)
-	assert.Contains(t, string(out), "Watermark removed")
-}
 
 func TestRunWithRunnerFailedTest(t *testing.T) {
 	tmpDir := t.TempDir()

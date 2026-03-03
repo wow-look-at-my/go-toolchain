@@ -24,8 +24,6 @@ var (
 	outputDir     = "build"
 	jsonOutput    bool
 	verbose       bool
-	addWatermark  bool
-	doRemoveWmark bool
 	generateHash  string
 	fix           = os.Getenv("CI") == "" // disable auto-fix on CI
 	dupcode       bool
@@ -41,13 +39,10 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build. Use --add-watermark to enforce coverage floors.\n\n" + installStatus()
+	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build.\n\n" + installStatus()
 	// Use PersistentFlags for flags shared with subcommands (like matrix)
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	// rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
-	rootCmd.PersistentFlags().BoolVar(&addWatermark, "add-watermark", false, "Store current coverage as watermark (enforced on future runs)")
-	rootCmd.PersistentFlags().BoolVar(&doRemoveWmark, "remove-watermark", false, "Remove the coverage watermark")
-	rootCmd.PersistentFlags().MarkHidden("remove-watermark")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
 	rootCmd.PersistentFlags().BoolVar(&fix, "fix", fix, "Auto-fix linter violations")
 	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
@@ -134,10 +129,6 @@ func runWithRunner(r runner.CommandRunner) error {
 
 func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 	quiet := jsonOutput
-	// Handle --remove-watermark early, before any build steps
-	if doRemoveWmark {
-		return handleRemoveWatermark()
-	}
 
 	// Start async dependency freshness check (reports at end)
 	var depChecker *DepChecker
@@ -307,25 +298,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		fmt.Printf("\n==> Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
 
-	// Handle --add-watermark: store watermark after coverage is computed
-	if addWatermark {
-		// Check if watermark already exists
-		existingWm, wmAlreadyExists, wmCheckErr := gotest.GetWatermark(".")
-		if wmCheckErr != nil {
-			return false, fmt.Errorf("--add-watermark: failed to check existing watermark: %w", wmCheckErr)
-		}
-		if wmAlreadyExists {
-			return false, fmt.Errorf("--add-watermark: watermark already exists (%.1f%%). Use --remove-watermark first if you want to reset it", existingWm)
-		}
-		if err := gotest.SetWatermark(".", report.Total); err != nil {
-			if !quiet {
-				fmt.Printf("\n==> Warning: failed to set watermark: %v\n", err)
-			}
-		} else if !quiet {
-			fmt.Printf("\n==> Watermark set to %.1f%% (will be enforced on future runs)\n", report.Total)
-		}
-	}
-
 	// Coverage enforcement: default 80%, or watermark-2.5% if lower
 	var effectiveMin float32 = 80.0
 	wm, wmExists, wmErr := gotest.GetWatermark(".")
@@ -393,38 +365,6 @@ func needsGenerate() bool {
 	return err == errFound
 }
 
-func handleRemoveWatermark() error {
-	_, exists, err := gotest.GetWatermark(".")
-	if err != nil {
-		// Watermark read failed (e.g., xattrs not supported) - treat as no watermark
-		fmt.Printf("Warning: %v\n", err)
-		fmt.Println("No watermark is set.")
-		return nil
-	}
-	if !exists {
-		fmt.Println("No watermark is set.")
-		return nil
-	}
-
-	fmt.Println("Removing the coverage watermark disables the ratchet mechanism.")
-	fmt.Println("This means coverage can drop without failing the build.")
-	fmt.Print("Are you sure? [y/N] ")
-
-	reader := bufio.NewReader(os.Stdin)
-	line, _ := reader.ReadString('\n')
-	line = strings.TrimSpace(strings.ToLower(line))
-
-	if line != "y" && line != "yes" {
-		fmt.Println("Aborted.")
-		return nil
-	}
-
-	if err := gotest.RemoveWatermark("."); err != nil {
-		return fmt.Errorf("failed to remove watermark: %w", err)
-	}
-	fmt.Println("Watermark removed.")
-	return nil
-}
 
 // runDuplicateCheck scans Go source files for near-duplicate function bodies
 // and prints warnings. It never causes a build failure.
