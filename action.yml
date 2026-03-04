@@ -43,21 +43,11 @@ runs:
         cache: true
 
     - name: Download go-toolchain
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        ARCH=$(uname -m)
-        case "$ARCH" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; esac
-        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-        PATTERN="go-toolchain_${OS}_${ARCH}"
-        BINDIR="$HOME/.local/bin"
-        mkdir -p "$BINDIR"
-        gh release download --repo wow-look-at-my/go-toolchain --pattern "$PATTERN" --dir "$BINDIR" --clobber
-        mv "$BINDIR/$PATTERN" "$BINDIR/go-toolchain"
-        chmod +x "$BINDIR/go-toolchain"
-        echo "$BINDIR" >> "$GITHUB_PATH"
+      uses: wow-look-at-my/actions@download-release-binary#latest
+      with:
+        repo: wow-look-at-my/go-toolchain
+        name: go-toolchain
+        token: ${{ github.token }}
 
     - name: Run go-toolchain
       shell: bash
