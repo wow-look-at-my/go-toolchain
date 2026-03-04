@@ -2,6 +2,8 @@ package test
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -11,12 +13,30 @@ import (
 	"gotest.tools/gotestsum/testjson"
 )
 
+const (
+	symPass = "✓"
+	symFail = "✗"
+	symSkip = "-"
+	clrGreen  = "\033[38;2;0;255;0m"
+	clrFail   = "\033[38;2;255;128;128m"
+	clrYellow = "\033[38;2;255;255;0m"
+)
+
 var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
+
+// shortPkg returns the last path segment of a package name.
+func shortPkg(pkg string) string {
+	if i := strings.LastIndex(pkg, "/"); i >= 0 {
+		return pkg[i+1:]
+	}
+	return pkg
+}
 
 // coverageHandler extracts coverage percentages from test output events
 type coverageHandler struct {
 	coverage   map[string]float32
 	verbose    bool
+	out        io.Writer
 	testOutput map[string][]string // buffer output per test until we know pass/fail
 	failedTest map[string]bool     // tests that failed
 }
@@ -41,6 +61,20 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		key := event.Package + "/" + event.Test
 		h.failedTest[key] = true
 	}
+
+	// Real-time test status (non-verbose only)
+	if !h.verbose && event.Test != "" {
+		pkg := shortPkg(event.Package)
+		switch event.Action {
+		case testjson.ActionPass:
+			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrGreen, symPass, colorReset, pkg, event.Test, event.Elapsed)
+		case testjson.ActionFail:
+			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrFail, symFail, colorReset, pkg, event.Test, event.Elapsed)
+		case testjson.ActionSkip:
+			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrYellow, symSkip, colorReset, pkg, event.Test, event.Elapsed)
+		}
+	}
+
 	return nil
 }
 
@@ -79,6 +113,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string) (*TestResu
 	handler := &coverageHandler{
 		coverage:   pkgCoverage,
 		verbose:    verbose,
+		out:        os.Stdout,
 		testOutput: make(map[string][]string),
 		failedTest: make(map[string]bool),
 	}

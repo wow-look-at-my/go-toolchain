@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -261,6 +262,131 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 		assert.False(t, p.Package == "example.com/pkg2" && p.Statements != 0)
 		assert.False(t, p.Package == "example.com/pkg1" && p.Statements == 0)
 	}
+}
+
+func TestShortPkg(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"github.com/wow-look-at-my/go-toolchain/src/cmd", "cmd"},
+		{"github.com/foo/bar", "bar"},
+		{"standalone", "standalone"},
+		{"a/b", "b"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		assert.Equal(t, tc.expected, shortPkg(tc.input), "shortPkg(%q)", tc.input)
+	}
+}
+
+func TestRealtimePassOutput(t *testing.T) {
+	var buf bytes.Buffer
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionPass,
+		Package: "github.com/example/pkg",
+		Test:    "TestFoo",
+		Elapsed: 0.05,
+	}
+	require.NoError(t, h.Event(event, nil))
+
+	output := buf.String()
+	assert.Contains(t, output, symPass)
+	assert.Contains(t, output, "pkg.TestFoo")
+	assert.Contains(t, output, "0.05s")
+}
+
+func TestRealtimeFailOutput(t *testing.T) {
+	var buf bytes.Buffer
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionFail,
+		Package: "github.com/example/pkg",
+		Test:    "TestBar",
+		Elapsed: 1.23,
+	}
+	require.NoError(t, h.Event(event, nil))
+
+	output := buf.String()
+	assert.Contains(t, output, symFail)
+	assert.Contains(t, output, "pkg.TestBar")
+	assert.Contains(t, output, "1.23s")
+}
+
+func TestRealtimeSkipOutput(t *testing.T) {
+	var buf bytes.Buffer
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionSkip,
+		Package: "github.com/example/pkg",
+		Test:    "TestSkipped",
+		Elapsed: 0.0,
+	}
+	require.NoError(t, h.Event(event, nil))
+
+	output := buf.String()
+	assert.Contains(t, output, symSkip)
+	assert.Contains(t, output, "pkg.TestSkipped")
+}
+
+func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
+	var buf bytes.Buffer
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		verbose:    true,
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionPass,
+		Package: "github.com/example/pkg",
+		Test:    "TestFoo",
+		Elapsed: 0.05,
+	}
+	require.NoError(t, h.Event(event, nil))
+
+	assert.Empty(t, buf.String(), "verbose mode should not print status lines")
+}
+
+func TestRealtimeNoOutputForPackageEvents(t *testing.T) {
+	var buf bytes.Buffer
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+	}
+
+	// Package-level pass (Test is empty)
+	event := testjson.TestEvent{
+		Action:  testjson.ActionPass,
+		Package: "github.com/example/pkg",
+		Elapsed: 2.5,
+	}
+	require.NoError(t, h.Event(event, nil))
+
+	assert.Empty(t, buf.String(), "package-level events should not print status lines")
 }
 
 func TestRunTestsPackagesContainFiles(t *testing.T) {
