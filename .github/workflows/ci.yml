@@ -33,19 +33,8 @@ jobs:
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: ./go.mod
-          cache: true
-
-      - name: Build and install go-toolchain from source
-        run: |
-          go build -o "$HOME/.local/bin/go-toolchain" ./src
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Run go-toolchain matrix (mirrors action)
-        run: go-toolchain matrix
+      - name: Build and test with action
+        uses: ./
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
