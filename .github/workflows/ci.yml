@@ -39,11 +39,13 @@ jobs:
           go-version-file: ./go.mod
           cache: true
 
-      - name: Build from source
-        run: go run ./src
+      - name: Build and install go-toolchain from source
+        run: |
+          go build -o "$HOME/.local/bin/go-toolchain" ./src
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Cross-compile
-        run: go run ./src matrix
+      - name: Run go-toolchain matrix (mirrors action)
+        run: go-toolchain matrix
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
