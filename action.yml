@@ -47,6 +47,7 @@ runs:
       with:
         repo: wow-look-at-my/go-toolchain
         name: go-toolchain
+        token: ${{ github.token }}
 
     - name: Run go-toolchain
       shell: bash
