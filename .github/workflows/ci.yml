@@ -33,8 +33,17 @@ jobs:
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-      - name: Build and test with action
-        uses: ./
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ./go.mod
+          cache: true
+
+      - name: Build from source
+        run: go run ./src
+
+      - name: Cross-compile
+        run: go run ./src matrix
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
