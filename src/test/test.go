@@ -67,11 +67,15 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		pkg := shortPkg(event.Package)
 		switch event.Action {
 		case testjson.ActionPass:
-			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrGreen, symPass, colorReset, pkg, event.Test, event.Elapsed)
+			if event.Elapsed >= 0.1 {
+				fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrGreen, symPass, colorReset, pkg, event.Test, event.Elapsed)
+			}
 		case testjson.ActionFail:
 			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrFail, symFail, colorReset, pkg, event.Test, event.Elapsed)
 		case testjson.ActionSkip:
-			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrYellow, symSkip, colorReset, pkg, event.Test, event.Elapsed)
+			if event.Elapsed >= 0.1 {
+				fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrYellow, symSkip, colorReset, pkg, event.Test, event.Elapsed)
+			}
 		}
 	}
 
