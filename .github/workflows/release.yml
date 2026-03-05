@@ -28,12 +28,17 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Create tag
+        id: tag
+        run: |
+          TAG="v0.0.$(git log -1 --format=%ct)"
+          git tag "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Cross-compile
         run: go run ./src matrix
 
       - name: Create release
-        run: |
-          TAG="v0.0.$(git log -1 --format=%ct)"
-          gh release create "$TAG" build/go-toolchain_* --generate-notes
+        run: gh release create "${{ steps.tag.outputs.tag }}" build/go-toolchain_* --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
