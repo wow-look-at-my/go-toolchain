@@ -38,6 +38,9 @@ jobs:
       - name: Cross-compile
         run: go run ./src matrix
 
+      - name: Push tag
+        run: git push origin "${{ steps.tag.outputs.tag }}"
+
       - name: Create release
         run: gh release create "${{ steps.tag.outputs.tag }}" build/go-toolchain_* --generate-notes
         env:
