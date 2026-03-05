@@ -5,7 +5,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 ## Features
 
 - **Coverage enforcement** — fails the build if test coverage drops below 80%
-- **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
+- **Coverage watermarking** — optionally locks in a coverage floor, preventing regressions (with a 2.5% grace period)
 - **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
 - **Benchmarks** — run Go benchmarks after build with the `--benchmark` flag
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand

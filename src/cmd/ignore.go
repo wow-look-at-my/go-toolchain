@@ -25,7 +25,7 @@ var ignoreCoverageCmd = &cobra.Command{
 var ignoreLinesCmd = &cobra.Command{
 	Use:          "lines <file> [file...]",
 	Short:        "Exempt files from file-length checks",
-	Long:         "Marks files as exempt from the 500/750-line length checks.\nThe exemption is stored as an xattr containing the file's size and SHA-256 hash,\nso it auto-invalidates when the file changes.",
+	Long:         "Marks files as exempt from the 500/750-line length checks.\nThe exemption auto-invalidates when the file changes.",
 	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,
 	RunE:         runIgnoreLines,
