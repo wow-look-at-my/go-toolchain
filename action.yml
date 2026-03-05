@@ -42,13 +42,16 @@ runs:
         go-version-file: ${{ inputs.go-version-file }}
         cache: true
 
+    - name: Download go-toolchain
+      uses: wow-look-at-my/actions@download-release-binary#latest
+      with:
+        repo: wow-look-at-my/go-toolchain
+        name: go-toolchain
+        token: ${{ github.token }}
+
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      env:
-        GOPROXY: direct
-        GONOSUMDB: '*'
-        GONOSUMCHECK: '*'
       run: |
         set -euo pipefail
         ARGS=""
@@ -58,9 +61,4 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
-        # Self-test: use local source (go.mod has replace directives)
-        if [ "$GITHUB_REPOSITORY" = "wow-look-at-my/go-toolchain" ]; then
-          go run ./src matrix $ARGS
-        else
-          go run github.com/wow-look-at-my/go-toolchain@latest matrix $ARGS
-        fi
+        go-toolchain matrix $ARGS
