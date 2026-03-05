@@ -293,14 +293,34 @@ func TestRealtimePassOutput(t *testing.T) {
 		Action:  testjson.ActionPass,
 		Package: "github.com/example/pkg",
 		Test:    "TestFoo",
-		Elapsed: 0.05,
+		Elapsed: 0.15,
 	}
 	require.NoError(t, h.Event(event, nil))
 
 	output := buf.String()
 	assert.Contains(t, output, symPass)
 	assert.Contains(t, output, "pkg.TestFoo")
-	assert.Contains(t, output, "0.05s")
+	assert.Contains(t, output, "0.15s")
+}
+
+func TestRealtimePassOutputHiddenWhenFast(t *testing.T) {
+	var buf bytes.Buffer
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionPass,
+		Package: "github.com/example/pkg",
+		Test:    "TestFoo",
+		Elapsed: 0.05,
+	}
+	require.NoError(t, h.Event(event, nil))
+
+	assert.Empty(t, buf.String(), "passing tests under 0.1s should be hidden")
 }
 
 func TestRealtimeFailOutput(t *testing.T) {
@@ -339,13 +359,33 @@ func TestRealtimeSkipOutput(t *testing.T) {
 		Action:  testjson.ActionSkip,
 		Package: "github.com/example/pkg",
 		Test:    "TestSkipped",
-		Elapsed: 0.0,
+		Elapsed: 0.5,
 	}
 	require.NoError(t, h.Event(event, nil))
 
 	output := buf.String()
 	assert.Contains(t, output, symSkip)
 	assert.Contains(t, output, "pkg.TestSkipped")
+}
+
+func TestRealtimeSkipOutputHiddenWhenFast(t *testing.T) {
+	var buf bytes.Buffer
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionSkip,
+		Package: "github.com/example/pkg",
+		Test:    "TestSkipped",
+		Elapsed: 0.0,
+	}
+	require.NoError(t, h.Event(event, nil))
+
+	assert.Empty(t, buf.String(), "skipped tests under 0.1s should be hidden")
 }
 
 func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
