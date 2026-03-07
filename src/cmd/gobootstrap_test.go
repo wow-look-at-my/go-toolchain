@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestGoVersionLessThan(t *testing.T) {
@@ -136,12 +137,9 @@ func createTestTarGz(t *testing.T, files map[string]string) []byte {
 			Mode: 0755,
 			Size: int64(len(content)),
 		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tw.Write([]byte(content)); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, tw.WriteHeader(hdr))
+		_, err := tw.Write([]byte(content))
+		require.Nil(t, err)
 	}
 	tw.Close()
 	gw.Close()
