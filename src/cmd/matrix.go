@@ -35,6 +35,10 @@ func init() {
 	matrixCmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
 	matrixCmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
 	matrixCmd.Flags().IntVarP(&releaseParallel, "parallel", "p", runtime.NumCPU(), "Number of parallel builds")
+	matrixCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
+	matrixCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
+	matrixCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
+	matrixCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated)")
 	rootCmd.AddCommand(matrixCmd)
 }
 
@@ -159,6 +163,14 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 
 	fmt.Printf("==> All %d binaries built successfully in %s/\n", len(jobs), outputDir)
+
+	// Run benchmarks after successful build
+	if !noBenchmark {
+		if err := runBenchmarkInBuild(r); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
