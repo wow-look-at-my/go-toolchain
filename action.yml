@@ -42,6 +42,12 @@ runs:
         go-version-file: ${{ inputs.go-version-file }}
         cache: true
 
+    - name: Cache go-toolchain downloads
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/go-toolchain
+        key: go-toolchain-${{ runner.os }}-${{ runner.arch }}
+
     - name: Download go-toolchain
       uses: wow-look-at-my/actions@download-release-binary#latest
       with:
