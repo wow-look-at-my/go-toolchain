@@ -338,6 +338,88 @@ func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
+func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+
+	oldOS := matrixOS
+	oldArch := matrixArch
+	oldOutput := outputDir
+	oldParallel := releaseParallel
+	oldBench := noBenchmark
+	oldJSON := jsonOutput
+	matrixOS = []string{"linux"}
+	matrixArch = []string{"amd64"}
+	outputDir = filepath.Join(tmpDir, "dist")
+	releaseParallel = 1
+	noBenchmark = false
+	jsonOutput = true
+	defer func() {
+		matrixOS = oldOS
+		matrixArch = oldArch
+		outputDir = oldOutput
+		releaseParallel = oldParallel
+		noBenchmark = oldBench
+		jsonOutput = oldJSON
+	}()
+
+	mock := newTestPassMock(0)
+	err := runReleaseWithRunner(mock)
+	assert.Nil(t, err)
+
+	// Verify that a benchmark command was issued
+	found := false
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "test") && cfg.HasArg("-bench") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "matrix command should run benchmarks by default")
+}
+
+func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+
+	oldOS := matrixOS
+	oldArch := matrixArch
+	oldOutput := outputDir
+	oldParallel := releaseParallel
+	oldBench := noBenchmark
+	matrixOS = []string{"linux"}
+	matrixArch = []string{"amd64"}
+	outputDir = filepath.Join(tmpDir, "dist")
+	releaseParallel = 1
+	noBenchmark = true
+	defer func() {
+		matrixOS = oldOS
+		matrixArch = oldArch
+		outputDir = oldOutput
+		releaseParallel = oldParallel
+		noBenchmark = oldBench
+	}()
+
+	mock := newTestPassMock(0)
+	err := runReleaseWithRunner(mock)
+	assert.Nil(t, err)
+
+	// Verify no benchmark command was issued
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "test") {
+			assert.False(t, cfg.HasArg("-bench"), "should not have -bench flag when --no-benchmark is set")
+		}
+	}
+}
+
 func TestCreateHostSymlinksReplacesStale(t *testing.T) {
 	tmpDir := t.TempDir()
 
