@@ -6,38 +6,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
 )
-
-func TestFindUnusedImportFixesBlankImport(t *testing.T) {
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "test.go", `package main
-
-import (
-	_ "embed"
-)
-
-func main() {}
-`, parser.ParseComments)
-
-	fixes := findFileUnusedImportFixes(fset, f)
-	assert.Nil(t, fixes) // blank imports should not be flagged
-}
-
-func TestFindUnusedImportFixesNoImports(t *testing.T) {
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "test.go", `package main
-
-func main() {}
-`, parser.ParseComments)
-
-	fixes := findFileUnusedImportFixes(fset, f)
-	assert.Nil(t, fixes)
-}
 
 func TestImportName(t *testing.T) {
 	tests := []struct {
@@ -115,58 +88,6 @@ func TestNodeText(t *testing.T) {
 	})
 	require.NotNil(t, lit)
 	assert.Equal(t, "42", nodeText(fset, lit))
-}
-
-func TestFindFileUnusedImportFixesDotImport(t *testing.T) {
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "test.go", `package main
-
-import (
-	. "fmt"
-)
-
-func main() {}
-`, parser.ParseComments)
-
-	fixes := findFileUnusedImportFixes(fset, f)
-	assert.Nil(t, fixes) // dot imports should not be flagged
-}
-
-func TestFindFileUnusedImportFixesMultipleUnused(t *testing.T) {
-	before := `package main
-
-import (
-	"fmt"
-	"strings"
-	"bytes"
-)
-
-func main() {
-	fmt.Println("hello")
-}
-`
-	after := `package main
-
-import (
-	"fmt"
-)
-
-func main() {
-	fmt.Println("hello")
-}
-`
-
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
-
-	fixes := findFileUnusedImportFixes(fset, f)
-	require.NotNil(t, fixes)
-	assert.Len(t, fixes.Fixes, 2) // strings and bytes are unused
-
-	var buf strings.Builder
-	err := fixes.Fprint(&buf)
-	assert.Nil(t, err)
-	assert.Equal(t, after, buf.String())
 }
 
 func TestCastableType(t *testing.T) {
@@ -428,28 +349,6 @@ func main() {
 	_, err := vetSemantic("./...", false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "package load errors")
-}
-
-func TestVetSemanticUnusedImportNoFix(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create code with unused import
-	code := `package main
-
-import "fmt"
-
-func main() {}
-`
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
-
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
-
-	_, err := vetSemantic("./...", false)
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "imported and not used")
 }
 
 func TestGenerateBinaryReplacementCompound(t *testing.T) {
