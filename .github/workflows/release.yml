@@ -41,6 +41,12 @@ jobs:
       - name: Push tag
         run: git push origin "${{ steps.tag.outputs.tag }}"
 
+      - name: Update rolling tags
+        run: |
+          git tag -f master HEAD
+          git tag -f latest HEAD
+          git push -f origin master latest
+
       - name: Create release
         run: gh release create "${{ steps.tag.outputs.tag }}" build/go-toolchain_* --generate-notes
         env:
