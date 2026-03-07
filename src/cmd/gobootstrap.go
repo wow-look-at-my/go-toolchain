@@ -15,6 +15,12 @@ import (
 	"archive/tar"
 )
 
+// Test seams — overridden in tests to avoid real downloads.
+var (
+	goCacheDirFunc      = goCacheDir
+	goDownloadURLsFunc  = goDownloadURLs
+)
+
 // EnsureGoVersion checks whether the system Go satisfies the project's go.mod
 // requirement. If the installed version is too old, it downloads the required
 // version to a cache directory and updates PATH + GOTOOLCHAIN so that all
@@ -113,7 +119,7 @@ func parseVersion(v string) [3]int {
 // ensureGoCached downloads Go to ~/.cache/go-toolchain/go<version>/ if not
 // already present. Returns the GOROOT path.
 func ensureGoCached(version string) (string, error) {
-	cacheDir, err := goCacheDir()
+	cacheDir, err := goCacheDirFunc()
 	if err != nil {
 		return "", err
 	}
@@ -157,7 +163,7 @@ func goCacheDir() (string, error) {
 
 func downloadGo(version, cacheDir, goRoot string) error {
 	archiveName := fmt.Sprintf("go%s.%s-%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
-	urls := goDownloadURLs(archiveName)
+	urls := goDownloadURLsFunc(archiveName)
 
 	var resp *http.Response
 	var lastErr error
