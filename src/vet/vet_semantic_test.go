@@ -12,39 +12,7 @@ import (
 
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
-	"golang.org/x/tools/go/packages"
 )
-
-func TestVetSemanticWithFix(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create code with unused import that will be fixed
-	code := `package main
-
-import (
-	"fmt"
-	"strings"
-)
-
-func main() {
-	fmt.Println("hello")
-}
-`
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
-
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
-
-	// With fix=true, it should fix the unused import and succeed
-	_, err := vetSemantic("./...", true)
-	assert.Nil(t, err)
-
-	// Verify the import was removed
-	content, _ := os.ReadFile(filepath.Join(dir, "main.go"))
-	assert.NotContains(t, string(content), "strings")
-}
 
 func TestRemoveImport(t *testing.T) {
 	fset := token.NewFileSet()
@@ -75,18 +43,6 @@ func main() { fmt.Println("hi") }
 	for _, imp := range f.Imports {
 		assert.NotContains(t, imp.Path.Value, "strings")
 	}
-}
-
-func TestFixFileUnusedImportsParseError(t *testing.T) {
-	dir := t.TempDir()
-	testFile := filepath.Join(dir, "invalid.go")
-
-	// Write invalid Go code
-	os.WriteFile(testFile, []byte("this is not valid go code"), 0644)
-
-	wasFixed, err := fixFileUnusedImports(testFile)
-	assert.NotNil(t, err)
-	assert.False(t, wasFixed)
 }
 
 func TestDetermineAssertionNotInit(t *testing.T) {
@@ -233,53 +189,6 @@ func TestFoo(t *testing.T) {
 	// Run to exercise the path
 	_, err := vetSemantic("./...", false)
 	assert.NotNil(t, err)
-}
-
-func TestVetSyntaxNoFix2(t *testing.T) {
-	// Test vetSyntax path
-	err := vetSyntax("./...", false)
-	assert.Nil(t, err)
-}
-
-func TestFixUnusedImportsInvalidPattern(t *testing.T) {
-	// Test with invalid glob pattern
-	_, err := FixUnusedImports("[invalid")
-	assert.NotNil(t, err)
-}
-
-func TestFindUnusedImportFixesWithPackages(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create valid code with unused imports
-	code := `package main
-
-import (
-	"fmt"
-	"strings"
-)
-
-func main() {
-	fmt.Println("hello")
-}
-`
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
-
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
-
-	// Load packages
-	cfg := &packages.Config{
-		Mode:  packages.LoadAllSyntax,
-		Tests: false,
-	}
-	pkgs, err := packages.Load(cfg, "./...")
-	require.Nil(t, err)
-
-	// Find unused import fixes
-	fixes := FindUnusedImportFixes(pkgs)
-	assert.NotEmpty(t, fixes)
 }
 
 func TestRunWithGoMod(t *testing.T) {

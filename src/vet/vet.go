@@ -83,28 +83,6 @@ func RunOnPattern(pattern string, fix bool) (bool, error) {
 	return vetSemantic(pattern, fix)
 }
 
-// vetSyntax runs syntax-only checks using go/parser (no compilation required).
-// This handles things like unused imports that would block packages.Load.
-func vetSyntax(pattern string, fix bool) error {
-	if !fix {
-		return nil
-	}
-
-	fixed, err := FixUnusedImports(pattern)
-	if err != nil {
-		return fmt.Errorf("fixing unused imports: %w", err)
-	}
-	for _, f := range fixed {
-		fmt.Printf("\033[33mfixed unused import: %s\033[0m\n", f)
-	}
-	return nil
-}
-
-// isUnusedImportError checks if an error is an "imported and not used" error.
-func isUnusedImportError(errMsg string) bool {
-	return strings.Contains(errMsg, "imported and not used")
-}
-
 // vetSemantic runs type-aware analysis using go/packages and the analysis framework.
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
 func vetSemantic(pattern string, fix bool) (bool, error) {
@@ -139,42 +117,16 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 		return false, fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	// Check for load errors - separate unused import errors from others
+	// Check for load errors
 	var loadErrors []string
-	var unusedImportErrors []string
 	for _, pkg := range pkgs {
 		for _, e := range pkg.Errors {
-			if isUnusedImportError(e.Error()) {
-				unusedImportErrors = append(unusedImportErrors, e.Error())
-			} else {
-				loadErrors = append(loadErrors, e.Error())
-			}
+			loadErrors = append(loadErrors, e.Error())
 		}
 	}
 
-	// If there are non-import errors, fail
 	if len(loadErrors) > 0 {
 		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
-	}
-
-	// If there are unused import errors, fix them and re-run
-	if len(unusedImportErrors) > 0 {
-		if !fix {
-			return false, fmt.Errorf("package load errors:\n%s", strings.Join(unusedImportErrors, "\n"))
-		}
-
-		// Find and apply fixes using the loaded AST
-		importFixes := FindUnusedImportFixes(pkgs)
-		for _, f := range importFixes {
-			if err := f.Apply(); err != nil {
-				return false, fmt.Errorf("failed to fix unused imports: %w", err)
-			}
-		}
-		if len(importFixes) > 0 {
-			// Re-run semantic analysis with fixed files (already changed files)
-			_, err := vetSemantic(pattern, fix)
-			return true, err
-		}
 	}
 
 	// Run analyzers
@@ -219,13 +171,10 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 		}
 	}
 
-	// After applying fixes, clean up any side effects (unused vars/imports)
+	// After applying fixes, clean up any side effects (unused vars)
 	if filesChanged && fix {
 		if _, err := FixUnusedRangeVars("./..."); err != nil {
 			return filesChanged, fmt.Errorf("fixing unused range vars: %w", err)
-		}
-		if _, err := FixUnusedImports("./..."); err != nil {
-			return filesChanged, fmt.Errorf("fixing unused imports: %w", err)
 		}
 		// Run go mod tidy to add any new dependencies (e.g., testify)
 		tidyCmd := exec.Command("go", "mod", "tidy")
