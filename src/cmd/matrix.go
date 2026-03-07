@@ -153,7 +153,44 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
 	}
 
+	// Create _host and bare symlinks for the current platform
+	if err := createHostSymlinks(targets, outputDir); err != nil {
+		return err
+	}
+
 	fmt.Printf("==> All %d binaries built successfully in %s/\n", len(jobs), outputDir)
+	return nil
+}
+
+func createHostSymlinks(targets []build.Target, outDir string) error {
+	hostOS := runtime.GOOS
+	hostArch := runtime.GOARCH
+
+	for _, target := range targets {
+		ext := ""
+		if hostOS == "windows" {
+			ext = ".exe"
+		}
+		hostBinary := fmt.Sprintf("%s_%s_%s%s", target.OutputName, hostOS, hostArch, ext)
+
+		// Verify the host binary exists in the output directory
+		hostPath := filepath.Join(outDir, hostBinary)
+		if _, err := os.Stat(hostPath); err != nil {
+			fmt.Printf("  SKIP symlink for %s (host binary %s not found)\n", target.OutputName, hostBinary)
+			continue
+		}
+
+		// Create <name>_host and <name> symlinks (relative, pointing to the host binary)
+		for _, suffix := range []string{"_host", ""} {
+			linkName := target.OutputName + suffix + ext
+			linkPath := filepath.Join(outDir, linkName)
+			os.Remove(linkPath) // remove any stale symlink
+			if err := os.Symlink(hostBinary, linkPath); err != nil {
+				return fmt.Errorf("failed to create symlink %s: %w", linkName, err)
+			}
+			fmt.Printf("  LINK %s -> %s\n", linkPath, hostBinary)
+		}
+	}
 	return nil
 }
 

@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -291,4 +293,70 @@ func TestRunBuild(t *testing.T) {
 		}
 	}
 	assert.True(t, hasOutput)
+}
+
+func TestCreateHostSymlinks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	targets := []build.Target{
+		{ImportPath: "./cmd/mytool", OutputName: "mytool"},
+	}
+
+	// Create a fake host binary
+	hostBinary := fmt.Sprintf("mytool_%s_%s", runtime.GOOS, runtime.GOARCH)
+	os.WriteFile(filepath.Join(tmpDir, hostBinary), []byte("binary"), 0755)
+
+	err := createHostSymlinks(targets, tmpDir)
+	assert.Nil(t, err)
+
+	// Check _host symlink
+	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
+	assert.Nil(t, err)
+	assert.Equal(t, hostBinary, linkTarget)
+
+	// Check bare symlink
+	linkTarget, err = os.Readlink(filepath.Join(tmpDir, "mytool"))
+	assert.Nil(t, err)
+	assert.Equal(t, hostBinary, linkTarget)
+}
+
+func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	targets := []build.Target{
+		{ImportPath: "./cmd/mytool", OutputName: "mytool"},
+	}
+
+	// Don't create the host binary — should skip without error
+	err := createHostSymlinks(targets, tmpDir)
+	assert.Nil(t, err)
+
+	// Symlinks should not exist
+	_, err = os.Readlink(filepath.Join(tmpDir, "mytool_host"))
+	assert.NotNil(t, err)
+	_, err = os.Readlink(filepath.Join(tmpDir, "mytool"))
+	assert.NotNil(t, err)
+}
+
+func TestCreateHostSymlinksReplacesStale(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	targets := []build.Target{
+		{ImportPath: "./cmd/mytool", OutputName: "mytool"},
+	}
+
+	hostBinary := fmt.Sprintf("mytool_%s_%s", runtime.GOOS, runtime.GOARCH)
+	os.WriteFile(filepath.Join(tmpDir, hostBinary), []byte("binary"), 0755)
+
+	// Create stale symlinks pointing elsewhere
+	os.Symlink("old_target", filepath.Join(tmpDir, "mytool_host"))
+	os.Symlink("old_target", filepath.Join(tmpDir, "mytool"))
+
+	err := createHostSymlinks(targets, tmpDir)
+	assert.Nil(t, err)
+
+	linkTarget, _ := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
+	assert.Equal(t, hostBinary, linkTarget)
+	linkTarget, _ = os.Readlink(filepath.Join(tmpDir, "mytool"))
+	assert.Equal(t, hostBinary, linkTarget)
 }
