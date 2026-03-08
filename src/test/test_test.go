@@ -121,7 +121,7 @@ example.com/pkg/main.go:14.20,16.2 3 0
 `
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	assert.Equal(t, 1, len(result.Coverage.Packages))
@@ -135,7 +135,7 @@ func TestRunTestsFailure(t *testing.T) {
 	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, nil, fmt.Errorf("test failed"))
 
-	_, err := RunTests(mock, false, coverFile)
+	_, err := RunTests(mock, false, coverFile, nil)
 	assert.NotNil(t, err)
 }
 
@@ -156,7 +156,7 @@ example.com/pkg/main.go:10.20,12.2 1 1
 `
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, true, coverFile) // verbose=true
+	result, err := RunTests(mock, true, coverFile, nil) // verbose=true
 	require.Nil(t, err)
 
 	assert.Equal(t, 1, len(result.Coverage.Packages))
@@ -176,7 +176,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 `
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	// Without a coverage profile we can't compute statement-weighted total.
@@ -213,7 +213,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 `
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	// Total from profile: 3 covered / 4 statements = 75%
@@ -251,7 +251,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 `
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	// Total comes from ParseProfile: 1 covered / 2 statements = 50%
@@ -450,7 +450,7 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 `
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	// Verify packages contain their files

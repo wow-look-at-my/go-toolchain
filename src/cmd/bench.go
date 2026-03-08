@@ -69,8 +69,9 @@ func runBenchRun(cmd *cobra.Command, args []string) error {
 }
 
 func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
+	var benchStep *step
 	if !quiet {
-		fmt.Println("==> Running benchmarks")
+		benchStep = logStep("Running benchmarks")
 	}
 
 	opts := bench.Options{
@@ -81,6 +82,9 @@ func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
+	if benchStep != nil {
+		benchStep.done()
+	}
 	if err != nil {
 		if report != nil && report.HasResults() {
 			report.Print()
@@ -117,8 +121,9 @@ func runBenchSave(cmd *cobra.Command, args []string) error {
 }
 
 func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
+	var benchStep *step
 	if !quiet {
-		fmt.Println("==> Running benchmarks")
+		benchStep = logStep("Running benchmarks")
 	}
 
 	opts := bench.Options{
@@ -129,6 +134,9 @@ func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
+	if benchStep != nil {
+		benchStep.done()
+	}
 	if err != nil {
 		if report != nil && report.HasResults() {
 			report.Print()
@@ -206,8 +214,9 @@ func runBenchCompare(cmd *cobra.Command, args []string) error {
 // runBenchmarkInBuild runs benchmarks as part of the default build
 // and shows comparison against previous stored results
 func runBenchmarkInBuild(r runner.CommandRunner) error {
+	var benchStep *step
 	if !jsonOutput {
-		fmt.Println("==> Running benchmarks")
+		benchStep = logStep("Running benchmarks")
 	}
 
 	opts := bench.Options{
@@ -218,6 +227,9 @@ func runBenchmarkInBuild(r runner.CommandRunner) error {
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
+	if benchStep != nil {
+		benchStep.done()
+	}
 	if err != nil {
 		if report != nil && report.HasResults() {
 			report.Print()

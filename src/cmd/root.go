@@ -173,15 +173,23 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 	}
 	for _, t := range targets {
 		outPath := filepath.Join(outputDir, t.OutputName)
+		var buildStep *step
 		if !quiet {
-			fmt.Printf("==> go build -o %s %s\n", outPath, t.ImportPath)
+			buildStep = logStep(fmt.Sprintf("go build -o %s %s", outPath, t.ImportPath))
 		}
-		proc, err := runner.Cmd("go", "build", "-ldflags", ldflags, "-o", outPath, t.ImportPath).Run(r)
+		proc, err := runner.Cmd("go", "build", "-ldflags", ldflags, "-o", outPath, t.ImportPath).WithOnFirstOutput(func() {
+			if buildStep != nil {
+				buildStep.noteOutput()
+			}
+		}).Run(r)
 		if err != nil {
 			return fmt.Errorf("go build failed: %w", err)
 		}
 		if err := proc.Wait(); err != nil {
 			return fmt.Errorf("go build failed: %w", err)
+		}
+		if buildStep != nil {
+			buildStep.done()
 		}
 	}
 
@@ -208,10 +216,15 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		return false, err
 	}
 
+	var modTidyStep *step
 	if !quiet {
-		fmt.Println("==> go mod tidy")
+		modTidyStep = logStep("go mod tidy")
 	}
-	proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
+	proc, err := runner.Cmd("go", "mod", "tidy").WithOnFirstOutput(func() {
+		if modTidyStep != nil {
+			modTidyStep.noteOutput()
+		}
+	}).Run(r)
 	if err != nil {
 		return false, fmt.Errorf("go mod tidy failed: %w", err)
 	}
@@ -221,33 +234,53 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		}
 		return false, fmt.Errorf("go mod tidy failed: %w", err)
 	}
+	if modTidyStep != nil {
+		modTidyStep.done()
+	}
 
 	if needsGenerate() {
+		var genStep *step
 		if !quiet {
-			fmt.Println("==> go generate ./...")
+			genStep = logStep("go generate ./...")
 		}
 		if err := runGenerate(quiet, generateHash); err != nil {
 			return false, fmt.Errorf("go generate failed: %w", err)
 		}
-		// Run tidy again after generate in case new imports were added
-		if !quiet {
-			fmt.Println("==> go mod tidy (post-generate)")
+		if genStep != nil {
+			genStep.noteOutput() // generate always prints directives
+			genStep.done()
 		}
-		proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
+		// Run tidy again after generate in case new imports were added
+		var tidyStep2 *step
+		if !quiet {
+			tidyStep2 = logStep("go mod tidy (post-generate)")
+		}
+		proc, err := runner.Cmd("go", "mod", "tidy").WithOnFirstOutput(func() {
+			if tidyStep2 != nil {
+				tidyStep2.noteOutput()
+			}
+		}).Run(r)
 		if err != nil {
 			return false, fmt.Errorf("go mod tidy failed: %w", err)
 		}
 		if err := proc.Wait(); err != nil {
 			return false, fmt.Errorf("go mod tidy failed: %w", err)
 		}
+		if tidyStep2 != nil {
+			tidyStep2.done()
+		}
 	}
 
+	var vetStep *step
 	if !quiet {
-		fmt.Println("==> go vet ./...")
+		vetStep = logStep("go vet ./...")
 	}
 	filesChanged, err := vet.Run(fix)
 	if err != nil {
 		return false, fmt.Errorf("vet failed: %w", err)
+	}
+	if vetStep != nil {
+		vetStep.done()
 	}
 
 	if dupcode {
@@ -258,8 +291,9 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		return false, err
 	}
 
+	var testStep *step
 	if !quiet {
-		fmt.Println("==> Running tests with coverage")
+		testStep = logStep("Running tests with coverage")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "go-toolchain-*")
@@ -269,7 +303,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	defer os.RemoveAll(tmpDir)
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
-	result, testErr := gotest.RunTests(r, verbose, coverFile)
+	var onTestOutput func()
+	if testStep != nil {
+		onTestOutput = testStep.noteOutput
+	}
+	result, testErr := gotest.RunTests(r, verbose, coverFile, onTestOutput)
+	if testStep != nil {
+		testStep.done()
+	}
 	if result == nil {
 		return false, fmt.Errorf("tests failed: %w", testErr)
 	}

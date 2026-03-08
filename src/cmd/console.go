@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"math"
+	"sync"
+	"time"
 )
 
 const colorReset = "\033[0m"
@@ -58,4 +60,44 @@ func colorPct(p ColorPct) string {
 // warn formats a warning message in yellow
 func warn(msg string) string {
 	return colorYellow + "WARNING: " + msg + colorReset
+}
+
+// step tracks progress for a long-running build step.
+// It prints "==> label..." initially, then " done. (Xs)" when finished.
+// If output was produced between start and finish, the done message
+// goes on a new line with the label repeated.
+type step struct {
+	label   string
+	start   time.Time
+	noisy   bool
+	once    sync.Once
+}
+
+// logStep prints "==> label..." without a newline and returns a step
+// that can be finished later with done().
+func logStep(label string) *step {
+	fmt.Printf("==> %s...", label)
+	return &step{label: label, start: time.Now()}
+}
+
+// noteOutput marks that visible output was produced during this step.
+// On the first call, it prints a newline to terminate the "..." line
+// so that subprocess output starts on its own line.
+func (s *step) noteOutput() {
+	s.once.Do(func() {
+		s.noisy = true
+		fmt.Println() // finish the "..." line before subprocess output
+	})
+}
+
+// done prints the completion message with elapsed time.
+// If the step produced output, the done message goes on a new line.
+// Otherwise it appends to the "..." line.
+func (s *step) done() {
+	d := time.Since(s.start)
+	if s.noisy {
+		fmt.Printf("==> %s done. (%.2fs)\n", s.label, d.Seconds())
+	} else {
+		fmt.Printf(" done. (%.2fs)\n", d.Seconds())
+	}
 }
