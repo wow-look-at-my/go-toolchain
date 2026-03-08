@@ -47,42 +47,31 @@ jobs:
 
   bootstrap-test:
     name: Bootstrap (no Go in PATH)
+    needs: gha-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download go-toolchain binary
+        uses: actions/download-artifact@v4
+        with:
+          name: go-toolchain-binaries
+
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-      - name: Set up Go (for building go-toolchain itself)
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-
-      - name: Build go-toolchain binary
-        run: go build -o go-toolchain ./src
-
-      - name: Remove Go from PATH and run bootstrap
+      - name: Remove Go and run bootstrap
         run: |
           set -euo pipefail
-          # Save binary outside GOROOT
-          cp go-toolchain /usr/local/bin/go-toolchain
 
-          # Remove system go binaries while we still have sudo in PATH
+          # Install the pre-built binary
+          chmod +x go-toolchain_linux_amd64
+          sudo cp go-toolchain_linux_amd64 /usr/local/bin/go-toolchain
+
+          # Remove all Go installations
           which -a go || true
-          sudo rm -f /usr/local/bin/go /usr/bin/go /bin/go
-
-          # Remove every directory containing a 'go' binary from PATH
-          NEW_PATH=""
-          IFS=':' read -ra DIRS <<< "$PATH"
-          for dir in "${DIRS[@]}"; do
-            if [ ! -x "$dir/go" ]; then
-              NEW_PATH="${NEW_PATH:+$NEW_PATH:}$dir"
-            else
-              echo "Removing from PATH: $dir (contains go binary)"
-            fi
-          done
-          export PATH="$NEW_PATH"
+          sudo rm -f $(which -a go) 2>/dev/null || true
+          sudo rm -rf /usr/local/go /opt/hostedtoolcache/go
           unset GOROOT
           unset GOPATH
 
@@ -94,4 +83,4 @@ jobs:
           echo "OK: go is not in PATH"
 
           # go-toolchain should bootstrap Go from go.dev and succeed
-          /usr/local/bin/go-toolchain --help
+          go-toolchain --help
