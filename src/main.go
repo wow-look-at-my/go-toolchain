@@ -12,7 +12,7 @@ func init() {
 	// requires a newer version than the one installed.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Disable Go's phone-home behavior — bypass proxy and checksum database.
+	// Disable Go's phone-home behavior - bypass proxy and checksum database.
 	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
 	os.Setenv("GOPROXY", "direct")
 	os.Setenv("GONOSUMDB", "*")
@@ -20,8 +20,11 @@ func init() {
 }
 
 func main() {
+	if err := cmd.EnsureGoVersion(); err != nil {
+		fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
+		os.Exit(1)
+	}
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
