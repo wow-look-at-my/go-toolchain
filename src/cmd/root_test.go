@@ -229,6 +229,67 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	oldCgo := cgoEnabled
+	cgoEnabled = false
+	defer func() { cgoEnabled = oldCgo }()
+
+	mock := newTestPassMock(0)
+
+	jsonOutput = true
+	outputDir = tmpDir
+	defer func() {
+		jsonOutput = false
+		outputDir = "build"
+	}()
+
+	err := runWithRunner(mock)
+	assert.Nil(t, err)
+
+	// Verify CGO_ENABLED=0 was set on the build command
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "build") {
+			assert.Equal(t, "0", cfg.Env["CGO_ENABLED"], "CGO should be disabled by default")
+		}
+	}
+}
+
+func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	oldCgo := cgoEnabled
+	cgoEnabled = true
+	defer func() { cgoEnabled = oldCgo }()
+
+	mock := newTestPassMock(0)
+
+	jsonOutput = true
+	outputDir = tmpDir
+	defer func() {
+		jsonOutput = false
+		outputDir = "build"
+	}()
+
+	err := runWithRunner(mock)
+	assert.Nil(t, err)
+
+	// Verify CGO_ENABLED was NOT set on the build command
+	for _, cfg := range mock.Calls() {
+		if cfg.IsCmd("go", "build") {
+			_, hasCgo := cfg.Env["CGO_ENABLED"]
+			assert.False(t, hasCgo, "CGO_ENABLED should not be set when --cgo is used")
+		}
+	}
+}
+
 func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()

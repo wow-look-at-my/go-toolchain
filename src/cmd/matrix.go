@@ -207,12 +207,14 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 }
 
 func runBuild(r runner.CommandRunner, job buildJob) error {
-	proc, err := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath).
+	cmd := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath).
 		WithEnv("GOOS", job.goos).
 		WithEnv("GOARCH", job.goarch).
-		WithEnv("CGO_ENABLED", "0").
-		WithQuiet().
-		Run(r)
+		WithQuiet()
+	if !cgoEnabled {
+		cmd = cmd.WithEnv("CGO_ENABLED", "0")
+	}
+	proc, err := cmd.Run(r)
 	if err != nil {
 		return err
 	}

@@ -264,6 +264,10 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 }
 
 func TestRunBuild(t *testing.T) {
+	oldCgo := cgoEnabled
+	cgoEnabled = false
+	defer func() { cgoEnabled = oldCgo }()
+
 	mock := runner.NewMock()
 	job := buildJob{
 		goos:       "linux",
@@ -293,6 +297,32 @@ func TestRunBuild(t *testing.T) {
 		}
 	}
 	assert.True(t, hasOutput)
+}
+
+func TestRunBuildWithCgoEnabled(t *testing.T) {
+	oldCgo := cgoEnabled
+	cgoEnabled = true
+	defer func() { cgoEnabled = oldCgo }()
+
+	mock := runner.NewMock()
+	job := buildJob{
+		goos:       "linux",
+		goarch:     "amd64",
+		srcPath:    ".",
+		outputPath: "/tmp/test",
+	}
+
+	err := runBuild(mock, job)
+	assert.Nil(t, err)
+
+	calls := mock.Calls()
+	assert.Equal(t, 1, len(calls))
+
+	cfg := calls[0]
+	assert.Equal(t, "linux", cfg.Env["GOOS"])
+	assert.Equal(t, "amd64", cfg.Env["GOARCH"])
+	_, hasCgo := cfg.Env["CGO_ENABLED"]
+	assert.False(t, hasCgo, "CGO_ENABLED should not be set when --cgo is used")
 }
 
 func TestCreateHostSymlinks(t *testing.T) {
