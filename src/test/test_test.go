@@ -298,7 +298,7 @@ func TestRealtimePassOutput(t *testing.T) {
 	require.NoError(t, h.Event(event, nil))
 
 	output := buf.String()
-	assert.Contains(t, output, symPass)
+	assert.Contains(t, output, "done.")
 	assert.Contains(t, output, "pkg.TestFoo")
 	assert.Contains(t, output, "0.15s")
 }
@@ -341,7 +341,7 @@ func TestRealtimeFailOutput(t *testing.T) {
 	require.NoError(t, h.Event(event, nil))
 
 	output := buf.String()
-	assert.Contains(t, output, symFail)
+	assert.Contains(t, output, "failed!")
 	assert.Contains(t, output, "pkg.TestBar")
 	assert.Contains(t, output, "1.23s")
 }
@@ -364,7 +364,7 @@ func TestRealtimeSkipOutput(t *testing.T) {
 	require.NoError(t, h.Event(event, nil))
 
 	output := buf.String()
-	assert.Contains(t, output, symSkip)
+	assert.Contains(t, output, "skipped.")
 	assert.Contains(t, output, "pkg.TestSkipped")
 }
 
