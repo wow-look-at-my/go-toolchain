@@ -483,13 +483,13 @@ func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	// Each OK line should show [N/2] counter and duration in seconds
-	okPattern := regexp.MustCompile(`OK\s+\[(\d+)/2\].*\(\d+\.\d+s\)`)
+	// Each OK line should show [N/2] counter and duration in seconds (no parentheses)
+	okPattern := regexp.MustCompile(`OK\s+\[(\d+)/2\].*\d+\.\d+s`)
 	okMatches := okPattern.FindAllString(output, -1)
 	assert.Equal(t, 2, len(okMatches), "expected 2 OK lines with progress counters and durations, got: %v", okMatches)
 
 	// Summary line should show total duration
-	assert.Regexp(t, `All 2 binaries built successfully.*\(\d+\.\d+s\)`, output)
+	assert.Regexp(t, `All 2 binaries built successfully.*\d+\.\d+s`, output)
 }
 
 func TestMatrixOutputFailureShowsDuration(t *testing.T) {
@@ -532,8 +532,8 @@ func TestMatrixOutputFailureShowsDuration(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 
-	// FAIL line should show [1/1] counter and duration
-	assert.Regexp(t, `FAIL \[1/1\].*\(\d+\.\d+s\)`, output)
+	// FAIL line should show [1/1] counter and duration (no parentheses)
+	assert.Regexp(t, `FAIL \[1/1\].*\d+\.\d+s`, output)
 }
 
 func TestCreateHostSymlinksReplacesStale(t *testing.T) {

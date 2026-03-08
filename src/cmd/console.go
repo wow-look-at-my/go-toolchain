@@ -13,6 +13,7 @@ const colorGreen = "\033[38;2;0;255;0m"
 const colorRed = "\033[38;2;255;0;0m"
 const colorPass = colorGreen
 const colorFail = "\033[38;2;255;128;128m" // softer red for readability
+const colorDimCyan = "\033[38;2;100;160;160m" // dark greyish-cyan for durations
 
 type ColorPct struct {
 	Pct    float32
@@ -90,14 +91,20 @@ func (s *step) noteOutput() {
 	})
 }
 
+// fmtDuration formats a duration as dark greyish-cyan without parentheses.
+func fmtDuration(d time.Duration) string {
+	return fmt.Sprintf("%s%.2fs%s", colorDimCyan, d.Seconds(), colorReset)
+}
+
 // done prints the completion message with elapsed time.
 // If the step produced output, the done message goes on a new line.
 // Otherwise it appends to the "..." line.
 func (s *step) done() {
 	d := time.Since(s.start)
+	done := colorGreen + "done." + colorReset
 	if s.noisy {
-		fmt.Printf("==> %s done. (%.2fs)\n", s.label, d.Seconds())
+		fmt.Printf("==> %s %s %s\n", s.label, done, fmtDuration(d))
 	} else {
-		fmt.Printf(" done. (%.2fs)\n", d.Seconds())
+		fmt.Printf(" %s %s\n", done, fmtDuration(d))
 	}
 }

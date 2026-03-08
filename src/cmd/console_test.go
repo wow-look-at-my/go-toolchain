@@ -78,7 +78,9 @@ func TestLogStepSilent(t *testing.T) {
 		s.done()
 	})
 	assert.Contains(t, output, "==> go build...")
-	assert.Contains(t, output, " done. (")
+	assert.Contains(t, output, "done.")
+	assert.Contains(t, output, colorGreen+"done."+colorReset)
+	assert.Contains(t, output, colorDimCyan)
 	// Should be on a single line (no newline between "..." and " done.")
 	assert.NotContains(t, output, "...\n")
 }
@@ -93,8 +95,8 @@ func TestLogStepNoisy(t *testing.T) {
 	assert.Contains(t, output, "==> go mod tidy...")
 	// Should have newline after "..." (from noteOutput)
 	assert.Contains(t, output, "...\n")
-	// Done message should repeat the label on a new line
-	assert.Contains(t, output, "==> go mod tidy done. (")
+	// Done message should repeat the label on a new line with green "done."
+	assert.Contains(t, output, "==> go mod tidy "+colorGreen+"done."+colorReset)
 }
 
 func TestLogStepNoteOutputIdempotent(t *testing.T) {

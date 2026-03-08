@@ -152,10 +152,10 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	for result := range results {
 		completed++
 		if result.err != nil {
-			fmt.Printf("  FAIL [%d/%d] %s/%s: %v (%.2fs)\n", completed, len(jobs), result.job.goos, result.job.goarch, result.err, result.duration.Seconds())
+			fmt.Printf("  FAIL [%d/%d] %s/%s: %v %s\n", completed, len(jobs), result.job.goos, result.job.goarch, result.err, fmtDuration(result.duration))
 			failed = append(failed, result)
 		} else {
-			fmt.Printf("  OK   [%d/%d] %s (%.2fs)\n", completed, len(jobs), result.job.outputPath, result.duration.Seconds())
+			fmt.Printf("  OK   [%d/%d] %s %s\n", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
 		}
 	}
 
@@ -168,7 +168,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return err
 	}
 
-	fmt.Printf("==> All %d binaries built successfully in %s/ (%.2fs)\n", len(jobs), outputDir, time.Since(buildStart).Seconds())
+	fmt.Printf("==> All %d binaries built successfully in %s/ %s\n", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
 
 	// Run benchmarks after successful build
 	if !noBenchmark {
