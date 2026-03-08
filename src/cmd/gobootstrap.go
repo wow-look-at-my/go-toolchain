@@ -28,7 +28,8 @@ var (
 //
 // Call this early in main, before any cobra/build logic runs.
 func EnsureGoVersion() error {
-	if installedGoVersion() != "" {
+	if v := installedGoVersion(); v != "" {
+		fmt.Printf("==> Go %s found in PATH\n", v)
 		return nil // Go is available, GOTOOLCHAIN=auto handles upgrades
 	}
 
@@ -71,9 +72,15 @@ func requiredGoVersion() (string, error) {
 	return "", nil
 }
 
-// installedGoVersion returns the version string (e.g. "1.24.7") from `go env GOVERSION`.
+// installedGoVersion returns the version string (e.g. "1.24.7") from `go env GOVERSION`,
+// or "" if go is not found in PATH.
 func installedGoVersion() string {
-	out, err := exec.Command("go", "env", "GOVERSION").Output()
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		return "" // go not in PATH
+	}
+	fmt.Printf("==> Found go at: %s\n", goPath)
+	out, err := exec.Command(goPath, "env", "GOVERSION").Output()
 	if err != nil {
 		return ""
 	}
