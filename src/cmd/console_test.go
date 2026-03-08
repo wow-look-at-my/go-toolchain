@@ -106,8 +106,8 @@ func TestLogStepNoteOutputIdempotent(t *testing.T) {
 	})
 	// Only one newline after "..." (not two)
 	count := 0
-	for i := 0; i < len(output)-4; i++ {
-		if output[i:i+5] == "...\n" {
+	for i := 0; i < len(output)-3; i++ {
+		if output[i:i+4] == "...\n" {
 			count++
 		}
 	}
