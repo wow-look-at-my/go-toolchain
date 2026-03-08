@@ -89,5 +89,5 @@ jobs:
           fi
           echo "OK: go is not in PATH"
 
-          # go-toolchain should bootstrap Go from go.dev and succeed
-          go-toolchain --help
+          # go-toolchain should bootstrap Go from go.dev and build successfully
+          go-toolchain
