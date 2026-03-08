@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	colorReset = "\033[0m"
-	fgReset    = "\033[39m" // reset foreground only, preserve background
+	colorReset   = "\033[0m"
+	fgReset      = "\033[39m" // reset foreground only, preserve background
+	colorDimCyan = "\033[38;2;100;160;160m"
 )
 
 // cwd is cached working directory for link resolution

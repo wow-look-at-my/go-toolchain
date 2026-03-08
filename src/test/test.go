@@ -72,19 +72,19 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 				if h.onOutput != nil {
 					h.onOutput()
 				}
-				fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrGreen, symPass, colorReset, pkg, event.Test, event.Elapsed)
+				fmt.Fprintf(h.out, "  %s%s%s %s.%s %s%.2fs%s\n", clrGreen, symPass, colorReset, pkg, event.Test, colorDimCyan, event.Elapsed, colorReset)
 			}
 		case testjson.ActionFail:
 			if h.onOutput != nil {
 				h.onOutput()
 			}
-			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrFail, symFail, colorReset, pkg, event.Test, event.Elapsed)
+			fmt.Fprintf(h.out, "  %s%s%s %s.%s %s%.2fs%s\n", clrFail, symFail, colorReset, pkg, event.Test, colorDimCyan, event.Elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
 				if h.onOutput != nil {
 					h.onOutput()
 				}
-				fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrYellow, symSkip, colorReset, pkg, event.Test, event.Elapsed)
+				fmt.Fprintf(h.out, "  %s%s%s %s.%s %s%.2fs%s\n", clrYellow, symSkip, colorReset, pkg, event.Test, colorDimCyan, event.Elapsed, colorReset)
 			}
 		}
 	}
