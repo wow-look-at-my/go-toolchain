@@ -33,6 +33,7 @@ jobs:
         with:
           name: go-toolchain-binary
           path: build/go-toolchain_linux_amd64
+          if-no-files-found: error
 
   gha-test:
     runs-on: ubuntu-latest
