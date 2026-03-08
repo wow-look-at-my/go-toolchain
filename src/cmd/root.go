@@ -132,10 +132,13 @@ func runWithRunner(r runner.CommandRunner) error {
 func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 	quiet := jsonOutput
 
-	// Start async dependency freshness check (reports at end)
-	var depChecker *DepChecker
+	// Check for dep updates before tests so we don't run the full
+	// test suite twice when a dependency is outdated.
 	if !quiet && !isRetry {
-		depChecker = CheckOutdatedDeps()
+		depChecker := CheckOutdatedDeps()
+		if WaitForOutdatedDeps(depChecker) {
+			fmt.Println()
+		}
 	}
 
 	filesChanged, err := RunTestsWithCoverage(r, quiet)
@@ -143,11 +146,8 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 		return err
 	}
 
-	// Check for dep updates after tests (runs in parallel)
-	depsUpdated := WaitForOutdatedDeps(depChecker)
-
-	// If anything changed, rebuild
-	if !isRetry && (filesChanged || depsUpdated) {
+	// If vet applied fixes, re-run tests with the corrected code
+	if !isRetry && filesChanged {
 		fmt.Println("\n==> Files changed, rebuilding...")
 		return runWithRunnerOnce(r, true)
 	}
