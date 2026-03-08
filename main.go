@@ -1,12 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 )
 
 func init() {
+	// Let Go automatically download the correct toolchain when go.mod
+	// requires a newer version than the one installed.
+	os.Setenv("GOTOOLCHAIN", "auto")
+
 	// Disable Go's phone-home behavior - bypass proxy and checksum database.
 	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
 	os.Setenv("GOPROXY", "direct")
@@ -15,6 +20,10 @@ func init() {
 }
 
 func main() {
+	if err := cmd.EnsureGoVersion(); err != nil {
+		fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
+		os.Exit(1)
+	}
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
