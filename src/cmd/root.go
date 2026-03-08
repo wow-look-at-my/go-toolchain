@@ -311,11 +311,16 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		onTestOutput = testStep.noteOutput
 	}
 	result, testErr := gotest.RunTests(r, verbose, coverFile, onTestOutput)
-	if testStep != nil {
-		testStep.done()
-	}
 	if result == nil {
+		if testStep != nil {
+			testStep.failed()
+		}
 		return false, fmt.Errorf("tests failed: %w", testErr)
+	}
+	if testErr != nil && testStep != nil {
+		testStep.failed()
+	} else if testStep != nil {
+		testStep.done()
 	}
 
 	report := &result.Coverage

@@ -96,15 +96,22 @@ func fmtDuration(d time.Duration) string {
 	return fmt.Sprintf("%s%.2fs%s", colorDimCyan, d.Seconds(), colorReset)
 }
 
-// done prints the completion message with elapsed time.
-// If the step produced output, the done message goes on a new line.
-// Otherwise it appends to the "..." line.
-func (s *step) done() {
+// finish prints the completion message with elapsed time and a status word.
+func (s *step) finish(status string) {
 	d := time.Since(s.start)
-	done := colorGreen + "done." + colorReset
 	if s.noisy {
-		fmt.Printf("==> %s %s %s\n", s.label, done, fmtDuration(d))
+		fmt.Printf("==> %s %s %s\n", s.label, status, fmtDuration(d))
 	} else {
-		fmt.Printf(" %s %s\n", done, fmtDuration(d))
+		fmt.Printf(" %s %s\n", status, fmtDuration(d))
 	}
+}
+
+// done prints a green "done." completion message with elapsed time.
+func (s *step) done() {
+	s.finish(colorGreen + "done." + colorReset)
+}
+
+// failed prints a red "failed!" completion message with elapsed time.
+func (s *step) failed() {
+	s.finish(colorRed + "failed!" + colorReset)
 }

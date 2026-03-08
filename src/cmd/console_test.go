@@ -99,6 +99,27 @@ func TestLogStepNoisy(t *testing.T) {
 	assert.Contains(t, output, "==> go mod tidy "+colorGreen+"done."+colorReset)
 }
 
+func TestLogStepFailed(t *testing.T) {
+	output := captureStdout(func() {
+		s := logStep("Running tests")
+		s.noteOutput()
+		s.failed()
+	})
+	assert.Contains(t, output, "==> Running tests...")
+	assert.Contains(t, output, colorRed+"failed!"+colorReset)
+	assert.Contains(t, output, colorDimCyan)
+}
+
+func TestLogStepFailedSilent(t *testing.T) {
+	output := captureStdout(func() {
+		s := logStep("go vet")
+		s.failed()
+	})
+	assert.Contains(t, output, "==> go vet...")
+	assert.Contains(t, output, colorRed+"failed!"+colorReset)
+	assert.NotContains(t, output, "...\n")
+}
+
 func TestLogStepNoteOutputIdempotent(t *testing.T) {
 	output := captureStdout(func() {
 		s := logStep("test")
