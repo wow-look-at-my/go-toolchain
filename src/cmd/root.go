@@ -179,19 +179,16 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 		if !quiet {
 			buildStep = logStep(fmt.Sprintf("go build -o %s %s", outPath, t.ImportPath))
 		}
-		cmd := runner.Cmd("go", "build", "-ldflags", ldflags, "-o", outPath, t.ImportPath).WithOnFirstOutput(func() {
-			if buildStep != nil {
-				buildStep.noteOutput()
-			}
-		})
-		if !cgoEnabled {
-			cmd = cmd.WithEnv("CGO_ENABLED", "0")
+		var onFirstOutput func()
+		if buildStep != nil {
+			onFirstOutput = buildStep.noteOutput
 		}
-		proc, err := cmd.Run(r)
-		if err != nil {
-			return fmt.Errorf("go build failed: %w", err)
+		job := buildJob{
+			srcPath:    t.ImportPath,
+			outputPath: outPath,
+			ldflags:    ldflags,
 		}
-		if err := proc.Wait(); err != nil {
+		if err := runBuild(r, job, onFirstOutput); err != nil {
 			return fmt.Errorf("go build failed: %w", err)
 		}
 		if buildStep != nil {

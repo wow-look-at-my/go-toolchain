@@ -245,7 +245,7 @@ func TestRunBuildCapturesStderr(t *testing.T) {
 		outputPath: "/tmp/test",
 	}
 
-	err := runBuild(mock, job)
+	err := runBuild(mock, job, nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "exit status 1")
 	assert.Contains(t, err.Error(), "undefined: foo")
@@ -260,7 +260,7 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 		outputPath: "/tmp/test",
 	}
 
-	err := runBuild(mock, job)
+	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
 }
 
@@ -277,7 +277,7 @@ func TestRunBuild(t *testing.T) {
 		outputPath: "/tmp/test",
 	}
 
-	err := runBuild(mock, job)
+	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
 
 	// Verify command was called
@@ -313,7 +313,7 @@ func TestRunBuildWithCgoEnabled(t *testing.T) {
 		outputPath: "/tmp/test",
 	}
 
-	err := runBuild(mock, job)
+	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
 
 	calls := mock.Calls()

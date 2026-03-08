@@ -130,7 +130,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 			defer wg.Done()
 			for job := range jobChan {
 				jobStart := time.Now()
-				err := runBuild(r, job)
+				err := runBuild(r, job, nil)
 				results <- buildResult{job: job, err: err, duration: time.Since(jobStart)}
 			}
 		}()
@@ -212,11 +212,22 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 	return nil
 }
 
-func runBuild(r runner.CommandRunner, job buildJob) error {
-	cmd := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath).
-		WithEnv("GOOS", job.goos).
-		WithEnv("GOARCH", job.goarch).
-		WithQuiet()
+// runBuild compiles a single binary. If onFirstOutput is non-nil, it is
+// called when the compiler produces its first output (used for progress
+// indicators on the default build path).
+func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
+	cmd := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath)
+	if job.goos != "" {
+		cmd = cmd.WithEnv("GOOS", job.goos)
+	}
+	if job.goarch != "" {
+		cmd = cmd.WithEnv("GOARCH", job.goarch)
+	}
+	if onFirstOutput != nil {
+		cmd = cmd.WithOnFirstOutput(onFirstOutput)
+	} else {
+		cmd = cmd.WithQuiet()
+	}
 	if !cgoEnabled {
 		cmd = cmd.WithEnv("CGO_ENABLED", "0")
 	}
