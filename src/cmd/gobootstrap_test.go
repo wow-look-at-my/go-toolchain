@@ -14,31 +14,6 @@ import (
 	"github.com/wow-look-at-my/testify/require"
 )
 
-func TestGoVersionLessThan(t *testing.T) {
-	tests := []struct {
-		a, b string
-		want bool
-	}{
-		{"1.24.7", "1.24.11", true},
-		{"1.24.11", "1.24.7", false},
-		{"1.24.7", "1.24.7", false},
-		{"1.23.0", "1.24.0", true},
-		{"1.24.0", "1.23.0", false},
-		{"1.24", "1.24.1", true},
-		{"1.25", "1.24.11", false},
-	}
-	for _, tt := range tests {
-		got := goVersionLessThan(tt.a, tt.b)
-		assert.Equal(t, tt.want, got, "%s < %s", tt.a, tt.b)
-	}
-}
-
-func TestParseVersion(t *testing.T) {
-	assert.Equal(t, [3]int{1, 24, 7}, parseVersion("1.24.7"))
-	assert.Equal(t, [3]int{1, 24, 11}, parseVersion("go1.24.11"))
-	assert.Equal(t, [3]int{1, 25, 0}, parseVersion("1.25"))
-}
-
 func TestRequiredGoVersion(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -321,39 +296,8 @@ func TestDownloadGoConnectionError(t *testing.T) {
 	assert.Contains(t, err.Error(), "all download URLs failed")
 }
 
-func TestEnsureGoVersionNoGoMod(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// No go.mod → should return nil
-	err := EnsureGoVersion()
-	assert.Nil(t, err)
-}
-
-func TestEnsureGoVersionAlreadySatisfied(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Write a go.mod requiring a version <= installed
-	installed := installedGoVersion()
-	os.WriteFile("go.mod", []byte("module test\n\ngo "+installed+"\n"), 0644)
-
-	err := EnsureGoVersion()
-	assert.Nil(t, err)
-}
-
-func TestEnsureGoVersionNoGoDirective(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	os.WriteFile("go.mod", []byte("module test\n"), 0644)
-
+func TestEnsureGoVersionGoPresent(t *testing.T) {
+	// Go is installed in test env, so EnsureGoVersion should be a no-op
 	err := EnsureGoVersion()
 	assert.Nil(t, err)
 }

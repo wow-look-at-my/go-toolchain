@@ -21,28 +21,23 @@ var (
 	goDownloadURLsFunc = goDownloadURLs
 )
 
-// EnsureGoVersion checks whether the system Go satisfies the project's go.mod
-// requirement. If Go is not installed or the installed version is too old, it
-// downloads the required version to a cache directory and updates PATH +
-// GOTOOLCHAIN so that all subsequent commands use the correct toolchain.
+// EnsureGoVersion checks whether Go is available in PATH. If not, it downloads
+// the version specified in go.mod to a cache directory and updates PATH/GOROOT.
+// Version upgrades are handled by GOTOOLCHAIN=auto (set in init), so this only
+// covers the cold-start case where Go is completely missing.
 //
 // Call this early in main, before any cobra/build logic runs.
 func EnsureGoVersion() error {
+	if installedGoVersion() != "" {
+		return nil // Go is available, GOTOOLCHAIN=auto handles upgrades
+	}
+
 	required, err := requiredGoVersion()
 	if err != nil || required == "" {
-		return nil // no go.mod or can't parse — let Go handle it
+		return fmt.Errorf("go not found in PATH and cannot determine version from go.mod")
 	}
 
-	installed := installedGoVersion()
-
-	if installed == "" {
-		// Go is not installed at all — bootstrap it
-		fmt.Printf("==> Go not found in PATH, bootstrapping Go %s...\n", required)
-	} else if !goVersionLessThan(installed, required) {
-		return nil // installed >= required, nothing to do
-	} else {
-		fmt.Printf("==> Go %s required (have %s), bootstrapping...\n", required, installed)
-	}
+	fmt.Printf("==> Go not found in PATH, bootstrapping Go %s...\n", required)
 
 	goRoot, err := ensureGoCached(required)
 	if err != nil {
@@ -53,7 +48,6 @@ func EnsureGoVersion() error {
 	goBin := filepath.Join(goRoot, "bin")
 	os.Setenv("PATH", goBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	os.Setenv("GOROOT", goRoot)
-	os.Setenv("GOTOOLCHAIN", "local")
 
 	fmt.Printf("==> Using Go %s from %s\n", required, goRoot)
 	return nil
@@ -85,35 +79,6 @@ func installedGoVersion() string {
 	}
 	v := strings.TrimSpace(string(out))
 	return strings.TrimPrefix(v, "go")
-}
-
-// goVersionLessThan returns true if a < b using simple numeric comparison
-// of major.minor.patch components.
-func goVersionLessThan(a, b string) bool {
-	pa := parseVersion(a)
-	pb := parseVersion(b)
-	for i := 0; i < 3; i++ {
-		if pa[i] < pb[i] {
-			return true
-		}
-		if pa[i] > pb[i] {
-			return false
-		}
-	}
-	return false
-}
-
-func parseVersion(v string) [3]int {
-	var parts [3]int
-	v = strings.TrimPrefix(v, "go")
-	segs := strings.SplitN(v, ".", 3)
-	for i, s := range segs {
-		if i >= 3 {
-			break
-		}
-		fmt.Sscanf(s, "%d", &parts[i])
-	}
-	return parts
 }
 
 // ensureGoCached downloads Go to ~/.cache/go-toolchain/go<version>/ if not
