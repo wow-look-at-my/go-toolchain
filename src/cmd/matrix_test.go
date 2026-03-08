@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -448,6 +449,91 @@ func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
 			assert.False(t, cfg.HasArg("-bench"), "should not have -bench flag when --no-benchmark is set")
 		}
 	}
+}
+
+func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+
+	oldOS := matrixOS
+	oldArch := matrixArch
+	oldOutput := outputDir
+	oldParallel := releaseParallel
+	oldBench := noBenchmark
+	matrixOS = []string{"linux"}
+	matrixArch = []string{"amd64", "arm64"}
+	outputDir = filepath.Join(tmpDir, "dist")
+	releaseParallel = 1
+	noBenchmark = true
+	defer func() {
+		matrixOS = oldOS
+		matrixArch = oldArch
+		outputDir = oldOutput
+		releaseParallel = oldParallel
+		noBenchmark = oldBench
+	}()
+
+	mock := newTestPassMock(0)
+	output := captureStdout(func() {
+		err := runReleaseWithRunner(mock)
+		assert.Nil(t, err)
+	})
+
+	// Each OK line should show [N/2] counter and duration in seconds
+	okPattern := regexp.MustCompile(`OK\s+\[(\d+)/2\].*\(\d+\.\d+s\)`)
+	okMatches := okPattern.FindAllString(output, -1)
+	assert.Equal(t, 2, len(okMatches), "expected 2 OK lines with progress counters and durations, got: %v", okMatches)
+
+	// Summary line should show total duration
+	assert.Regexp(t, `All 2 binaries built successfully.*\(\d+\.\d+s\)`, output)
+}
+
+func TestMatrixOutputFailureShowsDuration(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+
+	oldOS := matrixOS
+	oldArch := matrixArch
+	oldOutput := outputDir
+	oldParallel := releaseParallel
+	oldBench := noBenchmark
+	matrixOS = []string{"linux"}
+	matrixArch = []string{"amd64"}
+	outputDir = filepath.Join(tmpDir, "dist")
+	releaseParallel = 1
+	noBenchmark = true
+	defer func() {
+		matrixOS = oldOS
+		matrixArch = oldArch
+		outputDir = oldOutput
+		releaseParallel = oldParallel
+		noBenchmark = oldBench
+	}()
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "build") {
+			return nil, fmt.Errorf("build failed")
+		}
+		return origHandler(cfg)
+	}
+
+	output := captureStdout(func() {
+		err := runReleaseWithRunner(mock)
+		assert.NotNil(t, err)
+	})
+
+	// FAIL line should show [1/1] counter and duration
+	assert.Regexp(t, `FAIL \[1/1\].*\(\d+\.\d+s\)`, output)
 }
 
 func TestCreateHostSymlinksReplacesStale(t *testing.T) {

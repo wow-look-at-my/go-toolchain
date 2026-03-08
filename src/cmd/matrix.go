@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
@@ -51,8 +52,9 @@ type buildJob struct {
 }
 
 type buildResult struct {
-	job buildJob
-	err error
+	job      buildJob
+	err      error
+	duration time.Duration
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
@@ -110,6 +112,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 
 	fmt.Printf("==> Building %d binaries (%d OS x %d arch)\n", len(jobs), len(matrixOS), len(matrixArch))
+	buildStart := time.Now()
 
 	// Run builds in parallel
 	results := make(chan buildResult, len(jobs))
@@ -126,8 +129,9 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		go func() {
 			defer wg.Done()
 			for job := range jobChan {
+				jobStart := time.Now()
 				err := runBuild(r, job)
-				results <- buildResult{job: job, err: err}
+				results <- buildResult{job: job, err: err, duration: time.Since(jobStart)}
 			}
 		}()
 	}
@@ -144,12 +148,14 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 
 	// Collect results
 	var failed []buildResult
+	completed := 0
 	for result := range results {
+		completed++
 		if result.err != nil {
-			fmt.Printf("  FAIL %s/%s: %v\n", result.job.goos, result.job.goarch, result.err)
+			fmt.Printf("  FAIL [%d/%d] %s/%s: %v (%.2fs)\n", completed, len(jobs), result.job.goos, result.job.goarch, result.err, result.duration.Seconds())
 			failed = append(failed, result)
 		} else {
-			fmt.Printf("  OK   %s\n", result.job.outputPath)
+			fmt.Printf("  OK   [%d/%d] %s (%.2fs)\n", completed, len(jobs), result.job.outputPath, result.duration.Seconds())
 		}
 	}
 
@@ -162,7 +168,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return err
 	}
 
-	fmt.Printf("==> All %d binaries built successfully in %s/\n", len(jobs), outputDir)
+	fmt.Printf("==> All %d binaries built successfully in %s/ (%.2fs)\n", len(jobs), outputDir, time.Since(buildStart).Seconds())
 
 	// Run benchmarks after successful build
 	if !noBenchmark {
