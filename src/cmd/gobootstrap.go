@@ -28,17 +28,20 @@ var (
 //
 // Call this early in main, before any cobra/build logic runs.
 func EnsureGoVersion() error {
-	if v := installedGoVersion(); v != "" {
-		fmt.Printf("==> Go %s found in PATH\n", v)
+	goPath, lookErr := exec.LookPath("go")
+	if lookErr == nil {
+		fmt.Fprintf(os.Stderr, "go-bootstrap: found go at %s\n", goPath)
 		return nil // Go is available, GOTOOLCHAIN=auto handles upgrades
 	}
 
+	fmt.Fprintf(os.Stderr, "go-bootstrap: go not in PATH (%v)\n", lookErr)
+
 	required, err := requiredGoVersion()
 	if err != nil || required == "" {
-		return fmt.Errorf("go not found in PATH and cannot determine version from go.mod")
+		return fmt.Errorf("go not found in PATH and cannot determine version from go.mod: %v", err)
 	}
 
-	fmt.Printf("==> Go not found in PATH, bootstrapping Go %s...\n", required)
+	fmt.Fprintf(os.Stderr, "go-bootstrap: bootstrapping Go %s...\n", required)
 
 	goRoot, err := ensureGoCached(required)
 	if err != nil {
@@ -50,7 +53,12 @@ func EnsureGoVersion() error {
 	os.Setenv("PATH", goBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	os.Setenv("GOROOT", goRoot)
 
-	fmt.Printf("==> Using Go %s from %s\n", required, goRoot)
+	// Verify the bootstrapped Go is actually usable
+	if _, err := exec.LookPath("go"); err != nil {
+		return fmt.Errorf("bootstrap completed but go still not found in PATH: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s\n", required, goRoot)
 	return nil
 }
 
@@ -70,22 +78,6 @@ func requiredGoVersion() (string, error) {
 		}
 	}
 	return "", nil
-}
-
-// installedGoVersion returns the version string (e.g. "1.24.7") from `go env GOVERSION`,
-// or "" if go is not found in PATH.
-func installedGoVersion() string {
-	goPath, err := exec.LookPath("go")
-	if err != nil {
-		return "" // go not in PATH
-	}
-	fmt.Printf("==> Found go at: %s\n", goPath)
-	out, err := exec.Command(goPath, "env", "GOVERSION").Output()
-	if err != nil {
-		return ""
-	}
-	v := strings.TrimSpace(string(out))
-	return strings.TrimPrefix(v, "go")
 }
 
 // ensureGoCached downloads Go to ~/.cache/go-toolchain/go<version>/ if not
@@ -140,7 +132,7 @@ func downloadGo(version, cacheDir, goRoot string) error {
 	var resp *http.Response
 	var lastErr error
 	for _, url := range urls {
-		fmt.Printf("==> Downloading %s ...\n", url)
+		fmt.Fprintf(os.Stderr, "go-bootstrap: downloading %s ...\n", url)
 		resp, lastErr = http.Get(url)
 		if lastErr == nil && resp.StatusCode == http.StatusOK {
 			break
@@ -149,9 +141,9 @@ func downloadGo(version, cacheDir, goRoot string) error {
 			resp.Body.Close()
 		}
 		if lastErr != nil {
-			fmt.Printf("  FAIL %v\n", lastErr)
+			fmt.Fprintf(os.Stderr, "  FAIL %v\n", lastErr)
 		} else {
-			fmt.Printf("  FAIL HTTP %d\n", resp.StatusCode)
+			fmt.Fprintf(os.Stderr, "  FAIL HTTP %d\n", resp.StatusCode)
 			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 		}
 	}

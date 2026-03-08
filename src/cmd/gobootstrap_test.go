@@ -92,13 +92,6 @@ func TestGoCacheDir(t *testing.T) {
 	assert.True(t, info.IsDir())
 }
 
-func TestInstalledGoVersion(t *testing.T) {
-	v := installedGoVersion()
-	// Should return something like "1.24.7" — at minimum non-empty
-	assert.NotEqual(t, "", v)
-	assert.Contains(t, v, "1.")
-}
-
 // createTestTarGz builds a tar.gz archive in memory with the given files.
 func createTestTarGz(t *testing.T, files map[string]string) []byte {
 	t.Helper()
