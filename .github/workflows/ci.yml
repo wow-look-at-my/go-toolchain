@@ -44,3 +44,39 @@ jobs:
         with:
           name: go-toolchain-binaries
           path: build/go-toolchain_*
+
+  bootstrap-test:
+    name: Bootstrap (no Go in PATH)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git for private repos
+        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
+      - name: Set up Go (for building go-toolchain itself)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build go-toolchain binary
+        run: go build -o go-toolchain ./src
+
+      - name: Remove Go from PATH and run bootstrap
+        run: |
+          set -euo pipefail
+          # Save binary outside GOROOT
+          cp go-toolchain /usr/local/bin/go-toolchain
+
+          # Remove every Go installation from PATH
+          export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '/go' | tr '\n' ':')
+          unset GOROOT
+
+          # Verify go is gone
+          if command -v go &>/dev/null; then
+            echo "FAIL: go still in PATH"
+            exit 1
+          fi
+
+          # go-toolchain should bootstrap Go from go.dev and succeed
+          /usr/local/bin/go-toolchain --help
