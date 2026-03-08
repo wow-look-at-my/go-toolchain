@@ -28,6 +28,12 @@ jobs:
       - name: Build and test
         run: go run ./src
 
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-toolchain-binary
+          path: build/go-toolchain_linux_amd64
+
   gha-test:
     runs-on: ubuntu-latest
     steps:
@@ -47,7 +53,7 @@ jobs:
 
   bootstrap-test:
     name: Bootstrap (no Go in PATH)
-    needs: gha-test
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +61,7 @@ jobs:
       - name: Download go-toolchain binary
         uses: actions/download-artifact@v4
         with:
-          name: go-toolchain-binaries
+          name: go-toolchain-binary
 
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
