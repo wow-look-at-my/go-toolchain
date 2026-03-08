@@ -68,15 +68,33 @@ jobs:
           # Save binary outside GOROOT
           cp go-toolchain /usr/local/bin/go-toolchain
 
-          # Remove every Go installation from PATH
-          export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '/go' | tr '\n' ':')
+          # Debug: show where go lives before removal
+          echo "PATH=$PATH"
+          which -a go || true
+
+          # Remove every directory containing a 'go' binary from PATH
+          NEW_PATH=""
+          IFS=':' read -ra DIRS <<< "$PATH"
+          for dir in "${DIRS[@]}"; do
+            if [ ! -x "$dir/go" ]; then
+              NEW_PATH="${NEW_PATH:+$NEW_PATH:}$dir"
+            else
+              echo "Removing from PATH: $dir (contains go binary)"
+            fi
+          done
+          export PATH="$NEW_PATH"
           unset GOROOT
+          unset GOPATH
+
+          # Also remove any system go symlinks/binaries
+          sudo rm -f /usr/local/bin/go /usr/bin/go
 
           # Verify go is gone
           if command -v go &>/dev/null; then
-            echo "FAIL: go still in PATH"
+            echo "FAIL: go still in PATH at $(which go)"
             exit 1
           fi
+          echo "OK: go is not in PATH"
 
           # go-toolchain should bootstrap Go from go.dev and succeed
           /usr/local/bin/go-toolchain --help
