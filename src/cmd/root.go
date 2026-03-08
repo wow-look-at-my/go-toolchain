@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/integration"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
@@ -151,6 +152,10 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 	}
 
 	if err := runBuildPhase(r, quiet); err != nil {
+		return err
+	}
+
+	if err := integration.Run("tests"); err != nil {
 		return err
 	}
 

@@ -11,8 +11,8 @@ go run ./src
 # Cross-compile
 go run ./src matrix
 
-# Run integration tests (requires bats, jq, attr)
-bats tests/
+# Integration tests run automatically after build via dats
+# To add new CLI tests, create .dats files in tests/
 ```
 
 ## Coverage Analysis
@@ -31,7 +31,8 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - `src/cmd/` — CLI commands (root, matrix, install) and benchmark logic using Cobra
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via `go list`
-- `tests/` — BATS integration tests
+- `src/integration/` — dats integration test runner
+- `tests/` — declarative CLI integration tests (.dats format)
 - `action.yml` — GitHub Action definition
 
 ## Code Conventions

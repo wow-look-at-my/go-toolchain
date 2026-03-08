@@ -12,6 +12,7 @@ require (
 	golang.org/x/mod v0.30.0
 	golang.org/x/sys v0.39.0
 	golang.org/x/tools v0.39.0
+	github.com/mhaynie/bats-declarative v0.0.0-20260308031036-2f82f7aa3920
 	gotest.tools/gotestsum v1.13.0
 	modernc.org/sqlite v1.45.0
 )
