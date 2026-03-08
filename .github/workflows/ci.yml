@@ -32,7 +32,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: go-toolchain-binary
-          path: build/go-toolchain_linux_amd64
+          path: build/go-toolchain
           if-no-files-found: error
 
   gha-test:
@@ -72,8 +72,8 @@ jobs:
           set -euo pipefail
 
           # Install the pre-built binary
-          chmod +x go-toolchain_linux_amd64
-          sudo cp go-toolchain_linux_amd64 /usr/local/bin/go-toolchain
+          chmod +x go-toolchain
+          sudo cp go-toolchain /usr/local/bin/go-toolchain
 
           # Remove all Go installations
           which -a go || true
