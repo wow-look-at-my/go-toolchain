@@ -29,6 +29,7 @@ var (
 	dupcode       bool
 	lintThreshold float64
 	lintMinNodes  int
+	cgoEnabled    bool
 )
 
 var rootCmd = &cobra.Command{
@@ -48,6 +49,7 @@ func init() {
 	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
+	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
 
 	// Benchmark flags
 	rootCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
@@ -176,7 +178,11 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 		if !quiet {
 			fmt.Printf("==> go build -o %s %s\n", outPath, t.ImportPath)
 		}
-		proc, err := runner.Cmd("go", "build", "-ldflags", ldflags, "-o", outPath, t.ImportPath).Run(r)
+		cmd := runner.Cmd("go", "build", "-ldflags", ldflags, "-o", outPath, t.ImportPath)
+		if !cgoEnabled {
+			cmd = cmd.WithEnv("CGO_ENABLED", "0")
+		}
+		proc, err := cmd.Run(r)
 		if err != nil {
 			return fmt.Errorf("go build failed: %w", err)
 		}
