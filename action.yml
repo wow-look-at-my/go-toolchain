@@ -27,6 +27,10 @@ inputs:
     description: 'Path to go.mod to read Go version from'
     required: false
     default: './go.mod'
+  binary:
+    description: 'Path to a pre-built go-toolchain binary (skips release download)'
+    required: false
+    default: ''
 
 outputs:
   coverage:
@@ -49,11 +53,19 @@ runs:
         key: go-toolchain-${{ runner.os }}-${{ runner.arch }}
 
     - name: Download go-toolchain
+      if: inputs.binary == ''
       uses: wow-look-at-my/actions@download-release-binary#latest
       with:
         repo: wow-look-at-my/go-toolchain
         name: go-toolchain
         token: ${{ github.token }}
+
+    - name: Install provided binary
+      if: inputs.binary != ''
+      shell: bash
+      run: |
+        chmod +x "${{ inputs.binary }}"
+        sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
 
     - name: Run go-toolchain
       shell: bash

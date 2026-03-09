@@ -14,9 +14,6 @@ import (
 )
 
 const (
-	symPass = "✓"
-	symFail = "✗"
-	symSkip = "-"
 	clrGreen  = "\033[38;2;0;255;0m"
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
@@ -39,6 +36,7 @@ type coverageHandler struct {
 	out        io.Writer
 	testOutput map[string][]string // buffer output per test until we know pass/fail
 	failedTest map[string]bool     // tests that failed
+	onOutput   func()              // called before the first visible output
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -68,13 +66,22 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		switch event.Action {
 		case testjson.ActionPass:
 			if event.Elapsed >= 0.1 {
-				fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrGreen, symPass, colorReset, pkg, event.Test, event.Elapsed)
+				if h.onOutput != nil {
+					h.onOutput()
+				}
+				fmt.Fprintf(h.out, "  %s.%s... %sdone.%s %s%.2fs%s\n", pkg, event.Test, clrGreen, colorReset, colorDimCyan, event.Elapsed, colorReset)
 			}
 		case testjson.ActionFail:
-			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrFail, symFail, colorReset, pkg, event.Test, event.Elapsed)
+			if h.onOutput != nil {
+				h.onOutput()
+			}
+			fmt.Fprintf(h.out, "  %s.%s... %sfailed!%s %s%.2fs%s\n", pkg, event.Test, clrFail, colorReset, colorDimCyan, event.Elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
-				fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrYellow, symSkip, colorReset, pkg, event.Test, event.Elapsed)
+				if h.onOutput != nil {
+					h.onOutput()
+				}
+				fmt.Fprintf(h.out, "  %s.%s... %sskipped.%s %s%.2fs%s\n", pkg, event.Test, clrYellow, colorReset, colorDimCyan, event.Elapsed, colorReset)
 			}
 		}
 	}
@@ -106,7 +113,9 @@ type TestResult struct {
 
 // RunTests executes go test with coverage and returns parsed results.
 // coverFile is the path where the coverage profile will be written.
-func RunTests(r runner.CommandRunner, verbose bool, coverFile string) (*TestResult, error) {
+// onOutput is an optional callback called before the first visible test output
+// (used by the progress indicator to finish the "..." line).
+func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
 	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-coverprofile="+coverFile, "./...").Run(r)
 	if err != nil {
 		return nil, err
@@ -120,6 +129,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string) (*TestResu
 		out:        os.Stdout,
 		testOutput: make(map[string][]string),
 		failedTest: make(map[string]bool),
+		onOutput:   onOutput,
 	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{

@@ -2,18 +2,27 @@
 
 ## Build & Test
 
-**Important:** `go build`, `go test`, etc. are often blocked in this environment. Always use `go run ./src` which handles the full workflow (mod tidy, vet, test with coverage, build).
+**Important:** `go build`, `go test`, etc. are often blocked in this environment because the Go toolchain version in go.mod may be newer than what's locally installed. The go-toolchain binary handles bootstrapping the correct Go version automatically.
+
+**Always use the released `go-toolchain` binary** to build and test. If it's not already installed, download it from GitHub releases:
 
 ```bash
+# Download and install go-toolchain (do this first if not installed)
+curl -sL "https://github.com/wow-look-at-my/go-toolchain/releases/latest/download/go-toolchain_linux_amd64" -o /tmp/go-toolchain
+chmod +x /tmp/go-toolchain
+cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+
 # Build and test (runs mod tidy, vet, tests with coverage, then builds)
-go run ./src
+go-toolchain
 
 # Cross-compile
-go run ./src matrix
+go-toolchain matrix
 
 # Run integration tests (requires bats, jq, attr)
 bats tests/
 ```
+
+Do NOT use `go run ./src`, `go build`, `go test`, `go vet`, or any bare `go` commands directly — they will fail if the local Go version doesn't match go.mod.
 
 ## Coverage Analysis
 

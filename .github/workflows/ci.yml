@@ -36,6 +36,7 @@ jobs:
           if-no-files-found: error
 
   gha-test:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,8 +44,15 @@ jobs:
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
+      - name: Download go-toolchain binary
+        uses: actions/download-artifact@v4
+        with:
+          name: go-toolchain-binary
+
       - name: Build and test with action
         uses: ./
+        with:
+          binary: go-toolchain
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
