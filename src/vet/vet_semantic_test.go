@@ -187,7 +187,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Run to exercise the path
-	_, err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false, nil)
 	assert.NotNil(t, err)
 }
 
@@ -394,7 +394,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Should find issues and return error with diagnostics
-	_, err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false, nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "vet found issues")
 }
@@ -444,7 +444,7 @@ func TestFoo(t *testing.T) {
 	gitCommit.Run()
 
 	// With fix=true, it should apply fixes, run go mod tidy, and re-run vetSemantic
-	changed, err := vetSemantic("./...", true)
+	changed, err := vetSemantic("./...", true, nil)
 	assert.Nil(t, err)
 	assert.True(t, changed)
 

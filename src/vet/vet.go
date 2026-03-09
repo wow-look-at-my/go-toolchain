@@ -66,30 +66,45 @@ func Analyzers() []*analysis.Analyzer {
 	}
 }
 
+// ProgressFunc is called with a phase name when the vet enters a new phase.
+type ProgressFunc func(phase string)
+
 // Run executes all analyzers on the current module.
 // If fix is true, auto-fixes are applied for analyzers that support them.
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
 // Returns (false, nil) if no go.mod exists (nothing to vet).
 func Run(fix bool) (bool, error) {
+	return RunWithProgress(fix, nil)
+}
+
+// RunWithProgress is like Run but calls progress with phase names for timing visibility.
+func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
 		return false, nil
 	}
-	return RunOnPattern("./...", fix)
+	return RunOnPattern("./...", fix, progress)
 }
 
 // RunOnPattern executes all analyzers on packages matching the pattern.
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
-func RunOnPattern(pattern string, fix bool) (bool, error) {
-	return vetSemantic(pattern, fix)
+func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error) {
+	return vetSemantic(pattern, fix, progress)
 }
 
 // vetSemantic runs type-aware analysis using go/packages and the analysis framework.
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
-func vetSemantic(pattern string, fix bool) (bool, error) {
+func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) {
 	filesChanged := false
+
+	report := func(phase string) {
+		if progress != nil {
+			progress(phase)
+		}
+	}
 
 	// Fix broken testify imports before loading packages
 	if fix {
+		report("fix imports")
 		fixed, err := FixTestifyImports()
 		if err != nil {
 			return false, fmt.Errorf("fixing testify imports: %w", err)
@@ -107,6 +122,7 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 		}
 	}
 
+	report("load packages")
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
@@ -130,6 +146,7 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 	}
 
 	// Run analyzers
+	report("run analyzers")
 	graph, err := checker.Analyze(Analyzers(), pkgs, nil)
 	if err != nil {
 		return false, fmt.Errorf("analysis failed: %w", err)
@@ -184,7 +201,7 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 			return filesChanged, fmt.Errorf("go mod tidy failed: %w", err)
 		}
 		// Re-run analysis to verify fixes worked (don't report old diagnostics)
-		_, err := vetSemantic(pattern, fix)
+		_, err := vetSemantic(pattern, fix, progress)
 		return true, err
 	}
 

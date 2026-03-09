@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
@@ -223,7 +224,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	if !quiet {
 		modTidyStep = logStep("go mod tidy")
 	}
-	proc, err := runner.Cmd("go", "mod", "tidy").WithOnFirstOutput(func() {
+	timedStderr := newTimedLineWriter(os.Stderr)
+	proc, err := runner.Cmd("go", "mod", "tidy").WithStderrWriter(timedStderr).WithOnFirstOutput(func() {
 		if modTidyStep != nil {
 			modTidyStep.noteOutput()
 		}
@@ -237,6 +239,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		}
 		return false, fmt.Errorf("go mod tidy failed: %w", err)
 	}
+	timedStderr.Flush()
 	if modTidyStep != nil {
 		modTidyStep.done()
 	}
@@ -278,9 +281,28 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	if !quiet {
 		vetStep = logStep("go vet ./...")
 	}
-	filesChanged, err := vet.Run(fix)
+	var vetPhaseStart time.Time
+	var vetPhaseName string
+	vetProgress := func(phase string) {
+		if quiet {
+			return
+		}
+		now := time.Now()
+		if vetPhaseName != "" {
+			fmt.Fprintf(os.Stderr, "    %s %s\n", vetPhaseName, fmtDuration(now.Sub(vetPhaseStart)))
+		} else if vetStep != nil {
+			vetStep.noteOutput()
+		}
+		vetPhaseName = phase
+		vetPhaseStart = now
+	}
+	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
 		return false, fmt.Errorf("vet failed: %w", err)
+	}
+	// Print the last phase timing
+	if !quiet && vetPhaseName != "" {
+		fmt.Fprintf(os.Stderr, "    %s %s\n", vetPhaseName, fmtDuration(time.Since(vetPhaseStart)))
 	}
 	if vetStep != nil {
 		vetStep.done()
