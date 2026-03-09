@@ -31,6 +31,14 @@ inputs:
     description: 'Path to a pre-built go-toolchain binary (skips release download)'
     required: false
     default: ''
+  os:
+    description: 'Comma-separated list of target operating systems (e.g. linux,darwin,windows)'
+    required: false
+    default: 'linux,darwin,windows'
+  arch:
+    description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
+    required: false
+    default: 'amd64,arm64'
   autorelease:
     description: 'Automatically create a GitHub release when running on the default branch (requires contents: write permission)'
     required: false
@@ -82,6 +90,12 @@ runs:
         fi
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
+        fi
+        if [ -n "${{ inputs.os }}" ]; then
+          ARGS="$ARGS --os ${{ inputs.os }}"
+        fi
+        if [ -n "${{ inputs.arch }}" ]; then
+          ARGS="$ARGS --arch ${{ inputs.arch }}"
         fi
         go-toolchain matrix $ARGS
 
