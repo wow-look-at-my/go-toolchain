@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 env:
   GOPROXY: direct
@@ -28,26 +29,22 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Create tag
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Determine tag
         id: tag
         run: |
           TAG="v0.0.$(git log -1 --format=%ct)"
-          git tag "$TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Cross-compile
         run: go run ./src matrix
 
-      - name: Push tag
-        run: git push origin "${{ steps.tag.outputs.tag }}"
+      - name: Sign checksums
+        run: cosign sign-blob build/checksums.txt --yes --output-signature build/checksums.txt.sig --output-certificate build/checksums.txt.pem
 
-      - name: Update rolling tags
-        run: |
-          git tag -f master HEAD
-          git tag -f latest HEAD
-          git push -f origin master latest
-
-      - name: Create release
-        run: gh release create "${{ steps.tag.outputs.tag }}" build/go-toolchain_* --generate-notes
+      - name: Release
+        run: ./build/go-toolchain release --tag "${{ steps.tag.outputs.tag }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

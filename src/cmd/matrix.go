@@ -148,6 +148,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 
 	// Collect results
 	var failed []buildResult
+	var builtFiles []string
 	completed := 0
 	for result := range results {
 		completed++
@@ -156,11 +157,21 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 			failed = append(failed, result)
 		} else {
 			fmt.Printf("  OK   [%d/%d] %s %s\n", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
+			if _, statErr := os.Stat(result.job.outputPath); statErr == nil {
+				builtFiles = append(builtFiles, result.job.outputPath)
+			}
 		}
 	}
 
 	if len(failed) > 0 {
 		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
+	}
+
+	// Generate SHA-256 checksums for release artifacts
+	if len(builtFiles) > 0 {
+		if _, err := generateChecksums(outputDir, builtFiles); err != nil {
+			return fmt.Errorf("checksum generation failed: %w", err)
+		}
 	}
 
 	// Create _host and bare symlinks for the current platform
