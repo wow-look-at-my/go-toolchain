@@ -170,14 +170,16 @@ func downloadGo(version, cacheDir, goRoot string) error {
 }
 
 // goDownloadURLs returns the list of URLs to try, in order.
-// It uses the GOPROXY_FALLBACK env var as a CORS/firewall proxy prefix if set.
+// It always includes proxy.pazer.ai as a fallback for environments where
+// dl.google.com is unreachable (e.g., DNS failures in CI).
+// The GOPROXY_FALLBACK env var can override the default proxy.
 func goDownloadURLs(archiveName string) []string {
 	primary := "https://go.dev/dl/" + archiveName
 	mirror := "https://dl.google.com/go/" + archiveName
 
 	proxy := os.Getenv("GOPROXY_FALLBACK")
 	if proxy == "" {
-		return []string{primary, mirror}
+		proxy = "https://proxy.pazer.ai"
 	}
 
 	proxy = strings.TrimRight(proxy, "/")
