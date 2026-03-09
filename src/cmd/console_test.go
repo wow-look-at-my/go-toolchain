@@ -125,15 +125,21 @@ func TestTimedLineWriter(t *testing.T) {
 	w := newTimedLineWriter(&buf)
 
 	w.Write([]byte("go: downloading foo v1.0\n"))
+	// Nothing written yet (line is open, awaiting next content for timing)
+	assert.Empty(t, buf.String())
+
 	time.Sleep(10 * time.Millisecond)
 	w.Write([]byte("go: downloading bar v2.0\n"))
-	w.Flush()
 
+	// First line should now be closed with timing
 	output := buf.String()
-	// Each line should end with a duration before the newline
 	assert.Contains(t, output, "go: downloading foo v1.0 ")
-	assert.Contains(t, output, "go: downloading bar v2.0 ")
 	assert.Contains(t, output, colorDimCyan)
+
+	// Flush closes the second line
+	w.Flush()
+	output = buf.String()
+	assert.Contains(t, output, "go: downloading bar v2.0 ")
 	// Should have exactly 2 lines
 	lines := bytes.Count([]byte(output), []byte("\n"))
 	assert.Equal(t, 2, lines)
@@ -146,8 +152,10 @@ func TestTimedLineWriterPartialWrites(t *testing.T) {
 	// Simulate partial writes that combine into a full line
 	w.Write([]byte("go: down"))
 	w.Write([]byte("loading foo\n"))
-	w.Flush()
+	// Line is open, awaiting next content
+	assert.Empty(t, buf.String())
 
+	w.Flush()
 	output := buf.String()
 	assert.Contains(t, output, "go: downloading foo ")
 	assert.Contains(t, output, colorDimCyan)
@@ -163,6 +171,26 @@ func TestTimedLineWriterFlushPartial(t *testing.T) {
 	output := buf.String()
 	// Unterminated line should be flushed without timing
 	assert.Equal(t, "unterminated", output)
+}
+
+func TestTimedLineWriterClosesOnPartialContent(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTimedLineWriter(&buf)
+
+	w.Write([]byte("line one\n"))
+	assert.Empty(t, buf.String())
+
+	time.Sleep(10 * time.Millisecond)
+	// Partial content (no newline) should close the previous line
+	w.Write([]byte("partial"))
+	output := buf.String()
+	assert.Contains(t, output, "line one ")
+	assert.Contains(t, output, colorDimCyan)
+	assert.Contains(t, output, "\n")
+
+	w.Flush()
+	output = buf.String()
+	assert.Contains(t, output, "partial")
 }
 
 func TestLogStepNoteOutputIdempotent(t *testing.T) {
