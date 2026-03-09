@@ -125,8 +125,9 @@ func TestTimedLineWriter(t *testing.T) {
 	w := newTimedLineWriter(&buf)
 
 	w.Write([]byte("go: downloading foo v1.0\n"))
-	// Nothing written yet (line is open, awaiting next content for timing)
-	assert.Empty(t, buf.String())
+	// Content is written immediately, but newline+timing is deferred
+	assert.Equal(t, "go: downloading foo v1.0", buf.String())
+	assert.NotContains(t, buf.String(), "\n")
 
 	time.Sleep(10 * time.Millisecond)
 	w.Write([]byte("go: downloading bar v2.0\n"))
@@ -152,8 +153,9 @@ func TestTimedLineWriterPartialWrites(t *testing.T) {
 	// Simulate partial writes that combine into a full line
 	w.Write([]byte("go: down"))
 	w.Write([]byte("loading foo\n"))
-	// Line is open, awaiting next content
-	assert.Empty(t, buf.String())
+	// Content is written, but newline+timing is deferred
+	assert.Equal(t, "go: downloading foo", buf.String())
+	assert.NotContains(t, buf.String(), "\n")
 
 	w.Flush()
 	output := buf.String()
@@ -178,7 +180,8 @@ func TestTimedLineWriterClosesOnPartialContent(t *testing.T) {
 	w := newTimedLineWriter(&buf)
 
 	w.Write([]byte("line one\n"))
-	assert.Empty(t, buf.String())
+	assert.Equal(t, "line one", buf.String())
+	assert.NotContains(t, buf.String(), "\n")
 
 	time.Sleep(10 * time.Millisecond)
 	// Partial content (no newline) should close the previous line
