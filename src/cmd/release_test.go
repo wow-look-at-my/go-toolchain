@@ -39,6 +39,7 @@ func TestGenerateReleaseNotesNoCommits(t *testing.T) {
 }
 
 func TestReleaseCmdAbort(t *testing.T) {
+	t.Setenv("CI", "")
 	stdin := strings.NewReader("n\n")
 	err := runReleaseCmdWithStdin(stdin)
 	assert.NotNil(t, err)
@@ -46,6 +47,7 @@ func TestReleaseCmdAbort(t *testing.T) {
 }
 
 func TestReleaseCmdAbortEmpty(t *testing.T) {
+	t.Setenv("CI", "")
 	stdin := strings.NewReader("\n")
 	err := runReleaseCmdWithStdin(stdin)
 	assert.NotNil(t, err)
