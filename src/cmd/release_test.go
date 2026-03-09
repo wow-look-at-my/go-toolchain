@@ -469,3 +469,31 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to update master tag")
 }
+
+func TestRealExecutorGitOutput(t *testing.T) {
+	ex := realExecutor{}
+	// We're in a git repo, so this should work
+	out, err := ex.gitOutput("rev-parse", "--is-inside-work-tree")
+	assert.Nil(t, err)
+	assert.Equal(t, "true", out)
+}
+
+func TestRealExecutorGitOutputError(t *testing.T) {
+	ex := realExecutor{}
+	_, err := ex.gitOutput("rev-parse", "--verify", "nonexistent-ref-that-does-not-exist-xyz")
+	assert.NotNil(t, err)
+}
+
+func TestRealExecutorGitRun(t *testing.T) {
+	ex := realExecutor{}
+	// git status always succeeds in a git repo
+	err := ex.gitRun("status", "--porcelain")
+	assert.Nil(t, err)
+}
+
+func TestRealExecutorGhReleaseError(t *testing.T) {
+	ex := realExecutor{}
+	// gh with invalid args should fail
+	err := ex.ghRelease("create", "--invalid-flag-xyz")
+	assert.NotNil(t, err)
+}
