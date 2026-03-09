@@ -83,7 +83,7 @@ func main() {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	_, err := RunOnPattern("./...", false)
+	_, err := RunOnPattern("./...", false, nil)
 	assert.Nil(t, err)
 }
 

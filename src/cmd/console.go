@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"math"
 	"sync"
 	"time"
@@ -114,4 +116,45 @@ func (s *step) done() {
 // failed prints a red "failed!" completion message with elapsed time.
 func (s *step) failed() {
 	s.finish(colorRed + "failed!" + colorReset)
+}
+
+// timedLineWriter wraps a writer and appends elapsed time to each line.
+// Lines are buffered until a newline is seen, then flushed with timing info.
+type timedLineWriter struct {
+	target   io.Writer
+	lastLine time.Time
+	buf      bytes.Buffer
+}
+
+// newTimedLineWriter creates a writer that appends elapsed time to each line.
+func newTimedLineWriter(target io.Writer) *timedLineWriter {
+	return &timedLineWriter{target: target, lastLine: time.Now()}
+}
+
+func (w *timedLineWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	w.buf.Write(p)
+	for {
+		line, err := w.buf.ReadBytes('\n')
+		if err != nil { // no newline found — put remainder back
+			w.buf.Write(line)
+			break
+		}
+		// line includes the trailing \n
+		now := time.Now()
+		d := now.Sub(w.lastLine)
+		w.lastLine = now
+		trimmed := bytes.TrimRight(line, "\n")
+		fmt.Fprintf(w.target, "%s %s\n", trimmed, fmtDuration(d))
+	}
+	return n, nil
+}
+
+// Flush writes any remaining buffered content (without timing, since the
+// line was never terminated).
+func (w *timedLineWriter) Flush() {
+	if w.buf.Len() > 0 {
+		w.target.Write(w.buf.Bytes())
+		w.buf.Reset()
+	}
 }

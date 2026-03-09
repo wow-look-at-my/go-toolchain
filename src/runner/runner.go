@@ -25,6 +25,8 @@ type Config struct {
 	Env           map[string]string // Merged with current environment
 	Quiet         bool              // Don't tee stdout/stderr to console
 	OnFirstOutput func()            // Called before the first byte of output is written to console
+	StdoutWriter  io.Writer         // If set, stdout is copied here instead of os.Stdout
+	StderrWriter  io.Writer         // If set, stderr is copied here instead of os.Stderr
 }
 
 // IsCmd checks if this config runs the given command with the given prefix args.
@@ -82,6 +84,12 @@ func (c *Config) WithOnFirstOutput(f func()) *Config {
 	return c
 }
 
+// WithStderrWriter sets a custom writer for stderr output.
+func (c *Config) WithStderrWriter(w io.Writer) *Config {
+	c.StderrWriter = w
+	return c
+}
+
 // Run executes the command using the given runner
 func (c *Config) Run(r CommandRunner) (IProcess, error) {
 	return r.Run(*c)
@@ -123,7 +131,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		return nil, err
 	}
 
-	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: stderr, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput}
+	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: stderr, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
 	return p, nil
 }
 
@@ -146,14 +154,16 @@ func (w *firstOutputWriter) Write(p []byte) (int, error) {
 }
 
 type process struct {
-	cmd        *exec.Cmd
-	stdoutPipe io.Reader
-	stderrPipe io.Reader
-	quiet      bool
-	done       bool
-	err        error
-	hadOutput  atomic.Bool
-	onFirst    func()
+	cmd          *exec.Cmd
+	stdoutPipe   io.Reader
+	stderrPipe   io.Reader
+	quiet        bool
+	done         bool
+	err          error
+	hadOutput    atomic.Bool
+	onFirst      func()
+	stdoutWriter io.Writer
+	stderrWriter io.Writer
 }
 
 func (p *process) Wait() error {
@@ -164,13 +174,21 @@ func (p *process) Wait() error {
 		// Copy stdout and stderr concurrently so that stderr output
 		// (e.g. "go: downloading..." from go mod tidy) streams in
 		// real-time rather than buffering until stdout closes.
+		var stdoutTarget io.Writer = os.Stdout
+		if p.stdoutWriter != nil {
+			stdoutTarget = p.stdoutWriter
+		}
+		var stderrTarget io.Writer = os.Stderr
+		if p.stderrWriter != nil {
+			stderrTarget = p.stderrWriter
+		}
 		w := &firstOutputWriter{
-			target:    os.Stdout,
+			target:    stdoutTarget,
 			hadOutput: &p.hadOutput,
 			callback:  p.onFirst,
 		}
 		wErr := &firstOutputWriter{
-			target:    os.Stderr,
+			target:    stderrTarget,
 			hadOutput: &p.hadOutput,
 			callback:  p.onFirst,
 		}
