@@ -17,6 +17,13 @@ func init() {
 	os.Setenv("GOPROXY", "direct")
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
+
+	// Clear NO_PROXY so that all traffic (including *.google.com and
+	// *.googleapis.com) routes through the environment's egress proxy,
+	// which handles DNS resolution. Without this, Go tries to reach
+	// Google domains directly but DNS cannot resolve them.
+	os.Setenv("NO_PROXY", "")
+	os.Setenv("no_proxy", "")
 }
 
 func main() {
