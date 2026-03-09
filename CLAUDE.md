@@ -37,7 +37,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 ## Project Structure
 
 - `src/main.go` — entry point
-- `src/cmd/` — CLI commands (root, matrix, install) and benchmark logic using Cobra
+- `src/cmd/` — CLI commands (root, matrix, bench, lint, profile, install, update, version, ignore/unignore) using Cobra
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via `go list`
 - `tests/` — BATS integration tests
@@ -52,3 +52,11 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - No Makefile — use `go run ./src` as the build entry point
 - Binaries are output to `build/` directory
 - Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go` suffixes (see `src/test/watermark_*.go`)
+
+## Documentation
+
+- **Always keep `README.md` up to date** when adding new features, flags, subcommands, or changing existing behavior. The README is the primary user-facing documentation and must accurately reflect the current state of the CLI and GitHub Action.
+- When adding a new subcommand, add it to the Subcommands section and include a CLI usage example.
+- When adding a new flag, add it to the appropriate flags table (persistent or command-specific).
+- When changing GitHub Action inputs/outputs in `action.yml`, update the Action Usage section accordingly.
+- When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
