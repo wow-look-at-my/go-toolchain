@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -136,20 +135,6 @@ func installStatus() string {
 		return fmt.Sprintf("Install status: %s (copy, up to date)", installedPath)
 	}
 	return fmt.Sprintf("Install status: %s (copy, OUTDATED)", installedPath)
-}
-
-func fileHash(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func copyFile(src, dst string) error {
