@@ -72,11 +72,6 @@ func runReleaseCmd(cmd *cobra.Command, args []string) error {
 	return runReleaseCmdImpl(os.Stdin, realExecutor{})
 }
 
-// runReleaseCmdWithStdin is kept for backward compatibility with existing tests.
-func runReleaseCmdWithStdin(stdin io.Reader) error {
-	return runReleaseCmdImpl(stdin, realExecutor{})
-}
-
 func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 	// Optional: run matrix build first
 	if releaseBuild {
@@ -195,11 +190,6 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 
 	fmt.Printf("==> Release %s created successfully\n", tag)
 	return nil
-}
-
-// collectCommits returns commit subjects between from and HEAD.
-func collectCommits(from string) ([]string, error) {
-	return collectCommitsWithExecutor(from, realExecutor{})
 }
 
 // collectCommitsWithExecutor uses the given executor to run git log.
