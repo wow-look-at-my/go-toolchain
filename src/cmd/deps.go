@@ -205,40 +205,47 @@ type depInfo struct {
 	Version string
 }
 
-// listDirectDeps returns all direct (non-indirect) dependencies
+// findGoMod walks up from the current directory to find go.mod.
+func findGoMod() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "go.mod"
+	}
+	for {
+		p := filepath.Join(dir, "go.mod")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "go.mod"
+		}
+		dir = parent
+	}
+}
+
+// listDirectDeps returns all direct (non-indirect) dependencies by parsing
+// go.mod directly, avoiding the expensive `go list -m -json all` which forces
+// full module graph resolution (~60s on cold cache).
 func listDirectDeps() ([]depInfo, error) {
-	cmd := exec.Command("go", "list", "-m", "-json", "all")
-	stdout, err := cmd.StdoutPipe()
+	goModPath := findGoMod()
+	data, err := os.ReadFile(goModPath)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := cmd.Start(); err != nil {
+	f, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
 		return nil, err
 	}
 
 	var deps []depInfo
-	decoder := json.NewDecoder(stdout)
-
-	for decoder.More() {
-		var mod struct {
-			Path     string
-			Version  string
-			Main     bool
-			Indirect bool
-		}
-		if err := decoder.Decode(&mod); err != nil {
+	for _, req := range f.Require {
+		if req.Indirect {
 			continue
 		}
-
-		if mod.Main || mod.Indirect {
-			continue
-		}
-
-		deps = append(deps, depInfo{Path: mod.Path, Version: mod.Version})
+		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version})
 	}
-
-	cmd.Wait()
 	return deps, nil
 }
 
