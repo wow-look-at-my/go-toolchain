@@ -55,11 +55,9 @@ func TestGoDownloadURLsNoProxy(t *testing.T) {
 	defer os.Setenv("GOPROXY_FALLBACK", old)
 
 	urls := goDownloadURLs("go1.24.11.linux-amd64.tar.gz")
-	assert.Equal(t, 4, len(urls))
+	assert.Equal(t, 2, len(urls))
 	assert.Contains(t, urls[0], "go.dev/dl/")
 	assert.Contains(t, urls[1], "dl.google.com/go/")
-	assert.Contains(t, urls[2], "proxy.pazer.ai/https://go.dev/dl/")
-	assert.Contains(t, urls[3], "proxy.pazer.ai/https://dl.google.com/go/")
 }
 
 func TestGoDownloadURLsWithProxy(t *testing.T) {

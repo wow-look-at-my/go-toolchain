@@ -679,4 +679,3 @@ func TestFindGoModules_NoModules(t *testing.T) {
 	modules := findGoModules()
 	assert.Equal(t, 0, len(modules))
 }
-
