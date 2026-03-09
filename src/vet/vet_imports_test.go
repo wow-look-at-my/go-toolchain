@@ -346,7 +346,7 @@ func main() {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	_, err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false, nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "package load errors")
 }
@@ -376,7 +376,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Just run it to exercise the compound condition path
-	_, err := vetSemantic("./...", false)
+	_, err := vetSemantic("./...", false, nil)
 	// It should find an issue
 	assert.NotNil(t, err)
 }

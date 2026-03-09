@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"archive/tar"
 	"bufio"
 	"compress/gzip"
 	"fmt"
@@ -11,8 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"archive/tar"
+	"time"
 )
 
 // Test seams — overridden in tests to avoid real downloads.
@@ -43,6 +43,7 @@ func EnsureGoVersion() error {
 
 	fmt.Fprintf(os.Stderr, "go-bootstrap: bootstrapping Go %s...\n", required)
 
+	bootstrapStart := time.Now()
 	goRoot, err := ensureGoCached(required)
 	if err != nil {
 		return fmt.Errorf("failed to bootstrap Go %s: %w", required, err)
@@ -58,7 +59,7 @@ func EnsureGoVersion() error {
 		return fmt.Errorf("bootstrap completed but go still not found in PATH: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s\n", required, goRoot)
+	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s %s\n", required, goRoot, fmtDuration(time.Since(bootstrapStart)))
 	return nil
 }
 
@@ -132,18 +133,20 @@ func downloadGo(version, cacheDir, goRoot string) error {
 	var resp *http.Response
 	var lastErr error
 	for _, url := range urls {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: downloading %s ...\n", url)
+		fmt.Fprintf(os.Stderr, "go-bootstrap: downloading %s", url)
+		dlStart := time.Now()
 		resp, lastErr = http.Get(url)
 		if lastErr == nil && resp.StatusCode == http.StatusOK {
+			fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(dlStart)))
 			break
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
 		if lastErr != nil {
-			fmt.Fprintf(os.Stderr, "  FAIL %v\n", lastErr)
+			fmt.Fprintf(os.Stderr, "\n  FAIL %v\n", lastErr)
 		} else {
-			fmt.Fprintf(os.Stderr, "  FAIL HTTP %d\n", resp.StatusCode)
+			fmt.Fprintf(os.Stderr, "\n  FAIL HTTP %d\n", resp.StatusCode)
 			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 		}
 	}
@@ -157,9 +160,12 @@ func downloadGo(version, cacheDir, goRoot string) error {
 	tmpRoot := filepath.Join(cacheDir, "go")
 	os.RemoveAll(tmpRoot) // clean any stale partial extraction
 
+	fmt.Fprintf(os.Stderr, "go-bootstrap: extracting...")
+	extractStart := time.Now()
 	if err := extractTarGz(resp.Body, cacheDir); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(extractStart)))
 
 	// Rename go/ -> go<version>/
 	if err := os.Rename(tmpRoot, goRoot); err != nil {
