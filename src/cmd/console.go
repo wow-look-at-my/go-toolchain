@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"math"
+	"sync"
+	"time"
 )
 
 const colorReset = "\033[0m"
@@ -11,6 +13,7 @@ const colorGreen = "\033[38;2;0;255;0m"
 const colorRed = "\033[38;2;255;0;0m"
 const colorPass = colorGreen
 const colorFail = "\033[38;2;255;128;128m" // softer red for readability
+const colorDimCyan = "\033[38;2;100;160;160m" // dark greyish-cyan for durations
 
 type ColorPct struct {
 	Pct    float32
@@ -58,4 +61,57 @@ func colorPct(p ColorPct) string {
 // warn formats a warning message in yellow
 func warn(msg string) string {
 	return colorYellow + "WARNING: " + msg + colorReset
+}
+
+// step tracks progress for a long-running build step.
+// It prints "==> label..." initially, then " done. (Xs)" when finished.
+// If output was produced between start and finish, the done message
+// goes on a new line with the label repeated.
+type step struct {
+	label   string
+	start   time.Time
+	noisy   bool
+	once    sync.Once
+}
+
+// logStep prints "==> label..." without a newline and returns a step
+// that can be finished later with done().
+func logStep(label string) *step {
+	fmt.Printf("==> %s...", label)
+	return &step{label: label, start: time.Now()}
+}
+
+// noteOutput marks that visible output was produced during this step.
+// On the first call, it prints a newline to terminate the "..." line
+// so that subprocess output starts on its own line.
+func (s *step) noteOutput() {
+	s.once.Do(func() {
+		s.noisy = true
+		fmt.Println() // finish the "..." line before subprocess output
+	})
+}
+
+// fmtDuration formats a duration as dark greyish-cyan without parentheses.
+func fmtDuration(d time.Duration) string {
+	return fmt.Sprintf("%s%.2fs%s", colorDimCyan, d.Seconds(), colorReset)
+}
+
+// finish prints the completion message with elapsed time and a status word.
+func (s *step) finish(status string) {
+	d := time.Since(s.start)
+	if s.noisy {
+		fmt.Printf("==> %s %s %s\n", s.label, status, fmtDuration(d))
+	} else {
+		fmt.Printf(" %s %s\n", status, fmtDuration(d))
+	}
+}
+
+// done prints a green "done." completion message with elapsed time.
+func (s *step) done() {
+	s.finish(colorGreen + "done." + colorReset)
+}
+
+// failed prints a red "failed!" completion message with elapsed time.
+func (s *step) failed() {
+	s.finish(colorRed + "failed!" + colorReset)
 }

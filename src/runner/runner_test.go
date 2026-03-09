@@ -309,3 +309,96 @@ func TestConfigRun(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, proc)
 }
+
+func TestWithOnFirstOutput(t *testing.T) {
+	cfg := Cmd("echo", "test").WithOnFirstOutput(func() {})
+	assert.NotNil(t, cfg.OnFirstOutput)
+}
+
+func TestRealRunnerNonQuietStreamsOutput(t *testing.T) {
+	// Non-quiet mode: Wait() should copy stdout/stderr to console
+	r := New()
+	proc, err := r.Run(Config{
+		Name: "sh",
+		Args: []string{"-c", "echo stdout_output; echo stderr_output >&2"},
+	})
+	assert.Nil(t, err)
+
+	err = proc.Wait()
+	assert.Nil(t, err)
+
+	// Verify hadOutput is set
+	assert.True(t, HadOutput(proc))
+}
+
+func TestRealRunnerNonQuietNoOutput(t *testing.T) {
+	r := New()
+	proc, err := r.Run(Config{
+		Name: "true",
+	})
+	assert.Nil(t, err)
+
+	err = proc.Wait()
+	assert.Nil(t, err)
+	assert.False(t, HadOutput(proc))
+}
+
+func TestRealRunnerOnFirstOutputCallback(t *testing.T) {
+	called := false
+	r := New()
+	proc, err := r.Run(Config{
+		Name:          "sh",
+		Args:          []string{"-c", "echo hello"},
+		OnFirstOutput: func() { called = true },
+	})
+	assert.Nil(t, err)
+
+	proc.Wait()
+	assert.True(t, called)
+}
+
+func TestRealRunnerOnFirstOutputNotCalledWhenQuiet(t *testing.T) {
+	called := false
+	r := New()
+	proc, err := r.Run(Config{
+		Name:          "sh",
+		Args:          []string{"-c", "echo hello"},
+		Quiet:         true,
+		OnFirstOutput: func() { called = true },
+	})
+	assert.Nil(t, err)
+
+	proc.Wait()
+	assert.False(t, called)
+}
+
+func TestHadOutputWithMockProcess(t *testing.T) {
+	// HadOutput returns false for mock processes (not *process type)
+	proc := MockProcess([]byte("output"), nil)
+	assert.False(t, HadOutput(proc))
+}
+
+func TestRealRunnerWaitIdempotent(t *testing.T) {
+	r := New()
+	proc, err := r.Run(Config{Name: "true"})
+	assert.Nil(t, err)
+
+	err1 := proc.Wait()
+	err2 := proc.Wait()
+	assert.Nil(t, err1)
+	assert.Nil(t, err2)
+}
+
+func TestRealRunnerStderrNonQuiet(t *testing.T) {
+	// Test that stderr streams correctly in non-quiet mode
+	r := New()
+	proc, err := r.Run(Config{
+		Name: "sh",
+		Args: []string{"-c", "echo stderr_msg >&2"},
+	})
+	assert.Nil(t, err)
+
+	err = proc.Wait()
+	assert.Nil(t, err)
+	assert.True(t, HadOutput(proc))
+}

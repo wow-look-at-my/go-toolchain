@@ -346,7 +346,7 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 		select {
 		case <-dc.doneCh:
 			if showProgress {
-				fmt.Println() // finish the progress line
+				fmt.Printf(" %sdone.%s %s\n", colorGreen, colorReset, fmtDuration(time.Since(startWait)))
 			}
 			dc.mu.Lock()
 			result := dc.results
@@ -467,7 +467,8 @@ func getAutoUpdatePrefix() string {
 // autoUpdateDeps runs go get -u for each dependency
 func autoUpdateDeps(deps []OutdatedDep) {
 	fmt.Println()
-	fmt.Println("==> Auto-updating trusted dependencies:")
+	s := logStep("Auto-updating trusted dependencies")
+	s.noteOutput()
 	for _, dep := range deps {
 		current := shortenVersion(dep.Version)
 		update := shortenVersion(dep.Update)
@@ -481,6 +482,7 @@ func autoUpdateDeps(deps []OutdatedDep) {
 	// Run go mod tidy to clean up
 	cmd := exec.Command("go", "mod", "tidy")
 	cmd.Run()
+	s.done()
 }
 
 // FixBogusDepsVersions detects dependencies with v0.0.0 versions in go.mod and
