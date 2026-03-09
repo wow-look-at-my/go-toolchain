@@ -38,15 +38,17 @@ type OutdatedDep struct {
 
 // DepChecker handles async dependency checking with caching
 type DepChecker struct {
-	db       *sql.DB
-	results  []OutdatedDep
-	total    int
-	checked  int
-	done     bool
-	err      error
-	mu       sync.Mutex
-	doneCh   chan struct{}
-	canceled bool
+	db           *sql.DB
+	results      []OutdatedDep
+	total        int
+	checked      int
+	done         bool
+	err          error
+	mu           sync.Mutex
+	doneCh       chan struct{}
+	canceled     bool
+	listDepsTime time.Duration // time spent listing direct deps
+	liveChecks   int           // number of live (non-cached) checks performed
 }
 
 // CheckOutdatedDeps starts an async check for outdated dependencies.
@@ -76,7 +78,11 @@ func (dc *DepChecker) run() {
 	defer db.Close()
 
 	// Get list of direct dependencies
+	listStart := time.Now()
 	deps, err := listDirectDeps()
+	dc.mu.Lock()
+	dc.listDepsTime = time.Since(listStart)
+	dc.mu.Unlock()
 	if err != nil {
 		dc.mu.Lock()
 		dc.err = err
@@ -150,6 +156,9 @@ func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate
 	}
 
 	// Cache miss or expired - check live
+	dc.mu.Lock()
+	dc.liveChecks++
+	dc.mu.Unlock()
 	update, needsUpdate, err = checkDepLive(path)
 	if err != nil {
 		return "", false, err
@@ -345,12 +354,21 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 	for {
 		select {
 		case <-dc.doneCh:
+			elapsed := time.Since(startWait)
 			if showProgress {
-				fmt.Printf(" %sdone.%s %s\n", colorGreen, colorReset, fmtDuration(time.Since(startWait)))
+				fmt.Printf(" %sdone.%s %s\n", colorGreen, colorReset, fmtDuration(elapsed))
 			}
 			dc.mu.Lock()
 			result := dc.results
+			listTime := dc.listDepsTime
+			liveChecks := dc.liveChecks
+			checked := dc.checked
+			total := dc.total
 			dc.mu.Unlock()
+			if showProgress && elapsed > 5*time.Second {
+				fmt.Printf("    deps: list=%s, checked=%d/%d (%d live)\n",
+					fmtDuration(listTime), checked, total, liveChecks)
+			}
 			return result
 		case <-ticker.C:
 			// Show progress if waiting more than 500ms
