@@ -34,11 +34,11 @@ inputs:
   os:
     description: 'Comma-separated list of target operating systems (e.g. linux,darwin,windows)'
     required: false
-    default: ''
+    default: 'linux,darwin,windows'
   arch:
     description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
     required: false
-    default: ''
+    default: 'amd64,arm64'
 
 outputs:
   coverage:
