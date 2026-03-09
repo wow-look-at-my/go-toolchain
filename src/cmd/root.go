@@ -335,8 +335,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 
 // runModTidy runs "go mod tidy" with a retry on toolchain download failures.
 // If the first attempt fails with a download error (e.g., DNS failure reaching
-// dl.google.com), it retries once using only the proxy.pazer.ai GOPROXY to
-// avoid direct downloads that may be blocked.
+// dl.google.com), it retries once using proxy.golang.org as the GOPROXY.
 func runModTidy(r runner.CommandRunner) error {
 	proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
 	if err != nil {
