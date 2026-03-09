@@ -33,11 +33,51 @@ func init() {
 	rootCmd.AddCommand(cmd)
 }
 
-func runReleaseCmd(cmd *cobra.Command, args []string) error {
-	return runReleaseCmdWithStdin(os.Stdin)
+// releaseExecutor abstracts external command execution for testability.
+type releaseExecutor interface {
+	// gitOutput runs a git command and returns its stdout.
+	gitOutput(args ...string) (string, error)
+	// gitRun runs a git command, connecting stdout/stderr to the terminal.
+	gitRun(args ...string) error
+	// ghRelease runs gh release create with the given arguments.
+	ghRelease(args ...string) error
 }
 
+// realExecutor shells out to git/gh.
+type realExecutor struct{}
+
+func (realExecutor) gitOutput(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (realExecutor) gitRun(args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (realExecutor) ghRelease(args ...string) error {
+	cmd := exec.Command("gh", append([]string{"release"}, args...)...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func runReleaseCmd(cmd *cobra.Command, args []string) error {
+	return runReleaseCmdImpl(os.Stdin, realExecutor{})
+}
+
+// runReleaseCmdWithStdin is kept for backward compatibility with existing tests.
 func runReleaseCmdWithStdin(stdin io.Reader) error {
+	return runReleaseCmdImpl(stdin, realExecutor{})
+}
+
+func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 	// Optional: run matrix build first
 	if releaseBuild {
 		r := runner.New()
@@ -49,25 +89,24 @@ func runReleaseCmdWithStdin(stdin io.Reader) error {
 	// Resolve tag
 	tag := releaseTag
 	if tag == "" {
-		out, err := exec.Command("git", "describe", "--tags", "--always").Output()
+		out, err := ex.gitOutput("describe", "--tags", "--always")
 		if err != nil {
 			return fmt.Errorf("failed to determine tag (use --tag to specify): %w", err)
 		}
-		tag = strings.TrimSpace(string(out))
+		tag = out
 	}
 
 	// Resolve from ref (previous tag)
 	from := releaseFrom
 	if from == "" {
-		out, err := exec.Command("git", "describe", "--tags", "--abbrev=0", "HEAD^").Output()
-		if err == nil {
-			from = strings.TrimSpace(string(out))
+		if out, err := ex.gitOutput("describe", "--tags", "--abbrev=0", "HEAD^"); err == nil {
+			from = out
 		}
 		// If no previous tag exists, from stays empty (first release)
 	}
 
 	// Collect commits
-	commits, err := collectCommits(from)
+	commits, err := collectCommitsWithExecutor(from, ex)
 	if err != nil {
 		return err
 	}
@@ -96,21 +135,21 @@ func runReleaseCmdWithStdin(stdin io.Reader) error {
 	}
 
 	// Create and push tag
-	if err := gitExec("tag", tag); err != nil {
+	if err := ex.gitRun("tag", tag); err != nil {
 		return fmt.Errorf("failed to create tag %s: %w", tag, err)
 	}
-	if err := gitExec("push", "origin", tag); err != nil {
+	if err := ex.gitRun("push", "origin", tag); err != nil {
 		return fmt.Errorf("failed to push tag %s: %w", tag, err)
 	}
 
 	// Update rolling tags
-	if err := gitExec("tag", "-f", "master", "HEAD"); err != nil {
+	if err := ex.gitRun("tag", "-f", "master", "HEAD"); err != nil {
 		return fmt.Errorf("failed to update master tag: %w", err)
 	}
-	if err := gitExec("tag", "-f", "latest", "HEAD"); err != nil {
+	if err := ex.gitRun("tag", "-f", "latest", "HEAD"); err != nil {
 		return fmt.Errorf("failed to update latest tag: %w", err)
 	}
-	if err := gitExec("push", "-f", "origin", "master", "latest"); err != nil {
+	if err := ex.gitRun("push", "-f", "origin", "master", "latest"); err != nil {
 		return fmt.Errorf("failed to push rolling tags: %w", err)
 	}
 
@@ -126,8 +165,8 @@ func runReleaseCmdWithStdin(stdin io.Reader) error {
 	}
 	notesFile.Close()
 
-	// Build gh release create command
-	ghArgs := []string{"release", "create", tag}
+	// Build gh release create args
+	ghArgs := []string{"create", tag}
 
 	// Add binary artifacts
 	binaries, _ := filepath.Glob(filepath.Join(outputDir, "go-toolchain_*"))
@@ -150,10 +189,7 @@ func runReleaseCmdWithStdin(stdin io.Reader) error {
 	ghArgs = append(ghArgs, "--notes-file", notesFile.Name())
 
 	fmt.Printf("==> Creating GitHub release %s\n", tag)
-	ghCmd := exec.Command("gh", ghArgs...)
-	ghCmd.Stdout = os.Stdout
-	ghCmd.Stderr = os.Stderr
-	if err := ghCmd.Run(); err != nil {
+	if err := ex.ghRelease(ghArgs...); err != nil {
 		return fmt.Errorf("gh release create failed: %w", err)
 	}
 
@@ -162,22 +198,36 @@ func runReleaseCmdWithStdin(stdin io.Reader) error {
 }
 
 // collectCommits returns commit subjects between from and HEAD.
-// If from is empty, returns all commits (first release).
 func collectCommits(from string) ([]string, error) {
-	var args []string
+	return collectCommitsWithExecutor(from, realExecutor{})
+}
+
+// collectCommitsWithExecutor uses the given executor to run git log.
+func collectCommitsWithExecutor(from string, ex releaseExecutor) ([]string, error) {
+	var logRange string
 	if from != "" {
-		args = []string{"log", "--oneline", "--no-decorate", from + "..HEAD"}
+		logRange = from + "..HEAD"
+	}
+
+	var args []string
+	if logRange != "" {
+		args = []string{"log", "--oneline", "--no-decorate", logRange}
 	} else {
 		args = []string{"log", "--oneline", "--no-decorate"}
 	}
 
-	out, err := exec.Command("git", args...).Output()
+	out, err := ex.gitOutput(args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect commits: %w", err)
 	}
 
+	return parseCommitLines(out), nil
+}
+
+// parseCommitLines parses git log --oneline output into commit messages.
+func parseCommitLines(output string) []string {
 	var commits []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -188,7 +238,7 @@ func collectCommits(from string) ([]string, error) {
 		}
 		commits = append(commits, line)
 	}
-	return commits, nil
+	return commits
 }
 
 // generateReleaseNotes produces markdown release notes.
@@ -219,12 +269,4 @@ func generateReleaseNotes(tag string, commits []string, checksumsContent string)
 	sb.WriteString("```\n")
 
 	return sb.String()
-}
-
-// gitExec runs a git command and returns any error.
-func gitExec(args ...string) error {
-	cmd := exec.Command("git", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
