@@ -12,12 +12,12 @@ func init() {
 	// requires a newer version than the one installed.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Route module/toolchain downloads through proxy.pazer.ai which proxies
-	// proxy.golang.org and serves content directly (no redirects to Google
-	// storage), avoiding DNS failures when dl.google.com is unreachable.
-	os.Setenv("GOPROXY", "https://proxy.pazer.ai/proxy.golang.org|direct")
-	os.Setenv("GONOSUMDB", "*")
-	os.Setenv("GONOSUMCHECK", "*")
+	// Clear NO_PROXY so that all traffic (including *.google.com and
+	// *.googleapis.com) routes through the environment's egress proxy,
+	// which handles DNS resolution. Without this, Go tries to reach
+	// Google domains directly but DNS cannot resolve them.
+	os.Setenv("NO_PROXY", "")
+	os.Setenv("no_proxy", "")
 }
 
 func main() {
