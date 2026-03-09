@@ -12,9 +12,10 @@ func init() {
 	// requires a newer version than the one installed.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Disable Go's phone-home behavior - bypass proxy and checksum database.
-	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
-	os.Setenv("GOPROXY", "direct")
+	// Use proxy.pazer.ai as module/toolchain proxy with direct fallback.
+	// This ensures GOTOOLCHAIN=auto can download toolchains even when
+	// dl.google.com is unreachable (e.g., DNS failures in CI).
+	os.Setenv("GOPROXY", "https://proxy.pazer.ai,direct")
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
 }

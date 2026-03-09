@@ -217,15 +217,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	if !quiet {
 		fmt.Println("==> go mod tidy")
 	}
-	proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
-	if err != nil {
-		return false, fmt.Errorf("go mod tidy failed: %w", err)
-	}
-	if err := proc.Wait(); err != nil {
-		if _, statErr := os.Stat("go.mod"); statErr != nil {
-			return false, fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
-		}
-		return false, fmt.Errorf("go mod tidy failed: %w", err)
+	if err := runModTidy(r); err != nil {
+		return false, err
 	}
 
 	if needsGenerate() {
@@ -239,12 +232,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		if !quiet {
 			fmt.Println("==> go mod tidy (post-generate)")
 		}
-		proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
-		if err != nil {
-			return false, fmt.Errorf("go mod tidy failed: %w", err)
-		}
-		if err := proc.Wait(); err != nil {
-			return false, fmt.Errorf("go mod tidy failed: %w", err)
+		if err := runModTidy(r); err != nil {
+			return false, err
 		}
 	}
 
@@ -342,6 +331,59 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	}
 
 	return filesChanged, nil
+}
+
+// runModTidy runs "go mod tidy" with a retry on toolchain download failures.
+// If the first attempt fails with a download error (e.g., DNS failure reaching
+// dl.google.com), it retries once using only the proxy.pazer.ai GOPROXY to
+// avoid direct downloads that may be blocked.
+func runModTidy(r runner.CommandRunner) error {
+	proc, err := runner.Cmd("go", "mod", "tidy").Run(r)
+	if err != nil {
+		return fmt.Errorf("go mod tidy failed: %w", err)
+	}
+	if err := proc.Wait(); err != nil {
+		if _, statErr := os.Stat("go.mod"); statErr != nil {
+			return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
+		}
+		// Retry with proxy-only GOPROXY if it looks like a download failure
+		if isDownloadError(err) {
+			fmt.Fprintf(os.Stderr, "==> go mod tidy failed (download error), retrying via proxy...\n")
+			old := os.Getenv("GOPROXY")
+			os.Setenv("GOPROXY", "https://proxy.pazer.ai")
+			defer os.Setenv("GOPROXY", old)
+
+			proc2, err2 := runner.Cmd("go", "mod", "tidy").Run(r)
+			if err2 != nil {
+				return fmt.Errorf("go mod tidy failed: %w", err2)
+			}
+			if err2 := proc2.Wait(); err2 != nil {
+				return fmt.Errorf("go mod tidy failed: %w", err2)
+			}
+			return nil
+		}
+		return fmt.Errorf("go mod tidy failed: %w", err)
+	}
+	return nil
+}
+
+// isDownloadError checks whether an error looks like a toolchain/module download
+// failure (DNS, connection refused, TLS errors, timeouts).
+func isDownloadError(err error) bool {
+	msg := err.Error()
+	for _, substr := range []string{
+		"dial tcp",
+		"connection refused",
+		"no such host",
+		"i/o timeout",
+		"TLS handshake",
+		"download",
+	} {
+		if strings.Contains(msg, substr) {
+			return true
+		}
+	}
+	return false
 }
 
 var errFound = fmt.Errorf("found")
