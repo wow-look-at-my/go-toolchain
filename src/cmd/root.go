@@ -350,7 +350,7 @@ func runModTidy(r runner.CommandRunner) error {
 		if isDownloadError(err) {
 			fmt.Fprintf(os.Stderr, "==> go mod tidy failed (download error), retrying via proxy...\n")
 			old := os.Getenv("GOPROXY")
-			os.Setenv("GOPROXY", "https://proxy.pazer.ai")
+			os.Setenv("GOPROXY", "https://proxy.pazer.ai/proxy.golang.org")
 			defer os.Setenv("GOPROXY", old)
 
 			proc2, err2 := runner.Cmd("go", "mod", "tidy").Run(r)

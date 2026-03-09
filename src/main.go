@@ -12,10 +12,10 @@ func init() {
 	// requires a newer version than the one installed.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Use proxy.pazer.ai as module/toolchain proxy with direct fallback.
-	// This ensures GOTOOLCHAIN=auto can download toolchains even when
-	// dl.google.com is unreachable (e.g., DNS failures in CI).
-	os.Setenv("GOPROXY", "https://proxy.pazer.ai,direct")
+	// Route module/toolchain downloads through proxy.pazer.ai which proxies
+	// proxy.golang.org and serves content directly (no redirects to Google
+	// storage), avoiding DNS failures when dl.google.com is unreachable.
+	os.Setenv("GOPROXY", "https://proxy.pazer.ai/proxy.golang.org|direct")
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
 }
