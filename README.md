@@ -29,6 +29,8 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
     go-version: ''            # Go version to install (e.g. 1.25)
     go-version-file: './go.mod' # path to go.mod to read Go version from
     binary: ''                # path to a pre-built go-toolchain binary
+    os: ''                    # target OSes (e.g. linux,darwin)
+    arch: ''                  # target architectures (e.g. amd64,arm64)
 ```
 
 ### Inputs
@@ -41,6 +43,8 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 | `go-version`        | `''`       | Go version to install (e.g. `1.25`). Overrides `go-version-file` |
 | `go-version-file`   | `./go.mod` | Path to `go.mod` to read Go version from                 |
 | `binary`            | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
+| `os`                | `''`       | Comma-separated target operating systems (e.g. `linux,darwin`). Defaults to `linux,darwin,windows` |
+| `arch`              | `''`       | Comma-separated target architectures (e.g. `amd64,arm64`). Defaults to `amd64,arm64` |
 
 ### Outputs
 
