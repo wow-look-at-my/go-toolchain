@@ -60,13 +60,13 @@ func TestParseCommitLinesNoSpace(t *testing.T) {
 
 // mockExecutor implements releaseExecutor for testing.
 type mockExecutor struct {
-	gitOutputCalls [][]string
-	gitRunCalls    [][]string
-	ghReleaseCalls [][]string
+	gitOutputCalls	[][]string
+	gitRunCalls	[][]string
+	ghReleaseCalls	[][]string
 
-	gitOutputFunc func(args ...string) (string, error)
-	gitRunFunc    func(args ...string) error
-	ghReleaseFunc func(args ...string) error
+	gitOutputFunc	func(args ...string) (string, error)
+	gitRunFunc	func(args ...string) error
+	ghReleaseFunc	func(args ...string) error
 }
 
 func (m *mockExecutor) gitOutput(args ...string) (string, error) {
@@ -193,7 +193,7 @@ func TestReleaseCmdAutoTag(t *testing.T) {
 	oldTag := releaseTag
 	oldFrom := releaseFrom
 	outputDir = tmpDir
-	releaseTag = "" // auto-detect
+	releaseTag = ""	// auto-detect
 	releaseFrom = ""
 	defer func() {
 		outputDir = oldOutput
@@ -324,7 +324,7 @@ func TestReleaseCmdPushTagFails(t *testing.T) {
 		},
 		gitRunFunc: func(args ...string) error {
 			callCount++
-			if callCount == 2 { // push origin <tag>
+			if callCount == 2 {	// push origin <tag>
 				return fmt.Errorf("push rejected")
 			}
 			return nil
@@ -339,7 +339,7 @@ func TestReleaseCmdPushTagFails(t *testing.T) {
 func TestReleaseCmdAutoTagFails(t *testing.T) {
 	t.Setenv("CI", "true")
 	oldTag := releaseTag
-	releaseTag = "" // auto-detect
+	releaseTag = ""	// auto-detect
 	defer func() { releaseTag = oldTag }()
 
 	mock := &mockExecutor{
@@ -393,9 +393,8 @@ func TestCollectCommitsWithExecutorNoFrom(t *testing.T) {
 		gitOutputFunc: func(args ...string) (string, error) {
 			// Should not contain a range
 			for _, a := range args {
-				if strings.Contains(a, "..") {
-					t.Error("should not contain range when from is empty")
-				}
+				assert.NotContains(t, a, "..")
+
 			}
 			return "abc1234 initial commit", nil
 		},
@@ -459,7 +458,7 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 		},
 		gitRunFunc: func(args ...string) error {
 			callCount++
-			if callCount == 3 { // tag -f master HEAD
+			if callCount == 3 {	// tag -f master HEAD
 				return fmt.Errorf("tag update failed")
 			}
 			return nil
