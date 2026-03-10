@@ -63,6 +63,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 }
 
 func runReleaseWithRunner(r runner.CommandRunner) error {
+	setupCGOEnvironment()
 	if len(matrixOS) == 0 || len(matrixArch) == 0 {
 		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
 	}
