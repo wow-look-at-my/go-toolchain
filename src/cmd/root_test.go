@@ -5,11 +5,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
@@ -227,6 +229,51 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 
 	err := runWithRunner(mock)
 	assert.Nil(t, err)
+}
+
+func TestRunWithRunnerDockerBinaryNaming(t *testing.T) {
+	suffix := fmt.Sprintf("_%s_%s", runtime.GOOS, runtime.GOARCH)
+	for _, tc := range []struct {
+		name    string
+		docker  bool
+		wantSfx bool
+	}{
+		{"in docker", true, true},
+		{"outside docker", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			oldWd, _ := os.Getwd()
+			os.Chdir(tmpDir)
+			defer os.Chdir(oldWd)
+
+			restore := build.SetInDockerCheck(func() bool { return tc.docker })
+			defer restore()
+
+			mock := newTestPassMock(0)
+			jsonOutput = true
+			outputDir = tmpDir
+			defer func() { jsonOutput = false; outputDir = "build" }()
+
+			err := runWithRunner(mock)
+			assert.Nil(t, err)
+
+			for _, cfg := range mock.Calls() {
+				if cfg.IsCmd("go", "build") {
+					for i, arg := range cfg.Args {
+						if arg == "-o" && i+1 < len(cfg.Args) {
+							base := filepath.Base(cfg.Args[i+1])
+							if tc.wantSfx {
+								assert.Contains(t, base, suffix)
+							} else {
+								assert.NotContains(t, base, suffix)
+							}
+						}
+					}
+				}
+			}
+		})
+	}
 }
 
 func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
