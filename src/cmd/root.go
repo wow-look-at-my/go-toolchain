@@ -226,6 +226,12 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		return false, err
 	}
 
+	// Handle vanity-URL modules: inject replace directives for unreachable hosts
+	vanityReplaces, vanityErr := injectVanityReplaces()
+	if vanityErr != nil {
+		return false, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
+	}
+
 	var modTidyStep *step
 	if !quiet {
 		modTidyStep = logStep("go mod tidy")
@@ -281,6 +287,11 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		if tidyStep2 != nil {
 			tidyStep2.done()
 		}
+	}
+
+	// Remove vanity replace directives now that tidy is done
+	if err := removeVanityReplaces(vanityReplaces); err != nil {
+		return false, fmt.Errorf("failed to clean up vanity replaces: %w", err)
 	}
 
 	var vetStep *step
