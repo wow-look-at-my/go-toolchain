@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -174,8 +175,13 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 	if !quiet {
 		fmt.Printf("==> Embedding version: %s\n", info)
 	}
+	inDocker := build.InDocker()
 	for _, t := range targets {
-		outPath := filepath.Join(outputDir, t.OutputName)
+		outputName := t.OutputName
+		if inDocker {
+			outputName = build.BinaryName(outputName, runtime.GOOS, runtime.GOARCH)
+		}
+		outPath := filepath.Join(outputDir, outputName)
 		var buildStep *step
 		if !quiet {
 			buildStep = logStep(fmt.Sprintf("go build -o %s %s", outPath, t.ImportPath))

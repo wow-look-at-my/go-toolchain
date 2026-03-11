@@ -95,11 +95,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	for _, goos := range matrixOS {
 		for _, goarch := range matrixArch {
 			for _, target := range targets {
-				ext := ""
-				if goos == "windows" {
-					ext = ".exe"
-				}
-				outputName := fmt.Sprintf("%s_%s_%s%s", target.OutputName, goos, goarch, ext)
+				outputName := build.BinaryName(target.OutputName, goos, goarch)
 				jobs = append(jobs, buildJob{
 					goos:       goos,
 					goarch:     goarch,
@@ -196,11 +192,11 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 	hostArch := runtime.GOARCH
 
 	for _, target := range targets {
+		hostBinary := build.BinaryName(target.OutputName, hostOS, hostArch)
 		ext := ""
 		if hostOS == "windows" {
 			ext = ".exe"
 		}
-		hostBinary := fmt.Sprintf("%s_%s_%s%s", target.OutputName, hostOS, hostArch, ext)
 
 		// Verify the host binary exists in the output directory
 		hostPath := filepath.Join(outDir, hostBinary)
