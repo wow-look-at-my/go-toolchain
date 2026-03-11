@@ -53,6 +53,12 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
 
+	// Silent no-op flags — accepted without error for tool compatibility
+	rootCmd.Flags().Bool("build", false, "")
+	rootCmd.Flags().Bool("test", false, "")
+	rootCmd.Flags().MarkHidden("build")
+	rootCmd.Flags().MarkHidden("test")
+
 	// Benchmark flags
 	rootCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
 	rootCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
