@@ -1,9 +1,6 @@
 package build
 
-import (
-	"os"
-	"runtime"
-)
+import "os"
 
 // inDockerCheck is the function used to detect Docker containers.
 // It is a variable so tests can override it.
@@ -26,8 +23,11 @@ func SetInDockerCheck(f func() bool) func() {
 	return func() { inDockerCheck = old }
 }
 
-// PlatformBinaryName returns the binary name with os_arch suffix appended,
-// e.g. "mytool" -> "mytool_linux_amd64".
-func PlatformBinaryName(name string) string {
-	return name + "_" + runtime.GOOS + "_" + runtime.GOARCH
+// BinaryName returns name_goos_goarch with .exe appended for Windows.
+func BinaryName(name, goos, goarch string) string {
+	out := name + "_" + goos + "_" + goarch
+	if goos == "windows" {
+		out += ".exe"
+	}
+	return out
 }

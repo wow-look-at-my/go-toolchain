@@ -1,7 +1,6 @@
 package build
 
 import (
-	"runtime"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
@@ -23,8 +22,8 @@ func TestInDockerReturnsTrueInsideDocker(t *testing.T) {
 	assert.True(t, InDocker())
 }
 
-func TestPlatformBinaryName(t *testing.T) {
-	got := PlatformBinaryName("myapp")
-	want := "myapp_" + runtime.GOOS + "_" + runtime.GOARCH
-	assert.Equal(t, want, got)
+func TestBinaryName(t *testing.T) {
+	assert.Equal(t, "myapp_linux_amd64", BinaryName("myapp", "linux", "amd64"))
+	assert.Equal(t, "myapp_darwin_arm64", BinaryName("myapp", "darwin", "arm64"))
+	assert.Equal(t, "myapp_windows_amd64.exe", BinaryName("myapp", "windows", "amd64"))
 }
