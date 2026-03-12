@@ -235,10 +235,25 @@ type Diagnostic struct {
 }
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
+// It tries go-git first, falling back to shelling out to git if go-git fails
+// for infrastructure reasons (e.g., unsupported repo format, worktree bugs).
 func checkFileCommitted(fixes *ASTFixes) error {
 	filename := fixes.Fset.Position(fixes.File.Pos()).Filename
 
-	// Open the git repo from the file's directory, not cwd
+	err := checkFileCommittedGoGit(filename)
+	if err == nil {
+		return nil
+	}
+	// If go-git detected uncommitted changes, trust that result
+	if strings.Contains(err.Error(), "uncommitted changes") {
+		return err
+	}
+	// go-git failed for infrastructure reasons; fall back to git CLI
+	return checkFileCommittedExec(filename)
+}
+
+// checkFileCommittedGoGit checks file status using the go-git library.
+func checkFileCommittedGoGit(filename string) error {
 	fileDir := filepath.Dir(filename)
 	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
@@ -255,7 +270,6 @@ func checkFileCommitted(fixes *ASTFixes) error {
 		return fmt.Errorf("cannot auto-fix %s: failed to get status: %w", filename, err)
 	}
 
-	// Get the file path relative to the repo root
 	repoRoot := wt.Filesystem.Root()
 	relPath, err := filepath.Rel(repoRoot, filename)
 	if err != nil {
@@ -268,5 +282,20 @@ func checkFileCommitted(fixes *ASTFixes) error {
 		}
 	}
 
+	return nil
+}
+
+// checkFileCommittedExec checks file status by shelling out to the git CLI.
+// Used as a fallback when go-git encounters bugs or unsupported repo features.
+func checkFileCommittedExec(filename string) error {
+	cmd := exec.Command("git", "status", "--porcelain", "--", filename)
+	cmd.Dir = filepath.Dir(filename)
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("cannot auto-fix %s: git status failed: %w", filename, err)
+	}
+	if len(strings.TrimSpace(string(out))) > 0 {
+		return fmt.Errorf("cannot auto-fix: %s has uncommitted changes\ncommit or stash changes first", filename)
+	}
 	return nil
 }
