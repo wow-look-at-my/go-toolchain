@@ -23,6 +23,16 @@ func Register(root *cobra.Command) {
 	installCmd.Flags().BoolVar(&installCopy, "copy", false, "Copy instead of symlink")
 	root.AddCommand(installCmd)
 	root.AddCommand(benchCmd)
+
+	// Silent aliases — these accept "go-toolchain build" and "go-toolchain test"
+	// without error, mapping them to the default pipeline behavior.
+	for _, name := range []string{"build", "test"} {
+		root.AddCommand(&cobra.Command{
+			Use:    name,
+			Hidden: true,
+			RunE:   run,
+		})
+	}
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
