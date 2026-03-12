@@ -432,16 +432,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Initialize git repo
-	gitInit := exec.Command("git", "init")
-	gitInit.Run()
-	gitConfig1 := exec.Command("git", "config", "user.email", "test@test.com")
-	gitConfig1.Run()
-	gitConfig2 := exec.Command("git", "config", "user.name", "Test")
-	gitConfig2.Run()
-	gitAdd := exec.Command("git", "add", ".")
-	gitAdd.Run()
-	gitCommit := exec.Command("git", "commit", "-m", "initial")
-	gitCommit.Run()
+	initGitRepo(t, dir)
 
 	// With fix=true, it should apply fixes, run go mod tidy, and re-run vetSemantic
 	changed, err := vetSemantic("./...", true, nil)
@@ -604,4 +595,95 @@ func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
 
 	_, err := fixFileUnusedRangeVars(src)
 	assert.NotNil(t, err)
+}
+
+// initGitRepo initializes a git repo in dir, adds all files, and commits them.
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@test.com"},
+		{"config", "user.name", "Test"},
+		{"config", "commit.gpgsign", "false"},
+		{"add", "."},
+		{"commit", "-m", "initial"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		require.NoError(t, cmd.Run(), "git %v failed", args)
+	}
+}
+
+func TestCheckFileCommittedExec_Clean(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	os.WriteFile(src, []byte("package main\n"), 0644)
+	initGitRepo(t, dir)
+
+	err := checkFileCommittedExec(src)
+	assert.NoError(t, err)
+}
+
+func TestCheckFileCommittedExec_Dirty(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	os.WriteFile(src, []byte("package main\n"), 0644)
+	initGitRepo(t, dir)
+
+	// Modify the file after commit
+	os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644)
+
+	err := checkFileCommittedExec(src)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes")
+}
+
+func TestCheckFileCommittedExec_NotARepo(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	os.WriteFile(src, []byte("package main\n"), 0644)
+
+	err := checkFileCommittedExec(src)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "git status failed")
+}
+
+func TestCheckFileCommittedGoGit_Clean(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	os.WriteFile(src, []byte("package main\n"), 0644)
+	initGitRepo(t, dir)
+
+	err := checkFileCommittedGoGit(src)
+	assert.NoError(t, err)
+}
+
+func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	os.WriteFile(src, []byte("package main\n"), 0644)
+	initGitRepo(t, dir)
+
+	os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644)
+
+	err := checkFileCommittedGoGit(src)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes")
+}
+
+func TestCheckFileCommittedFallback(t *testing.T) {
+	// checkFileCommitted should succeed even in a repo where go-git might struggle,
+	// as long as git CLI works. We test the happy path here — both paths agree.
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	os.WriteFile(src, []byte("package main\n"), 0644)
+	initGitRepo(t, dir)
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, src, nil, 0)
+	require.NoError(t, err)
+
+	fixes := &ASTFixes{File: file, Fset: fset}
+	err = checkFileCommitted(fixes)
+	assert.NoError(t, err)
 }
