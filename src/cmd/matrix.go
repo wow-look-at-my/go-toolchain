@@ -85,6 +85,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
+	ensureBuildDirInGitignore()
 
 	// Collect git info once for all builds
 	info := collectGitInfo()

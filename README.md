@@ -149,7 +149,8 @@ go-toolchain ignore lines path/to/long_file.go
 7. Runs `go test` across all packages with coverage profiling
 8. Parses coverage results and compares against the minimum threshold (80%, or watermark - 2.5%)
 9. If coverage meets the threshold, builds the project binary into `build/`
-10. Runs benchmarks and compares against previously stored results
+10. Automatically adds `build/` to `.gitignore` (if in a git repo)
+11. Runs benchmarks and compares against previously stored results
 
 ## Development
 

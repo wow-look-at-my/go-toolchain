@@ -174,6 +174,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
+	ensureBuildDirInGitignore()
 	info := collectGitInfo()
 	ldflags := info.ldflags()
 	if !quiet {

@@ -1,0 +1,180 @@
+package cmd
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
+)
+
+func TestGitignoreContains_ExactMatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	os.WriteFile(path, []byte("/build/\n"), 0644)
+
+	assert.True(t, gitignoreContains(path, "/build/"))
+}
+
+func TestGitignoreContains_WithoutLeadingSlash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	os.WriteFile(path, []byte("build/\n"), 0644)
+
+	assert.True(t, gitignoreContains(path, "/build/"))
+}
+
+func TestGitignoreContains_WithoutTrailingSlash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	os.WriteFile(path, []byte("build\n"), 0644)
+
+	assert.True(t, gitignoreContains(path, "/build/"))
+}
+
+func TestGitignoreContains_NotPresent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	os.WriteFile(path, []byte("vendor/\nbin/\n"), 0644)
+
+	assert.False(t, gitignoreContains(path, "/build/"))
+}
+
+func TestGitignoreContains_IgnoresComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	os.WriteFile(path, []byte("# build/\n"), 0644)
+
+	assert.False(t, gitignoreContains(path, "/build/"))
+}
+
+func TestGitignoreContains_MissingFile(t *testing.T) {
+	assert.False(t, gitignoreContains("/nonexistent/.gitignore", "/build/"))
+}
+
+func TestEnsureBuildDirInGitignore_AddsEntry(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a git repo
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
+
+	// Create an empty .gitignore
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	os.WriteFile(gitignorePath, []byte("vendor/\n"), 0644)
+
+	// Run from inside the repo
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	os.Chdir(dir)
+
+	oldOutputDir := outputDir
+	defer func() { outputDir = oldOutputDir }()
+	outputDir = "build"
+
+	ensureBuildDirInGitignore()
+
+	content, err := os.ReadFile(gitignorePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "/build/")
+}
+
+func TestEnsureBuildDirInGitignore_AlreadyPresent(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
+
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	os.WriteFile(gitignorePath, []byte("/build/\n"), 0644)
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	os.Chdir(dir)
+
+	oldOutputDir := outputDir
+	defer func() { outputDir = oldOutputDir }()
+	outputDir = "build"
+
+	ensureBuildDirInGitignore()
+
+	content, err := os.ReadFile(gitignorePath)
+	require.NoError(t, err)
+	// Should not duplicate
+	assert.Equal(t, "/build/\n", string(content))
+}
+
+func TestEnsureBuildDirInGitignore_NoGitRepo(t *testing.T) {
+	dir := t.TempDir()
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	os.Chdir(dir)
+
+	// Should not panic or create any files
+	ensureBuildDirInGitignore()
+
+	_, err := os.Stat(filepath.Join(dir, ".gitignore"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestEnsureBuildDirInGitignore_CreatesGitignore(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	os.Chdir(dir)
+
+	oldOutputDir := outputDir
+	defer func() { outputDir = oldOutputDir }()
+	outputDir = "build"
+
+	ensureBuildDirInGitignore()
+
+	content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	require.NoError(t, err)
+	assert.Equal(t, "/build/\n", string(content))
+}
+
+func TestEnsureBuildDirInGitignore_NoTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
+
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	os.WriteFile(gitignorePath, []byte("vendor/"), 0644) // no trailing newline
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	os.Chdir(dir)
+
+	oldOutputDir := outputDir
+	defer func() { outputDir = oldOutputDir }()
+	outputDir = "build"
+
+	ensureBuildDirInGitignore()
+
+	content, err := os.ReadFile(gitignorePath)
+	require.NoError(t, err)
+	assert.Equal(t, "vendor/\n/build/\n", string(content))
+}
+
+func TestNeedsLeadingNewline(t *testing.T) {
+	dir := t.TempDir()
+
+	// File ending with newline
+	withNL := filepath.Join(dir, "with_nl")
+	os.WriteFile(withNL, []byte("hello\n"), 0644)
+	assert.False(t, needsLeadingNewline(withNL))
+
+	// File without trailing newline
+	withoutNL := filepath.Join(dir, "without_nl")
+	os.WriteFile(withoutNL, []byte("hello"), 0644)
+	assert.True(t, needsLeadingNewline(withoutNL))
+
+	// Empty file
+	empty := filepath.Join(dir, "empty")
+	os.WriteFile(empty, []byte(""), 0644)
+	assert.False(t, needsLeadingNewline(empty))
+
+	// Missing file
+	assert.False(t, needsLeadingNewline(filepath.Join(dir, "missing")))
+}
