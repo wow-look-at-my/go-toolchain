@@ -317,7 +317,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		vetPhaseName = phase
 		vetPhaseStart = now
 	}
-	filesChanged, err := vet.RunWithProgress(true, vetProgress)
+	fix := os.Getenv("CI") == "" // disable auto-fix on CI
+	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
 		return false, fmt.Errorf("vet failed: %w", err)
 	}
