@@ -39,6 +39,10 @@ inputs:
     description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
     required: false
     default: 'amd64,arm64'
+  cgo:
+    description: 'Enable CGO (disabled by default for static binaries)'
+    required: false
+    default: 'false'
   autorelease:
     description: 'Automatically create a GitHub release when running on the default branch (requires contents: write permission)'
     required: false
@@ -96,6 +100,9 @@ runs:
         fi
         if [ -n "${{ inputs.arch }}" ]; then
           ARGS="$ARGS --arch ${{ inputs.arch }}"
+        fi
+        if [ "${{ inputs.cgo }}" = "true" ]; then
+          ARGS="$ARGS --cgo"
         fi
         go-toolchain matrix $ARGS
 
