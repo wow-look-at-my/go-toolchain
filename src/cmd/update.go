@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/creativeprojects/go-selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -40,6 +41,13 @@ func (g *githubUpdater) detect(ctx context.Context, slug string) (string, bool, 
 func (g *githubUpdater) isNewer(currentVersion string) bool {
 	if g.latest == nil {
 		return false
+	}
+	// Validate that currentVersion is valid semver before comparing.
+	// Release.GreaterThan calls semver.MustParse which panics on invalid input.
+	// Non-semver versions (e.g. git-describe output like "latest-1-g649dd4a")
+	// are treated as older so the update proceeds.
+	if _, err := semver.NewVersion(currentVersion); err != nil {
+		return true
 	}
 	return g.latest.GreaterThan(currentVersion)
 }
@@ -81,6 +89,8 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 
 	if buildVersion == "dev" {
 		fmt.Println("    Warning: this is a dev build (no embedded version)")
+	} else if _, err := semver.NewVersion(buildVersion); err != nil {
+		fmt.Printf("    Warning: current version %q is not valid semver, proceeding with update\n", buildVersion)
 	} else if !u.isNewer(buildVersion) {
 		fmt.Println("==> Already up to date.")
 		return nil

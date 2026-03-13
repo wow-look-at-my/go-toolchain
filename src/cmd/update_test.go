@@ -72,6 +72,20 @@ func TestDoUpdate_DevBuildWarning(t *testing.T) {
 	}
 }
 
+func TestDoUpdate_NonSemverVersion(t *testing.T) {
+	old := buildVersion
+	buildVersion = "latest-1-g649dd4a"
+	defer func() { buildVersion = old }()
+
+	// Non-semver versions should not panic and should proceed with update
+	m := &mockUpdater{version: "v0.0.200", found: true, newer: true}
+	err := doUpdate(context.Background(), m)
+	// Should not panic; update proceeds
+	if err == nil {
+		assert.Equal(t, 1, m.applyCalls)
+	}
+}
+
 func TestDoUpdate_ApplyError(t *testing.T) {
 	old := buildVersion
 	buildVersion = "v0.0.1"
