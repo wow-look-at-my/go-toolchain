@@ -105,7 +105,6 @@ go-toolchain ignore lines path/to/long_file.go
 |------------------|-------------|------------------------------------------------------|
 | `--json`         | `false`     | Output coverage as JSON                              |
 | `--generate`     | `''`        | Run `go:generate` directives matching this hash      |
-| `--fix`          | `true`*     | Auto-fix linter violations (*`false` on CI)          |
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
 | `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |

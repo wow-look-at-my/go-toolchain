@@ -27,8 +27,7 @@ var (
 	jsonOutput    bool
 	verbose       bool
 	generateHash  string
-	fix           = os.Getenv("CI") == "" // disable auto-fix on CI
-	dupcode       bool
+	dupcode bool
 	lintThreshold float64
 	lintMinNodes  int
 	cgoEnabled    bool
@@ -47,7 +46,6 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	// rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
-	rootCmd.PersistentFlags().BoolVar(&fix, "fix", fix, "Auto-fix linter violations")
 	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
@@ -319,6 +317,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		vetPhaseName = phase
 		vetPhaseStart = now
 	}
+	fix := os.Getenv("CI") == "" // disable auto-fix on CI
 	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
 		return false, fmt.Errorf("vet failed: %w", err)
