@@ -4,6 +4,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
+	"sync/atomic"
 )
 
 // IProcess represents a running or completed process
@@ -18,10 +20,13 @@ type IProcess interface {
 
 // Config specifies how to run a command
 type Config struct {
-	Name  string
-	Args  []string
-	Env   map[string]string // Merged with current environment
-	Quiet bool              // Don't tee stdout/stderr to console
+	Name          string
+	Args          []string
+	Env           map[string]string // Merged with current environment
+	Quiet         bool              // Don't tee stdout/stderr to console
+	OnFirstOutput func()            // Called before the first byte of output is written to console
+	StdoutWriter  io.Writer         // If set, stdout is copied here instead of os.Stdout
+	StderrWriter  io.Writer         // If set, stderr is copied here instead of os.Stderr
 }
 
 // IsCmd checks if this config runs the given command with the given prefix args.
@@ -71,6 +76,20 @@ func (c *Config) WithQuiet() *Config {
 	return c
 }
 
+// WithOnFirstOutput sets a callback that is called before the first byte
+// of output is written to the console. Useful for progress indicators that
+// need to print a newline before subprocess output starts.
+func (c *Config) WithOnFirstOutput(f func()) *Config {
+	c.OnFirstOutput = f
+	return c
+}
+
+// WithStderrWriter sets a custom writer for stderr output.
+func (c *Config) WithStderrWriter(w io.Writer) *Config {
+	c.StderrWriter = w
+	return c
+}
+
 // Run executes the command using the given runner
 func (c *Config) Run(r CommandRunner) (IProcess, error) {
 	return r.Run(*c)
@@ -112,17 +131,39 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		return nil, err
 	}
 
-	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: stderr, quiet: cfg.Quiet}
+	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: stderr, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
 	return p, nil
 }
 
+// firstOutputWriter wraps a writer and calls a callback before the first write.
+type firstOutputWriter struct {
+	target    io.Writer
+	hadOutput *atomic.Bool
+	once      sync.Once
+	callback  func()
+}
+
+func (w *firstOutputWriter) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		w.hadOutput.Store(true)
+		if w.callback != nil {
+			w.once.Do(w.callback)
+		}
+	}
+	return w.target.Write(p)
+}
+
 type process struct {
-	cmd        *exec.Cmd
-	stdoutPipe io.Reader
-	stderrPipe io.Reader
-	quiet      bool
-	done       bool
-	err        error
+	cmd          *exec.Cmd
+	stdoutPipe   io.Reader
+	stderrPipe   io.Reader
+	quiet        bool
+	done         bool
+	err          error
+	hadOutput    atomic.Bool
+	onFirst      func()
+	stdoutWriter io.Writer
+	stderrWriter io.Writer
 }
 
 func (p *process) Wait() error {
@@ -130,12 +171,51 @@ func (p *process) Wait() error {
 		return p.err
 	}
 	if !p.quiet {
-		io.Copy(os.Stdout, p.stdoutPipe)
-		io.Copy(os.Stderr, p.stderrPipe)
+		// Copy stdout and stderr concurrently so that stderr output
+		// (e.g. "go: downloading..." from go mod tidy) streams in
+		// real-time rather than buffering until stdout closes.
+		var stdoutTarget io.Writer = os.Stdout
+		if p.stdoutWriter != nil {
+			stdoutTarget = p.stdoutWriter
+		}
+		var stderrTarget io.Writer = os.Stderr
+		if p.stderrWriter != nil {
+			stderrTarget = p.stderrWriter
+		}
+		w := &firstOutputWriter{
+			target:    stdoutTarget,
+			hadOutput: &p.hadOutput,
+			callback:  p.onFirst,
+		}
+		wErr := &firstOutputWriter{
+			target:    stderrTarget,
+			hadOutput: &p.hadOutput,
+			callback:  p.onFirst,
+		}
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			io.Copy(w, p.stdoutPipe)
+		}()
+		go func() {
+			defer wg.Done()
+			io.Copy(wErr, p.stderrPipe)
+		}()
+		wg.Wait()
 	}
 	p.err = p.cmd.Wait()
 	p.done = true
 	return p.err
+}
+
+// HadOutput returns true if the process produced any stdout or stderr output.
+// Only meaningful after Wait() has been called.
+func HadOutput(proc IProcess) bool {
+	if p, ok := proc.(*process); ok {
+		return p.hadOutput.Load()
+	}
+	return false
 }
 
 func (p *process) Stdout() io.Reader {

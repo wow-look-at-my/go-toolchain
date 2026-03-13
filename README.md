@@ -7,7 +7,14 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Coverage enforcement** — fails the build if test coverage drops below 80%
 - **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
 - **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
-- **Benchmarks** — run Go benchmarks after build with the `--benchmark` flag
+- **Benchmarks** — benchmarks run automatically after builds; compare against previous results stored in git notes
+- **Near-duplicate detection** — scans Go source for structurally similar functions using AST comparison
+- **File length checks** — warns at 500 lines, errors at 750 lines (with exemption support)
+- **Auto-fix** — automatically fixes linter violations on non-CI systems
+- **Go generate** — detects and runs `//go:generate` directives with hash-based approval
+- **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
+- **Self-update** — update the binary in place via the `update` subcommand
+- **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
 
@@ -16,20 +23,30 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 ```yaml
 - uses: wow-look-at-my/go-toolchain@latest
   with:
-    cov-detail: ''            # 'func' or 'file' for detailed coverage
     json: 'false'             # output coverage report as JSON
-    verbose: 'false'          # show test output line by line
+    generate: ''              # run go:generate directives matching this hash
     working-directory: '.'    # working directory for the build
+    go-version: ''            # Go version to install (e.g. 1.25)
+    go-version-file: './go.mod' # path to go.mod to read Go version from
+    binary: ''                # path to a pre-built go-toolchain binary
+    os: 'linux,darwin,windows' # target OSes
+    arch: 'amd64,arm64'       # target architectures
+    autorelease: 'false'      # create a GitHub release on the default branch
 ```
 
 ### Inputs
 
-| Input               | Default | Description                                         |
-|---------------------|---------|-----------------------------------------------------|
-| `cov-detail`        | `''`    | Show detailed coverage: `func` or `file`            |
-| `json`              | `false` | Output coverage report as JSON                      |
-| `verbose`           | `false` | Show test output line by line                       |
-| `working-directory` | `.`     | Working directory for the build                     |
+| Input               | Default    | Description                                              |
+|---------------------|------------|----------------------------------------------------------|
+| `json`              | `false`    | Output coverage report as JSON                           |
+| `generate`          | `''`       | Run `go:generate` directives matching this hash          |
+| `working-directory` | `.`        | Working directory for the build                          |
+| `go-version`        | `''`       | Go version to install (e.g. `1.25`). Overrides `go-version-file` |
+| `go-version-file`   | `./go.mod` | Path to `go.mod` to read Go version from                 |
+| `binary`            | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
+| `os`                | `linux,darwin,windows` | Comma-separated target operating systems |
+| `arch`              | `amd64,arm64` | Comma-separated target architectures |
+| `autorelease`       | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
 
 ### Outputs
 
@@ -49,38 +66,91 @@ go-toolchain
 # Cross-compile for multiple platforms
 go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
 
-# Run benchmarks after build
-go-toolchain --benchmark --benchtime 5s --count 3
+# Run benchmarks independently
+go-toolchain bench run --benchtime 5s --count 3
+
+# Save benchmark results to git notes
+go-toolchain bench save
+
+# Compare benchmarks between commits
+go-toolchain bench compare HEAD~3 HEAD
+
+# Detect near-duplicate code
+go-toolchain lint ./...
+
+# Run benchmarks with CPU profiling
+go-toolchain profile --web
 
 # Install binary to ~/.local/bin
 go-toolchain install
+
+# Self-update to latest release
+go-toolchain update
+
+# Show version and staleness info
+go-toolchain version
+
+# Enable coverage watermark
+go-toolchain ignore coverage
+
+# Exempt a file from length checks
+go-toolchain ignore lines path/to/long_file.go
 ```
 
 ### Flags
 
-| Flag                | Default                   | Description                                  |
-|---------------------|---------------------------|----------------------------------------------|
-| `--cov-detail`      | `''`                      | Detailed coverage: `func` or `file`          |
-| `--json`            | `false`                   | Output coverage as JSON                      |
-| `--verbose`         | `false`                   | Verbose test output                          |
-| `--add-watermark`   | `false`                   | Set coverage watermark on project directory  |
-| `--benchmark`       | `false`                   | Run benchmarks after build                   |
-| `--benchtime`       | `''`                      | Duration or count for each benchmark (e.g. `5s`, `1000x`) |
-| `-n`, `--count`     | `1`                       | Number of times to run each benchmark        |
-| `--cpu`             | `''`                      | GOMAXPROCS values to test with (comma-separated) |
+#### Persistent flags (shared across subcommands)
+
+| Flag             | Default     | Description                                          |
+|------------------|-------------|------------------------------------------------------|
+| `--json`         | `false`     | Output coverage as JSON                              |
+| `--generate`     | `''`        | Run `go:generate` directives matching this hash      |
+| `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
+| `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
+| `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |
+
+#### Root command flags
+
+| Flag              | Default | Description                                                    |
+|-------------------|---------|----------------------------------------------------------------|
+| `--no-benchmark`  | `false` | Skip benchmarks after build                                    |
+| `--benchtime`     | `''`    | Duration or count for each benchmark (e.g. `5s`, `1000x`)     |
+| `-n`, `--count`   | `1`     | Number of times to run each benchmark                          |
+| `--cpu`           | `''`    | GOMAXPROCS values to test with (comma-separated)               |
 
 ### Subcommands
 
-- **`matrix`** — cross-compile for multiple platforms (`--os`, `--arch`, `--parallel`)
+- **`matrix`** — cross-compile for multiple platforms (`--os`, `--arch`, `--parallel`, `--no-benchmark`)
+- **`bench`** — run and manage benchmarks
+  - `run` — run benchmarks and show deltas vs stored results
+  - `save` — run benchmarks and store results in git notes
+  - `show [commit]` — show stored benchmark results (default: HEAD)
+  - `compare <commit1> <commit2>` — compare benchmark results between two commits
+- **`lint`** — detect near-duplicate code blocks using AST comparison
+- **`profile`** — run benchmarks with pprof profiling (`--type cpu|mem|mutex|block`, `--web`, `--no-pprof`, `-o`)
 - **`install`** — install the binary to `~/.local/bin`
+- **`update`** — self-update to the latest GitHub release
+- **`version`** — show build version and staleness information
+- **`ignore`** — manage build-check exemptions
+  - `coverage` — enable coverage ratchet (watermark)
+  - `lines <file>` — exempt files from file-length checks
+- **`unignore`** — remove build-check exemptions
+  - `coverage` — remove coverage watermark
+  - `lines <file>` — remove file-length exemptions
 
 ## How It Works
 
-1. Runs `go mod tidy` and `go vet`
-2. Runs `go test` across all packages with coverage profiling
-3. Parses coverage results and compares against the minimum threshold
-4. If coverage meets the threshold, builds the project binary into `build/`
-5. Optionally enforces a coverage watermark — once set, coverage can't drop more than 2.5% below the recorded high
+1. Checks for outdated dependencies (auto-updates same-org deps)
+2. Runs `go mod tidy`
+3. Detects and runs `//go:generate` directives (if present)
+4. Runs `go vet` with auto-fix (on non-CI systems)
+5. Checks for near-duplicate code blocks (warnings only)
+6. Checks file lengths (warns at 500 lines, errors at 750)
+7. Runs `go test` across all packages with coverage profiling
+8. Parses coverage results and compares against the minimum threshold (80%, or watermark - 2.5%)
+9. If coverage meets the threshold, builds the project binary into `build/`
+10. Automatically adds `build/` to `.gitignore` (if in a git repo)
+11. Runs benchmarks and compares against previously stored results
 
 ## Development
 

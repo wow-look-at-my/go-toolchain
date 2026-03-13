@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
@@ -51,8 +52,9 @@ type buildJob struct {
 }
 
 type buildResult struct {
-	job buildJob
-	err error
+	job      buildJob
+	err      error
+	duration time.Duration
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
@@ -83,6 +85,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
+	ensureBuildDirInGitignore()
 
 	// Collect git info once for all builds
 	info := collectGitInfo()
@@ -93,11 +96,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	for _, goos := range matrixOS {
 		for _, goarch := range matrixArch {
 			for _, target := range targets {
-				ext := ""
-				if goos == "windows" {
-					ext = ".exe"
-				}
-				outputName := fmt.Sprintf("%s_%s_%s%s", target.OutputName, goos, goarch, ext)
+				outputName := build.BinaryName(target.OutputName, goos, goarch)
 				jobs = append(jobs, buildJob{
 					goos:       goos,
 					goarch:     goarch,
@@ -110,6 +109,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 
 	fmt.Printf("==> Building %d binaries (%d OS x %d arch)\n", len(jobs), len(matrixOS), len(matrixArch))
+	buildStart := time.Now()
 
 	// Run builds in parallel
 	results := make(chan buildResult, len(jobs))
@@ -126,8 +126,9 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		go func() {
 			defer wg.Done()
 			for job := range jobChan {
-				err := runBuild(r, job)
-				results <- buildResult{job: job, err: err}
+				jobStart := time.Now()
+				err := runBuild(r, job, nil)
+				results <- buildResult{job: job, err: err, duration: time.Since(jobStart)}
 			}
 		}()
 	}
@@ -144,12 +145,18 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 
 	// Collect results
 	var failed []buildResult
+	var builtFiles []string
+	completed := 0
 	for result := range results {
+		completed++
 		if result.err != nil {
-			fmt.Printf("  FAIL %s/%s: %v\n", result.job.goos, result.job.goarch, result.err)
+			fmt.Printf("  FAIL [%d/%d] %s/%s: %v %s\n", completed, len(jobs), result.job.goos, result.job.goarch, result.err, fmtDuration(result.duration))
 			failed = append(failed, result)
 		} else {
-			fmt.Printf("  OK   %s\n", result.job.outputPath)
+			fmt.Printf("  OK   [%d/%d] %s %s\n", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
+			if _, statErr := os.Stat(result.job.outputPath); statErr == nil {
+				builtFiles = append(builtFiles, result.job.outputPath)
+			}
 		}
 	}
 
@@ -157,12 +164,19 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
 	}
 
+	// Generate SHA-256 checksums for release artifacts
+	if len(builtFiles) > 0 {
+		if _, err := generateChecksums(outputDir, builtFiles); err != nil {
+			return fmt.Errorf("checksum generation failed: %w", err)
+		}
+	}
+
 	// Create _host and bare symlinks for the current platform
 	if err := createHostSymlinks(targets, outputDir); err != nil {
 		return err
 	}
 
-	fmt.Printf("==> All %d binaries built successfully in %s/\n", len(jobs), outputDir)
+	fmt.Printf("==> All %d binaries built successfully in %s/ %s\n", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
 
 	// Run benchmarks after successful build
 	if !noBenchmark {
@@ -179,11 +193,11 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 	hostArch := runtime.GOARCH
 
 	for _, target := range targets {
+		hostBinary := build.BinaryName(target.OutputName, hostOS, hostArch)
 		ext := ""
 		if hostOS == "windows" {
 			ext = ".exe"
 		}
-		hostBinary := fmt.Sprintf("%s_%s_%s%s", target.OutputName, hostOS, hostArch, ext)
 
 		// Verify the host binary exists in the output directory
 		hostPath := filepath.Join(outDir, hostBinary)
@@ -206,13 +220,26 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 	return nil
 }
 
-func runBuild(r runner.CommandRunner, job buildJob) error {
-	proc, err := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath).
-		WithEnv("GOOS", job.goos).
-		WithEnv("GOARCH", job.goarch).
-		WithEnv("CGO_ENABLED", "0").
-		WithQuiet().
-		Run(r)
+// runBuild compiles a single binary. If onFirstOutput is non-nil, it is
+// called when the compiler produces its first output (used for progress
+// indicators on the default build path).
+func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
+	cmd := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath)
+	if job.goos != "" {
+		cmd = cmd.WithEnv("GOOS", job.goos)
+	}
+	if job.goarch != "" {
+		cmd = cmd.WithEnv("GOARCH", job.goarch)
+	}
+	if onFirstOutput != nil {
+		cmd = cmd.WithOnFirstOutput(onFirstOutput)
+	} else {
+		cmd = cmd.WithQuiet()
+	}
+	if !cgoEnabled {
+		cmd = cmd.WithEnv("CGO_ENABLED", "0")
+	}
+	proc, err := cmd.Run(r)
 	if err != nil {
 		return err
 	}

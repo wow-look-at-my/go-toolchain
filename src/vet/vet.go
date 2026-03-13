@@ -66,30 +66,45 @@ func Analyzers() []*analysis.Analyzer {
 	}
 }
 
+// ProgressFunc is called with a phase name when the vet enters a new phase.
+type ProgressFunc func(phase string)
+
 // Run executes all analyzers on the current module.
 // If fix is true, auto-fixes are applied for analyzers that support them.
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
 // Returns (false, nil) if no go.mod exists (nothing to vet).
 func Run(fix bool) (bool, error) {
+	return RunWithProgress(fix, nil)
+}
+
+// RunWithProgress is like Run but calls progress with phase names for timing visibility.
+func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
 		return false, nil
 	}
-	return RunOnPattern("./...", fix)
+	return RunOnPattern("./...", fix, progress)
 }
 
 // RunOnPattern executes all analyzers on packages matching the pattern.
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
-func RunOnPattern(pattern string, fix bool) (bool, error) {
-	return vetSemantic(pattern, fix)
+func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error) {
+	return vetSemantic(pattern, fix, progress)
 }
 
 // vetSemantic runs type-aware analysis using go/packages and the analysis framework.
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
-func vetSemantic(pattern string, fix bool) (bool, error) {
+func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) {
 	filesChanged := false
+
+	report := func(phase string) {
+		if progress != nil {
+			progress(phase)
+		}
+	}
 
 	// Fix broken testify imports before loading packages
 	if fix {
+		report("fix imports")
 		fixed, err := FixTestifyImports()
 		if err != nil {
 			return false, fmt.Errorf("fixing testify imports: %w", err)
@@ -107,6 +122,7 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 		}
 	}
 
+	report("load packages")
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
@@ -130,6 +146,7 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 	}
 
 	// Run analyzers
+	report("run analyzers")
 	graph, err := checker.Analyze(Analyzers(), pkgs, nil)
 	if err != nil {
 		return false, fmt.Errorf("analysis failed: %w", err)
@@ -184,7 +201,7 @@ func vetSemantic(pattern string, fix bool) (bool, error) {
 			return filesChanged, fmt.Errorf("go mod tidy failed: %w", err)
 		}
 		// Re-run analysis to verify fixes worked (don't report old diagnostics)
-		_, err := vetSemantic(pattern, fix)
+		_, err := vetSemantic(pattern, fix, progress)
 		return true, err
 	}
 
@@ -218,10 +235,25 @@ type Diagnostic struct {
 }
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
+// It tries go-git first, falling back to shelling out to git if go-git fails
+// for infrastructure reasons (e.g., unsupported repo format, worktree bugs).
 func checkFileCommitted(fixes *ASTFixes) error {
 	filename := fixes.Fset.Position(fixes.File.Pos()).Filename
 
-	// Open the git repo from the file's directory, not cwd
+	err := checkFileCommittedGoGit(filename)
+	if err == nil {
+		return nil
+	}
+	// If go-git detected uncommitted changes, trust that result
+	if strings.Contains(err.Error(), "uncommitted changes") {
+		return err
+	}
+	// go-git failed for infrastructure reasons; fall back to git CLI
+	return checkFileCommittedExec(filename)
+}
+
+// checkFileCommittedGoGit checks file status using the go-git library.
+func checkFileCommittedGoGit(filename string) error {
 	fileDir := filepath.Dir(filename)
 	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
@@ -238,7 +270,6 @@ func checkFileCommitted(fixes *ASTFixes) error {
 		return fmt.Errorf("cannot auto-fix %s: failed to get status: %w", filename, err)
 	}
 
-	// Get the file path relative to the repo root
 	repoRoot := wt.Filesystem.Root()
 	relPath, err := filepath.Rel(repoRoot, filename)
 	if err != nil {
@@ -251,5 +282,20 @@ func checkFileCommitted(fixes *ASTFixes) error {
 		}
 	}
 
+	return nil
+}
+
+// checkFileCommittedExec checks file status by shelling out to the git CLI.
+// Used as a fallback when go-git encounters bugs or unsupported repo features.
+func checkFileCommittedExec(filename string) error {
+	cmd := exec.Command("git", "status", "--porcelain", "--", filename)
+	cmd.Dir = filepath.Dir(filename)
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("cannot auto-fix %s: git status failed: %w", filename, err)
+	}
+	if len(strings.TrimSpace(string(out))) > 0 {
+		return fmt.Errorf("cannot auto-fix: %s has uncommitted changes\ncommit or stash changes first", filename)
+	}
 	return nil
 }

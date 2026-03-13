@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +23,16 @@ func Register(root *cobra.Command) {
 	installCmd.Flags().BoolVar(&installCopy, "copy", false, "Copy instead of symlink")
 	root.AddCommand(installCmd)
 	root.AddCommand(benchCmd)
+
+	// Silent aliases — these accept "go-toolchain build" and "go-toolchain test"
+	// without error, mapping them to the default pipeline behavior.
+	for _, name := range []string{"build", "test"} {
+		root.AddCommand(&cobra.Command{
+			Use:    name,
+			Hidden: true,
+			RunE:   run,
+		})
+	}
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
@@ -136,20 +145,6 @@ func installStatus() string {
 		return fmt.Sprintf("Install status: %s (copy, up to date)", installedPath)
 	}
 	return fmt.Sprintf("Install status: %s (copy, OUTDATED)", installedPath)
-}
-
-func fileHash(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func copyFile(src, dst string) error {

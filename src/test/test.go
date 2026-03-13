@@ -14,9 +14,6 @@ import (
 )
 
 const (
-	symPass = "✓"
-	symFail = "✗"
-	symSkip = "-"
 	clrGreen  = "\033[38;2;0;255;0m"
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
@@ -34,11 +31,13 @@ func shortPkg(pkg string) string {
 
 // coverageHandler extracts coverage percentages from test output events
 type coverageHandler struct {
-	coverage   map[string]float32
-	verbose    bool
-	out        io.Writer
-	testOutput map[string][]string // buffer output per test until we know pass/fail
-	failedTest map[string]bool     // tests that failed
+	coverage    map[string]float32
+	verbose     bool
+	out         io.Writer
+	testOutput  map[string][]string // buffer output per test until we know pass/fail
+	failedTest  map[string]bool     // tests that failed
+	timedOut    map[string]bool     // tests that timed out
+	onOutput    func()              // called before the first visible output
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -50,6 +49,11 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		if !h.verbose && event.Test != "" {
 			key := event.Package + "/" + event.Test
 			h.testOutput[key] = append(h.testOutput[key], event.Output)
+		}
+		// Detect test timeout from panic output
+		if event.Test != "" && strings.Contains(event.Output, "panic: test timed out") {
+			key := event.Package + "/" + event.Test
+			h.timedOut[key] = true
 		}
 		if matches := coverageRe.FindStringSubmatch(event.Output); len(matches) == 2 {
 			cov, _ := strconv.ParseFloat(matches[1], 32)
@@ -68,13 +72,27 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		switch event.Action {
 		case testjson.ActionPass:
 			if event.Elapsed >= 0.1 {
-				fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrGreen, symPass, colorReset, pkg, event.Test, event.Elapsed)
+				if h.onOutput != nil {
+					h.onOutput()
+				}
+				fmt.Fprintf(h.out, "  %s.%s... %sdone.%s %s%.2fs%s\n", pkg, event.Test, clrGreen, colorReset, colorDimCyan, event.Elapsed, colorReset)
 			}
 		case testjson.ActionFail:
-			fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrFail, symFail, colorReset, pkg, event.Test, event.Elapsed)
+			if h.onOutput != nil {
+				h.onOutput()
+			}
+			key := event.Package + "/" + event.Test
+			status := "failed!"
+			if h.timedOut[key] {
+				status = "timed out!"
+			}
+			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, event.Elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
-				fmt.Fprintf(h.out, "  %s%s%s %s.%s (%.2fs)\n", clrYellow, symSkip, colorReset, pkg, event.Test, event.Elapsed)
+				if h.onOutput != nil {
+					h.onOutput()
+				}
+				fmt.Fprintf(h.out, "  %s.%s... %sskipped.%s %s%.2fs%s\n", pkg, event.Test, clrYellow, colorReset, colorDimCyan, event.Elapsed, colorReset)
 			}
 		}
 	}
@@ -106,8 +124,10 @@ type TestResult struct {
 
 // RunTests executes go test with coverage and returns parsed results.
 // coverFile is the path where the coverage profile will be written.
-func RunTests(r runner.CommandRunner, verbose bool, coverFile string) (*TestResult, error) {
-	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-coverprofile="+coverFile, "./...").Run(r)
+// onOutput is an optional callback called before the first visible test output
+// (used by the progress indicator to finish the "..." line).
+func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
+	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout=30s", "-coverprofile="+coverFile, "./...").Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +140,8 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string) (*TestResu
 		out:        os.Stdout,
 		testOutput: make(map[string][]string),
 		failedTest: make(map[string]bool),
+		timedOut:   make(map[string]bool),
+		onOutput:   onOutput,
 	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{

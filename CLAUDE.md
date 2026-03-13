@@ -2,18 +2,27 @@
 
 ## Build & Test
 
-**Important:** `go build`, `go test`, etc. are often blocked in this environment. Always use `go run ./src` which handles the full workflow (mod tidy, vet, test with coverage, build).
+**Important:** `go build`, `go test`, etc. are often blocked in this environment because the Go toolchain version in go.mod may be newer than what's locally installed. The go-toolchain binary handles bootstrapping the correct Go version automatically.
+
+**Always use the released `go-toolchain` binary** to build and test. If it's not already installed, download it from GitHub releases:
 
 ```bash
+# Download and install go-toolchain (do this first if not installed)
+curl -sL "https://github.com/wow-look-at-my/go-toolchain/releases/latest/download/go-toolchain_linux_amd64" -o /tmp/go-toolchain
+chmod +x /tmp/go-toolchain
+cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+
 # Build and test (runs mod tidy, vet, tests with coverage, then builds)
-go run ./src
+go-toolchain
 
 # Cross-compile
-go run ./src matrix
+go-toolchain matrix
 
 # Integration tests run automatically after build via dats
 # To add new CLI tests, create .dats files in tests/
 ```
+
+Do NOT use `go run ./src`, `go build`, `go test`, `go vet`, or any bare `go` commands directly — they will fail if the local Go version doesn't match go.mod.
 
 ## Coverage Analysis
 
@@ -28,7 +37,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 ## Project Structure
 
 - `src/main.go` — entry point
-- `src/cmd/` — CLI commands (root, matrix, install) and benchmark logic using Cobra
+- `src/cmd/` — CLI commands (root, matrix, bench, lint, profile, install, update, version, ignore/unignore) using Cobra
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via `go list`
 - `src/integration/` — dats integration test runner
@@ -44,3 +53,11 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - No Makefile — use `go run ./src` as the build entry point
 - Binaries are output to `build/` directory
 - Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go` suffixes (see `src/test/watermark_*.go`)
+
+## Documentation
+
+- **Always keep `README.md` up to date** when adding new features, flags, subcommands, or changing existing behavior. The README is the primary user-facing documentation and must accurately reflect the current state of the CLI and GitHub Action.
+- When adding a new subcommand, add it to the Subcommands section and include a CLI usage example.
+- When adding a new flag, add it to the appropriate flags table (persistent or command-specific).
+- When changing GitHub Action inputs/outputs in `action.yml`, update the Action Usage section accordingly.
+- When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
