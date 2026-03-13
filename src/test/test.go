@@ -31,12 +31,13 @@ func shortPkg(pkg string) string {
 
 // coverageHandler extracts coverage percentages from test output events
 type coverageHandler struct {
-	coverage   map[string]float32
-	verbose    bool
-	out        io.Writer
-	testOutput map[string][]string // buffer output per test until we know pass/fail
-	failedTest map[string]bool     // tests that failed
-	onOutput   func()              // called before the first visible output
+	coverage    map[string]float32
+	verbose     bool
+	out         io.Writer
+	testOutput  map[string][]string // buffer output per test until we know pass/fail
+	failedTest  map[string]bool     // tests that failed
+	timedOut    map[string]bool     // tests that timed out
+	onOutput    func()              // called before the first visible output
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -48,6 +49,11 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		if !h.verbose && event.Test != "" {
 			key := event.Package + "/" + event.Test
 			h.testOutput[key] = append(h.testOutput[key], event.Output)
+		}
+		// Detect test timeout from panic output
+		if event.Test != "" && strings.Contains(event.Output, "panic: test timed out") {
+			key := event.Package + "/" + event.Test
+			h.timedOut[key] = true
 		}
 		if matches := coverageRe.FindStringSubmatch(event.Output); len(matches) == 2 {
 			cov, _ := strconv.ParseFloat(matches[1], 32)
@@ -75,7 +81,12 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			if h.onOutput != nil {
 				h.onOutput()
 			}
-			fmt.Fprintf(h.out, "  %s.%s... %sfailed!%s %s%.2fs%s\n", pkg, event.Test, clrFail, colorReset, colorDimCyan, event.Elapsed, colorReset)
+			key := event.Package + "/" + event.Test
+			status := "failed!"
+			if h.timedOut[key] {
+				status = "timed out!"
+			}
+			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, event.Elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
 				if h.onOutput != nil {
@@ -116,7 +127,7 @@ type TestResult struct {
 // onOutput is an optional callback called before the first visible test output
 // (used by the progress indicator to finish the "..." line).
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
-	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-coverprofile="+coverFile, "./...").Run(r)
+	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout=30s", "-coverprofile="+coverFile, "./...").Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +140,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		out:        os.Stdout,
 		testOutput: make(map[string][]string),
 		failedTest: make(map[string]bool),
+		timedOut:   make(map[string]bool),
 		onOutput:   onOutput,
 	}
 
