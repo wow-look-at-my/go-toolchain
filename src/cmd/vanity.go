@@ -229,6 +229,20 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 				continue
 			}
 
+			// If the vanity module has a /vN major version suffix (e.g.
+			// go.yaml.in/yaml/v3), the replacement path needs it too —
+			// Go modules require the path suffix to match the major version.
+			if parts := strings.Split(m.Path, "/"); len(parts) > 0 {
+				last := parts[len(parts)-1]
+				if len(last) >= 2 && last[0] == 'v' && last[1] >= '2' && last[1] <= '9' {
+					ghParts := strings.Split(ghPath, "/")
+					ghLast := ghParts[len(ghParts)-1]
+					if ghLast != last {
+						ghPath += "/" + last
+					}
+				}
+			}
+
 			replaces = append(replaces, vanityReplace{
 				OldPath:    m.Path,
 				OldVersion: m.Version,
