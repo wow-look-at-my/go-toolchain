@@ -132,6 +132,7 @@ func findGoModules() []string {
 }
 
 func runWithRunner(r runner.CommandRunner) error {
+	setupCGOEnvironment()
 	return runWithRunnerOnce(r, false)
 }
 

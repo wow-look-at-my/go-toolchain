@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -34,10 +35,11 @@ type coverageHandler struct {
 	coverage    map[string]float32
 	verbose     bool
 	out         io.Writer
-	testOutput  map[string][]string // buffer output per test until we know pass/fail
-	failedTest  map[string]bool     // tests that failed
+	testOutput  map[string][]string // buffer output per test/package until we know pass/fail
+	failedTest  map[string]bool     // tests/packages that failed
 	timedOut    map[string]bool     // tests that timed out
 	onOutput    func()              // called before the first visible output
+	stderrLines []string            // build errors and panics from stderr
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -45,9 +47,12 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		if h.verbose {
 			fmt.Print(event.Output)
 		}
-		// Buffer output per-test for later (if test fails)
-		if !h.verbose && event.Test != "" {
-			key := event.Package + "/" + event.Test
+		// Buffer output per-test/package for later (if test/package fails)
+		if !h.verbose && h.testOutput != nil {
+			key := event.Package
+			if event.Test != "" {
+				key += "/" + event.Test
+			}
 			h.testOutput[key] = append(h.testOutput[key], event.Output)
 		}
 		// Detect test timeout from panic output
@@ -60,9 +65,12 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			h.coverage[event.Package] = float32(cov)
 		}
 	}
-	// Track failed tests
-	if event.Action == testjson.ActionFail && event.Test != "" {
-		key := event.Package + "/" + event.Test
+	// Track failed tests and packages
+	if event.Action == testjson.ActionFail && h.failedTest != nil {
+		key := event.Package
+		if event.Test != "" {
+			key += "/" + event.Test
+		}
 		h.failedTest[key] = true
 	}
 
@@ -102,6 +110,11 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 
 func (h *coverageHandler) FailureOutput() string {
 	var result string
+	// Include stderr (build errors, panics) first
+	for _, line := range h.stderrLines {
+		result += line + "\n"
+	}
+	// Then include buffered test/package output for failed items
 	for key, lines := range h.testOutput {
 		if h.failedTest[key] {
 			for _, line := range lines {
@@ -113,6 +126,7 @@ func (h *coverageHandler) FailureOutput() string {
 }
 
 func (h *coverageHandler) Err(text string) error {
+	h.stderrLines = append(h.stderrLines, text)
 	return nil
 }
 
@@ -127,7 +141,9 @@ type TestResult struct {
 // onOutput is an optional callback called before the first visible test output
 // (used by the progress indicator to finish the "..." line).
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
-	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout=30s", "-coverprofile="+coverFile, "./...").Run(r)
+	// Capture stderr in a buffer — build errors go here, not in JSON stream.
+	var stderrBuf bytes.Buffer
+	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout=30s", "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -145,18 +161,59 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{
-		Stdout:  proc.Stdout(),
-		Handler: handler,
+		Stdout:                   proc.Stdout(),
+		Handler:                  handler,
+		IgnoreNonJSONOutputLines: true,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Capture wait error but continue processing results
+	// Capture wait error but continue processing results.
+	// Wait() drains stderr into stderrBuf via WithStderrWriter.
 	waitErr := proc.Wait()
 
-	// If go test failed and no tests ran, provide a clearer error message
+	// Include captured stderr (build errors) in handler output.
+	if stderrBuf.Len() > 0 {
+		handler.stderrLines = append(handler.stderrLines, strings.TrimRight(stderrBuf.String(), "\n"))
+	}
+
+	// If packages failed to build but no error details were captured (common
+	// with CGO packages where compiler errors bypass the JSON stream), re-run
+	// a plain go build to capture the actual compiler errors.
+	if waitErr != nil && len(handler.failedTest) > 0 {
+		hasDetails := false
+		for _, lines := range handler.stderrLines {
+			if strings.Contains(lines, ":") {
+				hasDetails = true
+				break
+			}
+		}
+		if !hasDetails {
+			// Pick any failing package to get the build error.
+			for pkg := range handler.failedTest {
+				buildProc, buildErr := runner.Cmd("go", "build", pkg).WithQuiet().Run(r)
+				if buildErr != nil {
+					break
+				}
+				var buildStderr bytes.Buffer
+				io.Copy(&buildStderr, buildProc.Stderr())
+				buildProc.Wait()
+				if buildStderr.Len() > 0 {
+					handler.stderrLines = append(handler.stderrLines, strings.TrimRight(buildStderr.String(), "\n"))
+					break
+				}
+			}
+		}
+	}
+
+	// If go test failed and no tests ran, check if there's failure output
+	// (e.g., compilation errors) before falling back to a generic message.
 	if waitErr != nil && execution.Total() == 0 {
+		failOutput := handler.FailureOutput()
+		if failOutput != "" {
+			return &TestResult{FailureOutput: failOutput}, waitErr
+		}
 		return nil, fmt.Errorf("no tests found (create *_test.go files with Test* functions)")
 	}
 
