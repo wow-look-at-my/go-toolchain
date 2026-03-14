@@ -211,9 +211,15 @@ func runBenchCompare(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// benchResult holds the output of a benchmark run for downstream consumers (e.g. CI summary).
+type benchResult struct {
+	Report     *bench.BenchmarkReport
+	Comparison *bench.Comparison
+}
+
 // runBenchmarkInBuild runs benchmarks as part of the default build
-// and shows comparison against previous stored results
-func runBenchmarkInBuild(r runner.CommandRunner) error {
+// and shows comparison against previous stored results.
+func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
 	var benchStep *step
 	if !jsonOutput {
 		benchStep = logStep("Running benchmarks")
@@ -234,21 +240,22 @@ func runBenchmarkInBuild(r runner.CommandRunner) error {
 		if report != nil && report.HasResults() {
 			report.Print()
 		}
-		return err
+		return nil, err
 	}
 
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "\t")
-		return enc.Encode(report)
+		return &benchResult{Report: report}, enc.Encode(report)
 	}
 
 	// Fetch previous results for comparison
 	prev, prevSHA, _ := bench.FetchPrevious(r)
 
+	var comp *bench.Comparison
 	if prev != nil && prevSHA != "" {
 		fmt.Printf("\n==> Benchmark comparison vs %s\n", prevSHA)
-		comp := bench.Compare(report, prev)
+		comp = bench.Compare(report, prev)
 		comp.PreviousCommit = prevSHA
 		comp.Print()
 	} else {
@@ -257,5 +264,5 @@ func runBenchmarkInBuild(r runner.CommandRunner) error {
 	}
 
 	fmt.Println("==> Benchmarks complete")
-	return nil
+	return &benchResult{Report: report, Comparison: comp}, nil
 }

@@ -39,7 +39,7 @@ func TestRunBenchmarkInBuild(t *testing.T) {
 	benchCPU = ""
 	verbose = false
 
-	err := runBenchmarkInBuild(mock)
+	_, err := runBenchmarkInBuild(mock)
 	assert.Nil(t, err)
 }
 
@@ -66,7 +66,7 @@ func TestRunBenchmarkInBuildJSON(t *testing.T) {
 	benchCount = 1
 	benchCPU = ""
 
-	err := runBenchmarkInBuild(mock)
+	_, err := runBenchmarkInBuild(mock)
 	assert.Nil(t, err)
 }
 
@@ -100,7 +100,7 @@ func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
 	benchCount = 1
 	benchCPU = ""
 
-	err := runBenchmarkInBuild(mock)
+	_, err := runBenchmarkInBuild(mock)
 	assert.Nil(t, err)
 }
 
@@ -126,7 +126,7 @@ func TestRunBenchmarkInBuildFails(t *testing.T) {
 	benchCount = 1
 	benchCPU = ""
 
-	err := runBenchmarkInBuild(mock)
+	_, err := runBenchmarkInBuild(mock)
 	assert.NotNil(t, err)
 }
 

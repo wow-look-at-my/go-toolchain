@@ -1,0 +1,250 @@
+package summary
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/wow-look-at-my/go-toolchain/src/bench"
+	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
+)
+
+func TestGenerateMarkdownEmpty(t *testing.T) {
+	assert.Empty(t, GenerateMarkdown(nil))
+}
+
+func TestGenerateMarkdownBasic(t *testing.T) {
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 85.2},
+		TestCases: []gotest.TestCaseResult{
+			{Package: "example.com/pkg", Test: "TestFoo", Status: "pass", Elapsed: 0.15},
+			{Package: "example.com/pkg", Test: "TestBar", Status: "fail", Elapsed: 1.23},
+			{Package: "example.com/pkg", Test: "TestSkipped", Status: "skip", Elapsed: 0.0},
+		},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.Contains(t, md, "85.2% coverage")
+	assert.Contains(t, md, "**1** passed")
+	assert.Contains(t, md, "**1** failed")
+	assert.Contains(t, md, "**1** skipped")
+	assert.Contains(t, md, "<details>")
+	assert.Contains(t, md, "Test Cases (3 tests)")
+	assert.Contains(t, md, ":white_check_mark:")
+	assert.Contains(t, md, ":x:")
+	assert.Contains(t, md, ":fast_forward:")
+	assert.Contains(t, md, "TestFoo")
+	assert.Contains(t, md, "TestBar")
+}
+
+func TestGenerateMarkdownSubtests(t *testing.T) {
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 90.0},
+		TestCases: []gotest.TestCaseResult{
+			{Package: "example.com/pkg", Test: "TestFoo", Status: "pass", Elapsed: 0.10},
+			{Package: "example.com/pkg", Test: "TestFoo/case_a", Status: "pass", Elapsed: 0.03},
+			{Package: "example.com/pkg", Test: "TestFoo/case_b", Status: "pass", Elapsed: 0.05},
+			{Package: "example.com/pkg", Test: "TestFoo/nested/deep", Status: "fail", Elapsed: 0.02},
+		},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.Contains(t, md, "Test Cases (4 tests)")
+	assert.Contains(t, md, "&ensp;TestFoo/case_a")
+	assert.Contains(t, md, "&ensp;TestFoo/case_b")
+	assert.Contains(t, md, "&ensp;TestFoo/nested/deep")
+}
+
+func TestGenerateMarkdownBenchmarks(t *testing.T) {
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+		Benchmarks: &bench.BenchmarkReport{
+			Packages: map[string][]bench.BenchmarkResult{
+				"example.com/pkg": {
+					{Name: "BenchmarkParse-8", Package: "example.com/pkg", NsPerOp: 1234.5, BytesPerOp: 256, AllocsPerOp: 4},
+				},
+			},
+		},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.Contains(t, md, "Benchmark Results")
+	assert.Contains(t, md, "Parse")
+	assert.Contains(t, md, "256 B")
+}
+
+func TestGenerateMarkdownBenchComparison(t *testing.T) {
+	current := &bench.BenchmarkReport{
+		Packages: map[string][]bench.BenchmarkResult{
+			"example.com/pkg": {
+				{Name: "BenchmarkParse-8", Package: "example.com/pkg", NsPerOp: 1000, BytesPerOp: 256, AllocsPerOp: 4},
+			},
+		},
+	}
+	prev := &bench.BenchmarkReport{
+		Packages: map[string][]bench.BenchmarkResult{
+			"example.com/pkg": {
+				{Name: "BenchmarkParse-8", Package: "example.com/pkg", NsPerOp: 1200, BytesPerOp: 256, AllocsPerOp: 4},
+			},
+		},
+	}
+	comp := bench.Compare(current, prev)
+	comp.PreviousCommit = "abc1234"
+
+	data := &SummaryData{
+		Coverage:   &gotest.Report{Total: 80.0},
+		Benchmarks: current,
+		BenchComp:  comp,
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.Contains(t, md, "vs previous")
+	assert.Contains(t, md, ":arrow_down:") // faster
+	assert.Contains(t, md, "abc1234")
+}
+
+func TestGenerateMarkdownSubbenchmarks(t *testing.T) {
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+		Benchmarks: &bench.BenchmarkReport{
+			Packages: map[string][]bench.BenchmarkResult{
+				"example.com/pkg": {
+					{Name: "BenchmarkParse/small-8", Package: "example.com/pkg", NsPerOp: 500, BytesPerOp: 64, AllocsPerOp: 2},
+					{Name: "BenchmarkParse/large-8", Package: "example.com/pkg", NsPerOp: 5000, BytesPerOp: 1024, AllocsPerOp: 10},
+				},
+			},
+		},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.Contains(t, md, "Parse/small")
+	assert.Contains(t, md, "Parse/large")
+}
+
+func TestWriteAppendsToFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	summaryFile := filepath.Join(tmpDir, "summary.md")
+
+	// Write some existing content
+	os.WriteFile(summaryFile, []byte("existing\n"), 0644)
+
+	t.Setenv("GITHUB_STEP_SUMMARY", summaryFile)
+
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 75.0},
+	}
+
+	err := Write(data)
+	require.NoError(t, err)
+
+	content, _ := os.ReadFile(summaryFile)
+	assert.True(t, strings.HasPrefix(string(content), "existing\n"))
+	assert.Contains(t, string(content), "75.0% coverage")
+}
+
+func TestWriteNoopWithoutEnv(t *testing.T) {
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	assert.NoError(t, Write(&SummaryData{}))
+}
+
+func TestPkgToDir(t *testing.T) {
+	tests := []struct {
+		pkg, module, expected string
+	}{
+		{"github.com/foo/bar/src/cmd", "github.com/foo/bar", "src/cmd"},
+		{"github.com/foo/bar", "github.com/foo/bar", "."},
+		{"github.com/foo/bar/pkg", "", "pkg"},
+		{"standalone", "", ""},
+	}
+	for _, tc := range tests {
+		assert.Equal(t, tc.expected, pkgToDir(tc.pkg, tc.module), "pkgToDir(%q, %q)", tc.pkg, tc.module)
+	}
+}
+
+func TestRootTestFunc(t *testing.T) {
+	assert.Equal(t, "TestFoo", rootTestFunc("TestFoo"))
+	assert.Equal(t, "TestFoo", rootTestFunc("TestFoo/case_a"))
+	assert.Equal(t, "TestFoo", rootTestFunc("TestFoo/nested/deep"))
+}
+
+func TestFormatTestName(t *testing.T) {
+	assert.Equal(t, "TestFoo", formatTestName("TestFoo"))
+	assert.Contains(t, formatTestName("TestFoo/bar"), "&ensp;")
+	assert.Contains(t, formatTestName("TestFoo/bar"), "TestFoo/bar")
+}
+
+func TestStatusEmoji(t *testing.T) {
+	assert.Equal(t, ":white_check_mark:", statusEmoji("pass"))
+	assert.Equal(t, ":x:", statusEmoji("fail"))
+	assert.Equal(t, ":fast_forward:", statusEmoji("skip"))
+}
+
+func TestFormatBenchDelta(t *testing.T) {
+	assert.Contains(t, formatBenchDelta(-5.0), ":arrow_down:")
+	assert.Contains(t, formatBenchDelta(5.0), ":arrow_up:")
+	assert.Contains(t, formatBenchDelta(0.5), "~0%")
+}
+
+func TestBenchDisplayName(t *testing.T) {
+	assert.Equal(t, "Parse", benchDisplayName("BenchmarkParse-8", "pkg"))
+	assert.Equal(t, "Parse/small", benchDisplayName("BenchmarkParse/small-8", "pkg"))
+	assert.Equal(t, "Foo", benchDisplayName("BenchmarkFoo-16", "pkg"))
+}
+
+func TestFindTestFuncsInDir(t *testing.T) {
+	// Create a temporary test file
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "example_test.go")
+	content := `package example
+
+import "testing"
+
+func TestAlpha(t *testing.T) {}
+func TestBeta(t *testing.T) {}
+func helperNotATest() {}
+`
+	os.WriteFile(testFile, []byte(content), 0644)
+
+	funcs := findTestFuncsInDir(tmpDir, map[string]bool{"TestAlpha": true, "TestBeta": true})
+
+	assert.Contains(t, funcs, "TestAlpha")
+	assert.Contains(t, funcs, "TestBeta")
+	assert.Equal(t, 5, funcs["TestAlpha"].line)
+	assert.Equal(t, 6, funcs["TestBeta"].line)
+}
+
+func TestBuildSourceLink(t *testing.T) {
+	cache := map[string]testFuncLocation{
+		"example.com/pkg.TestFoo": {file: "src/pkg/foo_test.go", line: 42},
+	}
+
+	tc := gotest.TestCaseResult{Package: "example.com/pkg", Test: "TestFoo"}
+	link := buildSourceLink(tc, "abc123", "owner/repo", "example.com", cache)
+	assert.Contains(t, link, "https://github.com/owner/repo/blob/abc123/src/pkg/foo_test.go#L42")
+
+	// Subtest should link to parent function
+	tc2 := gotest.TestCaseResult{Package: "example.com/pkg", Test: "TestFoo/case_a"}
+	link2 := buildSourceLink(tc2, "abc123", "owner/repo", "example.com", cache)
+	assert.Contains(t, link2, "foo_test.go#L42")
+
+	// No link when missing SHA
+	assert.Empty(t, buildSourceLink(tc, "", "owner/repo", "example.com", cache))
+}
+
+func TestCountTestStatuses(t *testing.T) {
+	cases := []gotest.TestCaseResult{
+		{Status: "pass"}, {Status: "pass"}, {Status: "fail"}, {Status: "skip"},
+	}
+	p, f, s := countTestStatuses(cases)
+	assert.Equal(t, 2, p)
+	assert.Equal(t, 1, f)
+	assert.Equal(t, 1, s)
+}

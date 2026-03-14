@@ -18,6 +18,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
@@ -148,7 +149,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 		}
 	}
 
-	filesChanged, err := RunTestsWithCoverage(r, quiet)
+	filesChanged, testResult, err := RunTestsWithCoverage(r, quiet)
 	if err != nil {
 		return err
 	}
@@ -159,21 +160,37 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 		return runWithRunnerOnce(r, true)
 	}
 
-	if err := runBuildPhase(r, quiet); err != nil {
+	br, err := runBuildPhase(r, quiet)
+	if err != nil {
 		return err
+	}
+
+	// Write GitHub Step Summary when running in CI
+	if testResult != nil {
+		sd := &summary.SummaryData{
+			TestCases: testResult.TestCases,
+			Coverage:  &testResult.Coverage,
+		}
+		if br != nil {
+			sd.Benchmarks = br.Report
+			sd.BenchComp = br.Comparison
+		}
+		if writeErr := summary.Write(sd); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
+		}
 	}
 
 	return nil
 }
 
-func runBuildPhase(r runner.CommandRunner, quiet bool) error {
+func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+		return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
 	info := collectGitInfo()
@@ -202,7 +219,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 			ldflags:    ldflags,
 		}
 		if err := runBuild(r, job, onFirstOutput); err != nil {
-			return fmt.Errorf("go build failed: %w", err)
+			return nil, fmt.Errorf("go build failed: %w", err)
 		}
 		if buildStep != nil {
 			buildStep.done()
@@ -214,28 +231,30 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) error {
 	}
 
 	if !noBenchmark {
-		if err := runBenchmarkInBuild(r); err != nil {
-			return err
+		br, err := runBenchmarkInBuild(r)
+		if err != nil {
+			return nil, err
 		}
+		return br, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
 // checks coverage against the threshold. Used by both the default command
 // and the matrix command.
-// Returns (filesChanged, error) where filesChanged indicates if vet applied any fixes.
-func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
+// Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
+func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
 	// Fix any v0.0.0 dependencies before go mod tidy
 	if err := FixBogusDepsVersions(r); err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	// Handle vanity-URL modules: inject replace directives for unreachable hosts
 	vanityReplaces, vanityErr := injectVanityReplaces()
 	if vanityErr != nil {
-		return false, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
+		return false, nil, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
 	}
 
 	var modTidyStep *step
@@ -249,13 +268,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		}
 	}).Run(r)
 	if err != nil {
-		return false, fmt.Errorf("go mod tidy failed: %w", err)
+		return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
 	}
 	if err := proc.Wait(); err != nil {
 		if _, statErr := os.Stat("go.mod"); statErr != nil {
-			return false, fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
+			return false, nil, fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
 		}
-		return false, fmt.Errorf("go mod tidy failed: %w", err)
+		return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
 	}
 	timedStderr.Flush()
 	if modTidyStep != nil {
@@ -268,7 +287,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 			genStep = logStep("go generate ./...")
 		}
 		if err := runGenerate(quiet, generateHash); err != nil {
-			return false, fmt.Errorf("go generate failed: %w", err)
+			return false, nil, fmt.Errorf("go generate failed: %w", err)
 		}
 		if genStep != nil {
 			genStep.noteOutput() // generate always prints directives
@@ -285,10 +304,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 			}
 		}).Run(r)
 		if err != nil {
-			return false, fmt.Errorf("go mod tidy failed: %w", err)
+			return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
 		}
 		if err := proc.Wait(); err != nil {
-			return false, fmt.Errorf("go mod tidy failed: %w", err)
+			return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
 		}
 		if tidyStep2 != nil {
 			tidyStep2.done()
@@ -297,7 +316,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 
 	// Remove vanity replace directives now that tidy is done
 	if err := removeVanityReplaces(vanityReplaces); err != nil {
-		return false, fmt.Errorf("failed to clean up vanity replaces: %w", err)
+		return false, nil, fmt.Errorf("failed to clean up vanity replaces: %w", err)
 	}
 
 	var vetStep *step
@@ -322,7 +341,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	fix := os.Getenv("CI") == "" // disable auto-fix on CI
 	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
-		return false, fmt.Errorf("vet failed: %w", err)
+		return false, nil, fmt.Errorf("vet failed: %w", err)
 	}
 	// Print the last phase timing
 	if !quiet && vetPhaseName != "" {
@@ -337,7 +356,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	}
 
 	if err := checkFileLength("."); err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	var testStep *step
@@ -347,7 +366,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 
 	tmpDir, err := os.MkdirTemp("", "go-toolchain-*")
 	if err != nil {
-		return false, fmt.Errorf("failed to create temp dir: %w", err)
+		return false, nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 	coverFile := filepath.Join(tmpDir, "coverage.out")
@@ -361,7 +380,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		if testStep != nil {
 			testStep.failed()
 		}
-		return false, fmt.Errorf("tests failed: %w", testErr)
+		return false, nil, fmt.Errorf("tests failed: %w", testErr)
 	}
 	if testErr != nil && testStep != nil {
 		testStep.failed()
@@ -377,14 +396,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 			fmt.Println("\n==> Test failures:")
 			fmt.Print(colorRed + result.FailureOutput + colorReset)
 		}
-		return false, fmt.Errorf("tests failed: %w", testErr)
+		return false, result, fmt.Errorf("tests failed: %w", testErr)
 	}
 
 	if quiet {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "\t")
 		if err := enc.Encode(report); err != nil {
-			return false, fmt.Errorf("failed to encode JSON: %w", err)
+			return false, nil, fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
 		fmt.Println("\n==> Package coverage:")
@@ -427,10 +446,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 	roundedTotal := float32(math.Round(float64(report.Total)*10) / 10)
 	roundedMin := float32(math.Round(float64(effectiveMin)*10) / 10)
 	if roundedTotal < roundedMin {
-		return false, fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
+		return false, result, fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
 	}
 
-	return filesChanged, nil
+	return filesChanged, result, nil
 }
 
 var errFound = fmt.Errorf("found")
