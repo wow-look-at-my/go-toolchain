@@ -117,36 +117,54 @@ func writeTestTable(sb *strings.Builder, cases []gotest.TestCaseResult, commitSH
 	// Build source location cache
 	locCache := buildTestLocationCache(cases, modulePath)
 
-	total := len(cases)
-	sb.WriteString(fmt.Sprintf("<details>\n<summary>Test Cases (%d tests)</summary>\n\n", total))
-	sb.WriteString("| Status | Test | Package | Time |\n")
-	sb.WriteString("|--------|------|---------|-----:|\n")
-
+	// Group tests by package, preserving order of first appearance
+	pkgOrder := []string{}
+	pkgCases := make(map[string][]gotest.TestCaseResult)
 	for _, tc := range cases {
-		status := statusEmoji(tc.Status)
-		pkg := shortPkg(tc.Package)
-		testDisplay := formatTestNameWithLink(tc, commitSHA, repo, modulePath, locCache)
-		timeStr := formatElapsed(tc.Elapsed)
-
-		sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
-			status, testDisplay, pkg, timeStr))
+		if _, exists := pkgCases[tc.Package]; !exists {
+			pkgOrder = append(pkgOrder, tc.Package)
+		}
+		pkgCases[tc.Package] = append(pkgCases[tc.Package], tc)
 	}
 
-	sb.WriteString("\n</details>\n\n")
+	for _, pkg := range pkgOrder {
+		pkgTests := pkgCases[pkg]
+		passed, failed, skipped := countTestStatuses(pkgTests)
+		short := shortPkg(pkg)
+
+		statusParts := []string{fmt.Sprintf("%d passed", passed)}
+		if failed > 0 {
+			statusParts = append(statusParts, fmt.Sprintf("%d failed", failed))
+		}
+		if skipped > 0 {
+			statusParts = append(statusParts, fmt.Sprintf("%d skipped", skipped))
+		}
+
+		sb.WriteString(fmt.Sprintf("<details>\n<summary>%s (%s)</summary>\n\n",
+			short, strings.Join(statusParts, ", ")))
+		sb.WriteString("| Status | Test | Time |\n")
+		sb.WriteString("|--------|------|-----:|\n")
+
+		var totalElapsed float64
+		for _, tc := range pkgTests {
+			status := statusEmoji(tc.Status)
+			testDisplay := formatTestNameWithLink(tc, commitSHA, repo, modulePath, locCache)
+			timeStr := formatElapsed(tc.Elapsed)
+			totalElapsed += tc.Elapsed
+
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n",
+				status, testDisplay, timeStr))
+		}
+
+		sb.WriteString(fmt.Sprintf("| | **All %s Tests** | **%s** |\n", short, formatElapsed(totalElapsed)))
+
+		sb.WriteString("\n</details>\n\n")
+	}
 }
 
 func writeBenchmarkTable(sb *strings.Builder, report *bench.BenchmarkReport, comp *bench.Comparison) {
-	sb.WriteString("<details>\n<summary>Benchmark Results</summary>\n\n")
-
 	hasComparison := comp != nil && comp.HasDeltas()
-
-	if hasComparison {
-		sb.WriteString("| Benchmark | time/op | vs previous | alloc/op | allocs/op |\n")
-		sb.WriteString("|-----------|--------:|------------:|---------:|----------:|\n")
-	} else {
-		sb.WriteString("| Benchmark | time/op | alloc/op | allocs/op |\n")
-		sb.WriteString("|-----------|--------:|---------:|----------:|\n")
-	}
+	deltaMap := buildDeltaMap(comp)
 
 	// Sort packages for stable output
 	pkgNames := make([]string, 0, len(report.Packages))
@@ -155,23 +173,25 @@ func writeBenchmarkTable(sb *strings.Builder, report *bench.BenchmarkReport, com
 	}
 	sort.Strings(pkgNames)
 
-	// Build delta lookup if comparison exists
-	deltaMap := buildDeltaMap(comp)
-
 	for _, pkg := range pkgNames {
 		results := report.Packages[pkg]
-		// Sort by ns/op
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].NsPerOp < results[j].NsPerOp
 		})
 
-		shortPkg := pkg
-		if idx := strings.LastIndex(pkg, "/"); idx >= 0 {
-			shortPkg = pkg[idx+1:]
+		short := shortPkg(pkg)
+		sb.WriteString(fmt.Sprintf("<details>\n<summary>Benchmarks: %s</summary>\n\n", short))
+
+		if hasComparison {
+			sb.WriteString("| Benchmark | time/op | vs previous | alloc/op | allocs/op |\n")
+			sb.WriteString("|-----------|--------:|------------:|---------:|----------:|\n")
+		} else {
+			sb.WriteString("| Benchmark | time/op | alloc/op | allocs/op |\n")
+			sb.WriteString("|-----------|--------:|---------:|----------:|\n")
 		}
 
 		for _, b := range results {
-			name := benchDisplayName(b.Name, shortPkg)
+			name := benchDisplayName(b.Name, short)
 			timeStr := formatBenchTime(b.NsPerOp)
 			allocStr := formatBenchBytes(b.BytesPerOp)
 
@@ -188,13 +208,13 @@ func writeBenchmarkTable(sb *strings.Builder, report *bench.BenchmarkReport, com
 					name, timeStr, allocStr, b.AllocsPerOp))
 			}
 		}
-	}
 
-	if hasComparison && comp.PreviousCommit != "" {
-		sb.WriteString(fmt.Sprintf("\n_Compared against `%s`_\n", comp.PreviousCommit))
-	}
+		if hasComparison && comp.PreviousCommit != "" {
+			sb.WriteString(fmt.Sprintf("\n_Compared against `%s`_\n", comp.PreviousCommit))
+		}
 
-	sb.WriteString("\n</details>\n\n")
+		sb.WriteString("\n</details>\n\n")
+	}
 }
 
 func buildDeltaMap(comp *bench.Comparison) map[string]bench.Delta {

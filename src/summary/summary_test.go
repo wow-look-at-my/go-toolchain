@@ -33,12 +33,16 @@ func TestGenerateMarkdownBasic(t *testing.T) {
 	assert.Contains(t, md, "**1** failed")
 	assert.Contains(t, md, "**1** skipped")
 	assert.Contains(t, md, "<details>")
-	assert.Contains(t, md, "Test Cases (3 tests)")
+	assert.Contains(t, md, "pkg (1 passed, 1 failed, 1 skipped)")
 	assert.Contains(t, md, ":white_check_mark:")
 	assert.Contains(t, md, ":x:")
 	assert.Contains(t, md, ":fast_forward:")
 	assert.Contains(t, md, "TestFoo")
 	assert.Contains(t, md, "TestBar")
+	// Package column should not exist
+	assert.NotContains(t, md, "| Package |")
+	// Summary row
+	assert.Contains(t, md, "**All pkg Tests**")
 }
 
 func TestGenerateMarkdownSubtests(t *testing.T) {
@@ -54,7 +58,7 @@ func TestGenerateMarkdownSubtests(t *testing.T) {
 
 	md := GenerateMarkdown(data)
 
-	assert.Contains(t, md, "Test Cases (4 tests)")
+	assert.Contains(t, md, "pkg (3 passed, 1 failed)")
 	assert.Contains(t, md, "&nbsp;&nbsp;&nbsp;&nbsp;TestFoo/case_a")
 	assert.Contains(t, md, "&nbsp;&nbsp;&nbsp;&nbsp;TestFoo/case_b")
 	assert.Contains(t, md, "&nbsp;&nbsp;&nbsp;&nbsp;TestFoo/nested/deep")
@@ -74,7 +78,7 @@ func TestGenerateMarkdownBenchmarks(t *testing.T) {
 
 	md := GenerateMarkdown(data)
 
-	assert.Contains(t, md, "Benchmark Results")
+	assert.Contains(t, md, "Benchmarks: pkg")
 	assert.Contains(t, md, "Parse")
 	assert.Contains(t, md, "256 B")
 }
@@ -261,6 +265,30 @@ func TestFormatTestNameWithLink(t *testing.T) {
 	tc3 := gotest.TestCaseResult{Package: "example.com/pkg", Test: "TestFoo"}
 	display3 := formatTestNameWithLink(tc3, "", "owner/repo", "example.com", cache)
 	assert.Equal(t, "TestFoo", display3)
+}
+
+func TestGenerateMarkdownMultiPackage(t *testing.T) {
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+		TestCases: []gotest.TestCaseResult{
+			{Package: "example.com/cmd", Test: "TestRun", Status: "pass", Elapsed: 0.10},
+			{Package: "example.com/cmd", Test: "TestBuild", Status: "pass", Elapsed: 0.20},
+			{Package: "example.com/lib", Test: "TestParse", Status: "fail", Elapsed: 0.50},
+			{Package: "example.com/lib", Test: "TestFormat", Status: "pass", Elapsed: 0.05},
+		},
+	}
+
+	md := GenerateMarkdown(data)
+
+	// Each package gets its own collapsed section
+	assert.Contains(t, md, "cmd (2 passed)")
+	assert.Contains(t, md, "lib (1 passed, 1 failed)")
+	// Two separate <details> blocks
+	assert.Equal(t, 2, strings.Count(md, "<details>"))
+	assert.Equal(t, 2, strings.Count(md, "</details>"))
+	// Summary rows
+	assert.Contains(t, md, "**All cmd Tests**")
+	assert.Contains(t, md, "**All lib Tests**")
 }
 
 func TestCountTestStatuses(t *testing.T) {
