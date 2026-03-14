@@ -296,6 +296,46 @@ func TestInjectVanityReplacesSkipsUnresolvable(t *testing.T) {
 	assert.NotContains(t, string(data), "replace")
 }
 
+func TestInjectVanityReplacesAppendsVersionSuffix(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	gomod := "module test\n\ngo 1.21\n\nrequire go.yaml.in/yaml/v3 v3.0.4\n"
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+	gosum := "go.yaml.in/yaml/v3 v3.0.4 h1:aaa=\n"
+	os.WriteFile("go.sum", []byte(gosum), 0644)
+
+	oldChecker := vanityHostChecker
+	vanityHostChecker = func(host string) bool { return false }
+	defer func() { vanityHostChecker = oldChecker }()
+
+	oldResolver := vanityVCSResolver
+	vanityVCSResolver = func(modulePath, version string) (string, error) {
+		return "https://github.com/yaml/go-yaml", nil
+	}
+	defer func() { vanityVCSResolver = oldResolver }()
+
+	oldJSON := jsonOutput
+	jsonOutput = true
+	defer func() { jsonOutput = oldJSON }()
+
+	replaces, err := injectVanityReplaces()
+	require.Nil(t, err)
+	require.Equal(t, 1, len(replaces))
+
+	// The replacement path must include /v3 suffix for the version to be valid
+	assert.Equal(t, "github.com/yaml/go-yaml/v3", replaces[0].NewPath)
+	assert.Equal(t, "v3.0.4", replaces[0].NewVersion)
+
+	data, _ := os.ReadFile("go.mod")
+	assert.Contains(t, string(data), "github.com/yaml/go-yaml/v3 v3.0.4")
+
+	err = removeVanityReplaces(replaces)
+	require.Nil(t, err)
+}
+
 func TestRemoveVanityReplacesEmpty(t *testing.T) {
 	err := removeVanityReplaces(nil)
 	assert.Nil(t, err)
