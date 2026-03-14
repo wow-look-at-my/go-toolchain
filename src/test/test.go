@@ -40,6 +40,7 @@ type coverageHandler struct {
 	timedOut    map[string]bool     // tests that timed out
 	onOutput    func()              // called before the first visible output
 	stderrLines []string            // build errors and panics from stderr
+	testCases   []TestCaseResult    // per-test results for CI summary
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -72,6 +73,27 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			key += "/" + event.Test
 		}
 		h.failedTest[key] = true
+	}
+
+	// Capture per-test results for CI summary
+	if event.Test != "" {
+		switch event.Action {
+		case testjson.ActionPass:
+			h.testCases = append(h.testCases, TestCaseResult{
+				Package: event.Package, Test: event.Test,
+				Status: "pass", Elapsed: event.Elapsed,
+			})
+		case testjson.ActionFail:
+			h.testCases = append(h.testCases, TestCaseResult{
+				Package: event.Package, Test: event.Test,
+				Status: "fail", Elapsed: event.Elapsed,
+			})
+		case testjson.ActionSkip:
+			h.testCases = append(h.testCases, TestCaseResult{
+				Package: event.Package, Test: event.Test,
+				Status: "skip", Elapsed: event.Elapsed,
+			})
+		}
 	}
 
 	// Real-time test status (non-verbose only)
@@ -130,10 +152,19 @@ func (h *coverageHandler) Err(text string) error {
 	return nil
 }
 
+// TestCaseResult captures per-test data for CI summary tables.
+type TestCaseResult struct {
+	Package string
+	Test    string  // includes subtest path, e.g. "TestFoo/case_a"
+	Status  string  // "pass", "fail", "skip"
+	Elapsed float64 // seconds
+}
+
 // TestResult contains the results of running tests
 type TestResult struct {
 	Coverage      Report
 	FailureOutput string
+	TestCases     []TestCaseResult
 }
 
 // RunTests executes go test with coverage and returns parsed results.
@@ -266,5 +297,6 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 			Files:    files,
 		},
 		FailureOutput: handler.FailureOutput(),
+		TestCases:     handler.testCases,
 	}, waitErr
 }
