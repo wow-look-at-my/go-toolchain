@@ -55,9 +55,9 @@ func TestGenerateMarkdownSubtests(t *testing.T) {
 	md := GenerateMarkdown(data)
 
 	assert.Contains(t, md, "Test Cases (4 tests)")
-	assert.Contains(t, md, "&ensp;TestFoo/case_a")
-	assert.Contains(t, md, "&ensp;TestFoo/case_b")
-	assert.Contains(t, md, "&ensp;TestFoo/nested/deep")
+	assert.Contains(t, md, "&nbsp;&nbsp;&nbsp;&nbsp;TestFoo/case_a")
+	assert.Contains(t, md, "&nbsp;&nbsp;&nbsp;&nbsp;TestFoo/case_b")
+	assert.Contains(t, md, "&nbsp;&nbsp;&nbsp;&nbsp;TestFoo/nested/deep")
 }
 
 func TestGenerateMarkdownBenchmarks(t *testing.T) {
@@ -177,7 +177,7 @@ func TestRootTestFunc(t *testing.T) {
 
 func TestFormatTestName(t *testing.T) {
 	assert.Equal(t, "TestFoo", formatTestName("TestFoo"))
-	assert.Contains(t, formatTestName("TestFoo/bar"), "&ensp;")
+	assert.Contains(t, formatTestName("TestFoo/bar"), "&nbsp;&nbsp;&nbsp;&nbsp;")
 	assert.Contains(t, formatTestName("TestFoo/bar"), "TestFoo/bar")
 }
 
@@ -221,22 +221,46 @@ func helperNotATest() {}
 	assert.Equal(t, 6, funcs["TestBeta"].line)
 }
 
-func TestBuildSourceLink(t *testing.T) {
+func TestSourceURL(t *testing.T) {
 	cache := map[string]testFuncLocation{
 		"example.com/pkg.TestFoo": {file: "src/pkg/foo_test.go", line: 42},
 	}
 
 	tc := gotest.TestCaseResult{Package: "example.com/pkg", Test: "TestFoo"}
-	link := buildSourceLink(tc, "abc123", "owner/repo", "example.com", cache)
-	assert.Contains(t, link, "https://github.com/owner/repo/blob/abc123/src/pkg/foo_test.go#L42")
+	url := sourceURL(tc, "abc123", "owner/repo", "example.com", cache)
+	assert.Contains(t, url, "https://github.com/owner/repo/blob/abc123/src/pkg/foo_test.go#L42")
 
 	// Subtest should link to parent function
 	tc2 := gotest.TestCaseResult{Package: "example.com/pkg", Test: "TestFoo/case_a"}
-	link2 := buildSourceLink(tc2, "abc123", "owner/repo", "example.com", cache)
-	assert.Contains(t, link2, "foo_test.go#L42")
+	url2 := sourceURL(tc2, "abc123", "owner/repo", "example.com", cache)
+	assert.Contains(t, url2, "foo_test.go#L42")
 
 	// No link when missing SHA
-	assert.Empty(t, buildSourceLink(tc, "", "owner/repo", "example.com", cache))
+	assert.Empty(t, sourceURL(tc, "", "owner/repo", "example.com", cache))
+}
+
+func TestFormatTestNameWithLink(t *testing.T) {
+	cache := map[string]testFuncLocation{
+		"example.com/pkg.TestFoo": {file: "src/pkg/foo_test.go", line: 42},
+	}
+
+	// Top-level test with link
+	tc := gotest.TestCaseResult{Package: "example.com/pkg", Test: "TestFoo"}
+	display := formatTestNameWithLink(tc, "abc123", "owner/repo", "example.com", cache)
+	assert.Contains(t, display, "[TestFoo]")
+	assert.Contains(t, display, "foo_test.go#L42")
+	assert.False(t, strings.HasPrefix(display, "&nbsp;"))
+
+	// Subtest with link and indentation
+	tc2 := gotest.TestCaseResult{Package: "example.com/pkg", Test: "TestFoo/case_a"}
+	display2 := formatTestNameWithLink(tc2, "abc123", "owner/repo", "example.com", cache)
+	assert.True(t, strings.HasPrefix(display2, "&nbsp;&nbsp;&nbsp;&nbsp;"))
+	assert.Contains(t, display2, "[TestFoo/case_a]")
+
+	// No link when no SHA
+	tc3 := gotest.TestCaseResult{Package: "example.com/pkg", Test: "TestFoo"}
+	display3 := formatTestNameWithLink(tc3, "", "owner/repo", "example.com", cache)
+	assert.Equal(t, "TestFoo", display3)
 }
 
 func TestCountTestStatuses(t *testing.T) {

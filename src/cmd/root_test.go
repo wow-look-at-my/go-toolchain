@@ -183,7 +183,7 @@ func TestRunWithRunnerModTidyFails(t *testing.T) {
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -193,7 +193,7 @@ func TestRunWithRunnerTestsFail(t *testing.T) {
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -208,7 +208,7 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -227,7 +227,7 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 }
 
@@ -255,7 +255,7 @@ func TestRunWithRunnerDockerBinaryNaming(t *testing.T) {
 			outputDir = tmpDir
 			defer func() { jsonOutput = false; outputDir = "build" }()
 
-			err := runWithRunner(mock)
+			err := runWithRunner(mock, nil)
 			assert.Nil(t, err)
 
 			for _, cfg := range mock.Calls() {
@@ -295,7 +295,7 @@ func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Verify CGO_ENABLED=0 was set on the build command
@@ -325,7 +325,7 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Verify CGO_ENABLED was NOT set on the build command
@@ -354,7 +354,7 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 }
 
@@ -373,7 +373,7 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 }
 
@@ -392,7 +392,7 @@ func TestRunWithRunnerBuildFails(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -407,7 +407,7 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 	jsonOutput = false // Non-JSON output to hit uncovered functions display
 	defer func() { jsonOutput = false }()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -422,7 +422,7 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	jsonOutput = true // JSON output path when below threshold
 	defer func() { jsonOutput = false }()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -529,7 +529,7 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	jsonOutput = false
 	defer func() { jsonOutput = false }()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 	assert.False(t, err != nil && !strings.Contains(err.Error(), "below minimum"))
 }
@@ -553,7 +553,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 }
 
@@ -575,7 +575,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Verify watermark was ratcheted up
@@ -620,7 +620,7 @@ func TestRunWithRunnerFailedTest(t *testing.T) {
 		outputDir = "build"
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 }
 
@@ -639,7 +639,7 @@ func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 		verbose = false
 	}()
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 	// The key point: results are still displayed before the error is returned
 }

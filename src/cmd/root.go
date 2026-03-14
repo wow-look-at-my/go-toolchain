@@ -81,6 +81,9 @@ func run(cmd *cobra.Command, args []string) error {
 	r := runner.New()
 	startDir, _ := os.Getwd()
 
+	// Accumulate summary data across all modules; write once at the end.
+	var allSummary summary.SummaryData
+
 	for i, modDir := range modules {
 		if len(modules) > 1 {
 			if i > 0 {
@@ -95,9 +98,14 @@ func run(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		if err := runWithRunner(r); err != nil {
+		if err := runWithRunner(r, &allSummary); err != nil {
 			return err
 		}
+	}
+
+	// Write GitHub Step Summary once after all modules complete
+	if writeErr := summary.Write(&allSummary); writeErr != nil {
+		fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
 	}
 
 	return nil
@@ -132,12 +140,12 @@ func findGoModules() []string {
 	return found
 }
 
-func runWithRunner(r runner.CommandRunner) error {
+func runWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 	setupCGOEnvironment()
-	return runWithRunnerOnce(r, false)
+	return runWithRunnerOnce(r, false, sd)
 }
 
-func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
+func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.SummaryData) error {
 	quiet := jsonOutput
 
 	// Check for dep updates before tests so we don't run the full
@@ -157,7 +165,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 	// If vet applied fixes, re-run tests with the corrected code
 	if !isRetry && filesChanged {
 		fmt.Println("\n==> Files changed, rebuilding...")
-		return runWithRunnerOnce(r, true)
+		return runWithRunnerOnce(r, true, sd)
 	}
 
 	br, err := runBuildPhase(r, quiet)
@@ -165,18 +173,14 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool) error {
 		return err
 	}
 
-	// Write GitHub Step Summary when running in CI
-	if testResult != nil {
-		sd := &summary.SummaryData{
-			TestCases: testResult.TestCases,
-			Coverage:  &testResult.Coverage,
-		}
+	// Accumulate data for the GitHub Step Summary
+	if testResult != nil && sd != nil {
+		sd.TestCases = append(sd.TestCases, testResult.TestCases...)
+		// Use the last module's coverage as the overall coverage
+		sd.Coverage = &testResult.Coverage
 		if br != nil {
 			sd.Benchmarks = br.Report
 			sd.BenchComp = br.Comparison
-		}
-		if writeErr := summary.Write(sd); writeErr != nil {
-			fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
 		}
 	}
 

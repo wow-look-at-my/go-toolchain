@@ -160,7 +160,7 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 	benchCount = 1
 	benchCPU = ""
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Verify that a benchmark command was issued (go test -bench ...)
@@ -195,7 +195,7 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 	outputDir = tmpDir
 	noBenchmark = true // --no-benchmark: skip benchmarks
 
-	err := runWithRunner(mock)
+	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Verify no benchmark command was issued

@@ -119,18 +119,17 @@ func writeTestTable(sb *strings.Builder, cases []gotest.TestCaseResult, commitSH
 
 	total := len(cases)
 	sb.WriteString(fmt.Sprintf("<details>\n<summary>Test Cases (%d tests)</summary>\n\n", total))
-	sb.WriteString("| Status | Test | Package | Time | Source |\n")
-	sb.WriteString("|--------|------|---------|-----:|--------|\n")
+	sb.WriteString("| Status | Test | Package | Time |\n")
+	sb.WriteString("|--------|------|---------|-----:|\n")
 
 	for _, tc := range cases {
 		status := statusEmoji(tc.Status)
 		pkg := shortPkg(tc.Package)
-		testDisplay := formatTestName(tc.Test)
+		testDisplay := formatTestNameWithLink(tc, commitSHA, repo, modulePath, locCache)
 		timeStr := formatElapsed(tc.Elapsed)
-		sourceLink := buildSourceLink(tc, commitSHA, repo, modulePath, locCache)
 
-		sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
-			status, testDisplay, pkg, timeStr, sourceLink))
+		sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+			status, testDisplay, pkg, timeStr))
 	}
 
 	sb.WriteString("\n</details>\n\n")
@@ -232,11 +231,25 @@ func shortPkg(pkg string) string {
 	return pkg
 }
 
-// formatTestName handles subtests: "TestFoo/bar/baz" → display with indentation
+// formatTestNameWithLink returns the test name (possibly as a link) with subtest indentation.
+func formatTestNameWithLink(tc gotest.TestCaseResult, commitSHA, repo, modulePath string, cache map[string]testFuncLocation) string {
+	name := tc.Test
+	indent := ""
+	if strings.Contains(name, "/") {
+		indent = "&nbsp;&nbsp;&nbsp;&nbsp;"
+	}
+
+	linkURL := sourceURL(tc, commitSHA, repo, modulePath, cache)
+	if linkURL != "" {
+		return fmt.Sprintf("%s[%s](%s)", indent, name, linkURL)
+	}
+	return indent + name
+}
+
+// formatTestName returns the display name for a test (used in non-link contexts).
 func formatTestName(name string) string {
 	if idx := strings.Index(name, "/"); idx >= 0 {
-		// Subtest: show indented path after parent
-		return fmt.Sprintf("&ensp;%s", name)
+		return "&nbsp;&nbsp;&nbsp;&nbsp;" + name
 	}
 	return name
 }
@@ -352,7 +365,7 @@ func findTestFuncsInDir(dir string, funcNames map[string]bool) map[string]testFu
 	return result
 }
 
-func buildSourceLink(tc gotest.TestCaseResult, commitSHA, repo, modulePath string, cache map[string]testFuncLocation) string {
+func sourceURL(tc gotest.TestCaseResult, commitSHA, repo, modulePath string, cache map[string]testFuncLocation) string {
 	if commitSHA == "" || repo == "" {
 		return ""
 	}
@@ -364,7 +377,7 @@ func buildSourceLink(tc gotest.TestCaseResult, commitSHA, repo, modulePath strin
 		return ""
 	}
 
-	return fmt.Sprintf("[:link:](https://github.com/%s/blob/%s/%s#L%d)", repo, commitSHA, loc.file, loc.line)
+	return fmt.Sprintf("https://github.com/%s/blob/%s/%s#L%d", repo, commitSHA, loc.file, loc.line)
 }
 
 func benchDisplayName(name, shortPkg string) string {
