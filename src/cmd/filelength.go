@@ -18,8 +18,7 @@ const (
 // checkFileLength walks all .go files under root (excluding generated files)
 // and warns at 500 lines, errors at 750 lines.
 func checkFileLength(root string) error {
-	var warnings []string
-	var errors []string
+	var nWarn, nErr int
 
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -62,31 +61,25 @@ func checkFileLength(root string) error {
 		if lineNum >= fileLengthError {
 			exempt, _ := gotest.IsFileLengthExempt(path)
 			if exempt {
-				warnings = append(warnings, fmt.Sprintf("  %s: %d lines (exempt, warning at %d)", path, lineNum, fileLengthWarn))
+				logWarning(path, fmt.Sprintf("%s: %d lines (exempt, warning at %d)", path, lineNum, fileLengthWarn))
+				nWarn++
 			} else {
-				errors = append(errors, fmt.Sprintf("  %s: %d lines (max %d)", path, lineNum, fileLengthError))
+				logError(path, fmt.Sprintf("%s: %d lines (max %d)", path, lineNum, fileLengthError))
+				nErr++
 			}
 		} else if lineNum >= fileLengthWarn {
-			warnings = append(warnings, fmt.Sprintf("  %s: %d lines (consider splitting, warning at %d)", path, lineNum, fileLengthWarn))
+			logWarning(path, fmt.Sprintf("%s: %d lines (consider splitting, warning at %d)", path, lineNum, fileLengthWarn))
+			nWarn++
 		}
 		return nil
 	})
 
-	if len(warnings) > 0 {
-		fmt.Printf("\n%slong files:%s\n", colorYellow, colorReset)
-		for _, w := range warnings {
-			fmt.Println(w)
-		}
+	if nWarn > 0 || nErr > 0 {
 		fmt.Println()
 	}
 
-	if len(errors) > 0 {
-		fmt.Printf("\n%sfiles exceed maximum length:%s\n", colorRed, colorReset)
-		for _, e := range errors {
-			fmt.Println(e)
-		}
-		fmt.Println()
-		return fmt.Errorf("%d file(s) exceed %d lines", len(errors), fileLengthError)
+	if nErr > 0 {
+		return fmt.Errorf("%d file(s) exceed %d lines", nErr, fileLengthError)
 	}
 
 	return nil
