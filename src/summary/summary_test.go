@@ -291,6 +291,25 @@ func TestGenerateMarkdownMultiPackage(t *testing.T) {
 	assert.Contains(t, md, "**All lib Tests**")
 }
 
+func TestSortTestCases(t *testing.T) {
+	// Simulate Go's test output order: subtests before parent
+	cases := []gotest.TestCaseResult{
+		{Test: "TestFoo/case_a", Status: "pass"},
+		{Test: "TestFoo/case_b", Status: "pass"},
+		{Test: "TestFoo", Status: "pass"},
+		{Test: "TestBar/x", Status: "pass"},
+		{Test: "TestBar", Status: "pass"},
+	}
+	sortTestCases(cases)
+
+	// Parent should come before subtests
+	assert.Equal(t, "TestFoo", cases[0].Test)
+	assert.Equal(t, "TestFoo/case_a", cases[1].Test)
+	assert.Equal(t, "TestFoo/case_b", cases[2].Test)
+	assert.Equal(t, "TestBar", cases[3].Test)
+	assert.Equal(t, "TestBar/x", cases[4].Test)
+}
+
 func TestCountTestStatuses(t *testing.T) {
 	cases := []gotest.TestCaseResult{
 		{Status: "pass"}, {Status: "pass"}, {Status: "fail"}, {Status: "skip"},

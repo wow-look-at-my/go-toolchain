@@ -107,6 +107,29 @@ func countTestStatuses(cases []gotest.TestCaseResult) (passed, failed, skipped i
 	return
 }
 
+// sortTestCases sorts tests so that parent tests appear before their subtests,
+// and subtests are grouped under their parent. This fixes ordering issues caused
+// by Go's test runner reporting subtest results before the parent.
+func sortTestCases(cases []gotest.TestCaseResult) {
+	sort.SliceStable(cases, func(i, j int) bool {
+		ri := rootTestFunc(cases[i].Test)
+		rj := rootTestFunc(cases[j].Test)
+		if ri != rj {
+			return false // preserve original order between different root tests
+		}
+		// Same root: parent before subtests, subtests in original order
+		iIsSub := strings.Contains(cases[i].Test, "/")
+		jIsSub := strings.Contains(cases[j].Test, "/")
+		if !iIsSub && jIsSub {
+			return true // parent before subtest
+		}
+		if iIsSub && !jIsSub {
+			return false // subtest after parent
+		}
+		return false // preserve original order among subtests
+	})
+}
+
 // testFuncLocation caches parsed test function locations.
 type testFuncLocation struct {
 	file string // repo-relative file path
@@ -129,6 +152,7 @@ func writeTestTable(sb *strings.Builder, cases []gotest.TestCaseResult, commitSH
 
 	for _, pkg := range pkgOrder {
 		pkgTests := pkgCases[pkg]
+		sortTestCases(pkgTests)
 		passed, failed, skipped := countTestStatuses(pkgTests)
 		short := shortPkg(pkg)
 
