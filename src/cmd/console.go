@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sync"
 	"time"
 )
@@ -63,6 +64,39 @@ func colorPct(p ColorPct) string {
 // warn formats a warning message in yellow
 func warn(msg string) string {
 	return colorYellow + "WARNING: " + msg + colorReset
+}
+
+// isGHA reports whether we are running inside GitHub Actions.
+func isGHA() bool {
+	return os.Getenv("GITHUB_ACTIONS") == "true"
+}
+
+// logWarning prints a warning. In GHA it emits a ::warning annotation;
+// locally it prints yellow text. file is optional (used for GHA file annotations).
+func logWarning(file, msg string) {
+	if isGHA() {
+		if file != "" {
+			fmt.Printf("::warning file=%s::%s\n", file, msg)
+		} else {
+			fmt.Printf("::warning ::%s\n", msg)
+		}
+	} else {
+		fmt.Printf("  %s%s%s\n", colorYellow, msg, colorReset)
+	}
+}
+
+// logError prints an error. In GHA it emits a ::error annotation;
+// locally it prints red text. file is optional (used for GHA file annotations).
+func logError(file, msg string) {
+	if isGHA() {
+		if file != "" {
+			fmt.Printf("::error file=%s::%s\n", file, msg)
+		} else {
+			fmt.Printf("::error ::%s\n", msg)
+		}
+	} else {
+		fmt.Printf("  %s%s%s\n", colorRed, msg, colorReset)
+	}
 }
 
 // step tracks progress for a long-running build step.
