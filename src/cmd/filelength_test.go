@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,6 +79,94 @@ func TestCheckFileLength_SkipsVendor(t *testing.T) {
 
 	err := checkFileLength(dir)
 	assert.NoError(t, err)
+}
+
+func TestCheckFileLength_GHAWarningAnnotation(t *testing.T) {
+	dir := t.TempDir()
+
+	var sb strings.Builder
+	sb.WriteString("package foo\n\n")
+	for i := 0; i < fileLengthWarn; i++ {
+		fmt.Fprintf(&sb, "var x%d = %d\n", i, i)
+	}
+	os.WriteFile(filepath.Join(dir, "medium.go"), []byte(sb.String()), 0644)
+
+	t.Setenv("GITHUB_ACTIONS", "true")
+
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := checkFileLength(dir)
+
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	assert.NoError(t, err)
+	assert.Contains(t, output, "::warning file=")
+	assert.NotContains(t, output, "::error")
+}
+
+func TestCheckFileLength_GHAErrorAnnotation(t *testing.T) {
+	dir := t.TempDir()
+
+	var sb strings.Builder
+	sb.WriteString("package foo\n\n")
+	for i := 0; i < fileLengthError; i++ {
+		fmt.Fprintf(&sb, "var x%d = %d\n", i, i)
+	}
+	os.WriteFile(filepath.Join(dir, "long.go"), []byte(sb.String()), 0644)
+
+	t.Setenv("GITHUB_ACTIONS", "true")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := checkFileLength(dir)
+
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	require.Error(t, err)
+	assert.Contains(t, output, "::error file=")
+	assert.NotContains(t, output, "::warning")
+}
+
+func TestCheckFileLength_NoGHAAnnotationsLocally(t *testing.T) {
+	dir := t.TempDir()
+
+	var sb strings.Builder
+	sb.WriteString("package foo\n\n")
+	for i := 0; i < fileLengthWarn; i++ {
+		fmt.Fprintf(&sb, "var x%d = %d\n", i, i)
+	}
+	os.WriteFile(filepath.Join(dir, "medium.go"), []byte(sb.String()), 0644)
+
+	t.Setenv("GITHUB_ACTIONS", "")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := checkFileLength(dir)
+
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	assert.NoError(t, err)
+	assert.NotContains(t, output, "::warning")
+	assert.NotContains(t, output, "::error")
 }
 
 func TestCheckFileLength_TestFile(t *testing.T) {

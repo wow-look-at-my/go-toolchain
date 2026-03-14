@@ -15,11 +15,18 @@ const (
 	fileLengthError = 750
 )
 
+type fileLengthEntry struct {
+	path  string
+	lines int
+}
+
 // checkFileLength walks all .go files under root (excluding generated files)
 // and warns at 500 lines, errors at 750 lines.
 func checkFileLength(root string) error {
 	var warnings []string
 	var errors []string
+	var warnFiles []fileLengthEntry
+	var errFiles []fileLengthEntry
 
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -63,19 +70,29 @@ func checkFileLength(root string) error {
 			exempt, _ := gotest.IsFileLengthExempt(path)
 			if exempt {
 				warnings = append(warnings, fmt.Sprintf("  %s: %d lines (exempt, warning at %d)", path, lineNum, fileLengthWarn))
+				warnFiles = append(warnFiles, fileLengthEntry{path, lineNum})
 			} else {
 				errors = append(errors, fmt.Sprintf("  %s: %d lines (max %d)", path, lineNum, fileLengthError))
+				errFiles = append(errFiles, fileLengthEntry{path, lineNum})
 			}
 		} else if lineNum >= fileLengthWarn {
 			warnings = append(warnings, fmt.Sprintf("  %s: %d lines (consider splitting, warning at %d)", path, lineNum, fileLengthWarn))
+			warnFiles = append(warnFiles, fileLengthEntry{path, lineNum})
 		}
 		return nil
 	})
+
+	gha := os.Getenv("GITHUB_ACTIONS") == "true"
 
 	if len(warnings) > 0 {
 		fmt.Printf("\n%slong files:%s\n", colorYellow, colorReset)
 		for _, w := range warnings {
 			fmt.Println(w)
+		}
+		if gha {
+			for _, w := range warnFiles {
+				fmt.Printf("::warning file=%s::%s: %d lines (consider splitting, warning at %d)\n", w.path, w.path, w.lines, fileLengthWarn)
+			}
 		}
 		fmt.Println()
 	}
@@ -84,6 +101,11 @@ func checkFileLength(root string) error {
 		fmt.Printf("\n%sfiles exceed maximum length:%s\n", colorRed, colorReset)
 		for _, e := range errors {
 			fmt.Println(e)
+		}
+		if gha {
+			for _, e := range errFiles {
+				fmt.Printf("::error file=%s::%s: %d lines (max %d)\n", e.path, e.path, e.lines, fileLengthError)
+			}
 		}
 		fmt.Println()
 		return fmt.Errorf("%d file(s) exceed %d lines", len(errors), fileLengthError)
