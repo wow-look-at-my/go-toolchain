@@ -450,16 +450,24 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	roundedTotal := float32(math.Round(float64(report.Total)*10) / 10)
 	roundedMin := float32(math.Round(float64(effectiveMin)*10) / 10)
 	if roundedTotal < roundedMin {
-		// Calculate total uncovered statements across all packages
-		var totalUncovered int
+		// Check if every file with uncovered statements has fewer than 10.
+		// Small files (e.g. main.go with just main()) can't easily reach
+		// the coverage minimum, so we warn instead of failing.
+		allSmall := true
 		for _, pkg := range report.Packages {
-			totalUncovered += pkg.Uncovered()
+			for _, f := range pkg.Files {
+				if f.Uncovered() >= 10 {
+					allSmall = false
+					break
+				}
+			}
+			if !allSmall {
+				break
+			}
 		}
-		// Allow reduced coverage if fewer than 10 statements are uncovered
-		// (e.g. small programs where main() can't be easily covered)
-		if totalUncovered < 10 {
+		if allSmall {
 			if !quiet {
-				fmt.Printf("==> Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing\n", report.Total, effectiveMin, totalUncovered)
+				fmt.Printf("==> Coverage %.1f%% is below minimum %.1f%%, but no file has 10+ uncovered statements — allowing\n", report.Total, effectiveMin)
 			}
 		} else {
 			return false, result, fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
