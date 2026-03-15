@@ -62,16 +62,6 @@ runs:
         go-version-file: ${{ inputs.go-version-file }}
         cache: true
 
-    - name: Cache Go build cache and go-toolchain downloads
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/.cache/go-toolchain
-        key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          go-toolchain-${{ runner.os }}-${{ runner.arch }}-
-
     - name: Download go-toolchain
       if: inputs.binary == ''
       uses: wow-look-at-my/actions@download-release-binary#latest
@@ -86,6 +76,22 @@ runs:
       run: |
         chmod +x "${{ inputs.binary }}"
         sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
+
+    - name: Compute go-toolchain version hash
+      id: toolchain-hash
+      shell: bash
+      run: echo "hash=$(sha256sum "$(which go-toolchain)" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Go build cache and go-toolchain downloads
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/.cache/go-toolchain
+        key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-hash.outputs.hash }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-hash.outputs.hash }}-
+          go-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Run go-toolchain
       shell: bash
