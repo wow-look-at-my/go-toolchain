@@ -6,11 +6,14 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // ICoverageItem is the interface for any coverage entity
@@ -99,10 +102,18 @@ type funcInfo struct {
 // ParseProfile reads a Go coverage profile and returns total coverage and file coverage.
 // Each FileCoverage contains its functions with Parent pointers set.
 func ParseProfile(filename string) (float32, []FileCoverage, error) {
+	return ParseProfileFiltered(filename, nil)
+}
+
+// ParseProfileFiltered is like ParseProfile but excludes coverage blocks from
+// packages not in the reachable set. If reachable is nil, all blocks are included.
+func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, []FileCoverage, error) {
 	blocks, err := parseProfileBlocks(filename)
 	if err != nil {
 		return 0, nil, err
 	}
+
+	blocks = filterBlocksByReachable(blocks, reachable)
 
 	// Group blocks by file
 	type fileStats struct {
@@ -161,6 +172,65 @@ func ParseProfile(filename string) (float32, []FileCoverage, error) {
 	})
 
 	return totalCoverage, fileCov, nil
+}
+
+// ReachablePackages runs `go list -deps ./...` and returns the set of
+// module-local packages reachable in the default import graph.
+func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
+	// Get module prefix
+	modProc, err := runner.Cmd("go", "list", "-m").WithQuiet().Run(r)
+	if err != nil {
+		return nil, err
+	}
+	modOut, _ := io.ReadAll(modProc.Stdout())
+	if err := modProc.Wait(); err != nil {
+		return nil, err
+	}
+	modulePrefix := strings.TrimSpace(string(modOut))
+	if modulePrefix == "" {
+		return nil, nil
+	}
+
+	// Get all reachable packages
+	proc, err := runner.Cmd("go", "list", "-deps", "-f", "{{.ImportPath}}", "./...").WithQuiet().Run(r)
+	if err != nil {
+		return nil, err
+	}
+	out, _ := io.ReadAll(proc.Stdout())
+	if err := proc.Wait(); err != nil {
+		return nil, err
+	}
+
+	reachable := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && strings.HasPrefix(line, modulePrefix) {
+			reachable[line] = true
+		}
+	}
+	if len(reachable) == 0 {
+		return nil, nil
+	}
+	return reachable, nil
+}
+
+// filterBlocksByReachable removes coverage blocks whose package is not in the
+// reachable set. If reachable is nil or empty, returns blocks unchanged.
+func filterBlocksByReachable(blocks []coverageBlock, reachable map[string]bool) []coverageBlock {
+	if len(reachable) == 0 {
+		return blocks
+	}
+	var filtered []coverageBlock
+	for _, b := range blocks {
+		pkg := b.file
+		if idx := strings.LastIndex(b.file, "/"); idx != -1 {
+			pkg = b.file[:idx]
+		}
+		if reachable[pkg] {
+			filtered = append(filtered, b)
+		}
+	}
+	return filtered
 }
 
 // parseProfileBlocks parses a coverage profile into blocks

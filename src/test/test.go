@@ -248,8 +248,11 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		return nil, fmt.Errorf("no tests found (create *_test.go files with Test* functions)")
 	}
 
+	// Determine reachable packages to filter coverage (non-fatal on error)
+	reachable, _ := ReachablePackages(r)
+
 	// Parse coverage profile for total and file coverage (files contain functions)
-	totalCoverage, files, _ := ParseProfile(coverFile)
+	totalCoverage, files, _ := ParseProfileFiltered(coverFile, reachable)
 
 	// Group files by package path
 	pkgFiles := make(map[string][]FileCoverage)
@@ -265,6 +268,10 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// Build package results from execution
 	var packages []PackageCoverage
 	for _, pkgName := range execution.Packages() {
+		// Skip packages not in the reachable import graph
+		if reachable != nil && !reachable[pkgName] {
+			continue
+		}
 		p := PackageCoverage{
 			Package: pkgName,
 		}
