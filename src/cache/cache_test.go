@@ -240,11 +240,10 @@ func TestServer_Lock(t *testing.T) {
 	srv := NewServer(nil, nil)
 	mu1 := srv.lock("key1")
 	mu2 := srv.lock("key1")
-	require.Equal(t, mu2, mu1)
+	require.True(t, mu1 == mu2, "same key should return same mutex")
 
 	mu3 := srv.lock("key2")
-	require.NotEqual(t, mu3, mu1)
-
+	require.True(t, mu1 != mu3, "different keys should return different mutexes")
 }
 
 // makeRequest serializes a request as a JSON line.
