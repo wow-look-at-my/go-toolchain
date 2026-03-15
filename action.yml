@@ -83,9 +83,9 @@ runs:
       uses: wow-look-at-my/actions@cache-size/claude/investigate-cache-size-S1136#latest
       with:
         paths: |
-          ${{ env.HOME }}/.cache/go-build
-          ${{ env.HOME }}/.cache/go-toolchain
-          ${{ env.HOME }}/go/pkg/mod
+          ~/.cache/go-build
+          ~/.cache/go-toolchain
+          ~/go/pkg/mod
 
     - name: Run go-toolchain
       shell: bash
