@@ -6,11 +6,14 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // ICoverageItem is the interface for any coverage entity
@@ -99,10 +102,18 @@ type funcInfo struct {
 // ParseProfile reads a Go coverage profile and returns total coverage and file coverage.
 // Each FileCoverage contains its functions with Parent pointers set.
 func ParseProfile(filename string) (float32, []FileCoverage, error) {
+	return ParseProfileFiltered(filename, nil)
+}
+
+// ParseProfileFiltered is like ParseProfile but excludes coverage blocks from
+// packages not in the reachable set. If reachable is nil, all blocks are included.
+func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, []FileCoverage, error) {
 	blocks, err := parseProfileBlocks(filename)
 	if err != nil {
 		return 0, nil, err
 	}
+
+	blocks = filterBlocksByReachable(blocks, reachable)
 
 	// Group blocks by file
 	type fileStats struct {
@@ -161,6 +172,99 @@ func ParseProfile(filename string) (float32, []FileCoverage, error) {
 	})
 
 	return totalCoverage, fileCov, nil
+}
+
+// ReachablePackages returns the set of module-local packages reachable from
+// the build entry points (main packages). This excludes packages that exist
+// on disk but aren't imported by any entry point — e.g., packages behind
+// build tags like //go:build mongo.
+//
+// If no main packages are found (library-only project), falls back to
+// go list -deps ./... which includes all packages.
+func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
+	// Get module prefix
+	modProc, err := runner.Cmd("go", "list", "-m").WithQuiet().Run(r)
+	if err != nil {
+		return nil, err
+	}
+	modOut, _ := io.ReadAll(modProc.Stdout())
+	if err := modProc.Wait(); err != nil {
+		return nil, err
+	}
+	modulePrefix := strings.TrimSpace(string(modOut))
+	if modulePrefix == "" {
+		return nil, nil
+	}
+
+	// Find main packages to use as roots for the dependency graph.
+	// Using entry points instead of ./... prevents build-tag-excluded
+	// packages from being counted toward coverage thresholds.
+	roots := "./..."
+	mainProc, err := runner.Cmd("go", "list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./...").WithQuiet().Run(r)
+	if err == nil {
+		mainOut, _ := io.ReadAll(mainProc.Stdout())
+		if mainProc.Wait() == nil {
+			var mainPkgs []string
+			for _, line := range strings.Split(strings.TrimSpace(string(mainOut)), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					mainPkgs = append(mainPkgs, line)
+				}
+			}
+			if len(mainPkgs) > 0 {
+				roots = strings.Join(mainPkgs, "\n")
+			}
+		}
+	}
+
+	// Get all reachable packages from the roots
+	args := []string{"list", "-deps", "-f", "{{.ImportPath}}"}
+	if roots == "./..." {
+		args = append(args, roots)
+	} else {
+		for _, pkg := range strings.Split(roots, "\n") {
+			args = append(args, pkg)
+		}
+	}
+	proc, err := runner.Cmd("go", args...).WithQuiet().Run(r)
+	if err != nil {
+		return nil, err
+	}
+	out, _ := io.ReadAll(proc.Stdout())
+	if err := proc.Wait(); err != nil {
+		return nil, err
+	}
+
+	reachable := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && strings.HasPrefix(line, modulePrefix) {
+			reachable[line] = true
+		}
+	}
+	if len(reachable) == 0 {
+		return nil, nil
+	}
+	return reachable, nil
+}
+
+// filterBlocksByReachable removes coverage blocks whose package is not in the
+// reachable set. If reachable is nil or empty, returns blocks unchanged.
+func filterBlocksByReachable(blocks []coverageBlock, reachable map[string]bool) []coverageBlock {
+	if len(reachable) == 0 {
+		return blocks
+	}
+	var filtered []coverageBlock
+	for _, b := range blocks {
+		pkg := b.file
+		if idx := strings.LastIndex(b.file, "/"); idx != -1 {
+			pkg = b.file[:idx]
+		}
+		if reachable[pkg] {
+			filtered = append(filtered, b)
+		}
+	}
+	return filtered
 }
 
 // parseProfileBlocks parses a coverage profile into blocks

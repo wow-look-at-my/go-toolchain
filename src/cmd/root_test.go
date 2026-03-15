@@ -53,6 +53,9 @@ func handleGoList(cfg runner.Config) (runner.IProcess, bool) {
 		if arg == "-m" {
 			return runner.MockProcess([]byte("example.com\n"), nil), true
 		}
+		if arg == "-deps" {
+			return runner.MockProcess([]byte("example.com/pkg\n"), nil), true
+		}
 	}
 	return nil, false
 }
