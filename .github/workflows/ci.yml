@@ -32,9 +32,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-build-ci-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            go-build-ci-
+          key: go-build
 
       - name: Build and test
         run: go run ./src
@@ -46,7 +44,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-build-ci-${{ hashFiles('go.sum') }}
+          key: go-build
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
