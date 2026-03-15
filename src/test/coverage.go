@@ -174,8 +174,13 @@ func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, 
 	return totalCoverage, fileCov, nil
 }
 
-// ReachablePackages runs `go list -deps ./...` and returns the set of
-// module-local packages reachable in the default import graph.
+// ReachablePackages returns the set of module-local packages reachable from
+// the build entry points (main packages). This excludes packages that exist
+// on disk but aren't imported by any entry point — e.g., packages behind
+// build tags like //go:build mongo.
+//
+// If no main packages are found (library-only project), falls back to
+// go list -deps ./... which includes all packages.
 func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
 	// Get module prefix
 	modProc, err := runner.Cmd("go", "list", "-m").WithQuiet().Run(r)
@@ -191,8 +196,37 @@ func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
 		return nil, nil
 	}
 
-	// Get all reachable packages
-	proc, err := runner.Cmd("go", "list", "-deps", "-f", "{{.ImportPath}}", "./...").WithQuiet().Run(r)
+	// Find main packages to use as roots for the dependency graph.
+	// Using entry points instead of ./... prevents build-tag-excluded
+	// packages from being counted toward coverage thresholds.
+	roots := "./..."
+	mainProc, err := runner.Cmd("go", "list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./...").WithQuiet().Run(r)
+	if err == nil {
+		mainOut, _ := io.ReadAll(mainProc.Stdout())
+		if mainProc.Wait() == nil {
+			var mainPkgs []string
+			for _, line := range strings.Split(strings.TrimSpace(string(mainOut)), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					mainPkgs = append(mainPkgs, line)
+				}
+			}
+			if len(mainPkgs) > 0 {
+				roots = strings.Join(mainPkgs, "\n")
+			}
+		}
+	}
+
+	// Get all reachable packages from the roots
+	args := []string{"list", "-deps", "-f", "{{.ImportPath}}"}
+	if roots == "./..." {
+		args = append(args, roots)
+	} else {
+		for _, pkg := range strings.Split(roots, "\n") {
+			args = append(args, pkg)
+		}
+	}
+	proc, err := runner.Cmd("go", args...).WithQuiet().Run(r)
 	if err != nil {
 		return nil, err
 	}
