@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
 	"github.com/wow-look-at-my/testify/require"
 )
 
@@ -244,6 +246,85 @@ func TestServer_Lock(t *testing.T) {
 
 	mu3 := srv.lock("key2")
 	require.True(t, mu1 != mu3, "different keys should return different mutexes")
+}
+
+func TestFileSize(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "test-*")
+	require.NoError(t, err)
+	f.WriteString("hello")
+	f.Close()
+
+	require.Equal(t, int64(5), fileSize(f.Name()))
+}
+
+func TestFileSize_Missing(t *testing.T) {
+	require.Equal(t, int64(0), fileSize("/nonexistent/path"))
+}
+
+func TestServer_PutWithRemote(t *testing.T) {
+	dir := t.TempDir()
+	lc, err := NewLocalCache(dir)
+	require.NoError(t, err)
+
+	backend := newMemBackend()
+	actionID := []byte{0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33}
+	outputID := []byte{0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb}
+	body := "data for remote"
+
+	var input strings.Builder
+	input.WriteString(makePutRequest(Request{
+		ID:       1,
+		Command:  CmdPut,
+		ActionID: actionID,
+		OutputID: outputID,
+		BodySize: int64(len(body)),
+	}, body))
+	input.WriteString(makeRequest(Request{
+		ID:      2,
+		Command: CmdClose,
+	}))
+
+	var out bytes.Buffer
+	srv := NewServer(lc, backend)
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	// Give async remote write time to complete.
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify data was written to remote.
+	_, _, _, _, miss, err := backend.Get(fmt.Sprintf("%x", actionID))
+	require.NoError(t, err)
+	require.False(t, miss)
+}
+
+func TestServer_PutDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	lc, err := NewLocalCache(dir)
+	require.NoError(t, err)
+
+	actionID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33}
+	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
+	body := "duplicate data"
+
+	// PUT same action twice, then CLOSE.
+	var input strings.Builder
+	input.WriteString(makePutRequest(Request{
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID,
+		BodySize: int64(len(body)),
+	}, body))
+	input.WriteString(makePutRequest(Request{
+		ID: 2, Command: CmdPut, ActionID: actionID, OutputID: outputID,
+		BodySize: int64(len(body)),
+	}, body))
+	input.WriteString(makeRequest(Request{ID: 3, Command: CmdClose}))
+
+	var out bytes.Buffer
+	srv := NewServer(lc, nil)
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	responses := parseResponses(t, out.Bytes())
+	// Should have handshake + 3 responses (2 puts + 1 close) = 4 total
+	require.GreaterOrEqual(t, len(responses), 4)
 }
 
 // makeRequest serializes a request as a JSON line.
