@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pierrec/lz4/v4"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // S3Config holds the configuration for an S3-compatible backend.
@@ -35,6 +37,7 @@ type S3Backend struct {
 	accessKey string
 	secretKey string
 	Stats     CacheStats
+	keys      set.Set[string] // known keys, built from ListObjects on startup
 }
 
 // NewS3Backend creates an S3 backend from the given config.
@@ -69,7 +72,7 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		return nil, fmt.Errorf("s3: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required")
 	}
 
-	return &S3Backend{
+	b := &S3Backend{
 		client:    &http.Client{Timeout: 30 * time.Second},
 		bucket:    cfg.Bucket,
 		prefix:    prefix,
@@ -77,7 +80,57 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		endpoint:  strings.TrimRight(cfg.Endpoint, "/"),
 		accessKey: accessKey,
 		secretKey: secretKey,
-	}, nil
+	}
+	b.keys = b.listAllKeys()
+	fmt.Fprintf(os.Stderr, "cacheprog: s3 index: %d keys\n", b.keys.Len())
+	return b, nil
+}
+
+// listObjectsResult is the XML response from S3 ListObjectsV2.
+type listObjectsResult struct {
+	XMLName               xml.Name `xml:"ListBucketResult"`
+	Contents              []struct{ Key string } `xml:"Contents"`
+	IsTruncated           bool     `xml:"IsTruncated"`
+	NextContinuationToken string   `xml:"NextContinuationToken"`
+}
+
+// listAllKeys fetches all keys with our prefix from S3 using ListObjectsV2.
+func (b *S3Backend) listAllKeys() set.Set[string] {
+	keys := set.New[string]()
+	continuation := ""
+	for {
+		query := "list-type=2&prefix=" + b.prefix + "&max-keys=1000"
+		if continuation != "" {
+			query += "&continuation-token=" + continuation
+		}
+		url := b.endpoint + "/" + b.bucket + "?" + query
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			break
+		}
+		b.signRequest(req, nil)
+		resp, err := b.client.Do(req)
+		if err != nil {
+			break
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			break
+		}
+		var result listObjectsResult
+		if xml.Unmarshal(body, &result) != nil {
+			break
+		}
+		for _, c := range result.Contents {
+			keys.Add(c.Key)
+		}
+		if !result.IsTruncated {
+			break
+		}
+		continuation = result.NextContinuationToken
+	}
+	return keys
 }
 
 func (b *S3Backend) key(actionID string) string {
@@ -89,8 +142,12 @@ func (b *S3Backend) url(key string) string {
 }
 
 // Get retrieves a cached object from S3. The returned body is decompressed.
+// Returns immediately if the key is not in the index (no network call).
 func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
 	key := b.key(actionID)
+	if !b.keys.Contains(key) {
+		return "", nil, 0, time.Time{}, true, nil
+	}
 	req, err := http.NewRequest("GET", b.url(key), nil)
 	if err != nil {
 		return "", nil, 0, time.Time{}, true, nil
@@ -145,26 +202,11 @@ func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, s
 	return outputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), t, false, nil
 }
 
-// Exists checks if an object exists in S3 via HEAD request.
-func (b *S3Backend) Exists(actionID string) bool {
-	key := b.key(actionID)
-	req, err := http.NewRequest("HEAD", b.url(key), nil)
-	if err != nil {
-		return false
-	}
-	b.signRequest(req, nil)
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return resp.StatusCode == 200
-}
-
 // Put stores a cached object in S3 with LZ4 compression.
-// Skips upload if the object already exists.
+// Skips upload if the key is already in the index.
 func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
-	if b.Exists(actionID) {
+	key := b.key(actionID)
+	if b.keys.Contains(key) {
 		return nil
 	}
 
@@ -178,7 +220,6 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 		return fmt.Errorf("s3 put compress: %w", err)
 	}
 
-	key := b.key(actionID)
 	req, err := http.NewRequest("PUT", b.url(key), bytes.NewReader(compressed))
 	if err != nil {
 		return fmt.Errorf("s3 put request: %w", err)
@@ -201,6 +242,7 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 	}
 
 	b.Stats.Puts.Increment()
+	b.keys.Add(key)
 	return nil
 }
 
