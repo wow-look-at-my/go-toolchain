@@ -78,6 +78,7 @@ runs:
         restore-keys: |
           go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-hash.outputs.hash }}-
           go-toolchain-${{ runner.os }}-${{ runner.arch }}-
+        save-always: true
 
     - name: Run go-toolchain
       shell: bash
