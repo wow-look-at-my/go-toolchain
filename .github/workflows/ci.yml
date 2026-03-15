@@ -41,6 +41,12 @@ jobs:
             fi
             echo "OK: $field = $val"
           done
+          binary_commit=$(echo "$json" | jq -r '.commit')
+          if [ "$binary_commit" != "$GITHUB_SHA" ]; then
+            echo "FAIL: binary commit ($binary_commit) does not match GITHUB_SHA ($GITHUB_SHA)"
+            exit 1
+          fi
+          echo "OK: binary commit matches GITHUB_SHA"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
