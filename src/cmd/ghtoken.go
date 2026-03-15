@@ -35,6 +35,10 @@ var environFunc = os.Environ
 // for go-toolchain updates via the GitHub releases API, which is subject to
 // aggressive rate limiting for unauthenticated requests.
 func discoverGitHubToken() string {
+	if os.Getenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH") == "" {
+		return ""
+	}
+
 	// 1. Check well-known env vars first.
 	for _, name := range wellKnownTokenVars {
 		if v := os.Getenv(name); v != "" {

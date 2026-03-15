@@ -15,10 +15,25 @@ func withEmptyEnviron(t *testing.T) {
 	t.Cleanup(func() { environFunc = old })
 }
 
+// enableTokenSearch sets the gate env var so discoverGitHubToken runs.
+func enableTokenSearch(t *testing.T) {
+	t.Helper()
+	t.Setenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH", "1")
+}
+
+func TestDiscoverGitHubToken_DisabledByDefault(t *testing.T) {
+	t.Setenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH", "")
+	t.Setenv("GITHUB_TOKEN", "ghp_should_not_find_this")
+	got := discoverGitHubToken()
+	assert.Equal(t, "", got)
+}
+
 func TestDiscoverGitHubToken_WellKnownVars(t *testing.T) {
+	enableTokenSearch(t)
 	withEmptyEnviron(t)
 	for _, name := range wellKnownTokenVars {
 		t.Run(name, func(t *testing.T) {
+			enableTokenSearch(t)
 			// Clear all well-known vars first.
 			for _, n := range wellKnownTokenVars {
 				t.Setenv(n, "")
@@ -31,6 +46,7 @@ func TestDiscoverGitHubToken_WellKnownVars(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_Priority(t *testing.T) {
+	enableTokenSearch(t)
 	withEmptyEnviron(t)
 	// GITHUB_TOKEN should take priority over GH_TOKEN.
 	t.Setenv("GITHUB_TOKEN", "first")
@@ -40,6 +56,7 @@ func TestDiscoverGitHubToken_Priority(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_ScansEnvForPAT(t *testing.T) {
+	enableTokenSearch(t)
 	// Clear well-known vars.
 	for _, n := range wellKnownTokenVars {
 		t.Setenv(n, "")
@@ -56,6 +73,7 @@ func TestDiscoverGitHubToken_ScansEnvForPAT(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_FineGrainedPAT(t *testing.T) {
+	enableTokenSearch(t)
 	for _, n := range wellKnownTokenVars {
 		t.Setenv(n, "")
 	}
@@ -70,6 +88,7 @@ func TestDiscoverGitHubToken_FineGrainedPAT(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_NoToken(t *testing.T) {
+	enableTokenSearch(t)
 	for _, n := range wellKnownTokenVars {
 		t.Setenv(n, "")
 	}
@@ -82,6 +101,7 @@ func TestDiscoverGitHubToken_NoToken(t *testing.T) {
 }
 
 func TestNewGitHubRequest_NoToken(t *testing.T) {
+	t.Setenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH", "")
 	for _, n := range wellKnownTokenVars {
 		t.Setenv(n, "")
 	}
@@ -95,6 +115,7 @@ func TestNewGitHubRequest_NoToken(t *testing.T) {
 }
 
 func TestNewGitHubRequest_WithToken(t *testing.T) {
+	enableTokenSearch(t)
 	withEmptyEnviron(t)
 	t.Setenv("GITHUB_TOKEN", "ghp_testtoken123")
 	req, err := newGitHubRequest("https://api.github.com/repos/test/test")
