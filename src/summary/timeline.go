@@ -6,36 +6,35 @@ import (
 )
 
 // TimelineEntry records a single action in the pipeline timeline.
+// Start and End are absolute wall-clock times; normalization happens at render time.
 type TimelineEntry struct {
 	Label  string
-	Thread string        // e.g. "main", "deps", "worker-1"
-	Start  time.Duration // relative to pipeline start
-	End    time.Duration // relative to pipeline start
+	Thread string    // e.g. "main", "deps", "worker-1"
+	Start  time.Time // absolute wall clock
+	End    time.Time // absolute wall clock
 	Failed bool
 }
 
 // Timeline is a goroutine-safe collector of pipeline action timings.
 type Timeline struct {
 	mu      sync.Mutex
-	epoch   time.Time
 	entries []TimelineEntry
 }
 
-// NewTimeline creates a Timeline anchored to the current time.
+// NewTimeline creates an empty Timeline.
 func NewTimeline() *Timeline {
-	return &Timeline{epoch: time.Now()}
+	return &Timeline{}
 }
 
-// Record adds a completed action to the timeline. start and end are absolute
-// wall-clock times; they are converted to durations relative to the epoch.
+// Record adds a completed action to the timeline.
 func (tl *Timeline) Record(label, thread string, start, end time.Time, failed bool) {
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
 	tl.entries = append(tl.entries, TimelineEntry{
 		Label:  label,
 		Thread: thread,
-		Start:  start.Sub(tl.epoch),
-		End:    end.Sub(tl.epoch),
+		Start:  start,
+		End:    end,
 		Failed: failed,
 	})
 }

@@ -59,12 +59,24 @@ type buildResult struct {
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
+	InitTimeline()
 	r := runner.New()
-	return runReleaseWithRunner(r)
+	err := runReleaseWithRunner(r)
+	if err != nil {
+		return err
+	}
+
+	// Write GitHub Step Summary with timeline
+	if tl := GetTimeline(); tl != nil {
+		sd := summary.SummaryData{Timeline: tl.Entries()}
+		if writeErr := summary.Write(&sd); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
+		}
+	}
+	return nil
 }
 
 func runReleaseWithRunner(r runner.CommandRunner) error {
-	InitTimeline()
 	setupCGOEnvironment()
 	if len(matrixOS) == 0 || len(matrixArch) == 0 {
 		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
@@ -191,14 +203,6 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if !noBenchmark {
 		if _, err := runBenchmarkInBuild(r); err != nil {
 			return err
-		}
-	}
-
-	// Write GitHub Step Summary with timeline
-	if tl := GetTimeline(); tl != nil {
-		sd := summary.SummaryData{Timeline: tl.Entries()}
-		if writeErr := summary.Write(&sd); writeErr != nil {
-			fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
 		}
 	}
 

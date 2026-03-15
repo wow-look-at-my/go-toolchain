@@ -4,13 +4,23 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // RenderGantt produces a Mermaid Gantt chart from timeline entries.
+// All entries are normalized relative to the earliest start time.
 // Returns an empty string if there are no entries.
 func RenderGantt(entries []TimelineEntry) string {
 	if len(entries) == 0 {
 		return ""
+	}
+
+	// Find the earliest start time to use as epoch
+	epoch := entries[0].Start
+	for _, e := range entries[1:] {
+		if e.Start.Before(epoch) {
+			epoch = e.Start
+		}
 	}
 
 	// Group entries by thread
@@ -34,32 +44,48 @@ func RenderGantt(entries []TimelineEntry) string {
 		return threads[i] < threads[j]
 	})
 
+	// Find total duration for axis format
+	var maxEnd time.Time
+	for _, e := range entries {
+		if e.End.After(maxEnd) {
+			maxEnd = e.End
+		}
+	}
+	totalDuration := maxEnd.Sub(epoch)
+
 	var sb strings.Builder
 	sb.WriteString("```mermaid\ngantt\n")
 	sb.WriteString("    title Pipeline Timeline\n")
 	sb.WriteString("    dateFormat x\n")
-	sb.WriteString("    axisFormat %Ss\n")
+	// Pick axis format based on total duration
+	if totalDuration >= time.Hour {
+		sb.WriteString("    axisFormat %H:%M:%S\n")
+	} else if totalDuration >= time.Minute {
+		sb.WriteString("    axisFormat %M:%S\n")
+	} else {
+		sb.WriteString("    axisFormat %S s\n")
+	}
 
 	taskID := 0
 	for _, thread := range threads {
-		entries := threadEntries[thread]
+		tes := threadEntries[thread]
 		// Sort by start time within each thread
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Start < entries[j].Start
+		sort.Slice(tes, func(i, j int) bool {
+			return tes[i].Start.Before(tes[j].Start)
 		})
 
 		sb.WriteString(fmt.Sprintf("    section %s\n", sanitizeLabel(thread)))
 
-		for _, e := range entries {
+		for _, e := range tes {
 			tag := "done"
 			if e.Failed {
 				tag = "crit"
 			}
-			startMs := e.Start.Milliseconds()
-			endMs := e.End.Milliseconds()
-			// Ensure minimum 1ms width so the bar is visible
-			if endMs <= startMs {
-				endMs = startMs + 1
+			startMs := e.Start.Sub(epoch).Milliseconds()
+			endMs := e.End.Sub(epoch).Milliseconds()
+			// Ensure minimum 100ms width so the bar is visible and labeled
+			if endMs-startMs < 100 {
+				endMs = startMs + 100
 			}
 			sb.WriteString(fmt.Sprintf("    %s :%s, t%d, %d, %d\n",
 				sanitizeLabel(e.Label), tag, taskID, startMs, endMs))

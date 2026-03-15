@@ -8,6 +8,18 @@ import (
 	"github.com/wow-look-at-my/testify/assert"
 )
 
+// helper to create entries with times relative to a base
+func entry(label, thread string, startOffset, endOffset time.Duration, failed bool) TimelineEntry {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	return TimelineEntry{
+		Label:  label,
+		Thread: thread,
+		Start:  base.Add(startOffset),
+		End:    base.Add(endOffset),
+		Failed: failed,
+	}
+}
+
 func TestRenderGanttEmpty(t *testing.T) {
 	assert.Empty(t, RenderGantt(nil))
 	assert.Empty(t, RenderGantt([]TimelineEntry{}))
@@ -15,8 +27,8 @@ func TestRenderGanttEmpty(t *testing.T) {
 
 func TestRenderGanttSingleThread(t *testing.T) {
 	entries := []TimelineEntry{
-		{Label: "go mod tidy", Thread: "main", Start: 0, End: 850 * time.Millisecond},
-		{Label: "go vet", Thread: "main", Start: 850 * time.Millisecond, End: 2400 * time.Millisecond},
+		entry("go mod tidy", "main", 0, 850*time.Millisecond, false),
+		entry("go vet", "main", 850*time.Millisecond, 2400*time.Millisecond, false),
 	}
 
 	result := RenderGantt(entries)
@@ -31,8 +43,8 @@ func TestRenderGanttSingleThread(t *testing.T) {
 
 func TestRenderGanttMultipleThreads(t *testing.T) {
 	entries := []TimelineEntry{
-		{Label: "go test", Thread: "main", Start: time.Second, End: 5 * time.Second},
-		{Label: "Dep check", Thread: "deps", Start: 0, End: 3 * time.Second},
+		entry("go test", "main", time.Second, 5*time.Second, false),
+		entry("Dep check", "deps", 0, 3*time.Second, false),
 	}
 
 	result := RenderGantt(entries)
@@ -45,7 +57,7 @@ func TestRenderGanttMultipleThreads(t *testing.T) {
 
 func TestRenderGanttFailedStep(t *testing.T) {
 	entries := []TimelineEntry{
-		{Label: "go test", Thread: "main", Start: 0, End: time.Second, Failed: true},
+		entry("go test", "main", 0, time.Second, true),
 	}
 
 	result := RenderGantt(entries)
@@ -54,19 +66,18 @@ func TestRenderGanttFailedStep(t *testing.T) {
 
 func TestRenderGanttLabelSanitization(t *testing.T) {
 	entries := []TimelineEntry{
-		{Label: "go build -o build/bin:thing", Thread: "main", Start: 0, End: time.Second},
+		entry("go build -o build/bin:thing", "main", 0, time.Second, false),
 	}
 
 	result := RenderGantt(entries)
-	// Colons should be replaced
 	assert.NotContains(t, result, "bin:thing")
 	assert.Contains(t, result, "bin thing")
 }
 
 func TestRenderGanttSortsWithinThread(t *testing.T) {
 	entries := []TimelineEntry{
-		{Label: "second", Thread: "main", Start: 2 * time.Second, End: 3 * time.Second},
-		{Label: "first", Thread: "main", Start: time.Second, End: 2 * time.Second},
+		entry("second", "main", 2*time.Second, 3*time.Second, false),
+		entry("first", "main", time.Second, 2*time.Second, false),
 	}
 
 	result := RenderGantt(entries)
@@ -78,12 +89,13 @@ func TestRenderGanttSortsWithinThread(t *testing.T) {
 
 func TestRenderGanttMinimumWidth(t *testing.T) {
 	entries := []TimelineEntry{
-		{Label: "instant", Thread: "main", Start: time.Second, End: time.Second},
+		entry("setup", "main", 0, 5*time.Second, false),
+		entry("instant", "main", time.Second, time.Second, false),
 	}
 
 	result := RenderGantt(entries)
-	// Should have endMs = startMs + 1 to be visible
-	assert.Contains(t, result, "1000, 1001")
+	// Instant step (start=end=1s) should get minimum 100ms width: 1000, 1100
+	assert.Contains(t, result, "1000, 1100")
 }
 
 func TestSanitizeLabel(t *testing.T) {
@@ -94,9 +106,9 @@ func TestSanitizeLabel(t *testing.T) {
 
 func TestRenderGanttWorkerThreadOrder(t *testing.T) {
 	entries := []TimelineEntry{
-		{Label: "linux/amd64", Thread: "worker-2", Start: 0, End: time.Second},
-		{Label: "linux/arm64", Thread: "worker-1", Start: 0, End: time.Second},
-		{Label: "go test", Thread: "main", Start: 0, End: time.Second},
+		entry("linux/amd64", "worker-2", 0, time.Second, false),
+		entry("linux/arm64", "worker-1", 0, time.Second, false),
+		entry("go test", "main", 0, time.Second, false),
 	}
 
 	result := RenderGantt(entries)
@@ -106,4 +118,20 @@ func TestRenderGanttWorkerThreadOrder(t *testing.T) {
 	w2Idx := strings.Index(result, "section worker-2")
 	assert.Greater(t, w1Idx, mainIdx)
 	assert.Greater(t, w2Idx, w1Idx)
+}
+
+func TestRenderGanttAxisFormatMinutes(t *testing.T) {
+	entries := []TimelineEntry{
+		entry("long step", "main", 0, 2*time.Minute, false),
+	}
+	result := RenderGantt(entries)
+	assert.Contains(t, result, "axisFormat %M:%S")
+}
+
+func TestRenderGanttAxisFormatHours(t *testing.T) {
+	entries := []TimelineEntry{
+		entry("very long step", "main", 0, 2*time.Hour, false),
+	}
+	result := RenderGantt(entries)
+	assert.Contains(t, result, "axisFormat %H:%M:%S")
 }

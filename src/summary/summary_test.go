@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
@@ -321,11 +322,12 @@ func TestCountTestStatuses(t *testing.T) {
 }
 
 func TestGenerateMarkdownWithTimeline(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	data := &SummaryData{
 		Coverage: &gotest.Report{Total: 80.0},
 		Timeline: []TimelineEntry{
-			{Label: "go mod tidy", Thread: "main", Start: 0, End: 500_000_000},
-			{Label: "go test", Thread: "main", Start: 500_000_000, End: 2_000_000_000},
+			{Label: "go mod tidy", Thread: "main", Start: base, End: base.Add(500 * time.Millisecond)},
+			{Label: "go test", Thread: "main", Start: base.Add(500 * time.Millisecond), End: base.Add(2 * time.Second)},
 		},
 	}
 
