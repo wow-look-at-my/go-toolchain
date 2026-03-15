@@ -74,6 +74,19 @@ jobs:
         with:
           name: go-toolchain-binary
 
+      - name: Verify binary matches current commit
+        run: |
+          set -euo pipefail
+          chmod +x go-toolchain
+          json=$(./go-toolchain version json)
+          echo "$json"
+          binary_commit=$(echo "$json" | jq -r '.commit')
+          if [ "$binary_commit" != "$GITHUB_SHA" ]; then
+            echo "FAIL: binary commit ($binary_commit) does not match GITHUB_SHA ($GITHUB_SHA)"
+            exit 1
+          fi
+          echo "OK: binary commit matches GITHUB_SHA"
+
       - name: Build and test with action
         uses: ./
         with:
