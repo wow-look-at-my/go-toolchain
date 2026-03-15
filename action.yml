@@ -78,6 +78,14 @@ runs:
         restore-keys: |
           go-toolchain-${{ steps.toolchain-hash.outputs.hash }}-
 
+    - name: Cache size breakdown
+      uses: wow-look-at-my/actions@cache-size#latest
+      with:
+        paths: |
+          ~/.cache/go-build
+          ~/.cache/go-toolchain 
+          ~/go/pkg/mod
+
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}

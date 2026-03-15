@@ -147,10 +147,11 @@ go-toolchain ignore lines path/to/long_file.go
 6. Checks file lengths (warns at 500 lines, errors at 750)
 7. Runs `go test` across all packages with coverage profiling
 8. Parses coverage results and compares against the minimum threshold (80%, or watermark - 2.5%)
-9. If coverage meets the threshold, builds the project binary into `build/`
-10. Automatically adds `build/` to `.gitignore` (if in a git repo)
-11. Runs benchmarks and compares against previously stored results
-12. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, and benchmark comparison
+9. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
+10. If coverage meets the threshold, builds the project binary into `build/`
+11. Automatically adds `build/` to `.gitignore` (if in a git repo)
+12. Runs benchmarks and compares against previously stored results
+13. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, and benchmark comparison
 
 ## Development
 
