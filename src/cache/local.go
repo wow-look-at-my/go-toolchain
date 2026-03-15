@@ -1,0 +1,151 @@
+package cache
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// LocalCache is a filesystem-based build cache. Objects are stored in a
+// two-level directory hierarchy keyed by the hex-encoded action ID.
+type LocalCache struct {
+	dir string
+}
+
+// NewLocalCache creates a local cache rooted at dir. It pre-creates 256
+// subdirectories (00–ff) so that later writes never need to mkdir.
+func NewLocalCache(dir string) (*LocalCache, error) {
+	for i := 0; i < 256; i++ {
+		sub := filepath.Join(dir, fmt.Sprintf("%02x", i))
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			return nil, fmt.Errorf("cache init: %w", err)
+		}
+	}
+	return &LocalCache{dir: dir}, nil
+}
+
+// CacheMeta holds the metadata stored alongside a cached object.
+type CacheMeta struct {
+	OutputID string
+	Size     int64
+	Time     time.Time
+	DiskPath string
+}
+
+// Get looks up actionID in the local cache. If found it returns the metadata;
+// otherwise miss is true.
+func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
+	dataPath := c.dataPath(actionID)
+	metaPath := dataPath + ".meta"
+
+	raw, err := os.ReadFile(metaPath)
+	if err != nil {
+		return CacheMeta{}, true
+	}
+
+	m, err := parseMeta(string(raw))
+	if err != nil {
+		return CacheMeta{}, true
+	}
+
+	// Verify the data file still exists.
+	info, err := os.Stat(dataPath)
+	if err != nil {
+		return CacheMeta{}, true
+	}
+	m.DiskPath = dataPath
+	m.Size = info.Size()
+	return m, false
+}
+
+// Put writes body to the local cache under actionID and stores the metadata
+// sidecar. Returns the absolute disk path to the cached object.
+func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, error) {
+	dataPath := c.dataPath(actionID)
+
+	// Atomic write: temp file in same directory, then rename.
+	dir := filepath.Dir(dataPath)
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return "", fmt.Errorf("cache put: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	n, copyErr := io.Copy(tmp, body)
+	closeErr := tmp.Close()
+	if copyErr != nil {
+		os.Remove(tmpName)
+		return "", fmt.Errorf("cache put copy: %w", copyErr)
+	}
+	if closeErr != nil {
+		os.Remove(tmpName)
+		return "", fmt.Errorf("cache put close: %w", closeErr)
+	}
+
+	if err := os.Rename(tmpName, dataPath); err != nil {
+		os.Remove(tmpName)
+		return "", fmt.Errorf("cache put rename: %w", err)
+	}
+
+	// Write metadata sidecar (also atomic).
+	now := time.Now()
+	meta := fmt.Sprintf("outputID:%s\nsize:%d\ntime:%d\n", outputID, n, now.Unix())
+	metaPath := dataPath + ".meta"
+	metaTmp, err := os.CreateTemp(dir, ".meta-*")
+	if err != nil {
+		return dataPath, nil // data written, metadata lost — acceptable
+	}
+	metaTmpName := metaTmp.Name()
+	_, _ = metaTmp.WriteString(meta)
+	metaTmp.Close()
+	if err := os.Rename(metaTmpName, metaPath); err != nil {
+		os.Remove(metaTmpName)
+	}
+
+	return dataPath, nil
+}
+
+// dataPath returns the absolute path for a cached object.
+// Layout: dir/{first-byte-hex}/v1{actionID}
+func (c *LocalCache) dataPath(actionID string) string {
+	bucket := "00"
+	if len(actionID) >= 2 {
+		bucket = actionID[:2]
+	}
+	return filepath.Join(c.dir, bucket, "v1"+actionID)
+}
+
+// parseMeta parses the key:value metadata sidecar format.
+func parseMeta(raw string) (CacheMeta, error) {
+	var m CacheMeta
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		k, v, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "outputID":
+			m.OutputID = v
+		case "size":
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				return CacheMeta{}, err
+			}
+			m.Size = n
+		case "time":
+			unix, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				return CacheMeta{}, err
+			}
+			m.Time = time.Unix(unix, 0)
+		}
+	}
+	if m.OutputID == "" {
+		return CacheMeta{}, fmt.Errorf("missing outputID in metadata")
+	}
+	return m, nil
+}
