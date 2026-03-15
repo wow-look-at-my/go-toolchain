@@ -328,6 +328,69 @@ func TestServer_PutDuplicate(t *testing.T) {
 	require.GreaterOrEqual(t, len(responses), 4)
 }
 
+// errBackend is a Backend that always returns errors.
+type errBackend struct{}
+
+func (e *errBackend) Get(actionID string) (string, io.ReadCloser, int64, time.Time, bool, error) {
+	return "", nil, 0, time.Time{}, false, fmt.Errorf("backend error")
+}
+
+func (e *errBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
+	return fmt.Errorf("backend error")
+}
+
+func (e *errBackend) Close() error { return nil }
+
+func TestServer_GetWithRemoteError(t *testing.T) {
+	dir := t.TempDir()
+	lc, err := NewLocalCache(dir)
+	require.NoError(t, err)
+
+	actionID := []byte{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88}
+
+	var input strings.Builder
+	input.WriteString(makeRequest(Request{ID: 1, Command: CmdGet, ActionID: actionID}))
+	input.WriteString(makeRequest(Request{ID: 2, Command: CmdClose}))
+
+	var out bytes.Buffer
+	srv := NewServer(lc, &errBackend{})
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	responses := parseResponses(t, out.Bytes())
+	var getResp *Response
+	for i := range responses {
+		if responses[i].ID == 1 {
+			getResp = &responses[i]
+			break
+		}
+	}
+	require.NotNil(t, getResp)
+	require.True(t, getResp.Miss, "error from remote should result in miss")
+}
+
+func TestServer_PutEmpty(t *testing.T) {
+	dir := t.TempDir()
+	lc, err := NewLocalCache(dir)
+	require.NoError(t, err)
+
+	actionID := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	outputID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11}
+
+	// PUT with empty body (BodySize=0, no body line).
+	var input strings.Builder
+	input.WriteString(makeRequest(Request{
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 0,
+	}))
+	input.WriteString(makeRequest(Request{ID: 2, Command: CmdClose}))
+
+	var out bytes.Buffer
+	srv := NewServer(lc, nil)
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	responses := parseResponses(t, out.Bytes())
+	require.GreaterOrEqual(t, len(responses), 3)
+}
+
 // makeRequest serializes a request as a JSON line.
 func makeRequest(req Request) string {
 	b, _ := json.Marshal(req)
