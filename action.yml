@@ -80,7 +80,7 @@ runs:
           go-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Cache size breakdown
-      uses: wow-look-at-my/actions@cache-size/claude/investigate-cache-size-S1136#latest
+      uses: wow-look-at-my/actions@#latest
       with:
         paths: |
           ~/.cache/go-build
