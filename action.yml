@@ -84,7 +84,7 @@ runs:
       with:
         paths: |
           ~/.cache/go-build
-          ~/.cache/go-toolchain
+          ~/.cache/go-toolchain 
           ~/go/pkg/mod
 
     - name: Run go-toolchain
