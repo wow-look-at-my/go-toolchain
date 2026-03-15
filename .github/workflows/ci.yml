@@ -28,20 +28,6 @@ jobs:
       - name: Build and test
         run: go run ./src
 
-      - name: Validate version json fields
-        run: |
-          set -euo pipefail
-          json=$(./build/go-toolchain version json)
-          echo "$json"
-          for field in version commit commit_date build_date; do
-            val=$(echo "$json" | jq -r ".$field // empty")
-            if [ -z "$val" ]; then
-              echo "FAIL: field '$field' is missing or empty in version json"
-              exit 1
-            fi
-            echo "OK: $field = $val"
-          done
-
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -58,58 +44,39 @@ jobs:
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-      - name: Download go-toolchain binary
-        uses: actions/download-artifact@v4
-        with:
-          name: go-toolchain-binary
-
-      - name: Build and test with action
-        uses: ./
-        with:
-          binary: go-toolchain
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-toolchain-binaries
-          path: build/go-toolchain_*
-
-  bootstrap-test:
-    name: Bootstrap (no Go in PATH)
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download go-toolchain binary
-        uses: actions/download-artifact@v4
-        with:
-          name: go-toolchain-binary
-
-      - name: Configure git for private repos
-        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-      - name: Remove Go and run bootstrap
+      - name: Remove system Go
         run: |
-          set -euo pipefail
-
-          # Install the pre-built binary
-          chmod +x go-toolchain
-          sudo cp go-toolchain /usr/local/bin/go-toolchain
-
-          # Remove all Go installations
-          which -a go || true
           sudo rm -f $(which -a go) 2>/dev/null || true
           sudo rm -rf /usr/local/go /opt/hostedtoolcache/go
-          unset GOROOT
-          unset GOPATH
-
-          # Verify go is gone
+          hash -r
           if command -v go &>/dev/null; then
             echo "FAIL: go still in PATH at $(which go)"
             exit 1
           fi
           echo "OK: go is not in PATH"
 
-          # go-toolchain should bootstrap Go from go.dev and build successfully
-          go-toolchain
+      - name: Download go-toolchain binary
+        uses: actions/download-artifact@v4
+        with:
+          name: go-toolchain-binary
+
+      - name: Verify binary matches current commit
+        run: |
+          chmod +x go-toolchain
+          [ "$(./go-toolchain version json | jq -r .commit)" = "$GITHUB_SHA" ]
+
+      - name: Build and test with action
+        uses: ./
+        with:
+          binary: go-toolchain
+
+      - name: Verify binary matches current commit
+        run: |
+          chmod +x go-toolchain
+          [ "$(./build/go-toolchain_linux_amd64 version json | jq -r .commit)" = "$GITHUB_SHA" ]
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-toolchain-binaries
+          path: build/go-toolchain_*

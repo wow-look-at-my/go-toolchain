@@ -26,10 +26,24 @@ func init() {
 	os.Setenv("no_proxy", "")
 }
 
+func needsGo() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "--" {
+			return true
+		}
+		if arg == "version" {
+			return false
+		}
+	}
+	return true
+}
+
 func main() {
-	if err := cmd.EnsureGoVersion(); err != nil {
-		fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
-		os.Exit(1)
+	if needsGo() {
+		if err := cmd.EnsureGoVersion(); err != nil {
+			fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
