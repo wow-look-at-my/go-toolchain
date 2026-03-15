@@ -62,11 +62,15 @@ runs:
         go-version-file: ${{ inputs.go-version-file }}
         cache: true
 
-    - name: Cache go-toolchain downloads
+    - name: Cache Go build cache and go-toolchain downloads
       uses: actions/cache@v4
       with:
-        path: ~/.cache/go-toolchain
-        key: go-toolchain-${{ runner.os }}-${{ runner.arch }}
+        path: |
+          ~/.cache/go-build
+          ~/.cache/go-toolchain
+        key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          go-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Download go-toolchain
       if: inputs.binary == ''
