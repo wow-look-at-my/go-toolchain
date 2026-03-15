@@ -163,9 +163,27 @@ func printStaleness() {
 	fmt.Println(msg)
 }
 
+// newGitHubRequest creates an HTTP GET request, adding an Authorization
+// header if a GitHub token is discovered in the environment. This raises
+// the rate limit from 60 to 5 000 requests/hour.
+func newGitHubRequest(url string) (*http.Request, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token := discoverGitHubToken(); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+	return req, nil
+}
+
 func fetchLatestCommitFromGitHub() (*commitInfo, error) {
 	url := fmt.Sprintf("%s/repos/%s/commits?per_page=1", githubAPIBase, githubRepo)
-	resp, err := httpClient.Get(url)
+	req, err := newGitHubRequest(url)
+	if err != nil {
+		return nil, fmt.Errorf("GitHub API request failed: %w", err)
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("GitHub API request failed: %w", err)
 	}
@@ -200,7 +218,11 @@ func fetchLatestCommitFromGitHub() (*commitInfo, error) {
 
 func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 	url := fmt.Sprintf("%s/repos/%s/compare/%s...%s", githubAPIBase, githubRepo, fromCommit, toCommit)
-	resp, err := httpClient.Get(url)
+	req, err := newGitHubRequest(url)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return 0, err
 	}
