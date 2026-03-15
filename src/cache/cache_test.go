@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -258,7 +259,7 @@ func TestFileSize(t *testing.T) {
 }
 
 func TestFileSize_Missing(t *testing.T) {
-	require.Equal(t, int64(0), fileSize("/nonexistent/path"))
+	require.Equal(t, int64(0), fileSize(filepath.Join(t.TempDir(), "does-not-exist")))
 }
 
 func TestServer_PutWithRemote(t *testing.T) {
