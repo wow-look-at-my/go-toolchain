@@ -80,7 +80,7 @@ runs:
           go-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Cache size breakdown
-      uses: wow-look-at-my/actions@#latest
+      uses: wow-look-at-my/actions@cache-size#latest
       with:
         paths: |
           ~/.cache/go-build
