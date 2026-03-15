@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
@@ -333,29 +332,26 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if !quiet {
 		vetStep = logStep("go vet ./...")
 	}
-	var vetPhaseStart time.Time
-	var vetPhaseName string
+	var vetPhaseStep *step
 	vetProgress := func(phase string) {
 		if quiet {
 			return
 		}
-		now := time.Now()
-		if vetPhaseName != "" {
-			fmt.Fprintf(os.Stderr, "    %s %s\n", vetPhaseName, fmtDuration(now.Sub(vetPhaseStart)))
+		if vetPhaseStep != nil {
+			vetPhaseStep.done()
 		} else if vetStep != nil {
 			vetStep.noteOutput()
 		}
-		vetPhaseName = phase
-		vetPhaseStart = now
+		vetPhaseStep = logSubStep("vet: "+phase, "main")
 	}
 	fix := os.Getenv("CI") == "" // disable auto-fix on CI
 	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
 		return false, nil, fmt.Errorf("vet failed: %w", err)
 	}
-	// Print the last phase timing
-	if !quiet && vetPhaseName != "" {
-		fmt.Fprintf(os.Stderr, "    %s %s\n", vetPhaseName, fmtDuration(time.Since(vetPhaseStart)))
+	// Finish the last vet sub-phase
+	if vetPhaseStep != nil {
+		vetPhaseStep.done()
 	}
 	if vetStep != nil {
 		vetStep.done()
@@ -365,9 +361,11 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		runDuplicateCheck()
 	}
 
+	fileLenStep := logSubStep("File length check", "main")
 	if err := checkFileLength("."); err != nil {
 		return false, nil, err
 	}
+	fileLenStep.done()
 
 	var testStep *step
 	if !quiet {

@@ -39,6 +39,10 @@ func TestRenderGanttSingleThread(t *testing.T) {
 	assert.Contains(t, result, "go mod tidy :done, t0, 0, 850")
 	assert.Contains(t, result, "go vet :done, t1, 850, 2400")
 	assert.Contains(t, result, "```\n")
+	// Theme config
+	assert.Contains(t, result, "doneTaskBkgColor")
+	assert.Contains(t, result, "critBkgColor")
+	assert.Contains(t, result, "barHeight")
 }
 
 func TestRenderGanttMultipleThreads(t *testing.T) {
