@@ -27,8 +27,6 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
     json: 'false'             # output coverage report as JSON
     generate: ''              # run go:generate directives matching this hash
     working-directory: '.'    # working directory for the build
-    go-version: ''            # Go version to install (e.g. 1.25)
-    go-version-file: './go.mod' # path to go.mod to read Go version from
     binary: ''                # path to a pre-built go-toolchain binary
     os: 'linux,darwin,windows' # target OSes
     arch: 'amd64,arm64'       # target architectures
@@ -43,8 +41,6 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 | `json`              | `false`    | Output coverage report as JSON                           |
 | `generate`          | `''`       | Run `go:generate` directives matching this hash          |
 | `working-directory` | `.`        | Working directory for the build                          |
-| `go-version`        | `''`       | Go version to install (e.g. `1.25`). Overrides `go-version-file` |
-| `go-version-file`   | `./go.mod` | Path to `go.mod` to read Go version from                 |
 | `binary`            | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
 | `os`                | `linux,darwin,windows` | Comma-separated target operating systems |
 | `arch`              | `amd64,arm64` | Comma-separated target architectures |
