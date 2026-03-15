@@ -91,13 +91,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Configure git for private repos
-        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Download binaries
+        uses: actions/download-artifact@v4
         with:
-          go-version: '1.25'
+          name: go-toolchain-binaries
+          path: build
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -108,13 +106,12 @@ jobs:
           TAG="v0.0.$(git log -1 --format=%ct)"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Cross-compile
-        run: go run ./src matrix
-
       - name: Sign checksums
         run: cosign sign-blob build/checksums.txt --yes --output-signature build/checksums.txt.sig --output-certificate build/checksums.txt.pem
 
       - name: Release
-        run: ./build/go-toolchain release --tag "${{ steps.tag.outputs.tag }}"
+        run: |
+          chmod +x build/go-toolchain_linux_amd64
+          ./build/go-toolchain_linux_amd64 release --tag "${{ steps.tag.outputs.tag }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
