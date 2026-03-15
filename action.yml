@@ -80,12 +80,12 @@ runs:
           go-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Cache size breakdown
-      uses: wow-look-at-my/actions@cache-size#latest
+      uses: wow-look-at-my/actions@cache-size/claude/investigate-cache-size-S1136#latest
       with:
         paths: |
-          ~/.cache/go-build
-          ~/.cache/go-toolchain
-          ~/go/pkg/mod
+          ${{ env.HOME }}/.cache/go-build
+          ${{ env.HOME }}/.cache/go-toolchain
+          ${{ env.HOME }}/go/pkg/mod
 
     - name: Run go-toolchain
       shell: bash
