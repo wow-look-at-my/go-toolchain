@@ -70,17 +70,6 @@ jobs:
         with:
           binary: go-toolchain
 
-      - name: Cache size breakdown
-        run: |
-          echo "=== ~/.cache/go-toolchain ==="
-          du -sh ~/.cache/go-toolchain/* 2>/dev/null || echo "(empty)"
-          echo "=== ~/.cache/go-build ==="
-          du -sh ~/.cache/go-build 2>/dev/null || echo "(empty)"
-          echo "=== ~/go/pkg/mod ==="
-          du -sh ~/go/pkg/mod/* 2>/dev/null || echo "(empty)"
-          echo "=== TOTALS ==="
-          du -sh ~/.cache/go-toolchain ~/.cache/go-build ~/go/pkg/mod 2>/dev/null
-
       - name: Verify binary matches current commit
         run: |
           chmod +x go-toolchain
