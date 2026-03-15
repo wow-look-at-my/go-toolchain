@@ -65,7 +65,7 @@ runs:
     - name: Get go-toolchain version
       id: toolchain-version
       shell: bash
-      run: echo "version=$(go-toolchain version 2>/dev/null | awk '/^Version:/{print $2; exit}')" >> "$GITHUB_OUTPUT"
+      run: echo "version=$(go-toolchain version raw 2>/dev/null)" >> "$GITHUB_OUTPUT"
 
     - name: Cache Go build cache and go-toolchain downloads
       uses: actions/cache@v4
