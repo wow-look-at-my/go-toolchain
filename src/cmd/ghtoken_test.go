@@ -22,10 +22,14 @@ func enableTokenSearch(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_DisabledByDefault(t *testing.T) {
-	t.Setenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH", "")
-	t.Setenv("GITHUB_TOKEN", "ghp_should_not_find_this")
-	got := discoverGitHubToken()
-	assert.Equal(t, "", got)
+	for _, val := range []string{"", "0", "false", "False", "no", "off", "OFF"} {
+		t.Run("val="+val, func(t *testing.T) {
+			t.Setenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH", val)
+			t.Setenv("GITHUB_TOKEN", "ghp_should_not_find_this")
+			got := discoverGitHubToken()
+			assert.Equal(t, "", got)
+		})
+	}
 }
 
 func TestDiscoverGitHubToken_WellKnownVars(t *testing.T) {
