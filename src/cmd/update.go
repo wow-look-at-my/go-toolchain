@@ -8,7 +8,7 @@ import (
 
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
-	selfupdate "github.com/wow-look-at-my/lightweight-go-selfupdate/pkg/selfupdate"
+	selfupdate "wow-look-at-my.download/selfupdate-mini"
 )
 
 // selfUpdater abstracts the self-update mechanism for testability.

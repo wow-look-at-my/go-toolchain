@@ -8,13 +8,13 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
 	github.com/wow-look-at-my/go-containers v0.0.0-20260307175019-180529c50d33
-	github.com/wow-look-at-my/lightweight-go-selfupdate v0.0.0-20260315082731-e1ca7a2de2bb
 	github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb
 	golang.org/x/mod v0.30.0
 	golang.org/x/sys v0.39.0
 	golang.org/x/tools v0.39.0
 	gotest.tools/gotestsum v1.13.0
 	modernc.org/sqlite v1.45.0
+	wow-look-at-my.download/selfupdate-mini v0.0.0-20260315101019-a7bb357a7fc4
 )
 
 require (
@@ -55,3 +55,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace wow-look-at-my.download/selfupdate-mini => github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260315101019-a7bb357a7fc4
