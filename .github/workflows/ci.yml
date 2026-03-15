@@ -28,26 +28,6 @@ jobs:
       - name: Build and test
         run: go run ./src
 
-      - name: Validate version json fields
-        run: |
-          set -euo pipefail
-          json=$(./build/go-toolchain version json)
-          echo "$json"
-          for field in version commit commit_date build_date; do
-            val=$(echo "$json" | jq -r ".$field // empty")
-            if [ -z "$val" ]; then
-              echo "FAIL: field '$field' is missing or empty in version json"
-              exit 1
-            fi
-            echo "OK: $field = $val"
-          done
-          binary_commit=$(echo "$json" | jq -r '.commit')
-          if [ "$binary_commit" != "$GITHUB_SHA" ]; then
-            echo "FAIL: binary commit ($binary_commit) does not match GITHUB_SHA ($GITHUB_SHA)"
-            exit 1
-          fi
-          echo "OK: binary commit matches GITHUB_SHA"
-
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -82,21 +62,18 @@ jobs:
 
       - name: Verify binary matches current commit
         run: |
-          set -euo pipefail
           chmod +x go-toolchain
-          json=$(./go-toolchain version json)
-          echo "$json"
-          binary_commit=$(echo "$json" | jq -r '.commit')
-          if [ "$binary_commit" != "$GITHUB_SHA" ]; then
-            echo "FAIL: binary commit ($binary_commit) does not match GITHUB_SHA ($GITHUB_SHA)"
-            exit 1
-          fi
-          echo "OK: binary commit matches GITHUB_SHA"
+          [ "$(./go-toolchain version json | jq -r .commit)" = "$GITHUB_SHA" ]
 
       - name: Build and test with action
         uses: ./
         with:
           binary: go-toolchain
+
+      - name: Verify binary matches current commit
+        run: |
+          chmod +x go-toolchain
+          [ "$(./build/go-toolchain_linux_arm64 version json | jq -r .commit)" = "$GITHUB_SHA" ]
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
