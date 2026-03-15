@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
 var (
@@ -58,8 +59,21 @@ type buildResult struct {
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
+	InitTimeline()
 	r := runner.New()
-	return runReleaseWithRunner(r)
+	err := runReleaseWithRunner(r)
+	if err != nil {
+		return err
+	}
+
+	// Write GitHub Step Summary with timeline
+	if tl := GetTimeline(); tl != nil {
+		sd := summary.SummaryData{Timeline: tl.Entries()}
+		if writeErr := summary.Write(&sd); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
+		}
+	}
+	return nil
 }
 
 func runReleaseWithRunner(r runner.CommandRunner) error {
@@ -123,15 +137,21 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 
 	for i := 0; i < workerCount; i++ {
+		workerThread := fmt.Sprintf("worker-%d", i+1)
 		wg.Add(1)
-		go func() {
+		go func(thread string) {
 			defer wg.Done()
 			for job := range jobChan {
 				jobStart := time.Now()
 				err := runBuild(r, job, nil)
-				results <- buildResult{job: job, err: err, duration: time.Since(jobStart)}
+				jobEnd := time.Now()
+				if pipelineTimeline != nil {
+					label := fmt.Sprintf("%s/%s", job.goos, job.goarch)
+					pipelineTimeline.Record(label, thread, jobStart, jobEnd, err != nil)
+				}
+				results <- buildResult{job: job, err: err, duration: jobEnd.Sub(jobStart)}
 			}
-		}()
+		}(workerThread)
 	}
 
 	for _, job := range jobs {

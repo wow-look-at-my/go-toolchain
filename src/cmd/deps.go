@@ -49,6 +49,7 @@ type DepChecker struct {
 	canceled     bool
 	listDepsTime time.Duration // time spent listing direct deps
 	liveChecks   int           // number of live (non-cached) checks performed
+	start        time.Time     // when the check was started (for timeline)
 }
 
 // CheckOutdatedDeps starts an async check for outdated dependencies.
@@ -56,6 +57,7 @@ type DepChecker struct {
 func CheckOutdatedDeps() *DepChecker {
 	dc := &DepChecker{
 		doneCh: make(chan struct{}),
+		start:  time.Now(),
 	}
 
 	go dc.run()
@@ -442,6 +444,11 @@ func WaitForOutdatedDeps(dc *DepChecker) bool {
 		return false
 	}
 	deps := dc.WaitWithProgress()
+
+	// Record to the pipeline timeline
+	if pipelineTimeline != nil {
+		pipelineTimeline.Record("Dependency check", "deps", dc.start, time.Now(), dc.err != nil)
+	}
 
 	// Get auto-update prefix from current module
 	autoUpdatePrefix := getAutoUpdatePrefix()

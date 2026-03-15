@@ -21,6 +21,7 @@ type SummaryData struct {
 	Coverage   *gotest.Report
 	Benchmarks *bench.BenchmarkReport
 	BenchComp  *bench.Comparison
+	Timeline   []TimelineEntry
 }
 
 // Write generates a markdown summary and appends it to $GITHUB_STEP_SUMMARY.
@@ -88,6 +89,13 @@ func GenerateMarkdown(data *SummaryData) string {
 	// Benchmark results
 	if data.Benchmarks != nil && data.Benchmarks.HasResults() {
 		writeBenchmarkTable(&sb, data.Benchmarks, data.BenchComp)
+	}
+
+	// Pipeline timeline Gantt chart
+	if gantt := RenderGantt(data.Timeline); gantt != "" {
+		sb.WriteString("<details>\n<summary>Pipeline Timeline</summary>\n\n")
+		sb.WriteString(gantt)
+		sb.WriteString("\n</details>\n\n")
 	}
 
 	return sb.String()
