@@ -13,7 +13,8 @@ import (
 // LocalCache is a filesystem-based build cache. Objects are stored in a
 // two-level directory hierarchy keyed by the hex-encoded action ID.
 type LocalCache struct {
-	dir string
+	dir   string
+	Stats CacheStats
 }
 
 // NewLocalCache creates a local cache rooted at dir. It pre-creates 256
@@ -59,6 +60,7 @@ func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
 	}
 	m.DiskPath = dataPath
 	m.Size = info.Size()
+	c.Stats.Hits.Increment()
 	return m, false
 }
 
@@ -106,6 +108,7 @@ func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, err
 		os.Remove(metaTmpName)
 	}
 
+	c.Stats.Puts.Increment()
 	return dataPath, nil
 }
 

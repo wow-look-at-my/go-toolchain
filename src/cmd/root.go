@@ -104,6 +104,8 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	printCacheStats()
+
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
 		allSummary.Timeline = tl.Entries()
