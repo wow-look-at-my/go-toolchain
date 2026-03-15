@@ -8,7 +8,7 @@ import (
 
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
-	selfupdate "wow-look-at-my.download/selfupdate-mini"
+	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
 )
 
 // selfUpdater abstracts the self-update mechanism for testability.
@@ -18,7 +18,7 @@ type selfUpdater interface {
 	applyUpdate(ctx context.Context, exePath string) error
 }
 
-// githubUpdater wraps lightweight-go-selfupdate for real GitHub releases.
+// githubUpdater wraps go-selfupdate-mini for real GitHub releases.
 type githubUpdater struct {
 	updater	*selfupdate.Updater
 	latest	*selfupdate.Release
