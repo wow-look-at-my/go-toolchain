@@ -82,6 +82,7 @@ runs:
         key: go-build
 
     - name: Cache size breakdown
+      continue-on-error: true
       uses: wow-look-at-my/actions@cache-size#latest
       with:
         paths: |
