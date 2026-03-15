@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -163,6 +164,7 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 
 func TestReachablePackages(t *testing.T) {
 	mock := newMockRunnerForReachable("example.com/mymod",
+		"example.com/mymod/cmd/app\n",
 		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
 
 	reachable, err := ReachablePackages(mock)
@@ -174,8 +176,36 @@ func TestReachablePackages(t *testing.T) {
 	assert.False(t, reachable["strings"])
 }
 
+func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
+	// Simulate: main package imports pkg1, but pkg2 is behind a build tag
+	// and not reachable from the main entry point.
+	mock := newMockRunnerForReachable("example.com/mymod",
+		"example.com/mymod/cmd/app\n",
+		"fmt\nexample.com/mymod/pkg1\nstrings\n")
+
+	reachable, err := ReachablePackages(mock)
+	require.NoError(t, err)
+
+	assert.True(t, reachable["example.com/mymod/pkg1"])
+	// pkg2 is NOT reachable because it's not in the deps of main
+	assert.False(t, reachable["example.com/mymod/pkg2"])
+}
+
+func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
+	// No main packages found — falls back to ./...
+	mock := newMockRunnerForReachable("example.com/mymod",
+		"",
+		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
+
+	reachable, err := ReachablePackages(mock)
+	require.NoError(t, err)
+
+	assert.True(t, reachable["example.com/mymod/pkg1"])
+	assert.True(t, reachable["example.com/mymod/pkg2"])
+}
+
 func TestReachablePackagesModuleFailure(t *testing.T) {
-	mock := newMockRunnerForReachable("", "")
+	mock := newMockRunnerForReachable("", "", "")
 
 	reachable, err := ReachablePackages(mock)
 	// Empty module prefix returns nil, nil
@@ -184,12 +214,13 @@ func TestReachablePackagesModuleFailure(t *testing.T) {
 }
 
 // newMockRunnerForReachable creates a mock runner for ReachablePackages tests.
-func newMockRunnerForReachable(moduleName, depsOutput string) *mockReachableRunner {
-	return &mockReachableRunner{moduleName: moduleName, depsOutput: depsOutput}
+func newMockRunnerForReachable(moduleName, mainPkgs, depsOutput string) *mockReachableRunner {
+	return &mockReachableRunner{moduleName: moduleName, mainPkgs: mainPkgs, depsOutput: depsOutput}
 }
 
 type mockReachableRunner struct {
 	moduleName string
+	mainPkgs   string
 	depsOutput string
 }
 
@@ -198,7 +229,10 @@ func (m *mockReachableRunner) Run(cfg runner.Config) (runner.IProcess, error) {
 	switch {
 	case key == "go list -m":
 		return runner.MockProcess([]byte(m.moduleName+"\n"), nil), nil
-	case key == "go list -deps -f {{.ImportPath}} ./...":
+	case strings.HasPrefix(key, "go list -f "):
+		// go list -f '{{if eq .Name "main"}}...' ./...
+		return runner.MockProcess([]byte(m.mainPkgs), nil), nil
+	case strings.HasPrefix(key, "go list -deps -f {{.ImportPath}}"):
 		return runner.MockProcess([]byte(m.depsOutput), nil), nil
 	default:
 		return runner.MockProcess(nil, nil), nil

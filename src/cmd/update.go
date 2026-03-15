@@ -25,7 +25,21 @@ type githubUpdater struct {
 }
 
 func (g *githubUpdater) detect(ctx context.Context, slug string) (string, bool, error) {
-	g.updater = selfupdate.DefaultUpdater()
+	token := discoverGitHubToken()
+	if token != "" {
+		source, err := selfupdate.NewGitHubSource(selfupdate.GitHubConfig{
+			APIToken: token,
+		})
+		if err == nil {
+			updater, err := selfupdate.NewUpdater(selfupdate.Config{Source: source})
+			if err == nil {
+				g.updater = updater
+			}
+		}
+	}
+	if g.updater == nil {
+		g.updater = selfupdate.DefaultUpdater()
+	}
 	repo := selfupdate.ParseSlug(slug)
 	rel, found, err := g.updater.DetectLatest(ctx, repo)
 	if err != nil {
