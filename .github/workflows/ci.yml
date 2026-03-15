@@ -97,7 +97,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: go-toolchain-binaries
-          path: build/go-toolchain_*
+          path: |
+            build/go-toolchain_*
+            build/checksums.txt
 
   release:
     if: github.ref == 'refs/heads/v1'
