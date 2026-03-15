@@ -42,7 +42,63 @@ func init() {
 		Short: "Show build version and staleness information",
 		Run:   runVersion,
 	}
+	versionCmd.AddCommand(&cobra.Command{
+		Use:   "raw",
+		Short: "Print just the version number",
+		Run:   func(cmd *cobra.Command, args []string) { fmt.Println(buildVersion) },
+	})
+	versionCmd.AddCommand(&cobra.Command{
+		Use:   "json",
+		Short: "Print version info as JSON",
+		Run:   runVersionJSON,
+	})
 	rootCmd.AddCommand(versionCmd)
+}
+
+type versionOutput struct {
+	Version       string `json:"version"`
+	Commit        string `json:"commit"`
+	CommitDate    string `json:"commit_date,omitempty"`
+	BuildDate     string `json:"build_date,omitempty"`
+	LatestCommit  string `json:"latest_commit,omitempty"`
+	CommitsBehind *int   `json:"commits_behind,omitempty"`
+}
+
+func runVersionJSON(cmd *cobra.Command, args []string) {
+	out := versionOutput{
+		Version: buildVersion,
+		Commit:  buildCommit,
+	}
+
+	if buildTimestamp != "" {
+		if ts, err := strconv.ParseInt(buildTimestamp, 10, 64); err == nil {
+			out.CommitDate = time.Unix(ts, 0).UTC().Format(time.RFC3339)
+		}
+	}
+
+	if buildDate != "" {
+		out.BuildDate = buildDate
+	}
+
+	if buildTimestamp != "" && buildCommit != "unknown" {
+		builtTs, err := strconv.ParseInt(buildTimestamp, 10, 64)
+		if err == nil {
+			if latest, err := fetchLatestCommitFromGitHub(); err == nil {
+				out.LatestCommit = latest.sha
+				behind := 0
+				if latest.timestamp > builtTs {
+					if count, err := fetchCommitsBehind(buildCommit, latest.sha); err == nil {
+						behind = count
+					}
+				}
+				out.CommitsBehind = &behind
+			}
+		}
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(out) //nolint:errcheck
 }
 
 func runVersion(cmd *cobra.Command, args []string) {

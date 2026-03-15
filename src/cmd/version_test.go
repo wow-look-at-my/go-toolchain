@@ -128,6 +128,139 @@ func TestGitInfoString(t *testing.T) {
 	}
 }
 
+func TestVersionRaw(t *testing.T) {
+	old := buildVersion
+	defer func() { buildVersion = old }()
+	buildVersion = "v9.9.9"
+
+	cmd := rootCmd
+	buf := new(strings.Builder)
+	cmd.SetOut(buf)
+
+	// Invoke via cobra directly
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	rootCmd.SetArgs([]string{"version", "raw"})
+	rootCmd.Execute() //nolint:errcheck
+	w.Close()
+	os.Stdout = oldStdout
+
+	var out strings.Builder
+	buf2 := make([]byte, 1024)
+	n, _ := r.Read(buf2)
+	out.Write(buf2[:n])
+	assert.Contains(t, out.String(), "v9.9.9")
+}
+
+func TestRunVersionJSON_DevBuild(t *testing.T) {
+	oldTs := buildTimestamp
+	oldCommit := buildCommit
+	oldVer := buildVersion
+	defer func() {
+		buildTimestamp = oldTs
+		buildCommit = oldCommit
+		buildVersion = oldVer
+	}()
+	buildTimestamp = ""
+	buildCommit = "unknown"
+	buildVersion = "dev"
+
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+	runVersionJSON(nil, nil)
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	n, _ := r.Read(tmp)
+	buf.Write(tmp[:n])
+
+	var out versionOutput
+	require.Nil(t, json.Unmarshal([]byte(buf.String()), &out))
+	assert.Equal(t, "dev", out.Version)
+	assert.Equal(t, "unknown", out.Commit)
+	assert.Equal(t, "", out.CommitDate)
+	assert.Nil(t, out.CommitsBehind)
+}
+
+func TestRunVersionJSON_WithBuildInfo(t *testing.T) {
+	oldTs := buildTimestamp
+	oldCommit := buildCommit
+	oldVer := buildVersion
+	oldDate := buildDate
+	defer func() {
+		buildTimestamp = oldTs
+		buildCommit = oldCommit
+		buildVersion = oldVer
+		buildDate = oldDate
+	}()
+	buildTimestamp = "1700000000"
+	buildCommit = "abc123"
+	buildVersion = "v1.2.3"
+	buildDate = "2023-11-14T22:13:20Z"
+
+	server := newGitHubMock(t, time.Unix(1700000000, 0), "abc123", 0)
+	defer server.Close()
+	defer withMockGitHub(t, server)()
+
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+	runVersionJSON(nil, nil)
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	n, _ := r.Read(tmp)
+	buf.Write(tmp[:n])
+
+	var out versionOutput
+	require.Nil(t, json.Unmarshal([]byte(buf.String()), &out))
+	assert.Equal(t, "v1.2.3", out.Version)
+	assert.Equal(t, "abc123", out.Commit)
+	assert.NotEqual(t, "", out.CommitDate)
+	assert.Equal(t, "2023-11-14T22:13:20Z", out.BuildDate)
+	require.NotNil(t, out.CommitsBehind)
+	assert.Equal(t, 0, *out.CommitsBehind)
+}
+
+func TestRunVersionJSON_Behind(t *testing.T) {
+	oldTs := buildTimestamp
+	oldCommit := buildCommit
+	defer func() {
+		buildTimestamp = oldTs
+		buildCommit = oldCommit
+	}()
+	buildTimestamp = "1000000000"
+	buildCommit = "old123"
+
+	server := newGitHubMock(t, time.Now(), "new456", 3)
+	defer server.Close()
+	defer withMockGitHub(t, server)()
+
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+	runVersionJSON(nil, nil)
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	n, _ := r.Read(tmp)
+	buf.Write(tmp[:n])
+
+	var out versionOutput
+	require.Nil(t, json.Unmarshal([]byte(buf.String()), &out))
+	require.NotNil(t, out.CommitsBehind)
+	assert.Equal(t, 3, *out.CommitsBehind)
+	assert.Equal(t, "new456", out.LatestCommit)
+}
+
 func TestPrintVersionInfo(t *testing.T) {
 	old := buildVersion
 	defer func() { buildVersion = old }()

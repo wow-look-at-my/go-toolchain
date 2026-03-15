@@ -28,6 +28,20 @@ jobs:
       - name: Build and test
         run: go run ./src
 
+      - name: Validate version json fields
+        run: |
+          set -euo pipefail
+          json=$(./build/go-toolchain version json)
+          echo "$json"
+          for field in version commit commit_date build_date; do
+            val=$(echo "$json" | jq -r ".$field // empty")
+            if [ -z "$val" ]; then
+              echo "FAIL: field '$field' is missing or empty in version json"
+              exit 1
+            fi
+            echo "OK: $field = $val"
+          done
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
