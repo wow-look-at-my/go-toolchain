@@ -67,23 +67,26 @@ runs:
       shell: bash
       run: echo "hash=$(sha256sum "$(command -v go-toolchain)" | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
+    - name: Restore go-toolchain cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/go-toolchain
+        key: go-toolchain-${{ steps.toolchain-hash.outputs.hash }}
+
     - name: Restore Go build cache
       uses: actions/cache/restore@v4
       with:
         path: |
           ~/.cache/go-build
-          ~/.cache/go-toolchain
           ~/go/pkg/mod
-        key: go-toolchain-${{ steps.toolchain-hash.outputs.hash }}-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          go-toolchain-${{ steps.toolchain-hash.outputs.hash }}-
+        key: go-build
 
     - name: Cache size breakdown
       uses: wow-look-at-my/actions@cache-size#latest
       with:
         paths: |
           ~/.cache/go-build
-          ~/.cache/go-toolchain 
+          ~/.cache/go-toolchain
           ~/go/pkg/mod
 
     - name: Run go-toolchain
@@ -109,15 +112,21 @@ runs:
         fi
         go-toolchain matrix $ARGS
 
+    - name: Save go-toolchain cache
+      if: always()
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/go-toolchain
+        key: go-toolchain-${{ steps.toolchain-hash.outputs.hash }}
+
     - name: Save Go build cache
       if: always()
       uses: actions/cache/save@v4
       with:
         path: |
           ~/.cache/go-build
-          ~/.cache/go-toolchain
           ~/go/pkg/mod
-        key: go-toolchain-${{ steps.toolchain-hash.outputs.hash }}-${{ hashFiles('**/go.sum') }}
+        key: go-build
 
     - name: Auto-release
       if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
