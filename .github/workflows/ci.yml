@@ -58,6 +58,17 @@ jobs:
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
+      - name: Remove system Go
+        run: |
+          sudo rm -f $(which -a go) 2>/dev/null || true
+          sudo rm -rf /usr/local/go /opt/hostedtoolcache/go
+          hash -r
+          if command -v go &>/dev/null; then
+            echo "FAIL: go still in PATH at $(which go)"
+            exit 1
+          fi
+          echo "OK: go is not in PATH"
+
       - name: Download go-toolchain binary
         uses: actions/download-artifact@v4
         with:
@@ -73,43 +84,3 @@ jobs:
         with:
           name: go-toolchain-binaries
           path: build/go-toolchain_*
-
-  bootstrap-test:
-    name: Bootstrap (no Go in PATH)
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download go-toolchain binary
-        uses: actions/download-artifact@v4
-        with:
-          name: go-toolchain-binary
-
-      - name: Configure git for private repos
-        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-      - name: Remove Go and run bootstrap
-        run: |
-          set -euo pipefail
-
-          # Install the pre-built binary
-          chmod +x go-toolchain
-          sudo cp go-toolchain /usr/local/bin/go-toolchain
-
-          # Remove all Go installations
-          which -a go || true
-          sudo rm -f $(which -a go) 2>/dev/null || true
-          sudo rm -rf /usr/local/go /opt/hostedtoolcache/go
-          unset GOROOT
-          unset GOPATH
-
-          # Verify go is gone
-          if command -v go &>/dev/null; then
-            echo "FAIL: go still in PATH at $(which go)"
-            exit 1
-          fi
-          echo "OK: go is not in PATH"
-
-          # go-toolchain should bootstrap Go from go.dev and build successfully
-          go-toolchain
