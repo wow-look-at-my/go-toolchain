@@ -73,6 +73,7 @@ func Execute() error {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	InitTimeline()
 	modules := findGoModules()
 	if len(modules) == 0 {
 		return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
@@ -101,6 +102,11 @@ func run(cmd *cobra.Command, args []string) error {
 		if err := runWithRunner(r, &allSummary); err != nil {
 			return err
 		}
+	}
+
+	// Populate timeline data for Gantt chart
+	if tl := GetTimeline(); tl != nil {
+		allSummary.Timeline = tl.Entries()
 	}
 
 	// Write GitHub Step Summary once after all modules complete

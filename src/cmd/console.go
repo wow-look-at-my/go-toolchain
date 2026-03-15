@@ -6,8 +6,11 @@ import (
 	"io"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
 const colorReset = "\033[0m"
@@ -99,22 +102,42 @@ func logError(file, msg string) {
 	}
 }
 
+// pipelineTimeline records start/end times for pipeline steps.
+// Initialized by InitTimeline(); nil until then.
+var pipelineTimeline *summary.Timeline
+
+// InitTimeline creates the global pipeline timeline, anchored to now.
+func InitTimeline() {
+	pipelineTimeline = summary.NewTimeline()
+}
+
+// GetTimeline returns the global pipeline timeline (may be nil).
+func GetTimeline() *summary.Timeline {
+	return pipelineTimeline
+}
+
 // step tracks progress for a long-running build step.
 // It prints "==> label..." initially, then " done. (Xs)" when finished.
 // If output was produced between start and finish, the done message
 // goes on a new line with the label repeated.
 type step struct {
-	label   string
-	start   time.Time
-	noisy   bool
-	once    sync.Once
+	label  string
+	thread string
+	start  time.Time
+	noisy  bool
+	once   sync.Once
 }
 
 // logStep prints "==> label..." without a newline and returns a step
-// that can be finished later with done().
+// that can be finished later with done(). Records on the "main" thread.
 func logStep(label string) *step {
+	return logStepOn(label, "main")
+}
+
+// logStepOn is like logStep but records on the given thread.
+func logStepOn(label, thread string) *step {
 	fmt.Printf("==> %s...", label)
-	return &step{label: label, start: time.Now()}
+	return &step{label: label, thread: thread, start: time.Now()}
 }
 
 // noteOutput marks that visible output was produced during this step.
@@ -134,11 +157,18 @@ func fmtDuration(d time.Duration) string {
 
 // finish prints the completion message with elapsed time and a status word.
 func (s *step) finish(status string) {
-	d := time.Since(s.start)
+	end := time.Now()
+	d := end.Sub(s.start)
 	if s.noisy {
 		fmt.Printf("==> %s %s %s\n", s.label, status, fmtDuration(d))
 	} else {
 		fmt.Printf(" %s %s\n", status, fmtDuration(d))
+	}
+
+	// Record to the pipeline timeline if initialized
+	if pipelineTimeline != nil {
+		failed := strings.Contains(status, "failed")
+		pipelineTimeline.Record(s.label, s.thread, s.start, end, failed)
 	}
 }
 

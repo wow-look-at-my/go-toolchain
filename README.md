@@ -17,7 +17,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
-- **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, and benchmark comparisons when running in GitHub Actions
+- **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, benchmark comparisons, and a Mermaid Gantt chart of the pipeline timeline when running in GitHub Actions
 
 ## GitHub Action Usage
 
@@ -150,7 +150,7 @@ go-toolchain ignore lines path/to/long_file.go
 9. If coverage meets the threshold, builds the project binary into `build/`
 10. Automatically adds `build/` to `.gitignore` (if in a git repo)
 11. Runs benchmarks and compares against previously stored results
-12. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, and benchmark comparison
+12. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
 
 ## Development
 

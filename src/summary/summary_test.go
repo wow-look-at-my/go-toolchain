@@ -319,3 +319,32 @@ func TestCountTestStatuses(t *testing.T) {
 	assert.Equal(t, 1, f)
 	assert.Equal(t, 1, s)
 }
+
+func TestGenerateMarkdownWithTimeline(t *testing.T) {
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+		Timeline: []TimelineEntry{
+			{Label: "go mod tidy", Thread: "main", Start: 0, End: 500_000_000},
+			{Label: "go test", Thread: "main", Start: 500_000_000, End: 2_000_000_000},
+		},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.Contains(t, md, "Pipeline Timeline")
+	assert.Contains(t, md, "```mermaid")
+	assert.Contains(t, md, "gantt")
+	assert.Contains(t, md, "go mod tidy")
+	assert.Contains(t, md, "go test")
+}
+
+func TestGenerateMarkdownWithoutTimeline(t *testing.T) {
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.NotContains(t, md, "Pipeline Timeline")
+	assert.NotContains(t, md, "```mermaid")
+}

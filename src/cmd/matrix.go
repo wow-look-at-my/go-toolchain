@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
 var (
@@ -63,6 +64,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 }
 
 func runReleaseWithRunner(r runner.CommandRunner) error {
+	InitTimeline()
 	setupCGOEnvironment()
 	if len(matrixOS) == 0 || len(matrixArch) == 0 {
 		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
@@ -123,15 +125,21 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 
 	for i := 0; i < workerCount; i++ {
+		workerThread := fmt.Sprintf("worker-%d", i+1)
 		wg.Add(1)
-		go func() {
+		go func(thread string) {
 			defer wg.Done()
 			for job := range jobChan {
 				jobStart := time.Now()
 				err := runBuild(r, job, nil)
-				results <- buildResult{job: job, err: err, duration: time.Since(jobStart)}
+				jobEnd := time.Now()
+				if pipelineTimeline != nil {
+					label := fmt.Sprintf("%s/%s", job.goos, job.goarch)
+					pipelineTimeline.Record(label, thread, jobStart, jobEnd, err != nil)
+				}
+				results <- buildResult{job: job, err: err, duration: jobEnd.Sub(jobStart)}
 			}
-		}()
+		}(workerThread)
 	}
 
 	for _, job := range jobs {
@@ -183,6 +191,14 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if !noBenchmark {
 		if _, err := runBenchmarkInBuild(r); err != nil {
 			return err
+		}
+	}
+
+	// Write GitHub Step Summary with timeline
+	if tl := GetTimeline(); tl != nil {
+		sd := summary.SummaryData{Timeline: tl.Entries()}
+		if writeErr := summary.Write(&sd); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
 		}
 	}
 
