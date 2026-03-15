@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 
 	semver "github.com/Masterminds/semver/v3"
-	"github.com/creativeprojects/go-selfupdate"
 	"github.com/spf13/cobra"
+	selfupdate "github.com/wow-look-at-my/lightweight-go-selfupdate/pkg/selfupdate"
 )
 
 // selfUpdater abstracts the self-update mechanism for testability.
@@ -18,7 +18,7 @@ type selfUpdater interface {
 	applyUpdate(ctx context.Context, exePath string) error
 }
 
-// githubUpdater wraps go-selfupdate for real GitHub releases.
+// githubUpdater wraps lightweight-go-selfupdate for real GitHub releases.
 type githubUpdater struct {
 	updater	*selfupdate.Updater
 	latest	*selfupdate.Release
@@ -35,7 +35,7 @@ func (g *githubUpdater) detect(ctx context.Context, slug string) (string, bool, 
 		return "", false, nil
 	}
 	g.latest = rel
-	return rel.Version(), true, nil
+	return rel.Version.Original, true, nil
 }
 
 func (g *githubUpdater) isNewer(currentVersion string) bool {
@@ -43,13 +43,17 @@ func (g *githubUpdater) isNewer(currentVersion string) bool {
 		return false
 	}
 	// Validate that currentVersion is valid semver before comparing.
-	// Release.GreaterThan calls semver.MustParse which panics on invalid input.
 	// Non-semver versions (e.g. git-describe output like "latest-1-g649dd4a")
 	// are treated as older so the update proceeds.
-	if _, err := semver.NewVersion(currentVersion); err != nil {
+	cur, err := semver.NewVersion(currentVersion)
+	if err != nil {
 		return true
 	}
-	return g.latest.GreaterThan(currentVersion)
+	latest, err := semver.NewVersion(g.latest.Version.Version)
+	if err != nil {
+		return false
+	}
+	return latest.GreaterThan(cur)
 }
 
 func (g *githubUpdater) applyUpdate(ctx context.Context, exePath string) error {
