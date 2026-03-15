@@ -5,9 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
-
 )
 
 func TestParseProfile(t *testing.T) {
@@ -93,5 +94,125 @@ example.com/pkg/file.go:10.20,12.2 1 1
 	// Should only have parsed the valid line
 	assert.Equal(t, 1, len(files))
 	assert.Equal(t, float32(100), total)
+}
+
+func TestFilterBlocksByReachable(t *testing.T) {
+	blocks := []coverageBlock{
+		{file: "example.com/pkg1/file.go", statements: 2, count: 1},
+		{file: "example.com/pkg2/file.go", statements: 3, count: 0},
+		{file: "example.com/pkg3/file.go", statements: 1, count: 1},
+	}
+
+	reachable := map[string]bool{
+		"example.com/pkg1": true,
+		"example.com/pkg3": true,
+	}
+
+	filtered := filterBlocksByReachable(blocks, reachable)
+	assert.Equal(t, 2, len(filtered))
+	assert.Equal(t, "example.com/pkg1/file.go", filtered[0].file)
+	assert.Equal(t, "example.com/pkg3/file.go", filtered[1].file)
+}
+
+func TestFilterBlocksByReachableNil(t *testing.T) {
+	blocks := []coverageBlock{
+		{file: "example.com/pkg1/file.go", statements: 2, count: 1},
+		{file: "example.com/pkg2/file.go", statements: 3, count: 0},
+	}
+
+	// nil reachable should return all blocks
+	filtered := filterBlocksByReachable(blocks, nil)
+	assert.Equal(t, 2, len(filtered))
+
+	// empty reachable should also return all blocks
+	filtered = filterBlocksByReachable(blocks, map[string]bool{})
+	assert.Equal(t, 2, len(filtered))
+}
+
+func TestParseProfileFiltered(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := filepath.Join(tmpDir, "coverage.out")
+
+	// 3 packages: pkg1 (1 covered), pkg2 (0 covered), pkg3 (1 covered)
+	// Only pkg1 and pkg3 are reachable
+	content := `mode: set
+example.com/pkg1/file.go:10.20,12.2 1 1
+example.com/pkg2/file.go:10.20,12.2 1 0
+example.com/pkg3/file.go:10.20,12.2 1 1
+`
+	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
+
+	reachable := map[string]bool{
+		"example.com/pkg1": true,
+		"example.com/pkg3": true,
+	}
+
+	total, files, err := ParseProfileFiltered(coverFile, reachable)
+	require.NoError(t, err)
+
+	// Should only include pkg1 and pkg3: 2/2 = 100%
+	assert.Equal(t, float32(100), total)
+	assert.Equal(t, 2, len(files))
+
+	// Without filtering: 2/3 = 66.67%
+	totalUnfiltered, filesUnfiltered, err := ParseProfile(coverFile)
+	require.NoError(t, err)
+	assert.Equal(t, 3, len(filesUnfiltered))
+	assert.InDelta(t, 66.67, float64(totalUnfiltered), 0.1)
+}
+
+func TestReachablePackages(t *testing.T) {
+	mock := newMockRunnerForReachable("example.com/mymod",
+		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
+
+	reachable, err := ReachablePackages(mock)
+	require.NoError(t, err)
+
+	assert.True(t, reachable["example.com/mymod/pkg1"])
+	assert.True(t, reachable["example.com/mymod/pkg2"])
+	assert.False(t, reachable["fmt"])
+	assert.False(t, reachable["strings"])
+}
+
+func TestReachablePackagesModuleFailure(t *testing.T) {
+	mock := newMockRunnerForReachable("", "")
+
+	reachable, err := ReachablePackages(mock)
+	// Empty module prefix returns nil, nil
+	assert.Nil(t, reachable)
+	assert.Nil(t, err)
+}
+
+// newMockRunnerForReachable creates a mock runner for ReachablePackages tests.
+func newMockRunnerForReachable(moduleName, depsOutput string) *mockReachableRunner {
+	return &mockReachableRunner{moduleName: moduleName, depsOutput: depsOutput}
+}
+
+type mockReachableRunner struct {
+	moduleName string
+	depsOutput string
+}
+
+func (m *mockReachableRunner) Run(cfg runner.Config) (runner.IProcess, error) {
+	key := cfg.Name + " " + joinArgs(cfg.Args)
+	switch {
+	case key == "go list -m":
+		return runner.MockProcess([]byte(m.moduleName+"\n"), nil), nil
+	case key == "go list -deps -f {{.ImportPath}} ./...":
+		return runner.MockProcess([]byte(m.depsOutput), nil), nil
+	default:
+		return runner.MockProcess(nil, nil), nil
+	}
+}
+
+func joinArgs(args []string) string {
+	result := ""
+	for i, a := range args {
+		if i > 0 {
+			result += " "
+		}
+		result += a
+	}
+	return result
 }
 
