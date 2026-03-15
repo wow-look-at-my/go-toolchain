@@ -77,10 +77,10 @@ runs:
         chmod +x "${{ inputs.binary }}"
         sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
 
-    - name: Compute go-toolchain version hash
-      id: toolchain-hash
+    - name: Get go-toolchain version
+      id: toolchain-version
       shell: bash
-      run: echo "hash=$(sha256sum "$(which go-toolchain)" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      run: echo "version=$(go-toolchain version 2>/dev/null | awk '/^Version:/{print $2; exit}')" >> "$GITHUB_OUTPUT"
 
     - name: Cache Go build cache and go-toolchain downloads
       uses: actions/cache@v4
@@ -88,9 +88,9 @@ runs:
         path: |
           ~/.cache/go-build
           ~/.cache/go-toolchain
-        key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-hash.outputs.hash }}-${{ hashFiles('**/go.sum') }}
+        key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-version.outputs.version }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-hash.outputs.hash }}-
+          go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-version.outputs.version }}-
           go-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Run go-toolchain
