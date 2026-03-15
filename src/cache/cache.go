@@ -52,11 +52,10 @@ type Backend interface {
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
-	local   *LocalCache
-	remote  Backend // nil if no remote backend configured
-	mu      sync.Mutex
-	locks   map[string]*sync.Mutex
-	pending sync.WaitGroup
+	local  *LocalCache
+	remote Backend // nil if no remote backend configured
+	mu     sync.Mutex
+	locks  map[string]*sync.Mutex
 }
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
@@ -83,10 +82,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 
-	var respMu sync.Mutex
 	writeResp := func(resp Response) {
-		respMu.Lock()
-		defer respMu.Unlock()
 		enc.Encode(resp)
 	}
 
@@ -103,7 +99,6 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 
 		switch req.Command {
 		case CmdClose:
-			s.pending.Wait()
 			writeResp(Response{ID: req.ID})
 			if s.remote != nil {
 				s.remote.Close()
@@ -120,25 +115,14 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 					req.Body = []byte(decoded)
 				}
 			}
-			s.pending.Add(1)
-			go func(req Request) {
-				defer s.pending.Done()
-				resp := s.handlePut(req)
-				writeResp(resp)
-			}(req)
+			writeResp(s.handlePut(req))
 
 		case CmdGet:
-			s.pending.Add(1)
-			go func(req Request) {
-				defer s.pending.Done()
-				resp := s.handleGet(req)
-				writeResp(resp)
-			}(req)
+			writeResp(s.handleGet(req))
 		}
 	}
 
 	// Input closed without explicit close command.
-	s.pending.Wait()
 	if s.remote != nil {
 		s.remote.Close()
 	}

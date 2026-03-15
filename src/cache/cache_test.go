@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 // memBackend is a simple in-memory Backend for testing.
@@ -16,9 +17,9 @@ type memBackend struct {
 }
 
 type memEntry struct {
-	outputID string
-	data     []byte
-	time     time.Time
+	outputID	string
+	data		[]byte
+	time		time.Time
 }
 
 func newMemBackend() *memBackend {
@@ -42,50 +43,39 @@ func (m *memBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	return nil
 }
 
-func (m *memBackend) Close() error { return nil }
+func (m *memBackend) Close() error	{ return nil }
 
 func TestServer_Handshake(t *testing.T) {
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
 	// Send a close command immediately.
 	input := makeRequest(Request{ID: 1, Command: CmdClose})
 
 	var out bytes.Buffer
 	srv := NewServer(lc, nil)
-	if err := srv.Run(strings.NewReader(input), &out); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Run(strings.NewReader(input), &out))
 
 	// Decode handshake.
 	dec := json.NewDecoder(&out)
 	var handshake Response
-	if err := dec.Decode(&handshake); err != nil {
-		t.Fatal(err)
-	}
-	if len(handshake.KnownCommands) != 3 {
-		t.Fatalf("expected 3 commands, got %d", len(handshake.KnownCommands))
-	}
+	require.NoError(t, dec.Decode(&handshake))
+
+	require.Equal(t, 3, len(handshake.KnownCommands))
 
 	// Decode close response.
 	var closeResp Response
-	if err := dec.Decode(&closeResp); err != nil {
-		t.Fatal(err)
-	}
-	if closeResp.ID != 1 {
-		t.Fatalf("expected ID=1, got %d", closeResp.ID)
-	}
+	require.NoError(t, dec.Decode(&closeResp))
+
+	require.Equal(t, int64(1), closeResp.ID)
+
 }
 
 func TestServer_PutAndGet(t *testing.T) {
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
 	actionID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33}
 	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
@@ -94,27 +84,25 @@ func TestServer_PutAndGet(t *testing.T) {
 	// Build input: PUT, GET, CLOSE.
 	var input strings.Builder
 	input.WriteString(makePutRequest(Request{
-		ID:       1,
-		Command:  CmdPut,
-		ActionID: actionID,
-		OutputID: outputID,
-		BodySize: int64(len(body)),
+		ID:		1,
+		Command:	CmdPut,
+		ActionID:	actionID,
+		OutputID:	outputID,
+		BodySize:	int64(len(body)),
 	}, body))
 	input.WriteString(makeRequest(Request{
-		ID:       2,
-		Command:  CmdGet,
-		ActionID: actionID,
+		ID:		2,
+		Command:	CmdGet,
+		ActionID:	actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:      3,
-		Command: CmdClose,
+		ID:		3,
+		Command:	CmdClose,
 	}))
 
 	var out bytes.Buffer
 	srv := NewServer(lc, nil)
-	if err := srv.Run(strings.NewReader(input.String()), &out); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
 
 	// Parse all responses.
 	responses := parseResponses(t, out.Bytes())
@@ -127,42 +115,35 @@ func TestServer_PutAndGet(t *testing.T) {
 			break
 		}
 	}
-	if getResp == nil {
-		t.Fatal("no GET response found")
-	}
-	if getResp.Miss {
-		t.Fatal("expected cache hit")
-	}
-	if getResp.DiskPath == "" {
-		t.Fatal("expected non-empty DiskPath")
-	}
+	require.NotNil(t, getResp)
+
+	require.False(t, getResp.Miss)
+
+	require.NotEqual(t, "", getResp.DiskPath)
+
 }
 
 func TestServer_GetMiss(t *testing.T) {
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
 	actionID := []byte{0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
 	var input strings.Builder
 	input.WriteString(makeRequest(Request{
-		ID:       1,
-		Command:  CmdGet,
-		ActionID: actionID,
+		ID:		1,
+		Command:	CmdGet,
+		ActionID:	actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:      2,
-		Command: CmdClose,
+		ID:		2,
+		Command:	CmdClose,
 	}))
 
 	var out bytes.Buffer
 	srv := NewServer(lc, nil)
-	if err := srv.Run(strings.NewReader(input.String()), &out); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
 
 	responses := parseResponses(t, out.Bytes())
 	var getResp *Response
@@ -172,20 +153,16 @@ func TestServer_GetMiss(t *testing.T) {
 			break
 		}
 	}
-	if getResp == nil {
-		t.Fatal("no GET response found")
-	}
-	if !getResp.Miss {
-		t.Fatal("expected cache miss")
-	}
+	require.NotNil(t, getResp)
+
+	require.True(t, getResp.Miss)
+
 }
 
 func TestServer_WithRemoteBackend(t *testing.T) {
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
 	backend := newMemBackend()
 
@@ -199,20 +176,18 @@ func TestServer_WithRemoteBackend(t *testing.T) {
 	// GET from server (local miss, remote hit).
 	var input strings.Builder
 	input.WriteString(makeRequest(Request{
-		ID:       1,
-		Command:  CmdGet,
-		ActionID: actionID,
+		ID:		1,
+		Command:	CmdGet,
+		ActionID:	actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:      2,
-		Command: CmdClose,
+		ID:		2,
+		Command:	CmdClose,
 	}))
 
 	var out bytes.Buffer
 	srv := NewServer(lc, backend)
-	if err := srv.Run(strings.NewReader(input.String()), &out); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
 
 	responses := parseResponses(t, out.Bytes())
 	var getResp *Response
@@ -222,64 +197,54 @@ func TestServer_WithRemoteBackend(t *testing.T) {
 			break
 		}
 	}
-	if getResp == nil {
-		t.Fatal("no GET response found")
-	}
-	if getResp.Miss {
-		t.Fatal("expected cache hit from remote")
-	}
-	if getResp.DiskPath == "" {
-		t.Fatal("expected non-empty DiskPath")
-	}
+	require.NotNil(t, getResp)
+
+	require.False(t, getResp.Miss)
+
+	require.NotEqual(t, "", getResp.DiskPath)
+
 }
 
 func TestServer_EOFWithoutClose(t *testing.T) {
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
 	// Just send a GET, no close command. The server should handle EOF gracefully.
 	actionID := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	input := makeRequest(Request{
-		ID:       1,
-		Command:  CmdGet,
-		ActionID: actionID,
+		ID:		1,
+		Command:	CmdGet,
+		ActionID:	actionID,
 	})
 
 	var out bytes.Buffer
 	srv := NewServer(lc, nil)
-	if err := srv.Run(strings.NewReader(input), &out); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Run(strings.NewReader(input), &out))
+
 }
 
 func TestHexToBytes(t *testing.T) {
 	b := hexToBytes("aabb")
-	if len(b) != 2 || b[0] != 0xaa || b[1] != 0xbb {
-		t.Fatalf("unexpected: %x", b)
-	}
+	require.False(t, len(b) != 2 || b[0] != 0xaa || b[1] != 0xbb)
+
 }
 
 func TestHexToBytes_Empty(t *testing.T) {
 	b := hexToBytes("")
-	if len(b) != 0 {
-		t.Fatalf("expected empty, got %x", b)
-	}
+	require.Equal(t, 0, len(b))
+
 }
 
 func TestServer_Lock(t *testing.T) {
 	srv := NewServer(nil, nil)
 	mu1 := srv.lock("key1")
 	mu2 := srv.lock("key1")
-	if mu1 != mu2 {
-		t.Fatal("expected same mutex for same key")
-	}
+	require.Equal(t, mu2, mu1)
+
 	mu3 := srv.lock("key2")
-	if mu1 == mu3 {
-		t.Fatal("expected different mutex for different key")
-	}
+	require.NotEqual(t, mu3, mu1)
+
 }
 
 // makeRequest serializes a request as a JSON line.
