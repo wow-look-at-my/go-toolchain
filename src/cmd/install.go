@@ -50,8 +50,6 @@ func runInstallImpl() error {
 		return fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 
-	binaryName := filepath.Base(sourcePath)
-
 	// Target directory is always ~/.local/bin
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -63,36 +61,29 @@ func runInstallImpl() error {
 		return fmt.Errorf("failed to create target directory: %w", err)
 	}
 
-	targetPath := filepath.Join(targetDir, binaryName)
+	// Always create both go-toolchain and go-safe-build entries
+	for _, name := range []string{"go-toolchain", "go-safe-build"} {
+		targetPath := filepath.Join(targetDir, name)
 
-	// Remove existing file/symlink if present
-	if _, err := os.Lstat(targetPath); err == nil {
-		if err := os.Remove(targetPath); err != nil {
-			return fmt.Errorf("failed to remove existing %s: %w", targetPath, err)
+		// Remove existing file/symlink if present
+		if _, err := os.Lstat(targetPath); err == nil {
+			if err := os.Remove(targetPath); err != nil {
+				return fmt.Errorf("failed to remove existing %s: %w", targetPath, err)
+			}
+		}
+
+		if installCopy {
+			if err := copyFile(sourcePath, targetPath); err != nil {
+				return fmt.Errorf("failed to copy binary: %w", err)
+			}
+			fmt.Printf("==> Copied %s to %s\n", name, targetPath)
+		} else {
+			if err := os.Symlink(sourcePath, targetPath); err != nil {
+				return fmt.Errorf("failed to create symlink: %w", err)
+			}
+			fmt.Printf("==> Symlinked %s -> %s\n", targetPath, sourcePath)
 		}
 	}
-
-	if installCopy {
-		if err := copyFile(sourcePath, targetPath); err != nil {
-			return fmt.Errorf("failed to copy binary: %w", err)
-		}
-		fmt.Printf("==> Copied %s to %s\n", binaryName, targetPath)
-	} else {
-		if err := os.Symlink(sourcePath, targetPath); err != nil {
-			return fmt.Errorf("failed to create symlink: %w", err)
-		}
-		fmt.Printf("==> Symlinked %s -> %s\n", targetPath, sourcePath)
-	}
-
-	// Create go-safe-build -> go-toolchain compat symlink
-	compatPath := filepath.Join(targetDir, "go-safe-build")
-	if _, err := os.Lstat(compatPath); err == nil {
-		os.Remove(compatPath)
-	}
-	if err := os.Symlink(targetPath, compatPath); err != nil {
-		return fmt.Errorf("failed to create compat symlink: %w", err)
-	}
-	fmt.Printf("==> Symlinked %s -> %s\n", compatPath, targetPath)
 
 	return nil
 }
@@ -113,7 +104,7 @@ func installStatus() string {
 	if err != nil {
 		return "Install status: unknown (cannot determine home directory)"
 	}
-	installedPath := filepath.Join(home, ".local", "bin", filepath.Base(currentPath))
+	installedPath := filepath.Join(home, ".local", "bin", "go-toolchain")
 
 	info, err := os.Lstat(installedPath)
 	if err != nil {
