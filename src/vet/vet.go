@@ -142,6 +142,14 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 	}
 
 	if len(loadErrors) > 0 {
+		// If the error is a Go version mismatch (go-toolchain binary built
+		// with an older Go than the target project requires), fall back to
+		// running `go vet` as an external command. The external `go vet` uses
+		// the correct toolchain version via GOTOOLCHAIN=auto.
+		if isGoVersionMismatch(loadErrors) {
+			fmt.Fprintf(os.Stderr, "  (falling back to external go vet due to Go version mismatch)\n")
+			return filesChanged, runExternalGoVet(pattern)
+		}
 		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
 	}
 
@@ -232,6 +240,30 @@ type Diagnostic struct {
 	Line    int
 	Column  int
 	Message string
+}
+
+// isGoVersionMismatch checks if any of the load errors indicate a Go version
+// mismatch between the compiled binary and the target project.
+func isGoVersionMismatch(errs []string) bool {
+	for _, e := range errs {
+		if strings.Contains(e, "package requires newer Go version") ||
+			strings.Contains(e, "source-processing packages") {
+			return true
+		}
+	}
+	return false
+}
+
+// runExternalGoVet runs `go vet` as an external command, which benefits from
+// GOTOOLCHAIN=auto to use the correct Go version for the target project.
+func runExternalGoVet(pattern string) error {
+	cmd := exec.Command("go", "vet", pattern)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("go vet failed: %w", err)
+	}
+	return nil
 }
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
