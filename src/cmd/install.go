@@ -64,27 +64,34 @@ func runInstallImpl() error {
 	// Always create both go-toolchain and go-safe-build entries
 	for _, name := range []string{"go-toolchain", "go-safe-build"} {
 		targetPath := filepath.Join(targetDir, name)
-
-		// Remove existing file/symlink if present
-		if _, err := os.Lstat(targetPath); err == nil {
-			if err := os.Remove(targetPath); err != nil {
-				return fmt.Errorf("failed to remove existing %s: %w", targetPath, err)
-			}
-		}
-
-		if installCopy {
-			if err := copyFile(sourcePath, targetPath); err != nil {
-				return fmt.Errorf("failed to copy binary: %w", err)
-			}
-			fmt.Printf("==> Copied %s to %s\n", name, targetPath)
-		} else {
-			if err := os.Symlink(sourcePath, targetPath); err != nil {
-				return fmt.Errorf("failed to create symlink: %w", err)
-			}
-			fmt.Printf("==> Symlinked %s -> %s\n", targetPath, sourcePath)
+		if err := placeFile(sourcePath, targetPath, installCopy); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// placeFile removes any existing file/symlink at dst, then either copies src
+// to dst or creates a symlink dst -> src depending on the useCopy flag.
+func placeFile(src, dst string, useCopy bool) error {
+	if _, err := os.Lstat(dst); err == nil {
+		if err := os.Remove(dst); err != nil {
+			return fmt.Errorf("failed to remove existing %s: %w", dst, err)
+		}
+	}
+
+	if useCopy {
+		if err := copyFile(src, dst); err != nil {
+			return fmt.Errorf("failed to copy binary: %w", err)
+		}
+		fmt.Printf("==> Copied %s to %s\n", filepath.Base(dst), dst)
+	} else {
+		if err := os.Symlink(src, dst); err != nil {
+			return fmt.Errorf("failed to create symlink: %w", err)
+		}
+		fmt.Printf("==> Symlinked %s -> %s\n", dst, src)
+	}
 	return nil
 }
 
