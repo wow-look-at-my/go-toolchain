@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,24 +22,48 @@ var (
 	goDownloadURLsFunc = goDownloadURLs
 )
 
-// EnsureGoVersion checks whether Go is available in PATH. If not, it downloads
-// the version specified in go.mod to a cache directory and updates PATH/GOROOT.
-// Version upgrades are handled by GOTOOLCHAIN=auto (set in init), so this only
-// covers the cold-start case where Go is completely missing.
+// EnsureGoVersion checks whether Go is available in PATH and whether its
+// version satisfies the project's go.mod requirement. If Go is missing or too
+// old, it downloads the required version to a cache directory and updates
+// PATH/GOROOT so that all subsequent commands (build, test, vet) use it.
 //
 // Call this early in main, before any cobra/build logic runs.
 func EnsureGoVersion() error {
 	goPath, lookErr := exec.LookPath("go")
-	if lookErr == nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: found go at %s\n", goPath)
-		return nil // Go is available, GOTOOLCHAIN=auto handles upgrades
+	if lookErr != nil {
+		fmt.Fprintf(os.Stderr, "go-bootstrap: go not in PATH (%v)\n", lookErr)
+		return bootstrapGo("go not found in PATH")
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: go not in PATH (%v)\n", lookErr)
+	fmt.Fprintf(os.Stderr, "go-bootstrap: found go at %s\n", goPath)
 
+	// Check whether the installed version satisfies go.mod.
 	required, err := requiredGoVersion()
 	if err != nil || required == "" {
-		return fmt.Errorf("go not found in PATH and cannot determine version from go.mod: %v", err)
+		return nil // can't determine required version, proceed with what we have
+	}
+
+	installed, err := installedGoVersion()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot determine installed version (%v), proceeding\n", err)
+		return nil
+	}
+
+	if !goVersionLessThan(installed, required) {
+		fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s satisfies required %s\n", installed, required)
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is older than required %s\n", installed, required)
+	return bootstrapGo(fmt.Sprintf("installed %s < required %s", installed, required))
+}
+
+// bootstrapGo downloads the Go version specified in go.mod and updates
+// PATH/GOROOT to use it.
+func bootstrapGo(reason string) error {
+	required, err := requiredGoVersion()
+	if err != nil || required == "" {
+		return fmt.Errorf("%s and cannot determine version from go.mod: %v", reason, err)
 	}
 
 	fmt.Fprintf(os.Stderr, "go-bootstrap: bootstrapping Go %s...\n", required)
@@ -63,7 +88,53 @@ func EnsureGoVersion() error {
 	return nil
 }
 
-// requiredGoVersion reads the "go X.Y.Z" directive from ./go.mod.
+// installedGoVersion runs "go version" and extracts the version number.
+func installedGoVersion() (string, error) {
+	out, err := exec.Command("go", "version").Output()
+	if err != nil {
+		return "", err
+	}
+	// Output format: "go version go1.24.11 linux/amd64"
+	fields := strings.Fields(string(out))
+	if len(fields) < 3 || !strings.HasPrefix(fields[2], "go") {
+		return "", fmt.Errorf("unexpected go version output: %s", out)
+	}
+	return strings.TrimPrefix(fields[2], "go"), nil
+}
+
+// goVersionLessThan returns true if version a < version b.
+// Versions are in the form "1.24.11" or "1.25".
+func goVersionLessThan(a, b string) bool {
+	ap := parseGoVersion(a)
+	bp := parseGoVersion(b)
+	for i := 0; i < 3; i++ {
+		if ap[i] != bp[i] {
+			return ap[i] < bp[i]
+		}
+	}
+	return false
+}
+
+// parseGoVersion splits a Go version string into [major, minor, patch].
+// Pre-release suffixes (rc1, beta2) are stripped.
+func parseGoVersion(v string) [3]int {
+	// Strip rc/beta suffix: "1.25rc1" -> "1.25", "1.25.0-beta1" -> "1.25.0"
+	for _, sep := range []string{"-", "rc", "beta"} {
+		if i := strings.Index(v, sep); i >= 0 {
+			v = v[:i]
+		}
+	}
+	parts := strings.Split(v, ".")
+	var result [3]int
+	for i := 0; i < len(parts) && i < 3; i++ {
+		result[i], _ = strconv.Atoi(parts[i])
+	}
+	return result
+}
+
+// requiredGoVersion reads the go.mod file and returns the Go version needed.
+// It prefers the "toolchain goX.Y.Z" directive (if present) over the "go X.Y.Z"
+// directive, since the toolchain directive specifies the exact version to use.
 func requiredGoVersion() (string, error) {
 	f, err := os.Open("go.mod")
 	if err != nil {
@@ -71,14 +142,24 @@ func requiredGoVersion() (string, error) {
 	}
 	defer f.Close()
 
+	var goVer, toolchainVer string
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "go ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "go ")), nil
+		if strings.HasPrefix(line, "toolchain ") {
+			tc := strings.TrimSpace(strings.TrimPrefix(line, "toolchain "))
+			// "toolchain go1.25.0" -> "1.25.0"
+			toolchainVer = strings.TrimPrefix(tc, "go")
+		} else if goVer == "" && strings.HasPrefix(line, "go ") {
+			goVer = strings.TrimSpace(strings.TrimPrefix(line, "go "))
 		}
 	}
-	return "", nil
+
+	// Prefer the toolchain directive — it's more specific.
+	if toolchainVer != "" {
+		return toolchainVer, nil
+	}
+	return goVer, nil
 }
 
 // ensureGoCached downloads Go to ~/.cache/go-toolchain/go<version>/ if not

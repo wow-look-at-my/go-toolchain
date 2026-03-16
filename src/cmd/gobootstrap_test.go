@@ -26,6 +26,18 @@ func TestRequiredGoVersion(t *testing.T) {
 	assert.Equal(t, "1.24.11", v)
 }
 
+func TestRequiredGoVersionToolchainDirective(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("go.mod", []byte("module test\n\ngo 1.24.0\n\ntoolchain go1.25.0\n"), 0644)
+	v, err := requiredGoVersion()
+	assert.Nil(t, err)
+	assert.Equal(t, "1.25.0", v) // toolchain directive takes precedence
+}
+
 func TestRequiredGoVersionNoGoDirective(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -47,6 +59,46 @@ func TestRequiredGoVersionNoMod(t *testing.T) {
 	v, err := requiredGoVersion()
 	assert.NotNil(t, err)
 	assert.Equal(t, "", v)
+}
+
+func TestGoVersionLessThan(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"1.24.0", "1.25.0", true},
+		{"1.24.11", "1.25.0", true},
+		{"1.25.0", "1.24.11", false},
+		{"1.24.11", "1.24.11", false}, // equal
+		{"1.24", "1.25.0", true},
+		{"1.24.0", "1.24.1", true},
+		{"1.25.0", "1.25.0", false},
+		{"1.9.0", "1.24.0", true},  // numeric, not lexicographic
+		{"1.24.0", "1.9.0", false}, // numeric, not lexicographic
+	}
+	for _, tt := range tests {
+		t.Run(tt.a+"_vs_"+tt.b, func(t *testing.T) {
+			assert.Equal(t, tt.want, goVersionLessThan(tt.a, tt.b))
+		})
+	}
+}
+
+func TestParseGoVersion(t *testing.T) {
+	assert.Equal(t, [3]int{1, 24, 11}, parseGoVersion("1.24.11"))
+	assert.Equal(t, [3]int{1, 25, 0}, parseGoVersion("1.25.0"))
+	assert.Equal(t, [3]int{1, 25, 0}, parseGoVersion("1.25"))
+	assert.Equal(t, [3]int{1, 25, 0}, parseGoVersion("1.25rc1"))
+	assert.Equal(t, [3]int{1, 25, 0}, parseGoVersion("1.25.0-beta1"))
+}
+
+func TestInstalledGoVersion(t *testing.T) {
+	v, err := installedGoVersion()
+	assert.Nil(t, err)
+	assert.NotEmpty(t, v)
+	// Should be a valid version with at least major.minor
+	parts := parseGoVersion(v)
+	assert.True(t, parts[0] >= 1) // major >= 1
+	assert.True(t, parts[1] >= 1) // minor >= 1
 }
 
 func TestGoDownloadURLsNoProxy(t *testing.T) {
@@ -290,7 +342,8 @@ func TestDownloadGoConnectionError(t *testing.T) {
 }
 
 func TestEnsureGoVersionGoPresent(t *testing.T) {
-	// Go is installed in test env, so EnsureGoVersion should be a no-op
+	// Go is installed in test env and satisfies this project's go.mod,
+	// so EnsureGoVersion should succeed without downloading anything.
 	err := EnsureGoVersion()
 	assert.Nil(t, err)
 }
