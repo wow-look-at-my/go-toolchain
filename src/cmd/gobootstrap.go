@@ -11,9 +11,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 // Test seams — overridden in tests to avoid real downloads.
@@ -49,7 +50,18 @@ func EnsureGoVersion() error {
 		return nil
 	}
 
-	if !goVersionLessThan(installed, required) {
+	installedVer, err := semver.NewVersion(installed)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot parse installed version %q (%v), proceeding\n", installed, err)
+		return nil
+	}
+	requiredVer, err := semver.NewVersion(required)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot parse required version %q (%v), proceeding\n", required, err)
+		return nil
+	}
+
+	if !installedVer.LessThan(requiredVer) {
 		fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s satisfies required %s\n", installed, required)
 		return nil
 	}
@@ -100,36 +112,6 @@ func installedGoVersion() (string, error) {
 		return "", fmt.Errorf("unexpected go version output: %s", out)
 	}
 	return strings.TrimPrefix(fields[2], "go"), nil
-}
-
-// goVersionLessThan returns true if version a < version b.
-// Versions are in the form "1.24.11" or "1.25".
-func goVersionLessThan(a, b string) bool {
-	ap := parseGoVersion(a)
-	bp := parseGoVersion(b)
-	for i := 0; i < 3; i++ {
-		if ap[i] != bp[i] {
-			return ap[i] < bp[i]
-		}
-	}
-	return false
-}
-
-// parseGoVersion splits a Go version string into [major, minor, patch].
-// Pre-release suffixes (rc1, beta2) are stripped.
-func parseGoVersion(v string) [3]int {
-	// Strip rc/beta suffix: "1.25rc1" -> "1.25", "1.25.0-beta1" -> "1.25.0"
-	for _, sep := range []string{"-", "rc", "beta"} {
-		if i := strings.Index(v, sep); i >= 0 {
-			v = v[:i]
-		}
-	}
-	parts := strings.Split(v, ".")
-	var result [3]int
-	for i := 0; i < len(parts) && i < 3; i++ {
-		result[i], _ = strconv.Atoi(parts[i])
-	}
-	return result
 }
 
 // requiredGoVersion reads the go.mod file and returns the Go version needed.
