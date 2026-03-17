@@ -249,9 +249,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, error) {
 		}
 	}).Run(r)
 	if err != nil {
+		// Clean up vanity replaces even on failure so we don't leave
+		// invalid directives in go.mod.
+		_ = removeVanityReplaces(vanityReplaces)
 		return false, fmt.Errorf("go mod tidy failed: %w", err)
 	}
 	if err := proc.Wait(); err != nil {
+		_ = removeVanityReplaces(vanityReplaces)
 		if _, statErr := os.Stat("go.mod"); statErr != nil {
 			return false, fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
 		}
