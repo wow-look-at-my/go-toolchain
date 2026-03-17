@@ -597,54 +597,6 @@ func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestIsGoVersionMismatch(t *testing.T) {
-	tests := []struct {
-		name   string
-		errs   []string
-		expect bool
-	}{
-		{
-			name:   "newer Go version error",
-			errs:   []string{"/tmp/hello.go:1:1: package requires newer Go version go1.25 (application built with go1.24)"},
-			expect: true,
-		},
-		{
-			name:   "source-processing packages error",
-			errs:   []string{"-: This application uses version go1.24 of the source-processing packages but runs version go1.25 of 'go list'."},
-			expect: true,
-		},
-		{
-			name:   "unrelated error",
-			errs:   []string{"cannot find package \"foo\""},
-			expect: false,
-		},
-		{
-			name:   "mixed errors with version mismatch",
-			errs:   []string{"some other error", "package requires newer Go version go1.25 (application built with go1.24)"},
-			expect: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expect, isGoVersionMismatch(tt.errs))
-		})
-	}
-}
-
-func TestRunExternalGoVet(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() { println(\"hi\") }\n"), 0644)
-
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
-
-	err := runExternalGoVet("./...")
-	assert.Nil(t, err)
-}
-
 // initGitRepo initializes a git repo in dir, adds all files, and commits them.
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()

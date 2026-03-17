@@ -24,7 +24,17 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: 'stable'
+
+      - name: Verify Go is latest stable
+        run: |
+          INSTALLED=$(go env GOVERSION)
+          LATEST=$(curl -sf 'https://go.dev/dl/?mode=json' | jq -r '.[0].version')
+          echo "Installed: $INSTALLED  Latest: $LATEST"
+          if [ "$INSTALLED" != "$LATEST" ]; then
+            echo "::error::Go version $INSTALLED does not match latest stable $LATEST"
+            exit 1
+          fi
 
       - name: Restore Go build cache
         uses: actions/cache/restore@v4
