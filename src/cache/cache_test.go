@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 // memBackend is a simple in-memory IBackend for testing.
 type memBackend struct {
+	mu    sync.Mutex
 	store map[string]memEntry
 	stats CacheStats
 }
@@ -32,6 +34,8 @@ func newMemBackend() *memBackend {
 }
 
 func (m *memBackend) Get(actionID string) (string, io.ReadCloser, int64, time.Time, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	e, ok := m.store[actionID]
 	if !ok {
 		return "", nil, 0, time.Time{}, true, nil
@@ -44,7 +48,9 @@ func (m *memBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
 	m.store[actionID] = memEntry{outputID: outputID, data: data, time: time.Now()}
+	m.mu.Unlock()
 	return nil
 }
 

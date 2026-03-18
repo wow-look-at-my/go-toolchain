@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pierrec/lz4/v4"
@@ -36,8 +37,9 @@ type S3Backend struct {
 	endpoint  string
 	accessKey string
 	secretKey string
-	Stats     CacheStats
-	keys      set.Set[string] // known keys, built from ListObjects on startup
+	Stats  CacheStats
+	keysMu sync.RWMutex
+	keys   set.Set[string] // known keys, built from ListObjects on startup
 }
 
 // NewS3Backend creates an S3 backend from the given config.
@@ -145,7 +147,10 @@ func (b *S3Backend) url(key string) string {
 // Returns immediately if the key is not in the index (no network call).
 func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
 	key := b.key(actionID)
-	if !b.keys.Contains(key) {
+	b.keysMu.RLock()
+	known := b.keys.Contains(key)
+	b.keysMu.RUnlock()
+	if !known {
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	req, err := http.NewRequest("GET", b.url(key), nil)
@@ -206,7 +211,10 @@ func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, s
 // Skips upload if the key is already in the index.
 func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
 	key := b.key(actionID)
-	if b.keys.Contains(key) {
+	b.keysMu.RLock()
+	known := b.keys.Contains(key)
+	b.keysMu.RUnlock()
+	if known {
 		return nil
 	}
 
@@ -242,7 +250,9 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 	}
 
 	b.Stats.Puts.Increment()
+	b.keysMu.Lock()
 	b.keys.Add(key)
+	b.keysMu.Unlock()
 	return nil
 }
 

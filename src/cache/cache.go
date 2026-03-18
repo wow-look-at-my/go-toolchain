@@ -106,9 +106,15 @@ func (s *Server) sendStat(ev StatEvent) {
 }
 
 func (s *Server) closeStats() {
-	if s.statsConn != nil {
-		s.statsConn.Close()
+	if s.statsConn == nil {
+		return
 	}
+	// Use CloseWrite to signal EOF to the reader while allowing buffered
+	// data to drain, rather than Close which may discard unread data.
+	if uc, ok := s.statsConn.(*net.UnixConn); ok {
+		uc.CloseWrite()
+	}
+	s.statsConn.Close()
 }
 
 // ServerStats is the serialized aggregate of all cache layer stats.
