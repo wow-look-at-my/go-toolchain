@@ -205,8 +205,27 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	waitErr := proc.Wait()
 
 	// Include captured stderr (build errors) in handler output.
+	// Filter out noise that is not actual build/test errors:
+	//  - "no such tool covdata" from Go 1.25+ coverage on main packages
+	//  - "# pkg" header lines that precede filtered errors
+	//  - "cacheprog:" messages from GOCACHEPROG subprocesses
 	if stderrBuf.Len() > 0 {
-		handler.stderrLines = append(handler.stderrLines, strings.TrimRight(stderrBuf.String(), "\n"))
+		var filtered []string
+		for _, line := range strings.Split(strings.TrimRight(stderrBuf.String(), "\n"), "\n") {
+			if strings.Contains(line, "no such tool") && strings.Contains(line, "covdata") {
+				continue
+			}
+			if strings.HasPrefix(line, "# ") {
+				continue
+			}
+			if strings.HasPrefix(line, "cacheprog:") {
+				continue
+			}
+			filtered = append(filtered, line)
+		}
+		if len(filtered) > 0 {
+			handler.stderrLines = append(handler.stderrLines, strings.Join(filtered, "\n"))
+		}
 	}
 
 	// If packages failed to build but no error details were captured (common
