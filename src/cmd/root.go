@@ -324,10 +324,12 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 	}
 
-	// Remove vanity replace directives now that tidy is done
-	if err := removeVanityReplaces(vanityReplaces); err != nil {
-		return false, nil, fmt.Errorf("failed to clean up vanity replaces: %w", err)
-	}
+	// Defer removal of vanity replace directives until after all pipeline
+	// stages complete. Tests and build need the replaces to resolve modules
+	// when the vanity host is unreachable.
+	defer func() {
+		_ = removeVanityReplaces(vanityReplaces)
+	}()
 
 	var vetStep *step
 	if !quiet {

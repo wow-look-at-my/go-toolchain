@@ -248,6 +248,13 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		return nil, fmt.Errorf("no tests found (create *_test.go files with Test* functions)")
 	}
 
+	// If go test exited non-zero but no actual tests failed, the failure is
+	// from a non-test issue (e.g. missing "covdata" tool on a main package
+	// with no test files in Go 1.25+). Treat as success.
+	if waitErr != nil && len(handler.failedTest) == 0 && handler.FailureOutput() == "" {
+		waitErr = nil
+	}
+
 	// Determine reachable packages to filter coverage (non-fatal on error)
 	reachable, _ := ReachablePackages(r)
 
