@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -347,7 +348,26 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	fix := os.Getenv("CI") == "" // disable auto-fix on CI
 	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
-		return false, nil, fmt.Errorf("vet failed: %w", err)
+		// If in-process vet fails due to Go version mismatch (e.g. binary built
+		// with Go 1.24 but project requires Go 1.25), fall back to external go vet
+		// which uses the bootstrapped Go version.
+		if strings.Contains(err.Error(), "package requires newer Go version") {
+			if vetPhaseStep != nil {
+				vetPhaseStep.done()
+				vetPhaseStep = nil
+			}
+			vetPhaseStep = logSubStep("vet: fallback to external go vet", "main")
+			cmd := exec.Command("go", "vet", "./...")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if extErr := cmd.Run(); extErr != nil {
+				return false, nil, fmt.Errorf("go vet failed: %w", extErr)
+			}
+			filesChanged = false
+			err = nil
+		} else {
+			return false, nil, fmt.Errorf("vet failed: %w", err)
+		}
 	}
 	// Finish the last vet sub-phase
 	if vetPhaseStep != nil {
