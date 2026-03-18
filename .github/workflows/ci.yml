@@ -65,9 +65,9 @@ jobs:
       - name: Remove system Go
         run: |
           empty=$(mktemp -d)
-          sudo rm -f $(which -a go) 2>/dev/null || true
           sudo mount --bind "$empty" /usr/local/go || true
           sudo mount --bind "$empty" /opt/hostedtoolcache/go || true
+          sudo rm -f $(which -a go) 2>/dev/null || true
           if command -v go &>/dev/null; then
             echo "FAIL: go still in PATH at $(which go)"
             exit 1
