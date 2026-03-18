@@ -26,6 +26,36 @@ func TestRequiredGoVersion(t *testing.T) {
 	assert.Equal(t, "1.24.11", v)
 }
 
+func TestRequiredGoVersionToolchainDirective(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("go.mod", []byte("module test\n\ngo 1.24.0\n\ntoolchain go1.25.0\n"), 0644)
+	v, err := requiredGoVersion()
+	assert.Nil(t, err)
+	assert.Equal(t, "1.25.0", v) // toolchain directive takes precedence
+}
+
+func TestRequiredGoVersionTwoParts(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("go.mod", []byte("module test\n\ngo 1.25\n"), 0644)
+	v, err := requiredGoVersion()
+	assert.Nil(t, err)
+	assert.Equal(t, "1.25.0", v)
+}
+
+func TestNormalizeGoVersion(t *testing.T) {
+	assert.Equal(t, "1.25.0", normalizeGoVersion("1.25"))
+	assert.Equal(t, "1.24.11", normalizeGoVersion("1.24.11"))
+	assert.Equal(t, "1.25.1", normalizeGoVersion("1.25.1"))
+}
+
 func TestRequiredGoVersionNoGoDirective(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -47,6 +77,14 @@ func TestRequiredGoVersionNoMod(t *testing.T) {
 	v, err := requiredGoVersion()
 	assert.NotNil(t, err)
 	assert.Equal(t, "", v)
+}
+
+func TestInstalledGoVersion(t *testing.T) {
+	v, err := installedGoVersion()
+	assert.Nil(t, err)
+	assert.NotEmpty(t, v)
+	// Should be parseable as semver
+	assert.Contains(t, v, ".")
 }
 
 func TestGoDownloadURLsNoProxy(t *testing.T) {
@@ -290,7 +328,8 @@ func TestDownloadGoConnectionError(t *testing.T) {
 }
 
 func TestEnsureGoVersionGoPresent(t *testing.T) {
-	// Go is installed in test env, so EnsureGoVersion should be a no-op
+	// Go is installed in test env and satisfies this project's go.mod,
+	// so EnsureGoVersion should succeed without downloading anything.
 	err := EnsureGoVersion()
 	assert.Nil(t, err)
 }
