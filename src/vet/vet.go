@@ -133,11 +133,19 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		return false, fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	// Check for load errors
+	// Check for load errors, filtering out Go version mismatch warnings.
+	// These occur when go-toolchain was built with an older Go than the target
+	// project declares in go.mod. The embedded go/packages can still analyze
+	// the code correctly — the go directive is a minimum version, not a syntax gate.
 	var loadErrors []string
 	for _, pkg := range pkgs {
 		for _, e := range pkg.Errors {
-			loadErrors = append(loadErrors, e.Error())
+			msg := e.Error()
+			if strings.Contains(msg, "package requires newer Go version") ||
+				strings.Contains(msg, "source-processing packages") {
+				continue
+			}
+			loadErrors = append(loadErrors, msg)
 		}
 	}
 

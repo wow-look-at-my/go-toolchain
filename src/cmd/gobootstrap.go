@@ -117,6 +117,8 @@ func installedGoVersion() (string, error) {
 // requiredGoVersion reads the go.mod file and returns the Go version needed.
 // It prefers the "toolchain goX.Y.Z" directive (if present) over the "go X.Y.Z"
 // directive, since the toolchain directive specifies the exact version to use.
+// Since Go 1.21, release archives include the patch version (e.g. go1.25.0),
+// so if go.mod says "go 1.25" we normalize it to "1.25.0".
 func requiredGoVersion() (string, error) {
 	f, err := os.Open("go.mod")
 	if err != nil {
@@ -139,9 +141,21 @@ func requiredGoVersion() (string, error) {
 
 	// Prefer the toolchain directive — it's more specific.
 	if toolchainVer != "" {
-		return toolchainVer, nil
+		return normalizeGoVersion(toolchainVer), nil
 	}
-	return goVer, nil
+	return normalizeGoVersion(goVer), nil
+}
+
+// normalizeGoVersion ensures the version has a patch component.
+// Starting with Go 1.21, release archives are named go1.X.0 rather than go1.X,
+// so "1.25" must become "1.25.0" for the download URL to work.
+func normalizeGoVersion(v string) string {
+	parts := strings.Split(v, ".")
+	if len(parts) == 2 {
+		// Only major.minor (e.g. "1.25") — append ".0"
+		return v + ".0"
+	}
+	return v
 }
 
 // ensureGoCached downloads Go to ~/.cache/go-toolchain/go<version>/ if not
