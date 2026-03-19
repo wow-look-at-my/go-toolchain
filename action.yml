@@ -62,17 +62,6 @@ runs:
         chmod +x "${{ inputs.binary }}"
         sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
 
-    - name: Compute go-toolchain binary hash
-      id: toolchain-hash
-      shell: bash
-      run: echo "hash=$(sha256sum "$(command -v go-toolchain)" | cut -c1-16)" >> "$GITHUB_OUTPUT"
-
-    - name: Restore go-toolchain cache
-      uses: actions/cache/restore@v4
-      with:
-        path: ~/.cache/go-toolchain
-        key: go-toolchain-${{ steps.toolchain-hash.outputs.hash }}
-
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -100,13 +89,6 @@ runs:
           ARGS="$ARGS --cgo"
         fi
         go-toolchain matrix $ARGS
-
-    - name: Save go-toolchain cache
-      if: always()
-      uses: actions/cache/save@v4
-      with:
-        path: ~/.cache/go-toolchain
-        key: go-toolchain-${{ steps.toolchain-hash.outputs.hash }}
 
     - name: Auto-release
       if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
