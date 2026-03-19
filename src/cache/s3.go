@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -101,9 +102,9 @@ func (b *S3Backend) listAllKeys() set.Set[string] {
 	keys := set.New[string]()
 	continuation := ""
 	for {
-		query := "list-type=2&prefix=" + b.prefix + "&max-keys=1000"
+		query := "list-type=2&prefix=" + url.QueryEscape(b.prefix) + "&max-keys=1000"
 		if continuation != "" {
-			query += "&continuation-token=" + continuation
+			query += "&continuation-token=" + url.QueryEscape(continuation)
 		}
 		url := b.endpoint + "/" + b.bucket + "?" + query
 		req, err := http.NewRequest("GET", url, nil)
@@ -211,25 +212,33 @@ func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, s
 // Skips upload if the key is already in the index.
 func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
 	key := b.key(actionID)
-	b.keysMu.RLock()
-	known := b.keys.Contains(key)
-	b.keysMu.RUnlock()
-	if known {
+
+	// Atomically check-and-claim: if the key is already known (or being
+	// uploaded by another goroutine), skip immediately. Otherwise mark it
+	// as claimed so concurrent Puts for the same actionID don't race.
+	b.keysMu.Lock()
+	if b.keys.Contains(key) {
+		b.keysMu.Unlock()
 		return nil
 	}
+	b.keys.Add(key)
+	b.keysMu.Unlock()
 
 	raw, err := io.ReadAll(body)
 	if err != nil {
+		b.removeClaimed(key)
 		return fmt.Errorf("s3 put read: %w", err)
 	}
 
 	compressed, err := compressData(raw)
 	if err != nil {
+		b.removeClaimed(key)
 		return fmt.Errorf("s3 put compress: %w", err)
 	}
 
 	req, err := http.NewRequest("PUT", b.url(key), bytes.NewReader(compressed))
 	if err != nil {
+		b.removeClaimed(key)
 		return fmt.Errorf("s3 put request: %w", err)
 	}
 	req.ContentLength = int64(len(compressed))
@@ -238,22 +247,29 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 
 	resp, err := b.client.Do(req)
 	if err != nil {
+		b.removeClaimed(key)
 		fmt.Fprintf(os.Stderr, "cacheprog: s3 put %s: %v\n", actionID[:8], err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		b.removeClaimed(key)
 		respBody, _ := io.ReadAll(resp.Body)
 		fmt.Fprintf(os.Stderr, "cacheprog: s3 put %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
 		return fmt.Errorf("s3 put: HTTP %d", resp.StatusCode)
 	}
 
 	b.Stats.Puts.Increment()
-	b.keysMu.Lock()
-	b.keys.Add(key)
-	b.keysMu.Unlock()
 	return nil
+}
+
+// removeClaimed removes a key that was optimistically added to the index
+// when the upload fails, so it can be retried on the next attempt.
+func (b *S3Backend) removeClaimed(key string) {
+	b.keysMu.Lock()
+	b.keys.Remove(key)
+	b.keysMu.Unlock()
 }
 
 // Close is a no-op for S3.
