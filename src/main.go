@@ -8,6 +8,11 @@ import (
 )
 
 func init() {
+	// When invoked as GOCACHEPROG, skip all env setup — just serve the protocol.
+	if isCacheProgInvocation() {
+		return
+	}
+
 	// Let Go automatically download the correct toolchain when go.mod
 	// requires a newer version than the one installed.
 	os.Setenv("GOTOOLCHAIN", "auto")
@@ -26,12 +31,25 @@ func init() {
 	os.Setenv("no_proxy", "")
 }
 
+func isCacheProgInvocation() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "cacheprog" {
+			return true
+		}
+		if arg == "--" {
+			return false
+		}
+	}
+	return false
+}
+
 func needsGo() bool {
 	for _, arg := range os.Args[1:] {
 		if arg == "--" {
 			return true
 		}
-		if arg == "version" {
+		switch arg {
+		case "version", "cacheprog":
 			return false
 		}
 	}

@@ -21,7 +21,9 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	// Always run with -json so we can parse results
 	goTestArgs = append([]string{goTestArgs[0], "-json"}, goTestArgs[1:]...)
 
-	proc, err := runner.Cmd("go", goTestArgs...).WithQuiet().Run(r)
+	// Clear GOCACHEPROG so the benchmark subprocess doesn't spawn a cacheprog
+	// child that inherits stdout and prevents io.ReadAll from completing.
+	proc, err := runner.Cmd("go", goTestArgs...).WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
 	if err != nil {
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}

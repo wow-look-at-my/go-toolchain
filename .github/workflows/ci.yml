@@ -36,25 +36,13 @@ jobs:
             exit 1
           fi
 
-      - name: Restore Go build cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-build
-
       - name: Build and test
         run: go run ./src
-
-      - name: Save Go build cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-build
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
+          GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}
+          GOCACHE_S3_REGION: ${{ secrets.GO_BUILDCACHE_REGION }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
