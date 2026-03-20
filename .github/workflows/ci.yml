@@ -20,6 +20,14 @@ jobs:
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
+      - name: Configure netrc for Go proxy
+        run: |
+          cat >> ~/.netrc <<EOF
+          machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+          machine gosumdb.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+          EOF
+          chmod 600 ~/.netrc
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -58,6 +66,14 @@ jobs:
 
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
+      - name: Configure netrc for Go proxy
+        run: |
+          cat >> ~/.netrc <<EOF
+          machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+          machine gosumdb.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+          EOF
+          chmod 600 ~/.netrc
 
       - name: Remove system Go
         run: |
