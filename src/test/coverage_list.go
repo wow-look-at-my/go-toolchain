@@ -108,7 +108,7 @@ func colorImpact(impact float32, saturation, value float64) string {
 	}
 	hue := (1 - scaled/100) * 120
 	r, g, b := hsvToRGB(hue, saturation, value)
-	return fmt.Sprintf("\033[38;2;%d;%d;%dm+%4.1f%%%s", r, g, b, impact, fgReset)
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm-%4.1f%%%s", r, g, b, impact, fgReset)
 }
 
 func printItem(c ICoverageItem, depth int, totalStatements int) {
