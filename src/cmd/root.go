@@ -73,7 +73,9 @@ func Execute() error {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	enableCacheProg()
+	if err := enableCacheProg(); err != nil {
+		return err
+	}
 	InitTimeline()
 	modules := findGoModules()
 	if len(modules) == 0 {
