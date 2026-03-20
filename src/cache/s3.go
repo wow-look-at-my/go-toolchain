@@ -224,21 +224,25 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 	b.keys.Add(key)
 	b.keysMu.Unlock()
 
+	var uploaded bool
+	defer func() {
+		if !uploaded {
+			b.removeClaimed(key)
+		}
+	}()
+
 	raw, err := io.ReadAll(body)
 	if err != nil {
-		b.removeClaimed(key)
 		return fmt.Errorf("s3 put read: %w", err)
 	}
 
 	compressed, err := compressData(raw)
 	if err != nil {
-		b.removeClaimed(key)
 		return fmt.Errorf("s3 put compress: %w", err)
 	}
 
 	req, err := http.NewRequest("PUT", b.url(key), bytes.NewReader(compressed))
 	if err != nil {
-		b.removeClaimed(key)
 		return fmt.Errorf("s3 put request: %w", err)
 	}
 	req.ContentLength = int64(len(compressed))
@@ -247,19 +251,18 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		b.removeClaimed(key)
 		fmt.Fprintf(os.Stderr, "cacheprog: s3 put %s: %v\n", actionID[:8], err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		b.removeClaimed(key)
 		respBody, _ := io.ReadAll(resp.Body)
 		fmt.Fprintf(os.Stderr, "cacheprog: s3 put %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
 		return fmt.Errorf("s3 put: HTTP %d", resp.StatusCode)
 	}
 
+	uploaded = true
 	b.Stats.Puts.Increment()
 	return nil
 }
