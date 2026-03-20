@@ -66,6 +66,8 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        GOPROXY: goproxy.pazer.io
+        GOSUMDB: gosumdb.pazer.io
         AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
         GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}

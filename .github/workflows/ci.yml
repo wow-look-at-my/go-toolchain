@@ -8,9 +8,8 @@ permissions:
   id-token: write
 
 env:
-  GOPROXY: direct
-  GONOSUMDB: '*'
-  GONOSUMCHECK: '*'
+  GOPROXY: goproxy.pazer.io
+  GOSUMDB: gosumdb.pazer.io
 
 jobs:
   build:

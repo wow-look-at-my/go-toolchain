@@ -17,11 +17,9 @@ func init() {
 	// requires a newer version than the one installed.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Disable Go's phone-home behavior - bypass proxy and checksum database.
-	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
-	os.Setenv("GOPROXY", "direct")
-	os.Setenv("GONOSUMDB", "*")
-	os.Setenv("GONOSUMCHECK", "*")
+	// Configure Go module proxy and checksum database settings,
+	// respecting user-configured proxies and sumdb (e.g. pazer.io).
+	configureGoEnv()
 
 	// Clear NO_PROXY so that all traffic (including *.google.com and
 	// *.googleapis.com) routes through the environment's egress proxy,
