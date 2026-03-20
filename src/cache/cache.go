@@ -110,11 +110,14 @@ func (s *Server) closeStats() {
 		return
 	}
 	// Use CloseWrite to signal EOF to the reader while allowing buffered
-	// data to drain, rather than Close which may discard unread data.
+	// data to drain. A full Close() here would race with the listener's
+	// handleConn goroutine, potentially closing the fd before the reader
+	// finishes consuming the buffered stat events.
 	if uc, ok := s.statsConn.(*net.UnixConn); ok {
 		uc.CloseWrite()
+	} else {
+		s.statsConn.Close()
 	}
-	s.statsConn.Close()
 }
 
 // ServerStats is the serialized aggregate of all cache layer stats.
