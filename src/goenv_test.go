@@ -99,11 +99,11 @@ func TestConfigureGoEnv_PazerSumDBOnly(t *testing.T) {
 	configureGoEnv()
 
 	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
-	// GOSUMDB cleared so public modules verify against default sum.golang.org.
+	// Sumdb disabled: private sumdb can't verify public modules, and the
+	// private proxy returns 403 for public sumdb paths.
 	assert.Empty(t, os.Getenv("GOSUMDB"))
-	// Private modules skip sumdb (not on sum.golang.org).
-	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMDB"))
-	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMCHECK"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
 }
 
 func TestConfigureGoEnv_PazerProxyAndSumDB(t *testing.T) {
@@ -116,8 +116,8 @@ func TestConfigureGoEnv_PazerProxyAndSumDB(t *testing.T) {
 
 	assert.Equal(t, "https://goproxy.pazer.io,direct", os.Getenv("GOPROXY"))
 	assert.Empty(t, os.Getenv("GOSUMDB"))
-	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMDB"))
-	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMCHECK"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
 }
 
 func TestConfigureGoEnv_PazerProxyNoSumDB(t *testing.T) {
