@@ -62,6 +62,7 @@ func Analyzers() []*analysis.Analyzer {
 		unusedresult.Analyzer,
 		// Custom analyzers
 		AssertLintAnalyzer,
+		AssertNormAnalyzer,
 		RedundantCastAnalyzer,
 	}
 }

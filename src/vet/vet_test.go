@@ -27,6 +27,12 @@ func TestAssertLintAnalyzer(t *testing.T) {
 	analysistest.Run(t, testdata, AssertLintAnalyzer, "assertlint")
 }
 
+func TestAssertNormAnalyzer(t *testing.T) {
+	dir, err := filepath.Abs("testdata/src/assertnorm")
+	require.Nil(t, err)
+	analysistest.Run(t, dir, AssertNormAnalyzer, ".")
+}
+
 func TestAnalyzers(t *testing.T) {
 	analyzers := Analyzers()
 	assert.NotEmpty(t, analyzers)
@@ -36,6 +42,7 @@ func TestAnalyzers(t *testing.T) {
 		names[a.Name] = true
 	}
 	assert.True(t, names["assertlint"])
+	assert.True(t, names["assertnorm"])
 	assert.True(t, names["redundantcast"])
 }
 
