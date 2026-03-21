@@ -84,6 +84,7 @@ func expandPazerProxy(goproxy string) string {
 // sumdb settings instead of unconditionally disabling them.
 func configureGoEnv() {
 	goproxy := os.Getenv("GOPROXY")
+	gosumdb := os.Getenv("GOSUMDB")
 
 	// GOPROXY: expand pazer.io short forms, or default to "direct".
 	if isUserProxy(goproxy) {
@@ -92,16 +93,17 @@ func configureGoEnv() {
 		os.Setenv("GOPROXY", "direct")
 	}
 
-	// Disable sumdb verification for all modules. When using the private
-	// proxy, it returns 403 for public sumdb paths (/sumdb/sum.golang.org/…)
-	// and Go only falls back on 404/410. When using a private sumdb, it
-	// only indexes private modules and returns 404 for public ones. Either
-	// way, the sumdb doesn't work for public transitive deps that child
-	// "go mod tidy" processes need to verify.
-	//
-	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads
-	// still work.
-	os.Unsetenv("GOSUMDB")
+	// GOSUMDB: if the user set a pazer.io sumdb, expand to full form
+	// and leave checksum verification enabled.
+	if expanded, ok := expandPazerSumDB(gosumdb); ok {
+		os.Setenv("GOSUMDB", expanded)
+		os.Unsetenv("GONOSUMDB")
+		os.Unsetenv("GONOSUMCHECK")
+		return
+	}
+
+	// Default: disable sumdb phone-home for all modules.
+	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
 }

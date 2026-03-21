@@ -67,7 +67,6 @@ runs:
       run: |
         cat >> ~/.netrc <<EOF
         machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
-        machine gosumdb.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
         EOF
         chmod 600 ~/.netrc
 
