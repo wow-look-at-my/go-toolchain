@@ -93,12 +93,20 @@ func configureGoEnv() {
 		os.Setenv("GOPROXY", "direct")
 	}
 
-	// GOSUMDB: if the user set a pazer.io sumdb, expand to full form
-	// and leave checksum verification enabled.
-	if expanded, ok := expandPazerSumDB(gosumdb); ok {
-		os.Setenv("GOSUMDB", expanded)
-		os.Unsetenv("GONOSUMDB")
-		os.Unsetenv("GONOSUMCHECK")
+	// GOSUMDB: when the user sets a pazer.io sumdb, the private sumdb only
+	// indexes private modules and returns 404 for public ones (e.g.
+	// gopkg.in/yaml.v3). We can't use it as the global GOSUMDB because
+	// child "go mod tidy" processes would fail verifying public transitive
+	// dependencies.
+	//
+	// Instead, keep the default sum.golang.org for public module verification
+	// and skip sumdb+checksum enforcement for private modules (which won't
+	// appear on sum.golang.org). The private proxy (GOPROXY) still handles
+	// downloading all modules; authentication is via ~/.netrc.
+	if _, ok := expandPazerSumDB(gosumdb); ok {
+		os.Unsetenv("GOSUMDB") // use default sum.golang.org
+		os.Setenv("GONOSUMDB", "github.com/wow-look-at-my/*")
+		os.Setenv("GONOSUMCHECK", "github.com/wow-look-at-my/*")
 		return
 	}
 
