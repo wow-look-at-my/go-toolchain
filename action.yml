@@ -62,10 +62,20 @@ runs:
         chmod +x "${{ inputs.binary }}"
         sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
 
+    - name: Configure netrc for Go proxy
+      shell: bash
+      run: |
+        cat >> ~/.netrc <<EOF
+        machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+        EOF
+        chmod 600 ~/.netrc
+
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        GOPROXY: goproxy.pazer.io
+        GOSUMDB: gosumdb.pazer.io
         AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
         GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}
