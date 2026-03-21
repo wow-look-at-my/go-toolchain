@@ -99,7 +99,19 @@ func depthToStyle(depth int) (saturation, value float64) {
 
 const bold = "\033[1m"
 
-func printItem(c ICoverageItem, depth int) {
+// colorImpact formats an impact percentage with color (high impact = red, low = green)
+func colorImpact(impact float32, saturation, value float64) string {
+	// Map impact to hue: 0% impact = 120° (green), ≥10% impact = 0° (red)
+	scaled := float64(impact) * 10 // 10% impact maps to 100
+	if scaled > 100 {
+		scaled = 100
+	}
+	hue := (1 - scaled/100) * 120
+	r, g, b := hsvToRGB(hue, saturation, value)
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm-%4.1f%%%s", r, g, b, impact, fgReset)
+}
+
+func printItem(c ICoverageItem, depth int, totalStatements int) {
 	pad := ""
 	for i := 0; i < depth; i++ {
 		pad += "  "
@@ -119,9 +131,13 @@ func printItem(c ICoverageItem, depth int) {
 		prefix = bold
 	}
 	if c.Uncovered() == 0 && c.Pct() == 0 {
-		fmt.Printf("%s%s       ∅       %s%s%s\n", prefix, dim, pad, name, colorReset)
+		fmt.Printf("%s%s       ∅              %s%s%s\n", prefix, dim, pad, name, colorReset)
 	} else {
-		fmt.Printf("%s  %s  %s%3d  %s%s%s\n", prefix, colorPct(c.Pct(), sat, val), dim, c.Uncovered(), pad, name, colorReset)
+		var impact float32
+		if totalStatements > 0 {
+			impact = float32(c.Uncovered()) / float32(totalStatements) * 100
+		}
+		fmt.Printf("%s  %s  %s%3d  %s  %s%s%s\n", prefix, colorPct(c.Pct(), sat, val), dim, c.Uncovered(), colorImpact(impact, sat, val), pad, name, colorReset)
 	}
 }
 
@@ -192,22 +208,28 @@ func (r Report) Print() {
 		fnIsTop[f.fn] = true
 	}
 
+	// Calculate total statements for impact percentages
+	var totalStatements int
+	for i := range r.Packages {
+		totalStatements += r.Packages[i].Statements
+	}
+
 	// Print packages, with files/funcs only for top 10
-	fmt.Println("     cov  miss  name")
+	fmt.Println("     cov  miss  impact  name")
 	for i := range r.Packages {
 		pkg := &r.Packages[i]
-		printItem(*pkg, 0)
+		printItem(*pkg, 0, totalStatements)
 		if pkgHasTop[pkg] {
 			for j := range pkg.Files {
 				file := &pkg.Files[j]
 				if !fileHasTop[file] {
 					continue
 				}
-				printItem(*file, 1)
+				printItem(*file, 1, totalStatements)
 				for k := range file.Functions {
 					fn := &file.Functions[k]
 					if fnIsTop[fn] {
-						printItem(*fn, 2)
+						printItem(*fn, 2, totalStatements)
 					}
 				}
 			}

@@ -84,7 +84,7 @@ func TestPrintItemIndentation(t *testing.T) {
 
 	for depth := 0; depth < 3; depth++ {
 		output := captureOutput(func() {
-			printItem(item, depth)
+			printItem(item, depth, 100)
 		})
 		if depth == 0 {
 			// Depth 0 starts with bold escape code
@@ -108,7 +108,7 @@ func TestPrintItemNoOSC8InCI(t *testing.T) {
 	t.Setenv("CI", "true")
 
 	output := captureOutput(func() {
-		printItem(item, 0)
+		printItem(item, 0, 100)
 	})
 
 	assert.NotContains(t, output, "\033]8;;", "should not contain OSC 8 escape sequences in CI")
@@ -170,10 +170,51 @@ func TestPrintEmptyPackage(t *testing.T) {
 	}
 
 	output := captureOutput(func() {
-		printItem(item, 0)
+		printItem(item, 0, 100)
 	})
 	assert.Contains(t, output, "∅", "empty package should show ∅ symbol")
 	assert.Contains(t, output, "empty.go")
+}
+
+func TestPrintItemImpact(t *testing.T) {
+	t.Setenv("CI", "true")
+
+	// 20 uncovered out of 200 total = -10.0% impact
+	item := FileCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 50, Covered: 30},
+		File:             "impact.go",
+	}
+	output := captureOutput(func() {
+		printItem(item, 0, 200)
+	})
+	assert.Contains(t, output, "-10.0%", "should show -10.0%% impact")
+	assert.Contains(t, output, "impact.go")
+
+	// 5 uncovered out of 500 total = -1.0% impact
+	item2 := FileCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 5},
+		File:             "small.go",
+	}
+	output2 := captureOutput(func() {
+		printItem(item2, 1, 500)
+	})
+	assert.Contains(t, output2, "- 1.0%", "should show - 1.0%% impact")
+
+	// 0 total statements = -0.0% impact
+	output3 := captureOutput(func() {
+		printItem(item, 0, 0)
+	})
+	assert.Contains(t, output3, "- 0.0%", "should show - 0.0%% impact when totalStatements is 0")
+}
+
+func TestColorImpact(t *testing.T) {
+	// High impact should produce red-ish color (hue near 0)
+	high := colorImpact(10.0, 1.0, 1.0)
+	assert.Contains(t, high, "-10.0%")
+
+	// Zero impact should produce green-ish color (hue near 120)
+	low := colorImpact(0.0, 1.0, 1.0)
+	assert.Contains(t, low, "- 0.0%")
 }
 
 func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
@@ -215,6 +256,9 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 	output := captureOutput(func() {
 		report.Print()
 	})
+
+	// Should show impact header
+	assert.Contains(t, output, "impact", "should show impact column header")
 
 	// Should show package
 	assert.Contains(t, output, "example.com/pkg", "should show package")

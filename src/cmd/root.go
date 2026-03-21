@@ -73,6 +73,9 @@ func Execute() error {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	if err := enableCacheProg(); err != nil {
+		return err
+	}
 	InitTimeline()
 	modules := findGoModules()
 	if len(modules) == 0 {
@@ -103,6 +106,8 @@ func run(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+
+	printCacheStats()
 
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {

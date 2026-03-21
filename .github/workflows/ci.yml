@@ -8,9 +8,8 @@ permissions:
   id-token: write
 
 env:
-  GOPROXY: direct
-  GONOSUMDB: '*'
-  GONOSUMCHECK: '*'
+  GOPROXY: goproxy.pazer.io
+  GOSUMDB: gosumdb.pazer.io
 
 jobs:
   build:
@@ -20,6 +19,13 @@ jobs:
 
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
+      - name: Configure netrc for Go proxy
+        run: |
+          cat >> ~/.netrc <<EOF
+          machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+          EOF
+          chmod 600 ~/.netrc
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -36,25 +42,13 @@ jobs:
             exit 1
           fi
 
-      - name: Restore Go build cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-build
-
       - name: Build and test
         run: go run ./src
-
-      - name: Save Go build cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-build
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
+          GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}
+          GOCACHE_S3_REGION: ${{ secrets.GO_BUILDCACHE_REGION }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -71,6 +65,13 @@ jobs:
 
       - name: Configure git for private repos
         run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
+      - name: Configure netrc for Go proxy
+        run: |
+          cat >> ~/.netrc <<EOF
+          machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+          EOF
+          chmod 600 ~/.netrc
 
       - name: Remove system Go
         run: |
@@ -98,6 +99,11 @@ jobs:
         uses: ./
         with:
           binary: go-toolchain
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
+          GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}
+          GOCACHE_S3_REGION: ${{ secrets.GO_BUILDCACHE_REGION }}
 
       - name: Verify binary matches current commit
         run: |

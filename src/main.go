@@ -8,15 +8,18 @@ import (
 )
 
 func init() {
+	// When invoked as GOCACHEPROG, skip all env setup — just serve the protocol.
+	if isCacheProgInvocation() {
+		return
+	}
+
 	// Let Go automatically download the correct toolchain when go.mod
 	// requires a newer version than the one installed.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Disable Go's phone-home behavior - bypass proxy and checksum database.
-	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
-	os.Setenv("GOPROXY", "direct")
-	os.Setenv("GONOSUMDB", "*")
-	os.Setenv("GONOSUMCHECK", "*")
+	// Configure Go module proxy and checksum database settings,
+	// respecting user-configured proxies and sumdb (e.g. pazer.io).
+	configureGoEnv()
 
 	// Clear NO_PROXY so that all traffic (including *.google.com and
 	// *.googleapis.com) routes through the environment's egress proxy,
@@ -26,12 +29,25 @@ func init() {
 	os.Setenv("no_proxy", "")
 }
 
+func isCacheProgInvocation() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "cacheprog" {
+			return true
+		}
+		if arg == "--" {
+			return false
+		}
+	}
+	return false
+}
+
 func needsGo() bool {
 	for _, arg := range os.Args[1:] {
 		if arg == "--" {
 			return true
 		}
-		if arg == "version" {
+		switch arg {
+		case "version", "cacheprog":
 			return false
 		}
 	}
