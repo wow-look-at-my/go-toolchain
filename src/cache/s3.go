@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -286,7 +285,12 @@ func (b *S3Backend) GetStats() *CacheStats { return &b.Stats }
 
 // signRequest signs an HTTP request using AWS SigV4.
 func (b *S3Backend) signRequest(req *http.Request, payload []byte) {
-	now := time.Now().UTC()
+	b.signRequestAt(req, payload, time.Now().UTC())
+}
+
+// signRequestAt signs an HTTP request using AWS SigV4 with an explicit timestamp.
+// Extracted for testability against AWS official test vectors.
+func (b *S3Backend) signRequestAt(req *http.Request, payload []byte, now time.Time) {
 	datestamp := now.Format("20060102")
 	amzDate := now.Format("20060102T150405Z")
 
@@ -374,15 +378,20 @@ func hmacSHA256(key, data []byte) []byte {
 	return h.Sum(nil)
 }
 
-// sortedQueryString returns the query string with parameters sorted by key.
-// AWS SigV4 requires canonical query strings to be sorted alphabetically.
+// sortedQueryString returns the canonical query string: parameters sorted by
+// key, each key followed by "=" and its value (even if empty). This matches
+// the AWS SigV4 spec for canonical query strings.
 func sortedQueryString(raw string) string {
 	if raw == "" {
 		return ""
 	}
-	params := strings.Split(raw, "&")
-	sort.Strings(params)
-	return strings.Join(params, "&")
+	vals, err := url.ParseQuery(raw)
+	if err != nil {
+		// Shouldn't happen; fall back to raw.
+		return raw
+	}
+	// url.Values.Encode sorts by key and always includes "=".
+	return vals.Encode()
 }
 
 func compressData(data []byte) ([]byte, error) {
