@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -114,15 +115,18 @@ func (b *S3Backend) listAllKeys() set.Set[string] {
 		b.signRequest(req, nil)
 		resp, err := b.client.Do(req)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: %v\n", err)
 			break
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != 200 {
+			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: HTTP %d: %s\n", resp.StatusCode, body)
 			break
 		}
 		var result listObjectsResult
-		if xml.Unmarshal(body, &result) != nil {
+		if err := xml.Unmarshal(body, &result); err != nil {
+			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: xml parse: %v\n", err)
 			break
 		}
 		for _, c := range result.Contents {
@@ -304,7 +308,7 @@ func (b *S3Backend) signRequest(req *http.Request, payload []byte) {
 	canonicalRequest := strings.Join([]string{
 		req.Method,
 		req.URL.Path,
-		req.URL.RawQuery,
+		sortedQueryString(req.URL.RawQuery),
 		canonicalHeaders,
 		signedHeaders,
 		payloadHash,
@@ -368,6 +372,17 @@ func hmacSHA256(key, data []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	h.Write(data)
 	return h.Sum(nil)
+}
+
+// sortedQueryString returns the query string with parameters sorted by key.
+// AWS SigV4 requires canonical query strings to be sorted alphabetically.
+func sortedQueryString(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	params := strings.Split(raw, "&")
+	sort.Strings(params)
+	return strings.Join(params, "&")
 }
 
 func compressData(data []byte) ([]byte, error) {
