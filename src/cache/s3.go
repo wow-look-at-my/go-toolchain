@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -84,9 +86,66 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		accessKey: accessKey,
 		secretKey: secretKey,
 	}
-	b.keys = b.listAllKeys()
+	b.keys = b.loadOrFetchIndex()
 	fmt.Fprintf(os.Stderr, "cacheprog: s3 index: %d keys\n", b.keys.Len())
 	return b, nil
+}
+
+// indexCacheTTL is the maximum age of a cached index file before re-fetching.
+const indexCacheTTL = 5 * time.Minute
+
+// indexCachePath returns the path for the local index cache file.
+func (b *S3Backend) indexCachePath() string {
+	h := sha256.Sum256([]byte(b.endpoint + "/" + b.bucket + "/" + b.prefix))
+	name := "gocache-s3-index-" + hex.EncodeToString(h[:8]) + ".txt"
+	return filepath.Join(os.TempDir(), name)
+}
+
+// loadOrFetchIndex tries to load the key index from a local cache file.
+// If the file is missing or stale, it fetches from S3 and persists the result.
+func (b *S3Backend) loadOrFetchIndex() set.Set[string] {
+	path := b.indexCachePath()
+	if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) < indexCacheTTL {
+		if keys, err := b.readIndexFile(path); err == nil {
+			return keys
+		}
+	}
+	keys := b.listAllKeys()
+	b.writeIndexFile(path, keys)
+	return keys
+}
+
+// readIndexFile reads a newline-delimited key list from disk.
+func (b *S3Backend) readIndexFile(path string) (set.Set[string], error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return set.Set[string]{}, err
+	}
+	defer f.Close()
+	keys := set.New[string]()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if line := scanner.Text(); line != "" {
+			keys.Add(line)
+		}
+	}
+	return keys, scanner.Err()
+}
+
+// writeIndexFile persists the key index as a newline-delimited file.
+func (b *S3Backend) writeIndexFile(path string, keys set.Set[string]) {
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return
+	}
+	w := bufio.NewWriter(f)
+	for k := range keys.All() {
+		fmt.Fprintln(w, k)
+	}
+	w.Flush()
+	f.Close()
+	os.Rename(tmp, path)
 }
 
 // listObjectsResult is the XML response from S3 ListObjectsV2.
@@ -114,15 +173,18 @@ func (b *S3Backend) listAllKeys() set.Set[string] {
 		b.signRequest(req, nil)
 		resp, err := b.client.Do(req)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: %v\n", err)
 			break
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != 200 {
+			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: HTTP %d: %s\n", resp.StatusCode, body)
 			break
 		}
 		var result listObjectsResult
-		if xml.Unmarshal(body, &result) != nil {
+		if err := xml.Unmarshal(body, &result); err != nil {
+			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: xml parse: %v\n", err)
 			break
 		}
 		for _, c := range result.Contents {
@@ -282,7 +344,12 @@ func (b *S3Backend) GetStats() *CacheStats { return &b.Stats }
 
 // signRequest signs an HTTP request using AWS SigV4.
 func (b *S3Backend) signRequest(req *http.Request, payload []byte) {
-	now := time.Now().UTC()
+	b.signRequestAt(req, payload, time.Now().UTC())
+}
+
+// signRequestAt signs an HTTP request using AWS SigV4 with an explicit timestamp.
+// Extracted for testability against AWS official test vectors.
+func (b *S3Backend) signRequestAt(req *http.Request, payload []byte, now time.Time) {
 	datestamp := now.Format("20060102")
 	amzDate := now.Format("20060102T150405Z")
 
@@ -304,7 +371,7 @@ func (b *S3Backend) signRequest(req *http.Request, payload []byte) {
 	canonicalRequest := strings.Join([]string{
 		req.Method,
 		req.URL.Path,
-		req.URL.RawQuery,
+		sortedQueryString(req.URL.RawQuery),
 		canonicalHeaders,
 		signedHeaders,
 		payloadHash,
@@ -368,6 +435,22 @@ func hmacSHA256(key, data []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	h.Write(data)
 	return h.Sum(nil)
+}
+
+// sortedQueryString returns the canonical query string: parameters sorted by
+// key, each key followed by "=" and its value (even if empty). This matches
+// the AWS SigV4 spec for canonical query strings.
+func sortedQueryString(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	vals, err := url.ParseQuery(raw)
+	if err != nil {
+		// Shouldn't happen; fall back to raw.
+		return raw
+	}
+	// url.Values.Encode sorts by key and always includes "=".
+	return vals.Encode()
 }
 
 func compressData(data []byte) ([]byte, error) {

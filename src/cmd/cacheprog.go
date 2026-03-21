@@ -23,6 +23,15 @@ func init() {
 }
 
 func runCacheProg(cmd *cobra.Command, args []string) error {
+	// Fast path: if a cache daemon is running, proxy to it.
+	// This avoids re-loading the S3 index for every go subprocess.
+	if sock := os.Getenv("GOCACHE_DAEMON_SOCK"); sock != "" {
+		if err := cache.ProxyToDaemon(sock); err == nil {
+			return nil
+		}
+		// Daemon unavailable — fall through to standalone mode.
+	}
+
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 
 	local, err := cache.NewLocalCache(cacheDir)
@@ -104,6 +113,11 @@ func goSupportsFeature(f GoFeature) bool {
 // all cacheprog subprocesses. Created by enableCacheProg, read by printCacheStats.
 var statsListener *cache.StatsListener
 
+// cacheDaemon is the shared cache daemon started by enableCacheProg.
+// It serves GOCACHEPROG requests over a Unix socket so child processes
+// don't each re-load the S3 index.
+var cacheDaemon *cache.Daemon
+
 func enableCacheProg() error {
 	if err := validateCICacheConfig(); err != nil {
 		return err
@@ -117,9 +131,8 @@ func enableCacheProg() error {
 	if err != nil {
 		return nil
 	}
-	os.Setenv("GOCACHEPROG", exe+" cacheprog")
 
-	// Create a unix socket for stats IPC.
+	// Create stats socket first — the daemon's Server needs it.
 	sockPath := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-stats-%d.sock", os.Getpid()))
 	sl, err := cache.NewStatsListener(sockPath)
 	if err != nil {
@@ -127,7 +140,46 @@ func enableCacheProg() error {
 	}
 	statsListener = sl
 	os.Setenv("GOCACHE_STATS_SOCK", sockPath)
+
+	// Start cache daemon so child go processes share a single S3 index.
+	daemonSock := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-daemon-%d.sock", os.Getpid()))
+	if d, err := startCacheDaemon(daemonSock); err == nil {
+		cacheDaemon = d
+		os.Setenv("GOCACHE_DAEMON_SOCK", daemonSock)
+	}
+
+	os.Setenv("GOCACHEPROG", exe+" cacheprog")
 	return nil
+}
+
+// startCacheDaemon creates a cache daemon with local + S3 backends.
+func startCacheDaemon(sockPath string) (*cache.Daemon, error) {
+	cacheDir := filepath.Join(cacheHome(), "buildcache")
+	local, err := cache.NewLocalCache(cacheDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var remote cache.IBackend
+	bucket := os.Getenv("GOCACHE_S3_BUCKET")
+	if bucket == "" {
+		bucket = "gobuildcache"
+	}
+	s3, err := cache.NewS3Backend(cache.S3Config{
+		Bucket:    bucket,
+		Region:    os.Getenv("GOCACHE_S3_REGION"),
+		Endpoint:  os.Getenv("GOCACHE_S3_ENDPOINT"),
+		Prefix:    os.Getenv("GOCACHE_S3_PREFIX"),
+		AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
+		SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: daemon s3 error: %v (continuing local-only)\n", err)
+	} else if s3 != nil {
+		remote = s3
+	}
+
+	return cache.NewDaemon(sockPath, local, remote)
 }
 
 // validateCICacheConfig checks that S3 caching env vars are configured when
@@ -164,6 +216,9 @@ func validateCICacheConfig() error {
 }
 
 func printCacheStats() {
+	if cacheDaemon != nil {
+		cacheDaemon.Close()
+	}
 	if statsListener == nil {
 		fmt.Printf("==> Cache: disabled\n")
 		return
