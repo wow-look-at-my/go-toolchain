@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestEnableCacheProg(t *testing.T) {
@@ -24,7 +25,8 @@ func TestEnableCacheProg(t *testing.T) {
 	os.Unsetenv("GOCACHE_STATS_SOCK")
 	statsListener = nil
 
-	enableCacheProg()
+	err := enableCacheProg()
+	require.NoError(t, err)
 
 	prog := os.Getenv("GOCACHEPROG")
 	assert.Contains(t, prog, "cacheprog")
@@ -52,4 +54,88 @@ func TestPrintCacheStats_NoListener(t *testing.T) {
 		printCacheStats()
 	})
 	assert.Equal(t, "", output)
+}
+
+// cacheEnvVars are the env vars required for CI caching.
+var cacheEnvVars = []string{
+	"CI",
+	"AWS_ACCESS_KEY_ID",
+	"AWS_SECRET_ACCESS_KEY",
+	"GOCACHE_S3_ENDPOINT",
+	"GOCACHE_S3_REGION",
+	"GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED",
+}
+
+// saveCacheEnv saves and clears all cache-related env vars, returning a restore function.
+func saveCacheEnv(t *testing.T) func() {
+	t.Helper()
+	saved := make(map[string]string)
+	for _, k := range cacheEnvVars {
+		saved[k] = os.Getenv(k)
+		os.Unsetenv(k)
+	}
+	return func() {
+		for _, k := range cacheEnvVars {
+			if v, ok := saved[k]; ok && v != "" {
+				os.Setenv(k, v)
+			} else {
+				os.Unsetenv(k)
+			}
+		}
+	}
+}
+
+func TestValidateCICacheConfig_NotCI(t *testing.T) {
+	defer saveCacheEnv(t)()
+	// No CI env var — should pass even with no cache vars
+	err := validateCICacheConfig()
+	assert.NoError(t, err)
+}
+
+func TestValidateCICacheConfig_CIMissingVars(t *testing.T) {
+	defer saveCacheEnv(t)()
+	os.Setenv("CI", "true")
+
+	err := validateCICacheConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CI caching not configured")
+	assert.Contains(t, err.Error(), "AWS_ACCESS_KEY_ID")
+	assert.Contains(t, err.Error(), "AWS_SECRET_ACCESS_KEY")
+	assert.Contains(t, err.Error(), "GOCACHE_S3_ENDPOINT")
+	assert.Contains(t, err.Error(), "GOCACHE_S3_REGION")
+	assert.Contains(t, err.Error(), "GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED")
+}
+
+func TestValidateCICacheConfig_CIPartialVars(t *testing.T) {
+	defer saveCacheEnv(t)()
+	os.Setenv("CI", "true")
+	os.Setenv("AWS_ACCESS_KEY_ID", "key")
+	os.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+
+	err := validateCICacheConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "GOCACHE_S3_ENDPOINT")
+	assert.Contains(t, err.Error(), "GOCACHE_S3_REGION")
+	assert.NotContains(t, err.Error(), "AWS_ACCESS_KEY_ID")
+}
+
+func TestValidateCICacheConfig_CIAllVarsSet(t *testing.T) {
+	defer saveCacheEnv(t)()
+	os.Setenv("CI", "true")
+	os.Setenv("AWS_ACCESS_KEY_ID", "key")
+	os.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	os.Setenv("GOCACHE_S3_ENDPOINT", "https://s3.example.com")
+	os.Setenv("GOCACHE_S3_REGION", "us-east-1")
+
+	err := validateCICacheConfig()
+	assert.NoError(t, err)
+}
+
+func TestValidateCICacheConfig_CIBypass(t *testing.T) {
+	defer saveCacheEnv(t)()
+	os.Setenv("CI", "true")
+	os.Setenv("GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED", "1")
+
+	err := validateCICacheConfig()
+	assert.NoError(t, err)
 }

@@ -104,14 +104,18 @@ func goSupportsFeature(f GoFeature) bool {
 // all cacheprog subprocesses. Created by enableCacheProg, read by printCacheStats.
 var statsListener *cache.StatsListener
 
-func enableCacheProg() {
+func enableCacheProg() error {
+	if err := validateCICacheConfig(); err != nil {
+		return err
+	}
+
 	if !goSupportsFeature(FeatureCacheProg) {
 		fmt.Fprintf(os.Stderr, "Warning: GOCACHEPROG requires Go 1.24+; buildcache disabled\n")
-		return
+		return nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return
+		return nil
 	}
 	os.Setenv("GOCACHEPROG", exe+" cacheprog")
 
@@ -119,10 +123,44 @@ func enableCacheProg() {
 	sockPath := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-stats-%d.sock", os.Getpid()))
 	sl, err := cache.NewStatsListener(sockPath)
 	if err != nil {
-		return
+		return nil
 	}
 	statsListener = sl
 	os.Setenv("GOCACHE_STATS_SOCK", sockPath)
+	return nil
+}
+
+// validateCICacheConfig checks that S3 caching env vars are configured when
+// running in CI. Returns an error if any are missing, unless
+// GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 is set (downgrades to warning).
+func validateCICacheConfig() error {
+	if os.Getenv("CI") == "" {
+		return nil
+	}
+
+	required := []string{
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+		"GOCACHE_S3_ENDPOINT",
+		"GOCACHE_S3_REGION",
+	}
+
+	var missing []string
+	for _, v := range required {
+		if os.Getenv(v) == "" {
+			missing = append(missing, v)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	msg := fmt.Sprintf("CI caching not configured: missing env vars: %s", strings.Join(missing, ", "))
+	if os.Getenv("GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED") == "1" {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", msg)
+		return nil
+	}
+	return fmt.Errorf("%s\n  Set GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 to downgrade to warning", msg)
 }
 
 func printCacheStats() {

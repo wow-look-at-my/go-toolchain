@@ -101,6 +101,11 @@ jobs:
         uses: ./
         with:
           binary: go-toolchain
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
+          GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}
+          GOCACHE_S3_REGION: ${{ secrets.GO_BUILDCACHE_REGION }}
 
       - name: Verify binary matches current commit
         run: |
