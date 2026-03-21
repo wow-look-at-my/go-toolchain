@@ -174,7 +174,7 @@ type TestResult struct {
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
 	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout=30s", "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
+	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout=60s", "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
 	if err != nil {
 		return nil, err
 	}
