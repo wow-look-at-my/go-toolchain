@@ -16,6 +16,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Self-update** — update the binary in place via the `update` subcommand
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
+- **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
 - **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, benchmark comparisons, and a Mermaid Gantt chart of the pipeline timeline when running in GitHub Actions
 
@@ -146,7 +147,7 @@ go-toolchain ignore lines path/to/long_file.go
 5. Checks for near-duplicate code blocks (warnings only)
 6. Checks file lengths (warns at 500 lines, errors at 750)
 7. Runs `go test` across all packages with coverage profiling
-8. Parses coverage results and compares against the minimum threshold (80%, or watermark - 2.5%)
+8. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (80%, or watermark - 2.5%)
 9. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
 10. If coverage meets the threshold, builds the project binary into `build/`
 11. Automatically adds `build/` to `.gitignore` (if in a git repo)
