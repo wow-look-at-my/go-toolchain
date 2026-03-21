@@ -209,8 +209,9 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		if err := tidyCmd.Run(); err != nil {
 			return filesChanged, fmt.Errorf("go mod tidy failed: %w", err)
 		}
-		// Re-run analysis to verify fixes worked (don't report old diagnostics)
-		_, err := vetSemantic(pattern, fix, progress)
+		// Re-run analysis to verify fixes worked (don't report old diagnostics).
+		// Pass fix=false: we're only verifying, not applying more fixes.
+		_, err := vetSemantic(pattern, false, progress)
 		return true, err
 	}
 

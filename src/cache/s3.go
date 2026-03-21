@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -84,9 +86,66 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		accessKey: accessKey,
 		secretKey: secretKey,
 	}
-	b.keys = b.listAllKeys()
+	b.keys = b.loadOrFetchIndex()
 	fmt.Fprintf(os.Stderr, "cacheprog: s3 index: %d keys\n", b.keys.Len())
 	return b, nil
+}
+
+// indexCacheTTL is the maximum age of a cached index file before re-fetching.
+const indexCacheTTL = 5 * time.Minute
+
+// indexCachePath returns the path for the local index cache file.
+func (b *S3Backend) indexCachePath() string {
+	h := sha256.Sum256([]byte(b.endpoint + "/" + b.bucket + "/" + b.prefix))
+	name := "gocache-s3-index-" + hex.EncodeToString(h[:8]) + ".txt"
+	return filepath.Join(os.TempDir(), name)
+}
+
+// loadOrFetchIndex tries to load the key index from a local cache file.
+// If the file is missing or stale, it fetches from S3 and persists the result.
+func (b *S3Backend) loadOrFetchIndex() set.Set[string] {
+	path := b.indexCachePath()
+	if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) < indexCacheTTL {
+		if keys, err := b.readIndexFile(path); err == nil {
+			return keys
+		}
+	}
+	keys := b.listAllKeys()
+	b.writeIndexFile(path, keys)
+	return keys
+}
+
+// readIndexFile reads a newline-delimited key list from disk.
+func (b *S3Backend) readIndexFile(path string) (set.Set[string], error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return set.Set[string]{}, err
+	}
+	defer f.Close()
+	keys := set.New[string]()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if line := scanner.Text(); line != "" {
+			keys.Add(line)
+		}
+	}
+	return keys, scanner.Err()
+}
+
+// writeIndexFile persists the key index as a newline-delimited file.
+func (b *S3Backend) writeIndexFile(path string, keys set.Set[string]) {
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return
+	}
+	w := bufio.NewWriter(f)
+	for k := range keys.All() {
+		fmt.Fprintln(w, k)
+	}
+	w.Flush()
+	f.Close()
+	os.Rename(tmp, path)
 }
 
 // listObjectsResult is the XML response from S3 ListObjectsV2.
