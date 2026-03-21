@@ -220,34 +220,33 @@ func printCacheStats() {
 		cacheDaemon.Close()
 	}
 	if statsListener == nil {
+		fmt.Printf("==> Cache: disabled\n")
 		return
 	}
 	statsListener.Close()
 
 	stats := statsListener.Stats()
 
+	hits := stats.Local.Hits.Load()
+	puts := stats.Local.Puts.Load()
+	misses := stats.Misses.Load()
+
 	var parts []string
-	if h := stats.Local.Hits.Load(); h > 0 {
-		parts = append(parts, fmt.Sprintf("\u2193 %d", h))
-	}
-	if p := stats.Local.Puts.Load(); p > 0 {
-		parts = append(parts, fmt.Sprintf("\u2191 %d", p))
-	}
+	parts = append(parts, fmt.Sprintf("\u2193 %d", hits))
+	parts = append(parts, fmt.Sprintf("\u2191 %d", puts))
 	if stats.Remote != nil {
-		if h := stats.Remote.Hits.Load(); h > 0 {
-			parts = append(parts, fmt.Sprintf("\ueac2 %d", h))
-		}
-		if p := stats.Remote.Puts.Load(); p > 0 {
-			parts = append(parts, fmt.Sprintf("\ueac3 %d", p))
-		}
+		parts = append(parts, fmt.Sprintf("\ueac2 %d", stats.Remote.Hits.Load()))
+		parts = append(parts, fmt.Sprintf("\ueac3 %d", stats.Remote.Puts.Load()))
 	}
-	if m := stats.Misses.Load(); m > 0 {
-		parts = append(parts, fmt.Sprintf("miss %d", m))
+	parts = append(parts, fmt.Sprintf("miss %d", misses))
+
+	total := hits + misses
+	if total > 0 {
+		rate := float64(hits) / float64(total) * 100
+		parts = append(parts, fmt.Sprintf("(%.0f%% hit)", rate))
 	}
 
-	if len(parts) > 0 {
-		fmt.Printf("==> Cache: %s\n", strings.Join(parts, "  "))
-	}
+	fmt.Printf("==> Cache: %s\n", strings.Join(parts, "  "))
 }
 
 // cacheHome returns the base cache directory (~/.cache/go-toolchain).

@@ -53,7 +53,7 @@ func TestPrintCacheStats_NoListener(t *testing.T) {
 	output := captureStdout(func() {
 		printCacheStats()
 	})
-	assert.Equal(t, "", output)
+	assert.Equal(t, "==> Cache: disabled\n", output)
 }
 
 // cacheEnvVars are the env vars required for CI caching.
