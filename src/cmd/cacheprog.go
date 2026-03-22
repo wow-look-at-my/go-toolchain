@@ -230,6 +230,15 @@ func validateCICacheConfig() error {
 	return fmt.Errorf("%s\n  Set GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 to downgrade to warning", msg)
 }
 
+// logCacheStats prints the current cache stats without closing anything.
+func logCacheStats() {
+	if statsListener == nil {
+		return
+	}
+	formatCacheStats(statsListener.Stats())
+}
+
+// printCacheStats closes the cache daemon/listener and prints final stats.
 func printCacheStats() {
 	if cacheDaemon != nil {
 		cacheDaemon.Close()
@@ -249,9 +258,10 @@ func printCacheStats() {
 		return
 	}
 	statsListener.Close()
+	formatCacheStats(statsListener.Stats())
+}
 
-	stats := statsListener.Stats()
-
+func formatCacheStats(stats *cache.ServerStats) {
 	hits := stats.Local.Hits.Load()
 	puts := stats.Local.Puts.Load()
 	misses := stats.Misses.Load()

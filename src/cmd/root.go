@@ -394,6 +394,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vetStep != nil {
 		vetStep.done()
 	}
+	logCacheStats()
 
 	if dupcode {
 		runDuplicateCheck()
