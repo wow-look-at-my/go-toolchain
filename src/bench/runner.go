@@ -27,6 +27,9 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	if err != nil {
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}
+	// Drain stderr concurrently to prevent deadlock: if the subprocess fills
+	// the OS pipe buffer for stderr, it blocks and never closes stdout.
+	go io.Copy(io.Discard, proc.Stderr())
 	output, _ := io.ReadAll(proc.Stdout())
 	waitErr := proc.Wait()
 
