@@ -19,40 +19,43 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
 - **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, benchmark comparisons, and a Mermaid Gantt chart of the pipeline timeline when running in GitHub Actions
+- **S3-backed build cache** — GOCACHEPROG protocol server with local and S3 backends for shared build caching across CI runs (Go 1.24+)
+- **Vanity URL resolution** — automatically detects and resolves vanity-URL module dependencies via Go proxy or go-import meta tags
+- **Go proxy/sumdb support** — configures pazer.io proxy and sumdb endpoints with automatic environment variable normalization
+- **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
 
 ## GitHub Action Usage
 
+go-toolchain provides a **reusable workflow** for CI. Call it with `uses`:
+
 ```yaml
-- uses: wow-look-at-my/go-toolchain@latest
-  with:
-    json: 'false'             # output coverage report as JSON
-    generate: ''              # run go:generate directives matching this hash
-    working-directory: '.'    # working directory for the build
-    binary: ''                # path to a pre-built go-toolchain binary
-    os: 'linux,darwin,windows' # target OSes
-    arch: 'amd64,arm64'       # target architectures
-    cgo: 'false'              # enable CGO (disabled by default for static binaries)
-    autorelease: 'false'      # create a GitHub release on the default branch
+jobs:
+  build:
+    uses: wow-look-at-my/go-toolchain/.github/workflows/build.yml@v1
+    with:
+      json: false                # output coverage report as JSON
+      generate: ''               # run go:generate directives matching this hash
+      working-directory: '.'     # working directory for the build
+      binary-artifact: ''        # name of an uploaded artifact containing a go-toolchain binary
+      os: 'linux,darwin,windows' # target OSes
+      arch: 'amd64,arm64'       # target architectures
+      cgo: false                 # enable CGO (disabled by default for static binaries)
+      autorelease: false         # create a GitHub release on the default branch
+    secrets: inherit
 ```
 
 ### Inputs
 
-| Input               | Default    | Description                                              |
-|---------------------|------------|----------------------------------------------------------|
-| `json`              | `false`    | Output coverage report as JSON                           |
-| `generate`          | `''`       | Run `go:generate` directives matching this hash          |
-| `working-directory` | `.`        | Working directory for the build                          |
-| `binary`            | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
-| `os`                | `linux,darwin,windows` | Comma-separated target operating systems |
-| `arch`              | `amd64,arm64` | Comma-separated target architectures |
-| `cgo`               | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
-
-### Outputs
-
-| Output     | Description                |
-|------------|----------------------------|
-| `coverage` | Total coverage percentage  |
+| Input               | Type     | Default    | Description                                              |
+|---------------------|----------|------------|----------------------------------------------------------|
+| `json`              | boolean  | `false`    | Output coverage report as JSON                           |
+| `generate`          | string   | `''`       | Run `go:generate` directives matching this hash          |
+| `working-directory` | string   | `.`        | Working directory for the build                          |
+| `binary-artifact`   | string   | `''`       | Name of an uploaded artifact containing a go-toolchain binary (skips release download) |
+| `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
+| `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
+| `cgo`               | boolean  | `false`    | Enable CGO (disabled by default for static binaries) |
+| `autorelease`       | boolean  | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
 
 ## CLI Usage
 
@@ -89,6 +92,15 @@ go-toolchain update
 
 # Show version and staleness info
 go-toolchain version
+
+# Print just the version number
+go-toolchain version raw
+
+# Print version info as JSON
+go-toolchain version json
+
+# Create a GitHub release with checksums
+go-toolchain release --tag v1.0.0
 
 # Enable coverage watermark
 go-toolchain ignore coverage
@@ -130,7 +142,10 @@ go-toolchain ignore lines path/to/long_file.go
 - **`profile`** — run benchmarks with pprof profiling (`--type cpu|mem|mutex|block`, `--web`, `--no-pprof`, `-o`)
 - **`install`** — install the binary to `~/.local/bin`
 - **`update`** — self-update to the latest GitHub release
+- **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
 - **`version`** — show build version and staleness information
+  - `raw` — print just the version number
+  - `json` — print version info as JSON (version, commit, dates, staleness)
 - **`ignore`** — manage build-check exemptions
   - `coverage` — enable coverage ratchet (watermark)
   - `lines <file>` — exempt files from file-length checks
@@ -140,19 +155,22 @@ go-toolchain ignore lines path/to/long_file.go
 
 ## How It Works
 
-1. Checks for outdated dependencies (auto-updates same-org deps)
-2. Runs `go mod tidy`
-3. Detects and runs `//go:generate` directives (if present)
-4. Runs `go vet` with auto-fix (on non-CI systems)
-5. Checks for near-duplicate code blocks (warnings only)
-6. Checks file lengths (warns at 500 lines, errors at 750)
-7. Runs `go test` across all packages with coverage profiling
-8. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (80%, or watermark - 2.5%)
-9. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-10. If coverage meets the threshold, builds the project binary into `build/`
-11. Automatically adds `build/` to `.gitignore` (if in a git repo)
-12. Runs benchmarks and compares against previously stored results
-13. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
+1. Configures Go proxy and sumdb environment (pazer.io support)
+2. Checks for outdated dependencies (auto-updates same-org deps)
+3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts)
+4. Runs `go mod tidy`
+5. Detects and runs `//go:generate` directives (if present)
+6. Runs `go vet` with auto-fix (on non-CI systems)
+7. Checks for near-duplicate code blocks (warnings only)
+8. Checks file lengths (warns at 500 lines, errors at 750)
+9. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured)
+10. Runs `go test` across all packages with coverage profiling
+11. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (80%, or watermark - 2.5%)
+12. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
+13. If coverage meets the threshold, builds the project binary into `build/`
+14. Automatically adds `build/` to `.gitignore` (if in a git repo)
+15. Runs benchmarks and compares against previously stored results
+16. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
 
 ## Development
 
