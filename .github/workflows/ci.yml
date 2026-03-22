@@ -57,70 +57,17 @@ jobs:
           path: build/go-toolchain
           if-no-files-found: error
 
-  gha-test:
+  # Test the reusable workflow by having it build this repo using the binary we just built
+  workflow-test:
     needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure git for private repos
-        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-      - name: Configure netrc for Go proxy
-        run: |
-          cat >> ~/.netrc <<EOF
-          machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
-          EOF
-          chmod 600 ~/.netrc
-
-      - name: Remove system Go
-        run: |
-          empty=$(mktemp -d)
-          sudo mount --bind "$empty" /usr/local/go || true
-          sudo mount --bind "$empty" /opt/hostedtoolcache/go || true
-          sudo rm -f $(which -a go) 2>/dev/null || true
-          if command -v go &>/dev/null; then
-            echo "FAIL: go still in PATH at $(which go)"
-            exit 1
-          fi
-          echo "OK: go is not in PATH"
-
-      - name: Download go-toolchain binary
-        uses: actions/download-artifact@v4
-        with:
-          name: go-toolchain-binary
-
-      - name: Verify binary matches current commit
-        run: |
-          chmod +x go-toolchain
-          [ "$(./go-toolchain version json | jq -r .commit)" = "$GITHUB_SHA" ]
-
-      - name: Build and test with action
-        uses: ./
-        with:
-          binary: go-toolchain
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
-          GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}
-          GOCACHE_S3_REGION: ${{ secrets.GO_BUILDCACHE_REGION }}
-
-      - name: Verify binary matches current commit
-        run: |
-          chmod +x go-toolchain
-          [ "$(./build/go-toolchain_linux_amd64 version json | jq -r .commit)" = "$GITHUB_SHA" ]
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-toolchain-binaries
-          path: |
-            build/go-toolchain_*
-            build/checksums.txt
+    uses: ./.github/workflows/build.yml
+    with:
+      binary-artifact: go-toolchain-binary
+    secrets: inherit
 
   release:
     if: github.ref == 'refs/heads/v1'
-    needs: [build, gha-test]
+    needs: [build, workflow-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -130,7 +77,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v4
         with:
-          name: go-toolchain-binaries
+          name: go-toolchain-binary
           path: build
 
       - name: Install cosign
