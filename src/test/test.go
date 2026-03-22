@@ -116,7 +116,11 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			if h.timedOut[key] {
 				status = "timed out!"
 			}
-			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, event.Elapsed, colorReset)
+			if event.Elapsed >= 0 {
+				fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, event.Elapsed, colorReset)
+			} else {
+				fmt.Fprintf(h.out, "  %s.%s... %s%s%s\n", pkg, event.Test, clrFail, status, colorReset)
+			}
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
 				if h.onOutput != nil {
@@ -241,7 +245,16 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		}
 		if !hasDetails {
 			// Pick any failing package to get the build error.
-			for pkg := range handler.failedTest {
+			// failedTest keys may include test names (pkg/TestFoo);
+			// strip the test suffix to get a valid package path.
+			for key := range handler.failedTest {
+				pkg := key
+				if i := strings.LastIndex(pkg, "/"); i > 0 {
+					// Only strip if the suffix looks like a test name (starts with uppercase).
+					if suffix := pkg[i+1:]; len(suffix) > 0 && suffix[0] >= 'A' && suffix[0] <= 'Z' {
+						pkg = pkg[:i]
+					}
+				}
 				buildProc, buildErr := runner.Cmd("go", "build", pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
