@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"os"
 	"testing"
 
+	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
 )
@@ -59,10 +61,7 @@ func TestPrintCacheStats_NoListener(t *testing.T) {
 // cacheEnvVars are the env vars required for CI caching.
 var cacheEnvVars = []string{
 	"CI",
-	"AWS_ACCESS_KEY_ID",
-	"AWS_SECRET_ACCESS_KEY",
-	"GOCACHE_S3_ENDPOINT",
-	"GOCACHE_S3_REGION",
+	"GO_BUILDCACHE_CONFIG",
 	"GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED",
 }
 
@@ -92,43 +91,15 @@ func TestValidateCICacheConfig_NotCI(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestValidateCICacheConfig_CIMissingVars(t *testing.T) {
+func TestValidateCICacheConfig_CIMissingConfig(t *testing.T) {
 	defer saveCacheEnv(t)()
 	os.Setenv("CI", "true")
 
 	err := validateCICacheConfig()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "CI caching not configured")
-	assert.Contains(t, err.Error(), "AWS_ACCESS_KEY_ID")
-	assert.Contains(t, err.Error(), "AWS_SECRET_ACCESS_KEY")
-	assert.Contains(t, err.Error(), "GOCACHE_S3_ENDPOINT")
-	assert.Contains(t, err.Error(), "GOCACHE_S3_REGION")
+	assert.Contains(t, err.Error(), "GO_BUILDCACHE_CONFIG")
 	assert.Contains(t, err.Error(), "GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED")
-}
-
-func TestValidateCICacheConfig_CIPartialVars(t *testing.T) {
-	defer saveCacheEnv(t)()
-	os.Setenv("CI", "true")
-	os.Setenv("AWS_ACCESS_KEY_ID", "key")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
-
-	err := validateCICacheConfig()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "GOCACHE_S3_ENDPOINT")
-	assert.Contains(t, err.Error(), "GOCACHE_S3_REGION")
-	assert.NotContains(t, err.Error(), "AWS_ACCESS_KEY_ID")
-}
-
-func TestValidateCICacheConfig_CIAllVarsSet(t *testing.T) {
-	defer saveCacheEnv(t)()
-	os.Setenv("CI", "true")
-	os.Setenv("AWS_ACCESS_KEY_ID", "key")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
-	os.Setenv("GOCACHE_S3_ENDPOINT", "https://s3.example.com")
-	os.Setenv("GOCACHE_S3_REGION", "us-east-1")
-
-	err := validateCICacheConfig()
-	assert.NoError(t, err)
 }
 
 func TestValidateCICacheConfig_CIBypass(t *testing.T) {
@@ -138,4 +109,46 @@ func TestValidateCICacheConfig_CIBypass(t *testing.T) {
 
 	err := validateCICacheConfig()
 	assert.NoError(t, err)
+}
+
+func TestValidateCICacheConfig_UnifiedVar(t *testing.T) {
+	defer saveCacheEnv(t)()
+	os.Setenv("CI", "true")
+	os.Setenv("GO_BUILDCACHE_CONFIG", "eyJlbmRwb2ludCI6InMzLmV4YW1wbGUuY29tIn0=") // {"endpoint":"s3.example.com"}
+
+	err := validateCICacheConfig()
+	assert.NoError(t, err)
+}
+
+func TestParseBuildCacheConfig_Unified(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, cache.S3Config{
+		Endpoint:  "s3.example.com",
+		Bucket:    "mybucket",
+		Region:    "eu-west-1",
+		AccessKey: "AKID",
+		SecretKey: "SECRET",
+	}, cfg)
+}
+
+func TestParseBuildCacheConfig_UnifiedDefaultBucket(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","region":"us-east-1","key_id":"AKID","access_key":"SECRET"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, "gobuildcache", cfg.Bucket)
+}
+
+func TestParseBuildCacheConfig_NotSet(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, cache.S3Config{}, cfg)
 }
