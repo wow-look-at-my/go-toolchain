@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,6 +24,52 @@ func init() {
 	rootCmd.AddCommand(cmd)
 }
 
+// buildCacheConfig is the JSON structure inside GO_BUILDCACHE_CONFIG.
+type buildCacheConfig struct {
+	Endpoint  string `json:"endpoint"`
+	Bucket    string `json:"bucket"`
+	Region    string `json:"region"`
+	KeyID     string `json:"key_id"`
+	AccessKey string `json:"access_key"`
+}
+
+// parseBuildCacheConfig reads S3 cache configuration from GO_BUILDCACHE_CONFIG
+// (base64-encoded JSON) or falls back to individual env vars.
+func parseBuildCacheConfig() cache.S3Config {
+	if raw := os.Getenv("GO_BUILDCACHE_CONFIG"); raw != "" {
+		data, err := base64.StdEncoding.DecodeString(raw)
+		if err == nil {
+			var cfg buildCacheConfig
+			if json.Unmarshal(data, &cfg) == nil {
+				bucket := cfg.Bucket
+				if bucket == "" {
+					bucket = "gobuildcache"
+				}
+				return cache.S3Config{
+					Bucket:    bucket,
+					Region:    cfg.Region,
+					Endpoint:  cfg.Endpoint,
+					AccessKey: cfg.KeyID,
+					SecretKey: cfg.AccessKey,
+				}
+			}
+		}
+	}
+	// Fallback to individual env vars.
+	bucket := os.Getenv("GOCACHE_S3_BUCKET")
+	if bucket == "" {
+		bucket = "gobuildcache"
+	}
+	return cache.S3Config{
+		Bucket:    bucket,
+		Region:    os.Getenv("GOCACHE_S3_REGION"),
+		Endpoint:  os.Getenv("GOCACHE_S3_ENDPOINT"),
+		Prefix:    os.Getenv("GOCACHE_S3_PREFIX"),
+		AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
+		SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+	}
+}
+
 func runCacheProg(cmd *cobra.Command, args []string) error {
 	// Fast path: if a cache daemon is running, proxy to it.
 	// This avoids re-loading the S3 index for every go subprocess.
@@ -40,27 +88,17 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	}
 
 	var remote cache.IBackend
-	bucket := os.Getenv("GOCACHE_S3_BUCKET")
-	if bucket == "" {
-		bucket = "gobuildcache"
-	}
+	cfg := parseBuildCacheConfig()
 	{
-		s3, err := cache.NewS3Backend(cache.S3Config{
-			Bucket:   bucket,
-			Region:   os.Getenv("GOCACHE_S3_REGION"),
-			Endpoint: os.Getenv("GOCACHE_S3_ENDPOINT"),
-			Prefix:   os.Getenv("GOCACHE_S3_PREFIX"),
-			AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
-			SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		})
+		s3, err := cache.NewS3Backend(cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cacheprog: s3 init error: %v (continuing local-only)\n", err)
 		} else if s3 != nil {
-			endpoint := os.Getenv("GOCACHE_S3_ENDPOINT")
+			endpoint := cfg.Endpoint
 			if endpoint == "" {
 				endpoint = "AWS"
 			}
-			fmt.Fprintf(os.Stderr, "cacheprog: s3 enabled bucket=%s endpoint=%s\n", bucket, endpoint)
+			fmt.Fprintf(os.Stderr, "cacheprog: s3 enabled bucket=%s endpoint=%s\n", cfg.Bucket, endpoint)
 			remote = s3
 		}
 	}
@@ -161,18 +199,7 @@ func startCacheDaemon(sockPath string) (*cache.Daemon, error) {
 	}
 
 	var remote cache.IBackend
-	bucket := os.Getenv("GOCACHE_S3_BUCKET")
-	if bucket == "" {
-		bucket = "gobuildcache"
-	}
-	s3, err := cache.NewS3Backend(cache.S3Config{
-		Bucket:    bucket,
-		Region:    os.Getenv("GOCACHE_S3_REGION"),
-		Endpoint:  os.Getenv("GOCACHE_S3_ENDPOINT"),
-		Prefix:    os.Getenv("GOCACHE_S3_PREFIX"),
-		AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
-		SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-	})
+	s3, err := cache.NewS3Backend(parseBuildCacheConfig())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: daemon s3 error: %v (continuing local-only)\n", err)
 	} else if s3 != nil {
@@ -190,6 +217,12 @@ func validateCICacheConfig() error {
 		return nil
 	}
 
+	// Unified config takes precedence — if set, we're good.
+	if os.Getenv("GO_BUILDCACHE_CONFIG") != "" {
+		return nil
+	}
+
+	// Fallback: check individual env vars.
 	required := []string{
 		"AWS_ACCESS_KEY_ID",
 		"AWS_SECRET_ACCESS_KEY",

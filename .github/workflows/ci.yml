@@ -45,10 +45,7 @@ jobs:
       - name: Build and test
         run: go run ./src
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
-          GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}
-          GOCACHE_S3_REGION: ${{ secrets.GO_BUILDCACHE_REGION }}
+          GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
