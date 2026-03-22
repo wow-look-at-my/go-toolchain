@@ -295,7 +295,8 @@ func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 	// Verify CGO_ENABLED=0 was set on the build command
 	for _, cfg := range mock.Calls() {
 		if cfg.IsCmd("go", "build") {
-			assert.Equal(t, "0", cfg.Env["CGO_ENABLED"], "CGO should be disabled by default")
+			cgo, _ := cfg.Env.Get("CGO_ENABLED")
+			assert.Equal(t, "0", cgo, "CGO should be disabled by default")
 		}
 	}
 }
@@ -325,7 +326,7 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 	// Verify CGO_ENABLED was NOT set on the build command
 	for _, cfg := range mock.Calls() {
 		if cfg.IsCmd("go", "build") {
-			_, hasCgo := cfg.Env["CGO_ENABLED"]
+			hasCgo := cfg.Env != nil && cfg.Env.Contains("CGO_ENABLED")
 			assert.False(t, hasCgo, "CGO_ENABLED should not be set when --cgo is used")
 		}
 	}

@@ -299,19 +299,65 @@ func TestRunBenchCompare(t *testing.T) {
 }
 
 func TestRunBenchRun(t *testing.T) {
-	oldJSON := jsonOutput
-	defer func() { jsonOutput = oldJSON }()
-	jsonOutput = true
+	mock := runner.NewMock()
 
-	// This will fail but exercises the code path
-	_ = runBenchRun(benchRunCmd, []string{})
+	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
+	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
+	mock.SetResponse("go", benchArgs, []byte(benchOutput), nil)
+	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, nil, fmt.Errorf("no notes"))
+
+	oldJSON := jsonOutput
+	oldTime := benchTime
+	oldCount := benchCount
+	oldCPU := benchCPU
+	oldVerbose := verbose
+	defer func() {
+		jsonOutput = oldJSON
+		benchTime = oldTime
+		benchCount = oldCount
+		benchCPU = oldCPU
+		verbose = oldVerbose
+	}()
+
+	jsonOutput = true
+	benchTime = ""
+	benchCount = 1
+	benchCPU = ""
+	verbose = false
+
+	err := runBenchRunWithRunner(mock, jsonOutput)
+	assert.Nil(t, err)
 }
 
 func TestRunBenchSave(t *testing.T) {
-	oldJSON := jsonOutput
-	defer func() { jsonOutput = oldJSON }()
-	jsonOutput = true
+	mock := runner.NewMock()
 
-	// This will fail but exercises the code path
-	_ = runBenchSave(benchSaveCmd, []string{})
+	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
+	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
+	mock.SetResponse("go", benchArgs, []byte(benchOutput), nil)
+	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, nil, fmt.Errorf("no notes"))
+	mock.SetResponse("git", []string{"notes", "--ref=benchmarks", "add", "-f", "-m"}, nil, nil)
+	mock.SetResponse("git", []string{"rev-parse", "HEAD"}, []byte("abc123\n"), nil)
+
+	oldJSON := jsonOutput
+	oldTime := benchTime
+	oldCount := benchCount
+	oldCPU := benchCPU
+	oldVerbose := verbose
+	defer func() {
+		jsonOutput = oldJSON
+		benchTime = oldTime
+		benchCount = oldCount
+		benchCPU = oldCPU
+		verbose = oldVerbose
+	}()
+
+	jsonOutput = true
+	benchTime = ""
+	benchCount = 1
+	benchCPU = ""
+	verbose = false
+
+	err := runBenchSaveWithRunner(mock, jsonOutput)
+	assert.Nil(t, err)
 }

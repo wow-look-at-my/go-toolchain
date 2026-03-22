@@ -147,7 +147,15 @@ var statsListener *cache.StatsListener
 // don't each re-load the S3 index.
 var cacheDaemon *cache.Daemon
 
+// cacheEnabled tracks whether enableCacheProg was called (even if setup failed).
+// cacheSetupErr records why cache setup failed, if it did.
+var (
+	cacheEnabled  bool
+	cacheSetupErr error
+)
+
 func enableCacheProg() error {
+	cacheEnabled = true
 	if err := validateCICacheConfig(); err != nil {
 		return err
 	}
@@ -158,6 +166,7 @@ func enableCacheProg() error {
 	}
 	exe, err := os.Executable()
 	if err != nil {
+		cacheSetupErr = fmt.Errorf("resolve executable: %w", err)
 		return nil
 	}
 
@@ -165,6 +174,7 @@ func enableCacheProg() error {
 	sockPath := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-stats-%d.sock", os.Getpid()))
 	sl, err := cache.NewStatsListener(sockPath)
 	if err != nil {
+		cacheSetupErr = fmt.Errorf("stats listener: %w", err)
 		return nil
 	}
 	statsListener = sl
@@ -220,15 +230,26 @@ func validateCICacheConfig() error {
 	return fmt.Errorf("%s\n  Set GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 to downgrade to warning", msg)
 }
 
-func printCacheStats() {
-	if cacheDaemon != nil {
+func printCacheStats(close bool) {
+	if close && cacheDaemon != nil {
 		cacheDaemon.Close()
 	}
 	if statsListener == nil {
-		fmt.Printf("==> Cache: disabled\n")
+		switch {
+		case !cacheEnabled:
+			return
+		case !goSupportsFeature(FeatureCacheProg):
+			fmt.Printf("==> Cache: disabled (requires Go 1.%d+)\n", FeatureCacheProg.MinorVersion)
+		case cacheSetupErr != nil:
+			fmt.Printf("==> Cache: disabled (%v)\n", cacheSetupErr)
+		default:
+			fmt.Printf("==> Cache: disabled\n")
+		}
 		return
 	}
-	statsListener.Close()
+	if close {
+		statsListener.Close()
+	}
 
 	stats := statsListener.Stats()
 

@@ -14,6 +14,13 @@ var unignoreCmd = &cobra.Command{
 	Use:   "unignore",
 	Short: "Remove build-check exemptions",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if cmd != nil {
+			if parent := cmd.Parent(); parent != nil && parent.PersistentPreRunE != nil {
+				if err := parent.PersistentPreRunE(cmd, args); err != nil {
+					return err
+				}
+			}
+		}
 		fmt.Print("Remove exemption — are you sure? [y/N] ")
 		reader := bufio.NewReader(os.Stdin)
 		line, _ := reader.ReadString('\n')

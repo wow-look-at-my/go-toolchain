@@ -72,6 +72,7 @@ type Server struct {
 	Misses   AtomicCounter
 	statsConn net.Conn // persistent connection to parent's stats socket
 	statsMu   sync.Mutex
+	debug    bool // log hits/misses to stderr
 }
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
@@ -81,6 +82,7 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 		local:  local,
 		remote: remote,
 		locks:  make(map[string]*sync.Mutex),
+		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
 	}
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
@@ -325,6 +327,9 @@ func (s *Server) handleGet(req Request) Response {
 	meta, miss := s.local.Get(actionID)
 	if !miss {
 		s.sendStat(StatEvent{LocalHit: 1})
+		if s.debug {
+			fmt.Fprintf(os.Stderr, "cache: HIT local  %s size=%d\n", actionID, meta.Size)
+		}
 		t := meta.Time
 		return Response{
 			ID:       req.ID,
@@ -339,6 +344,9 @@ func (s *Server) handleGet(req Request) Response {
 	if s.remote == nil {
 		s.Misses.Increment()
 		s.sendStat(StatEvent{Miss: 1})
+		if s.debug {
+			fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
+		}
 		return Response{ID: req.ID, Miss: true}
 	}
 
@@ -346,9 +354,19 @@ func (s *Server) handleGet(req Request) Response {
 	if err != nil || remoteMiss {
 		s.Misses.Increment()
 		s.sendStat(StatEvent{Miss: 1})
+		if s.debug {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "cache: MISS       %s (remote error: %v)\n", actionID, err)
+			} else {
+				fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
+			}
+		}
 		return Response{ID: req.ID, Miss: true}
 	}
 	s.sendStat(StatEvent{RemoteHit: 1})
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "cache: HIT remote %s\n", actionID)
+	}
 	defer body.Close()
 
 	// Write to local cache for future hits.
@@ -375,6 +393,9 @@ func (s *Server) handlePut(req Request) Response {
 
 	// Check if already cached locally.
 	if meta, miss := s.local.Get(actionID); !miss {
+		if s.debug {
+			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s\n", actionID)
+		}
 		return Response{ID: req.ID, DiskPath: meta.DiskPath, Size: meta.Size}
 	}
 
@@ -385,6 +406,9 @@ func (s *Server) handlePut(req Request) Response {
 		return Response{ID: req.ID, Err: err.Error()}
 	}
 	s.sendStat(StatEvent{LocalPut: 1})
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s size=%d\n", actionID, len(req.Body))
+	}
 	// Async write to remote.
 	if s.remote != nil {
 		data := make([]byte, len(req.Body))

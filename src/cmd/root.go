@@ -34,11 +34,26 @@ var (
 	cgoEnabled    bool
 )
 
+// skipCache returns true for subcommands that should not enable GOCACHEPROG.
+func skipCache(name string) bool {
+	switch name {
+	case "cacheprog", "version", "install", "update":
+		return true
+	}
+	return false
+}
+
 var rootCmd = &cobra.Command{
 	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
-	RunE:         run,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if skipCache(cmd.Name()) {
+			return nil
+		}
+		return enableCacheProg()
+	},
+	RunE: run,
 }
 
 func init() {
@@ -69,13 +84,11 @@ func init() {
 
 // Execute runs the root command.
 func Execute() error {
+	defer printCacheStats(true)
 	return rootCmd.Execute()
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	if err := enableCacheProg(); err != nil {
-		return err
-	}
 	InitTimeline()
 	modules := findGoModules()
 	if len(modules) == 0 {
@@ -106,8 +119,6 @@ func run(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-
-	printCacheStats()
 
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
@@ -383,6 +394,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vetStep != nil {
 		vetStep.done()
 	}
+	printCacheStats(false)
 
 	if dupcode {
 		runDuplicateCheck()

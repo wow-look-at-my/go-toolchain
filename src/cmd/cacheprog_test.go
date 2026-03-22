@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/base64"
+	"fmt"
 	"os"
 	"testing"
 
@@ -49,13 +50,37 @@ func TestGoSupportsFeature_FutureVersion(t *testing.T) {
 
 func TestPrintCacheStats_NoListener(t *testing.T) {
 	old := statsListener
+	oldEnabled := cacheEnabled
+	oldErr := cacheSetupErr
 	statsListener = nil
-	defer func() { statsListener = old }()
+	cacheEnabled = true
+	cacheSetupErr = fmt.Errorf("stats listener: dial unix /tmp/x.sock: permission denied")
+	defer func() {
+		statsListener = old
+		cacheEnabled = oldEnabled
+		cacheSetupErr = oldErr
+	}()
 
 	output := captureStdout(func() {
-		printCacheStats()
+		printCacheStats(true)
 	})
-	assert.Equal(t, "==> Cache: disabled\n", output)
+	assert.Equal(t, "==> Cache: disabled (stats listener: dial unix /tmp/x.sock: permission denied)\n", output)
+}
+
+func TestPrintCacheStats_NoCacheCommand(t *testing.T) {
+	old := statsListener
+	oldEnabled := cacheEnabled
+	statsListener = nil
+	cacheEnabled = false
+	defer func() {
+		statsListener = old
+		cacheEnabled = oldEnabled
+	}()
+
+	output := captureStdout(func() {
+		printCacheStats(true)
+	})
+	assert.Equal(t, "", output)
 }
 
 // cacheEnvVars are the env vars required for CI caching.

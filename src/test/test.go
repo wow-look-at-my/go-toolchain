@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"time"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,8 @@ const (
 	clrGreen  = "\033[38;2;0;255;0m"
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
+
+	testTimeout = 30 * time.Second
 )
 
 var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
@@ -116,7 +119,11 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			if h.timedOut[key] {
 				status = "timed out!"
 			}
-			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, event.Elapsed, colorReset)
+			elapsed := event.Elapsed
+			if elapsed < 0 {
+				elapsed = testTimeout.Seconds()
+			}
+			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
 				if h.onOutput != nil {
@@ -174,7 +181,7 @@ type TestResult struct {
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
 	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout=30s", "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
+	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout="+testTimeout.String(), "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +248,16 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		}
 		if !hasDetails {
 			// Pick any failing package to get the build error.
-			for pkg := range handler.failedTest {
+			// failedTest keys may include test names (pkg/TestFoo);
+			// strip the test suffix to get a valid package path.
+			for key := range handler.failedTest {
+				pkg := key
+				if i := strings.LastIndex(pkg, "/"); i > 0 {
+					// Only strip if the suffix looks like a test name (starts with uppercase).
+					if suffix := pkg[i+1:]; len(suffix) > 0 && suffix[0] >= 'A' && suffix[0] <= 'Z' {
+						pkg = pkg[:i]
+					}
+				}
 				buildProc, buildErr := runner.Cmd("go", "build", pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
