@@ -38,6 +38,11 @@ on:
         required: false
         default: false
         type: boolean
+      binary-artifact:
+        description: 'Name of an uploaded artifact containing a go-toolchain binary (skips release download)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -62,7 +67,21 @@ jobs:
           EOF
           chmod 600 ~/.netrc
 
-      - name: Download go-toolchain
+      - name: Download go-toolchain from artifact
+        if: inputs.binary-artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.binary-artifact }}
+          path: /tmp/go-toolchain-artifact
+
+      - name: Install go-toolchain from artifact
+        if: inputs.binary-artifact != ''
+        run: |
+          chmod +x /tmp/go-toolchain-artifact/go-toolchain
+          sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
+
+      - name: Download go-toolchain from release
+        if: inputs.binary-artifact == ''
         uses: wow-look-at-my/actions@download-release-binary#latest
         with:
           repo: wow-look-at-my/go-toolchain
