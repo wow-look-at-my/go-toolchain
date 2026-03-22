@@ -399,12 +399,12 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep = logStep("Running tests with coverage")
 	}
 
-	tmpDir, err := os.MkdirTemp("", "go-toolchain-*")
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-	coverFile := filepath.Join(tmpDir, "coverage.out")
+	// Use a deterministic path so Go's test cache keys (which include
+	// -coverprofile=<path>) are stable across runs.
+	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
+	os.MkdirAll(coverDir, 0o755)
+	coverFile := filepath.Join(coverDir, "coverage.out")
+	defer os.Remove(coverFile)
 
 	var onTestOutput func()
 	if testStep != nil {
