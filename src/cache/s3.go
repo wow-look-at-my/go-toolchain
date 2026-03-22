@@ -71,12 +71,17 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		return nil, fmt.Errorf("s3: access key and secret key are required")
 	}
 
+	endpoint := strings.TrimRight(cfg.Endpoint, "/")
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "https://" + endpoint
+	}
+
 	b := &S3Backend{
 		client:    &http.Client{Timeout: 30 * time.Second},
 		bucket:    cfg.Bucket,
 		prefix:    prefix,
 		region:    region,
-		endpoint:  strings.TrimRight(cfg.Endpoint, "/"),
+		endpoint:  endpoint,
 		accessKey: accessKey,
 		secretKey: secretKey,
 	}

@@ -428,6 +428,29 @@ func TestSignRequest_UnsortedQueryParams_MatchesSorted(t *testing.T) {
 	require.Equal(t, sig1, sig2, "parameter order must not affect signature")
 }
 
+func TestNewS3Backend_EndpointSchemeNormalization(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+		want     string
+	}{
+		{"bare host", "s3.example.com", "https://s3.example.com"},
+		{"with https", "https://s3.example.com", "https://s3.example.com"},
+		{"with http", "http://localhost:9000", "http://localhost:9000"},
+		{"trailing slash", "s3.example.com/", "https://s3.example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, err := NewS3Backend(S3Config{
+				Bucket: "test", Endpoint: tt.endpoint,
+				AccessKey: "key", SecretKey: "secret",
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.want, b.endpoint)
+		})
+	}
+}
+
 func nopReader(s string) io.Reader {
 	return strings.NewReader(s)
 }
