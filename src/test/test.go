@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"time"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,8 @@ const (
 	clrGreen  = "\033[38;2;0;255;0m"
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
+
+	testTimeout = 30 * time.Second
 )
 
 var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
@@ -116,11 +119,11 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			if h.timedOut[key] {
 				status = "timed out!"
 			}
-			if event.Elapsed >= 0 {
-				fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, event.Elapsed, colorReset)
-			} else {
-				fmt.Fprintf(h.out, "  %s.%s... %s%s%s\n", pkg, event.Test, clrFail, status, colorReset)
+			elapsed := event.Elapsed
+			if elapsed < 0 {
+				elapsed = testTimeout.Seconds()
 			}
+			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
 				if h.onOutput != nil {
@@ -178,7 +181,7 @@ type TestResult struct {
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
 	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout=30s", "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
+	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout="+testTimeout.String(), "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
 	if err != nil {
 		return nil, err
 	}
