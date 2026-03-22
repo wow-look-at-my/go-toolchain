@@ -43,6 +43,11 @@ on:
         required: false
         default: ''
         type: string
+      artifact-name:
+        description: 'Name for the uploaded build artifact'
+        required: false
+        default: 'build-output'
+        type: string
 
 permissions:
   contents: write
@@ -118,7 +123,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: build-output
+          name: ${{ inputs.artifact-name }}
           path: ${{ inputs.working-directory }}/build/
 
       - name: Auto-release

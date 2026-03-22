@@ -41,6 +41,7 @@ jobs:
       arch: 'amd64,arm64'       # target architectures
       cgo: false                 # enable CGO (disabled by default for static binaries)
       autorelease: false         # create a GitHub release on the default branch
+      artifact-name: 'build-output' # name for the uploaded build artifact
     secrets: inherit
 ```
 
@@ -56,10 +57,11 @@ jobs:
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
 | `cgo`               | boolean  | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | boolean  | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
+| `artifact-name`     | string   | `build-output` | Name for the uploaded build artifact |
 
 ### Artifacts
 
-The reusable workflow automatically uploads the `build/` directory as a GitHub Actions artifact named `build-output`. This includes all cross-compiled binaries produced by the matrix build. Downstream jobs can download this artifact using `actions/download-artifact@v4`.
+The reusable workflow automatically uploads the `build/` directory as a GitHub Actions artifact. By default the artifact is named `build-output`, but this can be customized via the `artifact-name` input. Downstream jobs can download this artifact using `actions/download-artifact@v4`.
 
 ## CLI Usage
 
