@@ -27,8 +27,8 @@ type S3Config struct {
 	Region    string // AWS region for SigV4 signing. Defaults to "us-east-1".
 	Endpoint  string // S3 endpoint URL (e.g. "https://s3.pazer.io"). Required.
 	Prefix    string // Key prefix (defaults to "go-buildcache/").
-	AccessKey string // AWS_ACCESS_KEY_ID
-	SecretKey string // AWS_SECRET_ACCESS_KEY
+	AccessKey string // S3 access key ID
+	SecretKey string // S3 secret access key
 }
 
 // S3Backend stores cache objects in an S3-compatible bucket with LZ4 compression.
@@ -66,15 +66,9 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		region = "us-east-1"
 	}
 	accessKey := cfg.AccessKey
-	if accessKey == "" {
-		accessKey = os.Getenv("AWS_ACCESS_KEY_ID")
-	}
 	secretKey := cfg.SecretKey
-	if secretKey == "" {
-		secretKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
-	}
 	if accessKey == "" || secretKey == "" {
-		return nil, fmt.Errorf("s3: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required")
+		return nil, fmt.Errorf("s3: access key and secret key are required")
 	}
 
 	b := &S3Backend{

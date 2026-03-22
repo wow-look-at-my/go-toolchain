@@ -62,12 +62,6 @@ func TestPrintCacheStats_NoListener(t *testing.T) {
 var cacheEnvVars = []string{
 	"CI",
 	"GO_BUILDCACHE_CONFIG",
-	"AWS_ACCESS_KEY_ID",
-	"AWS_SECRET_ACCESS_KEY",
-	"GOCACHE_S3_BUCKET",
-	"GOCACHE_S3_ENDPOINT",
-	"GOCACHE_S3_PREFIX",
-	"GOCACHE_S3_REGION",
 	"GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED",
 }
 
@@ -97,43 +91,15 @@ func TestValidateCICacheConfig_NotCI(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestValidateCICacheConfig_CIMissingVars(t *testing.T) {
+func TestValidateCICacheConfig_CIMissingConfig(t *testing.T) {
 	defer saveCacheEnv(t)()
 	os.Setenv("CI", "true")
 
 	err := validateCICacheConfig()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "CI caching not configured")
-	assert.Contains(t, err.Error(), "AWS_ACCESS_KEY_ID")
-	assert.Contains(t, err.Error(), "AWS_SECRET_ACCESS_KEY")
-	assert.Contains(t, err.Error(), "GOCACHE_S3_ENDPOINT")
-	assert.Contains(t, err.Error(), "GOCACHE_S3_REGION")
+	assert.Contains(t, err.Error(), "GO_BUILDCACHE_CONFIG")
 	assert.Contains(t, err.Error(), "GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED")
-}
-
-func TestValidateCICacheConfig_CIPartialVars(t *testing.T) {
-	defer saveCacheEnv(t)()
-	os.Setenv("CI", "true")
-	os.Setenv("AWS_ACCESS_KEY_ID", "key")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
-
-	err := validateCICacheConfig()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "GOCACHE_S3_ENDPOINT")
-	assert.Contains(t, err.Error(), "GOCACHE_S3_REGION")
-	assert.NotContains(t, err.Error(), "AWS_ACCESS_KEY_ID")
-}
-
-func TestValidateCICacheConfig_CIAllVarsSet(t *testing.T) {
-	defer saveCacheEnv(t)()
-	os.Setenv("CI", "true")
-	os.Setenv("AWS_ACCESS_KEY_ID", "key")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
-	os.Setenv("GOCACHE_S3_ENDPOINT", "https://s3.example.com")
-	os.Setenv("GOCACHE_S3_REGION", "us-east-1")
-
-	err := validateCICacheConfig()
-	assert.NoError(t, err)
 }
 
 func TestValidateCICacheConfig_CIBypass(t *testing.T) {
@@ -180,41 +146,9 @@ func TestParseBuildCacheConfig_UnifiedDefaultBucket(t *testing.T) {
 	assert.Equal(t, "gobuildcache", cfg.Bucket)
 }
 
-func TestParseBuildCacheConfig_Fallback(t *testing.T) {
+func TestParseBuildCacheConfig_NotSet(t *testing.T) {
 	defer saveCacheEnv(t)()
 
-	os.Setenv("GOCACHE_S3_ENDPOINT", "s3.fallback.com")
-	os.Setenv("GOCACHE_S3_REGION", "ap-southeast-1")
-	os.Setenv("GOCACHE_S3_BUCKET", "fallbackbucket")
-	os.Setenv("GOCACHE_S3_PREFIX", "prefix/")
-	os.Setenv("AWS_ACCESS_KEY_ID", "FALLBACK_KEY")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "FALLBACK_SECRET")
-
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{
-		Endpoint:  "s3.fallback.com",
-		Bucket:    "fallbackbucket",
-		Region:    "ap-southeast-1",
-		Prefix:    "prefix/",
-		AccessKey: "FALLBACK_KEY",
-		SecretKey: "FALLBACK_SECRET",
-	}, cfg)
-}
-
-func TestParseBuildCacheConfig_UnifiedTakesPrecedence(t *testing.T) {
-	defer saveCacheEnv(t)()
-
-	// Set individual vars
-	os.Setenv("GOCACHE_S3_ENDPOINT", "s3.fallback.com")
-	os.Setenv("AWS_ACCESS_KEY_ID", "FALLBACK_KEY")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "FALLBACK_SECRET")
-
-	// Set unified var — should win
-	raw := `{"endpoint":"s3.unified.com","region":"us-west-2","key_id":"UNIFIED_KEY","access_key":"UNIFIED_SECRET"}`
-	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
-
-	cfg := parseBuildCacheConfig()
-	assert.Equal(t, "s3.unified.com", cfg.Endpoint)
-	assert.Equal(t, "UNIFIED_KEY", cfg.AccessKey)
-	assert.Equal(t, "UNIFIED_SECRET", cfg.SecretKey)
+	assert.Equal(t, cache.S3Config{}, cfg)
 }

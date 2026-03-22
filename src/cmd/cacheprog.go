@@ -36,37 +36,28 @@ type buildCacheConfig struct {
 // parseBuildCacheConfig reads S3 cache configuration from GO_BUILDCACHE_CONFIG
 // (base64-encoded JSON) or falls back to individual env vars.
 func parseBuildCacheConfig() cache.S3Config {
-	if raw := os.Getenv("GO_BUILDCACHE_CONFIG"); raw != "" {
-		data, err := base64.StdEncoding.DecodeString(raw)
-		if err == nil {
-			var cfg buildCacheConfig
-			if json.Unmarshal(data, &cfg) == nil {
-				bucket := cfg.Bucket
-				if bucket == "" {
-					bucket = "gobuildcache"
-				}
-				return cache.S3Config{
-					Bucket:    bucket,
-					Region:    cfg.Region,
-					Endpoint:  cfg.Endpoint,
-					AccessKey: cfg.KeyID,
-					SecretKey: cfg.AccessKey,
-				}
-			}
-		}
+	raw := os.Getenv("GO_BUILDCACHE_CONFIG")
+	if raw == "" {
+		return cache.S3Config{}
 	}
-	// Fallback to individual env vars.
-	bucket := os.Getenv("GOCACHE_S3_BUCKET")
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return cache.S3Config{}
+	}
+	var cfg buildCacheConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return cache.S3Config{}
+	}
+	bucket := cfg.Bucket
 	if bucket == "" {
 		bucket = "gobuildcache"
 	}
 	return cache.S3Config{
 		Bucket:    bucket,
-		Region:    os.Getenv("GOCACHE_S3_REGION"),
-		Endpoint:  os.Getenv("GOCACHE_S3_ENDPOINT"),
-		Prefix:    os.Getenv("GOCACHE_S3_PREFIX"),
-		AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
-		SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		Region:    cfg.Region,
+		Endpoint:  cfg.Endpoint,
+		AccessKey: cfg.KeyID,
+		SecretKey: cfg.AccessKey,
 	}
 }
 
@@ -217,30 +208,11 @@ func validateCICacheConfig() error {
 		return nil
 	}
 
-	// Unified config takes precedence — if set, we're good.
 	if os.Getenv("GO_BUILDCACHE_CONFIG") != "" {
 		return nil
 	}
 
-	// Fallback: check individual env vars.
-	required := []string{
-		"AWS_ACCESS_KEY_ID",
-		"AWS_SECRET_ACCESS_KEY",
-		"GOCACHE_S3_ENDPOINT",
-		"GOCACHE_S3_REGION",
-	}
-
-	var missing []string
-	for _, v := range required {
-		if os.Getenv(v) == "" {
-			missing = append(missing, v)
-		}
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-
-	msg := fmt.Sprintf("CI caching not configured: missing env vars: %s", strings.Join(missing, ", "))
+	msg := "CI caching not configured: GO_BUILDCACHE_CONFIG is not set"
 	if os.Getenv("GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED") == "1" {
 		fmt.Fprintf(os.Stderr, "Warning: %s\n", msg)
 		return nil
