@@ -147,7 +147,11 @@ var statsListener *cache.StatsListener
 // don't each re-load the S3 index.
 var cacheDaemon *cache.Daemon
 
+// cacheEnabled tracks whether enableCacheProg was called (even if setup failed).
+var cacheEnabled bool
+
 func enableCacheProg() error {
+	cacheEnabled = true
 	if err := validateCICacheConfig(); err != nil {
 		return err
 	}
@@ -225,10 +229,14 @@ func printCacheStats() {
 		cacheDaemon.Close()
 	}
 	if statsListener == nil {
-		if !goSupportsFeature(FeatureCacheProg) {
+		switch {
+		case !cacheEnabled:
+			// Command didn't need caching (e.g. version, install).
+			return
+		case !goSupportsFeature(FeatureCacheProg):
 			fmt.Printf("==> Cache: disabled (requires Go 1.%d+)\n", FeatureCacheProg.MinorVersion)
-		} else {
-			fmt.Printf("==> Cache: disabled\n")
+		default:
+			fmt.Printf("==> Cache: disabled (stats listener failed to start)\n")
 		}
 		return
 	}

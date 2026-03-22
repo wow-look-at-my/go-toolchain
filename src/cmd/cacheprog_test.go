@@ -49,13 +49,34 @@ func TestGoSupportsFeature_FutureVersion(t *testing.T) {
 
 func TestPrintCacheStats_NoListener(t *testing.T) {
 	old := statsListener
+	oldEnabled := cacheEnabled
 	statsListener = nil
-	defer func() { statsListener = old }()
+	cacheEnabled = true
+	defer func() {
+		statsListener = old
+		cacheEnabled = oldEnabled
+	}()
 
 	output := captureStdout(func() {
 		printCacheStats()
 	})
-	assert.Equal(t, "==> Cache: disabled\n", output)
+	assert.Equal(t, "==> Cache: disabled (stats listener failed to start)\n", output)
+}
+
+func TestPrintCacheStats_NoCacheCommand(t *testing.T) {
+	old := statsListener
+	oldEnabled := cacheEnabled
+	statsListener = nil
+	cacheEnabled = false
+	defer func() {
+		statsListener = old
+		cacheEnabled = oldEnabled
+	}()
+
+	output := captureStdout(func() {
+		printCacheStats()
+	})
+	assert.Equal(t, "", output)
 }
 
 // cacheEnvVars are the env vars required for CI caching.

@@ -34,12 +34,13 @@ var (
 	cgoEnabled    bool
 )
 
-// noCacheCommands lists subcommands that should not enable GOCACHEPROG.
-var noCacheCommands = map[string]bool{
-	"cacheprog": true,
-	"version":   true,
-	"install":   true,
-	"update":    true,
+// skipCache returns true for subcommands that should not enable GOCACHEPROG.
+func skipCache(name string) bool {
+	switch name {
+	case "cacheprog", "version", "install", "update":
+		return true
+	}
+	return false
 }
 
 var rootCmd = &cobra.Command{
@@ -47,7 +48,7 @@ var rootCmd = &cobra.Command{
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if noCacheCommands[cmd.Name()] {
+		if skipCache(cmd.Name()) {
 			return nil
 		}
 		return enableCacheProg()
