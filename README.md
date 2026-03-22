@@ -57,6 +57,10 @@ jobs:
 | `cgo`               | boolean  | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | boolean  | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
 
+### Artifacts
+
+The reusable workflow automatically uploads the `build/` directory as a GitHub Actions artifact named `build-output`. This includes all cross-compiled binaries produced by the matrix build. Downstream jobs can download this artifact using `actions/download-artifact@v4`.
+
 ## CLI Usage
 
 ```bash
