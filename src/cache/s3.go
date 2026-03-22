@@ -72,7 +72,7 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 	}
 
 	endpoint := strings.TrimRight(cfg.Endpoint, "/")
-	if !strings.Contains(endpoint, "://") {
+	if !strings.HasPrefix(endpoint, "https://") && !strings.HasPrefix(endpoint, "http://") {
 		endpoint = "https://" + endpoint
 	}
 
