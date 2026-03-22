@@ -148,7 +148,11 @@ var statsListener *cache.StatsListener
 var cacheDaemon *cache.Daemon
 
 // cacheEnabled tracks whether enableCacheProg was called (even if setup failed).
-var cacheEnabled bool
+// cacheSetupErr records why cache setup failed, if it did.
+var (
+	cacheEnabled  bool
+	cacheSetupErr error
+)
 
 func enableCacheProg() error {
 	cacheEnabled = true
@@ -162,6 +166,7 @@ func enableCacheProg() error {
 	}
 	exe, err := os.Executable()
 	if err != nil {
+		cacheSetupErr = fmt.Errorf("resolve executable: %w", err)
 		return nil
 	}
 
@@ -169,6 +174,7 @@ func enableCacheProg() error {
 	sockPath := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-stats-%d.sock", os.Getpid()))
 	sl, err := cache.NewStatsListener(sockPath)
 	if err != nil {
+		cacheSetupErr = fmt.Errorf("stats listener: %w", err)
 		return nil
 	}
 	statsListener = sl
@@ -235,8 +241,10 @@ func printCacheStats() {
 			return
 		case !goSupportsFeature(FeatureCacheProg):
 			fmt.Printf("==> Cache: disabled (requires Go 1.%d+)\n", FeatureCacheProg.MinorVersion)
+		case cacheSetupErr != nil:
+			fmt.Printf("==> Cache: disabled (%v)\n", cacheSetupErr)
 		default:
-			fmt.Printf("==> Cache: disabled (stats listener failed to start)\n")
+			fmt.Printf("==> Cache: disabled\n")
 		}
 		return
 	}
