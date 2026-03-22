@@ -207,7 +207,15 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 }
 
 func TestRunBenchRunWithRunner(t *testing.T) {
-	r := runner.New()
+	mock := runner.NewMock()
+
+	// Set up benchmark response
+	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
+	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
+	mock.SetResponse("go", benchArgs, []byte(benchOutput), nil)
+
+	// Set up git log response for FetchPrevious (no previous)
+	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, nil, fmt.Errorf("no notes"))
 
 	oldJSON := jsonOutput
 	oldTime := benchTime
@@ -228,12 +236,28 @@ func TestRunBenchRunWithRunner(t *testing.T) {
 	benchCPU = ""
 	verbose = false
 
-	// This will fail because there's no go.mod, but it exercises the code path
-	_ = runBenchRunWithRunner(r, jsonOutput)
+	err := runBenchRunWithRunner(mock, jsonOutput)
+	assert.Nil(t, err)
 }
 
 func TestRunBenchSaveWithRunner(t *testing.T) {
-	r := runner.New()
+	mock := runner.NewMock()
+
+	// Set up benchmark response
+	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
+	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
+	mock.SetResponse("go", benchArgs, []byte(benchOutput), nil)
+
+	// Handle git commands dynamically (StoreNotes has dynamic -m arg, can't use exact match)
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("git", "notes") {
+			return runner.MockProcess(nil, nil), nil
+		}
+		if cfg.IsCmd("git", "rev-parse") {
+			return runner.MockProcess([]byte("abc1234\n"), nil), nil
+		}
+		return nil, nil // fall through to SetResponse
+	}
 
 	oldJSON := jsonOutput
 	oldTime := benchTime
@@ -254,8 +278,8 @@ func TestRunBenchSaveWithRunner(t *testing.T) {
 	benchCPU = ""
 	verbose = false
 
-	// This will fail because there's no go.mod, but it exercises the code path
-	_ = runBenchSaveWithRunner(r, jsonOutput)
+	err := runBenchSaveWithRunner(mock, jsonOutput)
+	assert.Nil(t, err)
 }
 
 func TestRunBenchShow(t *testing.T) {
