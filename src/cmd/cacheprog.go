@@ -266,7 +266,11 @@ func printCacheStats(close bool) {
 	}
 	parts = append(parts, fmt.Sprintf("miss %d", misses))
 
-	total := hits + misses
+	// Use hits/(hits+puts) for hit rate — not hits/(hits+misses).
+	// Go's build system speculatively probes for test results and linker
+	// outputs that are inherently uncacheable (miss with no subsequent PUT).
+	// Counting those phantom misses would understate the real reuse rate.
+	total := hits + uint32(puts)
 	if total > 0 {
 		rate := float64(hits) / float64(total) * 100
 		parts = append(parts, fmt.Sprintf("(%.0f%% hit)", rate))
