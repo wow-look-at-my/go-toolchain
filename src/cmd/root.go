@@ -84,7 +84,7 @@ func init() {
 
 // Execute runs the root command.
 func Execute() error {
-	defer printCacheStats()
+	defer printCacheStats(true)
 	return rootCmd.Execute()
 }
 
@@ -394,7 +394,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vetStep != nil {
 		vetStep.done()
 	}
-	logCacheStats()
+	printCacheStats(false)
 
 	if dupcode {
 		runDuplicateCheck()

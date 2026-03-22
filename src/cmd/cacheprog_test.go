@@ -62,7 +62,7 @@ func TestPrintCacheStats_NoListener(t *testing.T) {
 	}()
 
 	output := captureStdout(func() {
-		printCacheStats()
+		printCacheStats(true)
 	})
 	assert.Equal(t, "==> Cache: disabled (stats listener: dial unix /tmp/x.sock: permission denied)\n", output)
 }
@@ -78,7 +78,7 @@ func TestPrintCacheStats_NoCacheCommand(t *testing.T) {
 	}()
 
 	output := captureStdout(func() {
-		printCacheStats()
+		printCacheStats(true)
 	})
 	assert.Equal(t, "", output)
 }

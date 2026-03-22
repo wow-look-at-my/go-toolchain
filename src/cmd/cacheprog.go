@@ -230,23 +230,13 @@ func validateCICacheConfig() error {
 	return fmt.Errorf("%s\n  Set GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 to downgrade to warning", msg)
 }
 
-// logCacheStats prints the current cache stats without closing anything.
-func logCacheStats() {
-	if statsListener == nil {
-		return
-	}
-	formatCacheStats(statsListener.Stats())
-}
-
-// printCacheStats closes the cache daemon/listener and prints final stats.
-func printCacheStats() {
-	if cacheDaemon != nil {
+func printCacheStats(close bool) {
+	if close && cacheDaemon != nil {
 		cacheDaemon.Close()
 	}
 	if statsListener == nil {
 		switch {
 		case !cacheEnabled:
-			// Command didn't need caching (e.g. version, install).
 			return
 		case !goSupportsFeature(FeatureCacheProg):
 			fmt.Printf("==> Cache: disabled (requires Go 1.%d+)\n", FeatureCacheProg.MinorVersion)
@@ -257,11 +247,12 @@ func printCacheStats() {
 		}
 		return
 	}
-	statsListener.Close()
-	formatCacheStats(statsListener.Stats())
-}
+	if close {
+		statsListener.Close()
+	}
 
-func formatCacheStats(stats *cache.ServerStats) {
+	stats := statsListener.Stats()
+
 	hits := stats.Local.Hits.Load()
 	puts := stats.Local.Puts.Load()
 	misses := stats.Misses.Load()
