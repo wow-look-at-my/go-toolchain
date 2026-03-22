@@ -225,7 +225,11 @@ func printCacheStats() {
 		cacheDaemon.Close()
 	}
 	if statsListener == nil {
-		fmt.Printf("==> Cache: disabled\n")
+		if !goSupportsFeature(FeatureCacheProg) {
+			fmt.Printf("==> Cache: disabled (requires Go 1.%d+)\n", FeatureCacheProg.MinorVersion)
+		} else {
+			fmt.Printf("==> Cache: disabled\n")
+		}
 		return
 	}
 	statsListener.Close()

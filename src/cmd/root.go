@@ -34,11 +34,25 @@ var (
 	cgoEnabled    bool
 )
 
+// noCacheCommands lists subcommands that should not enable GOCACHEPROG.
+var noCacheCommands = map[string]bool{
+	"cacheprog": true,
+	"version":   true,
+	"install":   true,
+	"update":    true,
+}
+
 var rootCmd = &cobra.Command{
 	Use:          "go-toolchain",
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
-	RunE:         run,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if noCacheCommands[cmd.Name()] {
+			return nil
+		}
+		return enableCacheProg()
+	},
+	RunE: run,
 }
 
 func init() {
@@ -69,13 +83,11 @@ func init() {
 
 // Execute runs the root command.
 func Execute() error {
+	defer printCacheStats()
 	return rootCmd.Execute()
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	if err := enableCacheProg(); err != nil {
-		return err
-	}
 	InitTimeline()
 	modules := findGoModules()
 	if len(modules) == 0 {
@@ -106,8 +118,6 @@ func run(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-
-	printCacheStats()
 
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
