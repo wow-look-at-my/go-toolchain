@@ -74,7 +74,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v4
         with:
-          name: go-toolchain-binary
+          name: build-output
           path: build
 
       - name: Install cosign
