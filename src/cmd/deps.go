@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -179,27 +180,95 @@ func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate
 	return update, needsUpdate, nil
 }
 
-// checkDepLive queries go list for a single module's update status
+// checkDepLive queries the Go module proxy for a module's latest version.
+// It uses a direct HTTP request to the GOPROXY instead of shelling out to
+// "go list -m -u" which can be unreliable and slow in CI environments.
 func checkDepLive(path string) (update string, needsUpdate bool, err error) {
-	cmd := exec.Command("go", "list", "-m", "-u", "-json", path)
-	output, err := cmd.Output()
+	proxy := os.Getenv("GOPROXY")
+	if proxy == "" || proxy == "off" || proxy == "direct" {
+		proxy = "https://proxy.golang.org"
+	}
+	// GOPROXY can be a comma-separated list; use the first usable entry
+	for {
+		entry := proxy
+		if i := strings.IndexAny(proxy, ",|"); i >= 0 {
+			entry = proxy[:i]
+			proxy = proxy[i+1:]
+		} else {
+			proxy = ""
+		}
+		entry = strings.TrimSpace(entry)
+		if entry != "" && entry != "off" && entry != "direct" {
+			proxy = entry
+			break
+		}
+		if proxy == "" {
+			proxy = "https://proxy.golang.org"
+			break
+		}
+	}
+
+	// Ensure proxy URL has a scheme
+	if !strings.HasPrefix(proxy, "http://") && !strings.HasPrefix(proxy, "https://") {
+		proxy = "https://" + proxy
+	}
+
+	// Query $GOPROXY/<module>/@latest
+	// Module paths are case-encoded per https://pkg.go.dev/golang.org/x/mod/module#EscapePath
+	escapedPath, err := escapePath(path)
+	if err != nil {
+		return "", false, err
+	}
+	url := proxy + "/" + escapedPath + "/@latest"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", false, err
 	}
 
-	var mod struct {
-		Update *struct {
-			Version string
-		}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", false, err
 	}
-	if err := json.Unmarshal(output, &mod); err != nil {
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", false, fmt.Errorf("proxy returned %d for %s", resp.StatusCode, path)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return "", false, err
 	}
 
-	if mod.Update != nil {
-		return mod.Update.Version, true, nil
+	var info struct {
+		Version string `json:"Version"`
+	}
+	if err := json.Unmarshal(body, &info); err != nil {
+		return "", false, err
+	}
+
+	if info.Version != "" {
+		return info.Version, true, nil
 	}
 	return "", false, nil
+}
+
+// escapePath converts a module path to its case-encoded form for proxy URLs.
+// Upper-case letters are replaced with '!' followed by the lower-case letter.
+func escapePath(path string) (string, error) {
+	var b strings.Builder
+	for _, r := range path {
+		if r >= 'A' && r <= 'Z' {
+			b.WriteByte('!')
+			b.WriteRune(r + ('a' - 'A'))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), nil
 }
 
 type depInfo struct {
