@@ -8,7 +8,7 @@ permissions:
   id-token: write
 
 env:
-  GOPROXY: goproxy.pazer.io
+  GOPROXY: goproxy.pazer.io,direct
   GOSUMDB: gosumdb.pazer.io
 
 jobs:
