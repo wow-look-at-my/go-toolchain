@@ -424,7 +424,15 @@ func TestFoo(t *testing.T) {
 }
 `
 	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644)
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
+
+	// Pre-populate go.mod with testify dependency so go mod tidy doesn't need
+	// to query the proxy for module discovery (proxy may return 500 intermittently).
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n\nrequire github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb\n\nrequire gopkg.in/yaml.v3 v3.0.1 // indirect\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "go.sum"), []byte("github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb h1:kLSElPimf1wjuunb+noAlkV/xzrE65BzqnQr3Xr31u4=\ngithub.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb/go.mod h1:xlD/Hz0iizP83KvPMWiQ8dbEvfjRGQ2A5qsK+GBq9do=\ngopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=\ngopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=\ngopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=\ngopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=\n"), 0644)
+
+	// Prevent sum DB lookups in case the module cache is cold
+	t.Setenv("GONOSUMCHECK", "*")
+	t.Setenv("GONOSUMDB", "*")
 
 	// Initialize git repo and commit the file (required by checkFileCommitted)
 	oldWd, _ := os.Getwd()
