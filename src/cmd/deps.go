@@ -185,9 +185,6 @@ func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate
 // "go list -m -u" which can be unreliable and slow in CI environments.
 func checkDepLive(path string) (update string, needsUpdate bool, err error) {
 	proxy := os.Getenv("GOPROXY")
-	if proxy == "" {
-		proxy = "https://proxy.golang.org"
-	}
 	// GOPROXY can be a comma-separated list; use the first proxy entry (skip "direct"/"off")
 	var found string
 	for _, entry := range strings.FieldsFunc(proxy, func(r rune) bool { return r == ',' || r == '|' }) {
