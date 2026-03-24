@@ -101,8 +101,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12 h1:i4d0oOgMjhGESueysKr3DwEsswCe940z2h5nQtrswKM=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12/go.mod h1:zoj5hE7+mIqpkqq3a9dZnovf/Mk2/D9fXv/sdp9hHjA=
-github.com/wow-look-at-my/go-containers v0.0.0-20260307175019-180529c50d33 h1:OYI2FPYVGQ1EjPOsQ7I/0rNcnU9UdtzKRsIL4FqAPxM=
-github.com/wow-look-at-my/go-containers v0.0.0-20260307175019-180529c50d33/go.mod h1:AGGzFZheJSooQmBf0LdfoAGXr7jSGxsn7N1NrOdhmIs=
+github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d h1:kNQpKMSpc6Ynu2dfPa4xO4b0iXZEVRqaVg207/OXmw4=
+github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d/go.mod h1:AGGzFZheJSooQmBf0LdfoAGXr7jSGxsn7N1NrOdhmIs=
 github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260315102511-1e5818a894a5 h1:yogVnNUM1dva2voQQIKofy8CMY1Y2jyhbwP2AYXYofc=
 github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260315102511-1e5818a894a5/go.mod h1:7+5bPv78hKpda7KhLVMFka12QL8IQVZQTf/g+QDBSPQ=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb h1:kLSElPimf1wjuunb+noAlkV/xzrE65BzqnQr3Xr31u4=

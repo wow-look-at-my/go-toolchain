@@ -131,14 +131,14 @@ func TestS3Backend_GetStats(t *testing.T) {
 func TestS3Backend_PutAndGet(t *testing.T) {
 	// Fake S3 server that stores objects in memory.
 	store := map[string][]byte{}
-	meta := map[string]string{}
+	headers := map[string]http.Header{} // capture all headers per path
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "PUT":
 			body, _ := io.ReadAll(r.Body)
 			store[r.URL.Path] = body
-			meta[r.URL.Path] = r.Header.Get("X-Amz-Meta-Outputid")
+			headers[r.URL.Path] = r.Header.Clone()
 			w.WriteHeader(200)
 		case "HEAD":
 			if _, ok := store[r.URL.Path]; !ok {
@@ -152,7 +152,8 @@ func TestS3Backend_PutAndGet(t *testing.T) {
 				w.WriteHeader(404)
 				return
 			}
-			w.Header().Set("X-Amz-Meta-Outputid", meta[r.URL.Path])
+			h := headers[r.URL.Path]
+			w.Header().Set("X-Amz-Meta-Outputid", h.Get("X-Amz-Meta-Outputid"))
 			w.WriteHeader(200)
 			w.Write(data)
 		}
@@ -164,6 +165,7 @@ func TestS3Backend_PutAndGet(t *testing.T) {
 		Endpoint:  srv.URL,
 		AccessKey: "testkey",
 		SecretKey: "testsecret",
+		Version:   "v1.2.3",
 	})
 	require.NoError(t, err)
 
@@ -171,6 +173,18 @@ func TestS3Backend_PutAndGet(t *testing.T) {
 	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("hello world"), 11)
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), b.Stats.Puts.Load())
+
+	// Verify metadata headers were sent.
+	h := headers["/testbucket/go-buildcache/v1aabbccdd11223344"]
+	require.Equal(t, "eeff0011aabbccdd", h.Get("X-Amz-Meta-Outputid"))
+	require.Equal(t, "unknown", h.Get("X-Amz-Meta-Object-Type"))
+	require.Equal(t, "11", h.Get("X-Amz-Meta-Body-Size"))
+	require.Equal(t, "lz4", h.Get("X-Amz-Meta-Compression"))
+	require.NotEmpty(t, h.Get("X-Amz-Meta-Created"))
+	require.Equal(t, "v1.2.3", h.Get("X-Amz-Meta-Toolchain-Version"))
+	// Plain text body has no go object header, so these should be absent.
+	require.Empty(t, h.Get("X-Amz-Meta-Go-Version"))
+	require.Empty(t, h.Get("X-Amz-Meta-Target"))
 
 	// Get.
 	outputID, body, size, _, miss, err := b.Get("aabbccdd11223344")
@@ -181,6 +195,60 @@ func TestS3Backend_PutAndGet(t *testing.T) {
 	require.Equal(t, "hello world", string(data))
 	require.Equal(t, int64(11), size)
 	require.Equal(t, uint32(1), b.Stats.Hits.Load())
+}
+
+func TestS3Backend_PutArchiveMetadata(t *testing.T) {
+	// Verify that Go archive bodies get Go-Version and Target metadata.
+	headers := map[string]http.Header{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			io.ReadAll(r.Body)
+			headers[r.URL.Path] = r.Header.Clone()
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b, err := NewS3Backend(S3Config{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+
+	// Simulate a Go archive body with __.PKGDEF containing a go object header.
+	archiveBody := "!<arch>\n__.PKGDEF       0           0     0     644     100       `\ngo object linux amd64 go1.24.7 X:regabiwrappers\nsome export data here\n"
+	err = b.Put("1111111122222222", "3333333344444444", nopReader(archiveBody), int64(len(archiveBody)))
+	require.NoError(t, err)
+
+	h := headers["/testbucket/go-buildcache/v11111111122222222"]
+	require.Equal(t, "go-archive", h.Get("X-Amz-Meta-Object-Type"))
+	require.Equal(t, "go1.24.7", h.Get("X-Amz-Meta-Go-Version"))
+	require.Equal(t, "linux/amd64", h.Get("X-Amz-Meta-Target"))
+}
+
+func TestS3Backend_PutNoVersionWhenEmpty(t *testing.T) {
+	headers := map[string]http.Header{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			io.ReadAll(r.Body)
+			headers[r.URL.Path] = r.Header.Clone()
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b, err := NewS3Backend(S3Config{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+		// Version intentionally empty.
+	})
+	require.NoError(t, err)
+
+	err = b.Put("aaaa000011112222", "bbbb333344445555", nopReader("x"), 1)
+	require.NoError(t, err)
+
+	h := headers["/testbucket/go-buildcache/v1aaaa000011112222"]
+	require.Empty(t, h.Get("X-Amz-Meta-Toolchain-Version"))
 }
 
 func TestS3Backend_GetMiss(t *testing.T) {
@@ -447,6 +515,83 @@ func TestNewS3Backend_EndpointSchemeNormalization(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.Equal(t, tt.want, b.endpoint)
+		})
+	}
+}
+
+func TestDetectObjectType(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{"go archive", []byte("!<arch>\nrest of archive"), "go-archive"},
+		{"elf binary", []byte{0x7f, 'E', 'L', 'F', 2, 1, 0, 0}, "elf-binary"},
+		{"macho 64-bit LE", []byte{0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0}, "macho-binary"},
+		{"macho 64-bit BE", []byte{0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0}, "macho-binary"},
+		{"macho 32-bit", []byte{0xfe, 0xed, 0xfa, 0xce, 0, 0, 0, 0}, "macho-binary"},
+		{"macho universal", []byte{0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 0}, "macho-binary"},
+		{"pe binary", []byte{'M', 'Z', 0, 0, 0, 0, 0, 0}, "pe-binary"},
+		{"go object", []byte{0x00, 'g', 'o', '1', '2', '0', 'l', 'd'}, "go-object"},
+		{"random data", []byte{0x01, 0x02, 0x03, 0x04}, "unknown"},
+		{"empty", []byte{}, "unknown"},
+		{"too short for archive", []byte("!<arch"), "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, detectObjectType(tt.data))
+		})
+	}
+}
+
+func TestParseArchiveHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		data       []byte
+		wantGoVer  string
+		wantTarget string
+	}{
+		{
+			"valid archive with go object line",
+			[]byte("!<arch>\n__.PKGDEF       0           0     0     644     100       `\ngo object linux amd64 go1.24.7 X:regabiwrappers\nexport data\n"),
+			"go1.24.7", "linux/amd64",
+		},
+		{
+			"archive with darwin arm64",
+			[]byte("!<arch>\n__.PKGDEF       0           0     0     644     50        `\ngo object darwin arm64 go1.25.0\nmore data\n"),
+			"go1.25.0", "darwin/arm64",
+		},
+		{
+			"archive without go object line",
+			[]byte("!<arch>\n__.PKGDEF       0           0     0     644     50        `\nsome other content\n"),
+			"", "",
+		},
+		{
+			"non-archive data",
+			[]byte("hello world this is not an archive"),
+			"", "",
+		},
+		{
+			"empty data",
+			[]byte{},
+			"", "",
+		},
+		{
+			"go object not at line start",
+			[]byte("prefix go object linux amd64 go1.24.7\n"),
+			"", "",
+		},
+		{
+			"go object line too short",
+			[]byte("go object linux amd64\n"),
+			"", "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			goVer, target := parseArchiveHeader(tt.data)
+			require.Equal(t, tt.wantGoVer, goVer)
+			require.Equal(t, tt.wantTarget, target)
 		})
 	}
 }
