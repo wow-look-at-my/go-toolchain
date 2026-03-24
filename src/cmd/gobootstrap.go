@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,13 @@ var (
 	goCacheDirFunc     = goCacheDir
 	goDownloadURLsFunc = goDownloadURLs
 )
+
+// resolvedGoMinor holds the minor version of the Go toolchain that
+// EnsureGoVersion resolved (e.g. 24 for Go 1.24.7, 25 for Go 1.25.0).
+// Set once during bootstrap; used by goSupportsFeature to avoid re-running
+// "go version" (which can fail to find the bootstrapped binary or mis-parse
+// non-standard version strings).
+var resolvedGoMinor int
 
 // EnsureGoVersion checks whether Go is available in PATH and whether its
 // version satisfies the project's go.mod requirement. If Go is missing or too
@@ -41,28 +49,33 @@ func EnsureGoVersion() error {
 	// Check whether the installed version satisfies go.mod.
 	required, err := requiredGoVersion()
 	if err != nil || required == "" {
+		recordGoMinor("")
 		return nil // can't determine required version, proceed with what we have
 	}
 
 	installed, err := installedGoVersion()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot determine installed version (%v), proceeding\n", err)
+		recordGoMinor(required)
 		return nil
 	}
 
 	installedVer, err := semver.NewVersion(installed)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot parse installed version %q (%v), proceeding\n", installed, err)
+		recordGoMinor(required)
 		return nil
 	}
 	requiredVer, err := semver.NewVersion(required)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot parse required version %q (%v), proceeding\n", required, err)
+		recordGoMinor(installed)
 		return nil
 	}
 
 	if !installedVer.LessThan(requiredVer) {
 		fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s satisfies required %s\n", installed, required)
+		recordGoMinor(installed)
 		return nil
 	}
 
@@ -97,7 +110,38 @@ func bootstrapGo(reason string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s %s\n", required, goRoot, fmtDuration(time.Since(bootstrapStart)))
+	recordGoMinor(required)
 	return nil
+}
+
+// recordGoMinor parses a version string like "1.24.7" and stores its minor
+// component in resolvedGoMinor so that goSupportsFeature can use it without
+// shelling out to "go version". If ver is empty or unparseable, it falls back
+// to running "go version".
+func recordGoMinor(ver string) {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) >= 2 {
+		if minor, err := strconv.Atoi(parts[1]); err == nil {
+			resolvedGoMinor = minor
+			return
+		}
+	}
+	// Fallback: run "go version" for cases where we couldn't determine version
+	out, err := exec.Command("go", "version").Output()
+	if err != nil {
+		return
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) < 3 {
+		return
+	}
+	v := strings.TrimPrefix(fields[2], "go")
+	parts = strings.SplitN(v, ".", 3)
+	if len(parts) >= 2 {
+		if minor, err := strconv.Atoi(parts[1]); err == nil {
+			resolvedGoMinor = minor
+		}
+	}
 }
 
 // installedGoVersion runs "go version" and extracts the version number.

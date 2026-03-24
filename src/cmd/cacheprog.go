@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -108,29 +106,12 @@ var (
 	FeatureCacheProg = GoFeature{Name: "GOCACHEPROG", MinorVersion: 24}
 )
 
-// goSupportsFeature returns true if the go binary in PATH is new enough
-// to support the given feature.
+// goSupportsFeature returns true if the resolved Go toolchain is new enough
+// to support the given feature. It uses resolvedGoMinor (set by EnsureGoVersion)
+// rather than shelling out to "go version", which avoids false negatives when
+// the bootstrapped Go isn't the first "go" in the original PATH.
 func goSupportsFeature(f GoFeature) bool {
-	out, err := exec.Command("go", "version").Output()
-	if err != nil {
-		return false
-	}
-	// Output: "go version go1.24.2 darwin/arm64"
-	fields := strings.Fields(string(out))
-	if len(fields) < 3 {
-		return false
-	}
-	ver := strings.TrimPrefix(fields[2], "go")
-	parts := strings.SplitN(ver, ".", 3)
-	if len(parts) < 2 {
-		return false
-	}
-	maj, err1 := strconv.Atoi(parts[0])
-	min, err2 := strconv.Atoi(parts[1])
-	if err1 != nil || err2 != nil {
-		return false
-	}
-	return maj > 1 || (maj == 1 && min >= f.MinorVersion)
+	return resolvedGoMinor >= f.MinorVersion
 }
 
 // enableCacheProg sets the GOCACHEPROG environment variable so all child go
