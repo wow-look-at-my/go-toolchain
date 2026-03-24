@@ -62,3 +62,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - When adding a new flag, add it to the appropriate flags table (persistent or command-specific).
 - When changing the reusable workflow inputs in `.github/workflows/build.yml`, update the Action Usage section accordingly.
 - When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
+
+## Known Issues
+
+- **`TestStatsStreaming` (src/cache/cache_test.go)**: This test has been observed to fail intermittently (got `Puts=0` instead of `1` at line 499). The failure was not reproducible in isolation — 50 iterations with `-race` all passed. Root cause is **undiagnosed**. Likely a race condition in stats delivery over the unix socket, possibly triggered only under heavy parallel test load. Do not dismiss this as "flaky" — investigate properly if it fails again.

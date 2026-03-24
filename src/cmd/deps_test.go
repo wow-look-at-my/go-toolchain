@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -134,12 +137,13 @@ func TestDepChecker_Cancel(t *testing.T) {
 }
 
 func TestCheckOutdatedDeps(t *testing.T) {
-	// This test verifies the function doesn't panic and returns a DepChecker
+	// This test verifies the function doesn't panic and returns a DepChecker.
+	// We cancel immediately rather than waiting for completion, since the live
+	// dependency checks require network access and can exceed the test timeout.
 	dc := CheckOutdatedDeps()
 	assert.NotNil(t, dc)
-	// Wait for completion
+	dc.Cancel()
 	<-dc.doneCh
-	// Should be done now
 	assert.True(t, dc.Done())
 }
 
@@ -192,14 +196,47 @@ func TestDepChecker_WaitWithProgress_AlreadyDone(t *testing.T) {
 	assert.Equal(t, 1, len(result))
 }
 
-func TestCheckDepLive_RealModule(t *testing.T) {
-	// Test with a real module that exists
-	// github.com/spf13/cobra should work
+func TestCheckDepLive_WithUpdate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"Version":"v1.2.0"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
 	update, needsUpdate, err := checkDepLive("github.com/spf13/cobra")
 	require.Nil(t, err)
-	// We don't care about the result, just that it didn't error
-	_ = update
-	_ = needsUpdate
+	assert.True(t, needsUpdate)
+	assert.Equal(t, "v1.2.0", update)
+}
+
+func TestCheckDepLive_NoUpdate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
+	update, needsUpdate, err := checkDepLive("github.com/spf13/cobra")
+	require.Nil(t, err)
+	assert.False(t, needsUpdate)
+	assert.Equal(t, "", update)
+}
+
+func TestCheckDepLive_ProxyError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
+	_, _, err := checkDepLive("github.com/fake/module")
+	assert.NotNil(t, err)
+}
+
+func TestCheckDepLive_NoProxy(t *testing.T) {
+	t.Setenv("GOPROXY", "direct")
+	_, _, err := checkDepLive("github.com/spf13/cobra")
+	assert.NotNil(t, err)
 }
 
 func TestDepChecker_checkDep_CacheHit(t *testing.T) {
@@ -246,6 +283,12 @@ func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"Version":"v1.11.0"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
 	db, err := openCacheDB()
 	require.Nil(t, err)
 	defer db.Close()
@@ -260,7 +303,6 @@ func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
 	require.Nil(t, err)
 
 	// Should do a live check since cache is expired
-	// This will update the cache
 	_, _, err = dc.checkDep("github.com/spf13/cobra", "v1.10.2")
 	require.Nil(t, err)
 
