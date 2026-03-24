@@ -194,11 +194,10 @@ func TestDepChecker_WaitWithProgress_AlreadyDone(t *testing.T) {
 }
 
 func TestCheckDepLive_RealModule(t *testing.T) {
-	// Test with a real module that exists
-	// github.com/spf13/cobra should work
+	// Ensure a usable proxy is set (test env may have GOPROXY=direct)
+	t.Setenv("GOPROXY", "https://proxy.golang.org")
 	update, needsUpdate, err := checkDepLive("github.com/spf13/cobra")
 	require.Nil(t, err)
-	// We don't care about the result, just that it didn't error
 	_ = update
 	_ = needsUpdate
 }
@@ -247,6 +246,9 @@ func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
+	// Ensure a usable proxy is set (test env may have GOPROXY=direct)
+	t.Setenv("GOPROXY", "https://proxy.golang.org")
+
 	db, err := openCacheDB()
 	require.Nil(t, err)
 	defer db.Close()
