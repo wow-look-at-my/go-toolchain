@@ -15,6 +15,7 @@ func TestEnableCacheProg(t *testing.T) {
 	origProg := os.Getenv("GOCACHEPROG")
 	origSock := os.Getenv("GOCACHE_STATS_SOCK")
 	origListener := statsListener
+	origMinor := resolvedGoMinor
 	defer func() {
 		os.Setenv("GOCACHEPROG", origProg)
 		os.Setenv("GOCACHE_STATS_SOCK", origSock)
@@ -22,11 +23,13 @@ func TestEnableCacheProg(t *testing.T) {
 			statsListener.Close()
 		}
 		statsListener = origListener
+		resolvedGoMinor = origMinor
 	}()
 
 	os.Unsetenv("GOCACHEPROG")
 	os.Unsetenv("GOCACHE_STATS_SOCK")
 	statsListener = nil
+	resolvedGoMinor = 25 // simulate bootstrapped Go 1.25
 
 	err := enableCacheProg()
 	require.NoError(t, err)
@@ -40,10 +43,16 @@ func TestEnableCacheProg(t *testing.T) {
 }
 
 func TestGoSupportsFeature_CacheProg(t *testing.T) {
+	old := resolvedGoMinor
+	defer func() { resolvedGoMinor = old }()
+	resolvedGoMinor = 24
 	assert.True(t, goSupportsFeature(FeatureCacheProg))
 }
 
 func TestGoSupportsFeature_FutureVersion(t *testing.T) {
+	old := resolvedGoMinor
+	defer func() { resolvedGoMinor = old }()
+	resolvedGoMinor = 24
 	future := GoFeature{Name: "future", MinorVersion: 99}
 	assert.False(t, goSupportsFeature(future))
 }
@@ -52,13 +61,16 @@ func TestPrintCacheStats_NoListener(t *testing.T) {
 	old := statsListener
 	oldEnabled := cacheEnabled
 	oldErr := cacheSetupErr
+	oldMinor := resolvedGoMinor
 	statsListener = nil
 	cacheEnabled = true
 	cacheSetupErr = fmt.Errorf("stats listener: dial unix /tmp/x.sock: permission denied")
+	resolvedGoMinor = 25 // simulate bootstrapped Go 1.25
 	defer func() {
 		statsListener = old
 		cacheEnabled = oldEnabled
 		cacheSetupErr = oldErr
+		resolvedGoMinor = oldMinor
 	}()
 
 	output := captureStdout(func() {

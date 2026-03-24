@@ -37,7 +37,7 @@ var (
 // skipCache returns true for subcommands that should not enable GOCACHEPROG.
 func skipCache(name string) bool {
 	switch name {
-	case "cacheprog", "version", "install", "update":
+	case "cacheprog", "version", "install", "update", "release":
 		return true
 	}
 	return false

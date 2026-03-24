@@ -333,3 +333,20 @@ func TestEnsureGoVersionGoPresent(t *testing.T) {
 	err := EnsureGoVersion()
 	assert.Nil(t, err)
 }
+
+func TestRecordGoMinor(t *testing.T) {
+	old := resolvedGoMinor
+	defer func() { resolvedGoMinor = old }()
+
+	resolvedGoMinor = 0
+	recordGoMinor("1.24.7")
+	assert.Equal(t, 24, resolvedGoMinor)
+
+	resolvedGoMinor = 0
+	recordGoMinor("1.25.0")
+	assert.Equal(t, 25, resolvedGoMinor)
+
+	resolvedGoMinor = 0
+	recordGoMinor("1.25")
+	assert.Equal(t, 25, resolvedGoMinor)
+}
