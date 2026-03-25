@@ -26,42 +26,73 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 ## GitHub Action Usage
 
-go-toolchain provides a **reusable workflow** for CI. Call it with `uses`:
+go-toolchain provides a **composite action** for building Go projects. Repos in the `wow-look-at-my` org get automatic access to org-level secrets (proxy, private repos, build cache) via environment variables.
+
+### Composite Action (recommended)
+
+Use as a step in your workflow. Set org secrets as job-level environment variables so the action picks them up automatically:
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PRIVATE_ORG_REPO_READ: ${{ secrets.PRIVATE_ORG_REPO_READ }}
+      GOPROXY_USER: ${{ secrets.GOPROXY_USER }}
+      GOPROXY_PASSWORD: ${{ secrets.GOPROXY_PASSWORD }}
+      GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wow-look-at-my/go-toolchain@v1
+```
+
+The action reads from the runner environment — any secrets the calling workflow has access to (including org-level secrets) are available when mapped to env vars at the job level.
+
+### Reusable Workflow
+
+For zero-config usage, a reusable workflow wraps the action and handles secret mapping internally:
 
 ```yaml
 jobs:
   build:
     uses: wow-look-at-my/go-toolchain/.github/workflows/build.yml@v1
-    with:
-      json: false                # output coverage report as JSON
-      generate: ''               # run go:generate directives matching this hash
-      working-directory: '.'     # working directory for the build
-      binary-artifact: ''        # name of an uploaded artifact containing a go-toolchain binary
-      os: 'linux,darwin,windows' # target OSes
-      arch: 'amd64,arm64'       # target architectures
-      cgo: false                 # enable CGO (disabled by default for static binaries)
-      autorelease: false         # create a GitHub release on the default branch
-      artifact-name: 'build-output' # name for the uploaded build artifact
     secrets: inherit
 ```
 
-### Inputs
+The reusable workflow additionally uploads build artifacts (named `build-output` by default).
+
+### Action Inputs
 
 | Input               | Type     | Default    | Description                                              |
 |---------------------|----------|------------|----------------------------------------------------------|
-| `json`              | boolean  | `false`    | Output coverage report as JSON                           |
+| `json`              | string   | `false`    | Output coverage report as JSON                           |
 | `generate`          | string   | `''`       | Run `go:generate` directives matching this hash          |
 | `working-directory` | string   | `.`        | Working directory for the build                          |
-| `binary-artifact`   | string   | `''`       | Name of an uploaded artifact containing a go-toolchain binary (skips release download) |
+| `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
 | `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
-| `cgo`               | boolean  | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | boolean  | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
+| `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
+| `autorelease`       | string   | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
+
+### Environment Variables
+
+The action reads these from the runner environment. Set them at the job level from org secrets:
+
+| Variable                | Description                                      |
+|-------------------------|--------------------------------------------------|
+| `PRIVATE_ORG_REPO_READ` | GitHub PAT for accessing private org repos       |
+| `GOPROXY_USER`          | Username for the Go module proxy                 |
+| `GOPROXY_PASSWORD`      | Password for the Go module proxy                 |
+| `GO_BUILDCACHE_CONFIG`  | S3 build cache configuration string              |
+
+### Reusable Workflow Inputs
+
+The reusable workflow accepts these additional inputs:
+
+| Input               | Type     | Default    | Description                                              |
+|---------------------|----------|------------|----------------------------------------------------------|
+| `binary-artifact`   | string   | `''`       | Name of an uploaded artifact containing a go-toolchain binary |
 | `artifact-name`     | string   | `build-output` | Name for the uploaded build artifact |
-
-### Artifacts
-
-The reusable workflow automatically uploads the `build/` directory as a GitHub Actions artifact. By default the artifact is named `build-output`, but this can be customized via the `artifact-name` input. Downstream jobs can download this artifact using `actions/download-artifact@v4`.
 
 ## CLI Usage
 

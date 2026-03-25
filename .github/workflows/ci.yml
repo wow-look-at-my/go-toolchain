@@ -54,6 +54,29 @@ jobs:
           path: build/go-toolchain
           if-no-files-found: error
 
+  # Test the composite action by building this repo using the binary we just built
+  action-test:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      PRIVATE_ORG_REPO_READ: ${{ secrets.PRIVATE_ORG_REPO_READ }}
+      GOPROXY_USER: ${{ secrets.GOPROXY_USER }}
+      GOPROXY_PASSWORD: ${{ secrets.GOPROXY_PASSWORD }}
+      GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download go-toolchain binary
+        uses: actions/download-artifact@v4
+        with:
+          name: go-toolchain-binary
+          path: /tmp/go-toolchain-artifact
+
+      - name: Build with action
+        uses: ./
+        with:
+          binary: /tmp/go-toolchain-artifact/go-toolchain
+
   # Test the reusable workflow by having it build this repo using the binary we just built
   workflow-test:
     needs: build
@@ -64,7 +87,7 @@ jobs:
 
   release:
     if: github.ref == 'refs/heads/v1'
-    needs: [build, workflow-test]
+    needs: [build, action-test, workflow-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

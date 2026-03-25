@@ -43,7 +43,8 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - `src/cache/` — GOCACHEPROG protocol server with local and S3 backends
 - `src/vet/` — custom vet checks (assert normalization, unused imports)
 - `tests/` — BATS integration tests
-- `.github/workflows/build.yml` — reusable workflow (replaces action.yml)
+- `action.yml` — composite GitHub Action (build logic lives here)
+- `.github/workflows/build.yml` — reusable workflow (thin wrapper around action.yml, maps secrets to env vars)
 
 ## Code Conventions
 
@@ -60,7 +61,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - **Always keep `README.md` up to date** when adding new features, flags, subcommands, or changing existing behavior. The README is the primary user-facing documentation and must accurately reflect the current state of the CLI and GitHub Action.
 - When adding a new subcommand, add it to the Subcommands section and include a CLI usage example.
 - When adding a new flag, add it to the appropriate flags table (persistent or command-specific).
-- When changing the reusable workflow inputs in `.github/workflows/build.yml`, update the Action Usage section accordingly.
+- When changing action.yml inputs or `.github/workflows/build.yml` inputs, update the Action Usage section accordingly.
 - When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
 
 ## Known Issues
