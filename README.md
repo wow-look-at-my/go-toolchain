@@ -26,31 +26,18 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 ## GitHub Action Usage
 
-go-toolchain provides a **composite action** for building Go projects. Repos in the `wow-look-at-my` org get automatic access to org-level secrets (proxy, private repos, build cache) via environment variables.
-
-### Composite Action (recommended)
-
-Use as a step in your workflow. Set org secrets as job-level environment variables so the action picks them up automatically:
+go-toolchain provides a **composite action** for building Go projects. Repos in the `wow-look-at-my` org get automatic access to org-level secrets (proxy, private repos, build cache) — just use the action:
 
 ```yaml
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      PRIVATE_ORG_REPO_READ: ${{ secrets.PRIVATE_ORG_REPO_READ }}
-      GOPROXY_USER: ${{ secrets.GOPROXY_USER }}
-      GOPROXY_PASSWORD: ${{ secrets.GOPROXY_PASSWORD }}
-      GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
     steps:
       - uses: actions/checkout@v4
       - uses: wow-look-at-my/go-toolchain@v1
 ```
 
-The action reads from the runner environment — any secrets the calling workflow has access to (including org-level secrets) are available when mapped to env vars at the job level.
-
-### Reusable Workflow
-
-For zero-config usage, a reusable workflow wraps the action and handles secret mapping internally:
+A **reusable workflow** is also available, which additionally uploads build artifacts:
 
 ```yaml
 jobs:
@@ -58,8 +45,6 @@ jobs:
     uses: wow-look-at-my/go-toolchain/.github/workflows/build.yml@v1
     secrets: inherit
 ```
-
-The reusable workflow additionally uploads build artifacts (named `build-output` by default).
 
 ### Action Inputs
 
@@ -73,17 +58,6 @@ The reusable workflow additionally uploads build artifacts (named `build-output`
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
-
-### Environment Variables
-
-The action reads these from the runner environment. Set them at the job level from org secrets:
-
-| Variable                | Description                                      |
-|-------------------------|--------------------------------------------------|
-| `PRIVATE_ORG_REPO_READ` | GitHub PAT for accessing private org repos       |
-| `GOPROXY_USER`          | Username for the Go module proxy                 |
-| `GOPROXY_PASSWORD`      | Password for the Go module proxy                 |
-| `GO_BUILDCACHE_CONFIG`  | S3 build cache configuration string              |
 
 ### Reusable Workflow Inputs
 

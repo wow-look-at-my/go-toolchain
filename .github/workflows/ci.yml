@@ -58,11 +58,6 @@ jobs:
   action-test:
     needs: build
     runs-on: ubuntu-latest
-    env:
-      PRIVATE_ORG_REPO_READ: ${{ secrets.PRIVATE_ORG_REPO_READ }}
-      GOPROXY_USER: ${{ secrets.GOPROXY_USER }}
-      GOPROXY_PASSWORD: ${{ secrets.GOPROXY_PASSWORD }}
-      GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
     steps:
       - uses: actions/checkout@v4
 
