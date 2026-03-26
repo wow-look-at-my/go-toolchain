@@ -167,16 +167,17 @@ go-toolchain ignore lines path/to/long_file.go
 4. Runs `go mod tidy`
 5. Detects and runs `//go:generate` directives (if present)
 6. Runs `go vet` with auto-fix (on non-CI systems)
-7. Checks for near-duplicate code blocks (warnings only)
-8. Checks file lengths (warns at 500 lines, errors at 750)
-9. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured)
-10. Runs `go test` across all packages with coverage profiling
-11. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (80%, or watermark - 2.5%)
-12. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-13. If coverage meets the threshold, builds the project binary into `build/`
-14. Automatically adds `build/` to `.gitignore` (if in a git repo)
-15. Runs benchmarks and compares against previously stored results
-16. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
+7. Detects dead code — warns about unexported functions, types, constants, and variables that are never used within their package
+8. Checks for near-duplicate code blocks (warnings only)
+9. Checks file lengths (warns at 500 lines, errors at 750)
+10. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured)
+11. Runs `go test` across all packages with coverage profiling
+12. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (80%, or watermark - 2.5%)
+13. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
+14. If coverage meets the threshold, builds the project binary into `build/`
+15. Automatically adds `build/` to `.gitignore` (if in a git repo)
+16. Runs benchmarks and compares against previously stored results
+17. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
 
 ## Development
 
