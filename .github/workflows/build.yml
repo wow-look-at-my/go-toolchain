@@ -55,8 +55,19 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PRIVATE_ORG_REPO_READ: ${{ secrets.PRIVATE_ORG_REPO_READ }}
+      GOPROXY_USER: ${{ secrets.GOPROXY_USER }}
+      GOPROXY_PASSWORD: ${{ secrets.GOPROXY_PASSWORD }}
+      GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: wow-look-at-my/go-toolchain
+          ref: v1
+          path: .go-toolchain
 
       - name: Download go-toolchain from artifact
         if: inputs.binary-artifact != ''
@@ -66,7 +77,7 @@ jobs:
           path: /tmp/go-toolchain-artifact
 
       - name: Build
-        uses: wow-look-at-my/go-toolchain@v1
+        uses: ./.go-toolchain
         with:
           json: ${{ inputs.json && 'true' || 'false' }}
           generate: ${{ inputs.generate }}

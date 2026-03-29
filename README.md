@@ -26,18 +26,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 ## GitHub Action Usage
 
-go-toolchain provides a **composite action** for building Go projects. Repos in the `wow-look-at-my` org get automatic access to org-level secrets (proxy, private repos, build cache) — just use the action:
-
-```yaml
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: wow-look-at-my/go-toolchain@v1
-```
-
-A **reusable workflow** is also available, which additionally uploads build artifacts:
+The **reusable workflow** is the simplest way to use go-toolchain in CI. It handles org secrets automatically — just call it with `secrets: inherit`:
 
 ```yaml
 jobs:
@@ -46,7 +35,27 @@ jobs:
     secrets: inherit
 ```
 
-### Action Inputs
+That's it. Private repo access, Go proxy auth, and S3 build cache are all configured automatically for repos in the `wow-look-at-my` org.
+
+### Composite Action
+
+For more flexibility (custom runners, additional steps, services), use the composite action directly. The action reads credentials from environment variables inherited from the job:
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PRIVATE_ORG_REPO_READ: ${{ secrets.PRIVATE_ORG_REPO_READ }}
+      GOPROXY_USER: ${{ secrets.GOPROXY_USER }}
+      GOPROXY_PASSWORD: ${{ secrets.GOPROXY_PASSWORD }}
+      GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wow-look-at-my/go-toolchain@v1
+```
+
+### Inputs
 
 | Input               | Type     | Default    | Description                                              |
 |---------------------|----------|------------|----------------------------------------------------------|
@@ -58,8 +67,6 @@ jobs:
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
-
-### Reusable Workflow Inputs
 
 The reusable workflow accepts these additional inputs:
 

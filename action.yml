@@ -44,14 +44,16 @@ runs:
   using: 'composite'
   steps:
     - name: Configure git for private repos
+      if: env.PRIVATE_ORG_REPO_READ != ''
       shell: bash
-      run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+      run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
     - name: Configure netrc for Go proxy
+      if: env.GOPROXY_USER != ''
       shell: bash
       run: |
         cat >> ~/.netrc <<EOF
-        machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+        machine goproxy.pazer.io login ${GOPROXY_USER} password ${GOPROXY_PASSWORD}
         EOF
         chmod 600 ~/.netrc
 
@@ -76,7 +78,6 @@ runs:
       env:
         GOPROXY: goproxy.pazer.io
         GOSUMDB: gosumdb.pazer.io
-        GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
       run: |
         set -euo pipefail
         ARGS=""
