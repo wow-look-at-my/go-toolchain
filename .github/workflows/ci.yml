@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Fetch secrets
-        uses: wow-look-at-my/secret-server@main
+        uses: wow-look-at-my/secret-server@master
 
       - name: Configure git for private repos
         run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
