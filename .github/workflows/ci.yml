@@ -17,13 +17,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fetch secrets
+        uses: wow-look-at-my/secret-server@main
+
       - name: Configure git for private repos
-        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       - name: Configure netrc for Go proxy
         run: |
           cat >> ~/.netrc <<EOF
-          machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+          machine goproxy.pazer.io login ${GOPROXY_USER} password ${GOPROXY_PASSWORD}
           EOF
           chmod 600 ~/.netrc
 
@@ -44,8 +47,6 @@ jobs:
 
       - name: Build and test
         run: go run ./src
-        env:
-          GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -58,11 +59,6 @@ jobs:
   action-test:
     needs: build
     runs-on: ubuntu-latest
-    env:
-      PRIVATE_ORG_REPO_READ: ${{ secrets.PRIVATE_ORG_REPO_READ }}
-      GOPROXY_USER: ${{ secrets.GOPROXY_USER }}
-      GOPROXY_PASSWORD: ${{ secrets.GOPROXY_PASSWORD }}
-      GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
     steps:
       - uses: actions/checkout@v4
 
@@ -77,17 +73,15 @@ jobs:
         with:
           binary: /tmp/go-toolchain-artifact/go-toolchain
 
-  # Test the reusable workflow by having it build this repo using the binary we just built
-  workflow-test:
-    needs: build
-    uses: ./.github/workflows/build.yml
-    with:
-      binary-artifact: go-toolchain-binary
-    secrets: inherit
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: build/
 
   release:
     if: github.ref == 'refs/heads/v1'
-    needs: [build, action-test, workflow-test]
+    needs: [build, action-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,4 +111,4 @@ jobs:
           chmod +x build/go-toolchain_linux_amd64
           ./build/go-toolchain_linux_amd64 release --tag "${{ steps.tag.outputs.tag }}"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}

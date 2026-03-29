@@ -43,6 +43,9 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Fetch secrets
+      uses: wow-look-at-my/secret-server@main
+
     - name: Configure git for private repos
       if: env.PRIVATE_ORG_REPO_READ != ''
       shell: bash
