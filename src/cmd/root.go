@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
@@ -90,6 +91,16 @@ func Execute() error {
 
 func run(cmd *cobra.Command, args []string) error {
 	InitTimeline()
+
+	wd := startWatchdog(5 * time.Second)
+	if wd != nil {
+		activeWatchdog = wd
+		defer func() {
+			activeWatchdog = nil
+			wd.stop()
+		}()
+	}
+
 	modules := findGoModules()
 	if len(modules) == 0 {
 		return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
