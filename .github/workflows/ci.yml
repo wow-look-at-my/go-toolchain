@@ -7,23 +7,25 @@ permissions:
   contents: write
   id-token: write
 
-env:
-  GOPROXY: goproxy.pazer.io
-  GOSUMDB: gosumdb.pazer.io
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - uses: wow-look-at-my/secret-server@master
       - name: Configure git for private repos
-        run: git config --global url."https://${{ secrets.PRIVATE_ORG_REPO_READ }}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       - name: Configure netrc for Go proxy
+        if: env.GO_PROXY_CONFIG != ''
         run: |
+          USER=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.user // .username // .login')
+          PASS=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.password // .pass')
+          echo "::add-mask::${USER}"
+          echo "::add-mask::${PASS}"
           cat >> ~/.netrc <<EOF
-          machine goproxy.pazer.io login ${{ secrets.GOPROXY_USER }} password ${{ secrets.GOPROXY_PASSWORD }}
+          machine goproxy.pazer.io login ${USER} password ${PASS}
           EOF
           chmod 600 ~/.netrc
 
@@ -44,8 +46,6 @@ jobs:
 
       - name: Build and test
         run: go run ./src
-        env:
-          GO_BUILDCACHE_CONFIG: ${{ secrets.GO_BUILDCACHE_CONFIG }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -54,17 +54,23 @@ jobs:
           path: build/go-toolchain
           if-no-files-found: error
 
-  # Test the reusable workflow by having it build this repo using the binary we just built
-  workflow-test:
+  # Test the composite action end-to-end using the binary we just built
+  action-test:
     needs: build
-    uses: ./.github/workflows/build.yml
-    with:
-      binary-artifact: go-toolchain-binary
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: build/
 
   release:
     if: github.ref == 'refs/heads/v1'
-    needs: [build, workflow-test]
+    needs: [build, action-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -94,4 +100,4 @@ jobs:
           chmod +x build/go-toolchain_linux_amd64
           ./build/go-toolchain_linux_amd64 release --tag "${{ steps.tag.outputs.tag }}"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
