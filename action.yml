@@ -108,7 +108,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         GOPROXY: goproxy.pazer.io
-        GOSUMDB: gosumdb.pazer.io
+        GOSUMDB: default
       run: |
         set -euo pipefail
         ARGS=""

@@ -9,7 +9,7 @@ permissions:
 
 env:
   GOPROXY: goproxy.pazer.io
-  GOSUMDB: gosumdb.pazer.io
+  GOSUMDB: default
 
 jobs:
   build:
