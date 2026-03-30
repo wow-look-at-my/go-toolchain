@@ -1,0 +1,128 @@
+name: 'Go Safe Build'
+description: 'Build Go projects with coverage enforcement - fails if coverage is below threshold'
+author: 'go-toolchain'
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  json:
+    description: 'Output coverage report as JSON'
+    required: false
+    default: 'false'
+  generate:
+    description: 'Run go:generate directives matching this hash'
+    required: false
+    default: ''
+  working-directory:
+    description: 'Working directory for the build'
+    required: false
+    default: '.'
+  binary:
+    description: 'Path to a pre-built go-toolchain binary (skips release download)'
+    required: false
+    default: ''
+  os:
+    description: 'Comma-separated list of target operating systems (e.g. linux,darwin,windows)'
+    required: false
+    default: 'linux,darwin,windows'
+  arch:
+    description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
+    required: false
+    default: 'amd64,arm64'
+  cgo:
+    description: 'Enable CGO (disabled by default for static binaries)'
+    required: false
+    default: 'false'
+  autorelease:
+    description: 'Automatically create a GitHub release when running on the default branch (requires contents: write permission)'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: wow-look-at-my/secret-server@master
+
+    - name: Configure git for private repos
+      if: env.PRIVATE_ORG_REPO_READ != ''
+      shell: bash
+      run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
+    - name: Configure netrc for Go proxy
+      if: env.GO_PROXY_CONFIG != ''
+      shell: bash
+      run: |
+        USER=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.user // .username // .login')
+        PASS=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.password // .pass')
+        echo "::add-mask::${USER}"
+        echo "::add-mask::${PASS}"
+        cat >> ~/.netrc <<EOF
+        machine goproxy.pazer.io login ${USER} password ${PASS}
+        EOF
+        chmod 600 ~/.netrc
+
+    - name: Download go-toolchain from build artifact
+      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
+      uses: actions/download-artifact@v4
+      with:
+        name: go-toolchain-binary
+        path: /tmp/go-toolchain-artifact
+
+    - name: Install go-toolchain from build artifact
+      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
+      shell: bash
+      run: |
+        chmod +x /tmp/go-toolchain-artifact/go-toolchain
+        sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
+
+    - name: Download go-toolchain from release
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      uses: wow-look-at-my/actions@download-release-binary#latest
+      with:
+        repo: wow-look-at-my/go-toolchain
+        name: go-toolchain
+        token: ${{ github.token }}
+
+    - name: Install provided binary
+      if: inputs.binary != ''
+      shell: bash
+      run: |
+        chmod +x "${{ inputs.binary }}"
+        sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
+
+    - name: Run go-toolchain
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        ARGS=""
+        if [ "${{ inputs.json }}" = "true" ]; then
+          ARGS="$ARGS --json"
+        fi
+        if [ -n "${{ inputs.generate }}" ]; then
+          ARGS="$ARGS --generate ${{ inputs.generate }}"
+        fi
+        if [ -n "${{ inputs.os }}" ]; then
+          ARGS="$ARGS --os ${{ inputs.os }}"
+        fi
+        if [ -n "${{ inputs.arch }}" ]; then
+          ARGS="$ARGS --arch ${{ inputs.arch }}"
+        fi
+        if [ "${{ inputs.cgo }}" = "true" ]; then
+          ARGS="$ARGS --cgo"
+        fi
+        go-toolchain matrix $ARGS
+
+    - name: Auto-release
+      if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        TAG="v0.0.$(git log -1 --format=%ct)"
+        echo "==> Auto-releasing $TAG on default branch"
+        go-toolchain release --tag "$TAG"
