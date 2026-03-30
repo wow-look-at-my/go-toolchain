@@ -179,9 +179,14 @@ type TestResult struct {
 // onOutput is an optional callback called before the first visible test output
 // (used by the progress indicator to finish the "..." line).
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
+	// Determine which packages to test, excluding fully-generated packages
+	// (e.g. sqlc output) that have no hand-written code to verify.
+	testPkgs := nonGeneratedPackages(r)
+	args := append([]string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String(), "-coverprofile=" + coverFile}, testPkgs...)
+
 	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout="+testTimeout.String(), "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
+	proc, err := runner.Cmd("go", args...).WithStderrWriter(&stderrBuf).Run(r)
 	if err != nil {
 		return nil, err
 	}
