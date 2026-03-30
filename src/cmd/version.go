@@ -252,7 +252,7 @@ type gitInfo struct {
 // collectGitInfo gathers version metadata from environment variables first
 // (GITHUB_SHA, GITHUB_REF_NAME, GITHUB_REF_TYPE), falling back to git
 // commands only when env vars are not set.
-func collectGitInfo() gitInfo {
+func collectGitInfo() (gitInfo, error) {
 	var info gitInfo
 
 	// Commit: GITHUB_SHA or git rev-parse HEAD
@@ -278,7 +278,11 @@ func collectGitInfo() gitInfo {
 		info.timestamp = strings.TrimSpace(string(out))
 	}
 
-	return info
+	if os.Getenv("CI") != "" && strings.HasSuffix(info.version, "-dirty") {
+		return info, fmt.Errorf("refusing to build: version %q has -dirty suffix in CI (working tree is not clean)", info.version)
+	}
+
+	return info, nil
 }
 
 // ldflags returns a string suitable for `go build -ldflags`.

@@ -67,6 +67,7 @@ func init() {
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
+	registerSelfProfileFlags()
 
 	// Silent no-op flags — accepted without error for tool compatibility
 	rootCmd.Flags().Bool("build", false, "")
@@ -85,6 +86,13 @@ func init() {
 
 // Execute runs the root command.
 func Execute() error {
+	stop, err := startSelfProfile()
+	if err != nil {
+		return err
+	}
+	if stop != nil {
+		defer stop()
+	}
 	defer printCacheStats(true)
 	return rootCmd.Execute()
 }
@@ -230,7 +238,10 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
-	info := collectGitInfo()
+	info, err := collectGitInfo()
+	if err != nil {
+		return nil, err
+	}
 	ldflags := info.ldflags()
 	if !quiet {
 		fmt.Printf("==> Embedding version: %s\n", info)

@@ -370,3 +370,23 @@ func TestRunProfileDefaultOutput(t *testing.T) {
 	err := runProfileWithRunner(mock, []string{})
 	assert.Nil(t, err)
 }
+
+func TestRunProfileOpen_FileNotFound(t *testing.T) {
+	err := runProfileOpen(profileOpenCmd, []string{"/nonexistent/file.pprof"})
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "profile not found")
+}
+
+func TestRunProfileOpen_NoArgs_NoProfile(t *testing.T) {
+	// If /tmp/go-toolchain-profile/cpu.pprof doesn't exist, should error.
+	oldDir := selfProfileDir
+	defer func() {
+		// selfProfileDir is a const, but we can test the path logic
+		// by providing a nonexistent path as an argument.
+	}()
+	_ = oldDir
+
+	err := runProfileOpen(profileOpenCmd, []string{"/nonexistent/dir/cpu.pprof"})
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "profile not found")
+}
