@@ -17,31 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch secrets
-        env:
-          SECRET_SERVER_URL: https://secrets.pazer.io
-        run: |
-          OIDC_TOKEN=$(curl -s -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${SECRET_SERVER_URL}" | jq -r '.value')
-          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
-            echo "::error::Failed to obtain OIDC token"
-            exit 1
-          fi
-          HTTP_CODE=$(curl -s -o /tmp/secrets_response.json -w '%{http_code}' \
-            -H "Authorization: Bearer ${OIDC_TOKEN}" \
-            "${SECRET_SERVER_URL}/github/v1/secrets")
-          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-            echo "::error::Secret server returned HTTP ${HTTP_CODE}: $(cat /tmp/secrets_response.json)"
-            exit 1
-          fi
-          SECRETS=$(cat /tmp/secrets_response.json)
-          rm -f /tmp/secrets_response.json
-          echo "${SECRETS}" | jq -r 'to_entries[] | .key' | while IFS= read -r key; do
-            val=$(echo "${SECRETS}" | jq -r --arg k "$key" '.[$k]')
-            echo "::add-mask::${val}"
-            delimiter="ghadelimiter_$(openssl rand -hex 8)"
-            printf '%s<<%s\n%s\n%s\n' "$key" "$delimiter" "$val" "$delimiter" >> "$GITHUB_ENV"
-          done
+      - uses: wow-look-at-my/secret-server@main
 
       - name: Configure git for private repos
         run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
