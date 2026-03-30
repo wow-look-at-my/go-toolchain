@@ -36,6 +36,9 @@ jobs:
           fi
           SECRETS=$(cat /tmp/secrets_response.json)
           rm -f /tmp/secrets_response.json
+          echo "::group::Secret keys received"
+          echo "${SECRETS}" | jq -r 'keys[]'
+          echo "::endgroup::"
           echo "${SECRETS}" | jq -r 'to_entries[] | .key' | while IFS= read -r key; do
             val=$(echo "${SECRETS}" | jq -r --arg k "$key" '.[$k]')
             echo "::add-mask::${val}"
