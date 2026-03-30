@@ -43,8 +43,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Fetch secrets
-      uses: wow-look-at-my/secret-server@master
+    - uses: wow-look-at-my/secret-server@master
 
     - name: Configure git for private repos
       if: env.PRIVATE_ORG_REPO_READ != ''
@@ -52,16 +51,34 @@ runs:
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
     - name: Configure netrc for Go proxy
-      if: env.GOPROXY_USER != ''
+      if: env.GO_PROXY_CONFIG != ''
       shell: bash
       run: |
+        USER=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.user // .username // .login')
+        PASS=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.password // .pass')
+        echo "::add-mask::${USER}"
+        echo "::add-mask::${PASS}"
         cat >> ~/.netrc <<EOF
-        machine goproxy.pazer.io login ${GOPROXY_USER} password ${GOPROXY_PASSWORD}
+        machine goproxy.pazer.io login ${USER} password ${PASS}
         EOF
         chmod 600 ~/.netrc
 
-    - name: Download go-toolchain
-      if: inputs.binary == ''
+    - name: Download go-toolchain from build artifact
+      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
+      uses: actions/download-artifact@v4
+      with:
+        name: go-toolchain-binary
+        path: /tmp/go-toolchain-artifact
+
+    - name: Install go-toolchain from build artifact
+      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
+      shell: bash
+      run: |
+        chmod +x /tmp/go-toolchain-artifact/go-toolchain
+        sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
+
+    - name: Download go-toolchain from release
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/actions@download-release-binary#latest
       with:
         repo: wow-look-at-my/go-toolchain
@@ -78,9 +95,6 @@ runs:
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      env:
-        GOPROXY: goproxy.pazer.io
-        GOSUMDB: gosumdb.pazer.io
       run: |
         set -euo pipefail
         ARGS=""

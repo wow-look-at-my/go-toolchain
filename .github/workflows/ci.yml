@@ -7,10 +7,6 @@ permissions:
   contents: write
   id-token: write
 
-env:
-  GOPROXY: goproxy.pazer.io
-  GOSUMDB: gosumdb.pazer.io
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,14 +14,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: wow-look-at-my/secret-server@master
-
       - name: Configure git for private repos
         run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       - name: Configure netrc for Go proxy
+        if: env.GO_PROXY_CONFIG != ''
         run: |
+          USER=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.user // .username // .login')
+          PASS=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.password // .pass')
+          echo "::add-mask::${USER}"
+          echo "::add-mask::${PASS}"
           cat >> ~/.netrc <<EOF
-          machine goproxy.pazer.io login ${GOPROXY_USER} password ${GOPROXY_PASSWORD}
+          machine goproxy.pazer.io login ${USER} password ${PASS}
           EOF
           chmod 600 ~/.netrc
 
@@ -54,23 +54,13 @@ jobs:
           path: build/go-toolchain
           if-no-files-found: error
 
-  # Test the composite action by building this repo using the binary we just built
+  # Test the composite action end-to-end using the binary we just built
   action-test:
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download go-toolchain binary
-        uses: actions/download-artifact@v4
-        with:
-          name: go-toolchain-binary
-          path: /tmp/go-toolchain-artifact
-
-      - name: Build with action
-        uses: ./
-        with:
-          binary: /tmp/go-toolchain-artifact/go-toolchain
+      - uses: ./
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
