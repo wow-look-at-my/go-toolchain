@@ -76,11 +76,15 @@ runs:
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
     - name: Configure netrc for Go proxy
-      if: env.GOPROXY_USER != ''
+      if: env.GO_PROXY_CONFIG != ''
       shell: bash
       run: |
+        USER=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.user // .username // .login')
+        PASS=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.password // .pass')
+        echo "::add-mask::${USER}"
+        echo "::add-mask::${PASS}"
         cat >> ~/.netrc <<EOF
-        machine goproxy.pazer.io login ${GOPROXY_USER} password ${GOPROXY_PASSWORD}
+        machine goproxy.pazer.io login ${USER} password ${PASS}
         EOF
         chmod 600 ~/.netrc
 
