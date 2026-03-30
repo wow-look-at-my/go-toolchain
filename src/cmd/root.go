@@ -227,7 +227,10 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
-	info := collectGitInfo()
+	info, err := collectGitInfo()
+	if err != nil {
+		return nil, err
+	}
 	ldflags := info.ldflags()
 	if !quiet {
 		fmt.Printf("==> Embedding version: %s\n", info)
