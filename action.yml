@@ -63,8 +63,22 @@ runs:
         EOF
         chmod 600 ~/.netrc
 
-    - name: Download go-toolchain
-      if: inputs.binary == ''
+    - name: Download go-toolchain from build artifact
+      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
+      uses: actions/download-artifact@v4
+      with:
+        name: go-toolchain-binary
+        path: /tmp/go-toolchain-artifact
+
+    - name: Install go-toolchain from build artifact
+      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
+      shell: bash
+      run: |
+        chmod +x /tmp/go-toolchain-artifact/go-toolchain
+        sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
+
+    - name: Download go-toolchain from release
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/actions@download-release-binary#latest
       with:
         repo: wow-look-at-my/go-toolchain
