@@ -42,6 +42,7 @@ func init() {
 	profileCmd.Flags().StringVar(&profileType, "type", "cpu", "Profile type: cpu, mem, mutex, block")
 	profileCmd.Flags().StringVar(&benchTime, "benchtime", "3s", "Duration for each benchmark")
 	profileCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
+	profileCmd.AddCommand(profileOpenCmd)
 	rootCmd.AddCommand(profileCmd)
 }
 

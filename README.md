@@ -26,42 +26,35 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 ## GitHub Action Usage
 
-go-toolchain provides a **reusable workflow** for CI. Call it with `uses`:
+Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched automatically from [secret-server](https://github.com/wow-look-at-my/secret-server) via GitHub OIDC — no secret passing required:
 
 ```yaml
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
   build:
-    uses: wow-look-at-my/go-toolchain/.github/workflows/build.yml@v1
-    with:
-      json: false                # output coverage report as JSON
-      generate: ''               # run go:generate directives matching this hash
-      working-directory: '.'     # working directory for the build
-      binary-artifact: ''        # name of an uploaded artifact containing a go-toolchain binary
-      os: 'linux,darwin,windows' # target OSes
-      arch: 'amd64,arm64'       # target architectures
-      cgo: false                 # enable CGO (disabled by default for static binaries)
-      autorelease: false         # create a GitHub release on the default branch
-      artifact-name: 'build-output' # name for the uploaded build artifact
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wow-look-at-my/go-toolchain@v1
 ```
+
+The action handles everything: fetching secrets, configuring the Go proxy, private repo access, S3 build cache, and running `go-toolchain matrix`.
 
 ### Inputs
 
 | Input               | Type     | Default    | Description                                              |
 |---------------------|----------|------------|----------------------------------------------------------|
-| `json`              | boolean  | `false`    | Output coverage report as JSON                           |
+| `json`              | string   | `false`    | Output coverage report as JSON                           |
 | `generate`          | string   | `''`       | Run `go:generate` directives matching this hash          |
 | `working-directory` | string   | `.`        | Working directory for the build                          |
-| `binary-artifact`   | string   | `''`       | Name of an uploaded artifact containing a go-toolchain binary (skips release download) |
+| `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
 | `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
-| `cgo`               | boolean  | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | boolean  | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
-| `artifact-name`     | string   | `build-output` | Name for the uploaded build artifact |
-
-### Artifacts
-
-The reusable workflow automatically uploads the `build/` directory as a GitHub Actions artifact. By default the artifact is named `build-output`, but this can be customized via the `artifact-name` input. Downstream jobs can download this artifact using `actions/download-artifact@v4`.
+| `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
+| `autorelease`       | string   | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
 
 ## CLI Usage
 
@@ -126,6 +119,7 @@ go-toolchain ignore lines path/to/long_file.go
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
 | `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |
+| `--profile`      | `''`        | Self-profile go-toolchain (`trace`, `cpu:path`, `mem:path`, `trace:path`) |
 
 #### Root command flags
 
@@ -146,6 +140,7 @@ go-toolchain ignore lines path/to/long_file.go
   - `compare <commit1> <commit2>` — compare benchmark results between two commits
 - **`lint`** — detect near-duplicate code blocks using AST comparison
 - **`profile`** — run benchmarks with pprof profiling (`--type cpu|mem|mutex|block`, `--web`, `--no-pprof`, `-o`)
+  - `open [file]` — open a pprof/trace file in the browser (defaults to latest CPU profile)
 - **`install`** — install the binary to `~/.local/bin`
 - **`update`** — self-update to the latest GitHub release
 - **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
@@ -158,6 +153,36 @@ go-toolchain ignore lines path/to/long_file.go
 - **`unignore`** — remove build-check exemptions
   - `coverage` — remove coverage watermark
   - `lines <file>` — remove file-length exemptions
+
+## Self-Profiling
+
+go-toolchain automatically captures CPU and memory profiles of itself on every run. Profiles are written to `/tmp/go-toolchain-profile/`, overwriting the previous run:
+
+- `cpu.pprof` — CPU profile (flamegraph via `go tool pprof`)
+- `mem.pprof` — heap snapshot at exit
+
+Execution tracing is opt-in (higher overhead):
+
+```bash
+# Enable execution trace (goroutine scheduling, blocking, GC)
+go-toolchain --profile trace
+
+# Custom output path
+go-toolchain --profile trace:custom/trace.out
+
+# Override default CPU/mem paths
+go-toolchain --profile cpu:my_cpu.pprof --profile mem:my_mem.pprof
+```
+
+Open profiles with the built-in viewer:
+
+```bash
+# Open the latest CPU profile in the browser
+go-toolchain profile open
+
+# Open a specific file
+go-toolchain profile open /tmp/go-toolchain-profile/trace.out
+```
 
 ## How It Works
 
