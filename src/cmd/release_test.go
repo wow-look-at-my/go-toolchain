@@ -158,6 +158,9 @@ func TestReleaseCmdSuccess(t *testing.T) {
 			if len(args) > 0 && args[0] == "log" {
 				return "abc1234 add feature\ndef5678 fix bug", nil
 			}
+			if len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--abbrev-ref" {
+				return "main", nil
+			}
 			return "", nil
 		},
 	}
@@ -169,9 +172,9 @@ func TestReleaseCmdSuccess(t *testing.T) {
 	assert.Equal(t, 5, len(mock.gitRunCalls))
 	assert.Equal(t, []string{"tag", "v1.0.0"}, mock.gitRunCalls[0])
 	assert.Equal(t, []string{"push", "origin", "v1.0.0"}, mock.gitRunCalls[1])
-	assert.Equal(t, []string{"tag", "-f", "master", "HEAD"}, mock.gitRunCalls[2])
+	assert.Equal(t, []string{"tag", "-f", "main", "HEAD"}, mock.gitRunCalls[2])
 	assert.Equal(t, []string{"tag", "-f", "latest", "HEAD"}, mock.gitRunCalls[3])
-	assert.Equal(t, []string{"push", "-f", "origin", "master", "latest"}, mock.gitRunCalls[4])
+	assert.Equal(t, []string{"push", "-f", "origin", "refs/tags/main", "refs/tags/latest"}, mock.gitRunCalls[4])
 
 	// Verify gh release create was called with the binary and checksums
 	assert.Equal(t, 1, len(mock.ghReleaseCalls))
@@ -454,11 +457,14 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 			if len(args) > 0 && args[0] == "log" {
 				return "abc1234 commit", nil
 			}
+			if len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--abbrev-ref" {
+				return "main", nil
+			}
 			return "", fmt.Errorf("not found")
 		},
 		gitRunFunc: func(args ...string) error {
 			callCount++
-			if callCount == 3 {	// tag -f master HEAD
+			if callCount == 3 {	// tag -f <branch> HEAD
 				return fmt.Errorf("tag update failed")
 			}
 			return nil
@@ -467,7 +473,7 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 
 	err := runReleaseCmdImpl(strings.NewReader(""), mock)
 	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "failed to update master tag")
+	assert.Contains(t, err.Error(), "failed to update main tag")
 }
 
 func TestRealExecutorGitOutput(t *testing.T) {

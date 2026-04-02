@@ -137,14 +137,20 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 		return fmt.Errorf("failed to push tag %s: %w", tag, err)
 	}
 
+	// Detect default branch for rolling tag name (falls back to "master")
+	branchTag := "master"
+	if branch, err := ex.gitOutput("rev-parse", "--abbrev-ref", "HEAD"); err == nil && branch != "" && branch != "HEAD" {
+		branchTag = branch
+	}
+
 	// Update rolling tags
-	if err := ex.gitRun("tag", "-f", "master", "HEAD"); err != nil {
-		return fmt.Errorf("failed to update master tag: %w", err)
+	if err := ex.gitRun("tag", "-f", branchTag, "HEAD"); err != nil {
+		return fmt.Errorf("failed to update %s tag: %w", branchTag, err)
 	}
 	if err := ex.gitRun("tag", "-f", "latest", "HEAD"); err != nil {
 		return fmt.Errorf("failed to update latest tag: %w", err)
 	}
-	if err := ex.gitRun("push", "-f", "origin", "master", "latest"); err != nil {
+	if err := ex.gitRun("push", "-f", "origin", "refs/tags/"+branchTag, "refs/tags/latest"); err != nil {
 		return fmt.Errorf("failed to push rolling tags: %w", err)
 	}
 
