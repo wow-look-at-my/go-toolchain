@@ -5,14 +5,18 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// generatedRe is the exact pattern used by Go tooling to detect generated files.
+// See: https://pkg.go.dev/cmd/go#hdr-Generate_Go_files_by_processing_source
+var generatedRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
 // isGeneratedFile checks whether a Go source file contains the standard
-// "Code generated ... DO NOT EDIT." marker (per Go convention).
-// The marker must appear before the package clause.
+// generated-code marker, using the same regexp as Go's own tooling.
 func isGeneratedFile(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -23,7 +27,7 @@ func isGeneratedFile(path string) bool {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "// Code generated") && strings.HasSuffix(line, "DO NOT EDIT.") {
+		if generatedRe.MatchString(line) {
 			return true
 		}
 		// Stop after the package clause — the marker must precede it.
