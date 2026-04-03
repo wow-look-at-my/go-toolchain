@@ -617,3 +617,92 @@ example.com/pkg/main.go:10.20,12.2 1 1
 
 	}
 }
+
+func TestFailureOutputWithStderr(t *testing.T) {
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+		stderrLines: []string{"build error: undefined reference", "linker failed"},
+	}
+
+	output := h.FailureOutput()
+	assert.Contains(t, output, "build error: undefined reference\n")
+	assert.Contains(t, output, "linker failed\n")
+}
+
+func TestFailureOutputWithFailedTests(t *testing.T) {
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		testOutput: map[string][]string{
+			"pkg/TestFoo": {"    foo_test.go:10: expected 1, got 2\n"},
+			"pkg/TestBar": {"    bar_test.go:5: nil pointer\n"},
+		},
+		failedTest: map[string]bool{
+			"pkg/TestFoo": true,
+		},
+	}
+
+	output := h.FailureOutput()
+	assert.Contains(t, output, "foo_test.go:10: expected 1, got 2")
+	assert.NotContains(t, output, "bar_test.go:5: nil pointer")
+}
+
+func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		testOutput: map[string][]string{
+			"pkg/TestFail": {"    assert failed\n"},
+		},
+		failedTest: map[string]bool{
+			"pkg/TestFail": true,
+		},
+		stderrLines: []string{"compilation error"},
+	}
+
+	output := h.FailureOutput()
+	// stderr comes first
+	assert.True(t, strings.Index(output, "compilation error") < strings.Index(output, "assert failed"))
+}
+
+func TestOnOutputCallbackInPass(t *testing.T) {
+	var buf bytes.Buffer
+	called := false
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+		onOutput:   func() { called = true },
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionPass,
+		Package: "github.com/example/pkg",
+		Test:    "TestFoo",
+		Elapsed: 0.15,
+	}
+	require.NoError(t, h.Event(event, nil))
+	assert.True(t, called, "onOutput should be called on pass")
+}
+
+func TestOnOutputCallbackInSkip(t *testing.T) {
+	var buf bytes.Buffer
+	called := false
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+		onOutput:   func() { called = true },
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionSkip,
+		Package: "github.com/example/pkg",
+		Test:    "TestSkipped",
+		Elapsed: 0.5,
+	}
+	require.NoError(t, h.Event(event, nil))
+	assert.True(t, called, "onOutput should be called on skip")
+}
