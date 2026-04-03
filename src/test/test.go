@@ -197,20 +197,30 @@ func listTestPackages(r runner.CommandRunner) []string {
 	return pkgs
 }
 
-// collectPerPkgCoverage runs go test -coverprofile on each package individually
-// and merges the results. This avoids Go 1.25's race condition in multi-package
-// coverage profile merging. Test results are typically cached from the main test
-// pass, so this is fast.
+// collectPerPkgCoverage runs go test -coverprofile -coverpkg=./... on each
+// package individually and merges the results. Using -coverpkg=./... captures
+// cross-package coverage (code in package A exercised by tests in package B).
+// This avoids Go 1.25's race condition in multi-package coverage profile
+// merging. Test results are typically cached from the main test pass, so this
+// is fast.
 func collectPerPkgCoverage(r runner.CommandRunner, pkgs []string, timeout string) []byte {
-	var merged bytes.Buffer
-	merged.WriteString("mode: set\n")
+	// merged tracks the maximum execution count per coverage block across
+	// all per-package profiles. Key is the "file:startLine.startCol,endLine.endCol stmts"
+	// prefix; value is the max count seen.
+	type blockInfo struct {
+		key   string // "file:start,end stmts"
+		count int
+	}
+	merged := make(map[string]*blockInfo)
+	var order []string // preserve insertion order for deterministic output
+
 	for _, pkg := range pkgs {
 		dir, err := os.MkdirTemp("", "go-toolchain-covpkg-*")
 		if err != nil {
 			continue
 		}
 		pkgCoverFile := filepath.Join(dir, "cover.out")
-		cfg := runner.Cmd("go", "test", "-vet=off", "-timeout="+timeout, "-coverprofile="+pkgCoverFile, pkg)
+		cfg := runner.Cmd("go", "test", "-vet=off", "-timeout="+timeout, "-coverpkg=./...", "-coverprofile="+pkgCoverFile, pkg)
 		cfg.StdoutWriter = io.Discard
 		cfg.StderrWriter = io.Discard
 		proc, err := cfg.Run(r)
@@ -224,19 +234,36 @@ func collectPerPkgCoverage(r runner.CommandRunner, pkgs []string, timeout string
 		if err != nil {
 			continue
 		}
-		// Skip the "mode: ..." header line from each per-package profile
 		for _, line := range strings.Split(string(data), "\n") {
 			if strings.HasPrefix(line, "mode:") || line == "" {
 				continue
 			}
-			merged.WriteString(line)
-			merged.WriteByte('\n')
+			// Format: "file:startLine.startCol,endLine.endCol numStmts count"
+			lastSpace := strings.LastIndex(line, " ")
+			if lastSpace < 0 {
+				continue
+			}
+			key := line[:lastSpace]
+			count, _ := strconv.Atoi(line[lastSpace+1:])
+			if existing, ok := merged[key]; ok {
+				if count > existing.count {
+					existing.count = count
+				}
+			} else {
+				merged[key] = &blockInfo{key: key, count: count}
+				order = append(order, key)
+			}
 		}
 	}
-	if merged.Len() <= len("mode: set\n") {
+	if len(merged) == 0 {
 		return nil
 	}
-	return merged.Bytes()
+	var buf bytes.Buffer
+	buf.WriteString("mode: set\n")
+	for _, key := range order {
+		fmt.Fprintf(&buf, "%s %d\n", key, merged[key].count)
+	}
+	return buf.Bytes()
 }
 
 // RunTests executes go test with coverage and returns parsed results.
