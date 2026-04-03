@@ -218,7 +218,6 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, goMinor in
 		args = append(args, "./...")
 	}
 
-	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	// Disable GOCACHEPROG for test execution: Go 1.25's binary coverage system
 	// relies on writing per-binary coverage data to GOCOVERDIR and merging it
 	// with covdata after all tests complete. GOCACHEPROG caches test results
@@ -226,8 +225,17 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, goMinor in
 	// profile. Go's standard test cache handles this correctly (it replays
 	// coverage data from its built-in cache), so we only need to disable
 	// GOCACHEPROG — build caching for compilation still works.
+	savedCacheProg, hadCacheProg := os.LookupEnv("GOCACHEPROG")
+	os.Unsetenv("GOCACHEPROG")
+	defer func() {
+		if hadCacheProg {
+			os.Setenv("GOCACHEPROG", savedCacheProg)
+		}
+	}()
+
+	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", args...).WithEnv("GOCACHEPROG", "").WithStderrWriter(&stderrBuf).Run(r)
+	proc, err := runner.Cmd("go", args...).WithStderrWriter(&stderrBuf).Run(r)
 	if err != nil {
 		return nil, err
 	}
