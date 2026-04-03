@@ -513,12 +513,14 @@ example.com/pkg1/main.go:14.20,16.2 3 0
 	goListOutput := "example.com/pkg1\n"
 	mock.SetResponse("go", []string{"list", "-f", `{{if .TestGoFiles}}{{.ImportPath}}{{end}}`, "./..."}, []byte(goListOutput), nil)
 
-	// Mock go test with the specific packages (not ./...)
+	// Mock go test with -cover (no -coverprofile) for the main test pass
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "example.com/pkg1"}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-cover", "example.com/pkg1"}, []byte(testOutput), nil)
+	// Second pass with -coverprofile uses default mock (empty success); the
+	// pre-written coverFile remains on disk for ParseProfileFiltered.
 
 	result, err := RunTests(mock, false, coverFile, 25, nil)
 	require.Nil(t, err)
@@ -550,12 +552,12 @@ example.com/pkg/main.go:10.20,12.2 1 1
 	// Mock go list to fail
 	mock.SetResponse("go", []string{"list", "-f", `{{if .TestGoFiles}}{{.ImportPath}}{{end}}`, "./..."}, nil, fmt.Errorf("go list failed"))
 
-	// Mock go test with ./... (fallback)
+	// Mock go test with -cover and ./... (fallback)
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-cover", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, 25, nil)
 	require.Nil(t, err)
