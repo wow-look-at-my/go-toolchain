@@ -4,7 +4,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 ## Features
 
-- **Coverage enforcement** — fails the build if test coverage drops below 80%
+- **Coverage enforcement** — fails the build if test coverage drops below 79%
 - **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
 - **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
 - **Benchmarks** — benchmarks run automatically after builds; compare against previous results stored in git notes
@@ -196,7 +196,7 @@ go-toolchain profile open /tmp/go-toolchain-profile/trace.out
 8. Checks file lengths (warns at 500 lines, errors at 750)
 9. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured)
 10. Runs `go test` across all packages with coverage profiling
-11. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (80%, or watermark - 2.5%)
+11. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (79%, or watermark - 2.5%)
 12. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
 13. If coverage meets the threshold, builds the project binary into `build/`
 14. Automatically adds `build/` to `.gitignore` (if in a git repo)
