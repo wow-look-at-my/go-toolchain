@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
@@ -505,7 +506,6 @@ func TestRunTestsGo125ListsTestPackages(t *testing.T) {
 example.com/pkg1/main.go:10.20,12.2 17 1
 example.com/pkg1/main.go:14.20,16.2 3 0
 `
-	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
 	mock := runner.NewMock()
 
@@ -519,8 +519,20 @@ example.com/pkg1/main.go:14.20,16.2 3 0
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
 `
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-cover", "example.com/pkg1"}, []byte(testOutput), nil)
-	// Second pass with -coverprofile uses default mock (empty success); the
-	// pre-written coverFile remains on disk for ParseProfileFiltered.
+
+	// Handler writes a coverage file when the per-package coverage pass calls
+	// go test -coverprofile=<path>. This exercises collectPerPkgCoverage.
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverpkg=./...") {
+			for _, arg := range cfg.Args {
+				if strings.HasPrefix(arg, "-coverprofile=") {
+					path := strings.TrimPrefix(arg, "-coverprofile=")
+					os.WriteFile(path, []byte(coverContent), 0644)
+				}
+			}
+		}
+		return nil, nil // fall through to mock responses
+	}
 
 	result, err := RunTests(mock, false, coverFile, 25, nil)
 	require.Nil(t, err)
@@ -545,7 +557,6 @@ func TestRunTestsGo125FallsBackOnListFailure(t *testing.T) {
 	coverContent := `mode: set
 example.com/pkg/main.go:10.20,12.2 1 1
 `
-	os.WriteFile(coverFile, []byte(coverContent), 0644)
 
 	mock := runner.NewMock()
 
@@ -558,6 +569,19 @@ example.com/pkg/main.go:10.20,12.2 1 1
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
 	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-cover", "./..."}, []byte(testOutput), nil)
+
+	// Handler writes coverage file for per-package coverage collection
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverpkg=./...") {
+			for _, arg := range cfg.Args {
+				if strings.HasPrefix(arg, "-coverprofile=") {
+					path := strings.TrimPrefix(arg, "-coverprofile=")
+					os.WriteFile(path, []byte(coverContent), 0644)
+				}
+			}
+		}
+		return nil, nil
+	}
 
 	result, err := RunTests(mock, false, coverFile, 25, nil)
 	require.Nil(t, err)
