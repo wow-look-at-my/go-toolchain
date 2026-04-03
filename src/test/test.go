@@ -174,14 +174,54 @@ type TestResult struct {
 	TestCases     []TestCaseResult
 }
 
+// listTestPackages returns the import paths of packages that contain test files.
+// On any error it returns nil, signaling the caller to fall back to "./...".
+func listTestPackages(r runner.CommandRunner) []string {
+	proc, err := runner.Cmd("go", "list", "-f",
+		`{{if .TestGoFiles}}{{.ImportPath}}{{end}}`, "./...").WithQuiet().Run(r)
+	if err != nil {
+		return nil
+	}
+	out, _ := io.ReadAll(proc.Stdout())
+	if proc.Wait() != nil {
+		return nil
+	}
+	var pkgs []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			pkgs = append(pkgs, line)
+		}
+	}
+	return pkgs
+}
+
 // RunTests executes go test with coverage and returns parsed results.
 // coverFile is the path where the coverage profile will be written.
+// goMinor is the resolved Go minor version (e.g. 25 for Go 1.25); pass 0 to
+// use the legacy ./... behavior.
 // onOutput is an optional callback called before the first visible test output
 // (used by the progress indicator to finish the "..." line).
-func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
+func RunTests(r runner.CommandRunner, verbose bool, coverFile string, goMinor int, onOutput func()) (*TestResult, error) {
+	// Build the go test argument list. For Go 1.25+, enumerate only packages
+	// that have test files to avoid the "no such tool covdata" error on main
+	// packages without tests. Also add -coverpkg=./... so that code in non-test
+	// packages exercised by tests elsewhere is counted toward coverage.
+	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String(), "-coverprofile=" + coverFile}
+	if goMinor >= 25 {
+		if testPkgs := listTestPackages(r); len(testPkgs) > 0 {
+			args = append(args, "-coverpkg=./...")
+			args = append(args, testPkgs...)
+		} else {
+			args = append(args, "./...") // fallback
+		}
+	} else {
+		args = append(args, "./...")
+	}
+
 	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", "test", "-vet=off", "-json", "-timeout="+testTimeout.String(), "-coverprofile="+coverFile, "./...").WithStderrWriter(&stderrBuf).Run(r)
+	proc, err := runner.Cmd("go", args...).WithStderrWriter(&stderrBuf).Run(r)
 	if err != nil {
 		return nil, err
 	}
