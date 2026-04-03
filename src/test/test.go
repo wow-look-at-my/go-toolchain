@@ -210,7 +210,6 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, goMinor in
 	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String(), "-coverprofile=" + coverFile}
 	if goMinor >= 25 {
 		if testPkgs := listTestPackages(r); len(testPkgs) > 0 {
-			args = append(args, "-coverpkg=./...")
 			args = append(args, testPkgs...)
 		} else {
 			args = append(args, "./...") // fallback
