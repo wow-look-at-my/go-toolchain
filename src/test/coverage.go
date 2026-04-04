@@ -267,7 +267,11 @@ func filterBlocksByReachable(blocks []coverageBlock, reachable map[string]bool) 
 	return filtered
 }
 
-// parseProfileBlocks parses a coverage profile into blocks
+// parseProfileBlocks parses a coverage profile into blocks.
+// Duplicate entries (same file + line range) are merged by taking the max
+// count. Go 1.25 with -coverpkg=./... and -p 1 emits one entry per
+// test-package per block, so without merging, statements get counted N times
+// (once per test package) which dramatically deflates the coverage percentage.
 func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -275,7 +279,14 @@ func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 	}
 	defer file.Close()
 
-	var blocks []coverageBlock
+	// Use a map to merge duplicate entries by location key.
+	type blockKey struct {
+		file      string
+		lineRange string // original "startLine.startCol,endLine.endCol"
+	}
+	merged := make(map[blockKey]*coverageBlock)
+	var order []blockKey // preserve first-seen order
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -311,16 +322,33 @@ func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 		numStmts, _ := strconv.Atoi(parts[1])
 		count, _ := strconv.Atoi(parts[2])
 
-		blocks = append(blocks, coverageBlock{
-			file:       filePath,
-			startLine:  startLine,
-			endLine:    endLine,
-			statements: numStmts,
-			count:      count,
-		})
+		key := blockKey{file: filePath, lineRange: lineRange}
+		if existing, ok := merged[key]; ok {
+			// Merge: take max count (if any test covered this block, it's covered)
+			if count > existing.count {
+				existing.count = count
+			}
+		} else {
+			merged[key] = &coverageBlock{
+				file:       filePath,
+				startLine:  startLine,
+				endLine:    endLine,
+				statements: numStmts,
+				count:      count,
+			}
+			order = append(order, key)
+		}
 	}
 
-	return blocks, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	blocks := make([]coverageBlock, 0, len(order))
+	for _, key := range order {
+		blocks = append(blocks, *merged[key])
+	}
+	return blocks, nil
 }
 
 func parseLineNum(s string) int {
