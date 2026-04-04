@@ -77,51 +77,6 @@ runs:
         chmod +x /tmp/go-toolchain-artifact/go-toolchain
         sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
 
-    - name: Wait for go-toolchain CI to finish
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        REPO="wow-look-at-my/go-toolchain"
-        BRANCH="v1"
-        API="https://api.github.com/repos/${REPO}/actions/runs"
-        AUTH="Authorization: token ${GH_TOKEN}"
-        TIMEOUT=600
-        INTERVAL=15
-        ELAPSED=0
-
-        active_runs() {
-          local total=0
-          for status in in_progress queued waiting; do
-            n=$(curl -sf -H "$AUTH" -H "Accept: application/vnd.github+json" \
-              "${API}?branch=${BRANCH}&status=${status}&per_page=1" \
-              | jq -r '.total_count // 0') || n=0
-            total=$((total + n))
-          done
-          echo "$total"
-        }
-
-        COUNT=$(active_runs)
-        if [ "$COUNT" -eq 0 ]; then
-          echo "No active go-toolchain CI runs on ${BRANCH}"
-          exit 0
-        fi
-
-        echo "Waiting for ${COUNT} active go-toolchain CI run(s) on ${BRANCH}..."
-        while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-          sleep "$INTERVAL"
-          ELAPSED=$((ELAPSED + INTERVAL))
-          COUNT=$(active_runs)
-          if [ "$COUNT" -eq 0 ]; then
-            echo "go-toolchain CI completed after ${ELAPSED}s"
-            exit 0
-          fi
-          echo "Still ${COUNT} active run(s), waited ${ELAPSED}s/${TIMEOUT}s"
-        done
-        echo "::warning::Timed out after ${TIMEOUT}s waiting for go-toolchain CI"
-
     - name: Download go-toolchain from release
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/actions@download-release-binary#latest
