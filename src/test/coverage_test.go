@@ -97,6 +97,33 @@ example.com/pkg/file.go:10.20,12.2 1 1
 	assert.Equal(t, float32(100), total)
 }
 
+func TestParseProfileMergesDuplicates(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := filepath.Join(tmpDir, "coverage.out")
+
+	// Simulate Go 1.25 -coverpkg=./... output where each block appears once
+	// per test package. Block at line 10 is covered by one test package,
+	// block at line 14 is never covered.
+	content := `mode: set
+example.com/pkg/file1.go:10.20,12.2 1 0
+example.com/pkg/file1.go:10.20,12.2 1 0
+example.com/pkg/file1.go:10.20,12.2 1 1
+example.com/pkg/file1.go:14.20,16.2 1 0
+example.com/pkg/file1.go:14.20,16.2 1 0
+example.com/pkg/file1.go:14.20,16.2 1 0
+`
+	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
+
+	total, files, err := ParseProfile(coverFile)
+	require.NoError(t, err)
+
+	// After merging: 2 unique blocks, 1 covered → 50%
+	assert.Equal(t, float32(50), total)
+	assert.Equal(t, 1, len(files))
+	assert.Equal(t, 2, files[0].Statements)
+	assert.Equal(t, 1, files[0].Covered)
+}
+
 func TestFilterBlocksByReachable(t *testing.T) {
 	blocks := []coverageBlock{
 		{file: "example.com/pkg1/file.go", statements: 2, count: 1},
