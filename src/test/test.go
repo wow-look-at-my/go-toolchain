@@ -175,24 +175,61 @@ type TestResult struct {
 	TestCases     []TestCaseResult
 }
 
-// listTestPackages returns the import paths of packages that contain test files.
-// On any error it returns nil, signaling the caller to fall back to "./...".
-func listTestPackages(r runner.CommandRunner) []string {
-	proc, err := runner.Cmd("go", "list", "-f",
-		`{{if .TestGoFiles}}{{.ImportPath}}{{end}}`, "./...").WithQuiet().Run(r)
+// readModulePath reads the module path from go.mod in the current directory.
+func readModulePath() string {
+	data, err := os.ReadFile("go.mod")
 	if err != nil {
-		return nil
+		return ""
 	}
-	out, _ := io.ReadAll(proc.Stdout())
-	if proc.Wait() != nil {
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
+		}
+	}
+	return ""
+}
+
+// listTestPackages returns the import paths of packages that contain test files.
+// It walks the filesystem directly instead of shelling out to `go list`, which
+// is significantly faster.
+// On any error it returns nil, signaling the caller to fall back to "./...".
+func listTestPackages(_ runner.CommandRunner) []string {
+	modPath := readModulePath()
+	if modPath == "" {
 		return nil
 	}
 	var pkgs []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			pkgs = append(pkgs, line)
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable dirs
 		}
+		if !d.IsDir() {
+			return nil
+		}
+		// Skip hidden dirs and common non-source dirs
+		name := d.Name()
+		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+			return filepath.SkipDir
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return nil
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
+				rel := filepath.ToSlash(path)
+				if rel == "." {
+					pkgs = append(pkgs, modPath)
+				} else {
+					pkgs = append(pkgs, modPath+"/"+rel)
+				}
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil
 	}
 	return pkgs
 }

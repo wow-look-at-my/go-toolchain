@@ -499,26 +499,67 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 	}
 }
 
+// setupTestModule creates a temporary directory with a go.mod and test files,
+// chdirs into it, and returns a cleanup function that restores the original dir.
+func setupTestModule(t *testing.T, modPath string, testPkgDirs []string) string {
+	t.Helper()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module "+modPath+"\n\ngo 1.25\n"), 0644)
+	for _, rel := range testPkgDirs {
+		pkgDir := filepath.Join(dir, rel)
+		os.MkdirAll(pkgDir, 0755)
+		os.WriteFile(filepath.Join(pkgDir, "foo_test.go"), []byte("package "+filepath.Base(rel)+"\n"), 0644)
+	}
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(origDir) })
+	return dir
+}
+
+func TestListTestPackages(t *testing.T) {
+	setupTestModule(t, "example.com/mymod", []string{"pkg1", "pkg2", "pkg3/sub"})
+	// Also create a dir with no test files
+	os.MkdirAll("notest", 0755)
+	os.WriteFile("notest/main.go", []byte("package notest\n"), 0644)
+
+	mock := runner.NewMock()
+	pkgs := listTestPackages(mock)
+
+	assert.Contains(t, pkgs, "example.com/mymod/pkg1")
+	assert.Contains(t, pkgs, "example.com/mymod/pkg2")
+	assert.Contains(t, pkgs, "example.com/mymod/pkg3/sub")
+	assert.NotContains(t, pkgs, "example.com/mymod/notest")
+}
+
+func TestListTestPackagesNoGoMod(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	mock := runner.NewMock()
+	pkgs := listTestPackages(mock)
+	assert.Nil(t, pkgs, "should return nil when no go.mod exists")
+}
+
 func TestRunTestsGo125ListsTestPackages(t *testing.T) {
+	setupTestModule(t, "example.com/proj", []string{"pkg1"})
+
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	coverContent := `mode: set
-example.com/pkg1/main.go:10.20,12.2 17 1
-example.com/pkg1/main.go:14.20,16.2 3 0
+example.com/proj/pkg1/main.go:10.20,12.2 17 1
+example.com/proj/pkg1/main.go:14.20,16.2 3 0
 `
 
 	mock := runner.NewMock()
 
-	// Mock go list to return one test package
-	goListOutput := "example.com/pkg1\n"
-	mock.SetResponse("go", []string{"list", "-f", `{{if .TestGoFiles}}{{.ImportPath}}{{end}}`, "./..."}, []byte(goListOutput), nil)
-
 	// Mock go test with -cover (no -coverprofile) for the main test pass
-	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg1"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg1","Output":"coverage: 85.0% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg1"}
+	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/proj/pkg1"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/proj/pkg1","Output":"coverage: 85.0% of statements\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/proj/pkg1"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-cover", "example.com/pkg1"}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-cover", "example.com/proj/pkg1"}, []byte(testOutput), nil)
 
 	// Handler writes a coverage file when the per-package coverage pass calls
 	// go test -coverprofile=<path>. This exercises collectPerPkgCoverage.
@@ -539,19 +580,15 @@ example.com/pkg1/main.go:14.20,16.2 3 0
 
 	assert.Equal(t, 1, len(result.Coverage.Packages))
 	assert.Equal(t, float32(85.0), result.Coverage.Packages[0].Pct())
-
-	// Verify go list was called
-	calls := mock.Calls()
-	var gotList bool
-	for _, c := range calls {
-		if c.IsCmd("go", "list") {
-			gotList = true
-		}
-	}
-	assert.True(t, gotList, "expected go list call for Go 1.25")
 }
 
-func TestRunTestsGo125FallsBackOnListFailure(t *testing.T) {
+func TestRunTestsGo125FallsBackOnNoGoMod(t *testing.T) {
+	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(origDir) })
+
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	coverContent := `mode: set
@@ -559,9 +596,6 @@ example.com/pkg/main.go:10.20,12.2 1 1
 `
 
 	mock := runner.NewMock()
-
-	// Mock go list to fail
-	mock.SetResponse("go", []string{"list", "-f", `{{if .TestGoFiles}}{{.ImportPath}}{{end}}`, "./..."}, nil, fmt.Errorf("go list failed"))
 
 	// Mock go test with -cover and ./... (fallback)
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
@@ -608,14 +642,6 @@ example.com/pkg/main.go:10.20,12.2 1 1
 	result, err := RunTests(mock, false, coverFile, 24, nil)
 	require.Nil(t, err)
 	assert.Equal(t, 1, len(result.Coverage.Packages))
-
-	// Verify no go list call with TestGoFiles template was made (ReachablePackages
-	// also calls go list, but with different args)
-	calls := mock.Calls()
-	for _, c := range calls {
-		require.False(t, c.IsCmd("go", "list") && c.HasArg("{{if .TestGoFiles}}{{.ImportPath}}{{end}}"))
-
-	}
 }
 
 func TestFailureOutputWithStderr(t *testing.T) {
