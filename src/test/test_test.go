@@ -120,9 +120,9 @@ example.com/pkg/main.go:14.20,16.2 3 0
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile, 0, nil)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	assert.Equal(t, 1, len(result.Coverage.Packages))
@@ -134,9 +134,9 @@ func TestRunTestsFailure(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, nil, fmt.Errorf("test failed"))
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, nil, fmt.Errorf("test failed"))
 
-	_, err := RunTests(mock, false, coverFile, 0, nil)
+	_, err := RunTests(mock, false, coverFile, nil)
 	assert.NotNil(t, err)
 }
 
@@ -155,9 +155,9 @@ example.com/pkg/main.go:10.20,12.2 1 1
 {"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:03Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, true, coverFile, 0, nil)	// verbose=true
+	result, err := RunTests(mock, true, coverFile, nil)	// verbose=true
 	require.Nil(t, err)
 
 	assert.Equal(t, 1, len(result.Coverage.Packages))
@@ -175,9 +175,9 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"pkg2","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile, 0, nil)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	// Without a coverage profile we can't compute statement-weighted total.
@@ -212,9 +212,9 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 {"Time":"2024-01-01T00:00:07Z","Action":"output","Package":"example.com/pkg3","Output":"coverage: [no statements]\n"}
 {"Time":"2024-01-01T00:00:08Z","Action":"pass","Package":"example.com/pkg3"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile, 0, nil)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	// Total from profile: 3 covered / 4 statements = 75%
@@ -250,9 +250,9 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: [no statements]\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile, 0, nil)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	// Total comes from ParseProfile: 1 covered / 2 statements = 50%
@@ -483,9 +483,9 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: 0% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, false, coverFile, 0, nil)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	// Verify packages contain their files
@@ -542,7 +542,7 @@ func TestListTestPackagesNoGoMod(t *testing.T) {
 	assert.Nil(t, pkgs, "should return nil when no go.mod exists")
 }
 
-func TestRunTestsGo125ListsTestPackages(t *testing.T) {
+func TestRunTestsUsesExplicitPackages(t *testing.T) {
 	setupTestModule(t, "example.com/proj", []string{"pkg1"})
 
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
@@ -554,35 +554,29 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 
 	mock := runner.NewMock()
 
-	// Mock go test with -cover (no -coverprofile) for the main test pass
+	// With a go.mod present, RunTests uses explicit package list from listTestPackages
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/proj/pkg1"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/proj/pkg1","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/proj/pkg1"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-cover", "example.com/proj/pkg1"}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "example.com/proj/pkg1"}, []byte(testOutput), nil)
 
-	// Handler writes a coverage file when the per-package coverage pass calls
-	// go test -coverprofile=<path>. This exercises collectPerPkgCoverage.
+	// Handler writes coverage file when go test runs
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverpkg=./...") {
-			for _, arg := range cfg.Args {
-				if strings.HasPrefix(arg, "-coverprofile=") {
-					path := strings.TrimPrefix(arg, "-coverprofile=")
-					os.WriteFile(path, []byte(coverContent), 0644)
-				}
-			}
+		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverprofile="+coverFile) {
+			os.WriteFile(coverFile, []byte(coverContent), 0644)
 		}
-		return nil, nil // fall through to mock responses
+		return nil, nil
 	}
 
-	result, err := RunTests(mock, false, coverFile, 25, nil)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 
 	assert.Equal(t, 1, len(result.Coverage.Packages))
 	assert.Equal(t, float32(85.0), result.Coverage.Packages[0].Pct())
 }
 
-func TestRunTestsGo125FallsBackOnNoGoMod(t *testing.T) {
+func TestRunTestsFallsBackToEllipsis(t *testing.T) {
 	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
@@ -597,49 +591,20 @@ example.com/pkg/main.go:10.20,12.2 1 1
 
 	mock := runner.NewMock()
 
-	// Mock go test with -cover and ./... (fallback)
 	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-cover", "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
-	// Handler writes coverage file for per-package coverage collection
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverpkg=./...") {
-			for _, arg := range cfg.Args {
-				if strings.HasPrefix(arg, "-coverprofile=") {
-					path := strings.TrimPrefix(arg, "-coverprofile=")
-					os.WriteFile(path, []byte(coverContent), 0644)
-				}
-			}
+		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverprofile="+coverFile) {
+			os.WriteFile(coverFile, []byte(coverContent), 0644)
 		}
 		return nil, nil
 	}
 
-	result, err := RunTests(mock, false, coverFile, 25, nil)
-	require.Nil(t, err)
-	assert.Equal(t, 1, len(result.Coverage.Packages))
-}
-
-func TestRunTestsGo124UsesEllipsis(t *testing.T) {
-	coverFile := filepath.Join(t.TempDir(), "coverage.out")
-
-	coverContent := `mode: set
-example.com/pkg/main.go:10.20,12.2 1 1
-`
-	os.WriteFile(coverFile, []byte(coverContent), 0644)
-
-	mock := runner.NewMock()
-
-	// Mock go test with ./... (pre-1.25 behavior)
-	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
-`
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
-
-	result, err := RunTests(mock, false, coverFile, 24, nil)
+	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
 	assert.Equal(t, 1, len(result.Coverage.Packages))
 }

@@ -234,119 +234,25 @@ func listTestPackages(_ runner.CommandRunner) []string {
 	return pkgs
 }
 
-// collectPerPkgCoverage runs go test -coverprofile -coverpkg=./... on each
-// package individually and merges the results. Using -coverpkg=./... captures
-// cross-package coverage (code in package A exercised by tests in package B).
-// This avoids Go 1.25's race condition in multi-package coverage profile
-// merging. Test results are typically cached from the main test pass, so this
-// is fast.
-func collectPerPkgCoverage(r runner.CommandRunner, pkgs []string, timeout string) []byte {
-	// merged tracks the maximum execution count per coverage block across
-	// all per-package profiles. Key is the "file:startLine.startCol,endLine.endCol stmts"
-	// prefix; value is the max count seen.
-	type blockInfo struct {
-		key   string // "file:start,end stmts"
-		count int
-	}
-	merged := make(map[string]*blockInfo)
-	var order []string // preserve insertion order for deterministic output
-
-	for _, pkg := range pkgs {
-		dir, err := os.MkdirTemp("", "go-toolchain-covpkg-*")
-		if err != nil {
-			continue
-		}
-		pkgCoverFile := filepath.Join(dir, "cover.out")
-		cfg := runner.Cmd("go", "test", "-vet=off", "-timeout="+timeout, "-coverpkg=./...", "-coverprofile="+pkgCoverFile, pkg)
-		cfg.StdoutWriter = io.Discard
-		cfg.StderrWriter = io.Discard
-		proc, err := cfg.Run(r)
-		if err != nil {
-			os.RemoveAll(dir)
-			continue
-		}
-		proc.Wait()
-		data, err := os.ReadFile(pkgCoverFile)
-		os.RemoveAll(dir)
-		if err != nil {
-			continue
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "mode:") || line == "" {
-				continue
-			}
-			// Format: "file:startLine.startCol,endLine.endCol numStmts count"
-			lastSpace := strings.LastIndex(line, " ")
-			if lastSpace < 0 {
-				continue
-			}
-			key := line[:lastSpace]
-			count, _ := strconv.Atoi(line[lastSpace+1:])
-			if existing, ok := merged[key]; ok {
-				if count > existing.count {
-					existing.count = count
-				}
-			} else {
-				merged[key] = &blockInfo{key: key, count: count}
-				order = append(order, key)
-			}
-		}
-	}
-	if len(merged) == 0 {
-		return nil
-	}
-	var buf bytes.Buffer
-	buf.WriteString("mode: set\n")
-	for _, key := range order {
-		fmt.Fprintf(&buf, "%s %d\n", key, merged[key].count)
-	}
-	return buf.Bytes()
-}
-
 // RunTests executes go test with coverage and returns parsed results.
 // coverFile is the path where the coverage profile will be written.
-// goMinor is the resolved Go minor version (e.g. 25 for Go 1.25); pass 0 to
-// use the legacy ./... behavior.
 // onOutput is an optional callback called before the first visible test output
 // (used by the progress indicator to finish the "..." line).
-func RunTests(r runner.CommandRunner, verbose bool, coverFile string, goMinor int, onOutput func()) (*TestResult, error) {
-	// Build the go test argument list. For Go 1.25+, enumerate only packages
-	// that have test files to avoid the "no such tool covdata" error on main
-	// packages without tests.
+func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
+	// Enumerate only packages that have test files to avoid the "no such tool
+	// covdata" error on main packages without tests.
 	//
-	// Go 1.25 has a race condition in its -coverprofile merge when testing
-	// multiple packages: each package's coverage data is merged via a
-	// read-delete-create cycle, and under parallel execution the final
-	// write can go to an orphaned file descriptor (the filename was already
-	// deleted by a concurrent merge). Workaround: run the main test pass
-	// with -cover only (no -coverprofile), then generate the profile in a
-	// second pass where all results are cached.
-	var testPkgs []string
+	// Use -p 1 to serialize test execution, preventing Go 1.25's race condition
+	// in multi-package -coverprofile merging.
 	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
-	if goMinor >= 25 {
-		args = append(args, "-cover")
-		if testPkgs = listTestPackages(r); len(testPkgs) > 0 {
-			args = append(args, testPkgs...)
-		} else {
-			args = append(args, "./...") // fallback
-		}
-	} else {
-		args = append(args, "-coverprofile="+coverFile, "./...")
+	if coverFile != "" {
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-p", "1")
 	}
-	// Disable GOCACHEPROG for test execution: Go 1.25's binary coverage system
-	// relies on writing per-binary coverage data to GOCOVERDIR and merging it
-	// with covdata after all tests complete. GOCACHEPROG caches test results
-	// but not the GOCOVERDIR data, so cache hits produce an empty coverage
-	// profile. Go's standard test cache handles this correctly (it replays
-	// coverage data from its built-in cache), so we only need to disable
-	// GOCACHEPROG — build caching for compilation still works.
-	savedCacheProg, hadCacheProg := os.LookupEnv("GOCACHEPROG")
-	os.Unsetenv("GOCACHEPROG")
-	defer func() {
-		if hadCacheProg {
-			os.Setenv("GOCACHEPROG", savedCacheProg)
-		}
-	}()
+	if pkgs := listTestPackages(r); len(pkgs) > 0 {
+		args = append(args, pkgs...)
+	} else {
+		args = append(args, "./...")
+	}
 
 	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	var stderrBuf bytes.Buffer
@@ -454,23 +360,9 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, goMinor in
 
 	// If go test exited non-zero but no actual tests failed, the failure is
 	// from a non-test issue (e.g. missing "covdata" tool on a main package
-	// with no test files in Go 1.25+). Treat as success.
+	// with no test files). Treat as success.
 	if waitErr != nil && len(handler.failedTest) == 0 && handler.FailureOutput() == "" {
 		waitErr = nil
-	}
-
-	// For Go 1.25+, generate the coverprofile in a second pass. Go 1.25 has
-	// a race in its multi-package -coverprofile merge, so we collect coverage
-	// one package at a time and merge the results ourselves.
-	if goMinor >= 25 && coverFile != "" {
-		pkgList := testPkgs
-		if len(pkgList) == 0 {
-			pkgList = []string{"./..."}
-		}
-		mergedCoverage := collectPerPkgCoverage(r, pkgList, testTimeout.String())
-		if len(mergedCoverage) > 0 {
-			os.WriteFile(coverFile, mergedCoverage, 0o644)
-		}
 	}
 
 	// Determine reachable packages to filter coverage (non-fatal on error)
