@@ -8,7 +8,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.26
 	github.com/spf13/cobra v1.10.2
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
-	github.com/wow-look-at-my/go-containers v0.0.0-20260307175019-180529c50d33
+	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
 	github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260315102511-1e5818a894a5
 	github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb
 	golang.org/x/mod v0.30.0
