@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -21,6 +22,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
@@ -147,6 +149,15 @@ func run(cmd *cobra.Command, args []string) error {
 	// Write GitHub Step Summary once after all modules complete
 	if writeErr := summary.Write(&allSummary); writeErr != nil {
 		fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
+	}
+
+	// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
+	if tl := GetTimeline(); tl != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := gotrace.Export(ctx, tl.Entries()); err != nil {
+			fmt.Fprintf(os.Stderr, "==> Warning: failed to export traces: %v\n", err)
+		}
 	}
 
 	return nil
@@ -481,7 +492,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		fmt.Printf("\n==> Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
 
-	// Coverage enforcement: default 80%, or watermark-2.5% if lower
+	// Coverage enforcement: default 80%, or watermark-2.5% if lower.
 	var effectiveMin float32 = 80.0
 	wm, wmExists, wmErr := gotest.GetWatermark(".")
 	if wmErr != nil {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 )
 
 var (
@@ -71,6 +73,13 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		sd := summary.SummaryData{Timeline: tl.Entries()}
 		if writeErr := summary.Write(&sd); writeErr != nil {
 			fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
+		}
+
+		// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := gotrace.Export(ctx, sd.Timeline); err != nil {
+			fmt.Fprintf(os.Stderr, "==> Warning: failed to export traces: %v\n", err)
 		}
 	}
 	return nil

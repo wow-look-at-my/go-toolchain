@@ -104,9 +104,6 @@ go-toolchain release --tag v1.0.0
 
 # Enable coverage watermark
 go-toolchain ignore coverage
-
-# Exempt a file from length checks
-go-toolchain ignore lines path/to/long_file.go
 ```
 
 ### Flags
@@ -150,10 +147,8 @@ go-toolchain ignore lines path/to/long_file.go
   - `json` — print version info as JSON (version, commit, dates, staleness)
 - **`ignore`** — manage build-check exemptions
   - `coverage` — enable coverage ratchet (watermark)
-  - `lines <file>` — exempt files from file-length checks
 - **`unignore`** — remove build-check exemptions
   - `coverage` — remove coverage watermark
-  - `lines <file>` — remove file-length exemptions
 
 ## Self-Profiling
 
@@ -185,6 +180,29 @@ go-toolchain profile open
 go-toolchain profile open /tmp/go-toolchain-profile/trace.out
 ```
 
+## OpenTelemetry Trace Export
+
+go-toolchain can export build pipeline timings as OpenTelemetry traces, enabling visualization in Grafana Tempo or any OTLP-compatible backend.
+
+Trace export is controlled entirely by standard `OTEL_*` environment variables. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, no traces are exported and there is zero overhead.
+
+```bash
+# Export traces to a local collector
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go-toolchain
+
+# Export to Grafana Cloud Tempo
+OTEL_EXPORTER_OTLP_ENDPOINT=https://tempo-us-central1.grafana.net \
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic $(echo -n 'user:api-key' | base64)" \
+go-toolchain
+```
+
+**Span hierarchy:**
+- Root span `go-toolchain` covering the entire build
+  - Thread spans (`thread:main`, `thread:deps`, `thread:worker-1`, etc.)
+    - Step spans (e.g., `go mod tidy`, `go vet ./...`, `linux/amd64`)
+
+Failed steps are marked with error status. Resource attributes include `github.sha`, `github.repository`, `github.ref`, and `github.run_id` when running in GitHub Actions.
+
 ## How It Works
 
 1. Configures Go proxy and sumdb environment (pazer.io support)
@@ -195,8 +213,15 @@ go-toolchain profile open /tmp/go-toolchain-profile/trace.out
 6. Runs `go vet` with auto-fix (on non-CI systems)
 7. Checks for near-duplicate code blocks (warnings only)
 8. Checks file lengths (warns at 500 lines, errors at 750)
-9. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured)
-10. Discovers packages, excluding those where all non-test `.go` files are generated code
+9. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured). Each S3 object is tagged with metadata headers describing what it is:
+   - `Object-Type` — file type detected from magic bytes (`go-archive`, `elf-binary`, `macho-binary`, `pe-binary`, `go-object`, or `unknown`)
+   - `Go-Version` — the Go compiler version that produced the artifact (e.g. `go1.24.7`), extracted from Go archive headers
+   - `Target` — the target platform (e.g. `linux/amd64`), extracted from Go archive headers
+   - `Body-Size` — original uncompressed size in bytes
+   - `Compression` — compression algorithm (`lz4`)
+   - `Toolchain-Version` — the go-toolchain version that cached the entry
+   - `Created` — RFC 3339 timestamp of when the entry was first cached
+10. Discovers packages with test files, excluding those where all non-test `.go` files are generated code
 11. Runs `go test` across non-generated packages with coverage profiling
 12. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%)
 13. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions

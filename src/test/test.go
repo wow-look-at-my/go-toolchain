@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"time"
 	"sort"
@@ -174,15 +175,90 @@ type TestResult struct {
 	TestCases     []TestCaseResult
 }
 
+// readModulePath reads the module path from go.mod in the current directory.
+func readModulePath() string {
+	data, err := os.ReadFile("go.mod")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
+		}
+	}
+	return ""
+}
+
+// listTestPackages returns the import paths of packages that contain test files,
+// excluding packages where all non-test .go files are generated code (e.g. sqlc).
+// It walks the filesystem directly instead of shelling out to `go list`, which
+// is significantly faster.
+// On any error it returns nil, signaling the caller to fall back to "./...".
+func listTestPackages(_ runner.CommandRunner) []string {
+	modPath := readModulePath()
+	if modPath == "" {
+		return nil
+	}
+	var pkgs []string
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable dirs
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		// Skip hidden dirs and common non-source dirs
+		name := d.Name()
+		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+			return filepath.SkipDir
+		}
+		// Skip packages where all non-test .go files are generated code
+		if isGeneratedPackage(path) {
+			return nil
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return nil
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
+				rel := filepath.ToSlash(path)
+				if rel == "." {
+					pkgs = append(pkgs, modPath)
+				} else {
+					pkgs = append(pkgs, modPath+"/"+rel)
+				}
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil
+	}
+	return pkgs
+}
+
 // RunTests executes go test with coverage and returns parsed results.
 // coverFile is the path where the coverage profile will be written.
 // onOutput is an optional callback called before the first visible test output
 // (used by the progress indicator to finish the "..." line).
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
-	// Determine which packages to test, excluding fully-generated packages
-	// (e.g. sqlc output) that have no hand-written code to verify.
-	testPkgs := nonGeneratedPackages(r)
-	args := append([]string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String(), "-coverprofile=" + coverFile}, testPkgs...)
+	// Enumerate only packages that have test files to avoid the "no such tool
+	// covdata" error on main packages without tests. Also excludes packages
+	// where all non-test .go files are generated code (e.g. sqlc output).
+	//
+	// Use -p 1 to serialize test execution, preventing Go 1.25's race condition
+	// in multi-package -coverprofile merging.
+	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
+	if coverFile != "" {
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-p", "1")
+	}
+	if pkgs := listTestPackages(r); len(pkgs) > 0 {
+		args = append(args, pkgs...)
+	} else {
+		args = append(args, "./...")
+	}
 
 	// Capture stderr in a buffer — build errors go here, not in JSON stream.
 	var stderrBuf bytes.Buffer
@@ -290,7 +366,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 
 	// If go test exited non-zero but no actual tests failed, the failure is
 	// from a non-test issue (e.g. missing "covdata" tool on a main package
-	// with no test files in Go 1.25+). Treat as success.
+	// with no test files). Treat as success.
 	if waitErr != nil && len(handler.failedTest) == 0 && handler.FailureOutput() == "" {
 		waitErr = nil
 	}

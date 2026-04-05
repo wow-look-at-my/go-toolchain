@@ -2,13 +2,10 @@ package test
 
 import (
 	"bufio"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // generatedRe is the exact pattern used by Go tooling to detect generated files.
@@ -60,52 +57,6 @@ func isGeneratedPackage(dir string) bool {
 		}
 	}
 	return goFiles > 0 && goFiles == generatedFiles
-}
-
-// nonGeneratedPackages returns the list of packages to test, excluding
-// packages where all non-test Go files are generated code.
-// If no packages need exclusion, returns "./..." as a single-element slice.
-func nonGeneratedPackages(r runner.CommandRunner) []string {
-	proc, err := runner.Cmd("go", "list", "-f", "{{.ImportPath}}\t{{.Dir}}", "./...").WithQuiet().Run(r)
-	if err != nil {
-		return []string{"./..."}
-	}
-	out, _ := io.ReadAll(proc.Stdout())
-	if err := proc.Wait(); err != nil {
-		return []string{"./..."}
-	}
-
-	type pkgInfo struct {
-		importPath string
-		dir        string
-	}
-	var pkgs []pkgInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) == 2 {
-			pkgs = append(pkgs, pkgInfo{importPath: parts[0], dir: parts[1]})
-		}
-	}
-
-	if len(pkgs) == 0 {
-		return []string{"./..."}
-	}
-
-	var result []string
-	excluded := 0
-	for _, pkg := range pkgs {
-		if isGeneratedPackage(pkg.dir) {
-			excluded++
-			continue
-		}
-		result = append(result, pkg.importPath)
-	}
-
-	if excluded == 0 {
-		return []string{"./..."}
-	}
-
-	return result
 }
 
 // filterBlocksByGenerated removes coverage blocks whose source file is

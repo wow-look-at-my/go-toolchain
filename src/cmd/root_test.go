@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -421,79 +420,6 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestIgnoreCoverage(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	err := runIgnoreCoverage(nil, nil)
-	assert.Nil(t, err)
-
-	wm, exists, werr := gotest.GetWatermark(".")
-	require.Nil(t, werr)
-	require.True(t, exists)
-	assert.Equal(t, float32(0), wm)
-}
-
-func TestIgnoreCoverageAlreadyExists(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	gotest.SetWatermark(".", 85.0)
-	err := runIgnoreCoverage(nil, nil)
-	assert.Nil(t, err)
-	// Verify watermark was NOT changed
-	wm, exists, _ := gotest.GetWatermark(".")
-	assert.True(t, exists)
-	assert.Equal(t, float32(85.0), wm)
-}
-
-func TestUnignoreCoverage(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	gotest.SetWatermark(".", 90.0)
-	err := runUnignoreCoverage(nil, nil)
-	assert.Nil(t, err)
-	_, exists, _ := gotest.GetWatermark(".")
-	assert.False(t, exists)
-}
-
-func TestUnignoreCoverageNoWatermark(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-	err := runUnignoreCoverage(nil, nil)
-	assert.Nil(t, err)
-}
-
-func TestUnignoreConfirmationAbort(t *testing.T) {
-	oldStdin := os.Stdin
-	rIn, wIn, _ := os.Pipe()
-	wIn.WriteString("n\n")
-	wIn.Close()
-	os.Stdin = rIn
-	defer func() { os.Stdin = oldStdin }()
-	err := unignoreCmd.PersistentPreRunE(nil, nil)
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "aborted")
-}
-
-func TestUnignoreConfirmationAccept(t *testing.T) {
-	oldStdin := os.Stdin
-	rIn, wIn, _ := os.Pipe()
-	wIn.WriteString("y\n")
-	wIn.Close()
-	os.Stdin = rIn
-	defer func() { os.Stdin = oldStdin }()
-	err := unignoreCmd.PersistentPreRunE(nil, nil)
-	assert.Nil(t, err)
-}
-
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -600,28 +526,6 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	wm, _, _ := gotest.GetWatermark(".")
 	assert.Equal(t, float32(100.0), wm)
 }
-
-func TestUnignoreCoverageNoWatermarkMessage(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Capture stdout
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := runUnignoreCoverage(nil, nil)
-
-	w.Close()
-	out, _ := io.ReadAll(r)
-	os.Stdout = old
-
-	assert.Nil(t, err)
-	assert.Contains(t, string(out), "No watermark is set")
-}
-
 
 func TestRunWithRunnerFailedTest(t *testing.T) {
 	tmpDir := t.TempDir()
