@@ -217,7 +217,14 @@ Failed steps are marked with error status. Resource attributes include `github.s
 6. Runs `go vet` with auto-fix (on non-CI systems)
 7. Checks for near-duplicate code blocks (warnings only)
 8. Checks file lengths (warns at 500 lines, errors at 750)
-9. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured)
+9. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured). Each S3 object is tagged with metadata headers describing what it is:
+   - `Object-Type` — file type detected from magic bytes (`go-archive`, `elf-binary`, `macho-binary`, `pe-binary`, `go-object`, or `unknown`)
+   - `Go-Version` — the Go compiler version that produced the artifact (e.g. `go1.24.7`), extracted from Go archive headers
+   - `Target` — the target platform (e.g. `linux/amd64`), extracted from Go archive headers
+   - `Body-Size` — original uncompressed size in bytes
+   - `Compression` — compression algorithm (`lz4`)
+   - `Toolchain-Version` — the go-toolchain version that cached the entry
+   - `Created` — RFC 3339 timestamp of when the entry was first cached
 10. Runs `go test` across all packages with coverage profiling
 11. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (80%, or watermark - 2.5%)
 12. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions

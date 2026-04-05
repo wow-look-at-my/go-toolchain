@@ -77,6 +77,15 @@ runs:
         chmod +x /tmp/go-toolchain-artifact/go-toolchain
         sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
 
+    - name: Wait for go-toolchain CI to finish
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh extension install PazerOP/gh-wait-ci
+        gh wait-ci -R wow-look-at-my/go-toolchain
+
     - name: Download go-toolchain from release
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       uses: wow-look-at-my/actions@download-release-binary#latest

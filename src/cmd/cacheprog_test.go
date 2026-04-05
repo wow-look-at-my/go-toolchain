@@ -170,6 +170,7 @@ func TestParseBuildCacheConfig_Unified(t *testing.T) {
 		Region:    "eu-west-1",
 		AccessKey: "AKID",
 		SecretKey: "SECRET",
+		Version:   buildVersion,
 	}, cfg)
 }
 

@@ -56,6 +56,7 @@ func parseBuildCacheConfig() cache.S3Config {
 		Endpoint:  cfg.Endpoint,
 		AccessKey: cfg.KeyID,
 		SecretKey: cfg.AccessKey,
+		Version:   buildVersion,
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ type S3Config struct {
 	Prefix    string // Key prefix (defaults to "go-buildcache/").
 	AccessKey string // S3 access key ID
 	SecretKey string // S3 secret access key
+	Version   string // go-toolchain version, stored as object metadata
 }
 
 // S3Backend stores cache objects in an S3-compatible bucket with LZ4 compression.
@@ -40,6 +42,7 @@ type S3Backend struct {
 	endpoint  string
 	accessKey string
 	secretKey string
+	version   string // go-toolchain version for object metadata
 	Stats  CacheStats
 	keysMu sync.RWMutex
 	keys   set.Set[string] // known keys, built from ListObjects on startup
@@ -84,6 +87,7 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		endpoint:  endpoint,
 		accessKey: accessKey,
 		secretKey: secretKey,
+		version:   cfg.Version,
 	}
 	b.keys = b.loadOrFetchIndex()
 	fmt.Fprintf(os.Stderr, "cacheprog: s3 index: %d keys\n", b.keys.Len())
@@ -308,6 +312,17 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 	}
 	req.ContentLength = int64(len(compressed))
 	req.Header.Set("X-Amz-Meta-Outputid", outputID)
+	req.Header.Set("X-Amz-Meta-Object-Type", detectObjectType(raw))
+	req.Header.Set("X-Amz-Meta-Body-Size", strconv.FormatInt(bodySize, 10))
+	req.Header.Set("X-Amz-Meta-Compression", "lz4")
+	req.Header.Set("X-Amz-Meta-Created", time.Now().UTC().Format(time.RFC3339))
+	if b.version != "" {
+		req.Header.Set("X-Amz-Meta-Toolchain-Version", b.version)
+	}
+	if goVer, target := parseArchiveHeader(raw); goVer != "" {
+		req.Header.Set("X-Amz-Meta-Go-Version", goVer)
+		req.Header.Set("X-Amz-Meta-Target", target)
+	}
 	b.signRequest(req, compressed)
 
 	resp, err := b.client.Do(req)
@@ -450,6 +465,66 @@ func sortedQueryString(raw string) string {
 	}
 	// url.Values.Encode sorts by key and always includes "=".
 	return vals.Encode()
+}
+
+// detectObjectType identifies the type of a cache entry from its magic bytes.
+func detectObjectType(data []byte) string {
+	if len(data) >= 8 && string(data[:8]) == "!<arch>\n" {
+		return "go-archive"
+	}
+	if len(data) >= 4 && data[0] == 0x7f && data[1] == 'E' && data[2] == 'L' && data[3] == 'F' {
+		return "elf-binary"
+	}
+	if len(data) >= 4 {
+		// Mach-O 64-bit (little-endian and big-endian) and 32-bit.
+		m := uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])
+		switch m {
+		case 0xcffaedfe, 0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcafebabe:
+			return "macho-binary"
+		}
+	}
+	if len(data) >= 2 && data[0] == 'M' && data[1] == 'Z' {
+		return "pe-binary"
+	}
+	if len(data) >= 4 && data[0] == 0x00 && data[1] == 'g' && data[2] == 'o' && data[3] == '1' {
+		return "go-object"
+	}
+	return "unknown"
+}
+
+// parseArchiveHeader scans a Go archive for the "go object" line inside
+// __.PKGDEF. Returns Go version and target (GOOS/GOARCH), or empty strings
+// if not found. Only scans the first 1024 bytes.
+func parseArchiveHeader(data []byte) (goVersion, target string) {
+	limit := 1024
+	if len(data) < limit {
+		limit = len(data)
+	}
+	window := data[:limit]
+	// Look for a line starting with "go object ".
+	const prefix = "go object "
+	for len(window) > 0 {
+		idx := bytes.Index(window, []byte(prefix))
+		if idx < 0 {
+			break
+		}
+		// Ensure it's at the start of a line (idx == 0 or preceded by newline).
+		if idx > 0 && window[idx-1] != '\n' {
+			window = window[idx+len(prefix):]
+			continue
+		}
+		line := window[idx:]
+		if nl := bytes.IndexByte(line, '\n'); nl >= 0 {
+			line = line[:nl]
+		}
+		// Format: "go object <GOOS> <GOARCH> <goversion> [experiments...]"
+		fields := strings.Fields(string(line))
+		if len(fields) >= 5 {
+			return fields[4], fields[2] + "/" + fields[3]
+		}
+		break
+	}
+	return "", ""
 }
 
 func compressData(data []byte) ([]byte, error) {
