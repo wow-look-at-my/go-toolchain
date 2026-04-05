@@ -39,6 +39,10 @@ inputs:
     description: 'Automatically create a GitHub release when running on the default branch (requires contents: write permission)'
     required: false
     default: 'false'
+  timeout:
+    description: 'Timeout in minutes for the go-toolchain build step'
+    required: false
+    default: '10'
 
 runs:
   using: 'composite'
@@ -104,6 +108,7 @@ runs:
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      timeout-minutes: ${{ fromJSON(inputs.timeout) }}
       run: |
         set -euo pipefail
         ARGS=""
