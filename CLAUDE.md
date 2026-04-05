@@ -44,7 +44,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - `src/trace/` — OpenTelemetry trace export for build pipeline timings
 - `src/vet/` — custom vet checks (assert normalization, unused imports)
 - `tests/` — BATS integration tests
-- `action.yml` — composite GitHub Action (fetches secrets via OIDC, builds with go-toolchain)
+- `action.yml` — composite GitHub Action (fetches secrets via OIDC, builds with go-toolchain, optionally uploads build artifacts)
 - `.github/workflows/ci.yml` — CI workflow (builds from source, tests the action, releases)
 
 ## Code Conventions
