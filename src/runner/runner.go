@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -113,7 +114,20 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	cmd := exec.Command(cfg.Name, cfg.Args...)
 
 	if cfg.Env != nil && cfg.Env.Len() > 0 {
-		cmd.Env = os.Environ()
+		// Build env list by merging overrides into the current environment.
+		// Remove existing entries that are being overridden, since duplicate
+		// keys have platform-dependent behavior (Linux getenv returns the
+		// first match, so appending wouldn't actually override).
+		overrides := make(map[string]bool, cfg.Env.Len())
+		for k := range cfg.Env.All() {
+			overrides[k] = true
+		}
+		for _, e := range os.Environ() {
+			if k, _, ok := strings.Cut(e, "="); ok && overrides[k] {
+				continue // skip — will be replaced by override
+			}
+			cmd.Env = append(cmd.Env, e)
+		}
 		for k, v := range cfg.Env.All() {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}

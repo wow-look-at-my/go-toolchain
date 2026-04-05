@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
@@ -18,9 +19,9 @@ func TestCoverageHandlerExtractsCoverage(t *testing.T) {
 
 	// Simulate output event with coverage info
 	event := testjson.TestEvent{
-		Action:  testjson.ActionOutput,
-		Package: "example.com/pkg",
-		Output:  "coverage: 75.5% of statements\n",
+		Action:		testjson.ActionOutput,
+		Package:	"example.com/pkg",
+		Output:		"coverage: 75.5% of statements\n",
 	}
 
 	require.NoError(t, h.Event(event, nil))
@@ -32,9 +33,9 @@ func TestCoverageHandlerIgnoresNonCoverageOutput(t *testing.T) {
 	h := &coverageHandler{coverage: make(map[string]float32)}
 
 	event := testjson.TestEvent{
-		Action:  testjson.ActionOutput,
-		Package: "example.com/pkg",
-		Output:  "=== RUN TestFoo\n",
+		Action:		testjson.ActionOutput,
+		Package:	"example.com/pkg",
+		Output:		"=== RUN TestFoo\n",
 	}
 
 	require.NoError(t, h.Event(event, nil))
@@ -47,8 +48,8 @@ func TestCoverageHandlerIgnoresNonOutputActions(t *testing.T) {
 	h := &coverageHandler{coverage: make(map[string]float32)}
 
 	event := testjson.TestEvent{
-		Action:  testjson.ActionPass,
-		Package: "example.com/pkg",
+		Action:		testjson.ActionPass,
+		Package:	"example.com/pkg",
 	}
 
 	require.NoError(t, h.Event(event, nil))
@@ -64,8 +65,8 @@ func TestCoverageHandlerErr(t *testing.T) {
 
 func TestCoverageRegex(t *testing.T) {
 	tests := []struct {
-		input    string
-		expected string
+		input		string
+		expected	string
 	}{
 		{"coverage: 80.0% of statements", "80.0"},
 		{"coverage: 100% of statements", "100"},
@@ -119,7 +120,7 @@ example.com/pkg/main.go:14.20,16.2 3 0
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
@@ -133,7 +134,7 @@ func TestRunTestsFailure(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, nil, fmt.Errorf("test failed"))
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, nil, fmt.Errorf("test failed"))
 
 	_, err := RunTests(mock, false, coverFile, nil)
 	assert.NotNil(t, err)
@@ -154,9 +155,9 @@ example.com/pkg/main.go:10.20,12.2 1 1
 {"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 85.0% of statements\n"}
 {"Time":"2024-01-01T00:00:03Z","Action":"pass","Package":"example.com/pkg"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
-	result, err := RunTests(mock, true, coverFile, nil) // verbose=true
+	result, err := RunTests(mock, true, coverFile, nil)	// verbose=true
 	require.Nil(t, err)
 
 	assert.Equal(t, 1, len(result.Coverage.Packages))
@@ -174,7 +175,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"pkg2","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
@@ -211,7 +212,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 {"Time":"2024-01-01T00:00:07Z","Action":"output","Package":"example.com/pkg3","Output":"coverage: [no statements]\n"}
 {"Time":"2024-01-01T00:00:08Z","Action":"pass","Package":"example.com/pkg3"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
@@ -249,7 +250,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: [no statements]\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
@@ -266,8 +267,8 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 
 func TestShortPkg(t *testing.T) {
 	tests := []struct {
-		input    string
-		expected string
+		input		string
+		expected	string
 	}{
 		{"github.com/wow-look-at-my/go-toolchain/src/cmd", "cmd"},
 		{"github.com/foo/bar", "bar"},
@@ -283,17 +284,17 @@ func TestShortPkg(t *testing.T) {
 func TestRealtimePassOutput(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{
-		coverage:   make(map[string]float32),
-		out:        &buf,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		coverage:	make(map[string]float32),
+		out:		&buf,
+		testOutput:	make(map[string][]string),
+		failedTest:	make(map[string]bool),
 	}
 
 	event := testjson.TestEvent{
-		Action:  testjson.ActionPass,
-		Package: "github.com/example/pkg",
-		Test:    "TestFoo",
-		Elapsed: 0.15,
+		Action:		testjson.ActionPass,
+		Package:	"github.com/example/pkg",
+		Test:		"TestFoo",
+		Elapsed:	0.15,
 	}
 	require.NoError(t, h.Event(event, nil))
 
@@ -306,17 +307,17 @@ func TestRealtimePassOutput(t *testing.T) {
 func TestRealtimePassOutputHiddenWhenFast(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{
-		coverage:   make(map[string]float32),
-		out:        &buf,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		coverage:	make(map[string]float32),
+		out:		&buf,
+		testOutput:	make(map[string][]string),
+		failedTest:	make(map[string]bool),
 	}
 
 	event := testjson.TestEvent{
-		Action:  testjson.ActionPass,
-		Package: "github.com/example/pkg",
-		Test:    "TestFoo",
-		Elapsed: 0.05,
+		Action:		testjson.ActionPass,
+		Package:	"github.com/example/pkg",
+		Test:		"TestFoo",
+		Elapsed:	0.05,
 	}
 	require.NoError(t, h.Event(event, nil))
 
@@ -326,17 +327,17 @@ func TestRealtimePassOutputHiddenWhenFast(t *testing.T) {
 func TestRealtimeFailOutput(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{
-		coverage:   make(map[string]float32),
-		out:        &buf,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		coverage:	make(map[string]float32),
+		out:		&buf,
+		testOutput:	make(map[string][]string),
+		failedTest:	make(map[string]bool),
 	}
 
 	event := testjson.TestEvent{
-		Action:  testjson.ActionFail,
-		Package: "github.com/example/pkg",
-		Test:    "TestBar",
-		Elapsed: 1.23,
+		Action:		testjson.ActionFail,
+		Package:	"github.com/example/pkg",
+		Test:		"TestBar",
+		Elapsed:	1.23,
 	}
 	require.NoError(t, h.Event(event, nil))
 
@@ -349,28 +350,28 @@ func TestRealtimeFailOutput(t *testing.T) {
 func TestRealtimeTimeoutOutput(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{
-		coverage:   make(map[string]float32),
-		out:        &buf,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
+		coverage:	make(map[string]float32),
+		out:		&buf,
+		testOutput:	make(map[string][]string),
+		failedTest:	make(map[string]bool),
+		timedOut:	make(map[string]bool),
 	}
 
 	// First, simulate timeout output event
 	outputEvent := testjson.TestEvent{
-		Action:  testjson.ActionOutput,
-		Package: "github.com/example/pkg",
-		Test:    "TestSlow",
-		Output:  "panic: test timed out after 30s\n",
+		Action:		testjson.ActionOutput,
+		Package:	"github.com/example/pkg",
+		Test:		"TestSlow",
+		Output:		"panic: test timed out after 30s\n",
 	}
 	require.NoError(t, h.Event(outputEvent, nil))
 
 	// Then simulate the fail event
 	failEvent := testjson.TestEvent{
-		Action:  testjson.ActionFail,
-		Package: "github.com/example/pkg",
-		Test:    "TestSlow",
-		Elapsed: 30.0,
+		Action:		testjson.ActionFail,
+		Package:	"github.com/example/pkg",
+		Test:		"TestSlow",
+		Elapsed:	30.0,
 	}
 	require.NoError(t, h.Event(failEvent, nil))
 
@@ -383,17 +384,17 @@ func TestRealtimeTimeoutOutput(t *testing.T) {
 func TestRealtimeSkipOutput(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{
-		coverage:   make(map[string]float32),
-		out:        &buf,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		coverage:	make(map[string]float32),
+		out:		&buf,
+		testOutput:	make(map[string][]string),
+		failedTest:	make(map[string]bool),
 	}
 
 	event := testjson.TestEvent{
-		Action:  testjson.ActionSkip,
-		Package: "github.com/example/pkg",
-		Test:    "TestSkipped",
-		Elapsed: 0.5,
+		Action:		testjson.ActionSkip,
+		Package:	"github.com/example/pkg",
+		Test:		"TestSkipped",
+		Elapsed:	0.5,
 	}
 	require.NoError(t, h.Event(event, nil))
 
@@ -405,17 +406,17 @@ func TestRealtimeSkipOutput(t *testing.T) {
 func TestRealtimeSkipOutputHiddenWhenFast(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{
-		coverage:   make(map[string]float32),
-		out:        &buf,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		coverage:	make(map[string]float32),
+		out:		&buf,
+		testOutput:	make(map[string][]string),
+		failedTest:	make(map[string]bool),
 	}
 
 	event := testjson.TestEvent{
-		Action:  testjson.ActionSkip,
-		Package: "github.com/example/pkg",
-		Test:    "TestSkipped",
-		Elapsed: 0.0,
+		Action:		testjson.ActionSkip,
+		Package:	"github.com/example/pkg",
+		Test:		"TestSkipped",
+		Elapsed:	0.0,
 	}
 	require.NoError(t, h.Event(event, nil))
 
@@ -425,18 +426,18 @@ func TestRealtimeSkipOutputHiddenWhenFast(t *testing.T) {
 func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{
-		coverage:   make(map[string]float32),
-		verbose:    true,
-		out:        &buf,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		coverage:	make(map[string]float32),
+		verbose:	true,
+		out:		&buf,
+		testOutput:	make(map[string][]string),
+		failedTest:	make(map[string]bool),
 	}
 
 	event := testjson.TestEvent{
-		Action:  testjson.ActionPass,
-		Package: "github.com/example/pkg",
-		Test:    "TestFoo",
-		Elapsed: 0.05,
+		Action:		testjson.ActionPass,
+		Package:	"github.com/example/pkg",
+		Test:		"TestFoo",
+		Elapsed:	0.05,
 	}
 	require.NoError(t, h.Event(event, nil))
 
@@ -446,17 +447,17 @@ func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
 func TestRealtimeNoOutputForPackageEvents(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{
-		coverage:   make(map[string]float32),
-		out:        &buf,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		coverage:	make(map[string]float32),
+		out:		&buf,
+		testOutput:	make(map[string][]string),
+		failedTest:	make(map[string]bool),
 	}
 
 	// Package-level pass (Test is empty)
 	event := testjson.TestEvent{
-		Action:  testjson.ActionPass,
-		Package: "github.com/example/pkg",
-		Elapsed: 2.5,
+		Action:		testjson.ActionPass,
+		Package:	"github.com/example/pkg",
+		Elapsed:	2.5,
 	}
 	require.NoError(t, h.Event(event, nil))
 
@@ -482,7 +483,7 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 {"Time":"2024-01-01T00:00:04Z","Action":"output","Package":"example.com/pkg2","Output":"coverage: 0% of statements\n"}
 {"Time":"2024-01-01T00:00:05Z","Action":"pass","Package":"example.com/pkg2"}
 `
-	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "./..."}, []byte(testOutput), nil)
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
 
 	result, err := RunTests(mock, false, coverFile, nil)
 	require.Nil(t, err)
@@ -496,4 +497,203 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 			assert.Equal(t, 1, len(p.Files))
 		}
 	}
+}
+
+// setupTestModule creates a temporary directory with a go.mod and test files,
+// chdirs into it, and returns a cleanup function that restores the original dir.
+func setupTestModule(t *testing.T, modPath string, testPkgDirs []string) string {
+	t.Helper()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module "+modPath+"\n\ngo 1.25\n"), 0644)
+	for _, rel := range testPkgDirs {
+		pkgDir := filepath.Join(dir, rel)
+		os.MkdirAll(pkgDir, 0755)
+		os.WriteFile(filepath.Join(pkgDir, "foo_test.go"), []byte("package "+filepath.Base(rel)+"\n"), 0644)
+	}
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(origDir) })
+	return dir
+}
+
+func TestListTestPackages(t *testing.T) {
+	setupTestModule(t, "example.com/mymod", []string{"pkg1", "pkg2", "pkg3/sub"})
+	// Also create a dir with no test files
+	os.MkdirAll("notest", 0755)
+	os.WriteFile("notest/main.go", []byte("package notest\n"), 0644)
+
+	mock := runner.NewMock()
+	pkgs := listTestPackages(mock)
+
+	assert.Contains(t, pkgs, "example.com/mymod/pkg1")
+	assert.Contains(t, pkgs, "example.com/mymod/pkg2")
+	assert.Contains(t, pkgs, "example.com/mymod/pkg3/sub")
+	assert.NotContains(t, pkgs, "example.com/mymod/notest")
+}
+
+func TestListTestPackagesNoGoMod(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	mock := runner.NewMock()
+	pkgs := listTestPackages(mock)
+	assert.Nil(t, pkgs, "should return nil when no go.mod exists")
+}
+
+func TestRunTestsUsesExplicitPackages(t *testing.T) {
+	setupTestModule(t, "example.com/proj", []string{"pkg1"})
+
+	coverFile := filepath.Join(t.TempDir(), "coverage.out")
+
+	coverContent := `mode: set
+example.com/proj/pkg1/main.go:10.20,12.2 17 1
+example.com/proj/pkg1/main.go:14.20,16.2 3 0
+`
+
+	mock := runner.NewMock()
+
+	// With a go.mod present, RunTests uses explicit package list from listTestPackages
+	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/proj/pkg1"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/proj/pkg1","Output":"coverage: 85.0% of statements\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/proj/pkg1"}
+`
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "example.com/proj/pkg1"}, []byte(testOutput), nil)
+
+	// Handler writes coverage file when go test runs
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverprofile="+coverFile) {
+			os.WriteFile(coverFile, []byte(coverContent), 0644)
+		}
+		return nil, nil
+	}
+
+	result, err := RunTests(mock, false, coverFile, nil)
+	require.Nil(t, err)
+
+	assert.Equal(t, 1, len(result.Coverage.Packages))
+	assert.Equal(t, float32(85.0), result.Coverage.Packages[0].Pct())
+}
+
+func TestRunTestsFallsBackToEllipsis(t *testing.T) {
+	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(origDir) })
+
+	coverFile := filepath.Join(t.TempDir(), "coverage.out")
+
+	coverContent := `mode: set
+example.com/pkg/main.go:10.20,12.2 1 1
+`
+
+	mock := runner.NewMock()
+
+	testOutput := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
+{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
+`
+	mock.SetResponse("go", []string{"test", "-vet=off", "-json", "-timeout=30s", "-coverprofile=" + coverFile, "-coverpkg=./...", "-p", "1", "./..."}, []byte(testOutput), nil)
+
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") && cfg.HasArg("-coverprofile="+coverFile) {
+			os.WriteFile(coverFile, []byte(coverContent), 0644)
+		}
+		return nil, nil
+	}
+
+	result, err := RunTests(mock, false, coverFile, nil)
+	require.Nil(t, err)
+	assert.Equal(t, 1, len(result.Coverage.Packages))
+}
+
+func TestFailureOutputWithStderr(t *testing.T) {
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+		stderrLines: []string{"build error: undefined reference", "linker failed"},
+	}
+
+	output := h.FailureOutput()
+	assert.Contains(t, output, "build error: undefined reference\n")
+	assert.Contains(t, output, "linker failed\n")
+}
+
+func TestFailureOutputWithFailedTests(t *testing.T) {
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		testOutput: map[string][]string{
+			"pkg/TestFoo": {"    foo_test.go:10: expected 1, got 2\n"},
+			"pkg/TestBar": {"    bar_test.go:5: nil pointer\n"},
+		},
+		failedTest: map[string]bool{
+			"pkg/TestFoo": true,
+		},
+	}
+
+	output := h.FailureOutput()
+	assert.Contains(t, output, "foo_test.go:10: expected 1, got 2")
+	assert.NotContains(t, output, "bar_test.go:5: nil pointer")
+}
+
+func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		testOutput: map[string][]string{
+			"pkg/TestFail": {"    assert failed\n"},
+		},
+		failedTest: map[string]bool{
+			"pkg/TestFail": true,
+		},
+		stderrLines: []string{"compilation error"},
+	}
+
+	output := h.FailureOutput()
+	// stderr comes first
+	assert.True(t, strings.Index(output, "compilation error") < strings.Index(output, "assert failed"))
+}
+
+func TestOnOutputCallbackInPass(t *testing.T) {
+	var buf bytes.Buffer
+	called := false
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+		onOutput:   func() { called = true },
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionPass,
+		Package: "github.com/example/pkg",
+		Test:    "TestFoo",
+		Elapsed: 0.15,
+	}
+	require.NoError(t, h.Event(event, nil))
+	assert.True(t, called, "onOutput should be called on pass")
+}
+
+func TestOnOutputCallbackInSkip(t *testing.T) {
+	var buf bytes.Buffer
+	called := false
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		out:        &buf,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+		onOutput:   func() { called = true },
+	}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionSkip,
+		Package: "github.com/example/pkg",
+		Test:    "TestSkipped",
+		Elapsed: 0.5,
+	}
+	require.NoError(t, h.Event(event, nil))
+	assert.True(t, called, "onOutput should be called on skip")
 }

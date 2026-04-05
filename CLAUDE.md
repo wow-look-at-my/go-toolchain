@@ -37,13 +37,14 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 ## Project Structure
 
 - `src/main.go` — entry point
-- `src/cmd/` — CLI commands (root, matrix, bench, lint, profile, install, update, version, release, ignore/unignore, cacheprog) using Cobra
+- `src/cmd/` — CLI commands (root, matrix, bench, lint, profile, profile open, install, update, version, release, ignore/unignore, cacheprog) using Cobra
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via `go list`
 - `src/cache/` — GOCACHEPROG protocol server with local and S3 backends
 - `src/vet/` — custom vet checks (assert normalization, unused imports)
 - `tests/` — BATS integration tests
-- `.github/workflows/build.yml` — reusable workflow (replaces action.yml)
+- `action.yml` — composite GitHub Action (fetches secrets via OIDC, builds with go-toolchain)
+- `.github/workflows/ci.yml` — CI workflow (builds from source, tests the action, releases)
 
 ## Code Conventions
 
@@ -60,7 +61,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - **Always keep `README.md` up to date** when adding new features, flags, subcommands, or changing existing behavior. The README is the primary user-facing documentation and must accurately reflect the current state of the CLI and GitHub Action.
 - When adding a new subcommand, add it to the Subcommands section and include a CLI usage example.
 - When adding a new flag, add it to the appropriate flags table (persistent or command-specific).
-- When changing the reusable workflow inputs in `.github/workflows/build.yml`, update the Action Usage section accordingly.
+- When changing action.yml inputs, update the Action Usage section accordingly.
 - When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
 
 ## Known Issues

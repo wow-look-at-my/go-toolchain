@@ -103,7 +103,10 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	ensureBuildDirInGitignore()
 
 	// Collect git info once for all builds
-	info := collectGitInfo()
+	info, err := collectGitInfo()
+	if err != nil {
+		return err
+	}
 	ldflags := info.ldflags()
 
 	// Build job queue - cartesian product of OS x Arch x Targets

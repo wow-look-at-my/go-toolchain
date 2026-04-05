@@ -139,6 +139,9 @@ func logStep(label string) *step {
 // logStepOn is like logStep but records on the given thread.
 func logStepOn(label, thread string) *step {
 	fmt.Printf("==> %s...", label)
+	if activeWatchdog != nil {
+		activeWatchdog.setStep(label)
+	}
 	return &step{label: label, thread: thread, start: time.Now()}
 }
 
@@ -146,6 +149,9 @@ func logStepOn(label, thread string) *step {
 // It doesn't print anything on creation — only on completion.
 // Useful for recording sub-phases (e.g. vet phases) that have their own timing.
 func logSubStep(label, thread string) *step {
+	if activeWatchdog != nil {
+		activeWatchdog.setStep(label)
+	}
 	return &step{label: label, thread: thread, start: time.Now(), sub: true}
 }
 
@@ -174,6 +180,10 @@ func (s *step) finish(status string) {
 		fmt.Printf("==> %s %s %s\n", s.label, status, fmtDuration(d))
 	} else {
 		fmt.Printf(" %s %s\n", status, fmtDuration(d))
+	}
+
+	if activeWatchdog != nil {
+		activeWatchdog.clearStep()
 	}
 
 	// Record to the pipeline timeline if initialized
