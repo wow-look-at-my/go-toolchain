@@ -103,9 +103,6 @@ go-toolchain release --tag v1.0.0
 
 # Enable coverage watermark
 go-toolchain ignore coverage
-
-# Exempt a file from length checks
-go-toolchain ignore lines path/to/long_file.go
 ```
 
 ### Flags
@@ -149,10 +146,8 @@ go-toolchain ignore lines path/to/long_file.go
   - `json` — print version info as JSON (version, commit, dates, staleness)
 - **`ignore`** — manage build-check exemptions
   - `coverage` — enable coverage ratchet (watermark)
-  - `lines <file>` — exempt files from file-length checks
 - **`unignore`** — remove build-check exemptions
   - `coverage` — remove coverage watermark
-  - `lines <file>` — remove file-length exemptions
 
 ## Self-Profiling
 

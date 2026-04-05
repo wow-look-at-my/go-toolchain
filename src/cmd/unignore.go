@@ -39,16 +39,8 @@ var unignoreCoverageCmd = &cobra.Command{
 	RunE:         runUnignoreCoverage,
 }
 
-var unignoreLinesCmd = &cobra.Command{
-	Use:          "lines <file> [file...]",
-	Short:        "Remove file-length exemptions",
-	Args:         cobra.MinimumNArgs(1),
-	SilenceUsage: true,
-	RunE:         runUnignoreLines,
-}
-
 func init() {
-	unignoreCmd.AddCommand(unignoreCoverageCmd, unignoreLinesCmd)
+	unignoreCmd.AddCommand(unignoreCoverageCmd)
 	rootCmd.AddCommand(unignoreCmd)
 }
 
@@ -67,15 +59,5 @@ func runUnignoreCoverage(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to remove watermark: %w", err)
 	}
 	fmt.Println("Coverage watermark removed.")
-	return nil
-}
-
-func runUnignoreLines(cmd *cobra.Command, args []string) error {
-	for _, path := range args {
-		if err := gotest.RemoveFileLengthExemption(path); err != nil {
-			return err
-		}
-		fmt.Printf("File-length exemption removed for %s\n", path)
-	}
 	return nil
 }
