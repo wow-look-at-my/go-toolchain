@@ -41,6 +41,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via `go list`
 - `src/cache/` — GOCACHEPROG protocol server with local and S3 backends
+- `src/trace/` — OpenTelemetry trace export for build pipeline timings
 - `src/vet/` — custom vet checks (assert normalization, unused imports)
 - `tests/` — BATS integration tests
 - `action.yml` — composite GitHub Action (fetches secrets via OIDC, builds with go-toolchain)

@@ -179,6 +179,29 @@ go-toolchain profile open
 go-toolchain profile open /tmp/go-toolchain-profile/trace.out
 ```
 
+## OpenTelemetry Trace Export
+
+go-toolchain can export build pipeline timings as OpenTelemetry traces, enabling visualization in Grafana Tempo or any OTLP-compatible backend.
+
+Trace export is controlled entirely by standard `OTEL_*` environment variables. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, no traces are exported and there is zero overhead.
+
+```bash
+# Export traces to a local collector
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go-toolchain
+
+# Export to Grafana Cloud Tempo
+OTEL_EXPORTER_OTLP_ENDPOINT=https://tempo-us-central1.grafana.net \
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic $(echo -n 'user:api-key' | base64)" \
+go-toolchain
+```
+
+**Span hierarchy:**
+- Root span `go-toolchain` covering the entire build
+  - Thread spans (`thread:main`, `thread:deps`, `thread:worker-1`, etc.)
+    - Step spans (e.g., `go mod tidy`, `go vet ./...`, `linux/amd64`)
+
+Failed steps are marked with error status. Resource attributes include `github.sha`, `github.repository`, `github.ref`, and `github.run_id` when running in GitHub Actions.
+
 ## How It Works
 
 1. Configures Go proxy and sumdb environment (pazer.io support)
