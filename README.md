@@ -22,6 +22,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **S3-backed build cache** — GOCACHEPROG protocol server with local and S3 backends for shared build caching across CI runs (Go 1.24+)
 - **Vanity URL resolution** — automatically detects and resolves vanity-URL module dependencies via Go proxy or go-import meta tags
 - **Go proxy/sumdb support** — configures pazer.io proxy and sumdb endpoints with automatic environment variable normalization
+- **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
 
 ## GitHub Action Usage
@@ -221,13 +222,14 @@ Failed steps are marked with error status. Resource attributes include `github.s
    - `Compression` — compression algorithm (`lz4`)
    - `Toolchain-Version` — the go-toolchain version that cached the entry
    - `Created` — RFC 3339 timestamp of when the entry was first cached
-10. Runs `go test` across all packages with coverage profiling
-11. Parses coverage results, displays per-item impact on total coverage, and compares against the minimum threshold (80%, or watermark - 2.5%)
-12. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-13. If coverage meets the threshold, builds the project binary into `build/`
-14. Automatically adds `build/` to `.gitignore` (if in a git repo)
-15. Runs benchmarks and compares against previously stored results
-16. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
+10. Discovers packages with test files, excluding those where all non-test `.go` files are generated code
+11. Runs `go test` across non-generated packages with coverage profiling
+12. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%)
+13. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
+14. If coverage meets the threshold, builds the project binary into `build/`
+15. Automatically adds `build/` to `.gitignore` (if in a git repo)
+16. Runs benchmarks and compares against previously stored results
+17. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
 
 ## Development
 

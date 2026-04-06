@@ -189,7 +189,8 @@ func readModulePath() string {
 	return ""
 }
 
-// listTestPackages returns the import paths of packages that contain test files.
+// listTestPackages returns the import paths of packages that contain test files,
+// excluding packages where all non-test .go files are generated code (e.g. sqlc).
 // It walks the filesystem directly instead of shelling out to `go list`, which
 // is significantly faster.
 // On any error it returns nil, signaling the caller to fall back to "./...".
@@ -210,6 +211,10 @@ func listTestPackages(_ runner.CommandRunner) []string {
 		name := d.Name()
 		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
 			return filepath.SkipDir
+		}
+		// Skip packages where all non-test .go files are generated code
+		if isGeneratedPackage(path) {
+			return nil
 		}
 		entries, err := os.ReadDir(path)
 		if err != nil {
@@ -240,7 +245,8 @@ func listTestPackages(_ runner.CommandRunner) []string {
 // (used by the progress indicator to finish the "..." line).
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
 	// Enumerate only packages that have test files to avoid the "no such tool
-	// covdata" error on main packages without tests.
+	// covdata" error on main packages without tests. Also excludes packages
+	// where all non-test .go files are generated code (e.g. sqlc output).
 	//
 	// Use -p 1 to serialize test execution, preventing Go 1.25's race condition
 	// in multi-package -coverprofile merging.

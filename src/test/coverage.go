@@ -114,6 +114,7 @@ func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, 
 	}
 
 	blocks = filterBlocksByReachable(blocks, reachable)
+	blocks = filterBlocksByGenerated(blocks)
 
 	// Group blocks by file
 	type fileStats struct {
