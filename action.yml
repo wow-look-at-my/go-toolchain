@@ -43,6 +43,10 @@ inputs:
     description: 'Upload build/ directory as a GitHub Actions artifact after building'
     required: false
     default: 'false'
+  timeout:
+    description: 'Timeout in minutes for the go-toolchain build step'
+    required: false
+    default: '10'
 
 runs:
   using: 'composite'
@@ -110,6 +114,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
+        TIMEOUT_SECONDS=$(( ${{ inputs.timeout }} * 60 ))
         ARGS=""
         if [ "${{ inputs.json }}" = "true" ]; then
           ARGS="$ARGS --json"
@@ -126,7 +131,7 @@ runs:
         if [ "${{ inputs.cgo }}" = "true" ]; then
           ARGS="$ARGS --cgo"
         fi
-        go-toolchain matrix $ARGS
+        timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
     - name: Upload build artifacts
       if: inputs.upload-artifacts == 'true'
