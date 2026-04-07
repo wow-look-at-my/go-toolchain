@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
 const (
@@ -59,14 +57,8 @@ func checkFileLength(root string) error {
 		}
 
 		if lineNum >= fileLengthError {
-			exempt, _ := gotest.IsFileLengthExempt(path)
-			if exempt {
-				logWarning(path, fmt.Sprintf("%s: %d lines (exempt, warning at %d)", path, lineNum, fileLengthWarn))
-				nWarn++
-			} else {
-				logError(path, fmt.Sprintf("%s: %d lines (max %d)", path, lineNum, fileLengthError))
-				nErr++
-			}
+			logError(path, fmt.Sprintf("%s: %d lines (max %d)", path, lineNum, fileLengthError))
+			nErr++
 		} else if lineNum >= fileLengthWarn {
 			logWarning(path, fmt.Sprintf("%s: %d lines (consider splitting, warning at %d)", path, lineNum, fileLengthWarn))
 			nWarn++
