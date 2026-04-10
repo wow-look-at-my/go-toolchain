@@ -27,7 +27,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 ## GitHub Action Usage
 
-Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched automatically from [secret-server](https://github.com/wow-look-at-my/secret-server) via GitHub OIDC — no secret passing required:
+Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched automatically from [secret-server](https://github.com/wow-look-at-my/actions/tree/secret-server) via GitHub OIDC — no secret passing required:
 
 ```yaml
 permissions:
