@@ -253,6 +253,9 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkDirtyInCI(info); err != nil {
+		return nil, err
+	}
 	ldflags := info.ldflags()
 	if !quiet {
 		fmt.Printf("==> Embedding version: %s\n", info)

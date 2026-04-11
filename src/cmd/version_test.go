@@ -35,9 +35,6 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestCollectGitInfo(t *testing.T) {
-	// Disable CI dirty-tree check: this test exercises the general
-	// collection path, not the CI-specific error path.
-	t.Setenv("CI", "")
 	info, err := collectGitInfo()
 	require.NoError(t, err)
 	assert.NotEqual(t, "", info.commit)
@@ -59,7 +56,6 @@ func TestCollectGitInfoFromEnv(t *testing.T) {
 
 func TestCollectGitInfoBranchRef(t *testing.T) {
 	// Branch refs should NOT override version (only tags)
-	t.Setenv("CI", "")
 	t.Setenv("GITHUB_REF_TYPE", "branch")
 	t.Setenv("GITHUB_REF_NAME", "main")
 
@@ -88,33 +84,30 @@ func TestGithubRepoFromEnv(t *testing.T) {
 	assert.Equal(t, "other-org/other-repo", githubRepo)
 }
 
-func TestCollectGitInfoDirtyErrorsInCI(t *testing.T) {
+func TestCheckDirtyInCIErrors(t *testing.T) {
 	t.Setenv("CI", "true")
-	// Force the git describe path (not tag)
-	t.Setenv("GITHUB_REF_TYPE", "")
-	t.Setenv("GITHUB_REF_NAME", "")
-
-	_, err := collectGitInfo()
-	if err != nil {
-		// If the working tree happens to be dirty, we expect this specific error
-		assert.Contains(t, err.Error(), "-dirty")
-		assert.Contains(t, err.Error(), "refusing to build")
-	}
-	// If the working tree is clean, no error — both outcomes are valid
+	info := gitInfo{version: "abc1234-dirty"}
+	err := checkDirtyInCI(info)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "-dirty")
+	assert.Contains(t, err.Error(), "refusing to build")
 }
 
-func TestCollectGitInfoDirtyAllowedOutsideCI(t *testing.T) {
-	t.Setenv("CI", "")
-	t.Setenv("GITHUB_REF_TYPE", "")
-	t.Setenv("GITHUB_REF_NAME", "")
+func TestCheckDirtyInCIAllowsCleanVersion(t *testing.T) {
+	t.Setenv("CI", "true")
+	info := gitInfo{version: "v1.2.3"}
+	err := checkDirtyInCI(info)
+	assert.NoError(t, err)
+}
 
-	// Outside CI, -dirty should never cause an error
-	_, err := collectGitInfo()
+func TestCheckDirtyInCIAllowsDirtyOutsideCI(t *testing.T) {
+	t.Setenv("CI", "")
+	info := gitInfo{version: "abc1234-dirty"}
+	err := checkDirtyInCI(info)
 	assert.NoError(t, err)
 }
 
 func TestGitInfoLdflags(t *testing.T) {
-	t.Setenv("CI", "")
 	info, err := collectGitInfo()
 	require.NoError(t, err)
 	ldflags := info.ldflags()
@@ -126,7 +119,6 @@ func TestGitInfoLdflags(t *testing.T) {
 }
 
 func TestGitInfoLdflagsReproducible(t *testing.T) {
-	t.Setenv("CI", "")
 	info, err := collectGitInfo()
 	require.NoError(t, err)
 	ldflags1 := info.ldflags()
