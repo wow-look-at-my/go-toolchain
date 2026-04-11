@@ -35,6 +35,9 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestCollectGitInfo(t *testing.T) {
+	// Disable CI dirty-tree check: this test exercises the general
+	// collection path, not the CI-specific error path.
+	t.Setenv("CI", "")
 	info, err := collectGitInfo()
 	require.NoError(t, err)
 	assert.NotEqual(t, "", info.commit)
@@ -56,6 +59,7 @@ func TestCollectGitInfoFromEnv(t *testing.T) {
 
 func TestCollectGitInfoBranchRef(t *testing.T) {
 	// Branch refs should NOT override version (only tags)
+	t.Setenv("CI", "")
 	t.Setenv("GITHUB_REF_TYPE", "branch")
 	t.Setenv("GITHUB_REF_NAME", "main")
 
@@ -110,6 +114,7 @@ func TestCollectGitInfoDirtyAllowedOutsideCI(t *testing.T) {
 }
 
 func TestGitInfoLdflags(t *testing.T) {
+	t.Setenv("CI", "")
 	info, err := collectGitInfo()
 	require.NoError(t, err)
 	ldflags := info.ldflags()
@@ -121,6 +126,7 @@ func TestGitInfoLdflags(t *testing.T) {
 }
 
 func TestGitInfoLdflagsReproducible(t *testing.T) {
+	t.Setenv("CI", "")
 	info, err := collectGitInfo()
 	require.NoError(t, err)
 	ldflags1 := info.ldflags()
