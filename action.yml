@@ -71,7 +71,8 @@ runs:
     - name: Report missing Go proxy config
       if: env.GO_PROXY_CONFIG == ''
       shell: bash
-      run: echo "==> Go proxy: GO_PROXY_CONFIG not set — using unauthenticated proxy (direct)"
+      run: |
+        echo "==> Go proxy: GO_PROXY_CONFIG not set — using unauthenticated proxy (direct)"
 
     - name: Download go-toolchain from build artifact
       if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
