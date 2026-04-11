@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: wow-look-at-my/secret-server@master
+      - uses: wow-look-at-my/actions@secret-server#latest
       - name: Configure git for private repos
         run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
