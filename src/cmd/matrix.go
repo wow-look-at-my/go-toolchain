@@ -116,6 +116,9 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if err != nil {
 		return err
 	}
+	if err := checkDirtyInCI(info); err != nil {
+		return err
+	}
 	ldflags := info.ldflags()
 
 	// Build job queue - cartesian product of OS x Arch x Targets
