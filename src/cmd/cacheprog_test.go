@@ -160,14 +160,13 @@ func TestValidateCICacheConfig_UnifiedVar(t *testing.T) {
 func TestParseBuildCacheConfig_Unified(t *testing.T) {
 	defer saveCacheEnv(t)()
 
-	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","key_id":"AKID","access_key":"SECRET"}`
 	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 
 	cfg := parseBuildCacheConfig()
 	assert.Equal(t, cache.S3Config{
 		Endpoint:  "s3.example.com",
 		Bucket:    "mybucket",
-		Region:    "eu-west-1",
 		AccessKey: "AKID",
 		SecretKey: "SECRET",
 		Version:   buildVersion,
@@ -177,7 +176,7 @@ func TestParseBuildCacheConfig_Unified(t *testing.T) {
 func TestParseBuildCacheConfig_UnifiedDefaultBucket(t *testing.T) {
 	defer saveCacheEnv(t)()
 
-	raw := `{"endpoint":"s3.example.com","region":"us-east-1","key_id":"AKID","access_key":"SECRET"}`
+	raw := `{"endpoint":"s3.example.com","key_id":"AKID","access_key":"SECRET"}`
 	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 
 	cfg := parseBuildCacheConfig()

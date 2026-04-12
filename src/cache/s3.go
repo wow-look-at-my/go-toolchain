@@ -3,7 +3,6 @@ package cache
 import (
 	"bufio"
 	"bytes"
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
@@ -25,11 +24,10 @@ import (
 // S3Config holds the configuration for an S3-compatible backend.
 type S3Config struct {
 	Bucket    string // Required. Empty bucket disables the backend.
-	Region    string // AWS region for SigV4 signing. Defaults to "us-east-1".
 	Endpoint  string // S3 endpoint URL (e.g. "https://s3.pazer.io"). Required.
 	Prefix    string // Key prefix (defaults to "go-buildcache/").
-	AccessKey string // S3 access key ID
-	SecretKey string // S3 secret access key
+	AccessKey string // S3 access key ID (used as Basic Auth username)
+	SecretKey string // S3 secret access key (used as Basic Auth password)
 	Version   string // go-toolchain version, stored as object metadata
 }
 
@@ -38,7 +36,6 @@ type S3Backend struct {
 	client    *http.Client
 	bucket    string
 	prefix    string
-	region    string
 	endpoint  string
 	accessKey string
 	secretKey string
@@ -64,10 +61,6 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	region := cfg.Region
-	if region == "" {
-		region = "us-east-1"
-	}
 	accessKey := cfg.AccessKey
 	secretKey := cfg.SecretKey
 	if accessKey == "" || secretKey == "" {
@@ -83,7 +76,6 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		client:    &http.Client{Timeout: 30 * time.Second},
 		bucket:    cfg.Bucket,
 		prefix:    prefix,
-		region:    region,
 		endpoint:  endpoint,
 		accessKey: accessKey,
 		secretKey: secretKey,
@@ -173,7 +165,7 @@ func (b *S3Backend) listAllKeys() set.Set[string] {
 		if err != nil {
 			break
 		}
-		b.signRequest(req, nil)
+		b.signRequest(req)
 		resp, err := b.client.Do(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: %v\n", err)
@@ -223,7 +215,7 @@ func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, s
 	if err != nil {
 		return "", nil, 0, time.Time{}, true, nil
 	}
-	b.signRequest(req, nil)
+	b.signRequest(req)
 
 	resp, err := b.client.Do(req)
 	if err != nil {
@@ -323,7 +315,7 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 		req.Header.Set("X-Amz-Meta-Go-Version", goVer)
 		req.Header.Set("X-Amz-Meta-Target", target)
 	}
-	b.signRequest(req, compressed)
+	b.signRequest(req)
 
 	resp, err := b.client.Do(req)
 	if err != nil {
@@ -356,115 +348,9 @@ func (b *S3Backend) Close() error { return nil }
 
 func (b *S3Backend) GetStats() *CacheStats { return &b.Stats }
 
-// signRequest signs an HTTP request using AWS SigV4.
-func (b *S3Backend) signRequest(req *http.Request, payload []byte) {
-	b.signRequestAt(req, payload, time.Now().UTC())
-}
-
-// signRequestAt signs an HTTP request using AWS SigV4 with an explicit timestamp.
-// Extracted for testability against AWS official test vectors.
-func (b *S3Backend) signRequestAt(req *http.Request, payload []byte, now time.Time) {
-	datestamp := now.Format("20060102")
-	amzDate := now.Format("20060102T150405Z")
-
-	req.Header.Set("X-Amz-Date", amzDate)
-	req.Header.Set("Host", req.URL.Host)
-
-	// Payload hash.
-	var payloadHash string
-	if payload != nil {
-		h := sha256.Sum256(payload)
-		payloadHash = hex.EncodeToString(h[:])
-	} else {
-		payloadHash = "UNSIGNED-PAYLOAD"
-	}
-	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
-
-	// Canonical request.
-	signedHeaders, canonicalHeaders := b.buildCanonicalHeaders(req)
-	canonicalRequest := strings.Join([]string{
-		req.Method,
-		req.URL.Path,
-		sortedQueryString(req.URL.RawQuery),
-		canonicalHeaders,
-		signedHeaders,
-		payloadHash,
-	}, "\n")
-
-	// String to sign.
-	scope := datestamp + "/" + b.region + "/s3/aws4_request"
-	canonHash := sha256.Sum256([]byte(canonicalRequest))
-	stringToSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hex.EncodeToString(canonHash[:])
-
-	// Signing key.
-	signingKey := deriveSigningKey(b.secretKey, datestamp, b.region, "s3")
-
-	// Signature.
-	sig := hmacSHA256(signingKey, []byte(stringToSign))
-	signature := hex.EncodeToString(sig)
-
-	// Authorization header.
-	auth := fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
-		b.accessKey, scope, signedHeaders, signature)
-	req.Header.Set("Authorization", auth)
-}
-
-func (b *S3Backend) buildCanonicalHeaders(req *http.Request) (signedHeaders, canonicalHeaders string) {
-	// Only sign host, x-amz-* headers. Keep it minimal for S3-compatible services.
-	type hdr struct{ k, v string }
-	var hdrs []hdr
-	hdrs = append(hdrs, hdr{"host", req.URL.Host})
-	for k, vals := range req.Header {
-		lk := strings.ToLower(k)
-		if strings.HasPrefix(lk, "x-amz-") {
-			hdrs = append(hdrs, hdr{lk, strings.TrimSpace(vals[0])})
-		}
-	}
-	// Sort by key.
-	for i := 0; i < len(hdrs); i++ {
-		for j := i + 1; j < len(hdrs); j++ {
-			if hdrs[j].k < hdrs[i].k {
-				hdrs[i], hdrs[j] = hdrs[j], hdrs[i]
-			}
-		}
-	}
-	var names, canonical []string
-	for _, h := range hdrs {
-		names = append(names, h.k)
-		canonical = append(canonical, h.k+":"+h.v)
-	}
-	signedHeaders = strings.Join(names, ";")
-	canonicalHeaders = strings.Join(canonical, "\n") + "\n"
-	return
-}
-
-func deriveSigningKey(secret, datestamp, region, service string) []byte {
-	kDate := hmacSHA256([]byte("AWS4"+secret), []byte(datestamp))
-	kRegion := hmacSHA256(kDate, []byte(region))
-	kService := hmacSHA256(kRegion, []byte(service))
-	return hmacSHA256(kService, []byte("aws4_request"))
-}
-
-func hmacSHA256(key, data []byte) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write(data)
-	return h.Sum(nil)
-}
-
-// sortedQueryString returns the canonical query string: parameters sorted by
-// key, each key followed by "=" and its value (even if empty). This matches
-// the AWS SigV4 spec for canonical query strings.
-func sortedQueryString(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	vals, err := url.ParseQuery(raw)
-	if err != nil {
-		// Shouldn't happen; fall back to raw.
-		return raw
-	}
-	// url.Values.Encode sorts by key and always includes "=".
-	return vals.Encode()
+// signRequest authenticates an HTTP request using HTTP Basic Auth.
+func (b *S3Backend) signRequest(req *http.Request) {
+	req.SetBasicAuth(b.accessKey, b.secretKey)
 }
 
 // detectObjectType identifies the type of a cache entry from its magic bytes.

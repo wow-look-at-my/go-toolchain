@@ -26,7 +26,6 @@ func init() {
 type buildCacheConfig struct {
 	Endpoint  string `json:"endpoint"`
 	Bucket    string `json:"bucket"`
-	Region    string `json:"region"`
 	KeyID     string `json:"key_id"`
 	AccessKey string `json:"access_key"`
 }
@@ -52,7 +51,6 @@ func parseBuildCacheConfig() cache.S3Config {
 	}
 	return cache.S3Config{
 		Bucket:    bucket,
-		Region:    cfg.Region,
 		Endpoint:  cfg.Endpoint,
 		AccessKey: cfg.KeyID,
 		SecretKey: cfg.AccessKey,
