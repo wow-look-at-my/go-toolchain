@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -88,9 +89,12 @@ func configureGoEnv() {
 
 	// GOPROXY: expand pazer.io short forms, or default to "direct".
 	if isUserProxy(goproxy) {
-		os.Setenv("GOPROXY", expandPazerProxy(goproxy))
+		resolved := expandPazerProxy(goproxy)
+		os.Setenv("GOPROXY", resolved)
+		fmt.Fprintf(os.Stderr, "proxy: GOPROXY=%s\n", resolved)
 	} else {
 		os.Setenv("GOPROXY", "direct")
+		fmt.Fprintf(os.Stderr, "proxy: GOPROXY=direct\n")
 	}
 
 	// GOSUMDB: if the user set a pazer.io sumdb, expand to full form
@@ -99,6 +103,7 @@ func configureGoEnv() {
 		os.Setenv("GOSUMDB", expanded)
 		os.Unsetenv("GONOSUMDB")
 		os.Unsetenv("GONOSUMCHECK")
+		fmt.Fprintf(os.Stderr, "proxy: GOSUMDB=%s\n", expanded)
 		return
 	}
 
@@ -106,4 +111,5 @@ func configureGoEnv() {
 	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
+	fmt.Fprintf(os.Stderr, "proxy: GONOSUMDB=* (sumdb disabled)\n")
 }
