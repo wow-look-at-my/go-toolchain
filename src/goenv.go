@@ -114,8 +114,14 @@ func writeNetrc(host, user, password string) {
 		fmt.Fprintf(os.Stderr, "proxy: netrc write: %v\n", err)
 		return
 	}
-	defer f.Close()
-	f.WriteString(entry)
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "proxy: netrc close: %v\n", err)
+		}
+	}()
+	if _, err := f.WriteString(entry); err != nil {
+		fmt.Fprintf(os.Stderr, "proxy: netrc write: %v\n", err)
+	}
 }
 
 // ensureDirectFallback appends ",direct" to a GOPROXY value if not present.
