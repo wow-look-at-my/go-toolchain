@@ -13,24 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: false
+
       - uses: wow-look-at-my/actions@secret-server#latest
       - name: Configure git for private repos
         run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
-      - name: Verify Go is latest stable
-        run: |
-          INSTALLED=$(go env GOVERSION)
-          LATEST=$(curl -sf 'https://go.dev/dl/?mode=json' | jq -r '.[0].version')
-          echo "Installed: $INSTALLED  Latest: $LATEST"
-          if [ "$INSTALLED" != "$LATEST" ]; then
-            echo "::error::Go version $INSTALLED does not match latest stable $LATEST"
-            exit 1
-          fi
 
       - name: Build and test
         run: go run ./src
