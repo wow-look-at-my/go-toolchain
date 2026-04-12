@@ -3,12 +3,15 @@ package vet
 import (
 	"encoding/json"
 	"fmt"
-	"io"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	syncatomic "sync/atomic"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
@@ -165,12 +168,54 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 
 	// Phase 3: parse & type-check (should be fast with cached exports)
 	report("parse & type-check")
+	var parsedFiles syncatomic.Int32
+	loadStart := time.Now()
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
+		ParseFile: func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+			parsedFiles.Add(1)
+			return parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
+		},
 	}
 
-	pkgs, err := packages.Load(cfg, pattern)
+	// Run packages.Load in a goroutine so we can report progress.
+	// The parsedFiles counter lets us distinguish parsing from type-checking.
+	type loadResult struct {
+		pkgs []*packages.Package
+		err  error
+	}
+	loadDone := make(chan loadResult, 1)
+	go func() {
+		pkgs, err := packages.Load(cfg, pattern)
+		loadDone <- loadResult{pkgs, err}
+	}()
+
+	ticker := time.NewTicker(4 * time.Second)
+	var lastFileCount int32
+	var pkgs []*packages.Package
+	var err error
+waitLoop:
+	for {
+		select {
+		case result := <-loadDone:
+			pkgs, err = result.pkgs, result.err
+			break waitLoop
+		case <-ticker.C:
+			count := parsedFiles.Load()
+			elapsed := time.Since(loadStart).Round(time.Second)
+			if count > lastFileCount {
+				fmt.Printf("        parsed %d files (%s)...\n", count, elapsed)
+				lastFileCount = count
+			} else if count > 0 {
+				fmt.Printf("        type-checking (%s)...\n", elapsed)
+			} else {
+				fmt.Printf("        loading packages (%s)...\n", elapsed)
+			}
+		}
+	}
+	ticker.Stop()
+
 	if err != nil {
 		return false, fmt.Errorf("failed to load packages: %w", err)
 	}
@@ -301,7 +346,7 @@ func precompileDeps(pattern string) []packageTiming {
 	if err != nil {
 		return nil
 	}
-	cmd.Stderr = io.Discard
+	cmd.Stderr = os.Stderr // surface download/resolution messages
 	if err := cmd.Start(); err != nil {
 		return nil
 	}
@@ -309,6 +354,7 @@ func precompileDeps(pattern string) []packageTiming {
 	decoder := json.NewDecoder(stdout)
 	var timings []packageTiming
 	last := time.Now()
+	lastProgress := time.Now()
 
 	for decoder.More() {
 		var pkg struct {
@@ -323,6 +369,11 @@ func precompileDeps(pattern string) []packageTiming {
 			Duration:   now.Sub(last),
 		})
 		last = now
+
+		if now.Sub(lastProgress) >= 4*time.Second {
+			fmt.Fprintf(os.Stderr, "        compiled %d packages...\n", len(timings))
+			lastProgress = now
+		}
 	}
 
 	_ = cmd.Wait()
