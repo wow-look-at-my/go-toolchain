@@ -16,7 +16,11 @@ jobs:
       - uses: wow-look-at-my/actions@secret-server#latest
 
       - name: Build and test
-        run: go run ./src
+        run: |
+          # Use GOTOOLCHAIN=local to prevent go run from downloading a second
+          # copy of Go via the toolchain mechanism. go-bootstrap inside
+          # go-toolchain handles version management instead.
+          GOTOOLCHAIN=local go run ./src
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
