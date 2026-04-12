@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +22,9 @@ import (
 	"github.com/pierrec/lz4/v4"
 	"github.com/wow-look-at-my/go-containers/set"
 )
+
+// MaxConnsPerHost is the HTTP connection pool size for the remote cache.
+const MaxConnsPerHost = 64
 
 // WebConfig holds the configuration for a web cache backend.
 type WebConfig struct {
@@ -40,9 +45,11 @@ type WebBackend struct {
 	accessKey string
 	secretKey string
 	version   string // go-toolchain version for object metadata
-	Stats  CacheStats
-	keysMu sync.RWMutex
-	keys   set.Set[string] // known keys, built from ListObjects on startup
+	Stats   CacheStats
+	Pool    ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
+	Latency *LatencyStats      // optional; set by Server for sub-operation tracking
+	keysMu  sync.RWMutex
+	keys    set.Set[string] // known keys, built from ListObjects on startup
 }
 
 // NewWebBackend creates a web backend from the given config.
@@ -72,9 +79,29 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		endpoint = "https://" + endpoint
 	}
 
+	// Tune the transport for high-throughput cache uploads. The default Go
+	// transport only keeps 2 idle connections per host, which forces a new
+	// TCP+TLS handshake for nearly every request. We allow up to 64
+	// concurrent connections and keep them all alive in the idle pool.
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSClientConfig:       &tls.Config{},
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          MaxConnsPerHost,
+		MaxIdleConnsPerHost:   MaxConnsPerHost,
+		MaxConnsPerHost:       MaxConnsPerHost,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:  10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
+
 	b := &WebBackend{
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return fmt.Errorf("stopped after 10 redirects")
@@ -234,19 +261,24 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	}
 	b.signRequest(req)
 
+	b.Pool.Acquire()
+	httpStart := time.Now()
 	resp, err := b.client.Do(req)
 	if err != nil {
+		b.Pool.Release()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	if resp.StatusCode == 404 {
 		resp.Body.Close()
+		b.Pool.Release()
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		b.Pool.Release()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -254,18 +286,27 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	outputID = resp.Header.Get("X-Amz-Meta-Outputid")
 	if outputID == "" {
 		resp.Body.Close()
+		b.Pool.Release()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	compressed, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	b.Pool.Release()
+	if b.Latency != nil {
+		b.Latency.HTTPGet.Record(time.Since(httpStart))
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
+	decompressStart := time.Now()
 	decompressed, err := decompressData(compressed)
+	if b.Latency != nil {
+		b.Latency.Decompress.Record(time.Since(decompressStart))
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
@@ -310,7 +351,11 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		return fmt.Errorf("web put read: %w", err)
 	}
 
+	compressStart := time.Now()
 	compressed, err := compressData(raw)
+	if b.Latency != nil {
+		b.Latency.Compress.Record(time.Since(compressStart))
+	}
 	if err != nil {
 		return fmt.Errorf("web put compress: %w", err)
 	}
@@ -334,12 +379,22 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	}
 	b.signRequest(req)
 
+	b.Pool.Acquire()
+	httpStart := time.Now()
 	resp, err := b.client.Do(req)
+	b.Pool.Release()
+	if b.Latency != nil && err == nil {
+		b.Latency.HTTPPut.Record(time.Since(httpStart))
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", actionID[:8], err)
 		return err
 	}
-	defer resp.Body.Close()
+	// Drain and close body so the connection is returned to the pool.
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
