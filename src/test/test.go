@@ -252,9 +252,11 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		args = append(args, "./...")
 	}
 
-	// Capture stderr in a buffer — build errors go here, not in JSON stream.
+	// Tee stderr to console (for compilation progress like "go: downloading"
+	// and build errors) while also capturing it in a buffer for error reporting.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", args...).WithStderrWriter(&stderrBuf).Run(r)
+	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
+	proc, err := runner.Cmd("go", args...).WithStderrWriter(stderrTee).Run(r)
 	if err != nil {
 		return nil, err
 	}

@@ -2,16 +2,11 @@ package vet
 
 import (
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	syncatomic "sync/atomic"
-	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"golang.org/x/tools/go/analysis"
@@ -128,26 +123,26 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		}
 	}
 
-	// Load, compile, parse & type-check packages.
-	// packages.Load handles compilation internally, and the ParseFile callback
-	// provides real per-file progress during the parsing phase.
-	report("load & type-check")
-	var parsedFiles syncatomic.Int32
-	var lastParseProgress syncatomic.Int64
-	lastParseProgress.Store(time.Now().UnixNano())
+	// Pre-compile all packages with visible progress. go build -v prints
+	// each package to stderr as it compiles, warming the build cache.
+	// packages.Load then finds everything cached and runs fast.
+	report("compile")
+	compileCmd := exec.Command("go", "build", "-v", pattern)
+	compileCmd.Stdout = os.Stdout
+	compileCmd.Stderr = os.Stderr
+	_ = compileCmd.Run() // best-effort; test-only packages may fail
+
+	// Also compile test binaries to warm the cache for test variants.
+	testCompileCmd := exec.Command("go", "test", "-v", "-run=^$", "-count=1", pattern)
+	testCompileCmd.Stdout = os.Stdout
+	testCompileCmd.Stderr = os.Stderr
+	_ = testCompileCmd.Run() // best-effort
+
+	// Now load packages for analysis — should be fast with warm cache.
+	report("type-check")
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
-		ParseFile: func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
-			count := parsedFiles.Add(1)
-			last := time.Unix(0, lastParseProgress.Load())
-			if time.Since(last) >= 4*time.Second {
-				if lastParseProgress.CompareAndSwap(last.UnixNano(), time.Now().UnixNano()) {
-					fmt.Fprintf(os.Stderr, "        parsed %d files...\n", count)
-				}
-			}
-			return parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
-		},
 	}
 
 	pkgs, err := packages.Load(cfg, pattern)
