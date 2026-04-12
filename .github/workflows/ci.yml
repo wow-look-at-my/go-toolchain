@@ -17,24 +17,6 @@ jobs:
       - name: Configure git for private repos
         run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-      - name: Configure netrc for Go proxy
-        if: env.GO_PROXY_CONFIG != ''
-        run: |
-          USER=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.user // .username // .login')
-          PASS=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.password // .pass')
-          echo "::add-mask::${USER}"
-          echo "::add-mask::${PASS}"
-          cat >> ~/.netrc <<EOF
-          machine goproxy.pazer.io login ${USER} password ${PASS}
-          EOF
-          chmod 600 ~/.netrc
-          echo "==> Go proxy: configured ~/.netrc for goproxy.pazer.io (user=${USER})"
-
-      - name: Report missing Go proxy config
-        if: env.GO_PROXY_CONFIG == ''
-        run: |
-          echo "==> Go proxy: GO_PROXY_CONFIG not set — using unauthenticated proxy (direct)"
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

@@ -160,14 +160,13 @@ func TestValidateCICacheConfig_UnifiedVar(t *testing.T) {
 func TestParseBuildCacheConfig_Unified(t *testing.T) {
 	defer saveCacheEnv(t)()
 
-	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","key_id":"AKID","access_key":"SECRET"}`
 	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{
+	assert.Equal(t, cache.WebConfig{
 		Endpoint:  "s3.example.com",
 		Bucket:    "mybucket",
-		Region:    "eu-west-1",
 		AccessKey: "AKID",
 		SecretKey: "SECRET",
 		Version:   buildVersion,
@@ -177,7 +176,7 @@ func TestParseBuildCacheConfig_Unified(t *testing.T) {
 func TestParseBuildCacheConfig_UnifiedDefaultBucket(t *testing.T) {
 	defer saveCacheEnv(t)()
 
-	raw := `{"endpoint":"s3.example.com","region":"us-east-1","key_id":"AKID","access_key":"SECRET"}`
+	raw := `{"endpoint":"s3.example.com","key_id":"AKID","access_key":"SECRET"}`
 	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 
 	cfg := parseBuildCacheConfig()
@@ -188,7 +187,7 @@ func TestParseBuildCacheConfig_NotSet(t *testing.T) {
 	defer saveCacheEnv(t)()
 
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{}, cfg)
+	assert.Equal(t, cache.WebConfig{}, cfg)
 }
 
 func TestParseBuildCacheConfig_URLSafeBase64(t *testing.T) {
@@ -241,7 +240,7 @@ func TestParseBuildCacheConfig_MissingEndpoint(t *testing.T) {
 	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{}, cfg)
+	assert.Equal(t, cache.WebConfig{}, cfg)
 }
 
 func TestParseBuildCacheConfig_MissingKeys(t *testing.T) {
@@ -251,7 +250,7 @@ func TestParseBuildCacheConfig_MissingKeys(t *testing.T) {
 	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{}, cfg)
+	assert.Equal(t, cache.WebConfig{}, cfg)
 }
 
 func TestParseBuildCacheConfig_BadBase64(t *testing.T) {
@@ -260,7 +259,7 @@ func TestParseBuildCacheConfig_BadBase64(t *testing.T) {
 	os.Setenv("GO_BUILDCACHE_CONFIG", "not-valid-base64!!!")
 
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{}, cfg)
+	assert.Equal(t, cache.WebConfig{}, cfg)
 }
 
 func TestParseBuildCacheConfig_BadJSON(t *testing.T) {
@@ -269,5 +268,5 @@ func TestParseBuildCacheConfig_BadJSON(t *testing.T) {
 	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte("not json")))
 
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{}, cfg)
+	assert.Equal(t, cache.WebConfig{}, cfg)
 }
