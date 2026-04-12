@@ -43,6 +43,15 @@ type WebBackend struct {
 	Stats  CacheStats
 	keysMu sync.RWMutex
 	keys   set.Set[string] // known keys, built from ListObjects on startup
+
+	// Miss reason counters for diagnostics.
+	MissNotInIndex   AtomicCounter
+	MissHTTP404      AtomicCounter
+	MissHTTPError    AtomicCounter
+	MissNoOutputID   AtomicCounter
+	MissReadBody     AtomicCounter
+	MissDecompress   AtomicCounter
+	MissNetwork      AtomicCounter
 }
 
 // NewWebBackend creates a web backend from the given config.
@@ -226,6 +235,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	known := b.keys.Contains(key)
 	b.keysMu.RUnlock()
 	if !known {
+		b.MissNotInIndex.Increment()
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	req, err := http.NewRequest("GET", b.url(key), nil)
@@ -236,17 +246,20 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 
 	resp, err := b.client.Do(req)
 	if err != nil {
+		b.MissNetwork.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	if resp.StatusCode == 404 {
 		resp.Body.Close()
+		b.MissHTTP404.Increment()
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		b.MissHTTPError.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -254,6 +267,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	outputID = resp.Header.Get("X-Amz-Meta-Outputid")
 	if outputID == "" {
 		resp.Body.Close()
+		b.MissNoOutputID.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -261,12 +275,14 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	compressed, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
+		b.MissReadBody.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	decompressed, err := decompressData(compressed)
 	if err != nil {
+		b.MissDecompress.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
