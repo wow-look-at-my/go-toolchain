@@ -46,28 +46,28 @@ func TestCompressDecompress_Large(t *testing.T) {
 	require.Equal(t, data, decompressed)
 }
 
-func TestNewS3Backend_EmptyBucket(t *testing.T) {
-	b, err := NewS3Backend(S3Config{})
+func TestNewWebBackend_EmptyBucket(t *testing.T) {
+	b, err := NewWebBackend(WebConfig{})
 	require.NoError(t, err)
 	require.Nil(t, b)
 }
 
-func TestNewS3Backend_MissingEndpoint(t *testing.T) {
-	_, err := NewS3Backend(S3Config{Bucket: "test"})
+func TestNewWebBackend_MissingEndpoint(t *testing.T) {
+	_, err := NewWebBackend(WebConfig{Bucket: "test"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "endpoint is required")
 }
 
-func TestNewS3Backend_MissingCredentials(t *testing.T) {
+func TestNewWebBackend_MissingCredentials(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "")
-	_, err := NewS3Backend(S3Config{Bucket: "test", Endpoint: "http://localhost"})
+	_, err := NewWebBackend(WebConfig{Bucket: "test", Endpoint: "http://localhost"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "required")
 }
 
-func TestNewS3Backend_DefaultPrefix(t *testing.T) {
-	b, err := NewS3Backend(S3Config{
+func TestNewWebBackend_DefaultPrefix(t *testing.T) {
+	b, err := NewWebBackend(WebConfig{
 		Bucket: "test", Endpoint: "http://localhost",
 		AccessKey: "key", SecretKey: "secret",
 	})
@@ -75,8 +75,8 @@ func TestNewS3Backend_DefaultPrefix(t *testing.T) {
 	require.Equal(t, "go-buildcache/", b.prefix)
 }
 
-func TestNewS3Backend_CustomPrefix(t *testing.T) {
-	b, err := NewS3Backend(S3Config{
+func TestNewWebBackend_CustomPrefix(t *testing.T) {
+	b, err := NewWebBackend(WebConfig{
 		Bucket: "test", Endpoint: "http://localhost", Prefix: "custom",
 		AccessKey: "key", SecretKey: "secret",
 	})
@@ -84,8 +84,8 @@ func TestNewS3Backend_CustomPrefix(t *testing.T) {
 	require.Equal(t, "custom/", b.prefix)
 }
 
-func TestNewS3Backend_PrefixWithSlash(t *testing.T) {
-	b, err := NewS3Backend(S3Config{
+func TestNewWebBackend_PrefixWithSlash(t *testing.T) {
+	b, err := NewWebBackend(WebConfig{
 		Bucket: "test", Endpoint: "http://localhost", Prefix: "already/",
 		AccessKey: "key", SecretKey: "secret",
 	})
@@ -93,23 +93,23 @@ func TestNewS3Backend_PrefixWithSlash(t *testing.T) {
 	require.Equal(t, "already/", b.prefix)
 }
 
-func TestS3Backend_Key(t *testing.T) {
-	b := &S3Backend{prefix: "my-prefix/"}
+func TestWebBackend_Key(t *testing.T) {
+	b := &WebBackend{prefix: "my-prefix/"}
 	require.Equal(t, "my-prefix/v1abcdef", b.key("abcdef"))
 }
 
-func TestS3Backend_URL(t *testing.T) {
-	b := &S3Backend{endpoint: "https://s3.example.com", bucket: "mybucket"}
+func TestWebBackend_URL(t *testing.T) {
+	b := &WebBackend{endpoint: "https://s3.example.com", bucket: "mybucket"}
 	require.Equal(t, "https://s3.example.com/mybucket/go-buildcache/v1abc", b.url("go-buildcache/v1abc"))
 }
 
-func TestS3Backend_Close(t *testing.T) {
-	b := &S3Backend{}
+func TestWebBackend_Close(t *testing.T) {
+	b := &WebBackend{}
 	require.NoError(t, b.Close())
 }
 
-func TestS3Backend_GetStats(t *testing.T) {
-	b := &S3Backend{}
+func TestWebBackend_GetStats(t *testing.T) {
+	b := &WebBackend{}
 	b.Stats.Hits.Store(5)
 	b.Stats.Puts.Store(3)
 	stats := b.GetStats()
@@ -117,8 +117,8 @@ func TestS3Backend_GetStats(t *testing.T) {
 	require.Equal(t, uint32(3), stats.Puts.Load())
 }
 
-func TestS3Backend_PutAndGet(t *testing.T) {
-	// Fake S3 server that stores objects in memory.
+func TestWebBackend_PutAndGet(t *testing.T) {
+	// Fake server that stores objects in memory.
 	store := map[string][]byte{}
 	headers := map[string]http.Header{} // capture all headers per path
 
@@ -149,7 +149,7 @@ func TestS3Backend_PutAndGet(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b, err := NewS3Backend(S3Config{
+	b, err := NewWebBackend(WebConfig{
 		Bucket:    "testbucket",
 		Endpoint:  srv.URL,
 		AccessKey: "testkey",
@@ -186,7 +186,7 @@ func TestS3Backend_PutAndGet(t *testing.T) {
 	require.Equal(t, uint32(1), b.Stats.Hits.Load())
 }
 
-func TestS3Backend_PutArchiveMetadata(t *testing.T) {
+func TestWebBackend_PutArchiveMetadata(t *testing.T) {
 	// Verify that Go archive bodies get Go-Version and Target metadata.
 	headers := map[string]http.Header{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +198,7 @@ func TestS3Backend_PutArchiveMetadata(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b, err := NewS3Backend(S3Config{
+	b, err := NewWebBackend(WebConfig{
 		Bucket: "testbucket", Endpoint: srv.URL,
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
@@ -215,7 +215,7 @@ func TestS3Backend_PutArchiveMetadata(t *testing.T) {
 	require.Equal(t, "linux/amd64", h.Get("X-Amz-Meta-Target"))
 }
 
-func TestS3Backend_PutNoVersionWhenEmpty(t *testing.T) {
+func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
 	headers := map[string]http.Header{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PUT" {
@@ -226,7 +226,7 @@ func TestS3Backend_PutNoVersionWhenEmpty(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b, err := NewS3Backend(S3Config{
+	b, err := NewWebBackend(WebConfig{
 		Bucket: "testbucket", Endpoint: srv.URL,
 		AccessKey: "testkey", SecretKey: "testsecret",
 		// Version intentionally empty.
@@ -240,13 +240,13 @@ func TestS3Backend_PutNoVersionWhenEmpty(t *testing.T) {
 	require.Empty(t, h.Get("X-Amz-Meta-Toolchain-Version"))
 }
 
-func TestS3Backend_GetMiss(t *testing.T) {
+func TestWebBackend_GetMiss(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 	}))
 	defer srv.Close()
 
-	b, err := NewS3Backend(S3Config{
+	b, err := NewWebBackend(WebConfig{
 		Bucket: "testbucket", Endpoint: srv.URL,
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
@@ -257,7 +257,7 @@ func TestS3Backend_GetMiss(t *testing.T) {
 	require.True(t, miss)
 }
 
-func TestS3Backend_GetMissingMetadata(t *testing.T) {
+func TestWebBackend_GetMissingMetadata(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return 200 but no outputid metadata.
 		w.WriteHeader(200)
@@ -265,7 +265,7 @@ func TestS3Backend_GetMissingMetadata(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b, err := NewS3Backend(S3Config{
+	b, err := NewWebBackend(WebConfig{
 		Bucket: "testbucket", Endpoint: srv.URL,
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
@@ -275,14 +275,14 @@ func TestS3Backend_GetMissingMetadata(t *testing.T) {
 	require.True(t, miss)
 }
 
-func TestS3Backend_PutServerError(t *testing.T) {
+func TestWebBackend_PutServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		w.Write([]byte("internal error"))
 	}))
 	defer srv.Close()
 
-	b, err := NewS3Backend(S3Config{
+	b, err := NewWebBackend(WebConfig{
 		Bucket: "testbucket", Endpoint: srv.URL,
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
@@ -294,7 +294,7 @@ func TestS3Backend_PutServerError(t *testing.T) {
 }
 
 func TestSignRequest_BasicAuth(t *testing.T) {
-	b := &S3Backend{
+	b := &WebBackend{
 		accessKey: "AKID",
 		secretKey: "secret",
 	}
@@ -309,7 +309,7 @@ func TestSignRequest_BasicAuth(t *testing.T) {
 	require.Equal(t, "AKID:secret", string(decoded))
 }
 
-func TestNewS3Backend_EndpointSchemeNormalization(t *testing.T) {
+func TestNewWebBackend_EndpointSchemeNormalization(t *testing.T) {
 	tests := []struct {
 		name     string
 		endpoint string
@@ -322,7 +322,7 @@ func TestNewS3Backend_EndpointSchemeNormalization(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b, err := NewS3Backend(S3Config{
+			b, err := NewWebBackend(WebConfig{
 				Bucket: "test", Endpoint: tt.endpoint,
 				AccessKey: "key", SecretKey: "secret",
 			})

@@ -30,26 +30,26 @@ type buildCacheConfig struct {
 	AccessKey string `json:"access_key"`
 }
 
-// parseBuildCacheConfig reads S3 cache configuration from GO_BUILDCACHE_CONFIG
+// parseBuildCacheConfig reads web cache configuration from GO_BUILDCACHE_CONFIG
 // (base64-encoded JSON) or falls back to individual env vars.
-func parseBuildCacheConfig() cache.S3Config {
+func parseBuildCacheConfig() cache.WebConfig {
 	raw := os.Getenv("GO_BUILDCACHE_CONFIG")
 	if raw == "" {
-		return cache.S3Config{}
+		return cache.WebConfig{}
 	}
 	data, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return cache.S3Config{}
+		return cache.WebConfig{}
 	}
 	var cfg buildCacheConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cache.S3Config{}
+		return cache.WebConfig{}
 	}
 	bucket := cfg.Bucket
 	if bucket == "" {
 		bucket = "gobuildcache"
 	}
-	return cache.S3Config{
+	return cache.WebConfig{
 		Bucket:    bucket,
 		Endpoint:  cfg.Endpoint,
 		AccessKey: cfg.KeyID,
@@ -60,7 +60,7 @@ func parseBuildCacheConfig() cache.S3Config {
 
 func runCacheProg(cmd *cobra.Command, args []string) error {
 	// Fast path: if a cache daemon is running, proxy to it.
-	// This avoids re-loading the S3 index for every go subprocess.
+	// This avoids re-loading the web index for every go subprocess.
 	if sock := os.Getenv("GOCACHE_DAEMON_SOCK"); sock != "" {
 		if err := cache.ProxyToDaemon(sock); err == nil {
 			return nil
@@ -78,16 +78,16 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	var remote cache.IBackend
 	cfg := parseBuildCacheConfig()
 	{
-		s3, err := cache.NewS3Backend(cfg)
+		web, err := cache.NewWebBackend(cfg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: s3 init error: %v (continuing local-only)\n", err)
-		} else if s3 != nil {
+			fmt.Fprintf(os.Stderr, "cacheprog: web init error: %v (continuing local-only)\n", err)
+		} else if web != nil {
 			endpoint := cfg.Endpoint
 			if endpoint == "" {
-				endpoint = "AWS"
+				endpoint = "(default)"
 			}
-			fmt.Fprintf(os.Stderr, "cacheprog: s3 enabled bucket=%s endpoint=%s\n", cfg.Bucket, endpoint)
-			remote = s3
+			fmt.Fprintf(os.Stderr, "cacheprog: web enabled bucket=%s endpoint=%s\n", cfg.Bucket, endpoint)
+			remote = web
 		}
 	}
 
@@ -124,7 +124,7 @@ var statsListener *cache.StatsListener
 
 // cacheDaemon is the shared cache daemon started by enableCacheProg.
 // It serves GOCACHEPROG requests over a Unix socket so child processes
-// don't each re-load the S3 index.
+// don't each re-load the web index.
 var cacheDaemon *cache.Daemon
 
 // cacheEnabled tracks whether enableCacheProg was called (even if setup failed).
@@ -160,7 +160,7 @@ func enableCacheProg() error {
 	statsListener = sl
 	os.Setenv("GOCACHE_STATS_SOCK", sockPath)
 
-	// Start cache daemon so child go processes share a single S3 index.
+	// Start cache daemon so child go processes share a single web index.
 	daemonSock := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-daemon-%d.sock", os.Getpid()))
 	if d, err := startCacheDaemon(daemonSock); err == nil {
 		cacheDaemon = d
@@ -171,7 +171,7 @@ func enableCacheProg() error {
 	return nil
 }
 
-// startCacheDaemon creates a cache daemon with local + S3 backends.
+// startCacheDaemon creates a cache daemon with local + web backends.
 func startCacheDaemon(sockPath string) (*cache.Daemon, error) {
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 	local, err := cache.NewLocalCache(cacheDir)
@@ -180,17 +180,17 @@ func startCacheDaemon(sockPath string) (*cache.Daemon, error) {
 	}
 
 	var remote cache.IBackend
-	s3, err := cache.NewS3Backend(parseBuildCacheConfig())
+	web, err := cache.NewWebBackend(parseBuildCacheConfig())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: daemon s3 error: %v (continuing local-only)\n", err)
-	} else if s3 != nil {
-		remote = s3
+		fmt.Fprintf(os.Stderr, "cacheprog: daemon web error: %v (continuing local-only)\n", err)
+	} else if web != nil {
+		remote = web
 	}
 
 	return cache.NewDaemon(sockPath, local, remote)
 }
 
-// validateCICacheConfig checks that S3 caching env vars are configured when
+// validateCICacheConfig checks that web caching env vars are configured when
 // running in CI. Returns an error if any are missing, unless
 // GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 is set (downgrades to warning).
 func validateCICacheConfig() error {

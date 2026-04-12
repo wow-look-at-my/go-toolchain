@@ -21,18 +21,18 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// S3Config holds the configuration for an S3-compatible backend.
-type S3Config struct {
+// WebConfig holds the configuration for a web cache backend.
+type WebConfig struct {
 	Bucket    string // Required. Empty bucket disables the backend.
-	Endpoint  string // S3 endpoint URL (e.g. "https://s3.pazer.io"). Required.
+	Endpoint  string // Endpoint URL (e.g. "https://cache.example.com"). Required.
 	Prefix    string // Key prefix (defaults to "go-buildcache/").
-	AccessKey string // S3 access key ID (used as Basic Auth username)
-	SecretKey string // S3 secret access key (used as Basic Auth password)
+	AccessKey string // Basic Auth username
+	SecretKey string // Basic Auth password
 	Version   string // go-toolchain version, stored as object metadata
 }
 
-// S3Backend stores cache objects in an S3-compatible bucket with LZ4 compression.
-type S3Backend struct {
+// WebBackend stores cache objects in a remote web server with LZ4 compression.
+type WebBackend struct {
 	client    *http.Client
 	bucket    string
 	prefix    string
@@ -45,14 +45,14 @@ type S3Backend struct {
 	keys   set.Set[string] // known keys, built from ListObjects on startup
 }
 
-// NewS3Backend creates an S3 backend from the given config.
+// NewWebBackend creates a web backend from the given config.
 // Returns nil if bucket is empty.
-func NewS3Backend(cfg S3Config) (*S3Backend, error) {
+func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	if cfg.Bucket == "" {
 		return nil, nil
 	}
 	if cfg.Endpoint == "" {
-		return nil, fmt.Errorf("s3: endpoint is required")
+		return nil, fmt.Errorf("web: endpoint is required")
 	}
 	prefix := cfg.Prefix
 	if prefix == "" {
@@ -64,7 +64,7 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 	accessKey := cfg.AccessKey
 	secretKey := cfg.SecretKey
 	if accessKey == "" || secretKey == "" {
-		return nil, fmt.Errorf("s3: access key and secret key are required")
+		return nil, fmt.Errorf("web: access key and secret key are required")
 	}
 
 	endpoint := strings.TrimRight(cfg.Endpoint, "/")
@@ -72,7 +72,7 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		endpoint = "https://" + endpoint
 	}
 
-	b := &S3Backend{
+	b := &WebBackend{
 		client:    &http.Client{Timeout: 30 * time.Second},
 		bucket:    cfg.Bucket,
 		prefix:    prefix,
@@ -82,7 +82,7 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		version:   cfg.Version,
 	}
 	b.keys = b.loadOrFetchIndex()
-	fmt.Fprintf(os.Stderr, "cacheprog: s3 index: %d keys\n", b.keys.Len())
+	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
 	return b, nil
 }
 
@@ -90,15 +90,15 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 const indexCacheTTL = 5 * time.Minute
 
 // indexCachePath returns the path for the local index cache file.
-func (b *S3Backend) indexCachePath() string {
+func (b *WebBackend) indexCachePath() string {
 	h := sha256.Sum256([]byte(b.endpoint + "/" + b.bucket + "/" + b.prefix))
-	name := "gocache-s3-index-" + hex.EncodeToString(h[:8]) + ".txt"
+	name := "gocache-web-index-" + hex.EncodeToString(h[:8]) + ".txt"
 	return filepath.Join(os.TempDir(), name)
 }
 
 // loadOrFetchIndex tries to load the key index from a local cache file.
-// If the file is missing or stale, it fetches from S3 and persists the result.
-func (b *S3Backend) loadOrFetchIndex() set.Set[string] {
+// If the file is missing or stale, it fetches from the server and persists the result.
+func (b *WebBackend) loadOrFetchIndex() set.Set[string] {
 	path := b.indexCachePath()
 	if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) < indexCacheTTL {
 		if keys, err := b.readIndexFile(path); err == nil {
@@ -111,7 +111,7 @@ func (b *S3Backend) loadOrFetchIndex() set.Set[string] {
 }
 
 // readIndexFile reads a newline-delimited key list from disk.
-func (b *S3Backend) readIndexFile(path string) (set.Set[string], error) {
+func (b *WebBackend) readIndexFile(path string) (set.Set[string], error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return set.Set[string]{}, err
@@ -128,7 +128,7 @@ func (b *S3Backend) readIndexFile(path string) (set.Set[string], error) {
 }
 
 // writeIndexFile persists the key index as a newline-delimited file.
-func (b *S3Backend) writeIndexFile(path string, keys set.Set[string]) {
+func (b *WebBackend) writeIndexFile(path string, keys set.Set[string]) {
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -143,7 +143,7 @@ func (b *S3Backend) writeIndexFile(path string, keys set.Set[string]) {
 	os.Rename(tmp, path)
 }
 
-// listObjectsResult is the XML response from S3 ListObjectsV2.
+// listObjectsResult is the XML response from ListObjectsV2.
 type listObjectsResult struct {
 	XMLName               xml.Name `xml:"ListBucketResult"`
 	Contents              []struct{ Key string } `xml:"Contents"`
@@ -151,8 +151,8 @@ type listObjectsResult struct {
 	NextContinuationToken string   `xml:"NextContinuationToken"`
 }
 
-// listAllKeys fetches all keys with our prefix from S3 using ListObjectsV2.
-func (b *S3Backend) listAllKeys() set.Set[string] {
+// listAllKeys fetches all keys with our prefix using ListObjectsV2.
+func (b *WebBackend) listAllKeys() set.Set[string] {
 	keys := set.New[string]()
 	continuation := ""
 	for {
@@ -168,18 +168,18 @@ func (b *S3Backend) listAllKeys() set.Set[string] {
 		b.signRequest(req)
 		resp, err := b.client.Do(req)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: %v\n", err)
+			fmt.Fprintf(os.Stderr, "cacheprog: web list: %v\n", err)
 			break
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != 200 {
-			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: HTTP %d: %s\n", resp.StatusCode, body)
+			fmt.Fprintf(os.Stderr, "cacheprog: web list: HTTP %d: %s\n", resp.StatusCode, body)
 			break
 		}
 		var result listObjectsResult
 		if err := xml.Unmarshal(body, &result); err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: s3 list: xml parse: %v\n", err)
+			fmt.Fprintf(os.Stderr, "cacheprog: web list: xml parse: %v\n", err)
 			break
 		}
 		for _, c := range result.Contents {
@@ -193,17 +193,17 @@ func (b *S3Backend) listAllKeys() set.Set[string] {
 	return keys
 }
 
-func (b *S3Backend) key(actionID string) string {
+func (b *WebBackend) key(actionID string) string {
 	return b.prefix + "v1" + actionID
 }
 
-func (b *S3Backend) url(key string) string {
+func (b *WebBackend) url(key string) string {
 	return b.endpoint + "/" + b.bucket + "/" + key
 }
 
-// Get retrieves a cached object from S3. The returned body is decompressed.
+// Get retrieves a cached object. The returned body is decompressed.
 // Returns immediately if the key is not in the index (no network call).
-func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
+func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
 	key := b.key(actionID)
 	b.keysMu.RLock()
 	known := b.keys.Contains(key)
@@ -219,7 +219,7 @@ func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, s
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: s3 get %s: %v\n", actionID[:8], err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -230,27 +230,27 @@ func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, s
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		fmt.Fprintf(os.Stderr, "cacheprog: s3 get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	outputID = resp.Header.Get("X-Amz-Meta-Outputid")
 	if outputID == "" {
 		resp.Body.Close()
-		fmt.Fprintf(os.Stderr, "cacheprog: s3 get %s: missing outputid metadata\n", actionID[:8])
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	compressed, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: s3 get %s: read body: %v\n", actionID[:8], err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	decompressed, err := decompressData(compressed)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: s3 get %s: decompress: %v\n", actionID[:8], err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -265,9 +265,9 @@ func (b *S3Backend) Get(actionID string) (outputID string, body io.ReadCloser, s
 	return outputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), t, false, nil
 }
 
-// Put stores a cached object in S3 with LZ4 compression.
+// Put stores a cached object with LZ4 compression.
 // Skips upload if the key is already in the index.
-func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
+func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
 	key := b.key(actionID)
 
 	// Atomically check-and-claim: if the key is already known (or being
@@ -290,17 +290,17 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 
 	raw, err := io.ReadAll(body)
 	if err != nil {
-		return fmt.Errorf("s3 put read: %w", err)
+		return fmt.Errorf("web put read: %w", err)
 	}
 
 	compressed, err := compressData(raw)
 	if err != nil {
-		return fmt.Errorf("s3 put compress: %w", err)
+		return fmt.Errorf("web put compress: %w", err)
 	}
 
 	req, err := http.NewRequest("PUT", b.url(key), bytes.NewReader(compressed))
 	if err != nil {
-		return fmt.Errorf("s3 put request: %w", err)
+		return fmt.Errorf("web put request: %w", err)
 	}
 	req.ContentLength = int64(len(compressed))
 	req.Header.Set("X-Amz-Meta-Outputid", outputID)
@@ -319,15 +319,15 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: s3 put %s: %v\n", actionID[:8], err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", actionID[:8], err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Fprintf(os.Stderr, "cacheprog: s3 put %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
-		return fmt.Errorf("s3 put: HTTP %d", resp.StatusCode)
+		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
+		return fmt.Errorf("web put: HTTP %d", resp.StatusCode)
 	}
 
 	uploaded = true
@@ -337,19 +337,19 @@ func (b *S3Backend) Put(actionID, outputID string, body io.Reader, bodySize int6
 
 // removeClaimed removes a key that was optimistically added to the index
 // when the upload fails, so it can be retried on the next attempt.
-func (b *S3Backend) removeClaimed(key string) {
+func (b *WebBackend) removeClaimed(key string) {
 	b.keysMu.Lock()
 	b.keys.Remove(key)
 	b.keysMu.Unlock()
 }
 
-// Close is a no-op for S3.
-func (b *S3Backend) Close() error { return nil }
+// Close is a no-op for the web backend.
+func (b *WebBackend) Close() error { return nil }
 
-func (b *S3Backend) GetStats() *CacheStats { return &b.Stats }
+func (b *WebBackend) GetStats() *CacheStats { return &b.Stats }
 
 // signRequest authenticates an HTTP request using HTTP Basic Auth.
-func (b *S3Backend) signRequest(req *http.Request) {
+func (b *WebBackend) signRequest(req *http.Request) {
 	req.SetBasicAuth(b.accessKey, b.secretKey)
 }
 

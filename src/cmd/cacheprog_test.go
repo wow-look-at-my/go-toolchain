@@ -164,7 +164,7 @@ func TestParseBuildCacheConfig_Unified(t *testing.T) {
 	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{
+	assert.Equal(t, cache.WebConfig{
 		Endpoint:  "s3.example.com",
 		Bucket:    "mybucket",
 		AccessKey: "AKID",
@@ -187,5 +187,5 @@ func TestParseBuildCacheConfig_NotSet(t *testing.T) {
 	defer saveCacheEnv(t)()
 
 	cfg := parseBuildCacheConfig()
-	assert.Equal(t, cache.S3Config{}, cfg)
+	assert.Equal(t, cache.WebConfig{}, cfg)
 }
