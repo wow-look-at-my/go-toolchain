@@ -93,6 +93,7 @@ func parseProxyConfig() *proxyConfig {
 }
 
 // writeNetrc appends a machine entry for host to ~/.netrc.
+// Writes to a temp file then atomically renames to avoid partial reads.
 func writeNetrc(host, user, password string) {
 	if host == "" || user == "" || password == "" {
 		return
@@ -108,19 +109,33 @@ func writeNetrc(host, user, password string) {
 	if strings.Contains(string(existing), "machine "+host) {
 		return
 	}
-	entry := fmt.Sprintf("\nmachine %s login %s password %s\n", host, user, password)
-	f, err := os.OpenFile(netrcPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	newContent := string(existing) + fmt.Sprintf("\nmachine %s login %s password %s\n", host, user, password)
+	tmp, err := os.CreateTemp(home, ".netrc-tmp-*")
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "proxy: netrc tmp: %v\n", err)
+		return
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.WriteString(newContent); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
 		fmt.Fprintf(os.Stderr, "proxy: netrc write: %v\n", err)
 		return
 	}
-	defer func() {
-		if err := f.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "proxy: netrc close: %v\n", err)
-		}
-	}()
-	if _, err := f.WriteString(entry); err != nil {
-		fmt.Fprintf(os.Stderr, "proxy: netrc write: %v\n", err)
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		fmt.Fprintf(os.Stderr, "proxy: netrc chmod: %v\n", err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		fmt.Fprintf(os.Stderr, "proxy: netrc close: %v\n", err)
+		return
+	}
+	if err := os.Rename(tmpPath, netrcPath); err != nil {
+		os.Remove(tmpPath)
+		fmt.Fprintf(os.Stderr, "proxy: netrc rename: %v\n", err)
 	}
 }
 
