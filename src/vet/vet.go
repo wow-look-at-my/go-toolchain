@@ -307,17 +307,25 @@ type packageTiming struct {
 	Duration   time.Duration
 }
 
-// precompileDeps runs "go list -json -export -deps -test" to pre-warm the
-// build cache. It streams JSON output and measures the approximate time
-// between consecutive packages, returning per-package timing data.
+// precompileDeps runs "go build -v" to pre-warm the build cache with
+// per-package progress output, then "go list -json -export -deps -test"
+// (fast on warm cache) to collect timing data.
 // On any error it returns nil (best-effort).
 func precompileDeps(pattern string) []packageTiming {
+	// Phase 1: compile all packages with per-package progress.
+	// "go build -v" prints each package name to stderr as it compiles.
+	buildCmd := exec.Command("go", "build", "-v", pattern)
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	_ = buildCmd.Run() // best-effort; errors are fine (test-only packages fail to build)
+
+	// Phase 2: collect per-package timing data (fast since cache is warm).
 	cmd := exec.Command("go", "list", "-json", "-export", "-deps", "-test", pattern)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil
 	}
-	cmd.Stderr = os.Stderr // surface download/resolution messages
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return nil
 	}
@@ -325,7 +333,6 @@ func precompileDeps(pattern string) []packageTiming {
 	decoder := json.NewDecoder(stdout)
 	var timings []packageTiming
 	last := time.Now()
-	lastProgress := time.Now()
 
 	for decoder.More() {
 		var pkg struct {
@@ -340,11 +347,6 @@ func precompileDeps(pattern string) []packageTiming {
 			Duration:   now.Sub(last),
 		})
 		last = now
-
-		if now.Sub(lastProgress) >= 4*time.Second {
-			fmt.Fprintf(os.Stderr, "        compiled %d packages...\n", len(timings))
-			lastProgress = now
-		}
 	}
 
 	_ = cmd.Wait()
