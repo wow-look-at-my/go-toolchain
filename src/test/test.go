@@ -36,18 +36,40 @@ func shortPkg(pkg string) string {
 
 // coverageHandler extracts coverage percentages from test output events
 type coverageHandler struct {
-	coverage    map[string]float32
-	verbose     bool
-	out         io.Writer
-	testOutput  map[string][]string // buffer output per test/package until we know pass/fail
-	failedTest  map[string]bool     // tests/packages that failed
-	timedOut    map[string]bool     // tests that timed out
-	onOutput    func()              // called before the first visible output
-	stderrLines []string            // build errors and panics from stderr
-	testCases   []TestCaseResult    // per-test results for CI summary
+	coverage       map[string]float32
+	verbose        bool
+	out            io.Writer
+	testOutput     map[string][]string // buffer output per test/package until we know pass/fail
+	failedTest     map[string]bool     // tests/packages that failed
+	timedOut       map[string]bool     // tests that timed out
+	onOutput       func()              // called before the first visible output
+	stderrLines    []string            // build errors and panics from stderr
+	testCases      []TestCaseResult    // per-test results for CI summary
+	packageStart   map[string]time.Time // first event time per package
+	packageTimings []PackageTiming      // per-package wall-clock timings
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
+	// Track per-package start time from the first event we see for each package
+	if event.Package != "" && h.packageStart != nil {
+		if _, seen := h.packageStart[event.Package]; !seen {
+			h.packageStart[event.Package] = event.Time
+		}
+	}
+
+	// Record per-package timing on package-level terminal events
+	if event.Package != "" && event.Test == "" && event.Action.IsTerminal() {
+		if start, ok := h.packageStart[event.Package]; ok {
+			end := start.Add(time.Duration(event.Elapsed * float64(time.Second)))
+			h.packageTimings = append(h.packageTimings, PackageTiming{
+				Package: event.Package,
+				Start:   start,
+				End:     end,
+				Failed:  event.Action == testjson.ActionFail,
+			})
+		}
+	}
+
 	if event.Action == testjson.ActionOutput && event.Output != "" {
 		if h.verbose {
 			fmt.Print(event.Output)
@@ -168,11 +190,20 @@ type TestCaseResult struct {
 	Elapsed float64 // seconds
 }
 
+// PackageTiming records the wall-clock start and end time of a test package's execution.
+type PackageTiming struct {
+	Package string
+	Start   time.Time
+	End     time.Time
+	Failed  bool
+}
+
 // TestResult contains the results of running tests
 type TestResult struct {
-	Coverage      Report
-	FailureOutput string
-	TestCases     []TestCaseResult
+	Coverage       Report
+	FailureOutput  string
+	TestCases      []TestCaseResult
+	PackageTimings []PackageTiming
 }
 
 // readModulePath reads the module path from go.mod in the current directory.
@@ -247,12 +278,9 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// Enumerate only packages that have test files to avoid the "no such tool
 	// covdata" error on main packages without tests. Also excludes packages
 	// where all non-test .go files are generated code (e.g. sqlc output).
-	//
-	// Use -p 1 to serialize test execution, preventing Go 1.25's race condition
-	// in multi-package -coverprofile merging.
 	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
 	if coverFile != "" {
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-p", "1")
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	if pkgs := listTestPackages(r); len(pkgs) > 0 {
 		args = append(args, pkgs...)
@@ -270,13 +298,14 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// Parse test output using testjson
 	pkgCoverage := make(map[string]float32)
 	handler := &coverageHandler{
-		coverage:   pkgCoverage,
-		verbose:    verbose,
-		out:        os.Stdout,
-		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
-		onOutput:   onOutput,
+		coverage:     pkgCoverage,
+		verbose:      verbose,
+		out:          os.Stdout,
+		testOutput:   make(map[string][]string),
+		failedTest:   make(map[string]bool),
+		timedOut:     make(map[string]bool),
+		onOutput:     onOutput,
+		packageStart: make(map[string]time.Time),
 	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{
@@ -426,7 +455,8 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 			Packages: packages,
 			Files:    files,
 		},
-		FailureOutput: handler.FailureOutput(),
-		TestCases:     handler.testCases,
+		FailureOutput:  handler.FailureOutput(),
+		TestCases:      handler.testCases,
+		PackageTimings: handler.packageTimings,
 	}, waitErr
 }

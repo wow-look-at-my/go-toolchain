@@ -214,6 +214,17 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		return err
 	}
 
+	// Record per-package test timings to the pipeline timeline
+	if testResult != nil && pipelineTimeline != nil {
+		for _, pt := range testResult.PackageTimings {
+			label := pt.Package
+			if i := strings.LastIndex(label, "/"); i >= 0 {
+				label = label[i+1:]
+			}
+			pipelineTimeline.Record(label, "main", pt.Start, pt.End, pt.Failed)
+		}
+	}
+
 	// If vet applied fixes, re-run tests with the corrected code
 	if !isRetry && filesChanged {
 		fmt.Println("\n==> Files changed, rebuilding...")
