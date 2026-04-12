@@ -40,10 +40,20 @@ func parseBuildCacheConfig() cache.S3Config {
 	}
 	data, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: base64 decode error: %v\n", err)
 		return cache.S3Config{}
 	}
 	var cfg buildCacheConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: json unmarshal error: %v\n", err)
+		return cache.S3Config{}
+	}
+	if cfg.Endpoint == "" {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing endpoint field\n")
+		return cache.S3Config{}
+	}
+	if cfg.KeyID == "" || cfg.AccessKey == "" {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing key_id or access_key\n")
 		return cache.S3Config{}
 	}
 	bucket := cfg.Bucket
@@ -164,9 +174,18 @@ func enableCacheProg() error {
 
 	// Start cache daemon so child go processes share a single S3 index.
 	daemonSock := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-daemon-%d.sock", os.Getpid()))
-	if d, err := startCacheDaemon(daemonSock); err == nil {
-		cacheDaemon = d
-		os.Setenv("GOCACHE_DAEMON_SOCK", daemonSock)
+	d, remoteEndpoint, err := startCacheDaemon(daemonSock)
+	if err != nil {
+		cacheSetupErr = fmt.Errorf("cache daemon: %w", err)
+		return nil
+	}
+	cacheDaemon = d
+	os.Setenv("GOCACHE_DAEMON_SOCK", daemonSock)
+	if remoteEndpoint != "" {
+		sl.SetHasRemote()
+		fmt.Fprintf(os.Stderr, "cacheprog: remote enabled endpoint=%s\n", remoteEndpoint)
+	} else {
+		fmt.Fprintf(os.Stderr, "cacheprog: local only\n")
 	}
 
 	os.Setenv("GOCACHEPROG", exe+" cacheprog")
@@ -174,22 +193,32 @@ func enableCacheProg() error {
 }
 
 // startCacheDaemon creates a cache daemon with local + S3 backends.
-func startCacheDaemon(sockPath string) (*cache.Daemon, error) {
+// Returns the daemon, the remote endpoint (empty if no remote), and any error.
+func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 	local, err := cache.NewLocalCache(cacheDir)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
+	cfg := parseBuildCacheConfig()
 	var remote cache.IBackend
-	s3, err := cache.NewS3Backend(parseBuildCacheConfig())
+	s3, err := cache.NewS3Backend(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: daemon s3 error: %v (continuing local-only)\n", err)
 	} else if s3 != nil {
 		remote = s3
 	}
 
-	return cache.NewDaemon(sockPath, local, remote)
+	d, err := cache.NewDaemon(sockPath, local, remote)
+	if err != nil {
+		return nil, "", err
+	}
+	endpoint := ""
+	if remote != nil {
+		endpoint = cfg.Endpoint
+	}
+	return d, endpoint, nil
 }
 
 // validateCICacheConfig checks that S3 caching env vars are configured when

@@ -145,13 +145,20 @@ func (s *Server) GetStats() *ServerStats {
 // StatsListener listens on a unix domain socket and aggregates streaming
 // stat events from all cacheprog subprocesses in real-time.
 type StatsListener struct {
-	listener net.Listener
-	path     string
-	local    CacheStats
-	remote   CacheStats
-	misses   AtomicCounter
-	hasRemote atomic.Bool
-	wg       sync.WaitGroup
+	listener  net.Listener
+	path      string
+	local     CacheStats
+	remote    CacheStats
+	misses    AtomicCounter
+	hasRemote atomic.Bool // true if a remote backend was configured (set by caller)
+	wg        sync.WaitGroup
+}
+
+// SetHasRemote marks the listener as having a remote backend configured.
+// This controls whether Stats() includes the Remote field, regardless of
+// whether any remote events have actually been received yet.
+func (sl *StatsListener) SetHasRemote() {
+	sl.hasRemote.Store(true)
 }
 
 // NewStatsListener creates a unix socket and starts accepting connections.
