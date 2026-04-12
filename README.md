@@ -19,7 +19,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
 - **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, benchmark comparisons, and a Mermaid Gantt chart of the pipeline timeline when running in GitHub Actions
-- **Web-backed build cache** — GOCACHEPROG protocol server with local and web backends for shared build caching across CI runs (Go 1.24+). Small entries (< 64 KB) are batched into tar+lz4 archives to reduce HTTP requests by 10-50x
+- **Web-backed build cache** — GOCACHEPROG protocol server with local and web backends for shared build caching across CI runs (Go 1.24+). Uses server-side batch GET with prefetch: the server returns requested entries plus temporally related entries from the same build, proactively populating the local cache
 - **Vanity URL resolution** — automatically detects and resolves vanity-URL module dependencies via Go proxy or go-import meta tags
 - **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) to configure proxy URL, credentials (via ~/.netrc), and sumdb key automatically
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
@@ -214,7 +214,7 @@ Failed steps are marked with error status. Resource attributes include `github.s
 6. Runs `go vet` with auto-fix (on non-CI systems)
 7. Checks for near-duplicate code blocks (warnings only)
 8. Checks file lengths (warns at 500 lines, errors at 750)
-9. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). Small entries (< 64 KB) are batched into tar+lz4 archives and uploaded as a single HTTP request, reducing S3 operations by 10-50x compared to per-file uploads. Batches are flushed when they reach 1 MB, 100 entries, or 5 seconds since the first buffered entry. Large entries (>= 64 KB) are uploaded individually with LZ4 compression. Each individual object is tagged with metadata headers describing what it is:
+9. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). Cache misses use the server's batch GET endpoint with prefetch — the server returns the requested entry plus temporally related entries from the same build, proactively populating the local cache. PUTs upload entries individually with LZ4 compression. Each object is tagged with metadata headers describing what it is:
    - `Object-Type` — file type detected from magic bytes (`go-archive`, `elf-binary`, `macho-binary`, `pe-binary`, `go-object`, or `unknown`)
    - `Go-Version` — the Go compiler version that produced the artifact (e.g. `go1.24.7`), extracted from Go archive headers
    - `Target` — the target platform (e.g. `linux/amd64`), extracted from Go archive headers

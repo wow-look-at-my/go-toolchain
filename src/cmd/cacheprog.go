@@ -252,10 +252,9 @@ func printCacheStats(close bool) {
 		parts = append(parts, fmt.Sprintf("(%.0f%% hit)", rate))
 	}
 	if stats.Batch != nil {
-		flushes := stats.Batch.Flushes.Load()
 		populated := stats.Batch.Populated.Load()
-		if flushes > 0 || populated > 0 {
-			parts = append(parts, fmt.Sprintf("batch: %d flushed, %d prefetched", flushes, populated))
+		if populated > 0 {
+			parts = append(parts, fmt.Sprintf("prefetched %d", populated))
 		}
 	}
 

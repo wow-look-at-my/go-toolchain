@@ -66,11 +66,6 @@ func NewDaemon(sockPath string, local *LocalCache, remote IBackend) (*Daemon, er
 	return d, nil
 }
 
-func (d *Daemon) recordBatchFlush() {
-	d.batch.Flushes.Increment()
-	d.sendStat(StatEvent{BatchFlush: 1})
-}
-
 func (d *Daemon) recordBatchPop(n uint32) {
 	d.batch.Populated.Add(n)
 	d.sendStat(StatEvent{BatchPop: n})
@@ -110,13 +105,12 @@ func (d *Daemon) handleConn(conn net.Conn) {
 	srv.Run(conn, conn)
 }
 
-// Close stops the daemon, waits for connections to drain, flushes the
-// remote backend (including any buffered batch entries), and cleans up.
+// Close stops the daemon, waits for connections to drain, and cleans up.
 func (d *Daemon) Close() {
 	d.listener.Close()
 	d.wg.Wait()
 	if d.remote != nil {
-		d.remote.Close() // flushes batch buffer, triggers OnBatchFlush
+		d.remote.Close()
 	}
 	// Close the stats connection AFTER remote.Close() so that batch flush
 	// stat events are sent before the connection is torn down.

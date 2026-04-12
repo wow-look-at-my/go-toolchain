@@ -60,8 +60,7 @@ type StatEvent struct {
 	RemoteHit  uint32 `json:"rh,omitempty"`
 	RemotePut  uint32 `json:"rp,omitempty"`
 	Miss       uint32 `json:"m,omitempty"`
-	BatchFlush uint32 `json:"bf,omitempty"` // batch archives uploaded
-	BatchPop   uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch
+	BatchPop uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch GET
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 }
@@ -121,19 +120,25 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 	return s
 }
 
-// wireBatchCallbacks sets up the OnBatchFlush and OnBatchEntries callbacks
-// on a WebBackend. The stats sink receives stat events for aggregation.
+// wireBatchCallbacks sets up the OnBatchEntries callback on a WebBackend.
+// When a batch GET returns prefetch entries, this callback writes them to
+// the local cache so future GETs hit locally.
 func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
-	wb.OnBatchFlush = func(entries int) {
-		sink.recordBatchFlush()
-	}
-	wb.OnBatchEntries = func(entries []extractedEntry) {
+	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
 		for _, e := range entries {
-			if _, miss := local.Get(e.ActionID); !miss {
+			if e.OutputID == "" {
+				continue
+			}
+			if _, miss := local.Get(e.Key); !miss {
 				continue // already cached
 			}
-			local.Put(e.ActionID, e.OutputID, bytes.NewReader(e.Data))
+			// The data from the server is LZ4-compressed (same as individual GETs).
+			decompressed, err := decompressData(e.Data)
+			if err != nil {
+				continue
+			}
+			local.Put(e.Key, e.OutputID, bytes.NewReader(decompressed))
 			populated++
 		}
 		if populated > 0 {
@@ -145,13 +150,7 @@ func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
 // statsSink abstracts stat recording so batch callbacks can be wired to
 // either a per-connection Server or a long-lived Daemon stats connection.
 type statsSink interface {
-	recordBatchFlush()
 	recordBatchPop(n uint32)
-}
-
-func (s *Server) recordBatchFlush() {
-	s.batch.Flushes.Increment()
-	s.sendStat(StatEvent{BatchFlush: 1})
 }
 
 func (s *Server) recordBatchPop(n uint32) {
@@ -188,9 +187,8 @@ func (s *Server) closeStats() {
 	}
 }
 
-// BatchStats tracks batch-specific metrics.
+// BatchStats tracks batch GET prefetch metrics.
 type BatchStats struct {
-	Flushes   AtomicCounter `json:"flushes"`   // batch archives uploaded
 	Populated AtomicCounter `json:"populated"` // entries prefetched into local cache
 }
 
@@ -283,10 +281,6 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 		}
 		if ev.Miss > 0 {
 			sl.misses.Add(ev.Miss)
-		}
-		if ev.BatchFlush > 0 {
-			sl.hasBatch.Store(true)
-			sl.batch.Flushes.Add(ev.BatchFlush)
 		}
 		if ev.BatchPop > 0 {
 			sl.hasBatch.Store(true)
