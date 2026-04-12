@@ -266,6 +266,8 @@ func printCacheStats(close bool) {
 			{"local get", snap.LocalGet},
 			{"local put", snap.LocalPut},
 			{"remote get", snap.RemoteGet},
+			{"  http get", snap.HTTPGet},
+			{"  decomp", snap.Decompress},
 			{"remote put", snap.RemotePut},
 			{"  sem wait", snap.SemWait},
 			{"  compress", snap.Compress},

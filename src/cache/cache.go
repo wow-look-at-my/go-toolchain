@@ -390,7 +390,6 @@ func (s *Server) handleGet(req Request) Response {
 
 	remoteStart := time.Now()
 	outputID, body, _, t, remoteMiss, err := s.remote.Get(actionID)
-	s.Latency.RemoteGet.Record(time.Since(remoteStart))
 
 	if err != nil || remoteMiss {
 		s.Misses.Increment()
@@ -404,6 +403,7 @@ func (s *Server) handleGet(req Request) Response {
 		}
 		return Response{ID: req.ID, Miss: true}
 	}
+	s.Latency.RemoteGet.Record(time.Since(remoteStart))
 	s.sendStat(StatEvent{RemoteHit: 1})
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "cache: HIT remote %s\n", actionID)

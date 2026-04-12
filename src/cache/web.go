@@ -257,6 +257,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	}
 	b.signRequest(req)
 
+	httpStart := time.Now()
 	resp, err := b.client.Do(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
@@ -287,8 +288,15 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
+	if b.Latency != nil {
+		b.Latency.HTTPGet.Record(time.Since(httpStart))
+	}
 
+	decompressStart := time.Now()
 	decompressed, err := decompressData(compressed)
+	if b.Latency != nil {
+		b.Latency.Decompress.Record(time.Since(decompressStart))
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
