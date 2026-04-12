@@ -40,7 +40,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, profile, profile open, install, update, version, release, ignore/unignore, cacheprog) using Cobra
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via `go list`
-- `src/cache/` — GOCACHEPROG protocol server with local and S3 backends
+- `src/cache/` — GOCACHEPROG protocol server with local and web backends
 - `src/trace/` — OpenTelemetry trace export for build pipeline timings
 - `src/vet/` — custom vet checks (assert normalization, unused imports)
 - `tests/` — BATS integration tests
