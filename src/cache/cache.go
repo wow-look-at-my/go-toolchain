@@ -252,6 +252,11 @@ func (sl *StatsListener) Stats() *ServerStats {
 // Run starts the protocol loop, reading requests from r and writing
 // responses to w. It blocks until the input stream closes or a close
 // command is received.
+//
+// GET requests are dispatched to goroutines and processed concurrently.
+// The GOCACHEPROG protocol allows out-of-order responses — each response
+// carries the request ID and the Go toolchain matches them via a map of
+// per-request channels (see cmd/go/internal/cache/prog.go).
 func (s *Server) Run(r io.Reader, w io.Writer) error {
 	// Handshake: announce supported commands.
 	enc := json.NewEncoder(w)
@@ -264,9 +269,17 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 
+	// Thread-safe response writer — multiple goroutines may respond
+	// concurrently for parallel GETs.
+	var writeMu sync.Mutex
 	writeResp := func(resp Response) {
+		writeMu.Lock()
 		enc.Encode(resp)
+		writeMu.Unlock()
 	}
+
+	// Track in-flight GET goroutines so we can drain them on close.
+	var getWg sync.WaitGroup
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -281,6 +294,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 
 		switch req.Command {
 		case CmdClose:
+			getWg.Wait() // drain in-flight GETs
 			writeResp(Response{ID: req.ID})
 			s.wg.Wait() // drain in-flight remote puts
 			if s.remote != nil {
@@ -292,6 +306,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 
 		case CmdPut:
 			// PUT body follows on the next non-empty line as base64.
+			// Body must be read synchronously before the next request.
 			// Go <=1.24: JSON string literal (quoted base64)
 			// Go >=1.25: raw base64 (unquoted)
 			if req.BodySize > 0 {
@@ -318,11 +333,16 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 			writeResp(s.handlePut(req))
 
 		case CmdGet:
-			writeResp(s.handleGet(req))
+			getWg.Add(1)
+			go func() {
+				defer getWg.Done()
+				writeResp(s.handleGet(req))
+			}()
 		}
 	}
 
-	// Input closed without explicit close command — still drain async puts.
+	// Input closed without explicit close command — still drain.
+	getWg.Wait()
 	s.wg.Wait()
 	if s.remote != nil {
 		s.remote.Close()
