@@ -21,7 +21,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, benchmark comparisons, and a Mermaid Gantt chart of the pipeline timeline when running in GitHub Actions
 - **Web-backed build cache** — GOCACHEPROG protocol server with local and web backends for shared build caching across CI runs (Go 1.24+). Small entries (< 64 KB) are batched into tar+lz4 archives to reduce HTTP requests by 10-50x
 - **Vanity URL resolution** — automatically detects and resolves vanity-URL module dependencies via Go proxy or go-import meta tags
-- **Go proxy/sumdb support** — configures pazer.io proxy and sumdb endpoints with automatic environment variable normalization
+- **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) to configure proxy URL, credentials (via ~/.netrc), and sumdb key automatically
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
 
@@ -206,7 +206,7 @@ Failed steps are marked with error status. Resource attributes include `github.s
 
 ## How It Works
 
-1. Configures Go proxy and sumdb environment (pazer.io support)
+1. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
 2. Checks for outdated dependencies (auto-updates same-org deps)
 3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts)
 4. Runs `go mod tidy`
