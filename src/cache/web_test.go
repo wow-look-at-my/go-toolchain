@@ -409,6 +409,54 @@ func TestParseArchiveHeader(t *testing.T) {
 	}
 }
 
+func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+	}{
+		{"301", http.StatusMovedPermanently},
+		{"302", http.StatusFound},
+		{"307", http.StatusTemporaryRedirect},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotMethod string
+			var gotBody []byte
+			var gotAuth string
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/testbucket/go-buildcache/v1aabbccdd11223344" {
+					// First request: redirect to /final.
+					http.Redirect(w, r, "/final", tt.status)
+					return
+				}
+				if r.URL.Path == "/final" {
+					gotMethod = r.Method
+					gotBody, _ = io.ReadAll(r.Body)
+					gotAuth = r.Header.Get("Authorization")
+					w.WriteHeader(200)
+					return
+				}
+				w.WriteHeader(404)
+			}))
+			defer srv.Close()
+
+			b, err := NewWebBackend(WebConfig{
+				Bucket: "testbucket", Endpoint: srv.URL,
+				AccessKey: "testkey", SecretKey: "testsecret",
+			})
+			require.NoError(t, err)
+
+			err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("hello"), 5)
+			require.NoError(t, err)
+			require.Equal(t, "PUT", gotMethod, "redirect should preserve PUT method")
+			require.NotEmpty(t, gotBody, "redirect should preserve request body")
+			require.NotEmpty(t, gotAuth, "redirect should preserve Authorization header")
+			require.Equal(t, uint32(1), b.Stats.Puts.Load())
+		})
+	}
+}
+
 func nopReader(s string) io.Reader {
 	return strings.NewReader(s)
 }
