@@ -1,7 +1,6 @@
 package vet
 
 import (
-	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -129,45 +128,10 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		}
 	}
 
-	// Phase 1: enumerate packages
-	report("list packages")
-	listCmd := exec.Command("go", "list", pattern)
-	listOut, _ := listCmd.Output()
-	var ownPkgs []string
-	if len(listOut) > 0 {
-		ownPkgs = strings.Split(strings.TrimSpace(string(listOut)), "\n")
-	}
-
-	// Phase 2: compile/export all dependencies (warms build cache for packages.Load)
-	if len(ownPkgs) > 0 {
-		report(fmt.Sprintf("compile %d packages + deps", len(ownPkgs)))
-	} else {
-		report("compile packages + deps")
-	}
-	compileStart := time.Now()
-	depTimings := precompileDeps(pattern)
-	compileDur := time.Since(compileStart)
-
-	// Show per-package breakdown if compilation was slow
-	if compileDur > 5*time.Second && len(depTimings) > 0 {
-		sort.Slice(depTimings, func(i, j int) bool {
-			return depTimings[i].Duration > depTimings[j].Duration
-		})
-		shown := 0
-		for _, t := range depTimings {
-			if shown >= 10 || t.Duration < time.Second {
-				break
-			}
-			fmt.Fprintf(os.Stderr, "        %s %.2fs\n", t.ImportPath, t.Duration.Seconds())
-			shown++
-		}
-		if len(depTimings) > shown {
-			fmt.Fprintf(os.Stderr, "        ... and %d more packages\n", len(depTimings)-shown)
-		}
-	}
-
-	// Phase 3: parse & type-check (should be fast with cached exports)
-	report("parse & type-check")
+	// Load, compile, parse & type-check packages.
+	// packages.Load handles compilation internally, and the ParseFile callback
+	// provides real per-file progress during the parsing phase.
+	report("load & type-check")
 	var parsedFiles syncatomic.Int32
 	var lastParseProgress syncatomic.Int64
 	lastParseProgress.Store(time.Now().UnixNano())
@@ -300,58 +264,6 @@ type Diagnostic struct {
 	Message string
 }
 
-// packageTiming records approximate wall-clock time spent on a package
-// during go list -export -deps.
-type packageTiming struct {
-	ImportPath string
-	Duration   time.Duration
-}
-
-// precompileDeps runs "go build -v" to pre-warm the build cache with
-// per-package progress output, then "go list -json -export -deps -test"
-// (fast on warm cache) to collect timing data.
-// On any error it returns nil (best-effort).
-func precompileDeps(pattern string) []packageTiming {
-	// Phase 1: compile all packages with per-package progress.
-	// "go build -v" prints each package name to stderr as it compiles.
-	buildCmd := exec.Command("go", "build", "-v", pattern)
-	buildCmd.Stdout = os.Stdout
-	buildCmd.Stderr = os.Stderr
-	_ = buildCmd.Run() // best-effort; errors are fine (test-only packages fail to build)
-
-	// Phase 2: collect per-package timing data (fast since cache is warm).
-	cmd := exec.Command("go", "list", "-json", "-export", "-deps", "-test", pattern)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil
-	}
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return nil
-	}
-
-	decoder := json.NewDecoder(stdout)
-	var timings []packageTiming
-	last := time.Now()
-
-	for decoder.More() {
-		var pkg struct {
-			ImportPath string `json:"ImportPath"`
-		}
-		if err := decoder.Decode(&pkg); err != nil {
-			break
-		}
-		now := time.Now()
-		timings = append(timings, packageTiming{
-			ImportPath: pkg.ImportPath,
-			Duration:   now.Sub(last),
-		})
-		last = now
-	}
-
-	_ = cmd.Wait()
-	return timings
-}
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
 // It tries go-git first, falling back to shelling out to git if go-git fails
