@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"encoding/json"
 	"io"
 	"net"
 	"os"
@@ -25,11 +26,16 @@ type Daemon struct {
 	listener net.Listener
 	path     string
 	wg       sync.WaitGroup
+	batch    BatchStats // shared batch stats, reported to parent
+	statsMu  sync.Mutex
+	statsConn net.Conn // persistent connection to parent's stats socket
 }
 
 // NewDaemon creates a cache daemon listening on sockPath.
 // It accepts GOCACHEPROG protocol connections over the Unix socket.
 // Each connection gets its own Server that shares the underlying backends.
+// Batch callbacks are wired once here (not per-connection) with a dedicated
+// stats connection that outlives any individual client connection.
 func NewDaemon(sockPath string, local *LocalCache, remote IBackend) (*Daemon, error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
@@ -45,8 +51,42 @@ func NewDaemon(sockPath string, local *LocalCache, remote IBackend) (*Daemon, er
 	if remote != nil {
 		d.wrapped = &noCloseBackend{remote}
 	}
+	// Connect to the stats socket once for the daemon's lifetime.
+	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
+		if conn, err := net.Dial("unix", sock); err == nil {
+			d.statsConn = conn
+		}
+	}
+	// Wire batch callbacks on the shared WebBackend once, using the
+	// daemon's long-lived stats connection instead of per-connection ones.
+	if wb, ok := remote.(*WebBackend); ok {
+		wireBatchCallbacks(wb, local, d)
+	}
 	go d.accept()
 	return d, nil
+}
+
+func (d *Daemon) recordBatchFlush() {
+	d.batch.Flushes.Increment()
+	d.sendStat(StatEvent{BatchFlush: 1})
+}
+
+func (d *Daemon) recordBatchPop(n uint32) {
+	d.batch.Populated.Add(n)
+	d.sendStat(StatEvent{BatchPop: n})
+}
+
+func (d *Daemon) sendStat(ev StatEvent) {
+	if d.statsConn == nil {
+		return
+	}
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	d.statsMu.Lock()
+	d.statsConn.Write(append(data, '\n'))
+	d.statsMu.Unlock()
 }
 
 func (d *Daemon) accept() {
@@ -70,12 +110,22 @@ func (d *Daemon) handleConn(conn net.Conn) {
 	srv.Run(conn, conn)
 }
 
-// Close stops the daemon, waits for connections to drain, and cleans up.
+// Close stops the daemon, waits for connections to drain, flushes the
+// remote backend (including any buffered batch entries), and cleans up.
 func (d *Daemon) Close() {
 	d.listener.Close()
 	d.wg.Wait()
 	if d.remote != nil {
-		d.remote.Close()
+		d.remote.Close() // flushes batch buffer, triggers OnBatchFlush
+	}
+	// Close the stats connection AFTER remote.Close() so that batch flush
+	// stat events are sent before the connection is torn down.
+	if d.statsConn != nil {
+		if uc, ok := d.statsConn.(*net.UnixConn); ok {
+			uc.CloseWrite()
+		} else {
+			d.statsConn.Close()
+		}
 	}
 	os.Remove(d.path)
 }

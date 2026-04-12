@@ -80,8 +80,10 @@ type Server struct {
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
 // Connects to the stats socket if GOCACHE_STATS_SOCK is set.
-// If the remote is a *WebBackend, sets up proactive local cache population
-// so that batch downloads populate the local cache for all sibling entries.
+//
+// For standalone mode (direct WebBackend), this also wires up batch
+// callbacks. In daemon mode, use Daemon.wireBatchCallbacks instead —
+// callbacks must be set once on the shared WebBackend, not per-connection.
 func NewServer(local *LocalCache, remote IBackend) *Server {
 	s := &Server{
 		local:  local,
@@ -89,33 +91,11 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 		locks:  make(map[string]*sync.Mutex),
 		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
 	}
-	// Wire up batch → local cache population.
-	var wb *WebBackend
-	switch r := remote.(type) {
-	case *WebBackend:
-		wb = r
-	case *noCloseBackend:
-		wb, _ = r.IBackend.(*WebBackend)
-	}
-	if wb != nil {
-		wb.OnBatchFlush = func(entries int) {
-			s.batch.Flushes.Increment()
-			s.sendStat(StatEvent{BatchFlush: 1})
-		}
-		wb.OnBatchEntries = func(entries []extractedEntry) {
-			var populated uint32
-			for _, e := range entries {
-				if _, miss := local.Get(e.ActionID); !miss {
-					continue // already cached
-				}
-				local.Put(e.ActionID, e.OutputID, bytes.NewReader(e.Data))
-				populated++
-			}
-			if populated > 0 {
-				s.batch.Populated.Add(populated)
-				s.sendStat(StatEvent{BatchPop: populated})
-			}
-		}
+	// Wire up batch callbacks for standalone mode (direct WebBackend).
+	// In daemon mode the remote is wrapped in noCloseBackend, so this
+	// type assertion fails and callbacks are set by the Daemon instead.
+	if wb, ok := remote.(*WebBackend); ok {
+		wireBatchCallbacks(wb, local, s)
 	}
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
@@ -124,6 +104,44 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 		}
 	}
 	return s
+}
+
+// wireBatchCallbacks sets up the OnBatchFlush and OnBatchEntries callbacks
+// on a WebBackend. The stats sink receives stat events for aggregation.
+func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
+	wb.OnBatchFlush = func(entries int) {
+		sink.recordBatchFlush()
+	}
+	wb.OnBatchEntries = func(entries []extractedEntry) {
+		var populated uint32
+		for _, e := range entries {
+			if _, miss := local.Get(e.ActionID); !miss {
+				continue // already cached
+			}
+			local.Put(e.ActionID, e.OutputID, bytes.NewReader(e.Data))
+			populated++
+		}
+		if populated > 0 {
+			sink.recordBatchPop(populated)
+		}
+	}
+}
+
+// statsSink abstracts stat recording so batch callbacks can be wired to
+// either a per-connection Server or a long-lived Daemon stats connection.
+type statsSink interface {
+	recordBatchFlush()
+	recordBatchPop(n uint32)
+}
+
+func (s *Server) recordBatchFlush() {
+	s.batch.Flushes.Increment()
+	s.sendStat(StatEvent{BatchFlush: 1})
+}
+
+func (s *Server) recordBatchPop(n uint32) {
+	s.batch.Populated.Add(n)
+	s.sendStat(StatEvent{BatchPop: n})
 }
 
 // sendStat sends a single stat event to the parent over the persistent connection.
