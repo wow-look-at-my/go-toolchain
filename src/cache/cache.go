@@ -55,11 +55,13 @@ type IBackend interface {
 
 // StatEvent is a single counter increment sent over the stats socket.
 type StatEvent struct {
-	LocalHit  uint32 `json:"lh,omitempty"`
-	LocalPut  uint32 `json:"lp,omitempty"`
-	RemoteHit uint32 `json:"rh,omitempty"`
-	RemotePut uint32 `json:"rp,omitempty"`
-	Miss      uint32 `json:"m,omitempty"`
+	LocalHit   uint32 `json:"lh,omitempty"`
+	LocalPut   uint32 `json:"lp,omitempty"`
+	RemoteHit  uint32 `json:"rh,omitempty"`
+	RemotePut  uint32 `json:"rp,omitempty"`
+	Miss       uint32 `json:"m,omitempty"`
+	BatchFlush uint32 `json:"bf,omitempty"` // batch archives uploaded
+	BatchPop   uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch
 }
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
@@ -70,6 +72,7 @@ type Server struct {
 	locks    map[string]*sync.Mutex
 	wg       sync.WaitGroup // tracks in-flight async remote puts
 	Misses   AtomicCounter
+	batch    BatchStats
 	statsConn net.Conn // persistent connection to parent's stats socket
 	statsMu   sync.Mutex
 	debug    bool // log hits/misses to stderr
@@ -95,12 +98,22 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 		wb, _ = r.IBackend.(*WebBackend)
 	}
 	if wb != nil {
+		wb.OnBatchFlush = func(entries int) {
+			s.batch.Flushes.Increment()
+			s.sendStat(StatEvent{BatchFlush: 1})
+		}
 		wb.OnBatchEntries = func(entries []extractedEntry) {
+			var populated uint32
 			for _, e := range entries {
 				if _, miss := local.Get(e.ActionID); !miss {
 					continue // already cached
 				}
 				local.Put(e.ActionID, e.OutputID, bytes.NewReader(e.Data))
+				populated++
+			}
+			if populated > 0 {
+				s.batch.Populated.Add(populated)
+				s.sendStat(StatEvent{BatchPop: populated})
 			}
 		}
 	}
@@ -142,12 +155,19 @@ func (s *Server) closeStats() {
 	}
 }
 
+// BatchStats tracks batch-specific metrics.
+type BatchStats struct {
+	Flushes   AtomicCounter `json:"flushes"`   // batch archives uploaded
+	Populated AtomicCounter `json:"populated"` // entries prefetched into local cache
+}
+
 // ServerStats is the serialized aggregate of all cache layer stats.
 // Fields are pointers to the live atomic counters — no copying.
 type ServerStats struct {
 	Local  *CacheStats    `json:"local"`
 	Remote *CacheStats    `json:"remote,omitempty"`
 	Misses *AtomicCounter `json:"misses"`
+	Batch  *BatchStats    `json:"batch,omitempty"`
 }
 
 // GetStats returns pointers to the live cache layer stats.
@@ -155,6 +175,7 @@ func (s *Server) GetStats() *ServerStats {
 	ss := &ServerStats{
 		Local:  &s.local.Stats,
 		Misses: &s.Misses,
+		Batch:  &s.batch,
 	}
 	if s.remote != nil {
 		ss.Remote = s.remote.GetStats()
@@ -165,13 +186,15 @@ func (s *Server) GetStats() *ServerStats {
 // StatsListener listens on a unix domain socket and aggregates streaming
 // stat events from all cacheprog subprocesses in real-time.
 type StatsListener struct {
-	listener net.Listener
-	path     string
-	local    CacheStats
-	remote   CacheStats
-	misses   AtomicCounter
+	listener  net.Listener
+	path      string
+	local     CacheStats
+	remote    CacheStats
+	batch     BatchStats
+	misses    AtomicCounter
 	hasRemote atomic.Bool
-	wg       sync.WaitGroup
+	hasBatch  atomic.Bool
+	wg        sync.WaitGroup
 }
 
 // NewStatsListener creates a unix socket and starts accepting connections.
@@ -223,6 +246,14 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 		if ev.Miss > 0 {
 			sl.misses.Add(ev.Miss)
 		}
+		if ev.BatchFlush > 0 {
+			sl.hasBatch.Store(true)
+			sl.batch.Flushes.Add(ev.BatchFlush)
+		}
+		if ev.BatchPop > 0 {
+			sl.hasBatch.Store(true)
+			sl.batch.Populated.Add(ev.BatchPop)
+		}
 	}
 }
 
@@ -241,6 +272,9 @@ func (sl *StatsListener) Stats() *ServerStats {
 	}
 	if sl.hasRemote.Load() {
 		ss.Remote = &sl.remote
+	}
+	if sl.hasBatch.Load() {
+		ss.Batch = &sl.batch
 	}
 	return ss
 }

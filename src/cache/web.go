@@ -67,6 +67,10 @@ type WebBackend struct {
 	// proactively populate the local cache, turning N remote GETs
 	// into 1 batch download + (N-1) local hits.
 	OnBatchEntries func(entries []extractedEntry)
+
+	// OnBatchFlush is called after a batch is successfully uploaded.
+	// The argument is the number of entries in the flushed batch.
+	OnBatchFlush func(entries int)
 }
 
 // NewWebBackend creates a web backend from the given config.
@@ -333,6 +337,7 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 // OnBatchEntries so the caller can populate the local cache proactively.
 // This turns N sequential remote GETs into 1 batch download + (N-1) local hits.
 func (b *WebBackend) getFromBatch(actionID string, entry batchIndexEntry) (string, io.ReadCloser, int64, time.Time, bool, error) {
+	start := time.Now()
 	batchData, err := b.loadBatch(entry.Batch)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: %v\n", actionID[:8], err)
@@ -349,6 +354,9 @@ func (b *WebBackend) getFromBatch(actionID string, entry batchIndexEntry) (strin
 	if b.OnBatchEntries != nil {
 		b.OnBatchEntries(all)
 	}
+
+	fmt.Fprintf(os.Stderr, "cacheprog: batch get %s: fetched %s (%d entries, %d bytes) in %v\n",
+		actionID[:8], entry.Batch, len(all), len(batchData), time.Since(start).Round(time.Millisecond))
 
 	// Find the requested entry in the extracted results.
 	for _, e := range all {
@@ -593,6 +601,9 @@ func (b *WebBackend) flushBatch() {
 	os.WriteFile(localPath, data, 0o644)
 
 	b.Stats.Puts.Add(uint32(len(pending)))
+	if b.OnBatchFlush != nil {
+		b.OnBatchFlush(len(pending))
+	}
 	fmt.Fprintf(os.Stderr, "cacheprog: batch flushed %d entries (%d bytes compressed)\n", len(pending), len(data))
 }
 
