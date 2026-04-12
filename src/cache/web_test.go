@@ -2,9 +2,11 @@ package cache
 
 import (
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -158,8 +160,11 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Use a payload >= batchSizeThreshold so it's uploaded individually.
+	payload := largePayload(batchSizeThreshold)
+
 	// Put.
-	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("hello world"), 11)
+	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), b.Stats.Puts.Load())
 
@@ -167,7 +172,7 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	h := headers["/testbucket/go-buildcache/v1aabbccdd11223344"]
 	require.Equal(t, "eeff0011aabbccdd", h.Get("X-Amz-Meta-Outputid"))
 	require.Equal(t, "unknown", h.Get("X-Amz-Meta-Object-Type"))
-	require.Equal(t, "11", h.Get("X-Amz-Meta-Body-Size"))
+	require.Equal(t, strconv.Itoa(len(payload)), h.Get("X-Amz-Meta-Body-Size"))
 	require.Equal(t, "lz4", h.Get("X-Amz-Meta-Compression"))
 	require.NotEmpty(t, h.Get("X-Amz-Meta-Created"))
 	require.Equal(t, "v1.2.3", h.Get("X-Amz-Meta-Toolchain-Version"))
@@ -181,8 +186,8 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	require.False(t, miss)
 	require.Equal(t, "eeff0011aabbccdd", outputID)
 	data, _ := io.ReadAll(body)
-	require.Equal(t, "hello world", string(data))
-	require.Equal(t, int64(11), size)
+	require.Equal(t, payload, string(data))
+	require.Equal(t, int64(len(payload)), size)
 	require.Equal(t, uint32(1), b.Stats.Hits.Load())
 }
 
@@ -205,7 +210,9 @@ func TestWebBackend_PutArchiveMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	// Simulate a Go archive body with __.PKGDEF containing a go object header.
+	// Pad to >= batchSizeThreshold so it's uploaded individually.
 	archiveBody := "!<arch>\n__.PKGDEF       0           0     0     644     100       `\ngo object linux amd64 go1.24.7 X:regabiwrappers\nsome export data here\n"
+	archiveBody += largePayload(batchSizeThreshold)
 	err = b.Put("1111111122222222", "3333333344444444", nopReader(archiveBody), int64(len(archiveBody)))
 	require.NoError(t, err)
 
@@ -233,7 +240,8 @@ func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = b.Put("aaaa000011112222", "bbbb333344445555", nopReader("x"), 1)
+	payload := largePayload(batchSizeThreshold)
+	err = b.Put("aaaa000011112222", "bbbb333344445555", nopReader(payload), int64(len(payload)))
 	require.NoError(t, err)
 
 	h := headers["/testbucket/go-buildcache/v1aaaa000011112222"]
@@ -288,7 +296,8 @@ func TestWebBackend_PutServerError(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("data"), 4)
+	payload := largePayload(batchSizeThreshold)
+	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 	require.Error(t, err)
 	require.Equal(t, uint32(0), b.Stats.Puts.Load())
 }
@@ -447,7 +456,8 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("hello"), 5)
+			payload := largePayload(batchSizeThreshold)
+			err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 			require.NoError(t, err)
 			require.Equal(t, "PUT", gotMethod, "redirect should preserve PUT method")
 			require.NotEmpty(t, gotBody, "redirect should preserve request body")
@@ -457,6 +467,281 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 	}
 }
 
+func TestWebBackend_SmallEntryBatched(t *testing.T) {
+	// Small entries should be buffered, not uploaded individually.
+	var putPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			putPaths = append(putPaths, r.URL.Path)
+			io.ReadAll(r.Body)
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Put a small entry (< 64KB).
+	err = b.Put("aabb000011112222", "ccdd333344445555", nopReader("small data"), 10)
+	require.NoError(t, err)
+
+	// No individual PUT should have been made yet.
+	for _, p := range putPaths {
+		require.NotContains(t, p, "v1aabb000011112222",
+			"small entry should not be uploaded individually")
+	}
+
+	// The entry should be in the batch buffer.
+	b.batchMu.Lock()
+	require.Len(t, b.batchBuf, 1)
+	require.Equal(t, "aabb000011112222", b.batchBuf[0].actionID)
+	b.batchMu.Unlock()
+}
+
+func TestWebBackend_LargeEntryIndividual(t *testing.T) {
+	// Entries >= 64KB should be uploaded individually, not batched.
+	var gotPutPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			gotPutPath = r.URL.Path
+			io.ReadAll(r.Body)
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Create a 65KB payload.
+	large := make([]byte, 65*1024)
+	for i := range large {
+		large[i] = byte(i % 256)
+	}
+
+	err = b.Put("aabb000011112222", "ccdd333344445555", strings.NewReader(string(large)), int64(len(large)))
+	require.NoError(t, err)
+
+	// Should have been uploaded individually.
+	require.Equal(t, "/testbucket/go-buildcache/v1aabb000011112222", gotPutPath)
+	require.Equal(t, uint32(1), b.Stats.Puts.Load())
+
+	// Batch buffer should be empty.
+	b.batchMu.Lock()
+	require.Empty(t, b.batchBuf)
+	b.batchMu.Unlock()
+}
+
+func TestWebBackend_BatchFlushOnClose(t *testing.T) {
+	// Closing the backend should flush buffered entries as a batch archive.
+	store := map[string][]byte{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "PUT":
+			body, _ := io.ReadAll(r.Body)
+			store[r.URL.Path] = body
+		case "GET":
+			data, ok := store[r.URL.Path]
+			if !ok {
+				w.WriteHeader(404)
+				return
+			}
+			w.Write(data)
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Put several small entries.
+	err = b.Put("aa00000000000001", "bb00000000000001", nopReader("entry one"), 9)
+	require.NoError(t, err)
+	err = b.Put("aa00000000000002", "bb00000000000002", nopReader("entry two"), 9)
+	require.NoError(t, err)
+	err = b.Put("aa00000000000003", "bb00000000000003", nopReader("entry three"), 11)
+	require.NoError(t, err)
+
+	// No puts counted yet (still buffered).
+	require.Equal(t, uint32(0), b.Stats.Puts.Load())
+
+	// Close triggers flush.
+	require.NoError(t, b.Close())
+
+	// Puts should now be counted.
+	require.Equal(t, uint32(3), b.Stats.Puts.Load())
+
+	// A batch archive should have been uploaded.
+	var batchPath string
+	for path := range store {
+		if strings.Contains(path, "/batches/batch-") {
+			batchPath = path
+			break
+		}
+	}
+	require.NotEmpty(t, batchPath, "batch archive should have been uploaded")
+
+	// An index should have been uploaded.
+	var indexPath string
+	for path := range store {
+		if strings.Contains(path, "/batches/index-json") {
+			indexPath = path
+			break
+		}
+	}
+	require.NotEmpty(t, indexPath, "batch index should have been uploaded")
+
+	// The batch index should contain all three entries.
+	b.batchIndexMu.RLock()
+	require.Len(t, b.batchIndex, 3)
+	require.Contains(t, b.batchIndex, "aa00000000000001")
+	require.Contains(t, b.batchIndex, "aa00000000000002")
+	require.Contains(t, b.batchIndex, "aa00000000000003")
+	b.batchIndexMu.RUnlock()
+}
+
+func TestWebBackend_BatchGetRoundTrip(t *testing.T) {
+	// Put small entries, flush, then GET them back.
+	store := map[string][]byte{}
+	headers := map[string]http.Header{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "PUT":
+			body, _ := io.ReadAll(r.Body)
+			store[r.URL.Path] = body
+			headers[r.URL.Path] = r.Header.Clone()
+			w.WriteHeader(200)
+		case "GET":
+			data, ok := store[r.URL.Path]
+			if !ok {
+				w.WriteHeader(404)
+				return
+			}
+			if h, ok := headers[r.URL.Path]; ok {
+				for k, v := range h {
+					for _, vv := range v {
+						w.Header().Add(k, vv)
+					}
+				}
+			}
+			w.WriteHeader(200)
+			w.Write(data)
+		}
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Put small entries and flush.
+	b.Put("aa11111111111111", "bb11111111111111", nopReader("data one"), 8)
+	b.Put("aa22222222222222", "bb22222222222222", nopReader("data two"), 8)
+	b.Close()
+
+	// Create a fresh backend (simulating a new session) that loads the batch index.
+	b2, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// The batch index should have been loaded from remote.
+	require.Len(t, b2.batchIndex, 2)
+
+	// GET should find entries in the batch.
+	outputID, body, size, _, miss, err := b2.Get("aa11111111111111")
+	require.NoError(t, err)
+	require.False(t, miss)
+	require.Equal(t, "bb11111111111111", outputID)
+	data, _ := io.ReadAll(body)
+	require.Equal(t, "data one", string(data))
+	require.Equal(t, int64(8), size)
+
+	outputID2, body2, _, _, miss2, err := b2.Get("aa22222222222222")
+	require.NoError(t, err)
+	require.False(t, miss2)
+	require.Equal(t, "bb22222222222222", outputID2)
+	data2, _ := io.ReadAll(body2)
+	require.Equal(t, "data two", string(data2))
+}
+
+func TestWebBackend_BatchFlushByCount(t *testing.T) {
+	// When batchFlushCount entries accumulate, flush should trigger.
+	var batchUploaded bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" && strings.Contains(r.URL.Path, "/batches/batch-") {
+			batchUploaded = true
+			io.ReadAll(r.Body)
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Put exactly batchFlushCount small entries.
+	for i := 0; i < batchFlushCount; i++ {
+		aid := fmt.Sprintf("%016x", i)
+		oid := fmt.Sprintf("%016x", i+1000)
+		b.Put(aid, oid, nopReader("x"), 1)
+	}
+
+	// The flush should have been triggered by the count threshold.
+	require.True(t, batchUploaded, "batch should have been flushed at count threshold")
+	require.Equal(t, uint32(batchFlushCount), b.Stats.Puts.Load())
+}
+
+func TestWebBackend_BatchDedup(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Put same actionID twice.
+	b.Put("dedup00000000001", "out0000000000001", nopReader("first"), 5)
+	b.Put("dedup00000000001", "out0000000000001", nopReader("first"), 5)
+
+	// Only one entry should be buffered.
+	b.batchMu.Lock()
+	require.Len(t, b.batchBuf, 1)
+	b.batchMu.Unlock()
+}
+
 func nopReader(s string) io.Reader {
 	return strings.NewReader(s)
+}
+
+// largePayload returns a payload of exactly n bytes (>= batchSizeThreshold)
+// so that Put uploads it individually rather than batching it.
+func largePayload(n int) string {
+	buf := make([]byte, n)
+	for i := range buf {
+		buf[i] = byte('A' + i%26)
+	}
+	return string(buf)
 }

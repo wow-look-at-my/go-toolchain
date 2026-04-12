@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -17,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pierrec/lz4/v4"
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
@@ -32,6 +32,8 @@ type WebConfig struct {
 }
 
 // WebBackend stores cache objects in a remote web server with LZ4 compression.
+// Small entries (< 64 KB) are batched into tar+lz4 archives to reduce the
+// number of HTTP requests. Large entries are uploaded individually.
 type WebBackend struct {
 	client    *http.Client
 	bucket    string
@@ -42,7 +44,23 @@ type WebBackend struct {
 	version   string // go-toolchain version for object metadata
 	Stats  CacheStats
 	keysMu sync.RWMutex
-	keys   set.Set[string] // known keys, built from ListObjects on startup
+	keys   set.Set[string] // known individual keys, built from ListObjects on startup
+
+	// Batch write buffer. batchPending tracks actionIDs currently in
+	// batchBuf for fast dedup without scanning the slice.
+	batchMu      sync.Mutex
+	batchBuf     []batchEntry
+	batchBufSize int64
+	batchTimer   *time.Timer
+	batchPending set.Set[string]
+
+	// Batch index: actionID → batch location. Loaded from remote on startup
+	// and updated in-memory as new batches are flushed.
+	batchIndexMu sync.RWMutex
+	batchIndex   map[string]batchIndexEntry
+
+	// Local directory for caching downloaded batch archives.
+	batchCacheDir string
 }
 
 // NewWebBackend creates a web backend from the given config.
@@ -99,7 +117,14 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		version:   cfg.Version,
 	}
 	b.keys = b.loadOrFetchIndex()
-	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
+	b.batchIndex = b.loadBatchIndex()
+	b.batchPending = set.New[string]()
+
+	h := sha256.Sum256([]byte(b.endpoint + "/" + b.bucket + "/" + b.prefix))
+	b.batchCacheDir = filepath.Join(os.TempDir(), "gocache-batches-"+hex.EncodeToString(h[:8]))
+	os.MkdirAll(b.batchCacheDir, 0o755)
+
+	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys, %d batched\n", b.keys.Len(), len(b.batchIndex))
 	return b, nil
 }
 
@@ -218,16 +243,31 @@ func (b *WebBackend) url(key string) string {
 	return b.endpoint + "/" + b.bucket + "/" + key
 }
 
-// Get retrieves a cached object. The returned body is decompressed.
-// Returns immediately if the key is not in the index (no network call).
+// Get retrieves a cached object. It checks individual keys first, then the
+// batch index. Returns immediately if the key is not in either index.
 func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
+	// Try individual key first.
 	key := b.key(actionID)
 	b.keysMu.RLock()
 	known := b.keys.Contains(key)
 	b.keysMu.RUnlock()
-	if !known {
-		return "", nil, 0, time.Time{}, true, nil
+	if known {
+		return b.getIndividual(actionID, key)
 	}
+
+	// Try batch index.
+	b.batchIndexMu.RLock()
+	entry, inBatch := b.batchIndex[actionID]
+	b.batchIndexMu.RUnlock()
+	if inBatch {
+		return b.getFromBatch(actionID, entry)
+	}
+
+	return "", nil, 0, time.Time{}, true, nil
+}
+
+// getIndividual fetches a single object stored as an individual S3 key.
+func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser, int64, time.Time, bool, error) {
 	req, err := http.NewRequest("GET", b.url(key), nil)
 	if err != nil {
 		return "", nil, 0, time.Time{}, true, nil
@@ -251,7 +291,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	outputID = resp.Header.Get("X-Amz-Meta-Outputid")
+	outputID := resp.Header.Get("X-Amz-Meta-Outputid")
 	if outputID == "" {
 		resp.Body.Close()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
@@ -271,7 +311,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	t = time.Now()
+	t := time.Now()
 	if lm := resp.Header.Get("Last-Modified"); lm != "" {
 		if parsed, parseErr := time.Parse(http.TimeFormat, lm); parseErr == nil {
 			t = parsed
@@ -282,14 +322,106 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	return outputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), t, false, nil
 }
 
-// Put stores a cached object with LZ4 compression.
-// Skips upload if the key is already in the index.
+// getFromBatch retrieves a cache entry from a batch archive. It caches
+// downloaded batches locally to avoid re-downloading for subsequent lookups
+// within the same batch.
+func (b *WebBackend) getFromBatch(actionID string, entry batchIndexEntry) (string, io.ReadCloser, int64, time.Time, bool, error) {
+	batchData, err := b.loadBatch(entry.Batch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: %v\n", actionID[:8], err)
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
+	outputID, body, err := extractFromBatch(batchData, actionID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: web batch extract %s: %v\n", actionID[:8], err)
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
+	b.Stats.Hits.Increment()
+	return outputID, io.NopCloser(bytes.NewReader(body)), int64(len(body)), time.Now(), false, nil
+}
+
+// loadBatch returns the raw bytes of a batch archive, using the local cache
+// or downloading from the remote server.
+func (b *WebBackend) loadBatch(name string) ([]byte, error) {
+	// Try local cache first.
+	localPath := filepath.Join(b.batchCacheDir, name)
+	if data, err := os.ReadFile(localPath); err == nil {
+		return data, nil
+	}
+
+	// Download from remote.
+	batchKey := b.prefix + "batches/" + name
+	req, err := http.NewRequest("GET", b.url(batchKey), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	b.signRequest(req)
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	// Cache locally for future reads.
+	os.WriteFile(localPath, data, 0o644)
+
+	return data, nil
+}
+
+// Put stores a cached object. Small entries (< 64 KB) are buffered and
+// uploaded as a batch archive. Large entries are uploaded individually with
+// LZ4 compression. Skips if the actionID is already known.
 func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
 	key := b.key(actionID)
 
-	// Atomically check-and-claim: if the key is already known (or being
-	// uploaded by another goroutine), skip immediately. Otherwise mark it
-	// as claimed so concurrent Puts for the same actionID don't race.
+	// Dedup: check individual keys.
+	b.keysMu.RLock()
+	if b.keys.Contains(key) {
+		b.keysMu.RUnlock()
+		return nil
+	}
+	b.keysMu.RUnlock()
+
+	// Dedup: check flushed batch index.
+	b.batchIndexMu.RLock()
+	_, inBatch := b.batchIndex[actionID]
+	b.batchIndexMu.RUnlock()
+	if inBatch {
+		return nil
+	}
+
+	// Dedup: check pending batch buffer.
+	b.batchMu.Lock()
+	if b.batchPending.Contains(actionID) {
+		b.batchMu.Unlock()
+		return nil
+	}
+	b.batchMu.Unlock()
+
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		return fmt.Errorf("web put read: %w", err)
+	}
+
+	// Small entries: buffer for batch upload.
+	if int64(len(raw)) < batchSizeThreshold {
+		b.addToBatch(batchEntry{actionID: actionID, outputID: outputID, data: raw})
+		return nil
+	}
+
+	// Large entries: claim key and upload individually.
 	b.keysMu.Lock()
 	if b.keys.Contains(key) {
 		b.keysMu.Unlock()
@@ -298,17 +430,17 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	b.keys.Add(key)
 	b.keysMu.Unlock()
 
+	return b.putIndividual(actionID, outputID, key, raw, bodySize)
+}
+
+// putIndividual uploads a single object with LZ4 compression and metadata headers.
+func (b *WebBackend) putIndividual(actionID, outputID, key string, raw []byte, bodySize int64) error {
 	var uploaded bool
 	defer func() {
 		if !uploaded {
 			b.removeClaimed(key)
 		}
 	}()
-
-	raw, err := io.ReadAll(body)
-	if err != nil {
-		return fmt.Errorf("web put read: %w", err)
-	}
 
 	compressed, err := compressData(raw)
 	if err != nil {
@@ -360,89 +492,208 @@ func (b *WebBackend) removeClaimed(key string) {
 	b.keysMu.Unlock()
 }
 
-// Close is a no-op for the web backend.
-func (b *WebBackend) Close() error { return nil }
+// Close flushes any buffered batch entries and releases resources.
+func (b *WebBackend) Close() error {
+	b.stopBatchTimer()
+	b.flushBatch()
+	return nil
+}
 
 func (b *WebBackend) GetStats() *CacheStats { return &b.Stats }
+
+// addToBatch appends an entry to the write buffer and triggers a flush if
+// the buffer exceeds size or count thresholds.
+func (b *WebBackend) addToBatch(e batchEntry) {
+	b.batchMu.Lock()
+	b.batchPending.Add(e.actionID)
+	b.batchBuf = append(b.batchBuf, e)
+	b.batchBufSize += int64(len(e.data))
+	shouldFlush := b.batchBufSize >= batchFlushBytes || len(b.batchBuf) >= batchFlushCount
+	firstEntry := len(b.batchBuf) == 1
+	b.batchMu.Unlock()
+
+	if shouldFlush {
+		b.flushBatch()
+	} else if firstEntry {
+		b.startBatchTimer()
+	}
+}
+
+// flushBatch creates a tar+lz4 archive from buffered entries, uploads it,
+// and updates the remote batch index.
+func (b *WebBackend) flushBatch() {
+	b.stopBatchTimer()
+
+	b.batchMu.Lock()
+	pending := b.batchBuf
+	b.batchBuf = nil
+	b.batchBufSize = 0
+	b.batchPending = set.New[string]()
+	b.batchMu.Unlock()
+
+	if len(pending) == 0 {
+		return
+	}
+
+	data, manifest, err := createBatch(pending)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: batch create: %v\n", err)
+		b.removeClaimedBatch(pending)
+		return
+	}
+
+	name := batchName()
+	batchKey := b.prefix + "batches/" + name
+	if err := b.uploadObject(batchKey, data); err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: batch upload: %v\n", err)
+		b.removeClaimedBatch(pending)
+		return
+	}
+
+	// Update in-memory batch index.
+	b.batchIndexMu.Lock()
+	for _, e := range manifest.Entries {
+		b.batchIndex[e.ActionID] = batchIndexEntry{
+			Batch:    name,
+			OutputID: e.OutputID,
+			Size:     e.Size,
+		}
+	}
+	indexCopy := make(map[string]batchIndexEntry, len(b.batchIndex))
+	for k, v := range b.batchIndex {
+		indexCopy[k] = v
+	}
+	b.batchIndexMu.Unlock()
+
+	// Persist merged index to remote (best-effort).
+	b.uploadBatchIndex(indexCopy)
+
+	// Cache the batch locally for future reads.
+	localPath := filepath.Join(b.batchCacheDir, name)
+	os.WriteFile(localPath, data, 0o644)
+
+	b.Stats.Puts.Add(uint32(len(pending)))
+	fmt.Fprintf(os.Stderr, "cacheprog: batch flushed %d entries (%d bytes compressed)\n", len(pending), len(data))
+}
+
+// removeClaimedBatch is a no-op since batched entries don't claim individual
+// keys. The batchPending set is already cleared by flushBatch, so on failure
+// the entries can be re-submitted on the next build.
+func (b *WebBackend) removeClaimedBatch(_ []batchEntry) {}
+
+// uploadObject PUTs raw data to the given S3 key.
+func (b *WebBackend) uploadObject(key string, data []byte) error {
+	req, err := http.NewRequest("PUT", b.url(key), bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.ContentLength = int64(len(data))
+	b.signRequest(req)
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, body)
+	}
+	return nil
+}
+
+// loadBatchIndex fetches the batch index from the remote server.
+// Returns an empty map if the index doesn't exist or can't be loaded.
+func (b *WebBackend) loadBatchIndex() map[string]batchIndexEntry {
+	indexKey := b.prefix + "batches/index-json"
+	req, err := http.NewRequest("GET", b.url(indexKey), nil)
+	if err != nil {
+		return make(map[string]batchIndexEntry)
+	}
+	b.signRequest(req)
+
+	resp, err := b.client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return make(map[string]batchIndexEntry)
+	}
+	defer resp.Body.Close()
+
+	var index map[string]batchIndexEntry
+	if err := json.NewDecoder(resp.Body).Decode(&index); err != nil {
+		return make(map[string]batchIndexEntry)
+	}
+	return index
+}
+
+// uploadBatchIndex persists the batch index to the remote server.
+// It performs a read-modify-write merge so concurrent uploaders don't
+// overwrite each other's entries (eventual consistency is acceptable).
+func (b *WebBackend) uploadBatchIndex(localIndex map[string]batchIndexEntry) {
+	// Download current remote index and merge.
+	remoteIndex := b.downloadBatchIndex()
+	for k, v := range localIndex {
+		remoteIndex[k] = v
+	}
+
+	data, err := json.Marshal(remoteIndex)
+	if err != nil {
+		return
+	}
+
+	indexKey := b.prefix + "batches/index-json"
+	b.uploadObject(indexKey, data)
+}
+
+// downloadBatchIndex fetches the current remote batch index.
+func (b *WebBackend) downloadBatchIndex() map[string]batchIndexEntry {
+	indexKey := b.prefix + "batches/index-json"
+	req, err := http.NewRequest("GET", b.url(indexKey), nil)
+	if err != nil {
+		return make(map[string]batchIndexEntry)
+	}
+	b.signRequest(req)
+
+	resp, err := b.client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return make(map[string]batchIndexEntry)
+	}
+	defer resp.Body.Close()
+
+	var index map[string]batchIndexEntry
+	if err := json.NewDecoder(resp.Body).Decode(&index); err != nil {
+		return make(map[string]batchIndexEntry)
+	}
+	return index
+}
+
+func (b *WebBackend) startBatchTimer() {
+	b.batchMu.Lock()
+	defer b.batchMu.Unlock()
+	if b.batchTimer != nil {
+		return
+	}
+	b.batchTimer = time.AfterFunc(batchFlushInterval, func() {
+		b.flushBatch()
+	})
+}
+
+func (b *WebBackend) stopBatchTimer() {
+	b.batchMu.Lock()
+	defer b.batchMu.Unlock()
+	if b.batchTimer != nil {
+		b.batchTimer.Stop()
+		b.batchTimer = nil
+	}
+}
 
 // signRequest authenticates an HTTP request using HTTP Basic Auth.
 func (b *WebBackend) signRequest(req *http.Request) {
 	req.SetBasicAuth(b.accessKey, b.secretKey)
-}
-
-// detectObjectType identifies the type of a cache entry from its magic bytes.
-func detectObjectType(data []byte) string {
-	if len(data) >= 8 && string(data[:8]) == "!<arch>\n" {
-		return "go-archive"
-	}
-	if len(data) >= 4 && data[0] == 0x7f && data[1] == 'E' && data[2] == 'L' && data[3] == 'F' {
-		return "elf-binary"
-	}
-	if len(data) >= 4 {
-		// Mach-O 64-bit (little-endian and big-endian) and 32-bit.
-		m := uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])
-		switch m {
-		case 0xcffaedfe, 0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcafebabe:
-			return "macho-binary"
-		}
-	}
-	if len(data) >= 2 && data[0] == 'M' && data[1] == 'Z' {
-		return "pe-binary"
-	}
-	if len(data) >= 4 && data[0] == 0x00 && data[1] == 'g' && data[2] == 'o' && data[3] == '1' {
-		return "go-object"
-	}
-	return "unknown"
-}
-
-// parseArchiveHeader scans a Go archive for the "go object" line inside
-// __.PKGDEF. Returns Go version and target (GOOS/GOARCH), or empty strings
-// if not found. Only scans the first 1024 bytes.
-func parseArchiveHeader(data []byte) (goVersion, target string) {
-	limit := 1024
-	if len(data) < limit {
-		limit = len(data)
-	}
-	window := data[:limit]
-	// Look for a line starting with "go object ".
-	const prefix = "go object "
-	for len(window) > 0 {
-		idx := bytes.Index(window, []byte(prefix))
-		if idx < 0 {
-			break
-		}
-		// Ensure it's at the start of a line (idx == 0 or preceded by newline).
-		if idx > 0 && window[idx-1] != '\n' {
-			window = window[idx+len(prefix):]
-			continue
-		}
-		line := window[idx:]
-		if nl := bytes.IndexByte(line, '\n'); nl >= 0 {
-			line = line[:nl]
-		}
-		// Format: "go object <GOOS> <GOARCH> <goversion> [experiments...]"
-		fields := strings.Fields(string(line))
-		if len(fields) >= 5 {
-			return fields[4], fields[2] + "/" + fields[3]
-		}
-		break
-	}
-	return "", ""
-}
-
-func compressData(data []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	w := lz4.NewWriter(&buf)
-	if _, err := w.Write(data); err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func decompressData(data []byte) ([]byte, error) {
-	r := lz4.NewReader(bytes.NewReader(data))
-	return io.ReadAll(r)
 }
