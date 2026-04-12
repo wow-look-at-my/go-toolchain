@@ -134,7 +134,18 @@ func ensureDirectFallback(goproxy string) string {
 //
 // Without GO_PROXY_CONFIG, falls back to GOPROXY/GOSUMDB env vars.
 // If nothing is configured, defaults to GOPROXY=direct with sumdb disabled.
+// proxyEnvVars are the Go environment variables that configureGoEnv manages.
+var proxyEnvVars = []string{"GOPROXY", "GOSUMDB", "GONOSUMDB", "GONOSUMCHECK"}
+
 func configureGoEnv() {
+	defer func() {
+		for _, k := range proxyEnvVars {
+			if v := os.Getenv(k); v != "" {
+				fmt.Fprintf(os.Stderr, "proxy: %s=%s\n", k, v)
+			}
+		}
+	}()
+
 	goproxy := os.Getenv("GOPROXY")
 	gosumdb := os.Getenv("GOSUMDB")
 
@@ -152,12 +163,9 @@ func configureGoEnv() {
 
 	// GOPROXY: use configured value with ",direct" fallback, or default to "direct".
 	if goproxy != "" && goproxy != "direct" && goproxy != "off" {
-		goproxy = ensureDirectFallback(goproxy)
-		os.Setenv("GOPROXY", goproxy)
-		fmt.Fprintf(os.Stderr, "proxy: GOPROXY=%s\n", goproxy)
+		os.Setenv("GOPROXY", ensureDirectFallback(goproxy))
 	} else {
 		os.Setenv("GOPROXY", "direct")
-		fmt.Fprintf(os.Stderr, "proxy: GOPROXY=direct\n")
 	}
 
 	// GOSUMDB: use configured value (full "<key> <url>" form or short name),
@@ -166,7 +174,6 @@ func configureGoEnv() {
 		os.Setenv("GOSUMDB", gosumdb)
 		os.Unsetenv("GONOSUMDB")
 		os.Unsetenv("GONOSUMCHECK")
-		fmt.Fprintf(os.Stderr, "proxy: GOSUMDB=%s\n", gosumdb)
 		return
 	}
 
@@ -174,5 +181,4 @@ func configureGoEnv() {
 	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
-	fmt.Fprintf(os.Stderr, "proxy: GONOSUMDB=* (sumdb disabled)\n")
 }
