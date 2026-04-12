@@ -465,6 +465,57 @@ func TestServer_Stats(t *testing.T) {
 	require.NotNil(t, stats.Remote)
 }
 
+func TestServer_Latency(t *testing.T) {
+	dir := t.TempDir()
+	lc, err := NewLocalCache(dir)
+	require.Nil(t, err)
+
+	backend := newMemBackend()
+	srv := NewServer(lc, backend)
+
+	actionID := []byte{0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89}
+	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
+	missID := []byte{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00}
+
+	// Pre-populate remote so we exercise the remote get path.
+	backend.Put(fmt.Sprintf("%x", missID), fmt.Sprintf("%x", outputID), strings.NewReader("remote data"), 11)
+
+	var input strings.Builder
+	// PUT (exercises: lock wait, local get for dedup check, local put)
+	input.WriteString(makePutRequest(Request{
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 5,
+	}, "hello"))
+	// GET local hit (exercises: lock wait, local get)
+	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: actionID}))
+	// GET remote hit (exercises: lock wait, local get miss, remote get, local put for write-through)
+	input.WriteString(makeRequest(Request{ID: 3, Command: CmdGet, ActionID: missID}))
+	// CLOSE
+	input.WriteString(makeRequest(Request{ID: 4, Command: CmdClose}))
+
+	var out bytes.Buffer
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	snap := srv.Latency.Snapshot()
+
+	// Lock wait should have 3 entries (PUT, GET, GET).
+	require.Equal(t, uint64(3), snap.LockWait.Count)
+
+	// Local get: 3 calls (dedup check in PUT, local hit GET, local miss GET).
+	require.Equal(t, uint64(3), snap.LocalGet.Count)
+
+	// Local put: 2 calls (PUT, write-through from remote hit).
+	require.Equal(t, uint64(2), snap.LocalPut.Count)
+
+	// Remote get: 1 call (the missID lookup that hits remote).
+	require.Equal(t, uint64(1), snap.RemoteGet.Count)
+
+	// All latencies should be non-zero.
+	require.Greater(t, snap.LockWait.MinUs, uint64(0))
+	require.Greater(t, snap.LocalGet.MinUs, uint64(0))
+	require.Greater(t, snap.LocalPut.MinUs, uint64(0))
+	require.Greater(t, snap.RemoteGet.MinUs, uint64(0))
+}
+
 func TestStatsStreaming(t *testing.T) {
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "stats.sock")
@@ -499,6 +550,45 @@ func TestStatsStreaming(t *testing.T) {
 	require.Equal(t, uint32(1), got.Local.Puts.Load())
 	require.Equal(t, uint32(1), got.Local.Hits.Load())
 	require.Equal(t, uint32(1), got.Misses.Load())
+}
+
+func TestStatsStreamingLatency(t *testing.T) {
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "stats.sock")
+
+	sl, err := NewStatsListener(sockPath)
+	require.NoError(t, err)
+
+	t.Setenv("GOCACHE_STATS_SOCK", sockPath)
+
+	actionID := []byte{0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89}
+	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
+
+	lc, err := NewLocalCache(filepath.Join(dir, "cache"))
+	require.NoError(t, err)
+
+	var input strings.Builder
+	input.WriteString(makePutRequest(Request{
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 5,
+	}, "hello"))
+	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: actionID}))
+	input.WriteString(makeRequest(Request{ID: 3, Command: CmdClose}))
+
+	var out bytes.Buffer
+	srv := NewServer(lc, nil)
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	sl.Close()
+	got := sl.Stats()
+	require.NotNil(t, got.Latency)
+
+	snap := got.Latency.Snapshot()
+	// PUT + GET = 2 lock waits
+	require.Equal(t, uint64(2), snap.LockWait.Count)
+	// dedup check in PUT + GET = 2 local gets
+	require.Equal(t, uint64(2), snap.LocalGet.Count)
+	// 1 local put from the PUT command
+	require.Equal(t, uint64(1), snap.LocalPut.Count)
 }
 
 func TestServer_PutEmpty(t *testing.T) {

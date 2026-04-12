@@ -253,6 +253,38 @@ func printCacheStats(close bool) {
 	}
 
 	fmt.Printf("==> Cache: %s\n", strings.Join(parts, "  "))
+
+	// Print latency profile if any operations were recorded.
+	if stats.Latency != nil {
+		snap := stats.Latency.Snapshot()
+		type row struct {
+			name string
+			s    cache.LatencySnapshot
+		}
+		rows := []row{
+			{"lock wait", snap.LockWait},
+			{"local get", snap.LocalGet},
+			{"local put", snap.LocalPut},
+			{"remote get", snap.RemoteGet},
+			{"remote put", snap.RemotePut},
+		}
+		var hasData bool
+		for _, r := range rows {
+			if r.s.Count > 0 {
+				hasData = true
+				break
+			}
+		}
+		if hasData {
+			fmt.Printf("    Latency (min/avg/max):\n")
+			for _, r := range rows {
+				if r.s.Count == 0 {
+					continue
+				}
+				fmt.Printf("      %-10s  %s  (n=%d)\n", r.name, r.s.FormatMs(), r.s.Count)
+			}
+		}
+	}
 }
 
 // cacheHome returns the base cache directory (~/.cache/go-toolchain).

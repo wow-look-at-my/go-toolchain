@@ -60,6 +60,8 @@ type StatEvent struct {
 	RemoteHit uint32 `json:"rh,omitempty"`
 	RemotePut uint32 `json:"rp,omitempty"`
 	Miss      uint32 `json:"m,omitempty"`
+
+	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 }
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
@@ -70,6 +72,7 @@ type Server struct {
 	locks    map[string]*sync.Mutex
 	wg       sync.WaitGroup // tracks in-flight async remote puts
 	Misses   AtomicCounter
+	Latency  LatencyStats
 	statsConn net.Conn // persistent connection to parent's stats socket
 	statsMu   sync.Mutex
 	debug    bool // log hits/misses to stderr
@@ -125,16 +128,18 @@ func (s *Server) closeStats() {
 // ServerStats is the serialized aggregate of all cache layer stats.
 // Fields are pointers to the live atomic counters — no copying.
 type ServerStats struct {
-	Local  *CacheStats    `json:"local"`
-	Remote *CacheStats    `json:"remote,omitempty"`
-	Misses *AtomicCounter `json:"misses"`
+	Local   *CacheStats    `json:"local"`
+	Remote  *CacheStats    `json:"remote,omitempty"`
+	Misses  *AtomicCounter `json:"misses"`
+	Latency *LatencyStats  `json:"latency,omitempty"`
 }
 
 // GetStats returns pointers to the live cache layer stats.
 func (s *Server) GetStats() *ServerStats {
 	ss := &ServerStats{
-		Local:  &s.local.Stats,
-		Misses: &s.Misses,
+		Local:   &s.local.Stats,
+		Misses:  &s.Misses,
+		Latency: &s.Latency,
 	}
 	if s.remote != nil {
 		ss.Remote = s.remote.GetStats()
@@ -150,6 +155,7 @@ type StatsListener struct {
 	local    CacheStats
 	remote   CacheStats
 	misses   AtomicCounter
+	latency  LatencyStats
 	hasRemote atomic.Bool
 	wg       sync.WaitGroup
 }
@@ -203,6 +209,9 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 		if ev.Miss > 0 {
 			sl.misses.Add(ev.Miss)
 		}
+		if ev.Latency != nil {
+			sl.latency.Merge(*ev.Latency)
+		}
 	}
 }
 
@@ -216,8 +225,9 @@ func (sl *StatsListener) Close() {
 // Stats returns the aggregated stats.
 func (sl *StatsListener) Stats() *ServerStats {
 	ss := &ServerStats{
-		Local:  &sl.local,
-		Misses: &sl.misses,
+		Local:   &sl.local,
+		Misses:  &sl.misses,
+		Latency: &sl.latency,
 	}
 	if sl.hasRemote.Load() {
 		ss.Remote = &sl.remote
@@ -262,6 +272,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 			if s.remote != nil {
 				s.remote.Close()
 			}
+			s.flushLatency()
 			s.closeStats()
 			return nil
 
@@ -302,6 +313,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 	if s.remote != nil {
 		s.remote.Close()
 	}
+	s.flushLatency()
 	s.closeStats()
 	return scanner.Err()
 }
@@ -317,14 +329,26 @@ func (s *Server) lock(key string) *sync.Mutex {
 	return m
 }
 
+// flushLatency sends a final latency snapshot over the stats socket.
+func (s *Server) flushLatency() {
+	snap := s.Latency.Snapshot()
+	s.sendStat(StatEvent{Latency: &snap})
+}
+
 func (s *Server) handleGet(req Request) Response {
 	actionID := fmt.Sprintf("%x", req.ActionID)
 	mu := s.lock(actionID)
+
+	lockStart := time.Now()
 	mu.Lock()
+	s.Latency.LockWait.Record(time.Since(lockStart))
 	defer mu.Unlock()
 
 	// Check local cache first.
+	localStart := time.Now()
 	meta, miss := s.local.Get(actionID)
+	s.Latency.LocalGet.Record(time.Since(localStart))
+
 	if !miss {
 		s.sendStat(StatEvent{LocalHit: 1})
 		if s.debug {
@@ -350,7 +374,10 @@ func (s *Server) handleGet(req Request) Response {
 		return Response{ID: req.ID, Miss: true}
 	}
 
+	remoteStart := time.Now()
 	outputID, body, _, t, remoteMiss, err := s.remote.Get(actionID)
+	s.Latency.RemoteGet.Record(time.Since(remoteStart))
+
 	if err != nil || remoteMiss {
 		s.Misses.Increment()
 		s.sendStat(StatEvent{Miss: 1})
@@ -370,7 +397,10 @@ func (s *Server) handleGet(req Request) Response {
 	defer body.Close()
 
 	// Write to local cache for future hits.
+	localPutStart := time.Now()
 	diskPath, err := s.local.Put(actionID, outputID, body)
+	s.Latency.LocalPut.Record(time.Since(localPutStart))
+
 	if err != nil {
 		return Response{ID: req.ID, Miss: true}
 	}
@@ -388,11 +418,18 @@ func (s *Server) handlePut(req Request) Response {
 	actionID := fmt.Sprintf("%x", req.ActionID)
 	outputID := fmt.Sprintf("%x", req.OutputID)
 	mu := s.lock(actionID)
+
+	lockStart := time.Now()
 	mu.Lock()
+	s.Latency.LockWait.Record(time.Since(lockStart))
 	defer mu.Unlock()
 
 	// Check if already cached locally.
-	if meta, miss := s.local.Get(actionID); !miss {
+	localStart := time.Now()
+	meta, miss := s.local.Get(actionID)
+	s.Latency.LocalGet.Record(time.Since(localStart))
+
+	if !miss {
 		if s.debug {
 			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s\n", actionID)
 		}
@@ -401,7 +438,10 @@ func (s *Server) handlePut(req Request) Response {
 
 	body := bytes.NewReader(req.Body)
 
+	localPutStart := time.Now()
 	diskPath, err := s.local.Put(actionID, outputID, body)
+	s.Latency.LocalPut.Record(time.Since(localPutStart))
+
 	if err != nil {
 		return Response{ID: req.ID, Err: err.Error()}
 	}
@@ -416,7 +456,10 @@ func (s *Server) handlePut(req Request) Response {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			if err := s.remote.Put(actionID, outputID, bytes.NewReader(data), int64(len(data))); err != nil {
+			remotePutStart := time.Now()
+			err := s.remote.Put(actionID, outputID, bytes.NewReader(data), int64(len(data)))
+			s.Latency.RemotePut.Record(time.Since(remotePutStart))
+			if err != nil {
 				fmt.Fprintf(os.Stderr, "cacheprog: remote put: %v\n", err)
 			} else {
 				s.sendStat(StatEvent{RemotePut: 1})
