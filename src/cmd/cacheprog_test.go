@@ -191,6 +191,28 @@ func TestParseBuildCacheConfig_NotSet(t *testing.T) {
 	assert.Equal(t, cache.S3Config{}, cfg)
 }
 
+func TestParseBuildCacheConfig_URLSafeBase64(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.URLEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, "s3.example.com", cfg.Endpoint)
+	assert.Equal(t, "mybucket", cfg.Bucket)
+}
+
+func TestParseBuildCacheConfig_RawBase64(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.RawStdEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, "s3.example.com", cfg.Endpoint)
+	assert.Equal(t, "mybucket", cfg.Bucket)
+}
+
 func TestParseBuildCacheConfig_MissingEndpoint(t *testing.T) {
 	defer saveCacheEnv(t)()
 

@@ -38,7 +38,12 @@ func parseBuildCacheConfig() cache.S3Config {
 	if raw == "" {
 		return cache.S3Config{}
 	}
-	data, err := base64.StdEncoding.DecodeString(raw)
+	// Accept both standard and URL-safe base64, with or without padding.
+	normalized := strings.NewReplacer("-", "+", "_", "/").Replace(raw)
+	if m := len(normalized) % 4; m != 0 {
+		normalized += strings.Repeat("=", 4-m)
+	}
+	data, err := base64.StdEncoding.DecodeString(normalized)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: base64 decode error: %v\n", err)
 		return cache.S3Config{}
