@@ -77,12 +77,32 @@ type Server struct {
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
 // Connects to the stats socket if GOCACHE_STATS_SOCK is set.
+// If the remote is a *WebBackend, sets up proactive local cache population
+// so that batch downloads populate the local cache for all sibling entries.
 func NewServer(local *LocalCache, remote IBackend) *Server {
 	s := &Server{
 		local:  local,
 		remote: remote,
 		locks:  make(map[string]*sync.Mutex),
 		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
+	}
+	// Wire up batch → local cache population.
+	var wb *WebBackend
+	switch r := remote.(type) {
+	case *WebBackend:
+		wb = r
+	case *noCloseBackend:
+		wb, _ = r.IBackend.(*WebBackend)
+	}
+	if wb != nil {
+		wb.OnBatchEntries = func(entries []extractedEntry) {
+			for _, e := range entries {
+				if _, miss := local.Get(e.ActionID); !miss {
+					continue // already cached
+				}
+				local.Put(e.ActionID, e.OutputID, bytes.NewReader(e.Data))
+			}
+		}
 	}
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)

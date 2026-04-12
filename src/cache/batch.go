@@ -155,6 +155,66 @@ func extractFromBatch(data []byte, actionID string) (outputID string, body []byt
 	return "", nil, fmt.Errorf("entry %s not found in batch", actionID)
 }
 
+// extractedEntry holds a single extracted cache entry from a batch.
+type extractedEntry struct {
+	ActionID string
+	OutputID string
+	Data     []byte
+}
+
+// extractAllFromBatch extracts every entry from a tar.lz4 batch archive.
+// Used for proactive local cache population: when one entry triggers a batch
+// download, all sibling entries are extracted so subsequent GETs hit locally.
+func extractAllFromBatch(data []byte) ([]extractedEntry, error) {
+	lz4r := lz4.NewReader(bytes.NewReader(data))
+	tr := tar.NewReader(lz4r)
+
+	var manifest batchManifest
+	entries := map[string][]byte{} // actionID → data
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read tar: %w", err)
+		}
+
+		if hdr.Name == "manifest.json" {
+			raw, err := io.ReadAll(tr)
+			if err != nil {
+				return nil, fmt.Errorf("read manifest: %w", err)
+			}
+			if err := json.Unmarshal(raw, &manifest); err != nil {
+				return nil, fmt.Errorf("parse manifest: %w", err)
+			}
+			continue
+		}
+
+		if len(hdr.Name) > 5 && hdr.Name[:5] == "data/" {
+			actionID := hdr.Name[5:]
+			body, err := io.ReadAll(tr)
+			if err != nil {
+				return nil, fmt.Errorf("read entry %s: %w", actionID, err)
+			}
+			entries[actionID] = body
+		}
+	}
+
+	var result []extractedEntry
+	for _, me := range manifest.Entries {
+		if data, ok := entries[me.ActionID]; ok {
+			result = append(result, extractedEntry{
+				ActionID: me.ActionID,
+				OutputID: me.OutputID,
+				Data:     data,
+			})
+		}
+	}
+	return result, nil
+}
+
 // readBatchManifest reads only the manifest from a batch archive without
 // extracting data entries.
 func readBatchManifest(data []byte) (batchManifest, error) {

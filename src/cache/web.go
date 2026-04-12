@@ -61,6 +61,12 @@ type WebBackend struct {
 
 	// Local directory for caching downloaded batch archives.
 	batchCacheDir string
+
+	// OnBatchEntries is called when a batch is downloaded for a GET.
+	// It receives all extracted entries so the caller (Server) can
+	// proactively populate the local cache, turning N remote GETs
+	// into 1 batch download + (N-1) local hits.
+	OnBatchEntries func(entries []extractedEntry)
 }
 
 // NewWebBackend creates a web backend from the given config.
@@ -322,9 +328,10 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 	return outputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), t, false, nil
 }
 
-// getFromBatch retrieves a cache entry from a batch archive. It caches
-// downloaded batches locally to avoid re-downloading for subsequent lookups
-// within the same batch.
+// getFromBatch retrieves a cache entry from a batch archive. When a batch
+// is downloaded for the first time, ALL entries are extracted and passed to
+// OnBatchEntries so the caller can populate the local cache proactively.
+// This turns N sequential remote GETs into 1 batch download + (N-1) local hits.
 func (b *WebBackend) getFromBatch(actionID string, entry batchIndexEntry) (string, io.ReadCloser, int64, time.Time, bool, error) {
 	batchData, err := b.loadBatch(entry.Batch)
 	if err != nil {
@@ -332,14 +339,27 @@ func (b *WebBackend) getFromBatch(actionID string, entry batchIndexEntry) (strin
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	outputID, body, err := extractFromBatch(batchData, actionID)
+	// Extract ALL entries and proactively populate the local cache.
+	all, err := extractAllFromBatch(batchData)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch extract %s: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	b.Stats.Hits.Increment()
-	return outputID, io.NopCloser(bytes.NewReader(body)), int64(len(body)), time.Now(), false, nil
+	if b.OnBatchEntries != nil {
+		b.OnBatchEntries(all)
+	}
+
+	// Find the requested entry in the extracted results.
+	for _, e := range all {
+		if e.ActionID == actionID {
+			b.Stats.Hits.Increment()
+			return e.OutputID, io.NopCloser(bytes.NewReader(e.Data)), int64(len(e.Data)), time.Now(), false, nil
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "cacheprog: web batch extract %s: entry not in batch\n", actionID[:8])
+	return "", nil, 0, time.Time{}, true, nil
 }
 
 // loadBatch returns the raw bytes of a batch archive, using the local cache

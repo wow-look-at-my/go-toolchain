@@ -140,3 +140,33 @@ func TestCreateBatch_LargePayload(t *testing.T) {
 	// Verify compression saved space (repeated patterns compress well).
 	require.Less(t, len(archive), 50*30000, "archive should be smaller than raw data")
 }
+
+func TestExtractAllFromBatch(t *testing.T) {
+	entries := []batchEntry{
+		{actionID: "aabb000011112222", outputID: "ccdd333344445555", data: []byte("first")},
+		{actionID: "eeff666677778888", outputID: "9900aabbccddeeff", data: []byte("second")},
+		{actionID: "1234567890abcdef", outputID: "fedcba0987654321", data: []byte("third")},
+	}
+
+	archive, _, err := createBatch(entries)
+	require.NoError(t, err)
+
+	all, err := extractAllFromBatch(archive)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+
+	// Verify all entries were extracted with correct data.
+	byID := map[string]extractedEntry{}
+	for _, e := range all {
+		byID[e.ActionID] = e
+	}
+
+	require.Equal(t, "ccdd333344445555", byID["aabb000011112222"].OutputID)
+	require.Equal(t, "first", string(byID["aabb000011112222"].Data))
+
+	require.Equal(t, "9900aabbccddeeff", byID["eeff666677778888"].OutputID)
+	require.Equal(t, "second", string(byID["eeff666677778888"].Data))
+
+	require.Equal(t, "fedcba0987654321", byID["1234567890abcdef"].OutputID)
+	require.Equal(t, "third", string(byID["1234567890abcdef"].Data))
+}
