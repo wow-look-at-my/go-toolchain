@@ -23,6 +23,9 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
+// MaxConnsPerHost is the HTTP connection pool size for the remote cache.
+const MaxConnsPerHost = 64
+
 // WebConfig holds the configuration for a web cache backend.
 type WebConfig struct {
 	Bucket    string // Required. Empty bucket disables the backend.
@@ -86,9 +89,9 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		}).DialContext,
 		TLSClientConfig:       &tls.Config{},
 		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          64,
-		MaxIdleConnsPerHost:   64,
-		MaxConnsPerHost:       64,
+		MaxIdleConns:          MaxConnsPerHost,
+		MaxIdleConnsPerHost:   MaxConnsPerHost,
+		MaxConnsPerHost:       MaxConnsPerHost,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:  10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -257,20 +260,32 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	}
 	b.signRequest(req)
 
+	if b.Latency != nil {
+		b.Latency.Pool.Acquire()
+	}
 	httpStart := time.Now()
 	resp, err := b.client.Do(req)
 	if err != nil {
+		if b.Latency != nil {
+			b.Latency.Pool.Release()
+		}
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	if resp.StatusCode == 404 {
 		resp.Body.Close()
+		if b.Latency != nil {
+			b.Latency.Pool.Release()
+		}
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if b.Latency != nil {
+			b.Latency.Pool.Release()
+		}
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -278,18 +293,22 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	outputID = resp.Header.Get("X-Amz-Meta-Outputid")
 	if outputID == "" {
 		resp.Body.Close()
+		if b.Latency != nil {
+			b.Latency.Pool.Release()
+		}
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	compressed, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if b.Latency != nil {
+		b.Latency.Pool.Release()
+		b.Latency.HTTPGet.Record(time.Since(httpStart))
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
-	}
-	if b.Latency != nil {
-		b.Latency.HTTPGet.Record(time.Since(httpStart))
 	}
 
 	decompressStart := time.Now()
@@ -369,10 +388,16 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	}
 	b.signRequest(req)
 
+	if b.Latency != nil {
+		b.Latency.Pool.Acquire()
+	}
 	httpStart := time.Now()
 	resp, err := b.client.Do(req)
-	if b.Latency != nil && err == nil {
-		b.Latency.HTTPPut.Record(time.Since(httpStart))
+	if b.Latency != nil {
+		if err == nil {
+			b.Latency.HTTPPut.Record(time.Since(httpStart))
+		}
+		b.Latency.Pool.Release()
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", actionID[:8], err)

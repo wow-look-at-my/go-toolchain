@@ -180,6 +180,80 @@ func fmtFloat(v float64, prec int) string {
 	return s + fs
 }
 
+// ConcurrencyTracker records the high watermark and a running total of
+// concurrency samples. Each Acquire/Release pair tracks one in-flight
+// operation. The peak and per-sample sum/count allow computing the
+// average concurrent usage.
+type ConcurrencyTracker struct {
+	inFlight atomic.Int64
+	peak     atomic.Int64
+	samples  atomic.Uint64 // number of Acquire calls
+	sumUsage atomic.Uint64 // sum of in-flight values at each Acquire
+}
+
+// Acquire increments the in-flight count and updates the peak.
+// Returns the new in-flight count.
+func (ct *ConcurrencyTracker) Acquire() int64 {
+	n := ct.inFlight.Add(1)
+	ct.samples.Add(1)
+	ct.sumUsage.Add(uint64(n))
+	// CAS loop for peak.
+	for {
+		cur := ct.peak.Load()
+		if n <= cur {
+			break
+		}
+		if ct.peak.CompareAndSwap(cur, n) {
+			break
+		}
+	}
+	return n
+}
+
+// Release decrements the in-flight count.
+func (ct *ConcurrencyTracker) Release() {
+	ct.inFlight.Add(-1)
+}
+
+// ConcurrencySnapshot is a point-in-time copy.
+type ConcurrencySnapshot struct {
+	Peak    int64   `json:"peak,omitempty"`
+	Samples uint64  `json:"n,omitempty"`
+	AvgUsed float64 `json:"avg,omitempty"`
+}
+
+// Snapshot returns a point-in-time copy.
+func (ct *ConcurrencyTracker) Snapshot() ConcurrencySnapshot {
+	samples := ct.samples.Load()
+	var avg float64
+	if samples > 0 {
+		avg = float64(ct.sumUsage.Load()) / float64(samples)
+	}
+	return ConcurrencySnapshot{
+		Peak:    ct.peak.Load(),
+		Samples: samples,
+		AvgUsed: avg,
+	}
+}
+
+// Merge incorporates a snapshot into this tracker.
+func (ct *ConcurrencyTracker) Merge(s ConcurrencySnapshot) {
+	if s.Samples == 0 {
+		return
+	}
+	ct.samples.Add(s.Samples)
+	ct.sumUsage.Add(uint64(math.Round(s.AvgUsed * float64(s.Samples))))
+	for {
+		cur := ct.peak.Load()
+		if s.Peak <= cur {
+			break
+		}
+		if ct.peak.CompareAndSwap(cur, s.Peak) {
+			break
+		}
+	}
+}
+
 // LatencyStats holds latency trackers for all cache operations.
 type LatencyStats struct {
 	LockWait   LatencyTracker // time waiting for per-actionID mutex
@@ -192,20 +266,22 @@ type LatencyStats struct {
 	SemWait    LatencyTracker // time waiting for upload concurrency slot
 	Compress   LatencyTracker // LZ4 compression time
 	HTTPPut    LatencyTracker // HTTP PUT request/response (network + server)
+	Pool       ConcurrencyTracker // HTTP connection pool usage
 }
 
 // LatencyStatsSnapshot is a serializable point-in-time copy.
 type LatencyStatsSnapshot struct {
-	LockWait   LatencySnapshot `json:"lw,omitempty"`
-	LocalGet   LatencySnapshot `json:"lg,omitempty"`
-	LocalPut   LatencySnapshot `json:"lp,omitempty"`
-	RemoteGet  LatencySnapshot `json:"rg,omitempty"`
-	HTTPGet    LatencySnapshot `json:"hg,omitempty"`
-	Decompress LatencySnapshot `json:"dc,omitempty"`
-	RemotePut  LatencySnapshot `json:"rp,omitempty"`
-	SemWait    LatencySnapshot `json:"sw,omitempty"`
-	Compress   LatencySnapshot `json:"cp,omitempty"`
-	HTTPPut    LatencySnapshot `json:"hp,omitempty"`
+	LockWait   LatencySnapshot     `json:"lw,omitempty"`
+	LocalGet   LatencySnapshot     `json:"lg,omitempty"`
+	LocalPut   LatencySnapshot     `json:"lp,omitempty"`
+	RemoteGet  LatencySnapshot     `json:"rg,omitempty"`
+	HTTPGet    LatencySnapshot     `json:"hg,omitempty"`
+	Decompress LatencySnapshot     `json:"dc,omitempty"`
+	RemotePut  LatencySnapshot     `json:"rp,omitempty"`
+	SemWait    LatencySnapshot     `json:"sw,omitempty"`
+	Compress   LatencySnapshot     `json:"cp,omitempty"`
+	HTTPPut    LatencySnapshot     `json:"hp,omitempty"`
+	Pool       ConcurrencySnapshot `json:"pool,omitempty"`
 }
 
 // Snapshot returns a point-in-time copy.
@@ -221,6 +297,7 @@ func (ls *LatencyStats) Snapshot() LatencyStatsSnapshot {
 		SemWait:    ls.SemWait.Snapshot(),
 		Compress:   ls.Compress.Snapshot(),
 		HTTPPut:    ls.HTTPPut.Snapshot(),
+		Pool:       ls.Pool.Snapshot(),
 	}
 }
 
@@ -236,4 +313,5 @@ func (ls *LatencyStats) Merge(s LatencyStatsSnapshot) {
 	ls.SemWait.Merge(s.SemWait)
 	ls.Compress.Merge(s.Compress)
 	ls.HTTPPut.Merge(s.HTTPPut)
+	ls.Pool.Merge(s.Pool)
 }

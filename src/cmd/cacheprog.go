@@ -289,6 +289,13 @@ func printCacheStats(close bool) {
 				fmt.Printf("      %-10s  %s  (n=%d)\n", r.name, r.s.FormatMs(), r.s.Count)
 			}
 		}
+		if snap.Pool.Samples > 0 {
+			fmt.Printf("    Pool: peak %d/%d (%.0f%%)  avg %.1f/%d (%.0f%%)\n",
+				snap.Pool.Peak, cache.MaxConnsPerHost,
+				float64(snap.Pool.Peak)/float64(cache.MaxConnsPerHost)*100,
+				snap.Pool.AvgUsed, cache.MaxConnsPerHost,
+				snap.Pool.AvgUsed/float64(cache.MaxConnsPerHost)*100)
+		}
 	}
 }
 
