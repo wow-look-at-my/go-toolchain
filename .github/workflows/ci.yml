@@ -13,11 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-          cache: false
-
       - uses: wow-look-at-my/actions@secret-server#latest
 
       - name: Build and test
