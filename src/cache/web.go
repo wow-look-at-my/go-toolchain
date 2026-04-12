@@ -354,7 +354,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 	})
 
 	batchURL := b.endpoint + "/" + b.bucket + "/_batch/get"
-	req, err := http.NewRequest("POST", batchURL, bytes.NewReader(reqBody))
+	req, err := http.NewRequest("GET", batchURL, bytes.NewReader(reqBody))
 	if err != nil {
 		return "", nil, 0, time.Time{}, true, nil
 	}
