@@ -13,14 +13,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: false
+
       - uses: wow-look-at-my/actions@secret-server#latest
 
       - name: Build and test
-        run: |
-          # Use GOTOOLCHAIN=local to prevent go run from downloading a second
-          # copy of Go via the toolchain mechanism. go-bootstrap inside
-          # go-toolchain handles version management instead.
-          GOTOOLCHAIN=local go run ./src
+        run: go run ./src
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -35,6 +36,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: false
       - uses: ./
 
       - name: Upload build artifacts
