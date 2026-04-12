@@ -64,13 +64,18 @@ type StatEvent struct {
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 }
 
+// maxConcurrentPuts is the maximum number of concurrent remote put operations.
+// Matches the HTTP transport's MaxConnsPerHost to avoid connection churn.
+const maxConcurrentPuts = 64
+
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
 	local    *LocalCache
 	remote   IBackend // nil if no remote backend configured
 	mu       sync.Mutex
 	locks    map[string]*sync.Mutex
-	wg       sync.WaitGroup // tracks in-flight async remote puts
+	wg       sync.WaitGroup    // tracks in-flight async remote puts
+	putSem   chan struct{}      // semaphore bounding concurrent remote puts
 	Misses   AtomicCounter
 	Latency  LatencyStats
 	statsConn net.Conn // persistent connection to parent's stats socket
@@ -85,7 +90,16 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 		local:  local,
 		remote: remote,
 		locks:  make(map[string]*sync.Mutex),
+		putSem: make(chan struct{}, maxConcurrentPuts),
 		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
+	}
+	// Wire sub-operation latency tracking into the web backend.
+	if wb, ok := remote.(*WebBackend); ok {
+		wb.Latency = &s.Latency
+	} else if nc, ok := remote.(*noCloseBackend); ok {
+		if wb, ok := nc.IBackend.(*WebBackend); ok {
+			wb.Latency = &s.Latency
+		}
 	}
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
@@ -449,13 +463,19 @@ func (s *Server) handlePut(req Request) Response {
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s size=%d\n", actionID, len(req.Body))
 	}
-	// Async write to remote.
+	// Async write to remote. The semaphore bounds concurrency to avoid
+	// connection churn — each goroutine reuses a pooled HTTP connection
+	// instead of creating (and discarding) a new TCP+TLS connection.
 	if s.remote != nil {
 		data := make([]byte, len(req.Body))
 		copy(data, req.Body)
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
+			semStart := time.Now()
+			s.putSem <- struct{}{}        // acquire
+			s.Latency.SemWait.Record(time.Since(semStart))
+			defer func() { <-s.putSem }() // release
 			remotePutStart := time.Now()
 			err := s.remote.Put(actionID, outputID, bytes.NewReader(data), int64(len(data)))
 			s.Latency.RemotePut.Record(time.Since(remotePutStart))

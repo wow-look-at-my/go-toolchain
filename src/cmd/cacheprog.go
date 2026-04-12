@@ -267,6 +267,9 @@ func printCacheStats(close bool) {
 			{"local put", snap.LocalPut},
 			{"remote get", snap.RemoteGet},
 			{"remote put", snap.RemotePut},
+			{"  sem wait", snap.SemWait},
+			{"  compress", snap.Compress},
+			{"  http put", snap.HTTPPut},
 		}
 		var hasData bool
 		for _, r := range rows {

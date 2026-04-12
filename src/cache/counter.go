@@ -186,7 +186,10 @@ type LatencyStats struct {
 	LocalGet  LatencyTracker // local cache get (file read + stat)
 	LocalPut  LatencyTracker // local cache put (write + rename)
 	RemoteGet LatencyTracker // remote backend get (network + decompress)
-	RemotePut LatencyTracker // remote backend put (compress + upload)
+	RemotePut LatencyTracker // remote backend put (total: sem + compress + http)
+	SemWait   LatencyTracker // time waiting for upload concurrency slot
+	Compress  LatencyTracker // LZ4 compression time
+	HTTPPut   LatencyTracker // HTTP PUT request/response (network + server)
 }
 
 // LatencyStatsSnapshot is a serializable point-in-time copy.
@@ -196,6 +199,9 @@ type LatencyStatsSnapshot struct {
 	LocalPut  LatencySnapshot `json:"lp,omitempty"`
 	RemoteGet LatencySnapshot `json:"rg,omitempty"`
 	RemotePut LatencySnapshot `json:"rp,omitempty"`
+	SemWait   LatencySnapshot `json:"sw,omitempty"`
+	Compress  LatencySnapshot `json:"cp,omitempty"`
+	HTTPPut   LatencySnapshot `json:"hp,omitempty"`
 }
 
 // Snapshot returns a point-in-time copy.
@@ -206,6 +212,9 @@ func (ls *LatencyStats) Snapshot() LatencyStatsSnapshot {
 		LocalPut:  ls.LocalPut.Snapshot(),
 		RemoteGet: ls.RemoteGet.Snapshot(),
 		RemotePut: ls.RemotePut.Snapshot(),
+		SemWait:   ls.SemWait.Snapshot(),
+		Compress:  ls.Compress.Snapshot(),
+		HTTPPut:   ls.HTTPPut.Snapshot(),
 	}
 }
 
@@ -216,4 +225,7 @@ func (ls *LatencyStats) Merge(s LatencyStatsSnapshot) {
 	ls.LocalPut.Merge(s.LocalPut)
 	ls.RemoteGet.Merge(s.RemoteGet)
 	ls.RemotePut.Merge(s.RemotePut)
+	ls.SemWait.Merge(s.SemWait)
+	ls.Compress.Merge(s.Compress)
+	ls.HTTPPut.Merge(s.HTTPPut)
 }
