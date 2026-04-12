@@ -38,8 +38,9 @@ func parseBuildCacheConfig() cache.S3Config {
 	if raw == "" {
 		return cache.S3Config{}
 	}
-	// Accept both standard and URL-safe base64, with or without padding.
-	normalized := strings.NewReplacer("-", "+", "_", "/").Replace(raw)
+	// Accept both standard and URL-safe base64, with or without padding,
+	// and with or without line wrapping (76-char lines).
+	normalized := strings.NewReplacer("-", "+", "_", "/", "\n", "", "\r", "", " ", "").Replace(raw)
 	if m := len(normalized) % 4; m != 0 {
 		normalized += strings.Repeat("=", 4-m)
 	}

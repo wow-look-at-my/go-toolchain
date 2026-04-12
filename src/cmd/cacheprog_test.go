@@ -202,6 +202,27 @@ func TestParseBuildCacheConfig_URLSafeBase64(t *testing.T) {
 	assert.Equal(t, "mybucket", cfg.Bucket)
 }
 
+func TestParseBuildCacheConfig_LineWrappedBase64(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	encoded := base64.StdEncoding.EncodeToString([]byte(raw))
+	// Insert newlines every 76 characters (MIME-style wrapping)
+	var wrapped string
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		wrapped += encoded[i:end] + "\n"
+	}
+	os.Setenv("GO_BUILDCACHE_CONFIG", wrapped)
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, "s3.example.com", cfg.Endpoint)
+	assert.Equal(t, "mybucket", cfg.Bucket)
+}
+
 func TestParseBuildCacheConfig_RawBase64(t *testing.T) {
 	defer saveCacheEnv(t)()
 
