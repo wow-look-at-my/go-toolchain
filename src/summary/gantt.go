@@ -113,8 +113,9 @@ func RenderGantt(entries []TimelineEntry) string {
 			if endMs-startMs < 100 {
 				endMs = startMs + 100
 			}
+			label := sanitizeLabel(e.Label) + " (" + fmtGanttDuration(e.End.Sub(e.Start)) + ")"
 			sb.WriteString(fmt.Sprintf("    %s :%s, t%d, %d, %d\n",
-				sanitizeLabel(e.Label), tag, taskID, startMs, endMs))
+				label, tag, taskID, startMs, endMs))
 			taskID++
 		}
 	}
@@ -123,12 +124,25 @@ func RenderGantt(entries []TimelineEntry) string {
 	return sb.String()
 }
 
-// sanitizeLabel removes characters that Mermaid interprets as syntax.
+// sanitizeLabel removes characters that Mermaid interprets as syntax
+// and collapses any resulting whitespace runs.
 func sanitizeLabel(s string) string {
 	r := strings.NewReplacer(
-		":", " ",
-		";", " ",
+		":", "",
+		";", "",
 		"#", "",
 	)
-	return r.Replace(s)
+	return strings.Join(strings.Fields(r.Replace(s)), " ")
+}
+
+// fmtGanttDuration formats a duration for display in Gantt bar labels.
+func fmtGanttDuration(d time.Duration) string {
+	switch {
+	case d >= time.Minute:
+		return fmt.Sprintf("%.1fm", d.Minutes())
+	case d >= time.Second:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	default:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
 }

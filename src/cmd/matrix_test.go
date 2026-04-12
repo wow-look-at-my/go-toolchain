@@ -25,7 +25,7 @@ func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
 	}()
 
 	mock := runner.NewMock()
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -48,7 +48,7 @@ func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
 	}()
 
 	mock := runner.NewMock()
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -77,7 +77,7 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 	}()
 
 	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.Nil(t, err)
 }
 
@@ -114,7 +114,7 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 		}
 		return origHandler(cfg)
 	}
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
 
@@ -143,7 +143,7 @@ func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
 	}()
 
 	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Check that commands were recorded with .exe extension
@@ -187,7 +187,7 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 	}()
 
 	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.Nil(t, err)
 }
 
@@ -216,7 +216,7 @@ func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
 	}()
 
 	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Should have 4 builds: 2 OS x 2 arch
@@ -404,7 +404,7 @@ func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 	}()
 
 	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Verify that a benchmark command was issued
@@ -445,7 +445,7 @@ func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
 	}()
 
 	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
+	err := runReleaseWithRunner(mock, nil)
 	assert.Nil(t, err)
 
 	// Verify no benchmark command was issued
@@ -484,7 +484,7 @@ func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	output := captureStdout(func() {
-		err := runReleaseWithRunner(mock)
+		err := runReleaseWithRunner(mock, nil)
 		assert.Nil(t, err)
 	})
 
@@ -533,7 +533,7 @@ func TestMatrixOutputFailureShowsDuration(t *testing.T) {
 	}
 
 	output := captureStdout(func() {
-		err := runReleaseWithRunner(mock)
+		err := runReleaseWithRunner(mock, nil)
 		assert.NotNil(t, err)
 	})
 

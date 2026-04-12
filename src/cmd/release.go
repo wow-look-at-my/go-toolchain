@@ -76,7 +76,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 	// Optional: run matrix build first
 	if releaseBuild {
 		r := runner.New()
-		if err := runReleaseWithRunner(r); err != nil {
+		if err := runReleaseWithRunner(r, nil); err != nil {
 			return fmt.Errorf("build failed: %w", err)
 		}
 	}

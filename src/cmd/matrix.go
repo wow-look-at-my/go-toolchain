@@ -63,14 +63,15 @@ type buildResult struct {
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
 	r := runner.New()
-	err := runReleaseWithRunner(r)
+	var sd summary.SummaryData
+	err := runReleaseWithRunner(r, &sd)
 	if err != nil {
 		return err
 	}
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
-		sd := summary.SummaryData{Timeline: tl.Entries()}
+		sd.Timeline = tl.Entries()
 		if writeErr := summary.Write(&sd); writeErr != nil {
 			fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
 		}
@@ -85,15 +86,20 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runReleaseWithRunner(r runner.CommandRunner) error {
+func runReleaseWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 	setupCGOEnvironment()
 	if len(matrixOS) == 0 || len(matrixArch) == 0 {
 		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
 	}
 
 	// Run tests with coverage first (same as default command)
-	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
+	_, testResult, err := RunTestsWithCoverage(r, false)
+	if err != nil {
 		return err
+	}
+	if testResult != nil && sd != nil {
+		sd.TestCases = append(sd.TestCases, testResult.TestCases...)
+		sd.Coverage = &testResult.Coverage
 	}
 
 	// Resolve what to build
