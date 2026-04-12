@@ -73,7 +73,24 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	}
 
 	b := &WebBackend{
-		client:    &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("stopped after 10 redirects")
+				}
+				// Preserve original method — Go changes PUT/POST to GET on 301/302.
+				orig := via[0]
+				req.Method = orig.Method
+				req.Body = orig.Body
+				req.GetBody = orig.GetBody
+				req.ContentLength = orig.ContentLength
+				for key, vals := range orig.Header {
+					req.Header[key] = vals
+				}
+				return nil
+			},
+		},
 		bucket:    cfg.Bucket,
 		prefix:    prefix,
 		endpoint:  endpoint,
