@@ -169,53 +169,24 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 	// Phase 3: parse & type-check (should be fast with cached exports)
 	report("parse & type-check")
 	var parsedFiles syncatomic.Int32
-	loadStart := time.Now()
+	var lastParseProgress syncatomic.Int64
+	lastParseProgress.Store(time.Now().UnixNano())
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
 		ParseFile: func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
-			parsedFiles.Add(1)
+			count := parsedFiles.Add(1)
+			last := time.Unix(0, lastParseProgress.Load())
+			if time.Since(last) >= 4*time.Second {
+				if lastParseProgress.CompareAndSwap(last.UnixNano(), time.Now().UnixNano()) {
+					fmt.Fprintf(os.Stderr, "        parsed %d files...\n", count)
+				}
+			}
 			return parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		},
 	}
 
-	// Run packages.Load in a goroutine so we can report progress.
-	// The parsedFiles counter lets us distinguish parsing from type-checking.
-	type loadResult struct {
-		pkgs []*packages.Package
-		err  error
-	}
-	loadDone := make(chan loadResult, 1)
-	go func() {
-		pkgs, err := packages.Load(cfg, pattern)
-		loadDone <- loadResult{pkgs, err}
-	}()
-
-	ticker := time.NewTicker(4 * time.Second)
-	var lastFileCount int32
-	var pkgs []*packages.Package
-	var err error
-waitLoop:
-	for {
-		select {
-		case result := <-loadDone:
-			pkgs, err = result.pkgs, result.err
-			break waitLoop
-		case <-ticker.C:
-			count := parsedFiles.Load()
-			elapsed := time.Since(loadStart).Round(time.Second)
-			if count > lastFileCount {
-				fmt.Printf("        parsed %d files (%s)...\n", count, elapsed)
-				lastFileCount = count
-			} else if count > 0 {
-				fmt.Printf("        type-checking (%s)...\n", elapsed)
-			} else {
-				fmt.Printf("        loading packages (%s)...\n", elapsed)
-			}
-		}
-	}
-	ticker.Stop()
-
+	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
 		return false, fmt.Errorf("failed to load packages: %w", err)
 	}
