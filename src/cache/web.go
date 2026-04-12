@@ -46,7 +46,8 @@ type WebBackend struct {
 	secretKey string
 	version   string // go-toolchain version for object metadata
 	Stats   CacheStats
-	Latency *LatencyStats // optional; set by Server for sub-operation tracking
+	Pool    ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
+	Latency *LatencyStats      // optional; set by Server for sub-operation tracking
 	keysMu  sync.RWMutex
 	keys    set.Set[string] // known keys, built from ListObjects on startup
 }
@@ -260,32 +261,24 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	}
 	b.signRequest(req)
 
-	if b.Latency != nil {
-		b.Latency.Pool.Acquire()
-	}
+	b.Pool.Acquire()
 	httpStart := time.Now()
 	resp, err := b.client.Do(req)
 	if err != nil {
-		if b.Latency != nil {
-			b.Latency.Pool.Release()
-		}
+		b.Pool.Release()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	if resp.StatusCode == 404 {
 		resp.Body.Close()
-		if b.Latency != nil {
-			b.Latency.Pool.Release()
-		}
+		b.Pool.Release()
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if b.Latency != nil {
-			b.Latency.Pool.Release()
-		}
+		b.Pool.Release()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -293,17 +286,15 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	outputID = resp.Header.Get("X-Amz-Meta-Outputid")
 	if outputID == "" {
 		resp.Body.Close()
-		if b.Latency != nil {
-			b.Latency.Pool.Release()
-		}
+		b.Pool.Release()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
 	compressed, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	b.Pool.Release()
 	if b.Latency != nil {
-		b.Latency.Pool.Release()
 		b.Latency.HTTPGet.Record(time.Since(httpStart))
 	}
 	if err != nil {
@@ -388,16 +379,12 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	}
 	b.signRequest(req)
 
-	if b.Latency != nil {
-		b.Latency.Pool.Acquire()
-	}
+	b.Pool.Acquire()
 	httpStart := time.Now()
 	resp, err := b.client.Do(req)
-	if b.Latency != nil {
-		if err == nil {
-			b.Latency.HTTPPut.Record(time.Since(httpStart))
-		}
-		b.Latency.Pool.Release()
+	b.Pool.Release()
+	if b.Latency != nil && err == nil {
+		b.Latency.HTTPPut.Record(time.Since(httpStart))
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", actionID[:8], err)

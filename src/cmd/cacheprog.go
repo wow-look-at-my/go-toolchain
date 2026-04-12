@@ -289,12 +289,16 @@ func printCacheStats(close bool) {
 				fmt.Printf("      %-10s  %s  (n=%d)\n", r.name, r.s.FormatMs(), r.s.Count)
 			}
 		}
-		if snap.Pool.Samples > 0 {
+	}
+	if stats.Pool != nil {
+		poolSnap := stats.Pool.Snapshot()
+		if poolSnap.Samples > 0 {
+			avg := poolSnap.AvgUsed()
 			fmt.Printf("    Pool: peak %d/%d (%.0f%%)  avg %.1f/%d (%.0f%%)\n",
-				snap.Pool.Peak, cache.MaxConnsPerHost,
-				float64(snap.Pool.Peak)/float64(cache.MaxConnsPerHost)*100,
-				snap.Pool.AvgUsed, cache.MaxConnsPerHost,
-				snap.Pool.AvgUsed/float64(cache.MaxConnsPerHost)*100)
+				poolSnap.Peak, cache.MaxConnsPerHost,
+				float64(poolSnap.Peak)/float64(cache.MaxConnsPerHost)*100,
+				avg, cache.MaxConnsPerHost,
+				avg/float64(cache.MaxConnsPerHost)*100)
 		}
 	}
 }

@@ -217,22 +217,25 @@ func (ct *ConcurrencyTracker) Release() {
 
 // ConcurrencySnapshot is a point-in-time copy.
 type ConcurrencySnapshot struct {
-	Peak    int64   `json:"peak,omitempty"`
-	Samples uint64  `json:"n,omitempty"`
-	AvgUsed float64 `json:"avg,omitempty"`
+	Peak     int64  `json:"peak,omitempty"`
+	Samples  uint64 `json:"n,omitempty"`
+	SumUsage uint64 `json:"sum,omitempty"` // sum of in-flight values at each Acquire
+}
+
+// AvgUsed returns the average concurrent usage.
+func (s ConcurrencySnapshot) AvgUsed() float64 {
+	if s.Samples == 0 {
+		return 0
+	}
+	return float64(s.SumUsage) / float64(s.Samples)
 }
 
 // Snapshot returns a point-in-time copy.
 func (ct *ConcurrencyTracker) Snapshot() ConcurrencySnapshot {
-	samples := ct.samples.Load()
-	var avg float64
-	if samples > 0 {
-		avg = float64(ct.sumUsage.Load()) / float64(samples)
-	}
 	return ConcurrencySnapshot{
-		Peak:    ct.peak.Load(),
-		Samples: samples,
-		AvgUsed: avg,
+		Peak:     ct.peak.Load(),
+		Samples:  ct.samples.Load(),
+		SumUsage: ct.sumUsage.Load(),
 	}
 }
 
@@ -242,7 +245,7 @@ func (ct *ConcurrencyTracker) Merge(s ConcurrencySnapshot) {
 		return
 	}
 	ct.samples.Add(s.Samples)
-	ct.sumUsage.Add(uint64(math.Round(s.AvgUsed * float64(s.Samples))))
+	ct.sumUsage.Add(s.SumUsage)
 	for {
 		cur := ct.peak.Load()
 		if s.Peak <= cur {
@@ -266,7 +269,6 @@ type LatencyStats struct {
 	SemWait    LatencyTracker // time waiting for upload concurrency slot
 	Compress   LatencyTracker // LZ4 compression time
 	HTTPPut    LatencyTracker // HTTP PUT request/response (network + server)
-	Pool       ConcurrencyTracker // HTTP connection pool usage
 }
 
 // LatencyStatsSnapshot is a serializable point-in-time copy.
@@ -281,10 +283,11 @@ type LatencyStatsSnapshot struct {
 	SemWait    LatencySnapshot     `json:"sw,omitempty"`
 	Compress   LatencySnapshot     `json:"cp,omitempty"`
 	HTTPPut    LatencySnapshot     `json:"hp,omitempty"`
-	Pool       ConcurrencySnapshot `json:"pool,omitempty"`
+	Pool       ConcurrencySnapshot `json:"pool,omitempty"` // populated from WebBackend, not LatencyStats
 }
 
-// Snapshot returns a point-in-time copy.
+// Snapshot returns a point-in-time copy. Pool is NOT included here —
+// it lives on the WebBackend and is populated by Server.flushLatency.
 func (ls *LatencyStats) Snapshot() LatencyStatsSnapshot {
 	return LatencyStatsSnapshot{
 		LockWait:   ls.LockWait.Snapshot(),
@@ -297,7 +300,6 @@ func (ls *LatencyStats) Snapshot() LatencyStatsSnapshot {
 		SemWait:    ls.SemWait.Snapshot(),
 		Compress:   ls.Compress.Snapshot(),
 		HTTPPut:    ls.HTTPPut.Snapshot(),
-		Pool:       ls.Pool.Snapshot(),
 	}
 }
 
@@ -313,5 +315,4 @@ func (ls *LatencyStats) Merge(s LatencyStatsSnapshot) {
 	ls.SemWait.Merge(s.SemWait)
 	ls.Compress.Merge(s.Compress)
 	ls.HTTPPut.Merge(s.HTTPPut)
-	ls.Pool.Merge(s.Pool)
 }

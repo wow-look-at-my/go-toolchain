@@ -142,10 +142,11 @@ func (s *Server) closeStats() {
 // ServerStats is the serialized aggregate of all cache layer stats.
 // Fields are pointers to the live atomic counters — no copying.
 type ServerStats struct {
-	Local   *CacheStats    `json:"local"`
-	Remote  *CacheStats    `json:"remote,omitempty"`
-	Misses  *AtomicCounter `json:"misses"`
-	Latency *LatencyStats  `json:"latency,omitempty"`
+	Local   *CacheStats         `json:"local"`
+	Remote  *CacheStats         `json:"remote,omitempty"`
+	Misses  *AtomicCounter      `json:"misses"`
+	Latency *LatencyStats       `json:"latency,omitempty"`
+	Pool    *ConcurrencyTracker `json:"pool,omitempty"`
 }
 
 // GetStats returns pointers to the live cache layer stats.
@@ -170,6 +171,7 @@ type StatsListener struct {
 	remote   CacheStats
 	misses   AtomicCounter
 	latency  LatencyStats
+	pool     ConcurrencyTracker
 	hasRemote atomic.Bool
 	wg       sync.WaitGroup
 }
@@ -225,6 +227,7 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 		}
 		if ev.Latency != nil {
 			sl.latency.Merge(*ev.Latency)
+			sl.pool.Merge(ev.Latency.Pool)
 		}
 	}
 }
@@ -242,6 +245,7 @@ func (sl *StatsListener) Stats() *ServerStats {
 		Local:   &sl.local,
 		Misses:  &sl.misses,
 		Latency: &sl.latency,
+		Pool:    &sl.pool,
 	}
 	if sl.hasRemote.Load() {
 		ss.Remote = &sl.remote
@@ -364,9 +368,31 @@ func (s *Server) lock(key string) *sync.Mutex {
 }
 
 // flushLatency sends a final latency snapshot over the stats socket.
+// Pool usage is read from the WebBackend directly (it's shared across
+// all daemon Servers, so only the cumulative snapshot matters).
 func (s *Server) flushLatency() {
 	snap := s.Latency.Snapshot()
+	if wb := s.webBackend(); wb != nil {
+		snap.Pool = wb.Pool.Snapshot()
+	}
 	s.sendStat(StatEvent{Latency: &snap})
+}
+
+// webBackend extracts the *WebBackend from the remote, unwrapping
+// the noCloseBackend wrapper if present.
+func (s *Server) webBackend() *WebBackend {
+	if s.remote == nil {
+		return nil
+	}
+	if wb, ok := s.remote.(*WebBackend); ok {
+		return wb
+	}
+	if nc, ok := s.remote.(*noCloseBackend); ok {
+		if wb, ok := nc.IBackend.(*WebBackend); ok {
+			return wb
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleGet(req Request) Response {
