@@ -128,6 +128,16 @@ func run(cmd *cobra.Command, args []string) error {
 	r := runner.New()
 	startDir, _ := os.Getwd()
 
+	// Always write Chrome trace on exit, even if the build fails.
+	defer func() {
+		if tl := GetTimeline(); tl != nil {
+			tracePath := filepath.Join(os.TempDir(), "go-toolchain-profile", "trace.json")
+			if err := gotrace.WriteChrome(tracePath, tl.Entries()); err != nil {
+				fmt.Fprintf(os.Stderr, "==> Warning: failed to write Chrome trace: %v\n", err)
+			}
+		}
+	}()
+
 	// Accumulate summary data across all modules; write once at the end.
 	var allSummary summary.SummaryData
 
@@ -167,6 +177,7 @@ func run(cmd *cobra.Command, args []string) error {
 		if err := gotrace.Export(ctx, tl.Entries()); err != nil {
 			fmt.Fprintf(os.Stderr, "==> Warning: failed to export traces: %v\n", err)
 		}
+
 	}
 
 	return nil
