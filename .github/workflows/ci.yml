@@ -30,6 +30,14 @@ jobs:
           path: build/go-toolchain
           if-no-files-found: error
 
+      - name: Upload trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-trace
+          path: /tmp/go-toolchain-profile/trace.json
+          if-no-files-found: ignore
+
   # Test the composite action end-to-end using the binary we just built
   action-test:
     needs: build
