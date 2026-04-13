@@ -2,6 +2,7 @@ package vet
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,11 @@ func Analyzers() []*analysis.Analyzer {
 	}
 }
 
+// CompileStderr is the writer used for go build/test compilation output.
+// Defaults to os.Stderr. Set to a custom writer (e.g. a cache miss tracker)
+// to capture which packages are compiled.
+var CompileStderr io.Writer = os.Stderr
+
 // ProgressFunc is called with a phase name when the vet enters a new phase.
 type ProgressFunc func(phase string)
 
@@ -129,13 +135,13 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 	report("compile")
 	compileCmd := exec.Command("go", "build", "-v", pattern)
 	compileCmd.Stdout = os.Stdout
-	compileCmd.Stderr = os.Stderr
+	compileCmd.Stderr = CompileStderr
 	_ = compileCmd.Run() // best-effort; test-only packages may fail
 
 	// Also compile test binaries to warm the cache for test variants.
-	testCompileCmd := exec.Command("go", "test", "-v", "-run=^$", "-count=1", pattern)
+	testCompileCmd := exec.Command("go", "test", "-run=^$", "-count=1", pattern)
 	testCompileCmd.Stdout = os.Stdout
-	testCompileCmd.Stderr = os.Stderr
+	testCompileCmd.Stderr = CompileStderr
 	_ = testCompileCmd.Run() // best-effort
 
 	// Now load packages for analysis — should be fast with warm cache.

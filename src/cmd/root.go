@@ -30,6 +30,7 @@ var (
 	outputDir     = "build"
 	jsonOutput    bool
 	verbose       bool
+	cacheMisses   bool
 	generateHash  string
 	dupcode bool
 	lintThreshold float64
@@ -69,6 +70,7 @@ func init() {
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
+	rootCmd.PersistentFlags().BoolVar(&cacheMisses, "cache-misses", false, "Show packages that missed the build cache")
 	registerSelfProfileFlags()
 
 	// Silent no-op flags — accepted without error for tool compatibility
@@ -101,6 +103,13 @@ func Execute() error {
 
 func run(cmd *cobra.Command, args []string) error {
 	InitTimeline()
+
+	if cacheMisses {
+		tracker := newCacheMissTracker(os.Stderr)
+		activeMissTracker = tracker
+		vet.CompileStderr = tracker
+		defer tracker.Print()
+	}
 
 	wd := startWatchdog(5 * time.Second)
 	if wd != nil {

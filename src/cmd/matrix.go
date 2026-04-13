@@ -274,6 +274,9 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	}
 	if onFirstOutput != nil {
 		cmd = cmd.WithOnFirstOutput(onFirstOutput)
+		if activeMissTracker != nil {
+			cmd = cmd.WithStderrWriter(activeMissTracker)
+		}
 	} else {
 		cmd = cmd.WithQuiet()
 	}
