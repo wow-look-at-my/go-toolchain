@@ -1,6 +1,7 @@
 package vet
 
 import (
+	"context"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	runtimetrace "runtime/trace"
 	"sort"
 	"strings"
 	"time"
@@ -162,20 +164,13 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
 	}
-	if ActiveTrace != nil {
-		cfg.ParseFile = func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
-			start := time.Now()
-			f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
-			ActiveTrace.Record(gotrace.Event{
-				Name:     filepath.Base(filename),
-				Category: "parse",
-				Thread:   "parse",
-				Start:    start,
-				End:      time.Now(),
-				Args:     map[string]string{"file": filename},
-			})
-			return f, err
-		}
+	// ParseFile adds runtime/trace regions for per-file visibility in go tool trace.
+	// (Chrome trace.json only has pipeline-level events; trace.out has full goroutine detail.)
+	cfg.ParseFile = func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+		_, task := runtimetrace.NewTask(context.Background(), "parse/"+filepath.Base(filename))
+		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
+		task.End()
+		return f, err
 	}
 
 	pkgs, err := packages.Load(cfg, pattern)
@@ -206,9 +201,7 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 	// Run analyzers — wrap each Run function to record per-analyzer per-package timing.
 	report("run analyzers")
 	analyzers := Analyzers()
-	if ActiveTrace != nil {
-		analyzers = instrumentAnalyzers(analyzers, ActiveTrace)
-	}
+	analyzers = instrumentAnalyzers(analyzers)
 	graph, err := checker.Analyze(analyzers, pkgs, nil)
 	if err != nil {
 		return false, fmt.Errorf("analysis failed: %w", err)
@@ -333,7 +326,7 @@ func (w *compileTracer) Write(p []byte) (int, error) {
 // instrumentAnalyzers wraps each analyzer's Run function in-place to record
 // per-analyzer per-package timing in the trace. Mutates the original analyzers
 // since cloning breaks checker.Analyze's internal pointer-identity maps.
-func instrumentAnalyzers(analyzers []*analysis.Analyzer, t *gotrace.Trace) []*analysis.Analyzer {
+func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 	seen := make(map[*analysis.Analyzer]bool)
 	var instrument func(a *analysis.Analyzer)
 	instrument = func(a *analysis.Analyzer) {
@@ -344,16 +337,9 @@ func instrumentAnalyzers(analyzers []*analysis.Analyzer, t *gotrace.Trace) []*an
 		origRun := a.Run
 		name := a.Name
 		a.Run = func(pass *analysis.Pass) (interface{}, error) {
-			start := time.Now()
+			_, task := runtimetrace.NewTask(context.Background(), "analyze/"+name+"/"+pass.Pkg.Path())
 			result, err := origRun(pass)
-			t.Record(gotrace.Event{
-				Name:     name,
-				Category: "analyze",
-				Thread:   "analyzers",
-				Start:    start,
-				End:      time.Now(),
-				Args:     map[string]string{"package": pass.Pkg.Path()},
-			})
+			task.End()
 			return result, err
 		}
 		for _, req := range a.Requires {

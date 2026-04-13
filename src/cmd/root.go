@@ -502,9 +502,20 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 
 	// Record per-test events in the trace.
 	if activeTrace != nil && result != nil {
+		// Build set of tests that have subtests so we only trace leaf tests
+		// (parent durations include children and would overlap).
+		hasSubtest := make(map[string]bool)
+		for _, tc := range result.TestCases {
+			if i := strings.LastIndex(tc.Test, "/"); i > 0 {
+				hasSubtest[tc.Package+"."+tc.Test[:i]] = true
+			}
+		}
 		for _, tc := range result.TestCases {
 			if tc.Elapsed <= 0 || tc.End.IsZero() {
 				continue
+			}
+			if hasSubtest[tc.Package+"."+tc.Test] {
+				continue // skip parent, children cover the time
 			}
 			dur := time.Duration(tc.Elapsed * float64(time.Second))
 			pkg := tc.Package
@@ -512,9 +523,9 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 				pkg = pkg[idx+1:]
 			}
 			activeTrace.Record(gotrace.Event{
-				Name:     pkg + "." + tc.Test,
+				Name:     tc.Test,
 				Category: "test",
-				Thread:   "tests",
+				Thread:   "test/" + pkg,
 				Start:    tc.End.Add(-dur),
 				End:      tc.End,
 				Failed:   tc.Status == "fail",

@@ -115,17 +115,26 @@ func WriteChrome(path string, timeline []summary.TimelineEntry, trace *Trace) er
 	}
 
 	// Fine-grained events (from instrumented code).
+	// Clamp start times so events on the same thread never overlap
+	// (Chrome trace viewer drops overlapping X events).
+	threadEnd := make(map[int]int64) // tid → last event end (microseconds)
 	if trace != nil {
 		trace.mu.Lock()
 		for _, e := range trace.events {
 			tid := resolveThreadID(e.Thread, threads)
-			dur := e.End.Sub(e.Start).Microseconds()
+			ts := e.Start.UnixMicro()
+			endTs := e.End.UnixMicro()
+			if prev, ok := threadEnd[tid]; ok && ts < prev {
+				ts = prev // clamp to avoid overlap
+			}
+			dur := endTs - ts
 			if dur < 1 {
 				dur = 1
 			}
+			threadEnd[tid] = ts + dur
 			ev := chromeEvent{
 				Name: e.Name, Cat: e.Category, Ph: "X",
-				Ts: e.Start.UnixMicro(), Dur: dur, Pid: 1, Tid: tid,
+				Ts: ts, Dur: dur, Pid: 1, Tid: tid,
 			}
 			args := e.Args
 			if e.Failed {
