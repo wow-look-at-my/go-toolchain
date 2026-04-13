@@ -110,11 +110,6 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 	return s
 }
 
-// logMiss records a missed action ID to stderr for diagnostics.
-func (s *Server) logMiss(actionID string) {
-	fmt.Fprintf(os.Stderr, "cache: MISS %s\n", actionID)
-}
-
 // sendStat sends a single stat event to the parent over the persistent connection.
 func (s *Server) sendStat(ev StatEvent) {
 	if s.statsConn == nil {
@@ -445,8 +440,6 @@ func (s *Server) handleGet(req Request) Response {
 	if err != nil || remoteMiss {
 		s.Misses.Increment()
 		s.sendStat(StatEvent{Miss: 1})
-		// Log all misses to a temp file for post-run analysis.
-		s.logMiss(actionID)
 		if s.debug {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "cache: MISS       %s (remote error: %v)\n", actionID, err)
