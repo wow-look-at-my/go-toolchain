@@ -26,6 +26,9 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
+// activeTrace collects fine-grained trace events for Chrome trace export.
+var activeTrace *gotrace.Trace
+
 var (
 	outputDir     = "build"
 	jsonOutput    bool
@@ -128,13 +131,19 @@ func run(cmd *cobra.Command, args []string) error {
 	r := runner.New()
 	startDir, _ := os.Getwd()
 
+	// Create global trace for fine-grained events.
+	activeTrace = gotrace.NewTrace()
+	vet.ActiveTrace = activeTrace
+
 	// Always write Chrome trace on exit, even if the build fails.
 	defer func() {
+		var entries []summary.TimelineEntry
 		if tl := GetTimeline(); tl != nil {
-			tracePath := filepath.Join(os.TempDir(), "go-toolchain-profile", "trace.json")
-			if err := gotrace.WriteChrome(tracePath, tl.Entries()); err != nil {
-				fmt.Fprintf(os.Stderr, "==> Warning: failed to write Chrome trace: %v\n", err)
-			}
+			entries = tl.Entries()
+		}
+		tracePath := filepath.Join(os.TempDir(), "go-toolchain-profile", "trace.json")
+		if err := gotrace.WriteChrome(tracePath, entries, activeTrace); err != nil {
+			fmt.Fprintf(os.Stderr, "==> Warning: failed to write Chrome trace: %v\n", err)
 		}
 	}()
 
@@ -489,6 +498,29 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep.failed()
 	} else if testStep != nil {
 		testStep.done()
+	}
+
+	// Record per-test events in the trace.
+	if activeTrace != nil && result != nil {
+		for _, tc := range result.TestCases {
+			if tc.Elapsed <= 0 || tc.End.IsZero() {
+				continue
+			}
+			dur := time.Duration(tc.Elapsed * float64(time.Second))
+			pkg := tc.Package
+			if idx := strings.LastIndex(pkg, "/"); idx >= 0 {
+				pkg = pkg[idx+1:]
+			}
+			activeTrace.Record(gotrace.Event{
+				Name:     pkg + "." + tc.Test,
+				Category: "test",
+				Thread:   "tests",
+				Start:    tc.End.Add(-dur),
+				End:      tc.End,
+				Failed:   tc.Status == "fail",
+				Args:     map[string]string{"package": tc.Package, "status": tc.Status},
+			})
+		}
 	}
 
 	report := &result.Coverage

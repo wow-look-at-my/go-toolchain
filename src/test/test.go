@@ -82,21 +82,22 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 
 	// Capture per-test results for CI summary
 	if event.Test != "" {
+		now := time.Now()
 		switch event.Action {
 		case testjson.ActionPass:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "pass", Elapsed: event.Elapsed,
+				Status: "pass", Elapsed: event.Elapsed, End: now,
 			})
 		case testjson.ActionFail:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "fail", Elapsed: event.Elapsed,
+				Status: "fail", Elapsed: event.Elapsed, End: now,
 			})
 		case testjson.ActionSkip:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "skip", Elapsed: event.Elapsed,
+				Status: "skip", Elapsed: event.Elapsed, End: now,
 			})
 		}
 	}
@@ -164,9 +165,10 @@ func (h *coverageHandler) Err(text string) error {
 // TestCaseResult captures per-test data for CI summary tables.
 type TestCaseResult struct {
 	Package string
-	Test    string  // includes subtest path, e.g. "TestFoo/case_a"
-	Status  string  // "pass", "fail", "skip"
-	Elapsed float64 // seconds
+	Test    string    // includes subtest path, e.g. "TestFoo/case_a"
+	Status  string    // "pass", "fail", "skip"
+	Elapsed float64   // seconds
+	End     time.Time // wall-clock time when the result was received
 }
 
 // TestResult contains the results of running tests
