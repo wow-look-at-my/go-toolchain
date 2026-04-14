@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"gotest.tools/gotestsum/testjson"
 )
@@ -23,6 +24,11 @@ const (
 
 	testTimeout = 30 * time.Second
 )
+
+// TimelineRecorder records pipeline timeline entries. Satisfied by *summary.Timeline.
+type TimelineRecorder interface {
+	Record(label, thread string, start, end time.Time, failed bool)
+}
 
 var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
 
@@ -45,6 +51,7 @@ type coverageHandler struct {
 	onOutput    func()              // called before the first visible output
 	stderrLines []string            // build errors and panics from stderr
 	testCases   []TestCaseResult    // per-test results for CI summary
+	timeline    TimelineRecorder     // pipeline timeline for per-test spans
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -81,22 +88,34 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 
 	// Capture per-test results for CI summary
 	if event.Test != "" {
+		now := time.Now()
 		switch event.Action {
 		case testjson.ActionPass:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "pass", Elapsed: event.Elapsed,
+				Status: "pass", Elapsed: event.Elapsed, End: now,
 			})
 		case testjson.ActionFail:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "fail", Elapsed: event.Elapsed,
+				Status: "fail", Elapsed: event.Elapsed, End: now,
 			})
 		case testjson.ActionSkip:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "skip", Elapsed: event.Elapsed,
+				Status: "skip", Elapsed: event.Elapsed, End: now,
 			})
+		}
+
+		// Record per-test timeline entries for OTEL trace spans
+		if h.timeline != nil && event.Elapsed >= 0.1 {
+			switch event.Action {
+			case testjson.ActionPass, testjson.ActionFail, testjson.ActionSkip:
+				end := time.Now()
+				start := end.Add(-time.Duration(event.Elapsed * float64(time.Second)))
+				label := shortPkg(event.Package) + "." + event.Test
+				h.timeline.Record(label, "test", start, end, event.Action == testjson.ActionFail)
+			}
 		}
 	}
 
@@ -163,9 +182,10 @@ func (h *coverageHandler) Err(text string) error {
 // TestCaseResult captures per-test data for CI summary tables.
 type TestCaseResult struct {
 	Package string
-	Test    string  // includes subtest path, e.g. "TestFoo/case_a"
-	Status  string  // "pass", "fail", "skip"
-	Elapsed float64 // seconds
+	Test    string    // includes subtest path, e.g. "TestFoo/case_a"
+	Status  string    // "pass", "fail", "skip"
+	Elapsed float64   // seconds
+	End     time.Time // wall-clock time when the result was received
 }
 
 // TestResult contains the results of running tests
@@ -177,16 +197,7 @@ type TestResult struct {
 
 // readModulePath reads the module path from go.mod in the current directory.
 func readModulePath() string {
-	data, err := os.ReadFile("go.mod")
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
-		}
-	}
-	return ""
+	return gomod.ReadModulePath()
 }
 
 // listTestPackages returns the import paths of packages that contain test files,
@@ -243,16 +254,13 @@ func listTestPackages(_ runner.CommandRunner) []string {
 // coverFile is the path where the coverage profile will be written.
 // onOutput is an optional callback called before the first visible test output
 // (used by the progress indicator to finish the "..." line).
-func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
+func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(), timeline TimelineRecorder) (*TestResult, error) {
 	// Enumerate only packages that have test files to avoid the "no such tool
 	// covdata" error on main packages without tests. Also excludes packages
 	// where all non-test .go files are generated code (e.g. sqlc output).
-	//
-	// Use -p 1 to serialize test execution, preventing Go 1.25's race condition
-	// in multi-package -coverprofile merging.
 	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
 	if coverFile != "" {
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-p", "1")
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	if pkgs := listTestPackages(r); len(pkgs) > 0 {
 		args = append(args, pkgs...)
@@ -260,9 +268,11 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		args = append(args, "./...")
 	}
 
-	// Capture stderr in a buffer — build errors go here, not in JSON stream.
+	// Tee stderr to console (for compilation progress like "go: downloading"
+	// and build errors) while also capturing it in a buffer for error reporting.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", args...).WithStderrWriter(&stderrBuf).Run(r)
+	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
+	proc, err := runner.Cmd("go", args...).WithStderrWriter(stderrTee).Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +287,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		failedTest: make(map[string]bool),
 		timedOut:   make(map[string]bool),
 		onOutput:   onOutput,
+		timeline:   timeline,
 	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{

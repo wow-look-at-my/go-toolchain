@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -183,16 +184,8 @@ func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, 
 // If no main packages are found (library-only project), falls back to
 // go list -deps ./... which includes all packages.
 func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
-	// Get module prefix
-	modProc, err := runner.Cmd("go", "list", "-m").WithQuiet().Run(r)
-	if err != nil {
-		return nil, err
-	}
-	modOut, _ := io.ReadAll(modProc.Stdout())
-	if err := modProc.Wait(); err != nil {
-		return nil, err
-	}
-	modulePrefix := strings.TrimSpace(string(modOut))
+	// Get module prefix from go.mod
+	modulePrefix := gomod.ReadModulePath()
 	if modulePrefix == "" {
 		return nil, nil
 	}
@@ -201,21 +194,9 @@ func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
 	// Using entry points instead of ./... prevents build-tag-excluded
 	// packages from being counted toward coverage thresholds.
 	roots := "./..."
-	mainProc, err := runner.Cmd("go", "list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./...").WithQuiet().Run(r)
-	if err == nil {
-		mainOut, _ := io.ReadAll(mainProc.Stdout())
-		if mainProc.Wait() == nil {
-			var mainPkgs []string
-			for _, line := range strings.Split(strings.TrimSpace(string(mainOut)), "\n") {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					mainPkgs = append(mainPkgs, line)
-				}
-			}
-			if len(mainPkgs) > 0 {
-				roots = strings.Join(mainPkgs, "\n")
-			}
-		}
+	mainPkgs, _ := gomod.FindMainPackages()
+	if len(mainPkgs) > 0 {
+		roots = strings.Join(mainPkgs, "\n")
 	}
 
 	// Get all reachable packages from the roots

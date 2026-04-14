@@ -278,11 +278,28 @@ func collectGitInfo() (gitInfo, error) {
 		info.timestamp = strings.TrimSpace(string(out))
 	}
 
-	if os.Getenv("CI") != "" && strings.HasSuffix(info.version, "-dirty") {
-		return info, fmt.Errorf("refusing to build: version %q has -dirty suffix in CI (working tree is not clean)", info.version)
-	}
-
 	return info, nil
+}
+
+// checkDirtyInCI returns an error if running in CI with a version that
+// has a "-dirty" suffix. Call this at build sites to enforce that CI
+// builds never embed a dirty version string. Collection of git info is
+// kept separate so tests of collectGitInfo need not care about the
+// transient dirty-tree state the build pipeline itself may create
+// (e.g. injected vanity-URL replaces in go.mod).
+func checkDirtyInCI(info gitInfo) error {
+	if os.Getenv("CI") != "" && strings.HasSuffix(info.version, "-dirty") {
+		// Diagnostic: surface what's dirty so the cause is visible in CI logs
+		// instead of requiring a local reproduction.
+		if out, err := exec.Command("git", "status", "--porcelain").Output(); err == nil && len(out) > 0 {
+			fmt.Fprintf(os.Stderr, "==> git status --porcelain:\n%s", out)
+		}
+		if out, err := exec.Command("git", "diff", "--stat").Output(); err == nil && len(out) > 0 {
+			fmt.Fprintf(os.Stderr, "==> git diff --stat:\n%s", out)
+		}
+		return fmt.Errorf("refusing to build: version %q has -dirty suffix in CI (working tree is not clean)", info.version)
+	}
+	return nil
 }
 
 // ldflags returns a string suitable for `go build -ldflags`.

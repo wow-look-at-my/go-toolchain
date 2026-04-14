@@ -51,25 +51,12 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: wow-look-at-my/secret-server@master
+    - uses: wow-look-at-my/actions@secret-server#latest
 
     - name: Configure git for private repos
       if: env.PRIVATE_ORG_REPO_READ != ''
       shell: bash
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-    - name: Configure netrc for Go proxy
-      if: env.GO_PROXY_CONFIG != ''
-      shell: bash
-      run: |
-        USER=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.user // .username // .login')
-        PASS=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.password // .pass')
-        echo "::add-mask::${USER}"
-        echo "::add-mask::${PASS}"
-        cat >> ~/.netrc <<EOF
-        machine goproxy.pazer.io login ${USER} password ${PASS}
-        EOF
-        chmod 600 ~/.netrc
 
     - name: Download go-toolchain from build artifact
       if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
@@ -112,6 +99,9 @@ runs:
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
+        OTEL_SERVICE_NAME: ${{ github.repository }}
       run: |
         set -euo pipefail
         TIMEOUT_SECONDS=$(( ${{ inputs.timeout }} * 60 ))

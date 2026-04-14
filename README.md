@@ -19,15 +19,15 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
 - **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, benchmark comparisons, and a Mermaid Gantt chart of the pipeline timeline when running in GitHub Actions
-- **S3-backed build cache** — GOCACHEPROG protocol server with local and S3 backends for shared build caching across CI runs (Go 1.24+)
+- **Web-backed build cache** — GOCACHEPROG protocol server with local and web backends for shared build caching across CI runs (Go 1.24+)
 - **Vanity URL resolution** — automatically detects and resolves vanity-URL module dependencies via Go proxy or go-import meta tags
-- **Go proxy/sumdb support** — configures pazer.io proxy and sumdb endpoints with automatic environment variable normalization
+- **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) to configure proxy URL, credentials (via ~/.netrc), and sumdb key automatically
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
 
 ## GitHub Action Usage
 
-Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched automatically from [secret-server](https://github.com/wow-look-at-my/secret-server) via GitHub OIDC — no secret passing required:
+Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched automatically from [secret-server](https://github.com/wow-look-at-my/actions/tree/secret-server) via GitHub OIDC — no secret passing required:
 
 ```yaml
 permissions:
@@ -42,7 +42,7 @@ jobs:
       - uses: wow-look-at-my/go-toolchain@v1
 ```
 
-The action handles everything: fetching secrets, configuring the Go proxy, private repo access, S3 build cache, and running `go-toolchain matrix`.
+The action handles everything: fetching secrets, configuring the Go proxy, private repo access, web build cache, and running `go-toolchain matrix`.
 
 ### Inputs
 
@@ -207,7 +207,7 @@ Failed steps are marked with error status. Resource attributes include `github.s
 
 ## How It Works
 
-1. Configures Go proxy and sumdb environment (pazer.io support)
+1. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
 2. Checks for outdated dependencies (auto-updates same-org deps)
 3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts)
 4. Runs `go mod tidy`
@@ -215,7 +215,7 @@ Failed steps are marked with error status. Resource attributes include `github.s
 6. Runs `go vet` with auto-fix (on non-CI systems)
 7. Checks for near-duplicate code blocks (warnings only)
 8. Checks file lengths (warns at 500 lines, errors at 750)
-9. Starts GOCACHEPROG server with local + S3 backends (if S3 credentials are configured). Each S3 object is tagged with metadata headers describing what it is:
+9. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). Each cached object is tagged with metadata headers describing what it is:
    - `Object-Type` — file type detected from magic bytes (`go-archive`, `elf-binary`, `macho-binary`, `pe-binary`, `go-object`, or `unknown`)
    - `Go-Version` — the Go compiler version that produced the artifact (e.g. `go1.24.7`), extracted from Go archive headers
    - `Target` — the target platform (e.g. `linux/amd64`), extracted from Go archive headers

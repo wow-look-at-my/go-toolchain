@@ -116,6 +116,9 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if err != nil {
 		return err
 	}
+	if err := checkDirtyInCI(info); err != nil {
+		return err
+	}
 	ldflags := info.ldflags()
 
 	// Build job queue - cartesian product of OS x Arch x Targets
@@ -257,7 +260,12 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 // called when the compiler produces its first output (used for progress
 // indicators on the default build path).
 func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
-	cmd := runner.Cmd("go", "build", "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath)
+	args := []string{"build"}
+	if onFirstOutput != nil {
+		args = append(args, "-v") // print packages as they are compiled
+	}
+	args = append(args, "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath)
+	cmd := runner.Cmd("go", args...)
 	if job.goos != "" {
 		cmd = cmd.WithEnv("GOOS", job.goos)
 	}
@@ -266,6 +274,9 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	}
 	if onFirstOutput != nil {
 		cmd = cmd.WithOnFirstOutput(onFirstOutput)
+		if activeMissTracker != nil {
+			cmd = cmd.WithStderrWriter(activeMissTracker)
+		}
 	} else {
 		cmd = cmd.WithQuiet()
 	}
@@ -276,7 +287,12 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if err != nil {
 		return err
 	}
-	// Drain pipes before Wait to capture compiler errors and prevent deadlocks
+	if onFirstOutput != nil {
+		// Non-quiet: let Wait() stream -v output to console in real-time.
+		// Compiler errors are printed to stderr as they occur.
+		return proc.Wait()
+	}
+	// Quiet (matrix): drain pipes manually, capture stderr for error messages
 	io.Copy(io.Discard, proc.Stdout())
 	stderr, _ := io.ReadAll(proc.Stderr())
 	if err := proc.Wait(); err != nil {

@@ -166,12 +166,11 @@ func TestReleaseCmdSuccess(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Verify git tag and push were called
-	assert.Equal(t, 5, len(mock.gitRunCalls))
+	assert.Equal(t, 4, len(mock.gitRunCalls))
 	assert.Equal(t, []string{"tag", "v1.0.0"}, mock.gitRunCalls[0])
 	assert.Equal(t, []string{"push", "origin", "v1.0.0"}, mock.gitRunCalls[1])
-	assert.Equal(t, []string{"tag", "-f", "master", "HEAD"}, mock.gitRunCalls[2])
-	assert.Equal(t, []string{"tag", "-f", "latest", "HEAD"}, mock.gitRunCalls[3])
-	assert.Equal(t, []string{"push", "-f", "origin", "master", "latest"}, mock.gitRunCalls[4])
+	assert.Equal(t, []string{"tag", "-f", "latest", "HEAD"}, mock.gitRunCalls[2])
+	assert.Equal(t, []string{"push", "-f", "origin", "refs/tags/latest"}, mock.gitRunCalls[3])
 
 	// Verify gh release create was called with the binary and checksums
 	assert.Equal(t, 1, len(mock.ghReleaseCalls))
@@ -442,6 +441,48 @@ func TestReleaseCmdWithChecksums(t *testing.T) {
 	assert.Contains(t, ghArgs, "checksums.txt.pem")
 }
 
+// TestReleaseCmdIncludesNonToolchainBinaries is a regression test for a bug
+// where release artifacts were globbed with a hardcoded "go-toolchain_*"
+// prefix, causing releases from consuming modules (whose binaries are named
+// after their own module, e.g. "test-server_linux_amd64") to contain zero
+// binaries.
+func TestReleaseCmdIncludesNonToolchainBinaries(t *testing.T) {
+	t.Setenv("CI", "true")
+
+	tmpDir := t.TempDir()
+	oldOutput := outputDir
+	oldTag := releaseTag
+	outputDir = tmpDir
+	releaseTag = "v1.0.0"
+	defer func() {
+		outputDir = oldOutput
+		releaseTag = oldTag
+	}()
+
+	// Simulate a consuming repo whose binary is named after its own module,
+	// not "go-toolchain".
+	os.WriteFile(filepath.Join(tmpDir, "test-server_linux_amd64"), []byte("binary"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "test-server_darwin_arm64"), []byte("binary"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "checksums.txt"), []byte("abc  test-server_linux_amd64\n"), 0644)
+
+	mock := &mockExecutor{
+		gitOutputFunc: func(args ...string) (string, error) {
+			if len(args) > 0 && args[0] == "log" {
+				return "abc1234 commit", nil
+			}
+			return "", fmt.Errorf("not found")
+		},
+	}
+
+	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	assert.Nil(t, err)
+
+	ghArgs := strings.Join(mock.ghReleaseCalls[0], " ")
+	assert.Contains(t, ghArgs, "test-server_linux_amd64")
+	assert.Contains(t, ghArgs, "test-server_darwin_arm64")
+	assert.Contains(t, ghArgs, "checksums.txt")
+}
+
 func TestReleaseCmdRollingTagFails(t *testing.T) {
 	t.Setenv("CI", "true")
 	oldTag := releaseTag
@@ -458,7 +499,7 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 		},
 		gitRunFunc: func(args ...string) error {
 			callCount++
-			if callCount == 3 {	// tag -f master HEAD
+			if callCount == 3 { // tag -f latest HEAD
 				return fmt.Errorf("tag update failed")
 			}
 			return nil
@@ -467,7 +508,7 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 
 	err := runReleaseCmdImpl(strings.NewReader(""), mock)
 	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "failed to update master tag")
+	assert.Contains(t, err.Error(), "failed to update latest tag")
 }
 
 func TestRealExecutorGitOutput(t *testing.T) {

@@ -13,39 +13,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: wow-look-at-my/secret-server@master
-      - name: Configure git for private repos
-        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-      - name: Configure netrc for Go proxy
-        if: env.GO_PROXY_CONFIG != ''
-        run: |
-          USER=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.user // .username // .login')
-          PASS=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.password // .pass')
-          echo "::add-mask::${USER}"
-          echo "::add-mask::${PASS}"
-          cat >> ~/.netrc <<EOF
-          machine goproxy.pazer.io login ${USER} password ${PASS}
-          EOF
-          chmod 600 ~/.netrc
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version-file: 'go.mod'
+          cache: false
 
-      - name: Verify Go is latest stable
-        run: |
-          INSTALLED=$(go env GOVERSION)
-          LATEST=$(curl -sf 'https://go.dev/dl/?mode=json' | jq -r '.[0].version')
-          echo "Installed: $INSTALLED  Latest: $LATEST"
-          if [ "$INSTALLED" != "$LATEST" ]; then
-            echo "::error::Go version $INSTALLED does not match latest stable $LATEST"
-            exit 1
-          fi
+      - uses: wow-look-at-my/actions@secret-server#latest
 
       - name: Build and test
         run: go run ./src
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
+          OTEL_SERVICE_NAME: ${{ github.repository }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -54,12 +33,24 @@ jobs:
           path: build/go-toolchain
           if-no-files-found: error
 
+      - name: Upload profiles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-profiles
+          path: /tmp/go-toolchain-profile/
+          if-no-files-found: ignore
+
   # Test the composite action end-to-end using the binary we just built
   action-test:
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: false
       - uses: ./
 
       - name: Upload build artifacts

@@ -40,23 +40,26 @@ func writeMockCoverProfile(args []string, pct float32) {
 	writeMockCoverProfileStmts(args, covered, 100-covered)
 }
 
-// handleGoList handles go list commands for mocks, returning fake main package info.
+// handleGoList handles go list commands for mocks. Only go list -deps is still
+// shelled out to; module path and main package discovery now use the filesystem.
 func handleGoList(cfg runner.Config) (runner.IProcess, bool) {
 	if !cfg.IsCmd("go", "list") {
 		return nil, false
 	}
 	for _, arg := range cfg.Args {
-		if strings.Contains(arg, "main") {
-			return runner.MockProcess([]byte("example.com/pkg\n"), nil), true
-		}
-		if arg == "-m" {
-			return runner.MockProcess([]byte("example.com\n"), nil), true
-		}
 		if arg == "-deps" {
 			return runner.MockProcess([]byte("example.com/pkg\n"), nil), true
 		}
 	}
 	return nil, false
+}
+
+// setupMockProject creates a minimal Go project in the current directory so
+// that filesystem-based module path reading and main package discovery work.
+func setupMockProject() {
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("pkg", 0755)
+	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
 }
 
 // newTestPassMock creates a mock runner that passes tests with the given coverage percentage.
@@ -201,6 +204,7 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 	mock := newTestPassMock(50)
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -213,6 +217,7 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 	mock := newTestPassMock(0)
 	jsonOutput = true
 	outputDir = tmpDir
@@ -239,6 +244,7 @@ func TestRunWithRunnerDockerBinaryNaming(t *testing.T) {
 			oldWd, _ := os.Getwd()
 			os.Chdir(tmpDir)
 			defer os.Chdir(oldWd)
+			setupMockProject()
 
 			restore := build.SetInDockerCheck(func() bool { return tc.docker })
 			defer restore()
@@ -274,6 +280,7 @@ func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	oldCgo := cgoEnabled
 	cgoEnabled = false
@@ -305,6 +312,7 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	oldCgo := cgoEnabled
 	cgoEnabled = true
@@ -336,6 +344,7 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	mock := newTestPassMock(0)
 
@@ -357,6 +366,7 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	mock := newTestPassMock(0)
 
@@ -376,6 +386,7 @@ func TestRunWithRunnerBuildFails(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	mock := newBuildFailMock()
 
@@ -395,6 +406,7 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	mock := newTestPassMock(50)
 
@@ -410,6 +422,7 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	mock := newTestPassMock(50)
 
@@ -425,6 +438,7 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 	// Set watermark to 60% — grace = 57.5, effective = min(80, 57.5) = 57.5
 	gotest.SetWatermark(".", 60.0)
 	mock := newTestPassMock(50)
@@ -466,6 +480,7 @@ func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 			oldWd, _ := os.Getwd()
 			os.Chdir(tmpDir)
 			defer os.Chdir(oldWd)
+			setupMockProject()
 			jsonOutput = false
 			err := runWithRunner(newSmallMock(tc.cov, tc.unc), nil)
 			if tc.wantErr {
@@ -483,6 +498,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	// Set watermark to 52% — grace = 49.5, effective = min(80, 49.5) = 49.5
 	// 50 > 49.5 → should pass
@@ -506,6 +522,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	// Set watermark to 50% — coverage is 100%, should ratchet up
 	gotest.SetWatermark(".", 50.0)
@@ -532,6 +549,7 @@ func TestRunWithRunnerFailedTest(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	mock := newTestFailMock()
 
@@ -551,6 +569,7 @@ func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+	setupMockProject()
 
 	mock := newTestFailWithErrorMock()
 

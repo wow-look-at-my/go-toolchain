@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -17,7 +18,7 @@ type noCloseBackend struct {
 func (n *noCloseBackend) Close() error { return nil }
 
 // Daemon listens on a Unix socket and serves GOCACHEPROG protocol to
-// multiple clients, sharing a single S3 index and local cache.
+// multiple clients, sharing a single web index and local cache.
 type Daemon struct {
 	local    *LocalCache
 	remote   IBackend // real backend (closeable)
@@ -65,7 +66,7 @@ func (d *Daemon) handleConn(conn net.Conn) {
 	defer conn.Close()
 	// Each connection gets its own Server with shared backends.
 	// The no-close wrapper prevents this Server from closing the shared
-	// S3 backend when the connection ends.
+	// web backend when the connection ends.
 	srv := NewServer(d.local, d.wrapped)
 	srv.Run(conn, conn)
 }
@@ -75,6 +76,21 @@ func (d *Daemon) Close() {
 	d.listener.Close()
 	d.wg.Wait()
 	if d.remote != nil {
+		// Print web backend miss breakdown for diagnostics.
+		if wb, ok := d.remote.(*WebBackend); ok {
+			notInIndex := wb.MissNotInIndex.Load()
+			http404 := wb.MissHTTP404.Load()
+			httpErr := wb.MissHTTPError.Load()
+			noOutputID := wb.MissNoOutputID.Load()
+			readBody := wb.MissReadBody.Load()
+			decompress := wb.MissDecompress.Load()
+			network := wb.MissNetwork.Load()
+			total := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + network
+			if total > 0 {
+				fmt.Fprintf(os.Stderr, "cacheprog: web misses: %d total (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d network=%d)\n",
+					total, notInIndex, http404, httpErr, noOutputID, readBody, decompress, network)
+			}
+		}
 		d.remote.Close()
 	}
 	os.Remove(d.path)
@@ -82,7 +98,7 @@ func (d *Daemon) Close() {
 
 // ProxyToDaemon connects to a daemon Unix socket and pipes the
 // GOCACHEPROG protocol between stdin/stdout and the daemon.
-// This is the fast path: no S3 index load, no local cache init.
+// This is the fast path: no web index load, no local cache init.
 func ProxyToDaemon(sock string) error {
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
