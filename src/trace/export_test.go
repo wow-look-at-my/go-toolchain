@@ -185,6 +185,7 @@ func TestThreadGrouping(t *testing.T) {
 }
 
 func TestGitHubResourceAttributes(t *testing.T) {
+	t.Setenv("OTEL_SERVICE_NAME", "")
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 	t.Setenv("GITHUB_REF", "refs/heads/main")

@@ -458,7 +458,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if testStep != nil {
 		onTestOutput = testStep.noteOutput
 	}
-	result, testErr := gotest.RunTests(r, verbose, coverFile, onTestOutput)
+	result, testErr := gotest.RunTests(r, verbose, coverFile, onTestOutput, GetTimeline())
 	if result == nil {
 		if testStep != nil {
 			testStep.failed()

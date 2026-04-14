@@ -34,6 +34,9 @@ jobs:
 
       - name: Build and test
         run: go run ./src
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
+          OTEL_SERVICE_NAME: ${{ github.repository }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
