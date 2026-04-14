@@ -137,18 +137,14 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 		return fmt.Errorf("failed to push tag %s: %w", tag, err)
 	}
 
-	// Update rolling tags. Push with explicit refs/tags/ prefix because the
-	// short names "master" and "latest" can be ambiguous: on a repo whose
-	// default branch is named "master", `git push origin master` matches both
-	// refs/heads/master and refs/tags/master and git refuses the push.
-	if err := ex.gitRun("tag", "-f", "master", "HEAD"); err != nil {
-		return fmt.Errorf("failed to update master tag: %w", err)
-	}
+	// Update the rolling "latest" tag to point at this release. Push with the
+	// explicit refs/tags/ prefix so the refspec is unambiguous even if the
+	// consumer's repo happens to have a branch of the same name.
 	if err := ex.gitRun("tag", "-f", "latest", "HEAD"); err != nil {
 		return fmt.Errorf("failed to update latest tag: %w", err)
 	}
-	if err := ex.gitRun("push", "-f", "origin", "refs/tags/master", "refs/tags/latest"); err != nil {
-		return fmt.Errorf("failed to push rolling tags: %w", err)
+	if err := ex.gitRun("push", "-f", "origin", "refs/tags/latest"); err != nil {
+		return fmt.Errorf("failed to push latest tag: %w", err)
 	}
 
 	// Write release notes to temp file for gh
