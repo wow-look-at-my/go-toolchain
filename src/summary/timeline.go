@@ -39,6 +39,25 @@ func (tl *Timeline) Record(label, thread string, start, end time.Time, failed bo
 	})
 }
 
+// Span tracks a single in-progress timeline entry. Created by Timeline.Start.
+type Span struct {
+	tl     *Timeline
+	label  string
+	thread string
+	start  time.Time
+}
+
+// Done completes the span and records it to the timeline.
+func (s *Span) Done(failed bool) {
+	s.tl.Record(s.label, s.thread, s.start, time.Now(), failed)
+}
+
+// Start begins tracking a timeline entry and returns a Span.
+// Usage: defer tl.Start("step", "main").Done(false)
+func (tl *Timeline) Start(label, thread string) *Span {
+	return &Span{tl: tl, label: label, thread: thread, start: time.Now()}
+}
+
 // Entries returns a snapshot copy of all recorded entries.
 func (tl *Timeline) Entries() []TimelineEntry {
 	tl.mu.Lock()
