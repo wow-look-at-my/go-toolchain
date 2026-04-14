@@ -126,8 +126,12 @@ func recordGoMinor(ver string) {
 			return
 		}
 	}
-	// Fallback: run "go version" for cases where we couldn't determine version
-	out, err := exec.Command("go", "version").Output()
+	// Fallback: run "go version" for cases where we couldn't determine version.
+	// Force GOTOOLCHAIN=local so we get the real system Go version, not an
+	// auto-downloaded stripped toolchain module.
+	fallback := exec.Command("go", "version")
+	fallback.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	out, err := fallback.Output()
 	if err != nil {
 		return
 	}
@@ -145,8 +149,13 @@ func recordGoMinor(ver string) {
 }
 
 // installedGoVersion runs "go version" and extracts the version number.
+// It forces GOTOOLCHAIN=local so that Go reports the real installed version
+// rather than auto-downloading a stripped toolchain module that inflates the
+// reported version.
 func installedGoVersion() (string, error) {
-	out, err := exec.Command("go", "version").Output()
+	cmd := exec.Command("go", "version")
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
