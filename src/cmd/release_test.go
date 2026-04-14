@@ -171,7 +171,7 @@ func TestReleaseCmdSuccess(t *testing.T) {
 	assert.Equal(t, []string{"push", "origin", "v1.0.0"}, mock.gitRunCalls[1])
 	assert.Equal(t, []string{"tag", "-f", "master", "HEAD"}, mock.gitRunCalls[2])
 	assert.Equal(t, []string{"tag", "-f", "latest", "HEAD"}, mock.gitRunCalls[3])
-	assert.Equal(t, []string{"push", "-f", "origin", "master", "latest"}, mock.gitRunCalls[4])
+	assert.Equal(t, []string{"push", "-f", "origin", "refs/tags/master", "refs/tags/latest"}, mock.gitRunCalls[4])
 
 	// Verify gh release create was called with the binary and checksums
 	assert.Equal(t, 1, len(mock.ghReleaseCalls))
@@ -440,6 +440,48 @@ func TestReleaseCmdWithChecksums(t *testing.T) {
 	assert.Contains(t, ghArgs, "checksums.txt")
 	assert.Contains(t, ghArgs, "checksums.txt.sig")
 	assert.Contains(t, ghArgs, "checksums.txt.pem")
+}
+
+// TestReleaseCmdIncludesNonToolchainBinaries is a regression test for a bug
+// where release artifacts were globbed with a hardcoded "go-toolchain_*"
+// prefix, causing releases from consuming modules (whose binaries are named
+// after their own module, e.g. "test-server_linux_amd64") to contain zero
+// binaries.
+func TestReleaseCmdIncludesNonToolchainBinaries(t *testing.T) {
+	t.Setenv("CI", "true")
+
+	tmpDir := t.TempDir()
+	oldOutput := outputDir
+	oldTag := releaseTag
+	outputDir = tmpDir
+	releaseTag = "v1.0.0"
+	defer func() {
+		outputDir = oldOutput
+		releaseTag = oldTag
+	}()
+
+	// Simulate a consuming repo whose binary is named after its own module,
+	// not "go-toolchain".
+	os.WriteFile(filepath.Join(tmpDir, "test-server_linux_amd64"), []byte("binary"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "test-server_darwin_arm64"), []byte("binary"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "checksums.txt"), []byte("abc  test-server_linux_amd64\n"), 0644)
+
+	mock := &mockExecutor{
+		gitOutputFunc: func(args ...string) (string, error) {
+			if len(args) > 0 && args[0] == "log" {
+				return "abc1234 commit", nil
+			}
+			return "", fmt.Errorf("not found")
+		},
+	}
+
+	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	assert.Nil(t, err)
+
+	ghArgs := strings.Join(mock.ghReleaseCalls[0], " ")
+	assert.Contains(t, ghArgs, "test-server_linux_amd64")
+	assert.Contains(t, ghArgs, "test-server_darwin_arm64")
+	assert.Contains(t, ghArgs, "checksums.txt")
 }
 
 func TestReleaseCmdRollingTagFails(t *testing.T) {
