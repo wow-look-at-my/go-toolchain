@@ -26,10 +26,14 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
+// activeTrace collects fine-grained trace events for Chrome trace export.
+var activeTrace *gotrace.Trace
+
 var (
 	outputDir     = "build"
 	jsonOutput    bool
 	verbose       bool
+	cacheMisses   bool
 	generateHash  string
 	dupcode bool
 	lintThreshold float64
@@ -69,6 +73,7 @@ func init() {
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
+	rootCmd.PersistentFlags().BoolVar(&cacheMisses, "cache-misses", false, "Show packages that missed the build cache")
 	registerSelfProfileFlags()
 
 	// Silent no-op flags — accepted without error for tool compatibility
@@ -102,6 +107,13 @@ func Execute() error {
 func run(cmd *cobra.Command, args []string) error {
 	InitTimeline()
 
+	if cacheMisses {
+		tracker := newCacheMissTracker(os.Stderr)
+		activeMissTracker = tracker
+		vet.CompileStderr = tracker
+		defer tracker.Print()
+	}
+
 	wd := startWatchdog(5 * time.Second)
 	if wd != nil {
 		activeWatchdog = wd
@@ -118,6 +130,22 @@ func run(cmd *cobra.Command, args []string) error {
 
 	r := runner.New()
 	startDir, _ := os.Getwd()
+
+	// Create global trace for fine-grained events.
+	activeTrace = gotrace.NewTrace()
+	vet.ActiveTrace = activeTrace
+
+	// Always write Chrome trace on exit, even if the build fails.
+	defer func() {
+		var entries []summary.TimelineEntry
+		if tl := GetTimeline(); tl != nil {
+			entries = tl.Entries()
+		}
+		tracePath := filepath.Join(os.TempDir(), "go-toolchain-profile", "trace.json")
+		if err := gotrace.WriteChrome(tracePath, entries, activeTrace); err != nil {
+			fmt.Fprintf(os.Stderr, "==> Warning: failed to write Chrome trace: %v\n", err)
+		}
+	}()
 
 	// Accumulate summary data across all modules; write once at the end.
 	var allSummary summary.SummaryData
@@ -158,6 +186,7 @@ func run(cmd *cobra.Command, args []string) error {
 		if err := gotrace.Export(ctx, tl.Entries()); err != nil {
 			fmt.Fprintf(os.Stderr, "==> Warning: failed to export traces: %v\n", err)
 		}
+
 	}
 
 	return nil
@@ -324,7 +353,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		modTidyStep = logStep("go mod tidy")
 	}
 	timedStderr := newTimedLineWriter(os.Stderr)
-	proc, err := runner.Cmd("go", "mod", "tidy").WithStderrWriter(timedStderr).WithOnFirstOutput(func() {
+	proc, err := runner.Cmd("go", "mod", "tidy", "-v").WithStderrWriter(timedStderr).WithOnFirstOutput(func() {
 		if modTidyStep != nil {
 			modTidyStep.noteOutput()
 		}
@@ -360,7 +389,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		if !quiet {
 			tidyStep2 = logStep("go mod tidy (post-generate)")
 		}
-		proc, err := runner.Cmd("go", "mod", "tidy").WithOnFirstOutput(func() {
+		proc, err := runner.Cmd("go", "mod", "tidy", "-v").WithOnFirstOutput(func() {
 			if tidyStep2 != nil {
 				tidyStep2.noteOutput()
 			}
@@ -469,6 +498,40 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep.failed()
 	} else if testStep != nil {
 		testStep.done()
+	}
+
+	// Record per-test events in the trace.
+	if activeTrace != nil && result != nil {
+		// Build set of tests that have subtests so we only trace leaf tests
+		// (parent durations include children and would overlap).
+		hasSubtest := make(map[string]bool)
+		for _, tc := range result.TestCases {
+			if i := strings.LastIndex(tc.Test, "/"); i > 0 {
+				hasSubtest[tc.Package+"."+tc.Test[:i]] = true
+			}
+		}
+		for _, tc := range result.TestCases {
+			if tc.Elapsed <= 0 || tc.End.IsZero() {
+				continue
+			}
+			if hasSubtest[tc.Package+"."+tc.Test] {
+				continue // skip parent, children cover the time
+			}
+			dur := time.Duration(tc.Elapsed * float64(time.Second))
+			pkg := tc.Package
+			if idx := strings.LastIndex(pkg, "/"); idx >= 0 {
+				pkg = pkg[idx+1:]
+			}
+			activeTrace.Record(gotrace.Event{
+				Name:     tc.Test,
+				Category: "test",
+				Thread:   "test/" + pkg,
+				Start:    tc.End.Add(-dur),
+				End:      tc.End,
+				Failed:   tc.Status == "fail",
+				Args:     map[string]string{"package": tc.Package, "status": tc.Status},
+			})
+		}
 	}
 
 	report := &result.Coverage

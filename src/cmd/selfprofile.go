@@ -102,7 +102,7 @@ func startSelfProfile() (func(), error) {
 	if p, ok := overrides["mem"]; ok {
 		memPath = p
 	}
-	tracePath := ""
+	tracePath := defaults["trace"]
 	if p, ok := overrides["trace"]; ok {
 		tracePath = p
 	}

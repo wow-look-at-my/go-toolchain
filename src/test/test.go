@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"gotest.tools/gotestsum/testjson"
 )
@@ -87,21 +88,22 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 
 	// Capture per-test results for CI summary
 	if event.Test != "" {
+		now := time.Now()
 		switch event.Action {
 		case testjson.ActionPass:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "pass", Elapsed: event.Elapsed,
+				Status: "pass", Elapsed: event.Elapsed, End: now,
 			})
 		case testjson.ActionFail:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "fail", Elapsed: event.Elapsed,
+				Status: "fail", Elapsed: event.Elapsed, End: now,
 			})
 		case testjson.ActionSkip:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "skip", Elapsed: event.Elapsed,
+				Status: "skip", Elapsed: event.Elapsed, End: now,
 			})
 		}
 
@@ -180,9 +182,10 @@ func (h *coverageHandler) Err(text string) error {
 // TestCaseResult captures per-test data for CI summary tables.
 type TestCaseResult struct {
 	Package string
-	Test    string  // includes subtest path, e.g. "TestFoo/case_a"
-	Status  string  // "pass", "fail", "skip"
-	Elapsed float64 // seconds
+	Test    string    // includes subtest path, e.g. "TestFoo/case_a"
+	Status  string    // "pass", "fail", "skip"
+	Elapsed float64   // seconds
+	End     time.Time // wall-clock time when the result was received
 }
 
 // TestResult contains the results of running tests
@@ -194,16 +197,7 @@ type TestResult struct {
 
 // readModulePath reads the module path from go.mod in the current directory.
 func readModulePath() string {
-	data, err := os.ReadFile("go.mod")
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
-		}
-	}
-	return ""
+	return gomod.ReadModulePath()
 }
 
 // listTestPackages returns the import paths of packages that contain test files,
@@ -274,9 +268,11 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		args = append(args, "./...")
 	}
 
-	// Capture stderr in a buffer — build errors go here, not in JSON stream.
+	// Tee stderr to console (for compilation progress like "go: downloading"
+	// and build errors) while also capturing it in a buffer for error reporting.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", args...).WithStderrWriter(&stderrBuf).Run(r)
+	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
+	proc, err := runner.Cmd("go", args...).WithStderrWriter(stderrTee).Run(r)
 	if err != nil {
 		return nil, err
 	}

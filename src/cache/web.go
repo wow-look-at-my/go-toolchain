@@ -50,6 +50,15 @@ type WebBackend struct {
 	Latency *LatencyStats      // optional; set by Server for sub-operation tracking
 	keysMu  sync.RWMutex
 	keys    set.Set[string] // known keys, built from ListObjects on startup
+
+	// Miss reason counters for diagnostics.
+	MissNotInIndex   AtomicCounter
+	MissHTTP404      AtomicCounter
+	MissHTTPError    AtomicCounter
+	MissNoOutputID   AtomicCounter
+	MissReadBody     AtomicCounter
+	MissDecompress   AtomicCounter
+	MissNetwork      AtomicCounter
 }
 
 // NewWebBackend creates a web backend from the given config.
@@ -253,6 +262,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	known := b.keys.Contains(key)
 	b.keysMu.RUnlock()
 	if !known {
+		b.MissNotInIndex.Increment()
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	req, err := http.NewRequest("GET", b.url(key), nil)
@@ -266,6 +276,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	resp, err := b.client.Do(req)
 	if err != nil {
 		b.Pool.Release()
+		b.MissNetwork.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -273,12 +284,14 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	if resp.StatusCode == 404 {
 		resp.Body.Close()
 		b.Pool.Release()
+		b.MissHTTP404.Increment()
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		b.Pool.Release()
+		b.MissHTTPError.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -287,6 +300,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	if outputID == "" {
 		resp.Body.Close()
 		b.Pool.Release()
+		b.MissNoOutputID.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -298,6 +312,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 		b.Latency.HTTPGet.Record(time.Since(httpStart))
 	}
 	if err != nil {
+		b.MissReadBody.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -308,6 +323,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 		b.Latency.Decompress.Record(time.Since(decompressStart))
 	}
 	if err != nil {
+		b.MissDecompress.Increment()
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}

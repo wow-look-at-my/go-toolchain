@@ -1,7 +1,6 @@
 package summary
 
 import (
-	"bufio"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
@@ -497,18 +497,5 @@ func formatBenchDelta(pct float64) string {
 
 // readModulePath reads the module path from go.mod in the current directory.
 func readModulePath() string {
-	f, err := os.Open("go.mod")
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
-		}
-	}
-	return ""
+	return gomod.ReadModulePath()
 }
