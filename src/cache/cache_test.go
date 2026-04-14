@@ -465,6 +465,26 @@ func TestServer_Stats(t *testing.T) {
 	require.NotNil(t, stats.Remote)
 }
 
+func TestSetHasRemote(t *testing.T) {
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "stats.sock")
+
+	sl, err := NewStatsListener(sockPath)
+	require.NoError(t, err)
+	defer sl.Close()
+
+	// Before SetHasRemote: Stats().Remote should be nil.
+	stats := sl.Stats()
+	require.Nil(t, stats.Remote, "Remote should be nil before SetHasRemote")
+
+	// After SetHasRemote: Stats().Remote should be non-nil (with zero values).
+	sl.SetHasRemote()
+	stats = sl.Stats()
+	require.NotNil(t, stats.Remote, "Remote should be non-nil after SetHasRemote")
+	require.Equal(t, uint32(0), stats.Remote.Hits.Load())
+	require.Equal(t, uint32(0), stats.Remote.Puts.Load())
+}
+
 func TestServer_Latency(t *testing.T) {
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)

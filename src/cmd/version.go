@@ -289,6 +289,14 @@ func collectGitInfo() (gitInfo, error) {
 // (e.g. injected vanity-URL replaces in go.mod).
 func checkDirtyInCI(info gitInfo) error {
 	if os.Getenv("CI") != "" && strings.HasSuffix(info.version, "-dirty") {
+		// Diagnostic: surface what's dirty so the cause is visible in CI logs
+		// instead of requiring a local reproduction.
+		if out, err := exec.Command("git", "status", "--porcelain").Output(); err == nil && len(out) > 0 {
+			fmt.Fprintf(os.Stderr, "==> git status --porcelain:\n%s", out)
+		}
+		if out, err := exec.Command("git", "diff", "--stat").Output(); err == nil && len(out) > 0 {
+			fmt.Fprintf(os.Stderr, "==> git diff --stat:\n%s", out)
+		}
 		return fmt.Errorf("refusing to build: version %q has -dirty suffix in CI (working tree is not clean)", info.version)
 	}
 	return nil

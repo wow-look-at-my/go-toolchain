@@ -2,6 +2,7 @@ package cache
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -110,6 +111,21 @@ func (d *Daemon) Close() {
 	d.listener.Close()
 	d.wg.Wait()
 	if d.remote != nil {
+		// Print web backend miss breakdown for diagnostics.
+		if wb, ok := d.remote.(*WebBackend); ok {
+			notInIndex := wb.MissNotInIndex.Load()
+			http404 := wb.MissHTTP404.Load()
+			httpErr := wb.MissHTTPError.Load()
+			noOutputID := wb.MissNoOutputID.Load()
+			readBody := wb.MissReadBody.Load()
+			decompress := wb.MissDecompress.Load()
+			network := wb.MissNetwork.Load()
+			total := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + network
+			if total > 0 {
+				fmt.Fprintf(os.Stderr, "cacheprog: web misses: %d total (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d network=%d)\n",
+					total, notInIndex, http404, httpErr, noOutputID, readBody, decompress, network)
+			}
+		}
 		d.remote.Close()
 	}
 	// Close the stats connection AFTER remote.Close() so that batch flush

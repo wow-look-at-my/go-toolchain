@@ -228,9 +228,16 @@ type StatsListener struct {
 	misses    AtomicCounter
 	latency   LatencyStats
 	pool      ConcurrencyTracker
-	hasRemote atomic.Bool
+	hasRemote atomic.Bool // true if a remote backend was configured (set by caller)
 	hasBatch  atomic.Bool
 	wg        sync.WaitGroup
+}
+
+// SetHasRemote marks the listener as having a remote backend configured.
+// This controls whether Stats() includes the Remote field, regardless of
+// whether any remote events have actually been received yet.
+func (sl *StatsListener) SetHasRemote() {
+	sl.hasRemote.Store(true)
 }
 
 // NewStatsListener creates a unix socket and starts accepting connections.

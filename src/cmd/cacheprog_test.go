@@ -198,3 +198,84 @@ func TestParseBuildCacheConfig_NotSet(t *testing.T) {
 	cfg := parseBuildCacheConfig()
 	assert.Equal(t, cache.WebConfig{}, cfg)
 }
+
+func TestParseBuildCacheConfig_URLSafeBase64(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.URLEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, "s3.example.com", cfg.Endpoint)
+	assert.Equal(t, "mybucket", cfg.Bucket)
+}
+
+func TestParseBuildCacheConfig_LineWrappedBase64(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	encoded := base64.StdEncoding.EncodeToString([]byte(raw))
+	// Insert newlines every 76 characters (MIME-style wrapping)
+	var wrapped string
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		wrapped += encoded[i:end] + "\n"
+	}
+	os.Setenv("GO_BUILDCACHE_CONFIG", wrapped)
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, "s3.example.com", cfg.Endpoint)
+	assert.Equal(t, "mybucket", cfg.Bucket)
+}
+
+func TestParseBuildCacheConfig_RawBase64(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.RawStdEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, "s3.example.com", cfg.Endpoint)
+	assert.Equal(t, "mybucket", cfg.Bucket)
+}
+
+func TestParseBuildCacheConfig_MissingEndpoint(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"bucket":"mybucket","key_id":"AKID","access_key":"SECRET"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, cache.WebConfig{}, cfg)
+}
+
+func TestParseBuildCacheConfig_MissingKeys(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"s3.example.com","bucket":"mybucket"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, cache.WebConfig{}, cfg)
+}
+
+func TestParseBuildCacheConfig_BadBase64(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	os.Setenv("GO_BUILDCACHE_CONFIG", "not-valid-base64!!!")
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, cache.WebConfig{}, cfg)
+}
+
+func TestParseBuildCacheConfig_BadJSON(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte("not json")))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, cache.WebConfig{}, cfg)
+}

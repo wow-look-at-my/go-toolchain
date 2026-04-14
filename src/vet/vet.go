@@ -1,12 +1,16 @@
 package vet
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	runtimetrace "runtime/trace"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +18,7 @@ import (
 	git "github.com/go-git/go-git/v5"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis/passes/assign"
 	"golang.org/x/tools/go/analysis/passes/atomic"
 	"golang.org/x/tools/go/analysis/passes/bools"
@@ -69,6 +74,14 @@ func Analyzers() []*analysis.Analyzer {
 		RedundantCastAnalyzer,
 	}
 }
+
+// CompileStderr is the writer used for go build/test compilation output.
+// Defaults to os.Stderr. Set to a custom writer (e.g. a cache miss tracker)
+// to capture which packages are compiled.
+var CompileStderr io.Writer = os.Stderr
+
+// ActiveTrace, if set, receives fine-grained per-file and per-analyzer events.
+var ActiveTrace *gotrace.Trace
 
 // ProgressFunc is called with a phase name when the vet enters a new phase.
 type ProgressFunc func(phase string)
@@ -126,48 +139,38 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		}
 	}
 
-	// Phase 1: enumerate packages
-	report("list packages")
-	listCmd := exec.Command("go", "list", pattern)
-	listOut, _ := listCmd.Output()
-	var ownPkgs []string
-	if len(listOut) > 0 {
-		ownPkgs = strings.Split(strings.TrimSpace(string(listOut)), "\n")
+	// Pre-compile all packages with visible progress. go build -v prints
+	// each package to stderr as it compiles, warming the build cache.
+	// packages.Load then finds everything cached and runs fast.
+	report("compile")
+	var compileStderr io.Writer = CompileStderr
+	if ActiveTrace != nil {
+		compileStderr = &compileTracer{target: CompileStderr, trace: ActiveTrace}
 	}
+	compileCmd := exec.Command("go", "build", "-v", pattern)
+	compileCmd.Stdout = os.Stdout
+	compileCmd.Stderr = compileStderr
+	_ = compileCmd.Run() // best-effort; test-only packages may fail
 
-	// Phase 2: compile/export all dependencies (warms build cache for packages.Load)
-	if len(ownPkgs) > 0 {
-		report(fmt.Sprintf("compile %d packages + deps", len(ownPkgs)))
-	} else {
-		report("compile packages + deps")
-	}
-	compileStart := time.Now()
-	depTimings := precompileDeps(pattern)
-	compileDur := time.Since(compileStart)
+	// Also compile test binaries to warm the cache for test variants.
+	testCompileCmd := exec.Command("go", "test", "-run=^$", "-count=1", pattern)
+	testCompileCmd.Stdout = os.Stdout
+	testCompileCmd.Stderr = compileStderr
+	_ = testCompileCmd.Run() // best-effort
 
-	// Show per-package breakdown if compilation was slow
-	if compileDur > 5*time.Second && len(depTimings) > 0 {
-		sort.Slice(depTimings, func(i, j int) bool {
-			return depTimings[i].Duration > depTimings[j].Duration
-		})
-		shown := 0
-		for _, t := range depTimings {
-			if shown >= 10 || t.Duration < time.Second {
-				break
-			}
-			fmt.Fprintf(os.Stderr, "        %s %.2fs\n", t.ImportPath, t.Duration.Seconds())
-			shown++
-		}
-		if len(depTimings) > shown {
-			fmt.Fprintf(os.Stderr, "        ... and %d more packages\n", len(depTimings)-shown)
-		}
-	}
-
-	// Phase 3: parse & type-check (should be fast with cached exports)
-	report("parse & type-check")
+	// Now load packages for analysis — should be fast with warm cache.
+	report("type-check")
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
+	}
+	// ParseFile adds runtime/trace regions for per-file visibility in go tool trace.
+	// (Chrome trace.json only has pipeline-level events; trace.out has full goroutine detail.)
+	cfg.ParseFile = func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+		_, task := runtimetrace.NewTask(context.Background(), "parse/"+filepath.Base(filename))
+		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
+		task.End()
+		return f, err
 	}
 
 	pkgs, err := packages.Load(cfg, pattern)
@@ -195,9 +198,11 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
 	}
 
-	// Run analyzers
+	// Run analyzers — wrap each Run function to record per-analyzer per-package timing.
 	report("run analyzers")
-	graph, err := checker.Analyze(Analyzers(), pkgs, nil)
+	analyzers := Analyzers()
+	analyzers = instrumentAnalyzers(analyzers)
+	graph, err := checker.Analyze(analyzers, pkgs, nil)
 	if err != nil {
 		return false, fmt.Errorf("analysis failed: %w", err)
 	}
@@ -276,6 +281,77 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 	return filesChanged, fmt.Errorf("%s", sb.String())
 }
 
+// compileTracer wraps a writer and records per-package compile events from
+// go build -v stderr output. Each line is a package import path that was compiled.
+type compileTracer struct {
+	target io.Writer
+	trace  *gotrace.Trace
+	buf    []byte
+	last   time.Time // when the previous package finished
+}
+
+func (w *compileTracer) Write(p []byte) (int, error) {
+	if w.last.IsZero() {
+		w.last = time.Now()
+	}
+	w.buf = append(w.buf, p...)
+	for {
+		idx := -1
+		for i, b := range w.buf {
+			if b == '\n' {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			break
+		}
+		line := strings.TrimSpace(string(w.buf[:idx]))
+		w.buf = w.buf[idx+1:]
+		now := time.Now()
+		if line != "" && strings.Contains(line, "/") && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
+			w.trace.Record(gotrace.Event{
+				Name:     line,
+				Category: "compile",
+				Thread:   "compile",
+				Start:    w.last,
+				End:      now,
+			})
+		}
+		w.last = now
+	}
+	return w.target.Write(p)
+}
+
+// instrumentAnalyzers wraps each analyzer's Run function in-place to record
+// per-analyzer per-package timing in the trace. Mutates the original analyzers
+// since cloning breaks checker.Analyze's internal pointer-identity maps.
+func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
+	seen := make(map[*analysis.Analyzer]bool)
+	var instrument func(a *analysis.Analyzer)
+	instrument = func(a *analysis.Analyzer) {
+		if seen[a] {
+			return
+		}
+		seen[a] = true
+		origRun := a.Run
+		name := a.Name
+		a.Run = func(pass *analysis.Pass) (interface{}, error) {
+			_, task := runtimetrace.NewTask(context.Background(), "analyze/"+name+"/"+pass.Pkg.Path())
+			result, err := origRun(pass)
+			task.End()
+			return result, err
+		}
+		for _, req := range a.Requires {
+			instrument(req)
+		}
+	}
+	for _, a := range analyzers {
+		instrument(a)
+	}
+	return analyzers
+}
+
 // Diagnostic represents a single analyzer finding.
 type Diagnostic struct {
 	File    string
@@ -284,50 +360,6 @@ type Diagnostic struct {
 	Message string
 }
 
-// packageTiming records approximate wall-clock time spent on a package
-// during go list -export -deps.
-type packageTiming struct {
-	ImportPath string
-	Duration   time.Duration
-}
-
-// precompileDeps runs "go list -json -export -deps -test" to pre-warm the
-// build cache. It streams JSON output and measures the approximate time
-// between consecutive packages, returning per-package timing data.
-// On any error it returns nil (best-effort).
-func precompileDeps(pattern string) []packageTiming {
-	cmd := exec.Command("go", "list", "-json", "-export", "-deps", "-test", pattern)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil
-	}
-	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
-		return nil
-	}
-
-	decoder := json.NewDecoder(stdout)
-	var timings []packageTiming
-	last := time.Now()
-
-	for decoder.More() {
-		var pkg struct {
-			ImportPath string `json:"ImportPath"`
-		}
-		if err := decoder.Decode(&pkg); err != nil {
-			break
-		}
-		now := time.Now()
-		timings = append(timings, packageTiming{
-			ImportPath: pkg.ImportPath,
-			Duration:   now.Sub(last),
-		})
-		last = now
-	}
-
-	_ = cmd.Wait()
-	return timings
-}
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
 // It tries go-git first, falling back to shelling out to git if go-git fails

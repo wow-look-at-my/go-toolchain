@@ -37,12 +37,28 @@ func parseBuildCacheConfig() cache.WebConfig {
 	if raw == "" {
 		return cache.WebConfig{}
 	}
-	data, err := base64.StdEncoding.DecodeString(raw)
+	// Accept both standard and URL-safe base64, with or without padding,
+	// and with or without line wrapping (76-char lines).
+	normalized := strings.NewReplacer("-", "+", "_", "/", "\n", "", "\r", "", " ", "").Replace(raw)
+	if m := len(normalized) % 4; m != 0 {
+		normalized += strings.Repeat("=", 4-m)
+	}
+	data, err := base64.StdEncoding.DecodeString(normalized)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: base64 decode error: %v\n", err)
 		return cache.WebConfig{}
 	}
 	var cfg buildCacheConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: json unmarshal error: %v\n", err)
+		return cache.WebConfig{}
+	}
+	if cfg.Endpoint == "" {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing endpoint field\n")
+		return cache.WebConfig{}
+	}
+	if cfg.KeyID == "" || cfg.AccessKey == "" {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing key_id or access_key\n")
 		return cache.WebConfig{}
 	}
 	bucket := cfg.Bucket
@@ -162,9 +178,18 @@ func enableCacheProg() error {
 
 	// Start cache daemon so child go processes share a single web index.
 	daemonSock := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-daemon-%d.sock", os.Getpid()))
-	if d, err := startCacheDaemon(daemonSock); err == nil {
-		cacheDaemon = d
-		os.Setenv("GOCACHE_DAEMON_SOCK", daemonSock)
+	d, remoteEndpoint, err := startCacheDaemon(daemonSock)
+	if err != nil {
+		cacheSetupErr = fmt.Errorf("cache daemon: %w", err)
+		return nil
+	}
+	cacheDaemon = d
+	os.Setenv("GOCACHE_DAEMON_SOCK", daemonSock)
+	if remoteEndpoint != "" {
+		sl.SetHasRemote()
+		fmt.Fprintf(os.Stderr, "cacheprog: remote enabled endpoint=%s\n", remoteEndpoint)
+	} else {
+		fmt.Fprintf(os.Stderr, "cacheprog: local only\n")
 	}
 
 	os.Setenv("GOCACHEPROG", exe+" cacheprog")
@@ -172,22 +197,32 @@ func enableCacheProg() error {
 }
 
 // startCacheDaemon creates a cache daemon with local + web backends.
-func startCacheDaemon(sockPath string) (*cache.Daemon, error) {
+// Returns the daemon, the remote endpoint (empty if no remote), and any error.
+func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 	local, err := cache.NewLocalCache(cacheDir)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
+	cfg := parseBuildCacheConfig()
 	var remote cache.IBackend
-	web, err := cache.NewWebBackend(parseBuildCacheConfig())
+	web, err := cache.NewWebBackend(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: daemon web error: %v (continuing local-only)\n", err)
 	} else if web != nil {
 		remote = web
 	}
 
-	return cache.NewDaemon(sockPath, local, remote)
+	d, err := cache.NewDaemon(sockPath, local, remote)
+	if err != nil {
+		return nil, "", err
+	}
+	endpoint := ""
+	if remote != nil {
+		endpoint = cfg.Endpoint
+	}
+	return d, endpoint, nil
 }
 
 // validateCICacheConfig checks that web caching env vars are configured when
