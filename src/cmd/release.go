@@ -137,14 +137,17 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 		return fmt.Errorf("failed to push tag %s: %w", tag, err)
 	}
 
-	// Update rolling tags
+	// Update rolling tags. Push with explicit refs/tags/ prefix because the
+	// short names "master" and "latest" can be ambiguous: on a repo whose
+	// default branch is named "master", `git push origin master` matches both
+	// refs/heads/master and refs/tags/master and git refuses the push.
 	if err := ex.gitRun("tag", "-f", "master", "HEAD"); err != nil {
 		return fmt.Errorf("failed to update master tag: %w", err)
 	}
 	if err := ex.gitRun("tag", "-f", "latest", "HEAD"); err != nil {
 		return fmt.Errorf("failed to update latest tag: %w", err)
 	}
-	if err := ex.gitRun("push", "-f", "origin", "master", "latest"); err != nil {
+	if err := ex.gitRun("push", "-f", "origin", "refs/tags/master", "refs/tags/latest"); err != nil {
 		return fmt.Errorf("failed to push rolling tags: %w", err)
 	}
 
@@ -163,22 +166,21 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 	// Build gh release create args
 	ghArgs := []string{"create", tag}
 
-	// Add binary artifacts
-	binaries, _ := filepath.Glob(filepath.Join(outputDir, "go-toolchain_*"))
-	for _, b := range binaries {
-		// Skip symlinks (host, bare name)
-		if info, err := os.Lstat(b); err == nil && info.Mode()&os.ModeSymlink != 0 {
+	// Add release artifacts from outputDir: the cross-compiled binaries
+	// (one per GOOS/GOARCH target), checksums.txt, and the cosign signature
+	// files. Skip symlinks (the bare host-name aliases the matrix build
+	// creates) and any directories. The binary name depends on the consuming
+	// module, so we don't hardcode a prefix.
+	entries, _ := filepath.Glob(filepath.Join(outputDir, "*"))
+	for _, p := range entries {
+		info, err := os.Lstat(p)
+		if err != nil || info.IsDir() {
 			continue
 		}
-		ghArgs = append(ghArgs, b)
-	}
-
-	// Add checksums and signature files
-	for _, name := range []string{"checksums.txt", "checksums.txt.sig", "checksums.txt.pem"} {
-		p := filepath.Join(outputDir, name)
-		if _, err := os.Stat(p); err == nil {
-			ghArgs = append(ghArgs, p)
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
 		}
+		ghArgs = append(ghArgs, p)
 	}
 
 	ghArgs = append(ghArgs, "--notes-file", notesFile.Name())
