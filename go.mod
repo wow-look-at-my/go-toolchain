@@ -73,3 +73,69 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace gotest.tools/gotestsum v1.13.0 => github.com/gotestyourself/gotestsum v1.13.0
+
+replace gotest.tools/v3 v3.5.2 => github.com/gotestyourself/gotest.tools/v3 v3.5.2
+
+replace go.opentelemetry.io/auto/sdk v1.2.1 => github.com/open-telemetry/opentelemetry-go-instrumentation v1.2.1
+
+replace go.opentelemetry.io/otel v1.43.0 => github.com/open-telemetry/opentelemetry-go v1.43.0
+
+replace go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.43.0 => github.com/open-telemetry/opentelemetry-go v1.43.0
+
+replace go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0 => github.com/open-telemetry/opentelemetry-go v1.43.0
+
+replace go.opentelemetry.io/otel/metric v1.43.0 => github.com/open-telemetry/opentelemetry-go v1.43.0
+
+replace go.opentelemetry.io/otel/sdk v1.43.0 => github.com/open-telemetry/opentelemetry-go v1.43.0
+
+replace go.opentelemetry.io/otel/sdk/metric v1.43.0 => github.com/open-telemetry/opentelemetry-go v1.43.0
+
+replace go.opentelemetry.io/otel/trace v1.43.0 => github.com/open-telemetry/opentelemetry-go v1.43.0
+
+replace go.opentelemetry.io/proto/otlp v1.10.0 => github.com/open-telemetry/opentelemetry-proto-go v1.10.0
+
+replace go.uber.org/goleak v1.3.0 => github.com/uber-go/goleak v1.3.0
+
+replace go.yaml.in/yaml/v3 v3.0.4 => github.com/yaml/go-yaml/v3 v3.0.4
+
+replace gonum.org/v1/gonum v0.17.0 => github.com/gonum/gonum v0.17.0
+
+replace google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 => github.com/googleapis/go-genproto v0.0.0-20260401024825-9d38bb4040a9
+
+replace google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 => github.com/googleapis/go-genproto v0.0.0-20260401024825-9d38bb4040a9
+
+replace google.golang.org/grpc v1.80.0 => github.com/grpc/grpc-go v1.80.0
+
+replace google.golang.org/protobuf v1.36.11 => go.googlesource.com/protobuf v1.36.11
+
+replace modernc.org/cc/v4 v4.27.1 => gitlab.com/cznic/cc/v4 v4.27.1
+
+replace modernc.org/ccgo/v4 v4.30.1 => gitlab.com/cznic/ccgo/v4 v4.30.1
+
+replace modernc.org/fileutil v1.3.40 => gitlab.com/cznic/fileutil v1.3.40
+
+replace modernc.org/gc/v2 v2.6.5 => gitlab.com/cznic/gc/v2 v2.6.5
+
+replace modernc.org/gc/v3 v3.1.1 => gitlab.com/cznic/gc/v3 v3.1.1
+
+replace modernc.org/goabi0 v0.2.0 => gitlab.com/cznic/goabi0 v0.2.0
+
+replace modernc.org/libc v1.67.6 => gitlab.com/cznic/libc v1.67.6
+
+replace modernc.org/mathutil v1.7.1 => gitlab.com/cznic/mathutil v1.7.1
+
+replace modernc.org/memory v1.11.0 => gitlab.com/cznic/memory v1.11.0
+
+replace modernc.org/opt v0.1.4 => gitlab.com/cznic/opt v0.1.4
+
+replace modernc.org/sortutil v1.2.1 => gitlab.com/cznic/sortutil v1.2.1
+
+replace modernc.org/sqlite v1.45.0 => gitlab.com/cznic/sqlite v1.45.0
+
+replace modernc.org/strutil v1.2.1 => gitlab.com/cznic/strutil v1.2.1
+
+replace modernc.org/token v1.1.0 => gitlab.com/cznic/token v1.1.0
+
+replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
