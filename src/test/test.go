@@ -24,6 +24,11 @@ const (
 	testTimeout = 30 * time.Second
 )
 
+// TimelineRecorder records pipeline timeline entries. Satisfied by *summary.Timeline.
+type TimelineRecorder interface {
+	Record(label, thread string, start, end time.Time, failed bool)
+}
+
 var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
 
 // shortPkg returns the last path segment of a package name.
@@ -45,6 +50,7 @@ type coverageHandler struct {
 	onOutput    func()              // called before the first visible output
 	stderrLines []string            // build errors and panics from stderr
 	testCases   []TestCaseResult    // per-test results for CI summary
+	timeline    TimelineRecorder     // pipeline timeline for per-test spans
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -97,6 +103,17 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 				Package: event.Package, Test: event.Test,
 				Status: "skip", Elapsed: event.Elapsed,
 			})
+		}
+
+		// Record per-test timeline entries for OTEL trace spans
+		if h.timeline != nil && event.Elapsed >= 0.1 {
+			switch event.Action {
+			case testjson.ActionPass, testjson.ActionFail, testjson.ActionSkip:
+				end := time.Now()
+				start := end.Add(-time.Duration(event.Elapsed * float64(time.Second)))
+				label := shortPkg(event.Package) + "." + event.Test
+				h.timeline.Record(label, "test", start, end, event.Action == testjson.ActionFail)
+			}
 		}
 	}
 
@@ -243,16 +260,13 @@ func listTestPackages(_ runner.CommandRunner) []string {
 // coverFile is the path where the coverage profile will be written.
 // onOutput is an optional callback called before the first visible test output
 // (used by the progress indicator to finish the "..." line).
-func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func()) (*TestResult, error) {
+func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(), timeline TimelineRecorder) (*TestResult, error) {
 	// Enumerate only packages that have test files to avoid the "no such tool
 	// covdata" error on main packages without tests. Also excludes packages
 	// where all non-test .go files are generated code (e.g. sqlc output).
-	//
-	// Use -p 1 to serialize test execution, preventing Go 1.25's race condition
-	// in multi-package -coverprofile merging.
 	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
 	if coverFile != "" {
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-p", "1")
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	if pkgs := listTestPackages(r); len(pkgs) > 0 {
 		args = append(args, pkgs...)
@@ -277,6 +291,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		failedTest: make(map[string]bool),
 		timedOut:   make(map[string]bool),
 		onOutput:   onOutput,
+		timeline:   timeline,
 	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{

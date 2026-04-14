@@ -2,6 +2,7 @@ package trace
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sort"
 	"time"
@@ -20,9 +21,11 @@ import (
 // Export converts timeline entries to OTel spans and exports them via OTLP/HTTP.
 // It is a no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset or if entries is empty.
 func Export(ctx context.Context, entries []summary.TimelineEntry) error {
-	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" || len(entries) == 0 {
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if endpoint == "" || len(entries) == 0 {
 		return nil
 	}
+	fmt.Fprintf(os.Stderr, "==> Exporting %d timeline entries to %s\n", len(entries), endpoint)
 
 	exporter, err := otlptracehttp.New(ctx)
 	if err != nil {

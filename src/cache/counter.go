@@ -45,8 +45,8 @@ type LatencyTracker struct {
 // Record adds a single duration observation.
 func (l *LatencyTracker) Record(d time.Duration) {
 	us := uint64(d.Microseconds())
-	if us == 0 && d > 0 {
-		us = 1 // sub-microsecond floor
+	if us == 0 {
+		us = 1 // floor to 1µs: any recorded measurement took nonzero time
 	}
 	l.count.Add(1)
 	l.sumUs.Add(us)
