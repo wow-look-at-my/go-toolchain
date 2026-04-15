@@ -286,6 +286,12 @@ func printCacheStats(close bool) {
 		rate := float64(hits) / float64(total) * 100
 		parts = append(parts, fmt.Sprintf("(%.0f%% hit)", rate))
 	}
+	if stats.Batch != nil {
+		populated := stats.Batch.Populated.Load()
+		if populated > 0 {
+			parts = append(parts, fmt.Sprintf("prefetched %d", populated))
+		}
+	}
 
 	fmt.Printf("==> Cache: %s\n", strings.Join(parts, "  "))
 

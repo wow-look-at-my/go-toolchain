@@ -14,11 +14,20 @@ import (
 func TestEnableCacheProg(t *testing.T) {
 	origProg := os.Getenv("GOCACHEPROG")
 	origSock := os.Getenv("GOCACHE_STATS_SOCK")
+	origDaemonSock := os.Getenv("GOCACHE_DAEMON_SOCK")
 	origListener := statsListener
+	origDaemon := cacheDaemon
 	origMinor := resolvedGoMinor
 	defer func() {
 		os.Setenv("GOCACHEPROG", origProg)
 		os.Setenv("GOCACHE_STATS_SOCK", origSock)
+		os.Setenv("GOCACHE_DAEMON_SOCK", origDaemonSock)
+		// Close daemon BEFORE stats listener — the daemon holds a stats
+		// socket connection that the listener waits on during Close().
+		if cacheDaemon != nil && cacheDaemon != origDaemon {
+			cacheDaemon.Close()
+		}
+		cacheDaemon = origDaemon
 		if statsListener != nil && statsListener != origListener {
 			statsListener.Close()
 		}
