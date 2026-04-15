@@ -42,7 +42,7 @@ inputs:
   upload-artifacts:
     description: 'Upload build/ directory as a GitHub Actions artifact after building'
     required: false
-    default: 'false'
+    default: 'true'
   timeout:
     description: 'Timeout in minutes for the go-toolchain build step'
     required: false
