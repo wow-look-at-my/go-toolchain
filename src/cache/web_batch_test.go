@@ -1,0 +1,285 @@
+package cache
+
+import (
+	"archive/tar"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/wow-look-at-my/testify/require"
+)
+
+// fakeBatchServer returns an httptest.Server that mimics the /_batch/get
+// endpoint. store maps S3 keys → compressed data. meta maps keys → metadata.
+func fakeBatchServer(t *testing.T, store map[string][]byte, meta map[string]map[string]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Individual PUT: store the object.
+		if r.Method == "PUT" {
+			key := r.URL.Path[len("/testbucket/"):]
+			body, _ := io.ReadAll(r.Body)
+			store[key] = body
+			m := make(map[string]string)
+			for k, v := range r.Header {
+				lk := strings.ToLower(k)
+				if strings.HasPrefix(lk, "x-amz-meta-") {
+					m[strings.TrimPrefix(lk, "x-amz-meta-")] = v[0]
+				}
+			}
+			meta[key] = m
+			w.WriteHeader(200)
+			return
+		}
+
+		// Batch GET endpoint.
+		if r.Method == "GET" && r.URL.Path == "/testbucket/_batch/get" {
+			var req batchGetRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			var entries []batchGetManifestEntry
+			dataMap := map[string][]byte{}
+			for _, key := range req.Keys {
+				d, ok := store[key]
+				if !ok {
+					continue
+				}
+				entries = append(entries, batchGetManifestEntry{
+					Key:      key,
+					Size:     int64(len(d)),
+					Metadata: meta[key],
+				})
+				dataMap[key] = d
+			}
+			// Add a prefetch entry if requested and there are extra entries.
+			if req.Prefetch {
+				for key, d := range store {
+					alreadyIncluded := false
+					for _, e := range entries {
+						if e.Key == key {
+							alreadyIncluded = true
+							break
+						}
+					}
+					if !alreadyIncluded {
+						entries = append(entries, batchGetManifestEntry{
+							Key:      key,
+							Size:     int64(len(d)),
+							Metadata: meta[key],
+							Prefetch: true,
+						})
+						dataMap[key] = d
+					}
+				}
+			}
+
+			manifest := batchGetManifest{Entries: entries}
+			w.Header().Set("Content-Type", "application/x-tar")
+			w.WriteHeader(200)
+
+			tw := tar.NewWriter(w)
+			mdata, _ := json.Marshal(manifest)
+			tw.WriteHeader(&tar.Header{Name: "manifest.json", Size: int64(len(mdata)), Mode: 0644})
+			tw.Write(mdata)
+			for _, e := range entries {
+				d := dataMap[e.Key]
+				tw.WriteHeader(&tar.Header{Name: "data/" + e.Key, Size: int64(len(d)), Mode: 0644})
+				tw.Write(d)
+			}
+			tw.Close()
+			return
+		}
+
+		// Individual GET (for index listing).
+		if r.Method == "GET" {
+			w.WriteHeader(404)
+			return
+		}
+
+		w.WriteHeader(405)
+	}))
+}
+
+func TestGetBatch_ReturnsRequestedEntry(t *testing.T) {
+	store := make(map[string][]byte)
+	meta := make(map[string]map[string]string)
+	srv := fakeBatchServer(t, store, meta)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Manually store a compressed entry.
+	compressed, _ := compressData([]byte("hello world"))
+	store["go-buildcache/v1aabbccdd11223344"] = compressed
+	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": "eeff0011"}
+
+	// getBatch should find it via the batch endpoint.
+	outputID, body, size, _, miss, err := b.getBatch("aabbccdd11223344", "go-buildcache/v1aabbccdd11223344")
+	require.NoError(t, err)
+	require.False(t, miss)
+	require.Equal(t, "eeff0011", outputID)
+	data, _ := io.ReadAll(body)
+	require.Equal(t, "hello world", string(data))
+	require.Equal(t, int64(11), size)
+}
+
+func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
+	store := make(map[string][]byte)
+	meta := make(map[string]map[string]string)
+	srv := fakeBatchServer(t, store, meta)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Store the requested entry and an extra entry (will be prefetched).
+	compressed1, _ := compressData([]byte("entry one"))
+	compressed2, _ := compressData([]byte("entry two"))
+	store["go-buildcache/v1aaaa000000000001"] = compressed1
+	meta["go-buildcache/v1aaaa000000000001"] = map[string]string{"outputid": "out1"}
+	store["go-buildcache/v1aaaa000000000002"] = compressed2
+	meta["go-buildcache/v1aaaa000000000002"] = map[string]string{"outputid": "out2"}
+
+	var callbackEntries []BatchEntry
+	b.OnBatchEntries = func(entries []BatchEntry) {
+		callbackEntries = append(callbackEntries, entries...)
+	}
+
+	// Request one entry — server should also return the other as prefetch.
+	outputID, body, _, _, miss, err := b.getBatch("aaaa000000000001", "go-buildcache/v1aaaa000000000001")
+	require.NoError(t, err)
+	require.False(t, miss)
+	require.Equal(t, "out1", outputID)
+	data, _ := io.ReadAll(body)
+	require.Equal(t, "entry one", string(data))
+
+	// The callback should have been invoked with both entries.
+	require.Len(t, callbackEntries, 2)
+	keys := map[string]bool{}
+	for _, e := range callbackEntries {
+		keys[e.Key] = true
+	}
+	require.True(t, keys["go-buildcache/v1aaaa000000000001"])
+	require.True(t, keys["go-buildcache/v1aaaa000000000002"])
+}
+
+func TestGetBatch_FallbackToIndividual(t *testing.T) {
+	// Server that doesn't support /_batch/get (returns 404).
+	store := make(map[string][]byte)
+	meta := make(map[string]map[string]string)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			body, _ := io.ReadAll(r.Body)
+			key := r.URL.Path[len("/testbucket/"):]
+			store[key] = body
+			m := make(map[string]string)
+			for k, v := range r.Header {
+				lk := strings.ToLower(k)
+				if strings.HasPrefix(lk, "x-amz-meta-") {
+					m[strings.TrimPrefix(lk, "x-amz-meta-")] = v[0]
+				}
+			}
+			meta[key] = m
+			w.WriteHeader(200)
+			return
+		}
+		if r.Method == "GET" {
+			key := r.URL.Path[len("/testbucket/"):]
+			if key == "_batch/get" {
+				w.WriteHeader(404) // batch not supported
+				return
+			}
+			d, ok := store[key]
+			if !ok {
+				w.WriteHeader(404)
+				return
+			}
+			if m, ok := meta[key]; ok {
+				for k, v := range m {
+					w.Header().Set("X-Amz-Meta-"+k, v)
+				}
+			}
+			w.WriteHeader(200)
+			w.Write(d)
+			return
+		}
+		w.WriteHeader(405)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Store a compressed entry and add the key to the index so
+	// getIndividual can find it.
+	compressed, _ := compressData([]byte("fallback data"))
+	store["go-buildcache/v1aabbccdd11223344"] = compressed
+	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": "fallback-out"}
+
+	// Add to index so getIndividual works.
+	b.keysMu.Lock()
+	b.keys.Add("go-buildcache/v1aabbccdd11223344")
+	b.keysMu.Unlock()
+
+	// getBatch should fall back to getIndividual when batch returns 404.
+	outputID, body, _, _, miss, err := b.getBatch("aabbccdd11223344", "go-buildcache/v1aabbccdd11223344")
+	require.NoError(t, err)
+	require.False(t, miss)
+	require.Equal(t, "fallback-out", outputID)
+	data, _ := io.ReadAll(body)
+	require.Equal(t, "fallback data", string(data))
+}
+
+func TestGetBatch_Miss(t *testing.T) {
+	// Server with empty store.
+	srv := fakeBatchServer(t, make(map[string][]byte), make(map[string]map[string]string))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	_, _, _, _, miss, _ := b.getBatch("deadbeef00000000", "go-buildcache/v1deadbeef00000000")
+	require.True(t, miss)
+}
+
+// TestGet_UsessBatchForUnknownKeys verifies that Get() routes through getBatch
+// when the key is not in the local index.
+func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
+	store := make(map[string][]byte)
+	meta := make(map[string]map[string]string)
+	srv := fakeBatchServer(t, store, meta)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Key is NOT in b.keys index (simulating a fresh cache).
+	compressed, _ := compressData([]byte("batch hit"))
+	store["go-buildcache/v1aabbccdd11223344"] = compressed
+	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": "batch-out"}
+
+	outputID, body, _, _, miss, err := b.Get("aabbccdd11223344")
+	require.NoError(t, err)
+	require.False(t, miss)
+	require.Equal(t, "batch-out", outputID)
+	data, _ := io.ReadAll(body)
+	require.Equal(t, "batch hit", string(data))
+}

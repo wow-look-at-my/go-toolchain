@@ -55,11 +55,12 @@ type IBackend interface {
 
 // StatEvent is a single counter increment sent over the stats socket.
 type StatEvent struct {
-	LocalHit  uint32 `json:"lh,omitempty"`
-	LocalPut  uint32 `json:"lp,omitempty"`
-	RemoteHit uint32 `json:"rh,omitempty"`
-	RemotePut uint32 `json:"rp,omitempty"`
-	Miss      uint32 `json:"m,omitempty"`
+	LocalHit   uint32 `json:"lh,omitempty"`
+	LocalPut   uint32 `json:"lp,omitempty"`
+	RemoteHit  uint32 `json:"rh,omitempty"`
+	RemotePut  uint32 `json:"rp,omitempty"`
+	Miss       uint32 `json:"m,omitempty"`
+	BatchPop uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch GET
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 }
@@ -77,6 +78,7 @@ type Server struct {
 	wg       sync.WaitGroup    // tracks in-flight async remote puts
 	putSem   chan struct{}      // semaphore bounding concurrent remote puts
 	Misses   AtomicCounter
+	batch    BatchStats
 	Latency  LatencyStats
 	statsConn net.Conn // persistent connection to parent's stats socket
 	statsMu   sync.Mutex
@@ -85,6 +87,10 @@ type Server struct {
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
 // Connects to the stats socket if GOCACHE_STATS_SOCK is set.
+//
+// For standalone mode (direct WebBackend), this also wires up batch
+// callbacks. In daemon mode, use Daemon.wireBatchCallbacks instead —
+// callbacks must be set once on the shared WebBackend, not per-connection.
 func NewServer(local *LocalCache, remote IBackend) *Server {
 	s := &Server{
 		local:  local,
@@ -94,8 +100,12 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
 	}
 	// Wire sub-operation latency tracking into the web backend.
+	// Also wire batch callbacks for standalone mode (direct WebBackend).
+	// In daemon mode the remote is wrapped in noCloseBackend, so the
+	// batch callback type assertion fails — the Daemon wires those instead.
 	if wb, ok := remote.(*WebBackend); ok {
 		wb.Latency = &s.Latency
+		wireBatchCallbacks(wb, local, s)
 	} else if nc, ok := remote.(*noCloseBackend); ok {
 		if wb, ok := nc.IBackend.(*WebBackend); ok {
 			wb.Latency = &s.Latency
@@ -108,6 +118,44 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 		}
 	}
 	return s
+}
+
+// wireBatchCallbacks sets up the OnBatchEntries callback on a WebBackend.
+// When a batch GET returns prefetch entries, this callback writes them to
+// the local cache so future GETs hit locally.
+func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
+	wb.OnBatchEntries = func(entries []BatchEntry) {
+		var populated uint32
+		for _, e := range entries {
+			if e.OutputID == "" {
+				continue
+			}
+			if _, miss := local.Get(e.Key); !miss {
+				continue // already cached
+			}
+			// The data from the server is LZ4-compressed (same as individual GETs).
+			decompressed, err := decompressData(e.Data)
+			if err != nil {
+				continue
+			}
+			local.Put(e.Key, e.OutputID, bytes.NewReader(decompressed))
+			populated++
+		}
+		if populated > 0 {
+			sink.recordBatchPop(populated)
+		}
+	}
+}
+
+// statsSink abstracts stat recording so batch callbacks can be wired to
+// either a per-connection Server or a long-lived Daemon stats connection.
+type statsSink interface {
+	recordBatchPop(n uint32)
+}
+
+func (s *Server) recordBatchPop(n uint32) {
+	s.batch.Populated.Add(n)
+	s.sendStat(StatEvent{BatchPop: n})
 }
 
 // sendStat sends a single stat event to the parent over the persistent connection.
@@ -139,12 +187,18 @@ func (s *Server) closeStats() {
 	}
 }
 
+// BatchStats tracks batch GET prefetch metrics.
+type BatchStats struct {
+	Populated AtomicCounter `json:"populated"` // entries prefetched into local cache
+}
+
 // ServerStats is the serialized aggregate of all cache layer stats.
 // Fields are pointers to the live atomic counters — no copying.
 type ServerStats struct {
 	Local   *CacheStats         `json:"local"`
 	Remote  *CacheStats         `json:"remote,omitempty"`
 	Misses  *AtomicCounter      `json:"misses"`
+	Batch   *BatchStats         `json:"batch,omitempty"`
 	Latency *LatencyStats       `json:"latency,omitempty"`
 	Pool    *ConcurrencyTracker `json:"pool,omitempty"`
 }
@@ -154,6 +208,7 @@ func (s *Server) GetStats() *ServerStats {
 	ss := &ServerStats{
 		Local:   &s.local.Stats,
 		Misses:  &s.Misses,
+		Batch:   &s.batch,
 		Latency: &s.Latency,
 	}
 	if s.remote != nil {
@@ -169,10 +224,12 @@ type StatsListener struct {
 	path      string
 	local     CacheStats
 	remote    CacheStats
+	batch     BatchStats
 	misses    AtomicCounter
 	latency   LatencyStats
 	pool      ConcurrencyTracker
 	hasRemote atomic.Bool // true if a remote backend was configured (set by caller)
+	hasBatch  atomic.Bool
 	wg        sync.WaitGroup
 }
 
@@ -232,6 +289,10 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 		if ev.Miss > 0 {
 			sl.misses.Add(ev.Miss)
 		}
+		if ev.BatchPop > 0 {
+			sl.hasBatch.Store(true)
+			sl.batch.Populated.Add(ev.BatchPop)
+		}
 		if ev.Latency != nil {
 			sl.latency.Merge(*ev.Latency)
 			sl.pool.Merge(ev.Latency.Pool)
@@ -256,6 +317,9 @@ func (sl *StatsListener) Stats() *ServerStats {
 	}
 	if sl.hasRemote.Load() {
 		ss.Remote = &sl.remote
+	}
+	if sl.hasBatch.Load() {
+		ss.Batch = &sl.batch
 	}
 	return ss
 }

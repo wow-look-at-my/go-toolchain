@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -19,7 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pierrec/lz4/v4"
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
@@ -37,6 +37,9 @@ type WebConfig struct {
 }
 
 // WebBackend stores cache objects in a remote web server with LZ4 compression.
+// GETs use the server's batch endpoint to fetch entries with prefetch support,
+// proactively populating the local cache with related entries. PUTs upload
+// entries individually.
 type WebBackend struct {
 	client    *http.Client
 	bucket    string
@@ -51,14 +54,19 @@ type WebBackend struct {
 	keysMu  sync.RWMutex
 	keys    set.Set[string] // known keys, built from ListObjects on startup
 
+	// OnBatchEntries is called when a batch GET returns prefetch entries.
+	// The caller (Server/Daemon) uses this to populate the local cache,
+	// turning future remote GETs into local hits.
+	OnBatchEntries func(entries []BatchEntry)
+
 	// Miss reason counters for diagnostics.
-	MissNotInIndex   AtomicCounter
-	MissHTTP404      AtomicCounter
-	MissHTTPError    AtomicCounter
-	MissNoOutputID   AtomicCounter
-	MissReadBody     AtomicCounter
-	MissDecompress   AtomicCounter
-	MissNetwork      AtomicCounter
+	MissNotInIndex AtomicCounter
+	MissHTTP404    AtomicCounter
+	MissHTTPError  AtomicCounter
+	MissNoOutputID AtomicCounter
+	MissReadBody   AtomicCounter
+	MissDecompress AtomicCounter
+	MissNetwork    AtomicCounter
 }
 
 // NewWebBackend creates a web backend from the given config.
@@ -254,17 +262,27 @@ func (b *WebBackend) url(key string) string {
 	return b.endpoint + "/" + b.bucket + "/" + key
 }
 
-// Get retrieves a cached object. The returned body is decompressed.
-// Returns immediately if the key is not in the index (no network call).
+// Get retrieves a cached object. If the key is in the local index, it fetches
+// individually. Otherwise, it uses the server's batch GET endpoint with
+// prefetch enabled — the server returns the requested entry plus temporally
+// related entries from the same build, which are passed to OnBatchEntries
+// for local cache population.
 func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
 	key := b.key(actionID)
 	b.keysMu.RLock()
 	known := b.keys.Contains(key)
 	b.keysMu.RUnlock()
-	if !known {
-		b.MissNotInIndex.Increment()
-		return "", nil, 0, time.Time{}, true, nil
+	if known {
+		return b.getIndividual(actionID, key)
 	}
+
+	// Key not in index — try batch GET with prefetch.
+	b.MissNotInIndex.Increment()
+	return b.getBatch(actionID, key)
+}
+
+// getIndividual fetches a single object stored as an individual S3 key.
+func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser, int64, time.Time, bool, error) {
 	req, err := http.NewRequest("GET", b.url(key), nil)
 	if err != nil {
 		return "", nil, 0, time.Time{}, true, nil
@@ -296,7 +314,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	outputID = resp.Header.Get("X-Amz-Meta-Outputid")
+	outputID := resp.Header.Get("X-Amz-Meta-Outputid")
 	if outputID == "" {
 		resp.Body.Close()
 		b.Pool.Release()
@@ -328,7 +346,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	t = time.Now()
+	t := time.Now()
 	if lm := resp.Header.Get("Last-Modified"); lm != "" {
 		if parsed, parseErr := time.Parse(http.TimeFormat, lm); parseErr == nil {
 			t = parsed
@@ -339,14 +357,90 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	return outputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), t, false, nil
 }
 
+// getBatch uses the server's batch GET endpoint to fetch an entry along with
+// prefetched related entries. The server assembles the response on the fly
+// using temporal locality — entries uploaded around the same time are included.
+// Prefetched entries are passed to OnBatchEntries for local cache population.
+func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int64, time.Time, bool, error) {
+	start := time.Now()
+
+	reqBody, _ := json.Marshal(batchGetRequest{
+		Keys:     []string{key},
+		Prefetch: true,
+	})
+
+	batchURL := b.endpoint + "/" + b.bucket + "/_batch/get"
+	req, err := http.NewRequest("GET", batchURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return "", nil, 0, time.Time{}, true, nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	b.signRequest(req)
+
+	b.Pool.Acquire()
+	resp, err := b.client.Do(req)
+	if err != nil {
+		b.Pool.Release()
+		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: %v\n", actionID[:8], err)
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
+	if resp.StatusCode != 200 {
+		resp.Body.Close()
+		b.Pool.Release()
+		// Fall back to individual GET if batch endpoint isn't available.
+		if resp.StatusCode == 404 || resp.StatusCode == 405 {
+			return b.getIndividual(actionID, key)
+		}
+		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: HTTP %d\n", actionID[:8], resp.StatusCode)
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
+	entries, err := parseBatchResponse(resp.Body)
+	resp.Body.Close()
+	b.Pool.Release()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: parse: %v\n", actionID[:8], err)
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
+	// Pass prefetched entries to the callback for local cache population.
+	if b.OnBatchEntries != nil && len(entries) > 1 {
+		b.OnBatchEntries(entries)
+	}
+
+	var nPrefetch int
+	for _, e := range entries {
+		if e.Prefetch {
+			nPrefetch++
+		}
+	}
+	fmt.Fprintf(os.Stderr, "cacheprog: batch get %s: %d entries (%d prefetched) in %v\n",
+		actionID[:8], len(entries), nPrefetch, time.Since(start).Round(time.Millisecond))
+
+	// Find the requested entry and decompress it.
+	for _, e := range entries {
+		if e.Key == key {
+			decompressed, err := decompressData(e.Data)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: decompress: %v\n", actionID[:8], err)
+				return "", nil, 0, time.Time{}, true, nil
+			}
+			b.Stats.Hits.Increment()
+			return e.OutputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), time.Now(), false, nil
+		}
+	}
+
+	return "", nil, 0, time.Time{}, true, nil
+}
+
 // Put stores a cached object with LZ4 compression.
 // Skips upload if the key is already in the index.
 func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
 	key := b.key(actionID)
 
 	// Atomically check-and-claim: if the key is already known (or being
-	// uploaded by another goroutine), skip immediately. Otherwise mark it
-	// as claimed so concurrent Puts for the same actionID don't race.
+	// uploaded by another goroutine), skip immediately.
 	b.keysMu.Lock()
 	if b.keys.Contains(key) {
 		b.keysMu.Unlock()
@@ -439,81 +533,4 @@ func (b *WebBackend) GetStats() *CacheStats { return &b.Stats }
 // signRequest authenticates an HTTP request using HTTP Basic Auth.
 func (b *WebBackend) signRequest(req *http.Request) {
 	req.SetBasicAuth(b.accessKey, b.secretKey)
-}
-
-// detectObjectType identifies the type of a cache entry from its magic bytes.
-func detectObjectType(data []byte) string {
-	if len(data) >= 8 && string(data[:8]) == "!<arch>\n" {
-		return "go-archive"
-	}
-	if len(data) >= 4 && data[0] == 0x7f && data[1] == 'E' && data[2] == 'L' && data[3] == 'F' {
-		return "elf-binary"
-	}
-	if len(data) >= 4 {
-		// Mach-O 64-bit (little-endian and big-endian) and 32-bit.
-		m := uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])
-		switch m {
-		case 0xcffaedfe, 0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcafebabe:
-			return "macho-binary"
-		}
-	}
-	if len(data) >= 2 && data[0] == 'M' && data[1] == 'Z' {
-		return "pe-binary"
-	}
-	if len(data) >= 4 && data[0] == 0x00 && data[1] == 'g' && data[2] == 'o' && data[3] == '1' {
-		return "go-object"
-	}
-	return "unknown"
-}
-
-// parseArchiveHeader scans a Go archive for the "go object" line inside
-// __.PKGDEF. Returns Go version and target (GOOS/GOARCH), or empty strings
-// if not found. Only scans the first 1024 bytes.
-func parseArchiveHeader(data []byte) (goVersion, target string) {
-	limit := 1024
-	if len(data) < limit {
-		limit = len(data)
-	}
-	window := data[:limit]
-	// Look for a line starting with "go object ".
-	const prefix = "go object "
-	for len(window) > 0 {
-		idx := bytes.Index(window, []byte(prefix))
-		if idx < 0 {
-			break
-		}
-		// Ensure it's at the start of a line (idx == 0 or preceded by newline).
-		if idx > 0 && window[idx-1] != '\n' {
-			window = window[idx+len(prefix):]
-			continue
-		}
-		line := window[idx:]
-		if nl := bytes.IndexByte(line, '\n'); nl >= 0 {
-			line = line[:nl]
-		}
-		// Format: "go object <GOOS> <GOARCH> <goversion> [experiments...]"
-		fields := strings.Fields(string(line))
-		if len(fields) >= 5 {
-			return fields[4], fields[2] + "/" + fields[3]
-		}
-		break
-	}
-	return "", ""
-}
-
-func compressData(data []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	w := lz4.NewWriter(&buf)
-	if _, err := w.Write(data); err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func decompressData(data []byte) ([]byte, error) {
-	r := lz4.NewReader(bytes.NewReader(data))
-	return io.ReadAll(r)
 }

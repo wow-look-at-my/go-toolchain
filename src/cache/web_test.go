@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -158,8 +159,11 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Use a payload >= batchSizeThreshold so it's uploaded individually.
+	payload := largePayload(1024)
+
 	// Put.
-	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("hello world"), 11)
+	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), b.Stats.Puts.Load())
 
@@ -167,7 +171,7 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	h := headers["/testbucket/go-buildcache/v1aabbccdd11223344"]
 	require.Equal(t, "eeff0011aabbccdd", h.Get("X-Amz-Meta-Outputid"))
 	require.Equal(t, "unknown", h.Get("X-Amz-Meta-Object-Type"))
-	require.Equal(t, "11", h.Get("X-Amz-Meta-Body-Size"))
+	require.Equal(t, strconv.Itoa(len(payload)), h.Get("X-Amz-Meta-Body-Size"))
 	require.Equal(t, "lz4", h.Get("X-Amz-Meta-Compression"))
 	require.NotEmpty(t, h.Get("X-Amz-Meta-Created"))
 	require.Equal(t, "v1.2.3", h.Get("X-Amz-Meta-Toolchain-Version"))
@@ -181,8 +185,8 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	require.False(t, miss)
 	require.Equal(t, "eeff0011aabbccdd", outputID)
 	data, _ := io.ReadAll(body)
-	require.Equal(t, "hello world", string(data))
-	require.Equal(t, int64(11), size)
+	require.Equal(t, payload, string(data))
+	require.Equal(t, int64(len(payload)), size)
 	require.Equal(t, uint32(1), b.Stats.Hits.Load())
 }
 
@@ -205,7 +209,9 @@ func TestWebBackend_PutArchiveMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	// Simulate a Go archive body with __.PKGDEF containing a go object header.
+	// Pad to >= batchSizeThreshold so it's uploaded individually.
 	archiveBody := "!<arch>\n__.PKGDEF       0           0     0     644     100       `\ngo object linux amd64 go1.24.7 X:regabiwrappers\nsome export data here\n"
+	archiveBody += largePayload(1024)
 	err = b.Put("1111111122222222", "3333333344444444", nopReader(archiveBody), int64(len(archiveBody)))
 	require.NoError(t, err)
 
@@ -233,7 +239,8 @@ func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = b.Put("aaaa000011112222", "bbbb333344445555", nopReader("x"), 1)
+	payload := largePayload(1024)
+	err = b.Put("aaaa000011112222", "bbbb333344445555", nopReader(payload), int64(len(payload)))
 	require.NoError(t, err)
 
 	h := headers["/testbucket/go-buildcache/v1aaaa000011112222"]
@@ -288,7 +295,8 @@ func TestWebBackend_PutServerError(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("data"), 4)
+	payload := largePayload(1024)
+	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 	require.Error(t, err)
 	require.Equal(t, uint32(0), b.Stats.Puts.Load())
 }
@@ -447,7 +455,8 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("hello"), 5)
+			payload := largePayload(1024)
+			err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 			require.NoError(t, err)
 			require.Equal(t, "PUT", gotMethod, "redirect should preserve PUT method")
 			require.NotEmpty(t, gotBody, "redirect should preserve request body")
@@ -459,4 +468,14 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 
 func nopReader(s string) io.Reader {
 	return strings.NewReader(s)
+}
+
+// largePayload returns a payload of exactly n bytes (>= batchSizeThreshold)
+// so that Put uploads it individually rather than batching it.
+func largePayload(n int) string {
+	buf := make([]byte, n)
+	for i := range buf {
+		buf[i] = byte('A' + i%26)
+	}
+	return string(buf)
 }
