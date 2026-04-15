@@ -56,6 +56,7 @@ The action handles everything: fetching secrets, configuring the Go proxy, priva
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
+| `upload-artifacts`  | string   | `true`     | Upload `build/` directory as a GitHub Actions artifact after building |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
 
 ## CLI Usage
