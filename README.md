@@ -83,9 +83,6 @@ go-toolchain bench compare HEAD~3 HEAD
 # Detect near-duplicate code
 go-toolchain lint ./...
 
-# Run benchmarks with CPU profiling
-go-toolchain profile --web
-
 # Install binary to ~/.local/bin
 go-toolchain install
 
@@ -138,8 +135,6 @@ go-toolchain ignore coverage
   - `show [commit]` — show stored benchmark results (default: HEAD)
   - `compare <commit1> <commit2>` — compare benchmark results between two commits
 - **`lint`** — detect near-duplicate code blocks using AST comparison
-- **`profile`** — run benchmarks with pprof profiling (`--type cpu|mem|mutex|block`, `--web`, `--no-pprof`, `-o`)
-  - `open [file]` — open a pprof/trace file in the browser (defaults to `profile_cpu.pprof`)
 - **`install`** — install the binary to `~/.local/bin`
 - **`update`** — self-update to the latest GitHub release
 - **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
