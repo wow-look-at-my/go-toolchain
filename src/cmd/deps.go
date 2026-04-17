@@ -605,7 +605,7 @@ func FixBogusDepsVersions(r runner.CommandRunner) error {
 	// Resolve each module to its actual latest version
 	for _, mod := range toFix {
 		if !jsonOutput {
-			fmt.Printf("==> Resolving %s (v0.0.0 is not a valid version)\n", mod)
+			fmt.Printf("⇒ Resolving %s (v0.0.0 is not a valid version)\n", mod)
 		}
 
 		version, err := resolveLatestVersionViaGit(r, mod)

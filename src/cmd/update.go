@@ -92,7 +92,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 }
 
 func doUpdate(ctx context.Context, u selfUpdater) error {
-	fmt.Println("==> Checking for updates...")
+	fmt.Println("⇒ Checking for updates...")
 
 	latestVersion, found, err := u.detect(ctx, "wow-look-at-my/go-toolchain")
 	if err != nil {
@@ -110,7 +110,7 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 	} else if _, err := semver.NewVersion(buildVersion); err != nil {
 		fmt.Printf("    Warning: current version %q is not valid semver, proceeding with update\n", buildVersion)
 	} else if !u.isNewer(buildVersion) {
-		fmt.Println("==> Already up to date.")
+		fmt.Println("⇒ Already up to date.")
 		return nil
 	}
 
@@ -123,13 +123,13 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 		return fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 
-	fmt.Printf("==> Updating %s ...\n", exePath)
+	fmt.Printf("⇒ Updating %s ...\n", exePath)
 
 	if err := u.applyUpdate(ctx, exePath); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 
-	fmt.Printf("==> Updated to %s\n", latestVersion)
+	fmt.Printf("⇒ Updated to %s\n", latestVersion)
 
 	// Re-create go-safe-build compat symlink if binary is in ~/.local/bin/
 	home, err := os.UserHomeDir()
@@ -143,9 +143,9 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 			os.Remove(compatPath)
 		}
 		if err := os.Symlink(exePath, compatPath); err != nil {
-			fmt.Printf("==> Warning: failed to update compat symlink: %v\n", err)
+			fmt.Printf("⇒ Warning: failed to update compat symlink: %v\n", err)
 		} else {
-			fmt.Printf("==> Symlinked %s -> %s\n", compatPath, exePath)
+			fmt.Printf("⇒ Symlinked %s -> %s\n", compatPath, exePath)
 		}
 	}
 

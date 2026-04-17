@@ -117,7 +117,7 @@ func GetTimeline() *summary.Timeline {
 }
 
 // step tracks progress for a long-running build step.
-// It prints "==> label..." initially, then " done. (Xs)" when finished.
+// It prints "⇒ label..." initially, then " done. (Xs)" when finished.
 // If output was produced between start and finish, the done message
 // goes on a new line with the label repeated.
 // Sub-steps (created via logSubStep) print indented "    label Xs" instead.
@@ -126,11 +126,11 @@ type step struct {
 	thread string
 	start  time.Time
 	noisy  bool
-	sub    bool // sub-step: indented output, no "==>" prefix
+	sub    bool // sub-step: indented output, no "⇒" prefix
 	once   sync.Once
 }
 
-// logStep prints "==> label..." without a newline and returns a step
+// logStep prints "⇒ label..." without a newline and returns a step
 // that can be finished later with done(). Records on the "main" thread.
 func logStep(label string) *step {
 	return logStepOn(label, "main")
@@ -138,7 +138,7 @@ func logStep(label string) *step {
 
 // logStepOn is like logStep but records on the given thread.
 func logStepOn(label, thread string) *step {
-	fmt.Printf("==> %s...", label)
+	fmt.Printf("⇒ %s...", label)
 	if activeWatchdog != nil {
 		activeWatchdog.setStep(label)
 	}
@@ -177,7 +177,7 @@ func (s *step) finish(status string) {
 	if s.sub {
 		fmt.Fprintf(os.Stderr, "    %s %s\n", s.label, fmtDuration(d))
 	} else if s.noisy {
-		fmt.Printf("==> %s %s %s\n", s.label, status, fmtDuration(d))
+		fmt.Printf("⇒ %s %s %s\n", s.label, status, fmtDuration(d))
 	} else {
 		fmt.Printf(" %s %s\n", status, fmtDuration(d))
 	}
