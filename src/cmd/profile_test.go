@@ -378,15 +378,21 @@ func TestRunProfileOpen_FileNotFound(t *testing.T) {
 }
 
 func TestRunProfileOpen_NoArgs_NoProfile(t *testing.T) {
-	// If /tmp/go-toolchain-profile/cpu.pprof doesn't exist, should error.
-	oldDir := selfProfileDir
-	defer func() {
-		// selfProfileDir is a const, but we can test the path logic
-		// by providing a nonexistent path as an argument.
-	}()
-	_ = oldDir
+	// When no args and default profile_cpu.pprof doesn't exist, should error.
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
 
-	err := runProfileOpen(profileOpenCmd, []string{"/nonexistent/dir/cpu.pprof"})
+	err := runProfileOpen(profileOpenCmd, nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "profile not found")
+}
+
+func TestIsTraceFile(t *testing.T) {
+	assert.True(t, isTraceFile("trace.out"))
+	assert.True(t, isTraceFile("/tmp/some-dir/trace.out"))
+	assert.True(t, isTraceFile("my_trace.pprof"))
+	assert.False(t, isTraceFile("cpu.pprof"))
+	assert.False(t, isTraceFile("/tmp/some-dir/mem.pprof"))
 }

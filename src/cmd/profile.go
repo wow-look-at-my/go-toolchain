@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -139,4 +140,65 @@ func runProfileWithRunner(r runner.CommandRunner, args []string) error {
 	pprofCmd.Stdout = os.Stdout
 	pprofCmd.Stderr = os.Stderr
 	return pprofCmd.Run()
+}
+
+var profileOpenCmd = &cobra.Command{
+	Use:   "open [file]",
+	Short: "Open a profile in the browser",
+	Long: `Open a pprof or trace file with the appropriate Go analysis tool.
+
+If no file is given, opens the default CPU profile (profile_cpu.pprof)
+in the current directory.
+
+Examples:
+  go-toolchain profile open
+  go-toolchain profile open profile_cpu.pprof
+  go-toolchain profile open trace.out`,
+	SilenceUsage: true,
+	RunE:         runProfileOpen,
+}
+
+func runProfileOpen(cmd *cobra.Command, args []string) error {
+	file := ""
+	if len(args) > 0 {
+		file = args[0]
+	}
+
+	if file == "" {
+		file = "profile_cpu.pprof"
+	}
+
+	if _, err := os.Stat(file); err != nil {
+		return fmt.Errorf("profile not found: %s\n\nRun 'go-toolchain profile' first to generate a profile", file)
+	}
+
+	if isTraceFile(file) {
+		fmt.Printf("==> Opening trace: %s\n", file)
+		return openTrace(file)
+	}
+
+	fmt.Printf("==> Opening pprof: %s\n", file)
+	return openPprof(file)
+}
+
+func isTraceFile(path string) bool {
+	ext := filepath.Ext(path)
+	base := filepath.Base(path)
+	return ext == ".out" || strings.Contains(base, "trace")
+}
+
+func openPprof(file string) error {
+	return runExternalTool("go", "tool", "pprof", "-http=:", file)
+}
+
+func openTrace(file string) error {
+	return runExternalTool("go", "tool", "trace", file)
+}
+
+func runExternalTool(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
 }

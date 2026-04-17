@@ -119,7 +119,6 @@ go-toolchain ignore coverage
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
 | `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |
-| `--profile`      | `''`        | Self-profile go-toolchain (`trace`, `cpu:path`, `mem:path`, `trace:path`) |
 
 #### Root command flags
 
@@ -140,7 +139,7 @@ go-toolchain ignore coverage
   - `compare <commit1> <commit2>` — compare benchmark results between two commits
 - **`lint`** — detect near-duplicate code blocks using AST comparison
 - **`profile`** — run benchmarks with pprof profiling (`--type cpu|mem|mutex|block`, `--web`, `--no-pprof`, `-o`)
-  - `open [file]` — open a pprof/trace file in the browser (defaults to latest CPU profile)
+  - `open [file]` — open a pprof/trace file in the browser (defaults to `profile_cpu.pprof`)
 - **`install`** — install the binary to `~/.local/bin`
 - **`update`** — self-update to the latest GitHub release
 - **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
@@ -151,36 +150,6 @@ go-toolchain ignore coverage
   - `coverage` — enable coverage ratchet (watermark)
 - **`unignore`** — remove build-check exemptions
   - `coverage` — remove coverage watermark
-
-## Self-Profiling
-
-go-toolchain automatically captures CPU and memory profiles of itself on every run. Profiles are written to `/tmp/go-toolchain-profile/`, overwriting the previous run:
-
-- `cpu.pprof` — CPU profile (flamegraph via `go tool pprof`)
-- `mem.pprof` — heap snapshot at exit
-
-Execution tracing is opt-in (higher overhead):
-
-```bash
-# Enable execution trace (goroutine scheduling, blocking, GC)
-go-toolchain --profile trace
-
-# Custom output path
-go-toolchain --profile trace:custom/trace.out
-
-# Override default CPU/mem paths
-go-toolchain --profile cpu:my_cpu.pprof --profile mem:my_mem.pprof
-```
-
-Open profiles with the built-in viewer:
-
-```bash
-# Open the latest CPU profile in the browser
-go-toolchain profile open
-
-# Open a specific file
-go-toolchain profile open /tmp/go-toolchain-profile/trace.out
-```
 
 ## OpenTelemetry Trace Export
 
