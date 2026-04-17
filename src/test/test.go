@@ -52,6 +52,8 @@ type coverageHandler struct {
 	stderrLines []string            // build errors and panics from stderr
 	testCases   []TestCaseResult    // per-test results for CI summary
 	timeline    TimelineRecorder     // pipeline timeline for per-test spans
+	fastCount   int
+	fastElapsed float64
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -125,12 +127,17 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		switch event.Action {
 		case testjson.ActionPass:
 			if event.Elapsed >= 0.1 {
+				h.flushFast()
 				if h.onOutput != nil {
 					h.onOutput()
 				}
 				fmt.Fprintf(h.out, "  %s.%s... %sdone.%s %s%.2fs%s\n", pkg, event.Test, clrGreen, colorReset, colorDimCyan, event.Elapsed, colorReset)
+			} else {
+				h.fastCount++
+				h.fastElapsed += event.Elapsed
 			}
 		case testjson.ActionFail:
+			h.flushFast()
 			if h.onOutput != nil {
 				h.onOutput()
 			}
@@ -146,15 +153,35 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
+				h.flushFast()
 				if h.onOutput != nil {
 					h.onOutput()
 				}
 				fmt.Fprintf(h.out, "  %s.%s... %sskipped.%s %s%.2fs%s\n", pkg, event.Test, clrYellow, colorReset, colorDimCyan, event.Elapsed, colorReset)
+			} else {
+				h.fastCount++
+				h.fastElapsed += event.Elapsed
 			}
 		}
 	}
 
 	return nil
+}
+
+func (h *coverageHandler) flushFast() {
+	if h.fastCount == 0 || h.verbose {
+		return
+	}
+	if h.onOutput != nil {
+		h.onOutput()
+	}
+	label := "fast tests"
+	if h.fastCount == 1 {
+		label = "fast test"
+	}
+	fmt.Fprintf(h.out, "  [%d %s]... %s%.2fs%s\n", h.fastCount, label, colorDimCyan, h.fastElapsed, colorReset)
+	h.fastCount = 0
+	h.fastElapsed = 0
 }
 
 func (h *coverageHandler) FailureOutput() string {
@@ -295,6 +322,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		Handler:                  handler,
 		IgnoreNonJSONOutputLines: true,
 	})
+	handler.flushFast()
 	if err != nil {
 		return nil, err
 	}

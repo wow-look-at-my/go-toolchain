@@ -74,7 +74,6 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
 	rootCmd.PersistentFlags().BoolVar(&cacheMisses, "cache-misses", false, "Show packages that missed the build cache")
-	registerSelfProfileFlags()
 
 	// Silent no-op flags — accepted without error for tool compatibility
 	rootCmd.Flags().Bool("build", false, "")
@@ -93,13 +92,6 @@ func init() {
 
 // Execute runs the root command.
 func Execute() error {
-	stop, err := startSelfProfile()
-	if err != nil {
-		return err
-	}
-	if stop != nil {
-		defer stop()
-	}
 	defer printCacheStats(true)
 	return rootCmd.Execute()
 }
