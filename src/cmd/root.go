@@ -41,11 +41,16 @@ var (
 	cgoEnabled    bool
 )
 
-// skipCache returns true for subcommands that should not enable GOCACHEPROG.
-func skipCache(name string) bool {
-	switch name {
-	case "cacheprog", "version", "install", "update", "release":
-		return true
+// skipCache reports whether cmd or any of its ancestors is a command tree
+// that should not enable GOCACHEPROG. Cobra passes the leaf command to
+// PersistentPreRunE, so e.g. `version raw` arrives with cmd.Name() == "raw"
+// and must still inherit the skip from its parent `version`.
+func skipCache(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "cacheprog", "version", "install", "update", "release":
+			return true
+		}
 	}
 	return false
 }
@@ -55,7 +60,7 @@ var rootCmd = &cobra.Command{
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if skipCache(cmd.Name()) {
+		if skipCache(cmd) {
 			return nil
 		}
 		return enableCacheProg()

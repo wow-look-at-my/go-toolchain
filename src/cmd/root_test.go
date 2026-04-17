@@ -667,3 +667,48 @@ func TestFindGoModules_NoModules(t *testing.T) {
 	modules := findGoModules()
 	assert.Equal(t, 0, len(modules))
 }
+
+// Subcommands of skip-listed commands (e.g. `version raw`) must inherit
+// the skip — cobra passes the leaf command to PersistentPreRunE, so the
+// skip check has to walk ancestors. Regression test for the release-job
+// "Determine tag" failure introduced when PR #159 began invoking
+// `./build/go-toolchain version raw` to read the embedded version.
+func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
+	defer saveCacheEnv(t)()
+	os.Setenv("CI", "true") // would fail validateCICacheConfig if reached
+
+	for _, argv := range [][]string{
+		{"version"},
+		{"version", "raw"},
+		{"version", "json"},
+	} {
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			leaf, _, err := rootCmd.Find(argv)
+			require.NoError(t, err)
+			require.NotNil(t, leaf)
+			assert.True(t, skipCache(leaf),
+				"skipCache should return true for %q (Name=%q)", argv, leaf.Name())
+			// End-to-end: PersistentPreRunE must not fail for this leaf
+			// even when CI cache vars are unset.
+			assert.NoError(t, rootCmd.PersistentPreRunE(leaf, nil))
+		})
+	}
+}
+
+// Lock in that subcommands NOT under a skip-listed parent still trigger
+// cache setup — so the ancestor walk in skipCache doesn't accidentally
+// match too broadly.
+func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
+	for _, argv := range [][]string{
+		{"bench", "run"},
+		{"unignore", "coverage"},
+	} {
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			leaf, _, err := rootCmd.Find(argv)
+			require.NoError(t, err)
+			require.NotNil(t, leaf)
+			assert.False(t, skipCache(leaf),
+				"skipCache should remain false for %q", argv)
+		})
+	}
+}
