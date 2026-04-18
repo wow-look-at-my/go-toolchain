@@ -287,7 +287,15 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// where all non-test .go files are generated code (e.g. sqlc output).
 	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
 	if coverFile != "" {
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
+		// -count=1 disables Go's test-result cache for this invocation.
+		// Go#74873: when -coverpkg=./... is in play, cached coverprofile
+		// fragments reference stale line ranges of packages outside the
+		// cached test package. On any edit, the fresh and stale line ranges
+		// collide in our dedup map (coverage.go parseProfileBlocks), inflating
+		// totals and corrupting aggregate coverage. Compilation is still
+		// cached via GOCACHEPROG; only test-result replay is disabled, and
+		// only when coverage is being collected.
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
 	}
 	if pkgs := listTestPackages(r); len(pkgs) > 0 {
 		args = append(args, pkgs...)
