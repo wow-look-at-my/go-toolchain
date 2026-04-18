@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -597,7 +598,9 @@ func (s *Server) handlePut(req Request) Response {
 			err := s.remote.Put(actionID, outputID, bytes.NewReader(data), int64(len(data)))
 			s.Latency.RemotePut.Record(time.Since(remotePutStart))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "cacheprog: remote put: %v\n", err)
+				if !errors.Is(err, errLogged) {
+					fmt.Fprintf(os.Stderr, "cacheprog: remote put: %v\n", err)
+				}
 			} else {
 				s.sendStat(StatEvent{RemotePut: 1})
 			}

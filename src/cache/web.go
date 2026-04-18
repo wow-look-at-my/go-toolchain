@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -22,6 +23,10 @@ import (
 
 	"github.com/wow-look-at-my/go-containers/set"
 )
+
+// errLogged signals that an error has already been reported to stderr at
+// the web layer. Outer callers should suppress further logging for it.
+var errLogged = errors.New("web: already logged")
 
 // MaxConnsPerHost is the HTTP connection pool size for the remote cache.
 const MaxConnsPerHost = 64
@@ -67,6 +72,8 @@ type WebBackend struct {
 	MissReadBody   AtomicCounter
 	MissDecompress AtomicCounter
 	MissNetwork    AtomicCounter
+
+	errLog *httpErrLogger
 }
 
 // NewWebBackend creates a web backend from the given config.
@@ -142,6 +149,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		secretKey: secretKey,
 		version:   cfg.Version,
 	}
+	b.errLog = newHTTPErrLogger(os.Stderr, httpErrFlushInterval)
 	b.keys = b.loadOrFetchIndex()
 	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
 	return b, nil
@@ -310,7 +318,7 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTPError.Increment()
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
+		b.errLog.Record("web get", resp.StatusCode, actionID, string(respBody))
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -392,7 +400,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 		if resp.StatusCode == 404 || resp.StatusCode == 405 {
 			return b.getIndividual(actionID, key)
 		}
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: HTTP %d\n", actionID[:8], resp.StatusCode)
+		b.errLog.Record("web batch get", resp.StatusCode, actionID, "")
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -508,8 +516,8 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
-		return fmt.Errorf("web put: HTTP %d", resp.StatusCode)
+		b.errLog.Record("web put", resp.StatusCode, actionID, string(respBody))
+		return fmt.Errorf("web put: HTTP %d: %w", resp.StatusCode, errLogged)
 	}
 
 	uploaded = true
@@ -525,8 +533,15 @@ func (b *WebBackend) removeClaimed(key string) {
 	b.keysMu.Unlock()
 }
 
-// Close is a no-op for the web backend.
-func (b *WebBackend) Close() error { return nil }
+// Close flushes the HTTP error logger and shuts down the OTel exporter
+// (if one was started). It is safe to call on a partially-constructed
+// WebBackend (e.g. in tests that build &WebBackend{} bare).
+func (b *WebBackend) Close() error {
+	if b.errLog != nil {
+		_ = b.errLog.Close()
+	}
+	return nil
+}
 
 func (b *WebBackend) GetStats() *CacheStats { return &b.Stats }
 
