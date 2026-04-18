@@ -21,6 +21,10 @@ var (
 	buildDate      = ""
 )
 
+// buildStartEpoch is captured once at process start so that multiple calls
+// to collectGitInfo() within the same invocation produce identical ldflags.
+var buildStartEpoch = time.Now().Unix()
+
 const ldflagsPrefix = "github.com/wow-look-at-my/go-toolchain/src/cmd"
 
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
@@ -263,14 +267,19 @@ func collectGitInfo() (gitInfo, error) {
 		}
 	}
 
-	// Version: use tag ref from CI, or git describe
+	// Version: explicit tag refs from CI win; otherwise synthesize from the
+	// build start epoch. The old fallback to `git describe --tags --always
+	// --dirty` produced bare SHAs like "0648669" when no tag existed on
+	// HEAD, which breaks semver comparisons in `update`.
 	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
 		info.version = os.Getenv("GITHUB_REF_NAME")
 	}
 	if info.version == "" {
+		dirty := false
 		if out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output(); err == nil {
-			info.version = strings.TrimSpace(string(out))
+			dirty = strings.HasSuffix(strings.TrimSpace(string(out)), "-dirty")
 		}
+		info.version = synthesizeVersion(buildStartEpoch, dirty)
 	}
 
 	// Timestamp: no env var for this, always from git
@@ -279,6 +288,17 @@ func collectGitInfo() (gitInfo, error) {
 	}
 
 	return info, nil
+}
+
+// synthesizeVersion builds a semver string of the form v0.0.<epoch>, with
+// an optional -dirty suffix. Matches the CI release tag scheme so the
+// embedded build version and the eventual release tag are comparable.
+func synthesizeVersion(epoch int64, dirty bool) string {
+	v := fmt.Sprintf("v0.0.%d", epoch)
+	if dirty {
+		v += "-dirty"
+	}
+	return v
 }
 
 // checkDirtyInCI returns an error if running in CI with a version that

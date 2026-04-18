@@ -80,7 +80,8 @@ jobs:
       - name: Determine tag
         id: tag
         run: |
-          TAG="v0.0.$(git log -1 --format=%ct)"
+          chmod +x build/go-toolchain_linux_amd64
+          TAG=$(./build/go-toolchain_linux_amd64 version raw)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Sign checksums
@@ -88,7 +89,6 @@ jobs:
 
       - name: Release
         run: |
-          chmod +x build/go-toolchain_linux_amd64
           ./build/go-toolchain_linux_amd64 release --tag "${{ steps.tag.outputs.tag }}"
         env:
           GH_TOKEN: ${{ github.token }}

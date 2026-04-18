@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +41,10 @@ func TestCollectGitInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, "", info.commit)
 	assert.NotEqual(t, "", info.timestamp)
-	assert.NotEqual(t, "", info.version)
+	// Version must be a synthesized v0.0.<epoch> string (since this repo has
+	// no semver tag on HEAD). A bare SHA like "0648669" here is exactly the
+	// bug this code fixes.
+	assert.Regexp(t, `^v0\.0\.\d+(-dirty)?$`, info.version)
 }
 
 func TestCollectGitInfoFromEnv(t *testing.T) {
@@ -61,8 +66,26 @@ func TestCollectGitInfoBranchRef(t *testing.T) {
 
 	info, err := collectGitInfo()
 	require.NoError(t, err)
-	// version should come from git describe, not the branch name
+	// version should be synthesized, never the branch name
 	assert.NotEqual(t, "main", info.version)
+	assert.Regexp(t, `^v0\.0\.\d+(-dirty)?$`, info.version)
+}
+
+func TestSynthesizeVersion(t *testing.T) {
+	assert.Equal(t, "v0.0.1700000000", synthesizeVersion(1700000000, false))
+	assert.Equal(t, "v0.0.1700000000-dirty", synthesizeVersion(1700000000, true))
+	assert.Equal(t, "v0.0.0", synthesizeVersion(0, false))
+}
+
+func TestCollectGitInfoSynthesizedEpoch(t *testing.T) {
+	// Synthesized version suffix should equal buildStartEpoch
+	info, err := collectGitInfo()
+	require.NoError(t, err)
+
+	re := regexp.MustCompile(`^v0\.0\.(\d+)(-dirty)?$`)
+	m := re.FindStringSubmatch(info.version)
+	require.Len(t, m, 3, "version %q did not match synthesized form", info.version)
+	assert.Equal(t, fmt.Sprintf("%d", buildStartEpoch), m[1])
 }
 
 func TestEnvOr(t *testing.T) {
