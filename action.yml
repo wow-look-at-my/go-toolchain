@@ -96,6 +96,13 @@ runs:
         chmod +x "${{ inputs.binary }}"
         sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
 
+    - name: Install timeout (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install coreutils
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
