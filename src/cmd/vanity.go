@@ -209,7 +209,7 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 		}
 
 		if !jsonOutput {
-			fmt.Printf("==> Vanity host %s unreachable, resolving GitHub sources\n", host)
+			fmt.Printf("⇒ Vanity host %s unreachable, resolving GitHub sources\n", host)
 		}
 
 		for _, m := range mods {

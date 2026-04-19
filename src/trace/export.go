@@ -25,7 +25,7 @@ func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 	if endpoint == "" || len(entries) == 0 {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "==> Exporting %d timeline entries to %s\n", len(entries), endpoint)
+	fmt.Fprintf(os.Stderr, "⇒ Exporting %d timeline entries to %s\n", len(entries), endpoint)
 
 	exporter, err := otlptracehttp.New(ctx)
 	if err != nil {
