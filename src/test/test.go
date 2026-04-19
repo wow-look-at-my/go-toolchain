@@ -127,7 +127,6 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		switch event.Action {
 		case testjson.ActionPass:
 			if event.Elapsed >= 0.1 {
-				h.flushFast()
 				if h.onOutput != nil {
 					h.onOutput()
 				}
@@ -137,7 +136,6 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 				h.fastElapsed += event.Elapsed
 			}
 		case testjson.ActionFail:
-			h.flushFast()
 			if h.onOutput != nil {
 				h.onOutput()
 			}
@@ -153,7 +151,6 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
-				h.flushFast()
 				if h.onOutput != nil {
 					h.onOutput()
 				}
@@ -168,7 +165,7 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 	return nil
 }
 
-func (h *coverageHandler) flushFast() {
+func (h *coverageHandler) printFastSummary() {
 	if h.fastCount == 0 || h.verbose {
 		return
 	}
@@ -330,7 +327,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		Handler:                  handler,
 		IgnoreNonJSONOutputLines: true,
 	})
-	handler.flushFast()
+	handler.printFastSummary()
 	if err != nil {
 		return nil, err
 	}
