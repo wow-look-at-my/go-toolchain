@@ -38,11 +38,13 @@ func Default() *Logger {
 	if defaultLogger == nil {
 		// Use indirect writers so that tests replacing os.Stdout/os.Stderr
 		// are reflected in subsequent logger writes without re-initializing.
+		// GHAAuto=true means GHA mode is checked dynamically at emit time,
+		// so tests that set GITHUB_ACTIONS after init are correctly handled.
 		defaultLogger = New(Options{
-			Level:  LevelInfo,
-			Stdout: stdoutWriter{},
-			Stderr: stderrWriter{},
-			GHA:    os.Getenv("GITHUB_ACTIONS") == "true",
+			Level:   LevelInfo,
+			Stdout:  stdoutWriter{},
+			Stderr:  stderrWriter{},
+			GHAAuto: true,
 		})
 	}
 	return defaultLogger

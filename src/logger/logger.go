@@ -61,6 +61,10 @@ type Options struct {
 	// GHA enables GitHub Actions workflow commands (::warning, ::error).
 	// Defaults to true when GITHUB_ACTIONS=="true".
 	GHA bool
+	// GHAAuto, when true, overrides GHA and checks GITHUB_ACTIONS at emit
+	// time instead of at init time. Used by the default logger so that tests
+	// which set GITHUB_ACTIONS after logger initialization are respected.
+	GHAAuto bool
 	// Colors enables ANSI color codes in output. Defaults to false in non-TTY
 	// environments. Set explicitly to override auto-detection.
 	Colors bool
@@ -113,6 +117,18 @@ func (l *Logger) Info(format string, args ...any) {
 	l.write(l.opts.Stdout, format, args...)
 }
 
+// isGHA returns true if GitHub Actions mode is active. When GHAAuto is set
+// it checks GITHUB_ACTIONS at call time (used by the default logger so that
+// tests setting the env var after init are respected); otherwise it returns
+// the static GHA option.
+// Callers must hold l.mu.
+func (l *Logger) isGHA() bool {
+	if l.opts.GHAAuto {
+		return os.Getenv("GITHUB_ACTIONS") == "true"
+	}
+	return l.opts.GHA
+}
+
 // Warn emits a message to Stderr (or a GHA ::warning annotation) when
 // level <= LevelWarn.
 func (l *Logger) Warn(format string, args ...any) {
@@ -122,7 +138,7 @@ func (l *Logger) Warn(format string, args ...any) {
 		return
 	}
 	msg := l.format(format, args...)
-	if l.opts.GHA {
+	if l.isGHA() {
 		EmitGHAWarning(l.opts.Stdout, "", msg)
 		return
 	}
@@ -142,7 +158,7 @@ func (l *Logger) WarnFile(file, format string, args ...any) {
 		return
 	}
 	msg := l.format(format, args...)
-	if l.opts.GHA {
+	if l.isGHA() {
 		EmitGHAWarning(l.opts.Stdout, file, msg)
 		return
 	}
@@ -162,7 +178,7 @@ func (l *Logger) Error(format string, args ...any) {
 		return
 	}
 	msg := l.format(format, args...)
-	if l.opts.GHA {
+	if l.isGHA() {
 		EmitGHAError(l.opts.Stdout, "", msg)
 		return
 	}
@@ -182,7 +198,7 @@ func (l *Logger) ErrorFile(file, format string, args ...any) {
 		return
 	}
 	msg := l.format(format, args...)
-	if l.opts.GHA {
+	if l.isGHA() {
 		EmitGHAError(l.opts.Stdout, file, msg)
 		return
 	}
