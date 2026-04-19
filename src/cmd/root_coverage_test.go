@@ -38,10 +38,10 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 {"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"example.com/pkg","Test":"TestNoElapsed"}
 {"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestParent"}
 {"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestParent/Sub"}
-{"Time":"2024-01-01T00:00:01Z","Action":"pass","Package":"example.com/pkg","Test":"TestParent/Sub","Elapsed":0.1}
-{"Time":"2024-01-01T00:00:01Z","Action":"pass","Package":"example.com/pkg","Test":"TestParent","Elapsed":0.2}
+{"Time":"2024-01-01T00:00:01Z","Action":"pass","Package":"example.com/pkg","Test":"TestParent/Sub","Elapsed":0.01}
+{"Time":"2024-01-01T00:00:01Z","Action":"pass","Package":"example.com/pkg","Test":"TestParent","Elapsed":0.02}
 {"Time":"2024-01-01T00:00:01Z","Action":"run","Package":"example.com/pkg","Test":"TestLeaf"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg","Test":"TestLeaf","Elapsed":0.3}
+{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg","Test":"TestLeaf","Elapsed":0.03}
 {"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"example.com/pkg","Output":"coverage: 100% of statements\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `
