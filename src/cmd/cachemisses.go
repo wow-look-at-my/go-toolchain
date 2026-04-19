@@ -78,7 +78,7 @@ func (t *cacheMissTracker) Print() {
 		return
 	}
 	sort.Strings(t.pkgs)
-	fmt.Fprintf(os.Stderr, "\n==> Cache misses: %d packages compiled\n", len(t.pkgs))
+	fmt.Fprintf(os.Stderr, "\n⇒ Cache misses: %d packages compiled\n", len(t.pkgs))
 	for _, pkg := range t.pkgs {
 		fmt.Fprintf(os.Stderr, "    %s\n", pkg)
 	}
