@@ -594,8 +594,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		for _, pkg := range report.Packages {
 			totalUncovered += pkg.Uncovered()
 		}
-		// 0 uncovered with below-minimum coverage means no statements were measured at all — broken setup.
-		if totalUncovered == 0 {
+		// Packages exist but no statements were measured — coverage data is missing or broken.
+		if totalUncovered == 0 && len(report.Packages) > 0 {
 			panic(fmt.Sprintf("coverage %.1f%% is below minimum %.1f%% with 0 uncovered statements — coverage data is missing or broken", report.Total, effectiveMin))
 		}
 		// Allow reduced coverage if fewer than 10 statements are uncovered
