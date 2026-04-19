@@ -313,10 +313,10 @@ func checkDirtyInCI(info gitInfo) error {
 		// Diagnostic: surface what's dirty so the cause is visible in CI logs
 		// instead of requiring a local reproduction.
 		if out, err := exec.Command("git", "status", "--porcelain").Output(); err == nil && len(out) > 0 {
-			logger.Info("==> git status --porcelain:\n%s", string(out))
+			logger.Info("⇒ git status --porcelain:\n%s", string(out))
 		}
 		if out, err := exec.Command("git", "diff", "--stat").Output(); err == nil && len(out) > 0 {
-			logger.Info("==> git diff --stat:\n%s", string(out))
+			logger.Info("⇒ git diff --stat:\n%s", string(out))
 		}
 		return fmt.Errorf("refusing to build: version %q has -dirty suffix in CI (working tree is not clean)", info.version)
 	}

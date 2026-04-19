@@ -78,7 +78,7 @@ func (t *cacheMissTracker) Print() {
 		return
 	}
 	sort.Strings(t.pkgs)
-	logger.Info("\n==> Cache misses: %d packages compiled", len(t.pkgs))
+	logger.Info("\n⇒ Cache misses: %d packages compiled", len(t.pkgs))
 	for _, pkg := range t.pkgs {
 		logger.Info("    %s", pkg)
 	}

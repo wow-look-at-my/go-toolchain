@@ -256,11 +256,11 @@ func printCacheStats(close bool) {
 		case !cacheEnabled:
 			return
 		case !goSupportsFeature(FeatureCacheProg):
-			logger.Info("==> Cache: disabled (requires Go 1.%d+)", FeatureCacheProg.MinorVersion)
+			logger.Info("⇒ Cache: disabled (requires Go 1.%d+)", FeatureCacheProg.MinorVersion)
 		case cacheSetupErr != nil:
-			logger.Info("==> Cache: disabled (%v)", cacheSetupErr)
+			logger.Info("⇒ Cache: disabled (%v)", cacheSetupErr)
 		default:
-			logger.Info("==> Cache: disabled")
+			logger.Info("⇒ Cache: disabled")
 		}
 		return
 	}
@@ -295,7 +295,7 @@ func printCacheStats(close bool) {
 		}
 	}
 
-	logger.Info("==> Cache: %s", strings.Join(parts, "  "))
+	logger.Info("⇒ Cache: %s", strings.Join(parts, "  "))
 
 	// Print latency profile if any operations were recorded.
 	if stats.Latency != nil {

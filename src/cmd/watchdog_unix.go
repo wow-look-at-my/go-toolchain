@@ -84,6 +84,7 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancel = cancel
 
+	w.fwdWG.Add(2)
 	go w.forward(stdoutR, w.origStdout)
 	go w.forward(stderrR, w.origStderr)
 	go w.watchLoop(ctx)
@@ -101,13 +102,16 @@ func (w *outputWatchdog) stop() {
 	os.Stdout.Sync()
 	os.Stderr.Sync()
 
-	// Restore original file descriptors
+	// Restore original file descriptors. Dup2 drops the last writer refcount on
+	// each pipe, so forward() will drain the kernel buffer and return on EOF.
 	unix.Dup2(int(w.origStdout.Fd()), 1)
 	unix.Dup2(int(w.origStderr.Fd()), 2)
 	os.Stdout = os.NewFile(1, "/dev/stdout")
 	os.Stderr = os.NewFile(2, "/dev/stderr")
 
-	// Close pipe read-ends to unblock forward goroutines
+	// Must wait for forward() before closing read-ends; otherwise buffered
+	// output in the pipe (e.g. the final coverage block) is discarded.
+	w.fwdWG.Wait()
 	w.stdoutR.Close()
 	w.stderrR.Close()
 

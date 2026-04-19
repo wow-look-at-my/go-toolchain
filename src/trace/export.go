@@ -25,7 +25,7 @@ func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 	if endpoint == "" || len(entries) == 0 {
 		return nil
 	}
-	logger.WithSubsystem("trace").Debug("Exporting %d timeline entries to %s", len(entries), endpoint)
+	logger.WithSubsystem("trace").Debug("⇒ Exporting %d timeline entries to %s", len(entries), endpoint)
 
 	exporter, err := otlptracehttp.New(ctx)
 	if err != nil {

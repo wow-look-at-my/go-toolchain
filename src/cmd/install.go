@@ -86,12 +86,12 @@ func placeFile(src, dst string, useCopy bool) error {
 		if err := copyFile(src, dst); err != nil {
 			return fmt.Errorf("failed to copy binary: %w", err)
 		}
-		logger.Info("==> Copied %s to %s", filepath.Base(dst), dst)
+		logger.Info("⇒ Copied %s to %s", filepath.Base(dst), dst)
 	} else {
 		if err := os.Symlink(src, dst); err != nil {
 			return fmt.Errorf("failed to create symlink: %w", err)
 		}
-		logger.Info("==> Symlinked %s -> %s", dst, src)
+		logger.Info("⇒ Symlinked %s -> %s", dst, src)
 	}
 	return nil
 }

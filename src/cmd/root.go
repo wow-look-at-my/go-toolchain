@@ -165,7 +165,7 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 		tracePath := filepath.Join(os.TempDir(), "go-toolchain-profile", "trace.json")
 		if err := gotrace.WriteChrome(tracePath, entries, activeTrace); err != nil {
-			logger.Warn("==> Warning: failed to write Chrome trace: %v", err)
+			logger.Warn("⇒ Warning: failed to write Chrome trace: %v", err)
 		}
 	}()
 
@@ -177,7 +177,7 @@ func run(cmd *cobra.Command, args []string) error {
 			if i > 0 {
 				logger.Info("")
 			}
-			logger.Info("==> Module: %s", modDir)
+			logger.Info("⇒ Module: %s", modDir)
 		}
 
 		if modDir != "." {
@@ -198,7 +198,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Write GitHub Step Summary once after all modules complete
 	if writeErr := summary.Write(&allSummary); writeErr != nil {
-		logger.Warn("==> Warning: failed to write step summary: %v", writeErr)
+		logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 	}
 
 	// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
@@ -206,7 +206,7 @@ func run(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := gotrace.Export(ctx, tl.Entries()); err != nil {
-			logger.Warn("==> Warning: failed to export traces: %v", err)
+			logger.Warn("⇒ Warning: failed to export traces: %v", err)
 		}
 
 	}
@@ -267,7 +267,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 
 	// If vet applied fixes, re-run tests with the corrected code
 	if !isRetry && filesChanged {
-		logger.Info("\n==> Files changed, rebuilding...")
+		logger.Info("\n⇒ Files changed, rebuilding...")
 		return runWithRunnerOnce(r, true, sd)
 	}
 
@@ -309,7 +309,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	}
 	ldflags := info.ldflags()
 	if !quiet {
-		logger.Info("==> Embedding version: %s", info)
+		logger.Info("⇒ Embedding version: %s", info)
 	}
 	inDocker := build.InDocker()
 	for _, t := range targets {
@@ -340,7 +340,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	}
 
 	if !quiet {
-		logger.Info("==> Build successful")
+		logger.Info("⇒ Build successful")
 	}
 
 	if !noBenchmark {
@@ -561,7 +561,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	// If tests failed, show failure details and return error (no coverage output)
 	if testErr != nil {
 		if !quiet && result.FailureOutput != "" {
-			logger.Info("\n==> Test failures:")
+			logger.Info("\n⇒ Test failures:")
 			logger.Output("%s%s%s", colorRed, result.FailureOutput, colorReset)
 		}
 		return false, result, fmt.Errorf("tests failed: %w", testErr)
@@ -574,10 +574,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			return false, nil, fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
-		logger.Info("\n==> Package coverage:")
+		logger.Info("\n⇒ Package coverage:")
 		report.Print()
 
-		logger.Info("\n==> Total coverage: %s", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
+		logger.Info("\n⇒ Total coverage: %s", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
 
 	// Coverage enforcement: default 80%, or watermark-2.5% if lower.
@@ -586,7 +586,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if wmErr != nil {
 		// Watermark read failed (e.g., xattrs not supported) - warn and use default
 		if !quiet {
-			logger.Warn("==> Warning: %v (using default %.0f%%)", wmErr, effectiveMin)
+			logger.Warn("⇒ Warning: %v (using default %.0f%%)", wmErr, effectiveMin)
 		}
 		wmExists = false
 	}
@@ -596,16 +596,16 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			effectiveMin = grace
 		}
 		if !quiet {
-			logger.Info("==> Watermark: %.1f%% (effective minimum: %.1f%%)", wm, effectiveMin)
+			logger.Info("⇒ Watermark: %.1f%% (effective minimum: %.1f%%)", wm, effectiveMin)
 		}
 		// Ratchet up: update watermark if coverage improved
 		if report.Total > wm {
 			if err := gotest.SetWatermark(".", report.Total); err != nil {
 				if !quiet {
-					logger.Warn("==> Warning: failed to update watermark: %v", err)
+					logger.Warn("⇒ Warning: failed to update watermark: %v", err)
 				}
 			} else if !quiet {
-				logger.Info("==> Watermark updated: %.1f%% -> %.1f%%", wm, report.Total)
+				logger.Info("⇒ Watermark updated: %.1f%% -> %.1f%%", wm, report.Total)
 			}
 		}
 	}
@@ -623,7 +623,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		// (e.g. small programs where main() can't be easily covered)
 		if totalUncovered < 10 {
 			if !quiet {
-				logger.Info("==> Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing", report.Total, effectiveMin, totalUncovered)
+				logger.Info("⇒ Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing", report.Total, effectiveMin, totalUncovered)
 			}
 		} else {
 			return false, result, fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
@@ -665,7 +665,7 @@ func needsGenerate() bool {
 // and prints warnings. It never causes a build failure.
 func runDuplicateCheck() {
 	if !jsonOutput {
-		logger.Info("==> Checking for near-duplicate code")
+		logger.Info("⇒ Checking for near-duplicate code")
 	}
 
 	paths, err := walkGoFiles(".")

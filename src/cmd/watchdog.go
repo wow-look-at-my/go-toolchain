@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,11 +27,13 @@ type outputWatchdog struct {
 	threshold  time.Duration
 	cancel     context.CancelFunc
 	done       chan struct{}
+	fwdWG      sync.WaitGroup // tracks forward() goroutines so stop() can wait for full drain
 }
 
 // forward reads from src (pipe read-end) and writes to dst (original fd),
 // updating lastOutput on every successful read.
 func (w *outputWatchdog) forward(src, dst *os.File) {
+	defer w.fwdWG.Done()
 	buf := make([]byte, 4096)
 	for {
 		n, err := src.Read(buf)

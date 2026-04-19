@@ -139,5 +139,5 @@ runs:
       run: |
         set -euo pipefail
         TAG="v0.0.$(git log -1 --format=%ct)"
-        echo "==> Auto-releasing $TAG on default branch"
+        echo "⇒ Auto-releasing $TAG on default branch"
         go-toolchain release --tag "$TAG"

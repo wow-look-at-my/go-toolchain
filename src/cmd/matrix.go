@@ -73,14 +73,14 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	if tl := GetTimeline(); tl != nil {
 		sd := summary.SummaryData{Timeline: tl.Entries()}
 		if writeErr := summary.Write(&sd); writeErr != nil {
-			logger.Warn("==> Warning: failed to write step summary: %v", writeErr)
+			logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 		}
 
 		// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := gotrace.Export(ctx, sd.Timeline); err != nil {
-			logger.Warn("==> Warning: failed to export traces: %v", err)
+			logger.Warn("⇒ Warning: failed to export traces: %v", err)
 		}
 	}
 	return nil
@@ -139,7 +139,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		}
 	}
 
-	logger.Info("==> Building %d binaries (%d OS x %d arch)", len(jobs), len(matrixOS), len(matrixArch))
+	logger.Info("⇒ Building %d binaries (%d OS x %d arch)", len(jobs), len(matrixOS), len(matrixArch))
 	buildStart := time.Now()
 
 	// Run builds in parallel
@@ -213,7 +213,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return err
 	}
 
-	logger.Info("==> All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	logger.Info("⇒ All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
 
 	// Run benchmarks after successful build
 	if !noBenchmark {
