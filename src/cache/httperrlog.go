@@ -293,6 +293,10 @@ func formatBatchGroup(k batchInfoKey, g *batchInfoGroup) string {
 	// Single record keeps the original per-request shape so existing
 	// log scrapers continue to match.
 	if g.total == 1 && len(g.named) == 1 {
+		if k.entries == 0 {
+			return fmt.Sprintf("cacheprog: batch get %s: miss (server returned no entries) in %dms",
+				g.named[0], minMs)
+		}
 		return fmt.Sprintf("cacheprog: batch get %s: %d entries (%d prefetched) in %dms",
 			g.named[0], k.entries, k.prefetch, minMs)
 	}
@@ -304,6 +308,12 @@ func formatBatchGroup(k batchInfoKey, g *batchInfoGroup) string {
 		durStr = fmt.Sprintf("%d-%dms", minMs, maxMs)
 	}
 	ids := formatIDList(g.named, g.total)
+	if k.entries == 0 {
+		// Per-request miss: each was a separate HTTP request to the server,
+		// each got back an empty response. Not an aggregate count.
+		return fmt.Sprintf("cacheprog: %d batch get misses %s: %s per request (server has no entries for these keys)",
+			g.total, ids, durStr)
+	}
 	return fmt.Sprintf("cacheprog: %d batch gets %s: each returned %d entries (%d prefetched) in %s",
 		g.total, ids, k.entries, k.prefetch, durStr)
 }
