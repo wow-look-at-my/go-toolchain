@@ -3,10 +3,13 @@ package cache
 import (
 	"archive/tar"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/require"
@@ -282,4 +285,86 @@ func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
 	require.Equal(t, "batch-out", outputID)
 	data, _ := io.ReadAll(body)
 	require.Equal(t, "batch hit", string(data))
+}
+
+// TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest is the headline test
+// for client-side batching: many concurrent Get callers must funnel through
+// a single /_batch/get HTTP request rather than producing one request each.
+func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
+	const N = 200
+
+	store := make(map[string][]byte)
+	meta := make(map[string]map[string]string)
+
+	var batchHTTPCalls int32
+	var maxKeysInOneRequest int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/testbucket/_batch/get" {
+			w.WriteHeader(404)
+			return
+		}
+		var req batchGetRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		atomic.AddInt32(&batchHTTPCalls, 1)
+		if int32(len(req.Keys)) > atomic.LoadInt32(&maxKeysInOneRequest) {
+			atomic.StoreInt32(&maxKeysInOneRequest, int32(len(req.Keys)))
+		}
+
+		var entries []batchGetManifestEntry
+		dataMap := map[string][]byte{}
+		for _, key := range req.Keys {
+			d, ok := store[key]
+			if !ok {
+				continue
+			}
+			entries = append(entries, batchGetManifestEntry{
+				Key:      key,
+				Size:     int64(len(d)),
+				Metadata: meta[key],
+			})
+			dataMap[key] = d
+		}
+		manifest := batchGetManifest{Entries: entries}
+		w.Header().Set("Content-Type", "application/x-tar")
+		w.WriteHeader(200)
+		tw := tar.NewWriter(w)
+		mdata, _ := json.Marshal(manifest)
+		tw.WriteHeader(&tar.Header{Name: "manifest.json", Size: int64(len(mdata)), Mode: 0644})
+		tw.Write(mdata)
+		for _, e := range entries {
+			d := dataMap[e.Key]
+			tw.WriteHeader(&tar.Header{Name: "data/" + e.Key, Size: int64(len(d)), Mode: 0644})
+			tw.Write(d)
+		}
+		tw.Close()
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+
+	// Fire N parallel Get calls for unknown keys.
+	var wg sync.WaitGroup
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			id := fmt.Sprintf("%016x", i)
+			_, _, _, _, _, _ = b.Get(id)
+		}(i)
+	}
+	wg.Wait()
+
+	// With batchMaxKeys=128 and the coalescer, N=200 callers should
+	// fit in 2 HTTP requests at most (128 + 72), and almost certainly 1
+	// if all goroutines arrive within the coalesce window.
+	calls := atomic.LoadInt32(&batchHTTPCalls)
+	require.LessOrEqual(t, calls, int32(3),
+		"expected ≤3 HTTP requests for %d parallel Gets, got %d (no client-side batching)", N, calls)
+	require.Greater(t, atomic.LoadInt32(&maxKeysInOneRequest), int32(1),
+		"expected at least one HTTP request to carry multiple keys; max was %d", atomic.LoadInt32(&maxKeysInOneRequest))
 }

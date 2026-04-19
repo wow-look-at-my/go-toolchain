@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,12 +36,12 @@ type httpErrLogger struct {
 	tp     *sdktrace.TracerProvider // nil if OTel is not configured
 	tracer trace.Tracer             // nil if tp is nil
 
-	mu         sync.Mutex
-	w          io.Writer
-	interval   time.Duration
-	maxNamed   int
-	groups     map[httpErrKey]*httpErrGroup
-	batchInfos map[batchInfoKey]*batchInfoGroup
+	mu        sync.Mutex
+	w         io.Writer
+	interval  time.Duration
+	maxNamed  int
+	groups    map[httpErrKey]*httpErrGroup
+	batchHTTP map[batchHTTPKey]*batchHTTPGroup
 
 	stop   chan struct{}
 	done   chan struct{}
@@ -59,16 +60,23 @@ type httpErrGroup struct {
 	bodyRaw string   // last-observed raw body, for display
 }
 
-type batchInfoKey struct {
-	entries  int
-	prefetch int
+// batchHTTPKey buckets batch-GET HTTP requests so all-miss requests are
+// reported separately from requests that hit something. Counts/durations
+// vary across requests in the same bucket and are reported as ranges.
+type batchHTTPKey struct {
+	allMiss bool
 }
 
-type batchInfoGroup struct {
-	named  []string
-	total  int
-	minDur time.Duration
-	maxDur time.Duration
+type batchHTTPGroup struct {
+	total      int // number of HTTP requests in this bucket
+	minKeys    int
+	maxKeys    int
+	minEntries int
+	maxEntries int
+	minPref    int
+	maxPref    int
+	minDur     time.Duration
+	maxDur     time.Duration
 }
 
 // newHTTPErrLogger returns a logger that writes aggregated stderr summaries
@@ -77,13 +85,13 @@ type batchInfoGroup struct {
 // cacheprog.http_error spans. Init failures fall back to stderr-only mode.
 func newHTTPErrLogger(w io.Writer, interval time.Duration) *httpErrLogger {
 	l := &httpErrLogger{
-		w:          w,
-		interval:   interval,
-		maxNamed:   httpErrMaxNamed,
-		groups:     map[httpErrKey]*httpErrGroup{},
-		batchInfos: map[batchInfoKey]*batchInfoGroup{},
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
+		w:         w,
+		interval:  interval,
+		maxNamed:  httpErrMaxNamed,
+		groups:    map[httpErrKey]*httpErrGroup{},
+		batchHTTP: map[batchHTTPKey]*batchHTTPGroup{},
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -170,33 +178,54 @@ func (l *httpErrLogger) Record(op string, status int, id, body string) {
 	l.mu.Unlock()
 }
 
-// RecordBatchInfo coalesces a successful batch-get informational line
-// (same metric as the pre-existing "cacheprog: batch get X: N entries
-// (M prefetched) in Y" log). Grouped by (entries, prefetch) so 0-entry
-// misses collapse into one line per flush. Nil-safe.
-func (l *httpErrLogger) RecordBatchInfo(id string, entries, prefetch int, dur time.Duration) {
+// RecordBatchHTTP coalesces stats from one batch-GET HTTP request
+// (which may carry many keys after client-side coalescing). Buckets are
+// split by hit/all-miss so a flaky cold cache stays distinguishable from
+// a working one. Nil-safe.
+func (l *httpErrLogger) RecordBatchHTTP(keysRequested, entriesReturned, prefetched int, dur time.Duration) {
 	if l == nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: batch get %s: %d entries (%d prefetched) in %v\n",
-			shortID(id), entries, prefetch, dur.Round(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "cacheprog: batch GET: %d keys → %d entries (%d prefetched) in %v\n",
+			keysRequested, entriesReturned, prefetched, dur.Round(time.Millisecond))
 		return
 	}
-	key := batchInfoKey{entries: entries, prefetch: prefetch}
+	key := batchHTTPKey{allMiss: entriesReturned == 0}
 	l.mu.Lock()
-	g, ok := l.batchInfos[key]
+	g, ok := l.batchHTTP[key]
 	if !ok {
-		g = &batchInfoGroup{minDur: dur, maxDur: dur}
-		l.batchInfos[key] = g
+		g = &batchHTTPGroup{
+			minKeys: keysRequested, maxKeys: keysRequested,
+			minEntries: entriesReturned, maxEntries: entriesReturned,
+			minPref: prefetched, maxPref: prefetched,
+			minDur: dur, maxDur: dur,
+		}
+		l.batchHTTP[key] = g
+	} else {
+		if keysRequested < g.minKeys {
+			g.minKeys = keysRequested
+		}
+		if keysRequested > g.maxKeys {
+			g.maxKeys = keysRequested
+		}
+		if entriesReturned < g.minEntries {
+			g.minEntries = entriesReturned
+		}
+		if entriesReturned > g.maxEntries {
+			g.maxEntries = entriesReturned
+		}
+		if prefetched < g.minPref {
+			g.minPref = prefetched
+		}
+		if prefetched > g.maxPref {
+			g.maxPref = prefetched
+		}
+		if dur < g.minDur {
+			g.minDur = dur
+		}
+		if dur > g.maxDur {
+			g.maxDur = dur
+		}
 	}
 	g.total++
-	if len(g.named) < l.maxNamed {
-		g.named = append(g.named, shortID(id))
-	}
-	if dur < g.minDur {
-		g.minDur = dur
-	}
-	if dur > g.maxDur {
-		g.maxDur = dur
-	}
 	l.mu.Unlock()
 }
 
@@ -237,20 +266,20 @@ func (l *httpErrLogger) loop() {
 
 func (l *httpErrLogger) flush() {
 	l.mu.Lock()
-	if len(l.groups) == 0 && len(l.batchInfos) == 0 {
+	if len(l.groups) == 0 && len(l.batchHTTP) == 0 {
 		l.mu.Unlock()
 		return
 	}
 	groups := l.groups
-	batchInfos := l.batchInfos
+	batchHTTP := l.batchHTTP
 	l.groups = map[httpErrKey]*httpErrGroup{}
-	l.batchInfos = map[batchInfoKey]*batchInfoGroup{}
+	l.batchHTTP = map[batchHTTPKey]*batchHTTPGroup{}
 	l.mu.Unlock()
 	for k, g := range groups {
 		fmt.Fprintln(l.w, formatGroup(k, g))
 	}
-	for k, g := range batchInfos {
-		fmt.Fprintln(l.w, formatBatchGroup(k, g))
+	for k, g := range batchHTTP {
+		fmt.Fprintln(l.w, formatBatchHTTPGroup(k, g))
 	}
 }
 
@@ -286,36 +315,47 @@ func formatGroup(k httpErrKey, g *httpErrGroup) string {
 	return fmt.Sprintf("cacheprog: %s %s: HTTP %d: %s", k.op, ids, k.status, g.bodyRaw)
 }
 
-func formatBatchGroup(k batchInfoKey, g *batchInfoGroup) string {
-	minMs := g.minDur.Round(time.Millisecond).Milliseconds()
-	maxMs := g.maxDur.Round(time.Millisecond).Milliseconds()
+func formatBatchHTTPGroup(k batchHTTPKey, g *batchHTTPGroup) string {
+	keysS := intRangeStr(g.minKeys, g.maxKeys)
+	durS := durRangeStr(g.minDur, g.maxDur)
 
-	// Single record keeps the original per-request shape so existing
-	// log scrapers continue to match.
-	if g.total == 1 && len(g.named) == 1 {
-		if k.entries == 0 {
-			return fmt.Sprintf("cacheprog: batch get %s: miss (server returned no entries) in %dms",
-				g.named[0], minMs)
+	if g.total == 1 {
+		if k.allMiss {
+			return fmt.Sprintf("cacheprog: batch GET: %s keys → 0 entries (server has no entries for any of them) in %s",
+				keysS, durS)
 		}
-		return fmt.Sprintf("cacheprog: batch get %s: %d entries (%d prefetched) in %dms",
-			g.named[0], k.entries, k.prefetch, minMs)
+		return fmt.Sprintf("cacheprog: batch GET: %s keys → %s entries (%s prefetched) in %s",
+			keysS,
+			intRangeStr(g.minEntries, g.maxEntries),
+			intRangeStr(g.minPref, g.maxPref),
+			durS)
 	}
 
-	var durStr string
+	if k.allMiss {
+		return fmt.Sprintf("cacheprog: batch GET ×%d: %s keys → 0 entries (server has no entries) per request, %s each",
+			g.total, keysS, durS)
+	}
+	return fmt.Sprintf("cacheprog: batch GET ×%d: %s keys → %s entries (%s prefetched) per request, %s each",
+		g.total, keysS,
+		intRangeStr(g.minEntries, g.maxEntries),
+		intRangeStr(g.minPref, g.maxPref),
+		durS)
+}
+
+func intRangeStr(min, max int) string {
+	if min == max {
+		return strconv.Itoa(min)
+	}
+	return fmt.Sprintf("%d-%d", min, max)
+}
+
+func durRangeStr(min, max time.Duration) string {
+	minMs := min.Round(time.Millisecond).Milliseconds()
+	maxMs := max.Round(time.Millisecond).Milliseconds()
 	if minMs == maxMs {
-		durStr = fmt.Sprintf("%dms", minMs)
-	} else {
-		durStr = fmt.Sprintf("%d-%dms", minMs, maxMs)
+		return fmt.Sprintf("%dms", minMs)
 	}
-	ids := formatIDList(g.named, g.total)
-	if k.entries == 0 {
-		// Per-request miss: each was a separate HTTP request to the server,
-		// each got back an empty response. Not an aggregate count.
-		return fmt.Sprintf("cacheprog: %d batch get misses %s: %s per request (server has no entries for these keys)",
-			g.total, ids, durStr)
-	}
-	return fmt.Sprintf("cacheprog: %d batch gets %s: each returned %d entries (%d prefetched) in %s",
-		g.total, ids, k.entries, k.prefetch, durStr)
+	return fmt.Sprintf("%d-%dms", minMs, maxMs)
 }
 
 // formatIDList renders the named IDs + "and N more" tail (or a bare
