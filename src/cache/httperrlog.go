@@ -287,17 +287,25 @@ func formatGroup(k httpErrKey, g *httpErrGroup) string {
 }
 
 func formatBatchGroup(k batchInfoKey, g *batchInfoGroup) string {
-	ids := formatIDList(g.named, g.total)
-	minMs := g.minDur.Round(time.Millisecond)
-	maxMs := g.maxDur.Round(time.Millisecond)
+	minMs := g.minDur.Round(time.Millisecond).Milliseconds()
+	maxMs := g.maxDur.Round(time.Millisecond).Milliseconds()
+
+	// Single record keeps the original per-request shape so existing
+	// log scrapers continue to match.
+	if g.total == 1 && len(g.named) == 1 {
+		return fmt.Sprintf("cacheprog: batch get %s: %d entries (%d prefetched) in %dms",
+			g.named[0], k.entries, k.prefetch, minMs)
+	}
+
 	var durStr string
 	if minMs == maxMs {
-		durStr = minMs.String()
+		durStr = fmt.Sprintf("%dms", minMs)
 	} else {
-		durStr = fmt.Sprintf("%s-%s", minMs, maxMs)
+		durStr = fmt.Sprintf("%d-%dms", minMs, maxMs)
 	}
-	return fmt.Sprintf("cacheprog: batch get %s: %d entries (%d prefetched) in %s",
-		ids, k.entries, k.prefetch, durStr)
+	ids := formatIDList(g.named, g.total)
+	return fmt.Sprintf("cacheprog: %d batch gets %s: each returned %d entries (%d prefetched) in %s",
+		g.total, ids, k.entries, k.prefetch, durStr)
 }
 
 // formatIDList renders the named IDs + "and N more" tail (or a bare

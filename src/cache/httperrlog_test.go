@@ -199,10 +199,10 @@ func TestHTTPErrLogger_BatchInfoCoalesced(t *testing.T) {
 
 	out := buf.String()
 	require.Equal(t, 1, strings.Count(out, "\n"), "expected one aggregated line, got: %q", out)
-	require.Contains(t, out, "cacheprog: batch get [")
+	require.Contains(t, out, "cacheprog: 10 batch gets [")
 	require.Contains(t, out, "823cb0ef, d505433f, 2307a01d, and 7 more")
-	require.Contains(t, out, "0 entries (0 prefetched)")
-	require.Contains(t, out, "in 30ms-31ms")
+	require.Contains(t, out, "each returned 0 entries (0 prefetched)")
+	require.Contains(t, out, "in 30-31ms")
 }
 
 func TestHTTPErrLogger_BatchInfoSingleRecord(t *testing.T) {
@@ -238,7 +238,20 @@ func TestHTTPErrLogger_BatchInfoDurationRange(t *testing.T) {
 	l.RecordBatchInfo("cccc3333", 0, 0, 50*time.Millisecond)
 	require.NoError(t, l.Close())
 
-	require.Contains(t, buf.String(), "in 20ms-100ms")
+	require.Contains(t, buf.String(), "in 20-100ms")
+}
+
+func TestHTTPErrLogger_BatchInfoSingleDurationNoRange(t *testing.T) {
+	var buf bytes.Buffer
+	l := newTestLogger(&buf)
+
+	l.RecordBatchInfo("aaaa1111", 0, 0, 30*time.Millisecond)
+	l.RecordBatchInfo("bbbb2222", 0, 0, 30*time.Millisecond)
+	require.NoError(t, l.Close())
+
+	out := buf.String()
+	require.Contains(t, out, "in 30ms")
+	require.NotContains(t, out, "30-30")
 }
 
 func TestHTTPErrLogger_BatchInfoNilReceiver(t *testing.T) {
