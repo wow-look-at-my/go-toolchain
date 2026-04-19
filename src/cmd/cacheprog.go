@@ -296,54 +296,6 @@ func printCacheStats(close bool) {
 	}
 
 	logger.Info("⇒ Cache: %s", strings.Join(parts, "  "))
-
-	// Print latency profile if any operations were recorded.
-	if stats.Latency != nil {
-		snap := stats.Latency.Snapshot()
-		type row struct {
-			name string
-			s    cache.LatencySnapshot
-		}
-		rows := []row{
-			{"lock wait", snap.LockWait},
-			{"local get", snap.LocalGet},
-			{"local put", snap.LocalPut},
-			{"remote get", snap.RemoteGet},
-			{"  http get", snap.HTTPGet},
-			{"  decomp", snap.Decompress},
-			{"remote put", snap.RemotePut},
-			{"  sem wait", snap.SemWait},
-			{"  compress", snap.Compress},
-			{"  http put", snap.HTTPPut},
-		}
-		var hasData bool
-		for _, r := range rows {
-			if r.s.Count > 0 {
-				hasData = true
-				break
-			}
-		}
-		if hasData {
-			logger.Info("    Latency (min/avg/max):")
-			for _, r := range rows {
-				if r.s.Count == 0 {
-					continue
-				}
-				logger.Info("      %-10s  %s  (n=%d)", r.name, r.s.FormatMs(), r.s.Count)
-			}
-		}
-	}
-	if stats.Pool != nil {
-		poolSnap := stats.Pool.Snapshot()
-		if poolSnap.Samples > 0 {
-			avg := poolSnap.AvgUsed()
-			logger.Info("    Pool: peak %d/%d (%.0f%%)  avg %.1f/%d (%.0f%%)",
-				poolSnap.Peak, cache.MaxConnsPerHost,
-				float64(poolSnap.Peak)/float64(cache.MaxConnsPerHost)*100,
-				avg, cache.MaxConnsPerHost,
-				avg/float64(cache.MaxConnsPerHost)*100)
-		}
-	}
 }
 
 // cacheHome returns the base cache directory (~/.cache/go-toolchain).

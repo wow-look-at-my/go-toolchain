@@ -63,9 +63,15 @@ func startWatchdog(threshold time.Duration) *outputWatchdog {
 		return nil
 	}
 
-	// Update Go's global file handles to use the new fds
-	os.Stdout = os.NewFile(1, "/dev/stdout")
-	os.Stderr = os.NewFile(2, "/dev/stderr")
+	// The existing os.Stdout / os.Stderr *os.File values already have
+	// Fd() == 1 / 2, so the Dup2 above is enough — writes through them
+	// now reach the pipe. Do NOT reassign via os.NewFile(1, …): that
+	// attaches a close-on-GC finalizer, and repeated watchdog cycles
+	// (e.g. TestWatchdogStop*'s 200-iteration loop) leave behind enough
+	// wrappers that their finalizers eventually close the real
+	// stdout/stderr out from under later runtime code — notably the
+	// -coverpkg atexit profile writer, which then silently fails the
+	// whole package.
 
 	// Close the extra write-end file handles; fd 1 and 2 are copies now
 	stdoutW.Close()
@@ -106,8 +112,10 @@ func (w *outputWatchdog) stop() {
 	// each pipe, so forward() will drain the kernel buffer and return on EOF.
 	unix.Dup2(int(w.origStdout.Fd()), 1)
 	unix.Dup2(int(w.origStderr.Fd()), 2)
-	os.Stdout = os.NewFile(1, "/dev/stdout")
-	os.Stderr = os.NewFile(2, "/dev/stderr")
+	// No os.NewFile reassignment needed: os.Stdout/os.Stderr already
+	// reference fd 1/2, which now point back to the original stdio.
+	// Avoid it for the same finalizer-accumulation reason noted in
+	// startWatchdog.
 
 	// Must wait for forward() before closing read-ends; otherwise buffered
 	// output in the pipe (e.g. the final coverage block) is discarded.

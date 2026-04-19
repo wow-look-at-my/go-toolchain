@@ -57,10 +57,11 @@ func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 
 		// Redirect fd 1/2 to the capture pipes BEFORE startWatchdog so the
 		// watchdog's saved origStdout/origStderr become our capture targets.
+		// The saved *os.File values already have Fd() == 1/2, so reassigning
+		// os.Stdout/os.Stderr here is unnecessary — writes through them
+		// route to fd 1/2 which now point to the pipes via Dup2.
 		require.NoError(t, unix.Dup2(int(outW.Fd()), 1), "iter %d: dup2 out", i)
 		require.NoError(t, unix.Dup2(int(errW.Fd()), 2), "iter %d: dup2 err", i)
-		os.Stdout = os.NewFile(1, "/dev/stdout")
-		os.Stderr = os.NewFile(2, "/dev/stderr")
 		outW.Close()
 		errW.Close()
 
