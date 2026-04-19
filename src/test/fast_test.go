@@ -33,20 +33,20 @@ func fastSkipEvent(pkg, test string, elapsed float64) testjson.TestEvent {
 	}
 }
 
-func TestFastTestSummaryOnFlush(t *testing.T) {
+func TestFastTestSummaryAtEndOfRun(t *testing.T) {
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
 	for i := 0; i < 5; i++ {
 		require.NoError(t, h.Event(fastPassEvent("example.com/pkg", fmt.Sprintf("TestFast%d", i), 0.01), nil))
 	}
-	assert.Empty(t, buf.String(), "no output before flush")
+	assert.Empty(t, buf.String(), "no output before end-of-run summary")
 
-	h.flushFast()
+	h.printFastSummary()
 	assert.Contains(t, buf.String(), "[5 fast tests]")
 }
 
-func TestFastTestSummaryFlushedBeforeSlowTest(t *testing.T) {
+func TestFastTestSummaryDeferredUntilEnd(t *testing.T) {
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -57,15 +57,19 @@ func TestFastTestSummaryFlushedBeforeSlowTest(t *testing.T) {
 		Action: testjson.ActionPass, Package: "example.com/pkg", Test: "TestSlow", Elapsed: 0.5,
 	}, nil))
 
+	assert.NotContains(t, buf.String(), "fast test", "fast summary must not appear mid-run")
+	assert.Contains(t, buf.String(), "done.", "slow test should have printed")
+
+	h.printFastSummary()
 	output := buf.String()
 	fastIdx := strings.Index(output, "[3 fast tests]")
 	slowIdx := strings.Index(output, "done.")
 	assert.Greater(t, fastIdx, -1)
 	assert.Greater(t, slowIdx, -1)
-	assert.Less(t, fastIdx, slowIdx, "fast summary should appear before slow test")
+	assert.Less(t, slowIdx, fastIdx, "fast summary should appear after slow test")
 }
 
-func TestFastTestSummaryFlushedBeforeFailure(t *testing.T) {
+func TestFastTestSummaryDeferredAfterFailure(t *testing.T) {
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -76,12 +80,16 @@ func TestFastTestSummaryFlushedBeforeFailure(t *testing.T) {
 		Action: testjson.ActionFail, Package: "example.com/pkg", Test: "TestBroken", Elapsed: 0.3,
 	}, nil))
 
+	assert.NotContains(t, buf.String(), "fast test", "fast summary must not appear mid-run")
+	assert.Contains(t, buf.String(), "failed!", "failure should have printed")
+
+	h.printFastSummary()
 	output := buf.String()
 	fastIdx := strings.Index(output, "[2 fast tests]")
 	failIdx := strings.Index(output, "failed!")
 	assert.Greater(t, fastIdx, -1)
 	assert.Greater(t, failIdx, -1)
-	assert.Less(t, fastIdx, failIdx, "fast summary should appear before failure")
+	assert.Less(t, failIdx, fastIdx, "fast summary should appear after failure")
 }
 
 func TestFastTestSummaryWithMixedFastSkips(t *testing.T) {
@@ -92,11 +100,11 @@ func TestFastTestSummaryWithMixedFastSkips(t *testing.T) {
 	require.NoError(t, h.Event(fastSkipEvent("example.com/pkg", "TestB", 0.02), nil))
 	require.NoError(t, h.Event(fastPassEvent("example.com/pkg", "TestC", 0.03), nil))
 
-	h.flushFast()
+	h.printFastSummary()
 	assert.Contains(t, buf.String(), "[3 fast tests]")
 }
 
-func TestFastTestSummaryMultipleBatches(t *testing.T) {
+func TestFastTestSummaryAccumulatesAcrossSlowTests(t *testing.T) {
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -109,11 +117,12 @@ func TestFastTestSummaryMultipleBatches(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		require.NoError(t, h.Event(fastPassEvent("example.com/pkg", fmt.Sprintf("TestBatch2_%d", i), 0.02), nil))
 	}
-	h.flushFast()
+	h.printFastSummary()
 
 	output := buf.String()
-	assert.Contains(t, output, "[3 fast tests]")
-	assert.Contains(t, output, "[2 fast tests]")
+	assert.Contains(t, output, "[5 fast tests]", "all fast tests should accumulate into a single summary")
+	assert.NotContains(t, output, "[3 fast tests]", "no per-batch summary")
+	assert.NotContains(t, output, "[2 fast tests]", "no per-batch summary")
 }
 
 func TestFastTestSummarySkippedInVerbose(t *testing.T) {
@@ -124,7 +133,7 @@ func TestFastTestSummarySkippedInVerbose(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		require.NoError(t, h.Event(fastPassEvent("example.com/pkg", fmt.Sprintf("TestFast%d", i), 0.01), nil))
 	}
-	h.flushFast()
+	h.printFastSummary()
 	assert.Empty(t, buf.String(), "verbose mode should not produce fast test summary")
 }
 
@@ -133,7 +142,7 @@ func TestFastTestSummarySingular(t *testing.T) {
 	h := newTestHandler(&buf)
 
 	require.NoError(t, h.Event(fastPassEvent("example.com/pkg", "TestOnly", 0.05), nil))
-	h.flushFast()
+	h.printFastSummary()
 
 	output := buf.String()
 	assert.Contains(t, output, "[1 fast test]")
@@ -147,9 +156,9 @@ func TestFastTestSummaryCallsOnOutput(t *testing.T) {
 	h.onOutput = func() { called = true }
 
 	require.NoError(t, h.Event(fastPassEvent("example.com/pkg", "TestFast", 0.01), nil))
-	h.flushFast()
+	h.printFastSummary()
 
-	assert.True(t, called, "onOutput should be called from flushFast")
+	assert.True(t, called, "onOutput should be called from printFastSummary")
 }
 
 func TestFastTestNoSummaryWhenNoFastTests(t *testing.T) {
@@ -159,7 +168,7 @@ func TestFastTestNoSummaryWhenNoFastTests(t *testing.T) {
 	require.NoError(t, h.Event(testjson.TestEvent{
 		Action: testjson.ActionPass, Package: "example.com/pkg", Test: "TestSlow", Elapsed: 0.5,
 	}, nil))
-	h.flushFast()
+	h.printFastSummary()
 
 	output := buf.String()
 	assert.NotContains(t, output, "fast test")

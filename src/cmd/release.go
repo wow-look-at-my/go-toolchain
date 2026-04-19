@@ -181,12 +181,12 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 
 	ghArgs = append(ghArgs, "--notes-file", notesFile.Name())
 
-	fmt.Printf("==> Creating GitHub release %s\n", tag)
+	fmt.Printf("⇒ Creating GitHub release %s\n", tag)
 	if err := ex.ghRelease(ghArgs...); err != nil {
 		return fmt.Errorf("gh release create failed: %w", err)
 	}
 
-	fmt.Printf("==> Release %s created successfully\n", tag)
+	fmt.Printf("⇒ Release %s created successfully\n", tag)
 	return nil
 }
 

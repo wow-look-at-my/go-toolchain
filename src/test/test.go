@@ -127,7 +127,6 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 		switch event.Action {
 		case testjson.ActionPass:
 			if event.Elapsed >= 0.1 {
-				h.flushFast()
 				if h.onOutput != nil {
 					h.onOutput()
 				}
@@ -137,7 +136,6 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 				h.fastElapsed += event.Elapsed
 			}
 		case testjson.ActionFail:
-			h.flushFast()
 			if h.onOutput != nil {
 				h.onOutput()
 			}
@@ -153,7 +151,6 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, elapsed, colorReset)
 		case testjson.ActionSkip:
 			if event.Elapsed >= 0.1 {
-				h.flushFast()
 				if h.onOutput != nil {
 					h.onOutput()
 				}
@@ -168,7 +165,7 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 	return nil
 }
 
-func (h *coverageHandler) flushFast() {
+func (h *coverageHandler) printFastSummary() {
 	if h.fastCount == 0 || h.verbose {
 		return
 	}
@@ -287,7 +284,15 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// where all non-test .go files are generated code (e.g. sqlc output).
 	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
 	if coverFile != "" {
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
+		// -count=1 disables Go's test-result cache for this invocation.
+		// Go#74873: when -coverpkg=./... is in play, cached coverprofile
+		// fragments reference stale line ranges of packages outside the
+		// cached test package. On any edit, the fresh and stale line ranges
+		// collide in our dedup map (coverage.go parseProfileBlocks), inflating
+		// totals and corrupting aggregate coverage. Compilation is still
+		// cached via GOCACHEPROG; only test-result replay is disabled, and
+		// only when coverage is being collected.
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
 	}
 	if pkgs := listTestPackages(r); len(pkgs) > 0 {
 		args = append(args, pkgs...)
@@ -322,7 +327,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		Handler:                  handler,
 		IgnoreNonJSONOutputLines: true,
 	})
-	handler.flushFast()
+	handler.printFastSummary()
 	if err != nil {
 		return nil, err
 	}
