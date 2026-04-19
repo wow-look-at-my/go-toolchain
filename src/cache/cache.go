@@ -230,7 +230,8 @@ type StatsListener struct {
 	pool      ConcurrencyTracker
 	hasRemote atomic.Bool // true if a remote backend was configured (set by caller)
 	hasBatch  atomic.Bool
-	wg        sync.WaitGroup
+	wg        sync.WaitGroup // tracks active handleConn goroutines
+	acceptWg  sync.WaitGroup // tracks the accept loop goroutine
 }
 
 // SetHasRemote marks the listener as having a remote backend configured.
@@ -248,7 +249,11 @@ func NewStatsListener(path string) (*StatsListener, error) {
 		return nil, err
 	}
 	sl := &StatsListener{listener: ln, path: path}
-	go sl.accept()
+	sl.acceptWg.Add(1)
+	go func() {
+		defer sl.acceptWg.Done()
+		sl.accept()
+	}()
 	return sl, nil
 }
 
@@ -301,9 +306,21 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 }
 
 // Close stops the listener, waits for all connections to drain, and cleans up.
+// Uses SetDeadline instead of immediately closing the listener so that connections
+// already in the accept queue are drained before the socket is closed.
+// listener.Close() drops queued-but-not-yet-accepted connections, causing a race
+// where stats sent just before Close arrives are silently lost.
 func (sl *StatsListener) Close() {
+	// Give the accept loop a short window to drain any connections that are
+	// already in the kernel accept queue. listener.Close() would drop them.
+	if ul, ok := sl.listener.(*net.UnixListener); ok {
+		ul.SetDeadline(time.Now().Add(10 * time.Millisecond))
+	} else {
+		sl.listener.Close()
+	}
+	sl.acceptWg.Wait() // wait for accept loop to exit after draining queue
+	sl.wg.Wait()       // wait for all handleConn goroutines to finish
 	sl.listener.Close()
-	sl.wg.Wait()
 	os.Remove(sl.path)
 }
 
