@@ -208,34 +208,29 @@ func TestHTTPErrLogger_BatchHTTPCoalescedMisses(t *testing.T) {
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
-	// Three all-miss batch HTTP requests at varying sizes/durations.
+	// Three all-miss batch HTTP requests. Totals: 300 keys, 120ms.
 	l.RecordBatchHTTP(100, 0, 0, 30*time.Millisecond)
 	l.RecordBatchHTTP(80, 0, 0, 50*time.Millisecond)
 	l.RecordBatchHTTP(120, 0, 0, 40*time.Millisecond)
 	require.NoError(t, l.Close())
 
-	out := buf.String()
-	require.Equal(t, 1, strings.Count(out, "\n"), "expected one aggregated line, got: %q", out)
-	require.Contains(t, out, "cacheprog: batch GET ×3:")
-	require.Contains(t, out, "80-120 keys")
-	require.Contains(t, out, "0 entries")
-	require.Contains(t, out, "30-50ms")
+	require.Equal(t,
+		"cacheprog: batch GET ×3: 300 keys → 0 entries (server has no entries), 120ms total\n",
+		buf.String())
 }
 
 func TestHTTPErrLogger_BatchHTTPCoalescedHits(t *testing.T) {
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
+	// Totals: 200 keys, 55 entries, 11 prefetched, 97ms.
 	l.RecordBatchHTTP(100, 25, 5, 47*time.Millisecond)
 	l.RecordBatchHTTP(100, 30, 6, 50*time.Millisecond)
 	require.NoError(t, l.Close())
 
-	out := buf.String()
-	require.Equal(t, 1, strings.Count(out, "\n"), "expected one aggregated line, got: %q", out)
-	require.Contains(t, out, "cacheprog: batch GET ×2:")
-	require.Contains(t, out, "100 keys")
-	require.Contains(t, out, "25-30 entries (5-6 prefetched)")
-	require.Contains(t, out, "47-50ms each")
+	require.Equal(t,
+		"cacheprog: batch GET ×2: 200 keys → 55 entries (11 prefetched), 97ms total\n",
+		buf.String())
 }
 
 func TestHTTPErrLogger_BatchHTTPHitsAndMissesStayDistinct(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -61,22 +60,17 @@ type httpErrGroup struct {
 }
 
 // batchHTTPKey buckets batch-GET HTTP requests so all-miss requests are
-// reported separately from requests that hit something. Counts/durations
-// vary across requests in the same bucket and are reported as ranges.
+// reported separately from requests that hit something.
 type batchHTTPKey struct {
 	allMiss bool
 }
 
 type batchHTTPGroup struct {
-	total      int // number of HTTP requests in this bucket
-	minKeys    int
-	maxKeys    int
-	minEntries int
-	maxEntries int
-	minPref    int
-	maxPref    int
-	minDur     time.Duration
-	maxDur     time.Duration
+	total      int           // number of HTTP requests in this bucket
+	sumKeys    int           // sum of keys requested across all requests
+	sumEntries int           // sum of entries returned
+	sumPref    int           // sum of prefetched entries
+	sumDur     time.Duration // sum of HTTP durations
 }
 
 // newHTTPErrLogger returns a logger that writes aggregated stderr summaries
@@ -192,40 +186,14 @@ func (l *httpErrLogger) RecordBatchHTTP(keysRequested, entriesReturned, prefetch
 	l.mu.Lock()
 	g, ok := l.batchHTTP[key]
 	if !ok {
-		g = &batchHTTPGroup{
-			minKeys: keysRequested, maxKeys: keysRequested,
-			minEntries: entriesReturned, maxEntries: entriesReturned,
-			minPref: prefetched, maxPref: prefetched,
-			minDur: dur, maxDur: dur,
-		}
+		g = &batchHTTPGroup{}
 		l.batchHTTP[key] = g
-	} else {
-		if keysRequested < g.minKeys {
-			g.minKeys = keysRequested
-		}
-		if keysRequested > g.maxKeys {
-			g.maxKeys = keysRequested
-		}
-		if entriesReturned < g.minEntries {
-			g.minEntries = entriesReturned
-		}
-		if entriesReturned > g.maxEntries {
-			g.maxEntries = entriesReturned
-		}
-		if prefetched < g.minPref {
-			g.minPref = prefetched
-		}
-		if prefetched > g.maxPref {
-			g.maxPref = prefetched
-		}
-		if dur < g.minDur {
-			g.minDur = dur
-		}
-		if dur > g.maxDur {
-			g.maxDur = dur
-		}
 	}
 	g.total++
+	g.sumKeys += keysRequested
+	g.sumEntries += entriesReturned
+	g.sumPref += prefetched
+	g.sumDur += dur
 	l.mu.Unlock()
 }
 
@@ -316,46 +284,23 @@ func formatGroup(k httpErrKey, g *httpErrGroup) string {
 }
 
 func formatBatchHTTPGroup(k batchHTTPKey, g *batchHTTPGroup) string {
-	keysS := intRangeStr(g.minKeys, g.maxKeys)
-	durS := durRangeStr(g.minDur, g.maxDur)
+	durMs := g.sumDur.Round(time.Millisecond).Milliseconds()
 
 	if g.total == 1 {
 		if k.allMiss {
-			return fmt.Sprintf("cacheprog: batch GET: %s keys → 0 entries (server has no entries for any of them) in %s",
-				keysS, durS)
+			return fmt.Sprintf("cacheprog: batch GET: %d keys → 0 entries (server has no entries for any of them) in %dms",
+				g.sumKeys, durMs)
 		}
-		return fmt.Sprintf("cacheprog: batch GET: %s keys → %s entries (%s prefetched) in %s",
-			keysS,
-			intRangeStr(g.minEntries, g.maxEntries),
-			intRangeStr(g.minPref, g.maxPref),
-			durS)
+		return fmt.Sprintf("cacheprog: batch GET: %d keys → %d entries (%d prefetched) in %dms",
+			g.sumKeys, g.sumEntries, g.sumPref, durMs)
 	}
 
 	if k.allMiss {
-		return fmt.Sprintf("cacheprog: batch GET ×%d: %s keys → 0 entries (server has no entries) per request, %s each",
-			g.total, keysS, durS)
+		return fmt.Sprintf("cacheprog: batch GET ×%d: %d keys → 0 entries (server has no entries), %dms total",
+			g.total, g.sumKeys, durMs)
 	}
-	return fmt.Sprintf("cacheprog: batch GET ×%d: %s keys → %s entries (%s prefetched) per request, %s each",
-		g.total, keysS,
-		intRangeStr(g.minEntries, g.maxEntries),
-		intRangeStr(g.minPref, g.maxPref),
-		durS)
-}
-
-func intRangeStr(min, max int) string {
-	if min == max {
-		return strconv.Itoa(min)
-	}
-	return fmt.Sprintf("%d-%d", min, max)
-}
-
-func durRangeStr(min, max time.Duration) string {
-	minMs := min.Round(time.Millisecond).Milliseconds()
-	maxMs := max.Round(time.Millisecond).Milliseconds()
-	if minMs == maxMs {
-		return fmt.Sprintf("%dms", minMs)
-	}
-	return fmt.Sprintf("%d-%dms", minMs, maxMs)
+	return fmt.Sprintf("cacheprog: batch GET ×%d: %d keys → %d entries (%d prefetched), %dms total",
+		g.total, g.sumKeys, g.sumEntries, g.sumPref, durMs)
 }
 
 // formatIDList renders the named IDs + "and N more" tail (or a bare
