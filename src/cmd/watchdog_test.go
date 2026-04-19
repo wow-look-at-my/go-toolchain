@@ -24,7 +24,7 @@ func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 	// Force single-threaded scheduling so the main goroutine and the forward
 	// goroutine compete for the same P. Without this, forward() drains the
 	// pipe fast enough on multicore machines that the race almost never
-	// triggers in 200 iterations.
+	// triggers in a handful of iterations.
 	prevProcs := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() { runtime.GOMAXPROCS(prevProcs) })
 
@@ -43,7 +43,12 @@ func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 		os.Stderr = savedStderr
 	})
 
-	const iterations = 200
+	// The pre-fix race triggers on iter 1 with GOMAXPROCS=1, so a small
+	// iteration count is sufficient. A larger count (e.g. 200) accumulates
+	// enough os.NewFile-backed stdout/stderr wrappers that their close-on-GC
+	// finalizers eventually close fd 1/2 out from under the -coverpkg atexit
+	// writer, turning a passing run into a pkg-level FAIL.
+	const iterations = 50
 	const sentinel = "SENTINEL_COVERAGE_BLOCK"
 
 	for i := 0; i < iterations; i++ {
