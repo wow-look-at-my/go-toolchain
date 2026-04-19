@@ -102,16 +102,16 @@ func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
 	}
 
 	if prev != nil && prevSHA != "" {
-		fmt.Printf("\n==> Benchmark comparison vs %s\n", prevSHA)
+		fmt.Printf("\n⇒ Benchmark comparison vs %s\n", prevSHA)
 		comp := bench.Compare(report, prev)
 		comp.PreviousCommit = prevSHA
 		comp.Print()
 	} else {
-		fmt.Println("\n==> Benchmark results (no previous data for comparison)")
+		fmt.Println("\n⇒ Benchmark results (no previous data for comparison)")
 		report.Print()
 	}
 
-	fmt.Println("==> Benchmarks complete")
+	fmt.Println("⇒ Benchmarks complete")
 	return nil
 }
 
@@ -154,7 +154,7 @@ func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
 
 	sha, _ := bench.GetHeadSHA(r)
 	if !quiet {
-		fmt.Printf("==> Benchmark results stored for %s\n", sha)
+		fmt.Printf("⇒ Benchmark results stored for %s\n", sha)
 	}
 
 	return nil
@@ -179,7 +179,7 @@ func runBenchShow(cmd *cobra.Command, args []string) error {
 		return enc.Encode(report)
 	}
 
-	fmt.Printf("==> Benchmark results for %s\n", sha)
+	fmt.Printf("⇒ Benchmark results for %s\n", sha)
 	report.Print()
 	return nil
 }
@@ -206,7 +206,7 @@ func runBenchCompare(cmd *cobra.Command, args []string) error {
 		return enc.Encode(comp)
 	}
 
-	fmt.Printf("==> Benchmark comparison: %s → %s\n", args[0], args[1])
+	fmt.Printf("⇒ Benchmark comparison: %s → %s\n", args[0], args[1])
 	comp.Print()
 	return nil
 }
@@ -254,7 +254,7 @@ func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
 
 	var comp *bench.Comparison
 	if prev != nil && prevSHA != "" {
-		fmt.Printf("\n==> Benchmark comparison vs %s\n", prevSHA)
+		fmt.Printf("\n⇒ Benchmark comparison vs %s\n", prevSHA)
 		comp = bench.Compare(report, prev)
 		comp.PreviousCommit = prevSHA
 		comp.Print()
@@ -263,6 +263,6 @@ func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
 		report.Print()
 	}
 
-	fmt.Println("==> Benchmarks complete")
+	fmt.Println("⇒ Benchmarks complete")
 	return &benchResult{Report: report, Comparison: comp}, nil
 }
