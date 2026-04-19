@@ -164,10 +164,10 @@ go-toolchain
 
 **Span hierarchy:**
 - Root span `go-toolchain` covering the entire build
-  - Thread spans (`thread:main`, `thread:deps`, `thread:worker-1`, etc.)
-    - Step spans (e.g., `go mod tidy`, `go vet ./...`, `linux/amd64`)
+  - Worker spans, all named `build.worker`, distinguished by the `build.worker.id` attribute (`main`, `deps`, `worker-1`, etc.)
+    - Step spans (e.g., `go mod tidy`, `go vet ./...`). Cross-compile steps collapse into a static `build.compile` span carrying `build.target.os` and `build.target.arch` attributes (e.g. `linux`/`amd64`) instead of encoding the platform in the span name.
 
-Failed steps are marked with error status. Resource attributes include `github.sha`, `github.repository`, `github.ref`, and `github.run_id` when running in GitHub Actions.
+All spans use `INTERNAL` kind. Success and failure are reported via span status (`OK` / `ERROR`) rather than boolean attributes. Resource attributes include `github.sha`, `github.repository`, `github.ref`, and `github.run_id` when running in GitHub Actions.
 
 ## How It Works
 
