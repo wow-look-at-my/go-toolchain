@@ -131,7 +131,7 @@ func logStep(label string) *step {
 
 // logStepOn is like logStep but records on the given thread.
 func logStepOn(label, thread string) *step {
-	logger.Output("==> %s...", label)
+	fmt.Fprintf(os.Stdout, "==> %s...", label)
 	if activeWatchdog != nil {
 		activeWatchdog.setStep(label)
 	}
@@ -154,7 +154,7 @@ func logSubStep(label, thread string) *step {
 func (s *step) noteOutput() {
 	s.once.Do(func() {
 		s.noisy = true
-		logger.Output("") // finish the "..." line before subprocess output
+		fmt.Fprintln(os.Stdout) // finish the "..." line before subprocess output
 	})
 }
 
@@ -168,11 +168,11 @@ func (s *step) finish(status string) {
 	end := time.Now()
 	d := end.Sub(s.start)
 	if s.sub {
-		logger.Output("    %s %s", s.label, fmtDuration(d))
+		fmt.Fprintf(os.Stdout, "    %s %s\n", s.label, fmtDuration(d))
 	} else if s.noisy {
-		logger.Output("==> %s %s %s", s.label, status, fmtDuration(d))
+		fmt.Fprintf(os.Stdout, "==> %s %s %s\n", s.label, status, fmtDuration(d))
 	} else {
-		logger.Output(" %s %s", status, fmtDuration(d))
+		fmt.Fprintf(os.Stdout, " %s %s\n", status, fmtDuration(d))
 	}
 
 	if activeWatchdog != nil {

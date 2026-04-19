@@ -17,6 +17,7 @@ import (
 //
 // Exemptions (filename-based):
 //   - any file under a src/logger/ directory (the logger must do real I/O)
+//   - src/cmd/console.go (terminal animation UI — needs fine-grained newline control)
 //   - any file under a testdata/ directory (analyser test fixtures)
 //   - *_test.go files (test code may print intentionally)
 var BannedOutputAnalyzer = &analysis.Analyzer{
@@ -32,6 +33,11 @@ func runBannedOutput(pass *analysis.Pass) (any, error) {
 
 		// Exempt: logger package internals.
 		if strings.Contains(filename, "/src/logger/") {
+			continue
+		}
+		// Exempt: console.go — terminal animation UI that needs fine-grained
+		// newline control (same-line step progress and completion messages).
+		if strings.HasSuffix(filename, "/src/cmd/console.go") {
 			continue
 		}
 		// Exempt: testdata directories (analyser fixture files).

@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"io"
 	"os"
 	"sync"
 )
@@ -9,6 +10,17 @@ var (
 	defaultMu     sync.RWMutex
 	defaultLogger *Logger
 )
+
+// stdoutWriter is an io.Writer that always delegates to the current os.Stdout.
+// This allows tests to replace os.Stdout after logger initialization.
+type stdoutWriter struct{}
+
+func (stdoutWriter) Write(p []byte) (int, error) { return os.Stdout.Write(p) }
+
+// stderrWriter is an io.Writer that always delegates to the current os.Stderr.
+type stderrWriter struct{}
+
+func (stderrWriter) Write(p []byte) (int, error) { return os.Stderr.Write(p) }
 
 // Default returns the global default logger. If Init has not been called,
 // it returns a safe pre-init logger that writes to os.Stderr (for Debug/Warn/Error)
@@ -24,10 +36,12 @@ func Default() *Logger {
 	defaultMu.Lock()
 	defer defaultMu.Unlock()
 	if defaultLogger == nil {
+		// Use indirect writers so that tests replacing os.Stdout/os.Stderr
+		// are reflected in subsequent logger writes without re-initializing.
 		defaultLogger = New(Options{
 			Level:  LevelInfo,
-			Stdout: os.Stdout,
-			Stderr: os.Stderr,
+			Stdout: stdoutWriter{},
+			Stderr: stderrWriter{},
 			GHA:    os.Getenv("GITHUB_ACTIONS") == "true",
 		})
 	}
@@ -38,10 +52,10 @@ func Default() *Logger {
 // Returns the new logger for convenience. Safe to call from multiple goroutines.
 func Init(opts Options) *Logger {
 	if opts.Stdout == nil {
-		opts.Stdout = os.Stdout
+		opts.Stdout = stdoutWriter{}
 	}
 	if opts.Stderr == nil {
-		opts.Stderr = os.Stderr
+		opts.Stderr = stderrWriter{}
 	}
 	l := &Logger{opts: opts}
 	defaultMu.Lock()
@@ -49,6 +63,10 @@ func Init(opts Options) *Logger {
 	defaultMu.Unlock()
 	return l
 }
+
+// Ensure the indirect writers implement io.Writer.
+var _ io.Writer = stdoutWriter{}
+var _ io.Writer = stderrWriter{}
 
 // Package-level convenience functions that forward to Default().
 
