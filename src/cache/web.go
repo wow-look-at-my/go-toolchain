@@ -423,8 +423,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 			nPrefetch++
 		}
 	}
-	fmt.Fprintf(os.Stderr, "cacheprog: batch get %s: %d entries (%d prefetched) in %v\n",
-		actionID[:8], len(entries), nPrefetch, time.Since(start).Round(time.Millisecond))
+	b.errLog.RecordBatchInfo(actionID, len(entries), nPrefetch, time.Since(start))
 
 	// Find the requested entry and decompress it.
 	for _, e := range entries {

@@ -35,11 +35,12 @@ type httpErrLogger struct {
 	tp     *sdktrace.TracerProvider // nil if OTel is not configured
 	tracer trace.Tracer             // nil if tp is nil
 
-	mu       sync.Mutex
-	w        io.Writer
-	interval time.Duration
-	maxNamed int
-	groups   map[httpErrKey]*httpErrGroup
+	mu         sync.Mutex
+	w          io.Writer
+	interval   time.Duration
+	maxNamed   int
+	groups     map[httpErrKey]*httpErrGroup
+	batchInfos map[batchInfoKey]*batchInfoGroup
 
 	stop   chan struct{}
 	done   chan struct{}
@@ -58,18 +59,31 @@ type httpErrGroup struct {
 	bodyRaw string   // last-observed raw body, for display
 }
 
+type batchInfoKey struct {
+	entries  int
+	prefetch int
+}
+
+type batchInfoGroup struct {
+	named  []string
+	total  int
+	minDur time.Duration
+	maxDur time.Duration
+}
+
 // newHTTPErrLogger returns a logger that writes aggregated stderr summaries
 // to w on every interval tick (and once more on Close). If
 // OTEL_EXPORTER_OTLP_ENDPOINT is set, errors are also exported as
 // cacheprog.http_error spans. Init failures fall back to stderr-only mode.
 func newHTTPErrLogger(w io.Writer, interval time.Duration) *httpErrLogger {
 	l := &httpErrLogger{
-		w:        w,
-		interval: interval,
-		maxNamed: httpErrMaxNamed,
-		groups:   map[httpErrKey]*httpErrGroup{},
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		w:          w,
+		interval:   interval,
+		maxNamed:   httpErrMaxNamed,
+		groups:     map[httpErrKey]*httpErrGroup{},
+		batchInfos: map[batchInfoKey]*batchInfoGroup{},
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
 	}
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -156,6 +170,36 @@ func (l *httpErrLogger) Record(op string, status int, id, body string) {
 	l.mu.Unlock()
 }
 
+// RecordBatchInfo coalesces a successful batch-get informational line
+// (same metric as the pre-existing "cacheprog: batch get X: N entries
+// (M prefetched) in Y" log). Grouped by (entries, prefetch) so 0-entry
+// misses collapse into one line per flush. Nil-safe.
+func (l *httpErrLogger) RecordBatchInfo(id string, entries, prefetch int, dur time.Duration) {
+	if l == nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: batch get %s: %d entries (%d prefetched) in %v\n",
+			shortID(id), entries, prefetch, dur.Round(time.Millisecond))
+		return
+	}
+	key := batchInfoKey{entries: entries, prefetch: prefetch}
+	l.mu.Lock()
+	g, ok := l.batchInfos[key]
+	if !ok {
+		g = &batchInfoGroup{minDur: dur, maxDur: dur}
+		l.batchInfos[key] = g
+	}
+	g.total++
+	if len(g.named) < l.maxNamed {
+		g.named = append(g.named, shortID(id))
+	}
+	if dur < g.minDur {
+		g.minDur = dur
+	}
+	if dur > g.maxDur {
+		g.maxDur = dur
+	}
+	l.mu.Unlock()
+}
+
 func (l *httpErrLogger) emitSpan(op string, status int, id, body string) {
 	attrs := []attribute.KeyValue{
 		attribute.String("cacheprog.op", op),
@@ -193,15 +237,20 @@ func (l *httpErrLogger) loop() {
 
 func (l *httpErrLogger) flush() {
 	l.mu.Lock()
-	if len(l.groups) == 0 {
+	if len(l.groups) == 0 && len(l.batchInfos) == 0 {
 		l.mu.Unlock()
 		return
 	}
 	groups := l.groups
+	batchInfos := l.batchInfos
 	l.groups = map[httpErrKey]*httpErrGroup{}
+	l.batchInfos = map[batchInfoKey]*batchInfoGroup{}
 	l.mu.Unlock()
 	for k, g := range groups {
 		fmt.Fprintln(l.w, formatGroup(k, g))
+	}
+	for k, g := range batchInfos {
+		fmt.Fprintln(l.w, formatBatchGroup(k, g))
 	}
 }
 
@@ -230,28 +279,46 @@ func (l *httpErrLogger) Close() error {
 }
 
 func formatGroup(k httpErrKey, g *httpErrGroup) string {
-	var ids string
-	if g.total == 1 {
-		ids = g.named[0]
-	} else {
-		var b strings.Builder
-		b.WriteByte('[')
-		for i, n := range g.named {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString(n)
-		}
-		if g.total > len(g.named) {
-			fmt.Fprintf(&b, ", and %d more", g.total-len(g.named))
-		}
-		b.WriteByte(']')
-		ids = b.String()
-	}
+	ids := formatIDList(g.named, g.total)
 	if g.bodyRaw == "" {
 		return fmt.Sprintf("cacheprog: %s %s: HTTP %d", k.op, ids, k.status)
 	}
 	return fmt.Sprintf("cacheprog: %s %s: HTTP %d: %s", k.op, ids, k.status, g.bodyRaw)
+}
+
+func formatBatchGroup(k batchInfoKey, g *batchInfoGroup) string {
+	ids := formatIDList(g.named, g.total)
+	minMs := g.minDur.Round(time.Millisecond)
+	maxMs := g.maxDur.Round(time.Millisecond)
+	var durStr string
+	if minMs == maxMs {
+		durStr = minMs.String()
+	} else {
+		durStr = fmt.Sprintf("%s-%s", minMs, maxMs)
+	}
+	return fmt.Sprintf("cacheprog: batch get %s: %d entries (%d prefetched) in %s",
+		ids, k.entries, k.prefetch, durStr)
+}
+
+// formatIDList renders the named IDs + "and N more" tail (or a bare
+// single ID if total == 1). Shared by formatGroup and formatBatchGroup.
+func formatIDList(named []string, total int) string {
+	if total == 1 && len(named) == 1 {
+		return named[0]
+	}
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, n := range named {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(n)
+	}
+	if total > len(named) {
+		fmt.Fprintf(&b, ", and %d more", total-len(named))
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 func normalizeBody(s string) string {

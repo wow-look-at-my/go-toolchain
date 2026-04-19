@@ -182,6 +182,86 @@ func TestHTTPErrLogger_OTELOptOutByDefault(t *testing.T) {
 	require.NoError(t, l.Close())
 }
 
+func TestHTTPErrLogger_BatchInfoCoalesced(t *testing.T) {
+	var buf bytes.Buffer
+	l := newTestLogger(&buf)
+
+	// 10 zero-entry batch GETs — the flooded case from the user's report.
+	ids := []string{
+		"823cb0ef0000", "d505433f0000", "2307a01d0000", "cd5e3e1f0000",
+		"7238368d0000", "ed517f440000", "c7ccde380000", "e2d8d6d80000",
+		"487f399a0000", "aabbccdd0000",
+	}
+	for i, id := range ids {
+		l.RecordBatchInfo(id, 0, 0, time.Duration(30+i%2)*time.Millisecond)
+	}
+	require.NoError(t, l.Close())
+
+	out := buf.String()
+	require.Equal(t, 1, strings.Count(out, "\n"), "expected one aggregated line, got: %q", out)
+	require.Contains(t, out, "cacheprog: batch get [")
+	require.Contains(t, out, "823cb0ef, d505433f, 2307a01d, and 7 more")
+	require.Contains(t, out, "0 entries (0 prefetched)")
+	require.Contains(t, out, "in 30ms-31ms")
+}
+
+func TestHTTPErrLogger_BatchInfoSingleRecord(t *testing.T) {
+	var buf bytes.Buffer
+	l := newTestLogger(&buf)
+
+	l.RecordBatchInfo("abcd1234deadbeef", 5, 2, 47*time.Millisecond)
+	require.NoError(t, l.Close())
+
+	require.Equal(t, "cacheprog: batch get abcd1234: 5 entries (2 prefetched) in 47ms\n", buf.String())
+}
+
+func TestHTTPErrLogger_BatchInfoDifferentShapesStayDistinct(t *testing.T) {
+	var buf bytes.Buffer
+	l := newTestLogger(&buf)
+
+	l.RecordBatchInfo("aaaa1111", 0, 0, 30*time.Millisecond)
+	l.RecordBatchInfo("bbbb2222", 0, 0, 30*time.Millisecond)
+	l.RecordBatchInfo("cccc3333", 5, 2, 47*time.Millisecond)
+	l.RecordBatchInfo("dddd4444", 5, 0, 47*time.Millisecond)
+	require.NoError(t, l.Close())
+
+	out := buf.String()
+	require.Equal(t, 3, strings.Count(out, "\n"), "expected 3 distinct lines, got: %q", out)
+}
+
+func TestHTTPErrLogger_BatchInfoDurationRange(t *testing.T) {
+	var buf bytes.Buffer
+	l := newTestLogger(&buf)
+
+	l.RecordBatchInfo("aaaa1111", 0, 0, 20*time.Millisecond)
+	l.RecordBatchInfo("bbbb2222", 0, 0, 100*time.Millisecond)
+	l.RecordBatchInfo("cccc3333", 0, 0, 50*time.Millisecond)
+	require.NoError(t, l.Close())
+
+	require.Contains(t, buf.String(), "in 20ms-100ms")
+}
+
+func TestHTTPErrLogger_BatchInfoNilReceiver(t *testing.T) {
+	var l *httpErrLogger
+	require.NotPanics(t, func() {
+		l.RecordBatchInfo("aabbccdd", 0, 0, 30*time.Millisecond)
+	})
+}
+
+func TestHTTPErrLogger_MixedHTTPErrAndBatchInfo(t *testing.T) {
+	var buf bytes.Buffer
+	l := newTestLogger(&buf)
+
+	l.Record("web put", 502, "aaaaaaaa", "error code: 502")
+	l.RecordBatchInfo("bbbbbbbb", 0, 0, 30*time.Millisecond)
+	require.NoError(t, l.Close())
+
+	out := buf.String()
+	require.Equal(t, 2, strings.Count(out, "\n"), "expected both groups flushed, got: %q", out)
+	require.Contains(t, out, "HTTP 502")
+	require.Contains(t, out, "0 entries (0 prefetched)")
+}
+
 func TestHTTPErrLogger_NoFlushWhenEmpty(t *testing.T) {
 	var buf bytes.Buffer
 	l := newHTTPErrLogger(&buf, 5*time.Millisecond)
