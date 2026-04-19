@@ -279,9 +279,6 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := checkDirtyInCI(info); err != nil {
-		return nil, err
-	}
 	ldflags := info.ldflags()
 	if !quiet {
 		fmt.Printf("⇒ Embedding version: %s\n", info)
@@ -334,6 +331,15 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
+	// Snapshot git state before pipeline makes any transient modifications
+	// (vanity-URL replaces, go mod tidy, go generate). The dirty check runs
+	// after vet, but we must capture the state here so those pipeline writes
+	// don't cause false positives.
+	preVetInfo, err := collectGitInfo()
+	if err != nil {
+		return false, nil, err
+	}
+
 	// Fix any v0.0.0 dependencies before go mod tidy
 	if err := FixBogusDepsVersions(r); err != nil {
 		return false, nil, err
@@ -456,6 +462,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vetStep != nil {
 		vetStep.done()
 	}
+
+	// Vet is the last stage that can modify files (auto-fix). Fail fast here
+	// rather than after the full test run.
+	if err := checkDirtyInCI(preVetInfo); err != nil {
+		return false, nil, err
+	}
+
 	printCacheStats(false)
 
 	if dupcode {
