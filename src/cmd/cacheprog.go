@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 func init() {
@@ -43,22 +44,23 @@ func parseBuildCacheConfig() cache.WebConfig {
 	if m := len(normalized) % 4; m != 0 {
 		normalized += strings.Repeat("=", 4-m)
 	}
+	cacheProgLog := logger.WithSubsystem("cache")
 	data, err := base64.StdEncoding.DecodeString(normalized)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: base64 decode error: %v\n", err)
+		cacheProgLog.Debug("GO_BUILDCACHE_CONFIG: base64 decode error: %v", err)
 		return cache.WebConfig{}
 	}
 	var cfg buildCacheConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: json unmarshal error: %v\n", err)
+		cacheProgLog.Debug("GO_BUILDCACHE_CONFIG: json unmarshal error: %v", err)
 		return cache.WebConfig{}
 	}
 	if cfg.Endpoint == "" {
-		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing endpoint field\n")
+		cacheProgLog.Debug("GO_BUILDCACHE_CONFIG: missing endpoint field")
 		return cache.WebConfig{}
 	}
 	if cfg.KeyID == "" || cfg.AccessKey == "" {
-		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing key_id or access_key\n")
+		cacheProgLog.Debug("GO_BUILDCACHE_CONFIG: missing key_id or access_key")
 		return cache.WebConfig{}
 	}
 	bucket := cfg.Bucket
@@ -96,13 +98,13 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	{
 		web, err := cache.NewWebBackend(cfg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: web init error: %v (continuing local-only)\n", err)
+			logger.WithSubsystem("cache").Debug("web init error: %v (continuing local-only)", err)
 		} else if web != nil {
 			endpoint := cfg.Endpoint
 			if endpoint == "" {
 				endpoint = "(default)"
 			}
-			fmt.Fprintf(os.Stderr, "cacheprog: web enabled bucket=%s endpoint=%s\n", cfg.Bucket, endpoint)
+			logger.WithSubsystem("cache").Debug("web enabled bucket=%s endpoint=%s", cfg.Bucket, endpoint)
 			remote = web
 		}
 	}
@@ -157,7 +159,7 @@ func enableCacheProg() error {
 	}
 
 	if !goSupportsFeature(FeatureCacheProg) {
-		fmt.Fprintf(os.Stderr, "Warning: GOCACHEPROG requires Go 1.24+; buildcache disabled\n")
+		logger.Warn("GOCACHEPROG requires Go 1.24+; buildcache disabled")
 		return nil
 	}
 	exe, err := os.Executable()
@@ -187,9 +189,9 @@ func enableCacheProg() error {
 	os.Setenv("GOCACHE_DAEMON_SOCK", daemonSock)
 	if remoteEndpoint != "" {
 		sl.SetHasRemote()
-		fmt.Fprintf(os.Stderr, "cacheprog: remote enabled endpoint=%s\n", remoteEndpoint)
+		logger.WithSubsystem("cache").Debug("remote enabled endpoint=%s", remoteEndpoint)
 	} else {
-		fmt.Fprintf(os.Stderr, "cacheprog: local only\n")
+		logger.WithSubsystem("cache").Debug("local only")
 	}
 
 	os.Setenv("GOCACHEPROG", exe+" cacheprog")
@@ -209,7 +211,7 @@ func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 	var remote cache.IBackend
 	web, err := cache.NewWebBackend(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: daemon web error: %v (continuing local-only)\n", err)
+		logger.WithSubsystem("cache").Debug("daemon web error: %v (continuing local-only)", err)
 	} else if web != nil {
 		remote = web
 	}
@@ -239,7 +241,7 @@ func validateCICacheConfig() error {
 
 	msg := "CI caching not configured: GO_BUILDCACHE_CONFIG is not set"
 	if os.Getenv("GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED") == "1" {
-		fmt.Fprintf(os.Stderr, "Warning: %s\n", msg)
+		logger.Warn("%s", msg)
 		return nil
 	}
 	return fmt.Errorf("%s\n  Set GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 to downgrade to warning", msg)
@@ -254,11 +256,11 @@ func printCacheStats(close bool) {
 		case !cacheEnabled:
 			return
 		case !goSupportsFeature(FeatureCacheProg):
-			fmt.Printf("==> Cache: disabled (requires Go 1.%d+)\n", FeatureCacheProg.MinorVersion)
+			logger.Info("==> Cache: disabled (requires Go 1.%d+)", FeatureCacheProg.MinorVersion)
 		case cacheSetupErr != nil:
-			fmt.Printf("==> Cache: disabled (%v)\n", cacheSetupErr)
+			logger.Info("==> Cache: disabled (%v)", cacheSetupErr)
 		default:
-			fmt.Printf("==> Cache: disabled\n")
+			logger.Info("==> Cache: disabled")
 		}
 		return
 	}
@@ -293,7 +295,7 @@ func printCacheStats(close bool) {
 		}
 	}
 
-	fmt.Printf("==> Cache: %s\n", strings.Join(parts, "  "))
+	logger.Info("==> Cache: %s", strings.Join(parts, "  "))
 
 	// Print latency profile if any operations were recorded.
 	if stats.Latency != nil {
@@ -322,12 +324,12 @@ func printCacheStats(close bool) {
 			}
 		}
 		if hasData {
-			fmt.Printf("    Latency (min/avg/max):\n")
+			logger.Info("    Latency (min/avg/max):")
 			for _, r := range rows {
 				if r.s.Count == 0 {
 					continue
 				}
-				fmt.Printf("      %-10s  %s  (n=%d)\n", r.name, r.s.FormatMs(), r.s.Count)
+				logger.Info("      %-10s  %s  (n=%d)", r.name, r.s.FormatMs(), r.s.Count)
 			}
 		}
 	}
@@ -335,7 +337,7 @@ func printCacheStats(close bool) {
 		poolSnap := stats.Pool.Snapshot()
 		if poolSnap.Samples > 0 {
 			avg := poolSnap.AvgUsed()
-			fmt.Printf("    Pool: peak %d/%d (%.0f%%)  avg %.1f/%d (%.0f%%)\n",
+			logger.Info("    Pool: peak %d/%d (%.0f%%)  avg %.1f/%d (%.0f%%)",
 				poolSnap.Peak, cache.MaxConnsPerHost,
 				float64(poolSnap.Peak)/float64(cache.MaxConnsPerHost)*100,
 				avg, cache.MaxConnsPerHost,

@@ -2,7 +2,6 @@ package trace
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sort"
 	"time"
@@ -15,6 +14,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
@@ -25,7 +25,7 @@ func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 	if endpoint == "" || len(entries) == 0 {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "==> Exporting %d timeline entries to %s\n", len(entries), endpoint)
+	logger.WithSubsystem("trace").Debug("Exporting %d timeline entries to %s", len(entries), endpoint)
 
 	exporter, err := otlptracehttp.New(ctx)
 	if err != nil {

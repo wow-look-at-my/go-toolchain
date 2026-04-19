@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
@@ -33,6 +34,8 @@ var (
 	outputDir     = "build"
 	jsonOutput    bool
 	verbose       bool
+	quiet         bool
+	logLevel      string
 	cacheMisses   bool
 	generateHash  string
 	dupcode bool
@@ -60,6 +63,26 @@ var rootCmd = &cobra.Command{
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Resolve log level from --log-level / --verbose / --quiet flags.
+		level := logger.LevelInfo
+		if verbose {
+			level = logger.LevelDebug
+		}
+		if quiet {
+			level = logger.LevelWarn
+		}
+		if logLevel != "" {
+			parsed, err := logger.ParseLevel(logLevel)
+			if err != nil {
+				return fmt.Errorf("invalid --log-level: %w", err)
+			}
+			level = parsed
+		}
+		logger.Init(logger.Options{
+			Level:  level,
+			GHA:    os.Getenv("GITHUB_ACTIONS") == "true",
+		})
+
 		if skipCache(cmd) {
 			return nil
 		}
@@ -72,7 +95,9 @@ func init() {
 	rootCmd.Long = rootCmd.Short + "\n\nRuns go mod tidy, go test with coverage, and go build.\n\n" + installStatus()
 	// Use PersistentFlags for flags shared with subcommands (like matrix)
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
-	// rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show test output line by line")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging (shorthand for --log-level debug)")
+	rootCmd.PersistentFlags().BoolVar(&quiet, "quiet", false, "Suppress Info messages; show only Warn/Error/Output (shorthand for --log-level warn)")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "Set log level: debug, info, warn, error, or silent")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
 	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
@@ -140,7 +165,7 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 		tracePath := filepath.Join(os.TempDir(), "go-toolchain-profile", "trace.json")
 		if err := gotrace.WriteChrome(tracePath, entries, activeTrace); err != nil {
-			fmt.Fprintf(os.Stderr, "==> Warning: failed to write Chrome trace: %v\n", err)
+			logger.Warn("==> Warning: failed to write Chrome trace: %v", err)
 		}
 	}()
 
@@ -150,9 +175,9 @@ func run(cmd *cobra.Command, args []string) error {
 	for i, modDir := range modules {
 		if len(modules) > 1 {
 			if i > 0 {
-				fmt.Println()
+				logger.Info("")
 			}
-			fmt.Printf("==> Module: %s\n", modDir)
+			logger.Info("==> Module: %s", modDir)
 		}
 
 		if modDir != "." {
@@ -173,7 +198,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Write GitHub Step Summary once after all modules complete
 	if writeErr := summary.Write(&allSummary); writeErr != nil {
-		fmt.Fprintf(os.Stderr, "==> Warning: failed to write step summary: %v\n", writeErr)
+		logger.Warn("==> Warning: failed to write step summary: %v", writeErr)
 	}
 
 	// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
@@ -181,7 +206,7 @@ func run(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := gotrace.Export(ctx, tl.Entries()); err != nil {
-			fmt.Fprintf(os.Stderr, "==> Warning: failed to export traces: %v\n", err)
+			logger.Warn("==> Warning: failed to export traces: %v", err)
 		}
 
 	}
@@ -231,7 +256,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	if !quiet && !isRetry {
 		depChecker := CheckOutdatedDeps()
 		if WaitForOutdatedDeps(depChecker) {
-			fmt.Println()
+			logger.Info("")
 		}
 	}
 
@@ -242,7 +267,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 
 	// If vet applied fixes, re-run tests with the corrected code
 	if !isRetry && filesChanged {
-		fmt.Println("\n==> Files changed, rebuilding...")
+		logger.Info("\n==> Files changed, rebuilding...")
 		return runWithRunnerOnce(r, true, sd)
 	}
 
@@ -284,7 +309,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	}
 	ldflags := info.ldflags()
 	if !quiet {
-		fmt.Printf("==> Embedding version: %s\n", info)
+		logger.Info("==> Embedding version: %s", info)
 	}
 	inDocker := build.InDocker()
 	for _, t := range targets {
@@ -315,7 +340,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	}
 
 	if !quiet {
-		fmt.Println("==> Build successful")
+		logger.Info("==> Build successful")
 	}
 
 	if !noBenchmark {
@@ -536,8 +561,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	// If tests failed, show failure details and return error (no coverage output)
 	if testErr != nil {
 		if !quiet && result.FailureOutput != "" {
-			fmt.Println("\n==> Test failures:")
-			fmt.Print(colorRed + result.FailureOutput + colorReset)
+			logger.Info("\n==> Test failures:")
+			logger.Output("%s%s%s", colorRed, result.FailureOutput, colorReset)
 		}
 		return false, result, fmt.Errorf("tests failed: %w", testErr)
 	}
@@ -549,10 +574,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			return false, nil, fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
-		fmt.Println("\n==> Package coverage:")
+		logger.Info("\n==> Package coverage:")
 		report.Print()
 
-		fmt.Printf("\n==> Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
+		logger.Info("\n==> Total coverage: %s", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
 
 	// Coverage enforcement: default 80%, or watermark-2.5% if lower.
@@ -561,7 +586,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if wmErr != nil {
 		// Watermark read failed (e.g., xattrs not supported) - warn and use default
 		if !quiet {
-			fmt.Printf("==> Warning: %v (using default %.0f%%)\n", wmErr, effectiveMin)
+			logger.Warn("==> Warning: %v (using default %.0f%%)", wmErr, effectiveMin)
 		}
 		wmExists = false
 	}
@@ -571,16 +596,16 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			effectiveMin = grace
 		}
 		if !quiet {
-			fmt.Printf("==> Watermark: %.1f%% (effective minimum: %.1f%%)\n", wm, effectiveMin)
+			logger.Info("==> Watermark: %.1f%% (effective minimum: %.1f%%)", wm, effectiveMin)
 		}
 		// Ratchet up: update watermark if coverage improved
 		if report.Total > wm {
 			if err := gotest.SetWatermark(".", report.Total); err != nil {
 				if !quiet {
-					fmt.Printf("==> Warning: failed to update watermark: %v\n", err)
+					logger.Warn("==> Warning: failed to update watermark: %v", err)
 				}
 			} else if !quiet {
-				fmt.Printf("==> Watermark updated: %.1f%% -> %.1f%%\n", wm, report.Total)
+				logger.Info("==> Watermark updated: %.1f%% -> %.1f%%", wm, report.Total)
 			}
 		}
 	}
@@ -598,7 +623,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		// (e.g. small programs where main() can't be easily covered)
 		if totalUncovered < 10 {
 			if !quiet {
-				fmt.Printf("==> Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing\n", report.Total, effectiveMin, totalUncovered)
+				logger.Info("==> Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing", report.Total, effectiveMin, totalUncovered)
 			}
 		} else {
 			return false, result, fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
@@ -640,7 +665,7 @@ func needsGenerate() bool {
 // and prints warnings. It never causes a build failure.
 func runDuplicateCheck() {
 	if !jsonOutput {
-		fmt.Println("==> Checking for near-duplicate code")
+		logger.Info("==> Checking for near-duplicate code")
 	}
 
 	paths, err := walkGoFiles(".")
@@ -671,16 +696,16 @@ func runDuplicateCheck() {
 		return
 	}
 
-	fmt.Printf("\n%s near-duplicate code: found %d pair(s)%s\n", colorYellow, len(reports), colorReset)
+	logger.Warn("\n%s near-duplicate code: found %d pair(s)%s", colorYellow, len(reports), colorReset)
 	for i, r := range reports {
-		fmt.Printf("  %d. %.0f%% similar: %s (%s:%d) and %s (%s:%d)\n",
+		logger.Info("  %d. %.0f%% similar: %s (%s:%d) and %s (%s:%d)",
 			i+1, r.Similarity*100,
 			r.FuncA, r.FileA, r.LineA,
 			r.FuncB, r.FileB, r.LineB,
 		)
 		if verbose {
-			fmt.Printf("     %s\n", r.Suggestion.Description)
+			logger.Info("     %s", r.Suggestion.Description)
 		}
 	}
-	fmt.Println()
+	logger.Info("")
 }

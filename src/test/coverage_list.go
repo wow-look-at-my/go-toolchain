@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 const (
@@ -131,13 +133,13 @@ func printItem(c ICoverageItem, depth int, totalStatements int) {
 		prefix = bold
 	}
 	if c.Uncovered() == 0 && c.Pct() == 0 {
-		fmt.Printf("%s%s       ∅              %s%s%s\n", prefix, dim, pad, name, colorReset)
+		logger.Output("%s%s       ∅              %s%s%s", prefix, dim, pad, name, colorReset)
 	} else {
 		var impact float32
 		if totalStatements > 0 {
 			impact = float32(c.Uncovered()) / float32(totalStatements) * 100
 		}
-		fmt.Printf("%s  %s  %s%3d  %s  %s%s%s\n", prefix, colorPct(c.Pct(), sat, val), dim, c.Uncovered(), colorImpact(impact, sat, val), pad, name, colorReset)
+		logger.Output("%s  %s  %s%3d  %s  %s%s%s", prefix, colorPct(c.Pct(), sat, val), dim, c.Uncovered(), colorImpact(impact, sat, val), pad, name, colorReset)
 	}
 }
 
@@ -215,7 +217,7 @@ func (r Report) Print() {
 	}
 
 	// Print packages, with files/funcs only for top 10
-	fmt.Println("     cov  miss  impact  name")
+	logger.Output("     cov  miss  impact  name")
 	for i := range r.Packages {
 		pkg := &r.Packages[i]
 		printItem(*pkg, 0, totalStatements)

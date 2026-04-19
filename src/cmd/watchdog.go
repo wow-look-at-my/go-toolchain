@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sync/atomic"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // activeWatchdog is the current output watchdog, if any.
@@ -65,10 +66,10 @@ func (w *outputWatchdog) watchLoop(ctx context.Context) {
 					step, _ = v.(string)
 				}
 				if step != "" {
-					fmt.Fprintf(w.origStderr, "%s⚠ STALLED: no output for %ds (currently: %s)%s\n",
+					logger.Warn("%s⚠ STALLED: no output for %ds (currently: %s)%s",
 						colorBoldRed, int(gap.Seconds()), step, colorReset)
 				} else {
-					fmt.Fprintf(w.origStderr, "%s⚠ STALLED: no output for %ds%s\n",
+					logger.Warn("%s⚠ STALLED: no output for %ds%s",
 						colorBoldRed, int(gap.Seconds()), colorReset)
 				}
 			}

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // BenchmarkResult holds parsed benchmark data
@@ -118,7 +120,7 @@ func formatBenchBytes(b int64) string {
 // Print outputs the benchmark report in a pretty format
 func (r *BenchmarkReport) Print() {
 	if len(r.Packages) == 0 {
-		fmt.Println("     (no benchmarks found)")
+		logger.Info("     (no benchmarks found)")
 		return
 	}
 
@@ -129,7 +131,7 @@ func (r *BenchmarkReport) Print() {
 	}
 	sort.Strings(pkgNames)
 
-	fmt.Println("        time/op      alloc/op   allocs/op  name")
+	logger.Info("        time/op      alloc/op   allocs/op  name")
 	for _, pkg := range pkgNames {
 		results := r.Packages[pkg]
 		// Sort by ns/op (fastest first)
@@ -142,7 +144,7 @@ func (r *BenchmarkReport) Print() {
 		if idx := strings.LastIndex(pkg, "/"); idx >= 0 {
 			shortPkg = pkg[idx+1:]
 		}
-		fmt.Printf("\033[1m%s\033[0m\n", shortPkg)
+		logger.Info("\033[1m%s\033[0m", shortPkg)
 
 		for _, b := range results {
 			// Strip package prefix and Benchmark prefix from name
@@ -158,7 +160,7 @@ func (r *BenchmarkReport) Print() {
 			timeStr := formatBenchTime(b.NsPerOp)
 			allocStr := formatBenchBytes(b.BytesPerOp)
 
-			fmt.Printf("  %12s  %12s  %9d  %s\n",
+			logger.Info("  %12s  %12s  %9d  %s",
 				timeStr, allocStr, b.AllocsPerOp, name)
 		}
 	}

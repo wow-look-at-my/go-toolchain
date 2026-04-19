@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Cmd is a GOCACHEPROG command verb.
@@ -480,11 +482,10 @@ func (s *Server) handleGet(req Request) Response {
 	meta, miss := s.local.Get(actionID)
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
+	cacheLog := logger.WithSubsystem("cache")
 	if !miss {
 		s.sendStat(StatEvent{LocalHit: 1})
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: HIT local  %s size=%d\n", actionID, meta.Size)
-		}
+		cacheLog.Debug("HIT local  %s size=%d", actionID, meta.Size)
 		t := meta.Time
 		return Response{
 			ID:       req.ID,
@@ -499,9 +500,7 @@ func (s *Server) handleGet(req Request) Response {
 	if s.remote == nil {
 		s.Misses.Increment()
 		s.sendStat(StatEvent{Miss: 1})
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
-		}
+		cacheLog.Debug("MISS       %s", actionID)
 		return Response{ID: req.ID, Miss: true}
 	}
 
@@ -511,20 +510,16 @@ func (s *Server) handleGet(req Request) Response {
 	if err != nil || remoteMiss {
 		s.Misses.Increment()
 		s.sendStat(StatEvent{Miss: 1})
-		if s.debug {
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "cache: MISS       %s (remote error: %v)\n", actionID, err)
-			} else {
-				fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
-			}
+		if err != nil {
+			cacheLog.Debug("MISS       %s (remote error: %v)", actionID, err)
+		} else {
+			cacheLog.Debug("MISS       %s", actionID)
 		}
 		return Response{ID: req.ID, Miss: true}
 	}
 	s.Latency.RemoteGet.Record(time.Since(remoteStart))
 	s.sendStat(StatEvent{RemoteHit: 1})
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: HIT remote %s\n", actionID)
-	}
+	cacheLog.Debug("HIT remote %s", actionID)
 	defer body.Close()
 
 	// Write to local cache for future hits.
@@ -560,10 +555,9 @@ func (s *Server) handlePut(req Request) Response {
 	meta, miss := s.local.Get(actionID)
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
+	cacheLog := logger.WithSubsystem("cache")
 	if !miss {
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s\n", actionID)
-		}
+		cacheLog.Debug("PUT  dedup  %s", actionID)
 		return Response{ID: req.ID, DiskPath: meta.DiskPath, Size: meta.Size}
 	}
 
@@ -577,9 +571,7 @@ func (s *Server) handlePut(req Request) Response {
 		return Response{ID: req.ID, Err: err.Error()}
 	}
 	s.sendStat(StatEvent{LocalPut: 1})
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s size=%d\n", actionID, len(req.Body))
-	}
+	cacheLog.Debug("PUT  new    %s size=%d", actionID, len(req.Body))
 	// Async write to remote. The semaphore bounds concurrency to avoid
 	// connection churn — each goroutine reuses a pooled HTTP connection
 	// instead of creating (and discarding) a new TCP+TLS connection.
@@ -597,7 +589,7 @@ func (s *Server) handlePut(req Request) Response {
 			err := s.remote.Put(actionID, outputID, bytes.NewReader(data), int64(len(data)))
 			s.Latency.RemotePut.Record(time.Since(remotePutStart))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "cacheprog: remote put: %v\n", err)
+				logger.WithSubsystem("cache").Debug("remote put: %v", err)
 			} else {
 				s.sendStat(StatEvent{RemotePut: 1})
 			}

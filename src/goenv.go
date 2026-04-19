@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // proxyConfig is the JSON structure inside GO_PROXY_CONFIG (base64-encoded).
@@ -81,12 +83,12 @@ func parseProxyConfig() *proxyConfig {
 	}
 	data, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "proxy: GO_PROXY_CONFIG decode error: %v\n", err)
+		logger.WithSubsystem("proxy").Debug("GO_PROXY_CONFIG decode error: %v", err)
 		return nil
 	}
 	var cfg proxyConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "proxy: GO_PROXY_CONFIG parse error: %v\n", err)
+		logger.WithSubsystem("proxy").Debug("GO_PROXY_CONFIG parse error: %v", err)
 		return nil
 	}
 	return &cfg
@@ -98,9 +100,10 @@ func writeNetrc(host, user, password string) {
 	if host == "" || user == "" || password == "" {
 		return
 	}
+	proxyLog := logger.WithSubsystem("proxy")
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "proxy: netrc: %v\n", err)
+		proxyLog.Debug("netrc: %v", err)
 		return
 	}
 	netrcPath := filepath.Join(home, ".netrc")
@@ -112,30 +115,30 @@ func writeNetrc(host, user, password string) {
 	newContent := string(existing) + fmt.Sprintf("\nmachine %s login %s password %s\n", host, user, password)
 	tmp, err := os.CreateTemp(home, ".netrc-tmp-*")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "proxy: netrc tmp: %v\n", err)
+		proxyLog.Debug("netrc tmp: %v", err)
 		return
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.WriteString(newContent); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
-		fmt.Fprintf(os.Stderr, "proxy: netrc write: %v\n", err)
+		proxyLog.Debug("netrc write: %v", err)
 		return
 	}
 	if err := tmp.Chmod(0600); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
-		fmt.Fprintf(os.Stderr, "proxy: netrc chmod: %v\n", err)
+		proxyLog.Debug("netrc chmod: %v", err)
 		return
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
-		fmt.Fprintf(os.Stderr, "proxy: netrc close: %v\n", err)
+		proxyLog.Debug("netrc close: %v", err)
 		return
 	}
 	if err := os.Rename(tmpPath, netrcPath); err != nil {
 		os.Remove(tmpPath)
-		fmt.Fprintf(os.Stderr, "proxy: netrc rename: %v\n", err)
+		proxyLog.Debug("netrc rename: %v", err)
 	}
 }
 
@@ -159,10 +162,11 @@ func ensureDirectFallback(goproxy string) string {
 var proxyEnvVars = []string{"GOPROXY", "GOSUMDB", "GONOSUMDB", "GONOSUMCHECK"}
 
 func configureGoEnv() {
+	proxyLog := logger.WithSubsystem("proxy")
 	defer func() {
 		for _, k := range proxyEnvVars {
 			if v := os.Getenv(k); v != "" {
-				fmt.Fprintf(os.Stderr, "proxy: %s=%s\n", k, v)
+				proxyLog.Debug("%s=%s", k, v)
 			}
 		}
 	}()

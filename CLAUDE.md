@@ -43,7 +43,8 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery)
 - `src/cache/` — GOCACHEPROG protocol server with local and web backends, server-side batch GET with prefetch
 - `src/trace/` — OpenTelemetry trace export for build pipeline timings
-- `src/vet/` — custom vet checks (assert normalization, unused imports)
+- `src/logger/` — centralized leveled logger (Debug/Info/Warn/Error/Output); use this for all output instead of fmt.Printf/log.*
+- `src/vet/` — custom vet checks (assert normalization, unused imports, bannedoutput)
 - `tests/` — BATS integration tests
 - `action.yml` — composite GitHub Action (fetches secrets via OIDC, builds with go-toolchain, optionally uploads build artifacts)
 - `.github/workflows/ci.yml` — CI workflow (builds from source, tests the action, releases)
@@ -57,6 +58,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 - No Makefile — use `go run ./src` as the build entry point
 - Binaries are output to `build/` directory
 - Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go` suffixes (see `src/test/watermark_*.go`)
+- **All output must go through the `logger` package** (`github.com/wow-look-at-my/go-toolchain/src/logger`). Direct `fmt.Printf`, `fmt.Println`, `fmt.Fprintf(os.Stdout|os.Stderr, ...)`, and `log.*` calls are banned by the `bannedoutput` vet analyzer. Use `logger.Info`, `logger.Warn`, `logger.Error`, `logger.Debug`, or `logger.Output` (for unconditional output like command results).
 
 ## Documentation
 

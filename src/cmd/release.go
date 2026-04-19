@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -118,10 +119,10 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 
 	// Interactive confirmation when not in CI
 	if os.Getenv("CI") == "" {
-		fmt.Fprintf(os.Stderr, "Release: %s\n", tag)
-		fmt.Fprintf(os.Stderr, "Commits: %d\n", len(commits))
-		fmt.Fprintf(os.Stderr, "\n--- Release Notes ---\n%s\n---------------------\n\n", notes)
-		fmt.Fprintf(os.Stderr, "Are you sure you want to create this release? [y/N] ")
+		logger.WithSubsystem("release").Info("Release: %s", tag)
+		logger.WithSubsystem("release").Info("Commits: %d", len(commits))
+		logger.WithSubsystem("release").Info("\n--- Release Notes ---\n%s\n---------------------\n", notes)
+		logger.WithSubsystem("release").Info("Are you sure you want to create this release? [y/N] ")
 
 		scanner := bufio.NewScanner(stdin)
 		if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
@@ -181,12 +182,12 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 
 	ghArgs = append(ghArgs, "--notes-file", notesFile.Name())
 
-	fmt.Printf("==> Creating GitHub release %s\n", tag)
+	logger.Info("==> Creating GitHub release %s", tag)
 	if err := ex.ghRelease(ghArgs...); err != nil {
 		return fmt.Errorf("gh release create failed: %w", err)
 	}
 
-	fmt.Printf("==> Release %s created successfully\n", tag)
+	logger.Info("==> Release %s created successfully", tag)
 	return nil
 }
 

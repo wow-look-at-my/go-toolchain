@@ -2,11 +2,12 @@ package cache
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"os"
 	"sync"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // noCloseBackend wraps an IBackend and suppresses Close calls.
@@ -122,7 +123,7 @@ func (d *Daemon) Close() {
 			network := wb.MissNetwork.Load()
 			total := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + network
 			if total > 0 {
-				fmt.Fprintf(os.Stderr, "cacheprog: web misses: %d total (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d network=%d)\n",
+				logger.WithSubsystem("web-cache").Debug("web misses: %d total (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d network=%d)",
 					total, notInIndex, http404, httpErr, noOutputID, readBody, decompress, network)
 			}
 		}

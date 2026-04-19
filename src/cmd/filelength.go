@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 const (
@@ -67,7 +69,7 @@ func checkFileLength(root string) error {
 	})
 
 	if nWarn > 0 || nErr > 0 {
-		fmt.Println()
+		logger.Output("")
 	}
 
 	if nErr > 0 {

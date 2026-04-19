@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
@@ -21,7 +22,7 @@ var unignoreCmd = &cobra.Command{
 				}
 			}
 		}
-		fmt.Print("Remove exemption — are you sure? [y/N] ")
+		logger.Output("Remove exemption — are you sure? [y/N] ")
 		reader := bufio.NewReader(os.Stdin)
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(strings.ToLower(line))
@@ -47,17 +48,17 @@ func init() {
 func runUnignoreCoverage(cmd *cobra.Command, args []string) error {
 	_, exists, err := gotest.GetWatermark(".")
 	if err != nil {
-		fmt.Printf("Warning: %v\n", err)
+		logger.Warn("Warning: %v", err)
 		return nil
 	}
 	if !exists {
-		fmt.Println("No watermark is set.")
+		logger.Output("No watermark is set.")
 		return nil
 	}
 
 	if err := gotest.RemoveWatermark("."); err != nil {
 		return fmt.Errorf("failed to remove watermark: %w", err)
 	}
-	fmt.Println("Coverage watermark removed.")
+	logger.Output("Coverage watermark removed.")
 	return nil
 }

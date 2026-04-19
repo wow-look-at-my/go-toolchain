@@ -1,13 +1,15 @@
 package cmd
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 var setupCGOOnce sync.Once
@@ -66,7 +68,7 @@ func cachedOpenCVPkgConfig() (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("no cached opencv found")
+	return "", errors.New("no cached opencv found")
 }
 
 func addPkgConfigPath(dir string) {
@@ -79,7 +81,7 @@ func addPkgConfigPath(dir string) {
 	} else {
 		os.Setenv("PKG_CONFIG_PATH", dir)
 	}
-	fmt.Fprintf(os.Stderr, "cgo: added %s to PKG_CONFIG_PATH\n", dir)
+	logger.WithSubsystem("cgo").Debug("added %s to PKG_CONFIG_PATH", dir)
 }
 
 func brewPrefix() (string, error) {

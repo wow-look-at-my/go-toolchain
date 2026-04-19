@@ -116,6 +116,9 @@ go-toolchain ignore coverage
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
 | `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |
+| `-v`, `--verbose`| `false`     | Enable debug-level logging                           |
+| `--quiet`        | `false`     | Suppress informational output (warnings and errors only) |
+| `--log-level`    | `''`        | Set log level explicitly: `debug`, `info`, `warn`, `error`, `silent` |
 
 #### Root command flags
 
@@ -176,7 +179,7 @@ Failed steps are marked with error status. Resource attributes include `github.s
 3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts)
 4. Runs `go mod tidy`
 5. Detects and runs `//go:generate` directives (if present)
-6. Runs `go vet` with auto-fix (on non-CI systems)
+6. Runs `go vet` with auto-fix (on non-CI systems) — includes custom analyzers: `assertnormalize` (normalizes testify assertions), `unusedimport` (flags unused imports), `bannedoutput` (bans direct `fmt.Printf`/`fmt.Fprintf(os.Stdout|os.Stderr, …)` and `log.*` calls — use the `logger` package instead)
 7. Checks for near-duplicate code blocks (warnings only)
 8. Checks file lengths (warns at 500 lines, errors at 750)
 9. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). Cache misses use the server's batch GET endpoint with prefetch — the server returns the requested entry plus temporally related entries from the same build, proactively populating the local cache. PUTs upload entries individually with LZ4 compression. Each object is tagged with metadata headers describing what it is:

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // MaxConnsPerHost is the HTTP connection pool size for the remote cache.
@@ -143,7 +144,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		version:   cfg.Version,
 	}
 	b.keys = b.loadOrFetchIndex()
-	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
+	logger.WithSubsystem("web-cache").Debug("web index: %d keys", b.keys.Len())
 	return b, nil
 }
 
@@ -227,20 +228,21 @@ func (b *WebBackend) listAllKeys() set.Set[string] {
 			break
 		}
 		b.signRequest(req)
+		webLog := logger.WithSubsystem("web-cache")
 		resp, err := b.client.Do(req)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: web list: %v\n", err)
+			webLog.Debug("web list: %v", err)
 			break
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != 200 {
-			fmt.Fprintf(os.Stderr, "cacheprog: web list: HTTP %d: %s\n", resp.StatusCode, body)
+			webLog.Debug("web list: HTTP %d: %s", resp.StatusCode, body)
 			break
 		}
 		var result listObjectsResult
 		if err := xml.Unmarshal(body, &result); err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: web list: xml parse: %v\n", err)
+			webLog.Debug("web list: xml parse: %v", err)
 			break
 		}
 		for _, c := range result.Contents {
@@ -289,13 +291,14 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 	}
 	b.signRequest(req)
 
+	webLog := logger.WithSubsystem("web-cache")
 	b.Pool.Acquire()
 	httpStart := time.Now()
 	resp, err := b.client.Do(req)
 	if err != nil {
 		b.Pool.Release()
 		b.MissNetwork.Increment()
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
+		webLog.Debug("web get %s: %v", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -310,7 +313,7 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTPError.Increment()
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
+		webLog.Debug("web get %s: HTTP %d: %s", actionID[:8], resp.StatusCode, respBody)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -319,7 +322,7 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissNoOutputID.Increment()
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
+		webLog.Debug("web get %s: missing outputid metadata", actionID[:8])
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -331,7 +334,7 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 	}
 	if err != nil {
 		b.MissReadBody.Increment()
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
+		webLog.Debug("web get %s: read body: %v", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -342,7 +345,7 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 	}
 	if err != nil {
 		b.MissDecompress.Increment()
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", actionID[:8], err)
+		webLog.Debug("web get %s: decompress: %v", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -377,11 +380,12 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 	req.Header.Set("Content-Type", "application/json")
 	b.signRequest(req)
 
+	webLog := logger.WithSubsystem("web-cache")
 	b.Pool.Acquire()
 	resp, err := b.client.Do(req)
 	if err != nil {
 		b.Pool.Release()
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: %v\n", actionID[:8], err)
+		webLog.Debug("web batch get %s: %v", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -392,7 +396,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 		if resp.StatusCode == 404 || resp.StatusCode == 405 {
 			return b.getIndividual(actionID, key)
 		}
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: HTTP %d\n", actionID[:8], resp.StatusCode)
+		webLog.Debug("web batch get %s: HTTP %d", actionID[:8], resp.StatusCode)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -400,7 +404,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 	resp.Body.Close()
 	b.Pool.Release()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: parse: %v\n", actionID[:8], err)
+		webLog.Debug("web batch get %s: parse: %v", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -415,7 +419,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 			nPrefetch++
 		}
 	}
-	fmt.Fprintf(os.Stderr, "cacheprog: batch get %s: %d entries (%d prefetched) in %v\n",
+	webLog.Debug("batch get %s: %d entries (%d prefetched) in %v",
 		actionID[:8], len(entries), nPrefetch, time.Since(start).Round(time.Millisecond))
 
 	// Find the requested entry and decompress it.
@@ -423,7 +427,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 		if e.Key == key {
 			decompressed, err := decompressData(e.Data)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: decompress: %v\n", actionID[:8], err)
+				webLog.Debug("web batch get %s: decompress: %v", actionID[:8], err)
 				return "", nil, 0, time.Time{}, true, nil
 			}
 			b.Stats.Hits.Increment()
@@ -496,8 +500,9 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	if b.Latency != nil && err == nil {
 		b.Latency.HTTPPut.Record(time.Since(httpStart))
 	}
+	webLog := logger.WithSubsystem("web-cache")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", actionID[:8], err)
+		webLog.Debug("web put %s: %v", actionID[:8], err)
 		return err
 	}
 	// Drain and close body so the connection is returned to the pool.
@@ -508,7 +513,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: HTTP %d: %s\n", actionID[:8], resp.StatusCode, respBody)
+		webLog.Debug("web put %s: HTTP %d: %s", actionID[:8], resp.StatusCode, respBody)
 		return fmt.Errorf("web put: HTTP %d", resp.StatusCode)
 	}
 

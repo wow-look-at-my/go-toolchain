@@ -9,6 +9,7 @@ import (
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
 	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // selfUpdater abstracts the self-update mechanism for testability.
@@ -92,7 +93,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 }
 
 func doUpdate(ctx context.Context, u selfUpdater) error {
-	fmt.Println("==> Checking for updates...")
+	logger.Info("==> Checking for updates...")
 
 	latestVersion, found, err := u.detect(ctx, "wow-look-at-my/go-toolchain")
 	if err != nil {
@@ -102,15 +103,15 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 		return fmt.Errorf("no release found for this platform")
 	}
 
-	fmt.Printf("    Latest:  %s\n", latestVersion)
-	fmt.Printf("    Current: %s\n", buildVersion)
+	logger.Info("    Latest:  %s", latestVersion)
+	logger.Info("    Current: %s", buildVersion)
 
 	if buildVersion == "dev" {
-		fmt.Println("    Warning: this is a dev build (no embedded version)")
+		logger.Warn("    Warning: this is a dev build (no embedded version)")
 	} else if _, err := semver.NewVersion(buildVersion); err != nil {
-		fmt.Printf("    Warning: current version %q is not valid semver, proceeding with update\n", buildVersion)
+		logger.Warn("    Warning: current version %q is not valid semver, proceeding with update", buildVersion)
 	} else if !u.isNewer(buildVersion) {
-		fmt.Println("==> Already up to date.")
+		logger.Info("==> Already up to date.")
 		return nil
 	}
 
@@ -123,13 +124,13 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 		return fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 
-	fmt.Printf("==> Updating %s ...\n", exePath)
+	logger.Info("==> Updating %s ...", exePath)
 
 	if err := u.applyUpdate(ctx, exePath); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 
-	fmt.Printf("==> Updated to %s\n", latestVersion)
+	logger.Info("==> Updated to %s", latestVersion)
 
 	// Re-create go-safe-build compat symlink if binary is in ~/.local/bin/
 	home, err := os.UserHomeDir()
@@ -143,9 +144,9 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 			os.Remove(compatPath)
 		}
 		if err := os.Symlink(exePath, compatPath); err != nil {
-			fmt.Printf("==> Warning: failed to update compat symlink: %v\n", err)
+			logger.Warn("==> Warning: failed to update compat symlink: %v", err)
 		} else {
-			fmt.Printf("==> Symlinked %s -> %s\n", compatPath, exePath)
+			logger.Info("==> Symlinked %s -> %s", compatPath, exePath)
 		}
 	}
 

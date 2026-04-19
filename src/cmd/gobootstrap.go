@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Test seams — overridden in tests to avoid real downloads.
@@ -38,13 +39,14 @@ var resolvedGoMinor int
 //
 // Call this early in main, before any cobra/build logic runs.
 func EnsureGoVersion() error {
+	bootstrapLog := logger.WithSubsystem("bootstrap")
 	goPath, lookErr := exec.LookPath("go")
 	if lookErr != nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: go not in PATH (%v)\n", lookErr)
+		bootstrapLog.Debug("go not in PATH (%v)", lookErr)
 		return bootstrapGo("go not found in PATH")
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: found go at %s\n", goPath)
+	bootstrapLog.Debug("found go at %s", goPath)
 
 	// Check whether the installed version satisfies go.mod.
 	required, err := requiredGoVersion()
@@ -55,31 +57,31 @@ func EnsureGoVersion() error {
 
 	installed, err := installedGoVersion()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot determine installed version (%v), proceeding\n", err)
+		bootstrapLog.Debug("cannot determine installed version (%v), proceeding", err)
 		recordGoMinor(required)
 		return nil
 	}
 
 	installedVer, err := semver.NewVersion(installed)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot parse installed version %q (%v), proceeding\n", installed, err)
+		bootstrapLog.Debug("cannot parse installed version %q (%v), proceeding", installed, err)
 		recordGoMinor(required)
 		return nil
 	}
 	requiredVer, err := semver.NewVersion(required)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot parse required version %q (%v), proceeding\n", required, err)
+		bootstrapLog.Debug("cannot parse required version %q (%v), proceeding", required, err)
 		recordGoMinor(installed)
 		return nil
 	}
 
 	if !installedVer.LessThan(requiredVer) {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s satisfies required %s\n", installed, required)
+		bootstrapLog.Debug("installed Go %s satisfies required %s", installed, required)
 		recordGoMinor(installed)
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is older than required %s\n", installed, required)
+	bootstrapLog.Debug("installed Go %s is older than required %s", installed, required)
 	return bootstrapGo(fmt.Sprintf("installed %s < required %s", installed, required))
 }
 
@@ -91,7 +93,8 @@ func bootstrapGo(reason string) error {
 		return fmt.Errorf("%s and cannot determine version from go.mod: %v", reason, err)
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: bootstrapping Go %s...\n", required)
+	bootstrapLog := logger.WithSubsystem("bootstrap")
+	bootstrapLog.Debug("bootstrapping Go %s...", required)
 
 	bootstrapStart := time.Now()
 	goRoot, err := ensureGoCached(required)
@@ -109,7 +112,7 @@ func bootstrapGo(reason string) error {
 		return fmt.Errorf("bootstrap completed but go still not found in PATH: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s %s\n", required, goRoot, fmtDuration(time.Since(bootstrapStart)))
+	bootstrapLog.Debug("using Go %s from %s %s", required, goRoot, fmtDuration(time.Since(bootstrapStart)))
 	recordGoMinor(required)
 	return nil
 }
@@ -262,21 +265,22 @@ func downloadGo(version, cacheDir, goRoot string) error {
 
 	var resp *http.Response
 	var lastErr error
+	dlLog := logger.WithSubsystem("bootstrap")
 	for _, url := range urls {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: downloading %s", url)
+		dlLog.Debug("downloading %s", url)
 		dlStart := time.Now()
 		resp, lastErr = http.Get(url)
 		if lastErr == nil && resp.StatusCode == http.StatusOK {
-			fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(dlStart)))
+			dlLog.Debug("downloaded %s", fmtDuration(time.Since(dlStart)))
 			break
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
 		if lastErr != nil {
-			fmt.Fprintf(os.Stderr, "\n  FAIL %v\n", lastErr)
+			dlLog.Debug("  FAIL %v", lastErr)
 		} else {
-			fmt.Fprintf(os.Stderr, "\n  FAIL HTTP %d\n", resp.StatusCode)
+			dlLog.Debug("  FAIL HTTP %d", resp.StatusCode)
 			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 		}
 	}
@@ -290,12 +294,12 @@ func downloadGo(version, cacheDir, goRoot string) error {
 	tmpRoot := filepath.Join(cacheDir, "go")
 	os.RemoveAll(tmpRoot) // clean any stale partial extraction
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: extracting...")
+	dlLog.Debug("extracting...")
 	extractStart := time.Now()
 	if err := extractTarGz(resp.Body, cacheDir); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(extractStart)))
+	dlLog.Debug("extracted %s", fmtDuration(time.Since(extractStart)))
 
 	// Rename go/ -> go<version>/
 	if err := os.Rename(tmpRoot, goRoot); err != nil {

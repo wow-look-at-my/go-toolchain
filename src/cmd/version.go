@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Build-time variables, set via -ldflags -X.
@@ -49,7 +50,7 @@ func init() {
 	versionCmd.AddCommand(&cobra.Command{
 		Use:   "raw",
 		Short: "Print just the version number",
-		Run:   func(cmd *cobra.Command, args []string) { fmt.Println(buildVersion) },
+		Run:   func(cmd *cobra.Command, args []string) { logger.Output("%s", buildVersion) },
 	})
 	versionCmd.AddCommand(&cobra.Command{
 		Use:   "json",
@@ -111,18 +112,18 @@ func runVersion(cmd *cobra.Command, args []string) {
 }
 
 func printVersionInfo() {
-	fmt.Printf("Version:     %s\n", buildVersion)
-	fmt.Printf("Commit:      %s\n", buildCommit)
+	logger.Output("Version:     %s", buildVersion)
+	logger.Output("Commit:      %s", buildCommit)
 
 	if buildTimestamp != "" {
 		if ts, err := strconv.ParseInt(buildTimestamp, 10, 64); err == nil {
 			commitTime := time.Unix(ts, 0).UTC()
-			fmt.Printf("Commit date: %s\n", commitTime.Format(time.RFC3339))
+			logger.Output("Commit date: %s", commitTime.Format(time.RFC3339))
 		}
 	}
 
 	if buildDate != "" {
-		fmt.Printf("Build date:  %s\n", buildDate)
+		logger.Output("Build date:  %s", buildDate)
 	}
 }
 
@@ -137,7 +138,7 @@ type commitInfo struct {
 
 func printStaleness() {
 	if buildTimestamp == "" || buildCommit == "unknown" {
-		fmt.Println("\nNo build info embedded (dev build).")
+		logger.Output("\nNo build info embedded (dev build).")
 		return
 	}
 
@@ -148,12 +149,12 @@ func printStaleness() {
 
 	latest, err := fetchLatestCommitFromGitHub()
 	if err != nil {
-		fmt.Printf("\nCould not check for updates: %v\n", err)
+		logger.Output("\nCould not check for updates: %v", err)
 		return
 	}
 
 	if latest.timestamp <= builtTs {
-		fmt.Println("\nBuild is up to date with latest commit.")
+		logger.Output("\nBuild is up to date with latest commit.")
 		return
 	}
 
@@ -164,7 +165,7 @@ func printStaleness() {
 		msg += fmt.Sprintf(" (%d commits)", count)
 	}
 
-	fmt.Println(msg)
+	logger.Output("%s", msg)
 }
 
 // newGitHubRequest creates an HTTP GET request, adding an Authorization
@@ -312,10 +313,10 @@ func checkDirtyInCI(info gitInfo) error {
 		// Diagnostic: surface what's dirty so the cause is visible in CI logs
 		// instead of requiring a local reproduction.
 		if out, err := exec.Command("git", "status", "--porcelain").Output(); err == nil && len(out) > 0 {
-			fmt.Fprintf(os.Stderr, "==> git status --porcelain:\n%s", out)
+			logger.Info("==> git status --porcelain:\n%s", string(out))
 		}
 		if out, err := exec.Command("git", "diff", "--stat").Output(); err == nil && len(out) > 0 {
-			fmt.Fprintf(os.Stderr, "==> git diff --stat:\n%s", out)
+			logger.Info("==> git diff --stat:\n%s", string(out))
 		}
 		return fmt.Errorf("refusing to build: version %q has -dirty suffix in CI (working tree is not clean)", info.version)
 	}

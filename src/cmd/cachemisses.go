@@ -1,12 +1,12 @@
 package cmd
 
 import (
-	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // cacheMissTracker captures package import paths from go build -v / go test -v
@@ -78,9 +78,9 @@ func (t *cacheMissTracker) Print() {
 		return
 	}
 	sort.Strings(t.pkgs)
-	fmt.Fprintf(os.Stderr, "\n==> Cache misses: %d packages compiled\n", len(t.pkgs))
+	logger.Info("\n==> Cache misses: %d packages compiled", len(t.pkgs))
 	for _, pkg := range t.pkgs {
-		fmt.Fprintf(os.Stderr, "    %s\n", pkg)
+		logger.Info("    %s", pkg)
 	}
 }
 

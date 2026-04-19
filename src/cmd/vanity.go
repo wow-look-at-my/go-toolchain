@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // wellKnownHosts are code-hosting domains that resolve directly without
@@ -209,7 +211,7 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 		}
 
 		if !jsonOutput {
-			fmt.Printf("==> Vanity host %s unreachable, resolving GitHub sources\n", host)
+			logger.Info("==> Vanity host %s unreachable, resolving GitHub sources", host)
 		}
 
 		for _, m := range mods {
@@ -220,7 +222,7 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 			vcsURL, err := resolve(m.Path, m.Version)
 			if err != nil {
 				if !jsonOutput {
-					fmt.Printf("    warning: cannot resolve %s: %v\n", m.Path, err)
+					logger.Warn("    warning: cannot resolve %s: %v", m.Path, err)
 				}
 				continue
 			}
@@ -271,12 +273,12 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 	for _, r := range replaces {
 		if err := f.AddReplace(r.OldPath, r.OldVersion, r.NewPath, r.NewVersion); err != nil {
 			if !jsonOutput {
-				fmt.Printf("    warning: failed to add replace for %s: %v\n", r.OldPath, err)
+				logger.Warn("    warning: failed to add replace for %s: %v", r.OldPath, err)
 			}
 			continue
 		}
 		if !jsonOutput {
-			fmt.Printf("    replace %s %s => %s %s\n", r.OldPath, r.OldVersion, r.NewPath, r.NewVersion)
+			logger.Info("    replace %s %s => %s %s", r.OldPath, r.OldVersion, r.NewPath, r.NewVersion)
 		}
 		injected = append(injected, r)
 	}
