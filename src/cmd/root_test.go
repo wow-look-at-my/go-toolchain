@@ -466,6 +466,36 @@ func newSmallMock(covered, uncovered int) *runner.Mock {
 	return mock
 }
 
+func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+	setupMockProject()
+
+	// Mock that reports a passing package but writes an empty coverage profile
+	// (just "mode: set"). This simulates broken coverage data collection.
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") {
+			writeMockCoverProfileStmts(cfg.Args, 0, 0) // empty profile
+			out := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}` + "\n" +
+				`{"Time":"2024-01-01T00:00:01Z","Action":"pass","Package":"example.com/pkg"}` + "\n"
+			return runner.MockProcess([]byte(out), nil), nil
+		}
+		if proc, ok := handleGoList(cfg); ok {
+			return proc, nil
+		}
+		return nil, nil
+	}
+
+	jsonOutput = true
+	defer func() { jsonOutput = false }()
+	assert.Panics(t, func() {
+		runWithRunner(mock, nil) //nolint
+	})
+}
+
 func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
