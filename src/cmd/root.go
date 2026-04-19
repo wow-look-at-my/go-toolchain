@@ -473,11 +473,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep = logStep("Running tests with coverage")
 	}
 
-	// Use a deterministic path so Go's test cache keys (which include
-	// -coverprofile=<path>) are stable across runs.
+	// Use a process-unique path to avoid collisions when tests call
+	// RunTestsWithCoverage with mock runners — they write and then delete
+	// this file, which would corrupt the outer go test's coverprofile.
+	// With -count=1 already disabling test-result caching, cache-key
+	// stability from a deterministic path is no longer required.
 	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
 	os.MkdirAll(coverDir, 0o755)
-	coverFile := filepath.Join(coverDir, "coverage.out")
+	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
 	defer os.Remove(coverFile)
 
 	var onTestOutput func()
