@@ -32,8 +32,9 @@ const (
 // OTEL_EXPORTER_OTLP_ENDPOINT is set, so the granular per-request data
 // is preserved out-of-band.
 type httpErrLogger struct {
-	tp     *sdktrace.TracerProvider // nil if OTel is not configured
-	tracer trace.Tracer             // nil if tp is nil
+	tp            *sdktrace.TracerProvider // nil if OTel is not configured
+	tracer        trace.Tracer             // nil if tp is nil
+	parentSpanCtx trace.SpanContext        // parent span context from go-toolchain
 
 	mu        sync.Mutex
 	w         io.Writer
@@ -95,6 +96,7 @@ func newHTTPErrLogger(w io.Writer, interval time.Duration) *httpErrLogger {
 		} else {
 			l.tp = tp
 			l.tracer = tp.Tracer("go-toolchain/cacheprog")
+			l.parentSpanCtx = extractParentSpanContext()
 		}
 	}
 	go l.loop()
@@ -210,7 +212,11 @@ func (l *httpErrLogger) emitSpan(op string, status int, id, body string) {
 		}
 		attrs = append(attrs, attribute.String("cacheprog.body", disp))
 	}
-	_, span := l.tracer.Start(context.Background(), "cacheprog.http_error",
+	ctx := context.Background()
+	if l.parentSpanCtx.IsValid() {
+		ctx = trace.ContextWithSpanContext(ctx, l.parentSpanCtx)
+	}
+	_, span := l.tracer.Start(ctx, "cacheprog.http_error",
 		trace.WithAttributes(attrs...),
 	)
 	span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", status))
@@ -337,4 +343,28 @@ func shortID(id string) string {
 		return id[:httpErrShortIDLen]
 	}
 	return id
+}
+
+func extractParentSpanContext() trace.SpanContext {
+	traceparent := os.Getenv("OTEL_TRACEPARENT")
+	if traceparent == "" {
+		return trace.SpanContext{}
+	}
+	parts := strings.Split(traceparent, "-")
+	if len(parts) != 4 {
+		return trace.SpanContext{}
+	}
+	traceID, err := trace.TraceIDFromHex(parts[1])
+	if err != nil {
+		return trace.SpanContext{}
+	}
+	spanID, err := trace.SpanIDFromHex(parts[2])
+	if err != nil {
+		return trace.SpanContext{}
+	}
+	return trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID,
+		SpanID:  spanID,
+		Remote:  true,
+	})
 }
