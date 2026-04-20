@@ -365,7 +365,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	}
 
 	// Handle vanity-URL modules: inject replace directives for unreachable hosts
-	vanityReplaces, vanityErr := injectVanityReplaces()
+	vanity, vanityErr := injectVanityReplaces()
 	if vanityErr != nil {
 		return false, nil, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
 	}
@@ -431,7 +431,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	// stages complete. Tests and build need the replaces to resolve modules
 	// when the vanity host is unreachable.
 	defer func() {
-		_ = removeVanityReplaces(vanityReplaces)
+		_ = removeVanityReplaces(vanity)
 	}()
 
 	var vetStep *step
