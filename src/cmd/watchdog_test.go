@@ -21,9 +21,6 @@ import (
 // stop(), stdoutR.Close() discarded any bytes forward() hadn't read yet,
 // causing the coverage block to vanish intermittently.
 func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
-	if os.Getenv("CI") != "" {
-		t.Skip("flaky in CI: fd 1/2 dup2 churn interacts with go test coverage writer")
-	}
 	// Force single-threaded scheduling so the main goroutine and the forward
 	// goroutine compete for the same P. Without this, forward() drains the
 	// pipe fast enough on multicore machines that the race almost never
