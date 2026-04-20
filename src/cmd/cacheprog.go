@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func init() {
@@ -192,6 +194,14 @@ func enableCacheProg() error {
 		fmt.Fprintf(os.Stderr, "cacheprog: local only\n")
 	}
 
+	// Generate and propagate W3C trace context to cacheprog subprocess
+	// This allows cacheprog spans to be children of the go-toolchain root span
+	if os.Getenv("OTEL_TRACEPARENT") == "" {
+		traceID, spanID := generateTraceIDs()
+		traceparent := fmt.Sprintf("00-%s-%s-01", traceID.String(), spanID.String())
+		os.Setenv("OTEL_TRACEPARENT", traceparent)
+	}
+
 	os.Setenv("GOCACHEPROG", exe+" cacheprog")
 	return nil
 }
@@ -303,4 +313,12 @@ func cacheHome() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".cache", "go-toolchain")
+}
+
+func generateTraceIDs() (trace.TraceID, trace.SpanID) {
+	traceIDBytes := [16]byte{}
+	spanIDBytes := [8]byte{}
+	rand.Read(traceIDBytes[:])
+	rand.Read(spanIDBytes[:])
+	return trace.TraceID(traceIDBytes), trace.SpanID(spanIDBytes)
 }
