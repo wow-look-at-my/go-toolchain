@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
-	github.com/go-git/go-git/v5 v5.17.1
+	github.com/go-git/go-git/v5 v5.18.0
 	github.com/pierrec/lz4/v4 v4.1.26
 	github.com/spf13/cobra v1.10.2
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
