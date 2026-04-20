@@ -38,6 +38,17 @@ type vanityReplace struct {
 	NewVersion string
 }
 
+// vanityState carries the replaces that were injected together with a
+// snapshot of go.sum as it existed prior to injection. The snapshot lets
+// removeVanityReplaces restore the original go.sum entries, which is
+// necessary because go mod tidy — run while the replace is active —
+// rewrites go.sum to reference the replacement path (e.g. github.com
+// mirror) instead of the original vanity path (e.g. gonum.org).
+type vanityState struct {
+	Replaces  []vanityReplace
+	OrigGoSum []byte
+}
+
 // parseVanityModulesFromSum reads go.sum and returns modules whose hosts are
 // vanity URL domains (not well-known code hosts).
 func parseVanityModulesFromSum() ([]vanityModule, error) {
@@ -181,9 +192,9 @@ var vanityVCSResolver func(modulePath, version string) (string, error)
 // reachability, and injects replace directives into go.mod for any module
 // whose vanity host is unreachable.
 //
-// Returns the list of injected replaces so the caller can remove them after
-// go mod tidy completes.
-func injectVanityReplaces() ([]vanityReplace, error) {
+// Returns the state (replaces + go.sum snapshot) so the caller can remove
+// the replaces and restore go.sum after go mod tidy completes.
+func injectVanityReplaces() (*vanityState, error) {
 	modules, err := parseVanityModulesFromSum()
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -285,17 +296,30 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 		return nil, nil
 	}
 
+	// Snapshot go.sum so we can restore it when the replaces are removed.
+	// go mod tidy, run while the replace is active, will rewrite go.sum to
+	// reference the replacement path; the snapshot lets us revert that.
+	origGoSum, err := os.ReadFile("go.sum")
+	if err != nil {
+		return nil, err
+	}
+
 	newData, err := f.Format()
 	if err != nil {
 		return nil, err
 	}
-	return injected, os.WriteFile("go.mod", newData, 0644)
+	if err := os.WriteFile("go.mod", newData, 0644); err != nil {
+		return nil, err
+	}
+	return &vanityState{Replaces: injected, OrigGoSum: origGoSum}, nil
 }
 
 // removeVanityReplaces removes previously injected vanity replace directives
-// from go.mod, preserving any other changes go mod tidy may have made.
-func removeVanityReplaces(replaces []vanityReplace) error {
-	if len(replaces) == 0 {
+// from go.mod and restores go.sum to its pre-injection snapshot. The restore
+// undoes the path swap go mod tidy performed while the replace was active
+// (e.g. rewriting gonum.org/v1/gonum entries as github.com/gonum/gonum).
+func removeVanityReplaces(state *vanityState) error {
+	if state == nil || len(state.Replaces) == 0 {
 		return nil
 	}
 
@@ -309,7 +333,7 @@ func removeVanityReplaces(replaces []vanityReplace) error {
 		return err
 	}
 
-	for _, r := range replaces {
+	for _, r := range state.Replaces {
 		if err := f.DropReplace(r.OldPath, r.OldVersion); err != nil {
 			return fmt.Errorf("remove replace for %s: %w", r.OldPath, err)
 		}
@@ -319,5 +343,14 @@ func removeVanityReplaces(replaces []vanityReplace) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("go.mod", newData, 0644)
+	if err := os.WriteFile("go.mod", newData, 0644); err != nil {
+		return err
+	}
+
+	if state.OrigGoSum != nil {
+		if err := os.WriteFile("go.sum", state.OrigGoSum, 0644); err != nil {
+			return fmt.Errorf("restore go.sum: %w", err)
+		}
+	}
+	return nil
 }
