@@ -1,13 +1,17 @@
 package cache
 
 import (
+	"bytes"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/wow-look-at-my/testify/require"
 )
@@ -298,7 +302,48 @@ func TestWebBackend_PutServerError(t *testing.T) {
 	payload := largePayload(1024)
 	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 	require.Error(t, err)
+	require.True(t, errors.Is(err, errLogged), "PUT HTTP error must wrap errLogged so cache.go suppresses the duplicate log")
 	require.Equal(t, uint32(0), b.Stats.Puts.Load())
+}
+
+func TestWebBackend_PutServerError_Coalesced(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(502)
+		w.Write([]byte("error code: 502"))
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+
+	// Swap the auto-initialized 30s logger for one bound to a buffer with
+	// a long interval, so all flushing happens on Close.
+	_ = b.errLog.Close()
+	var buf bytes.Buffer
+	b.errLog = newHTTPErrLogger(&buf, time.Hour)
+
+	const n = 10
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			actionID := strings.Repeat("0", 14) + strconv.FormatInt(int64(i), 16) + "0"
+			outputID := "eeff0011aabbccdd"
+			payload := largePayload(64)
+			_ = b.Put(actionID, outputID, nopReader(payload), int64(len(payload)))
+		}(i)
+	}
+	wg.Wait()
+	require.NoError(t, b.Close())
+
+	out := buf.String()
+	require.Equal(t, 1, strings.Count(out, "\n"), "expected exactly one aggregated line, got: %q", out)
+	require.Contains(t, out, "cacheprog: web put ")
+	require.Contains(t, out, "HTTP 502: error code: 502")
 }
 
 func TestSignRequest_BasicAuth(t *testing.T) {

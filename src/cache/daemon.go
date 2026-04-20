@@ -111,8 +111,12 @@ func (d *Daemon) Close() {
 	d.listener.Close()
 	d.wg.Wait()
 	if d.remote != nil {
-		// Print web backend miss breakdown for diagnostics.
+		// Print web backend hit/put/miss breakdown for diagnostics. The
+		// hits and puts numbers make it obvious whether the cache is
+		// actually working or whether everything is missing.
 		if wb, ok := d.remote.(*WebBackend); ok {
+			hits := wb.Stats.Hits.Load()
+			puts := wb.Stats.Puts.Load()
 			notInIndex := wb.MissNotInIndex.Load()
 			http404 := wb.MissHTTP404.Load()
 			httpErr := wb.MissHTTPError.Load()
@@ -120,10 +124,10 @@ func (d *Daemon) Close() {
 			readBody := wb.MissReadBody.Load()
 			decompress := wb.MissDecompress.Load()
 			network := wb.MissNetwork.Load()
-			total := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + network
-			if total > 0 {
-				fmt.Fprintf(os.Stderr, "cacheprog: web misses: %d total (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d network=%d)\n",
-					total, notInIndex, http404, httpErr, noOutputID, readBody, decompress, network)
+			missTotal := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + network
+			if hits > 0 || puts > 0 || missTotal > 0 {
+				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d network=%d)\n",
+					hits, puts, missTotal, notInIndex, http404, httpErr, noOutputID, readBody, decompress, network)
 			}
 		}
 		d.remote.Close()
