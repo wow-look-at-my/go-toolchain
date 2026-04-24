@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 // Cmd is a GOCACHEPROG command verb.
@@ -501,7 +503,7 @@ func (s *Server) handleGet(req Request) Response {
 	if !miss {
 		s.sendStat(StatEvent{LocalHit: 1})
 		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: HIT local  %s size=%d\n", actionID, meta.Size)
+			logx.Logf("cache: HIT local  %s size=%d", actionID, meta.Size)
 		}
 		t := meta.Time
 		return Response{

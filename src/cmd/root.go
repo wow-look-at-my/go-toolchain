@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
@@ -140,7 +141,7 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 		tracePath := filepath.Join(os.TempDir(), "go-toolchain-profile", "trace.json")
 		if err := gotrace.WriteChrome(tracePath, entries, activeTrace); err != nil {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: failed to write Chrome trace: %v\n", err)
+			logx.Logf("⇒ Warning: failed to write Chrome trace: %v", err)
 		}
 	}()
 
@@ -173,7 +174,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Write GitHub Step Summary once after all modules complete
 	if writeErr := summary.Write(&allSummary); writeErr != nil {
-		fmt.Fprintf(os.Stderr, "⇒ Warning: failed to write step summary: %v\n", writeErr)
+		logx.Logf("⇒ Warning: failed to write step summary: %v", writeErr)
 	}
 
 	// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
@@ -181,7 +182,7 @@ func run(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := gotrace.Export(ctx, tl.Entries()); err != nil {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: failed to export traces: %v\n", err)
+			logx.Logf("⇒ Warning: failed to export traces: %v", err)
 		}
 
 	}
@@ -349,7 +350,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if !quiet {
 		modTidyStep = logStep("go mod tidy")
 	}
-	timedStderr := newTimedLineWriter(os.Stderr)
+	timedStderr := newTimedLineWriter(logx.Stderr)
 	proc, err := runner.Cmd("go", "mod", "tidy", "-v").WithStderrWriter(timedStderr).WithOnFirstOutput(func() {
 		if modTidyStep != nil {
 			modTidyStep.noteOutput()

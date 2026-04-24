@@ -1,0 +1,206 @@
+// Package logx installs a process-wide timestamp pipeline for the
+// toolchain's stdout and stderr.
+//
+// # Why
+//
+// Toolchain diagnostics are spread across many packages, each using
+// fmt.Printf / fmt.Fprintf(os.Stderr, …) directly. Migrating every call
+// site to a centralized logger would be invasive and churn-heavy, and it
+// would miss the output of child subprocesses (which inherit our
+// stdout/stderr FDs). Instead, Install() swaps os.Stdout and os.Stderr for
+// pipe write-ends and starts goroutines that read each complete line and
+// forward it to the real stream prefixed with a wall-clock timestamp.
+//
+// With Install() active, every line emitted by this process — from our own
+// fmt.Printf calls, from subprocess output inherited via the pipe, from
+// timedLineWriter, from anywhere — arrives on the real terminal with a
+// timestamp at column 0. Call sites don't change.
+//
+// # When not to install
+//
+// GOCACHEPROG mode must produce raw JSON on stdout for the Go toolchain
+// to parse, so Install() must NOT be called in that path. main.go already
+// handles that by early-returning from init when cacheprog is detected.
+//
+// # Ordering
+//
+// Install() must run before any code writes to stdout/stderr. It's
+// idempotent — subsequent calls are no-ops.
+//
+// Flush() should be deferred from main() so partial lines and buffered
+// pipe content are emitted before exit.
+package logx
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	colorReset   = "\033[0m"
+	colorDimGray = "\033[38;2;128;128;128m"
+)
+
+// Stdout / Stderr are dynamic forwarders to the current os.Stdout /
+// os.Stderr. Using these as io.Writer destinations is equivalent to
+// writing to os.Stdout / os.Stderr directly, but signals "log-like"
+// intent at the call site. Post-Install() both paths flow through the
+// timestamp pipe.
+type stdoutForwarder struct{}
+
+func (stdoutForwarder) Write(p []byte) (int, error) { return os.Stdout.Write(p) }
+
+type stderrForwarder struct{}
+
+func (stderrForwarder) Write(p []byte) (int, error) { return os.Stderr.Write(p) }
+
+var (
+	Stdout io.Writer = stdoutForwarder{}
+	Stderr io.Writer = stderrForwarder{}
+)
+
+var (
+	installOnce   sync.Once
+	installed     bool
+	origStdout    *os.File
+	origStderr    *os.File
+	pipeStdoutW   *os.File
+	pipeStderrW   *os.File
+	drainedWG     sync.WaitGroup
+	colorDecision bool
+)
+
+// Install redirects os.Stdout and os.Stderr through pipes. A goroutine
+// per stream reads complete lines and writes them back to the original
+// stream prefixed with "HH:MM:SS.mmm ".
+//
+// Do NOT call this in GOCACHEPROG mode — the Go toolchain expects raw
+// JSON on stdout there.
+func Install() {
+	installOnce.Do(func() {
+		// Latch the color decision NOW, while the original stderr is still
+		// a TTY. After we swap it for a pipe, os.Stderr.Stat() would
+		// report ModeNamedPipe and we'd wrongly disable color.
+		colorDecision = decideColor()
+
+		origStdout = os.Stdout
+		origStderr = os.Stderr
+
+		prOut, pwOut, err := os.Pipe()
+		if err != nil {
+			return
+		}
+		prErr, pwErr, err := os.Pipe()
+		if err != nil {
+			prOut.Close()
+			pwOut.Close()
+			return
+		}
+
+		os.Stdout = pwOut
+		os.Stderr = pwErr
+		pipeStdoutW = pwOut
+		pipeStderrW = pwErr
+
+		drainedWG.Add(2)
+		go drain(prOut, origStdout)
+		go drain(prErr, origStderr)
+
+		installed = true
+	})
+}
+
+// Flush closes the pipe write-ends and waits for drainer goroutines to
+// finish. os.Stdout and os.Stderr are restored to the original files so
+// any late writes (e.g. from panic handlers) still reach the terminal
+// without deadlocking on a closed pipe.
+//
+// Safe to call multiple times and before Install().
+func Flush() {
+	if !installed {
+		return
+	}
+	// Restore originals first so any post-Flush writes don't deadlock on a
+	// closed pipe. Then close the pipe write-ends to signal EOF to drainers.
+	os.Stdout = origStdout
+	os.Stderr = origStderr
+	_ = pipeStdoutW.Close()
+	_ = pipeStderrW.Close()
+	drainedWG.Wait()
+	installed = false
+}
+
+// drain reads lines from r and writes them to w with a timestamp prefix.
+// Partial content at EOF (no trailing newline) is emitted with an
+// appended newline so nothing is lost.
+func drain(r *os.File, w io.Writer) {
+	defer drainedWG.Done()
+	defer r.Close()
+	br := bufio.NewReader(r)
+	for {
+		line, err := br.ReadString('\n')
+		if len(line) > 0 {
+			hasNL := strings.HasSuffix(line, "\n")
+			if hasNL {
+				fmt.Fprintf(w, "%s %s", timestamp(time.Now()), line)
+			} else {
+				fmt.Fprintf(w, "%s %s\n", timestamp(time.Now()), line)
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// decideColor reports whether timestamps should be dimmed. Honors
+// NO_COLOR (https://no-color.org). Must be called before Install() swaps
+// os.Stderr for a pipe.
+func decideColor() bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	fi, err := os.Stderr.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+func timestamp(now time.Time) string {
+	ts := now.Format("15:04:05.000")
+	if colorDecision {
+		return colorDimGray + ts + colorReset
+	}
+	return ts
+}
+
+// Logf writes a formatted message to os.Stderr with a trailing newline
+// (appended if missing). When Install() has been called, the line is
+// timestamped by the drainer.
+func Logf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if !strings.HasSuffix(msg, "\n") {
+		msg += "\n"
+	}
+	io.WriteString(os.Stderr, msg)
+}
+
+// Logln is fmt.Fprintln(os.Stderr, args...).
+func Logln(args ...any) {
+	fmt.Fprintln(os.Stderr, args...)
+}
+
+// Printf is Logf but writes to os.Stdout.
+func Printf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if !strings.HasSuffix(msg, "\n") {
+		msg += "\n"
+	}
+	io.WriteString(os.Stdout, msg)
+}

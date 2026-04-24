@@ -1,17 +1,24 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 func init() {
-	// When invoked as GOCACHEPROG, skip all env setup — just serve the protocol.
+	// When invoked as GOCACHEPROG, stdout must carry raw JSON protocol
+	// traffic to the Go toolchain — prepending timestamps would corrupt it.
+	// Skip log-timestamp installation and all env setup in that mode.
 	if isCacheProgInvocation() {
 		return
 	}
+
+	// Swap os.Stdout / os.Stderr for pipes so every line emitted by this
+	// process (and by inherited subprocess FDs) is prefixed with a
+	// wall-clock timestamp. Must happen before any other code writes.
+	logx.Install()
 
 	// Let Go automatically download the correct toolchain when go.mod
 	// requires a newer version than the one installed.
@@ -55,13 +62,20 @@ func needsGo() bool {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
+	// Drain any buffered pipe content before exit so nothing is lost.
+	defer logx.Flush()
 	if needsGo() {
 		if err := cmd.EnsureGoVersion(); err != nil {
-			fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
-			os.Exit(1)
+			logx.Logf("go bootstrap: %v", err)
+			return 1
 		}
 	}
 	if err := cmd.Execute(); err != nil {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

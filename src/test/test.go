@@ -7,12 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"gotest.tools/gotestsum/testjson"
 )
@@ -303,7 +304,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// Tee stderr to console (for compilation progress like "go: downloading"
 	// and build errors) while also capturing it in a buffer for error reporting.
 	var stderrBuf bytes.Buffer
-	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
+	stderrTee := io.MultiWriter(&stderrBuf, logx.Stderr)
 	proc, err := runner.Cmd("go", args...).WithStderrWriter(stderrTee).Run(r)
 	if err != nil {
 		return nil, err
@@ -314,7 +315,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	handler := &coverageHandler{
 		coverage:   pkgCoverage,
 		verbose:    verbose,
-		out:        os.Stdout,
+		out:        logx.Stdout,
 		testOutput: make(map[string][]string),
 		failedTest: make(map[string]bool),
 		timedOut:   make(map[string]bool),

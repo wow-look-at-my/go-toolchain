@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
@@ -79,12 +80,12 @@ func isGHA() bool {
 func logWarning(file, msg string) {
 	if isGHA() {
 		if file != "" {
-			fmt.Printf("::warning file=%s::%s\n", file, msg)
+			fmt.Fprintf(logx.Stdout, "::warning file=%s::%s\n", file, msg)
 		} else {
-			fmt.Printf("::warning ::%s\n", msg)
+			fmt.Fprintf(logx.Stdout, "::warning ::%s\n", msg)
 		}
 	} else {
-		fmt.Printf("  %s%s%s\n", colorYellow, msg, colorReset)
+		fmt.Fprintf(logx.Stdout, "  %s%s%s\n", colorYellow, msg, colorReset)
 	}
 }
 
@@ -93,12 +94,12 @@ func logWarning(file, msg string) {
 func logError(file, msg string) {
 	if isGHA() {
 		if file != "" {
-			fmt.Printf("::error file=%s::%s\n", file, msg)
+			fmt.Fprintf(logx.Stdout, "::error file=%s::%s\n", file, msg)
 		} else {
-			fmt.Printf("::error ::%s\n", msg)
+			fmt.Fprintf(logx.Stdout, "::error ::%s\n", msg)
 		}
 	} else {
-		fmt.Printf("  %s%s%s\n", colorRed, msg, colorReset)
+		fmt.Fprintf(logx.Stdout, "  %s%s%s\n", colorRed, msg, colorReset)
 	}
 }
 
@@ -138,7 +139,7 @@ func logStep(label string) *step {
 
 // logStepOn is like logStep but records on the given thread.
 func logStepOn(label, thread string) *step {
-	fmt.Printf("⇒ %s...", label)
+	fmt.Fprintf(logx.Stdout, "⇒ %s...", label)
 	if activeWatchdog != nil {
 		activeWatchdog.setStep(label)
 	}
@@ -161,7 +162,7 @@ func logSubStep(label, thread string) *step {
 func (s *step) noteOutput() {
 	s.once.Do(func() {
 		s.noisy = true
-		fmt.Println() // finish the "..." line before subprocess output
+		fmt.Fprintln(logx.Stdout) // finish the "..." line before subprocess output
 	})
 }
 
@@ -175,11 +176,11 @@ func (s *step) finish(status string) {
 	end := time.Now()
 	d := end.Sub(s.start)
 	if s.sub {
-		fmt.Fprintf(os.Stderr, "    %s %s\n", s.label, fmtDuration(d))
+		fmt.Fprintf(logx.Stderr, "    %s %s\n", s.label, fmtDuration(d))
 	} else if s.noisy {
-		fmt.Printf("⇒ %s %s %s\n", s.label, status, fmtDuration(d))
+		fmt.Fprintf(logx.Stdout, "⇒ %s %s %s\n", s.label, status, fmtDuration(d))
 	} else {
-		fmt.Printf(" %s %s\n", status, fmtDuration(d))
+		fmt.Fprintf(logx.Stdout, " %s %s\n", status, fmtDuration(d))
 	}
 
 	if activeWatchdog != nil {
