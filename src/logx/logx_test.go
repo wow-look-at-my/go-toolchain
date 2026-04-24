@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 // captureInstalled runs fn with Install() active, replacing the underlying
@@ -24,13 +25,10 @@ func captureInstalled(t *testing.T, fn func()) string {
 	installed = false
 
 	tmpOut, err := os.CreateTemp(t.TempDir(), "stdout-*")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
+
 	tmpErr, err := os.CreateTemp(t.TempDir(), "stderr-*")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
 
 	// Swap os.Stdout/Stderr to our temp files so Install captures those
 	// as the "origStdout" / "origStderr" destinations.
@@ -56,7 +54,7 @@ func captureInstalled(t *testing.T, fn func()) string {
 
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
+func stripANSI(s string) string	{ return ansiRE.ReplaceAllString(s, "") }
 
 var tsLineRE = regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} `)
 
@@ -64,18 +62,16 @@ func TestInstallPrependsTimestampToStderr(t *testing.T) {
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stderr, "hello stderr")
 	}))
-	if !tsLineRE.MatchString(got) || !strings.Contains(got, "hello stderr\n") {
-		t.Fatalf("unexpected output: %q", got)
-	}
+	require.False(t, !tsLineRE.MatchString(got) || !strings.Contains(got, "hello stderr\n"))
+
 }
 
 func TestInstallPrependsTimestampToStdout(t *testing.T) {
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stdout, "hello stdout")
 	}))
-	if !tsLineRE.MatchString(got) || !strings.Contains(got, "hello stdout\n") {
-		t.Fatalf("unexpected output: %q", got)
-	}
+	require.False(t, !tsLineRE.MatchString(got) || !strings.Contains(got, "hello stdout\n"))
+
 }
 
 func TestInstallHandlesPartialLines(t *testing.T) {
@@ -86,9 +82,8 @@ func TestInstallHandlesPartialLines(t *testing.T) {
 		fmt.Fprintf(os.Stdout, " done. 1.82s\n")
 	}))
 	re := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} ⇒ Running tests with coverage\.\.\. done\. 1\.82s\n$`)
-	if !re.MatchString(got) {
-		t.Fatalf("expected single timestamped line, got %q", got)
-	}
+	require.True(t, re.MatchString(got))
+
 }
 
 func TestInstallTimestampsEachLineIndividually(t *testing.T) {
@@ -96,13 +91,11 @@ func TestInstallTimestampsEachLineIndividually(t *testing.T) {
 		fmt.Fprintf(os.Stderr, "one\ntwo\nthree\n")
 	}))
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 lines, got %d: %q", len(lines), got)
-	}
+	require.Equal(t, 3, len(lines))
+
 	for _, line := range lines {
-		if !tsLineRE.MatchString(line) {
-			t.Fatalf("line missing timestamp: %q", line)
-		}
+		require.True(t, tsLineRE.MatchString(line))
+
 	}
 }
 
@@ -111,9 +104,8 @@ func TestLogfConvenience(t *testing.T) {
 		Logf("hello %s", "world")
 	}))
 	re := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} hello world\n$`)
-	if !re.MatchString(got) {
-		t.Fatalf("unexpected: %q", got)
-	}
+	require.True(t, re.MatchString(got))
+
 }
 
 func TestPrintfConvenience(t *testing.T) {
@@ -121,9 +113,8 @@ func TestPrintfConvenience(t *testing.T) {
 		Printf("status: %d", 42)
 	}))
 	re := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} status: 42\n$`)
-	if !re.MatchString(got) {
-		t.Fatalf("unexpected: %q", got)
-	}
+	require.True(t, re.MatchString(got))
+
 }
 
 func TestPartialLineAtFlushIsEmitted(t *testing.T) {
@@ -132,9 +123,8 @@ func TestPartialLineAtFlushIsEmitted(t *testing.T) {
 		// No newline — Flush should still deliver it.
 	}))
 	re := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} no newline yet\n$`)
-	if !re.MatchString(got) {
-		t.Fatalf("expected flushed partial line, got %q", got)
-	}
+	require.True(t, re.MatchString(got))
+
 }
 
 func TestConcurrentWritesDoNotInterleaveMidLine(t *testing.T) {
@@ -151,9 +141,8 @@ func TestConcurrentWritesDoNotInterleaveMidLine(t *testing.T) {
 	}))
 	lineRE := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} line-\d{3}-with-padding$`)
 	for _, line := range strings.Split(strings.TrimRight(got, "\n"), "\n") {
-		if !lineRE.MatchString(line) {
-			t.Fatalf("interleaved or malformed line: %q", line)
-		}
+		require.True(t, lineRE.MatchString(line))
+
 	}
 }
 
@@ -182,8 +171,7 @@ func TestLogfWithoutInstallJustWritesToStderr(t *testing.T) {
 	w.Close()
 
 	got := <-done
-	if got != "raw-hello\n" {
-		t.Fatalf("expected raw output without timestamp, got %q", got)
-	}
+	require.Equal(t, "raw-hello\n", got)
+
 	_ = io.Discard
 }
