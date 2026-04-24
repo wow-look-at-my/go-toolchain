@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -22,6 +21,8 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // errLogged signals that an error has already been reported to stderr at
@@ -73,6 +74,7 @@ type WebBackend struct {
 	MissDecompress AtomicCounter
 	MissNetwork    AtomicCounter
 
+	tracer *cacheTracer // nil when OTel is not configured
 	errLog *httpErrLogger
 
 	// Client-side batch coalescer: many concurrent Get callers funnel
@@ -178,7 +180,8 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		secretKey: secretKey,
 		version:   cfg.Version,
 	}
-	b.errLog = newHTTPErrLogger(os.Stderr, httpErrFlushInterval)
+	b.tracer = newCacheTracer(os.Stderr)
+	b.errLog = newHTTPErrLogger(os.Stderr, httpErrFlushInterval, b.tracer)
 	b.batchReqCh = make(chan batchReq, batchReqChBuf)
 	b.batchStop = make(chan struct{})
 	b.batchDone = make(chan struct{})
@@ -324,8 +327,14 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 
 // getIndividual fetches a single object stored as an individual S3 key.
 func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser, int64, time.Time, bool, error) {
+	_, span := b.tracer.Start("cacheprog.web.get",
+		attribute.String("cacheprog.action_id", shortID(actionID)),
+	)
+	defer span.End()
+
 	req, err := http.NewRequest("GET", b.url(key), nil)
 	if err != nil {
+		span.SetStatus(codes.Error, "build request")
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	b.signRequest(req)
@@ -336,14 +345,18 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 	if err != nil {
 		b.Pool.Release()
 		b.MissNetwork.Increment()
+		markSpanErr(span, "network", err)
+		markSpanMiss(span, "network")
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
+	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
 
 	if resp.StatusCode == 404 {
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTP404.Increment()
+		markSpanMiss(span, "http_404")
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	if resp.StatusCode != 200 {
@@ -351,6 +364,7 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTPError.Increment()
+		markSpanMiss(span, fmt.Sprintf("http_%d", resp.StatusCode))
 		b.errLog.Record("web get", resp.StatusCode, actionID, string(respBody))
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -360,6 +374,7 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissNoOutputID.Increment()
+		markSpanMiss(span, "no_outputid")
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -372,6 +387,8 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 	}
 	if err != nil {
 		b.MissReadBody.Increment()
+		markSpanErr(span, "read_body", err)
+		markSpanMiss(span, "read_body")
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -383,6 +400,8 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 	}
 	if err != nil {
 		b.MissDecompress.Increment()
+		markSpanErr(span, "decompress", err)
+		markSpanMiss(span, "decompress")
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", actionID[:8], err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -395,6 +414,9 @@ func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser,
 	}
 
 	b.Stats.Hits.Increment()
+	span.SetAttributes(attribute.Bool("cacheprog.hit", true),
+		attribute.Int("cacheprog.bytes_compressed", len(compressed)),
+		attribute.Int("cacheprog.bytes_uncompressed", len(decompressed)))
 	return outputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), t, false, nil
 }
 
@@ -413,170 +435,6 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 	return r.outputID, r.body, r.size, r.t, r.miss, nil
 }
 
-// batchCoalescer collects incoming batchReqs on a short coalescing window
-// and dispatches each batch as one HTTP request to the server's batch
-// endpoint. Up to batchMaxKeys keys per HTTP request.
-func (b *WebBackend) batchCoalescer() {
-	defer close(b.batchDone)
-
-	var pending []batchReq
-	timer := time.NewTimer(time.Hour)
-	if !timer.Stop() {
-		<-timer.C
-	}
-
-	flush := func() {
-		if len(pending) == 0 {
-			return
-		}
-		batch := pending
-		pending = nil
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		b.batchHTTPWG.Add(1)
-		go func() {
-			defer b.batchHTTPWG.Done()
-			b.sendBatch(batch)
-		}()
-	}
-
-	for {
-		select {
-		case req, ok := <-b.batchReqCh:
-			if !ok {
-				flush()
-				b.batchHTTPWG.Wait()
-				return
-			}
-			if len(pending) == 0 {
-				timer.Reset(batchCoalesceWait)
-			}
-			pending = append(pending, req)
-			if len(pending) >= batchMaxKeys {
-				flush()
-			}
-		case <-timer.C:
-			flush()
-		case <-b.batchStop:
-			flush()
-			b.batchHTTPWG.Wait()
-			return
-		}
-	}
-}
-
-// sendBatch issues one HTTP request to /_batch/get for all keys in reqs,
-// distributes the matching entries back to the waiting callers via their
-// reply channels, and feeds prefetched entries to OnBatchEntries.
-func (b *WebBackend) sendBatch(reqs []batchReq) {
-	start := time.Now()
-	keys := make([]string, len(reqs))
-	for i, r := range reqs {
-		keys[i] = r.key
-	}
-
-	respondAllMiss := func() {
-		for _, r := range reqs {
-			r.resp <- batchResp{miss: true}
-		}
-	}
-
-	reqBody, _ := json.Marshal(batchGetRequest{Keys: keys, Prefetch: true})
-	batchURL := b.endpoint + "/" + b.bucket + "/_batch/get"
-	httpReq, err := http.NewRequest("GET", batchURL, bytes.NewReader(reqBody))
-	if err != nil {
-		respondAllMiss()
-		return
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	b.signRequest(httpReq)
-
-	b.Pool.Acquire()
-	resp, err := b.client.Do(httpReq)
-	if err != nil {
-		b.Pool.Release()
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: %v\n", err)
-		respondAllMiss()
-		return
-	}
-
-	if resp.StatusCode != 200 {
-		resp.Body.Close()
-		b.Pool.Release()
-		// 404/405 → server has no batch endpoint; fall back to individual
-		// GETs for every caller in this batch.
-		if resp.StatusCode == 404 || resp.StatusCode == 405 {
-			for _, r := range reqs {
-				outputID, body, size, t, miss, _ := b.getIndividual(r.actionID, r.key)
-				r.resp <- batchResp{outputID: outputID, body: body, size: size, t: t, miss: miss}
-			}
-			return
-		}
-		// 5xx etc. — coalesced via errLog. Use the first actionID as the
-		// representative; the count of affected requests is captured by the
-		// errLog group's total.
-		for _, r := range reqs {
-			b.errLog.Record("web batch get", resp.StatusCode, r.actionID, "")
-		}
-		respondAllMiss()
-		return
-	}
-
-	entries, err := parseBatchResponse(resp.Body)
-	resp.Body.Close()
-	b.Pool.Release()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: parse: %v\n", err)
-		respondAllMiss()
-		return
-	}
-
-	var nPrefetch int
-	for _, e := range entries {
-		if e.Prefetch {
-			nPrefetch++
-		}
-	}
-	b.errLog.RecordBatchHTTP(len(reqs), len(entries), nPrefetch, time.Since(start))
-
-	// Hand prefetched (and non-requested) entries to the local-cache populator.
-	if b.OnBatchEntries != nil && len(entries) > 0 {
-		b.OnBatchEntries(entries)
-	}
-
-	// Index returned entries by key for O(1) lookup.
-	entryByKey := make(map[string]*BatchEntry, len(entries))
-	for i := range entries {
-		entryByKey[entries[i].Key] = &entries[i]
-	}
-
-	// Distribute responses to each caller.
-	for _, r := range reqs {
-		e, ok := entryByKey[r.key]
-		if !ok {
-			r.resp <- batchResp{miss: true}
-			continue
-		}
-		decompressed, err := decompressData(e.Data)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: decompress: %v\n", r.actionID[:8], err)
-			r.resp <- batchResp{miss: true}
-			continue
-		}
-		b.Stats.Hits.Increment()
-		r.resp <- batchResp{
-			outputID: e.OutputID,
-			body:     io.NopCloser(bytes.NewReader(decompressed)),
-			size:     int64(len(decompressed)),
-			t:        time.Now(),
-		}
-	}
-}
-
 // Put stores a cached object with LZ4 compression.
 // Skips upload if the key is already in the index.
 func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
@@ -592,6 +450,11 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	b.keys.Add(key)
 	b.keysMu.Unlock()
 
+	_, span := b.tracer.Start("cacheprog.web.put",
+		attribute.String("cacheprog.action_id", shortID(actionID)),
+		attribute.Int64("cacheprog.bytes_uncompressed", bodySize))
+	defer span.End()
+
 	var uploaded bool
 	defer func() {
 		if !uploaded {
@@ -601,6 +464,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	raw, err := io.ReadAll(body)
 	if err != nil {
+		markSpanErr(span, "read body", err)
 		return fmt.Errorf("web put read: %w", err)
 	}
 
@@ -610,11 +474,14 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		b.Latency.Compress.Record(time.Since(compressStart))
 	}
 	if err != nil {
+		markSpanErr(span, "compress", err)
 		return fmt.Errorf("web put compress: %w", err)
 	}
+	span.SetAttributes(attribute.Int("cacheprog.bytes_compressed", len(compressed)))
 
 	req, err := http.NewRequest("PUT", b.url(key), bytes.NewReader(compressed))
 	if err != nil {
+		span.SetStatus(codes.Error, "build request")
 		return fmt.Errorf("web put request: %w", err)
 	}
 	req.ContentLength = int64(len(compressed))
@@ -640,9 +507,11 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		b.Latency.HTTPPut.Record(time.Since(httpStart))
 	}
 	if err != nil {
+		markSpanErr(span, "network", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", actionID[:8], err)
 		return err
 	}
+	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
 	// Drain and close body so the connection is returned to the pool.
 	defer func() {
 		io.Copy(io.Discard, resp.Body)
@@ -651,6 +520,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
+		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		b.errLog.Record("web put", resp.StatusCode, actionID, string(respBody))
 		return fmt.Errorf("web put: HTTP %d: %w", resp.StatusCode, errLogged)
 	}
@@ -668,10 +538,11 @@ func (b *WebBackend) removeClaimed(key string) {
 	b.keysMu.Unlock()
 }
 
-// Close drains the batch coalescer, flushes the HTTP error logger,
-// and shuts down the OTel exporter (if one was started). It is safe to
-// call on a partially-constructed WebBackend (e.g. in tests that build
-// &WebBackend{} bare).
+// Close drains the batch coalescer and flushes the HTTP error logger.
+// The OTel tracer provider is process-wide (see src/trace) and is shut
+// down once by the build entrypoint, not per WebBackend — multiple
+// components (timeline exporter, cacheprog) share the same provider so
+// all spans land in a single OTLP batch.
 func (b *WebBackend) Close() error {
 	if b.batchStop != nil {
 		close(b.batchStop)
