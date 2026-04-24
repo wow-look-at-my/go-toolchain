@@ -18,6 +18,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
+- **Timestamped log lines** — every line this toolchain emits (its own messages, step progress, subprocess output inherited via stdout/stderr) is prefixed with a wall-clock `HH:MM:SS.mmm` so runs are easy to correlate with external events; implemented by swapping `os.Stdout`/`os.Stderr` for pipes in `src/logx` so no call site has to opt in
 - **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, benchmark comparisons, and a Mermaid Gantt chart of the pipeline timeline when running in GitHub Actions
 - **Web-backed build cache** — GOCACHEPROG protocol server with local and web backends for shared build caching across CI runs (Go 1.24+). Uses server-side batch GET with prefetch: the server returns requested entries plus temporally related entries from the same build, proactively populating the local cache
 - **Vanity URL resolution** — automatically detects and resolves vanity-URL module dependencies via Go proxy or go-import meta tags
