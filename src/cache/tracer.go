@@ -2,20 +2,15 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
-	"strings"
-	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 )
 
 // noopTracer is returned by cacheTracer.Start when tracing is disabled,
@@ -24,40 +19,35 @@ import (
 // must use the official otel noop package rather than stubbing it.
 var noopTracer = noop.NewTracerProvider().Tracer("noop")
 
-// cacheTracer owns the OTel tracer provider used by cache-mode components
-// (the WebBackend's HTTP operations and the httpErrLogger). It is created
-// once per WebBackend so every cache-mode span shares the same exporter
-// batcher and the same parent trace context propagated from go-toolchain
-// via OTEL_TRACEPARENT.
+// cacheTracer is a thin façade over the process-wide shared tracer
+// provider (src/trace). It exists only to:
+//   - hold the parent SpanContext parsed from OTEL_TRACEPARENT so the
+//     cache package can root its spans under the go-toolchain run;
+//   - route every Start through the shared provider, keeping cache ops
+//     and timeline spans in a single batcher and a single OTLP stream.
 //
-// All methods are nil-safe: if OTEL_EXPORTER_OTLP_ENDPOINT is unset or
-// exporter init fails, newCacheTracer returns nil and Start becomes a
-// no-op (returns a fresh context and a noop span).
+// All methods are nil-safe: a nil *cacheTracer behaves as no-op.
 type cacheTracer struct {
-	tp            *sdktrace.TracerProvider
 	tracer        trace.Tracer
 	parentSpanCtx trace.SpanContext
 }
 
-// newCacheTracer initializes an OTLP HTTP tracer provider if
-// OTEL_EXPORTER_OTLP_ENDPOINT is set. Returns nil (tracing disabled) when
-// the env var is unset or when exporter init fails — errors are reported
-// to w but never propagated, so cache mode stays functional even if the
-// telemetry backend is down.
+// newCacheTracer returns a cacheTracer that shares the process-wide
+// tracer provider. Returns nil when tracing is disabled (shared
+// provider not initialized or provider setup failed); callers needn't
+// check for nil before invoking methods.
 func newCacheTracer(w io.Writer) *cacheTracer {
-	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
+	if _, err := gotrace.Provider(context.Background()); err != nil {
+		// Surface init failures once; downstream Start becomes a no-op.
+		w.Write([]byte("cacheprog: otel init failed: " + err.Error() + "\n"))
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	tp, err := newCacheTracerProvider(ctx)
-	if err != nil {
-		fmt.Fprintf(w, "cacheprog: otel init failed: %v\n", err)
+	tracer := gotrace.Tracer("go-toolchain/cacheprog")
+	if tracer == nil {
 		return nil
 	}
 	return &cacheTracer{
-		tp:            tp,
-		tracer:        tp.Tracer("go-toolchain/cacheprog"),
+		tracer:        tracer,
 		parentSpanCtx: extractParentSpanContext(),
 	}
 }
@@ -65,8 +55,7 @@ func newCacheTracer(w io.Writer) *cacheTracer {
 // Start begins a span rooted at the propagated parent trace context. The
 // returned context should be passed to any downstream spans so they nest
 // properly. Nil-safe: returns a fresh background context and a noop span
-// when tracing is disabled, letting callers use the standard
-// `ctx, span := t.Start(...); defer span.End()` idiom without guards.
+// when tracing is disabled.
 func (t *cacheTracer) Start(name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	if t == nil || t.tracer == nil {
 		return noopTracer.Start(context.Background(), name)
@@ -76,18 +65,6 @@ func (t *cacheTracer) Start(name string, attrs ...attribute.KeyValue) (context.C
 		ctx = trace.ContextWithSpanContext(ctx, t.parentSpanCtx)
 	}
 	return t.tracer.Start(ctx, name, trace.WithAttributes(attrs...))
-}
-
-// Shutdown force-flushes and shuts down the tracer provider. Nil-safe and
-// idempotent — safe to call from defers even if tracing was never enabled.
-func (t *cacheTracer) Shutdown() {
-	if t == nil || t.tp == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = t.tp.ForceFlush(ctx)
-	_ = t.tp.Shutdown(ctx)
 }
 
 // Enabled reports whether OTel tracing is configured. Callers that need
@@ -114,64 +91,12 @@ func markSpanErr(span trace.Span, stage string, err error) {
 	span.SetStatus(codes.Error, stage)
 }
 
-func newCacheTracerProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
-	exporter, err := otlptracehttp.New(ctx)
-	if err != nil {
-		return nil, err
-	}
-	res, err := buildCacheResource(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	), nil
-}
-
-func buildCacheResource(ctx context.Context) (*resource.Resource, error) {
-	serviceName := os.Getenv("OTEL_SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = "go-toolchain"
-	}
-	attrs := []attribute.KeyValue{
-		semconv.ServiceName(serviceName),
-	}
-	for _, kv := range []struct{ envVar, attrKey string }{
-		{"GITHUB_SHA", "github.sha"},
-		{"GITHUB_REPOSITORY", "github.repository"},
-		{"GITHUB_REF", "github.ref"},
-		{"GITHUB_RUN_ID", "github.run_id"},
-		{"GITHUB_RUN_ATTEMPT", "github.run_attempt"},
-	} {
-		if v := os.Getenv(kv.envVar); v != "" {
-			attrs = append(attrs, attribute.String(kv.attrKey, v))
-		}
-	}
-	return resource.New(ctx, resource.WithAttributes(attrs...))
-}
-
+// extractParentSpanContext parses OTEL_TRACEPARENT (W3C Trace Context)
+// into a SpanContext suitable as a parent for cache-mode spans. Delegates
+// to the shared trace package, which is the authoritative parser.
 func extractParentSpanContext() trace.SpanContext {
-	traceparent := os.Getenv("OTEL_TRACEPARENT")
-	if traceparent == "" {
+	if os.Getenv("OTEL_TRACEPARENT") == "" {
 		return trace.SpanContext{}
 	}
-	parts := strings.Split(traceparent, "-")
-	if len(parts) != 4 {
-		return trace.SpanContext{}
-	}
-	traceID, err := trace.TraceIDFromHex(parts[1])
-	if err != nil {
-		return trace.SpanContext{}
-	}
-	spanID, err := trace.SpanIDFromHex(parts[2])
-	if err != nil {
-		return trace.SpanContext{}
-	}
-	return trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID: traceID,
-		SpanID:  spanID,
-		Remote:  true,
-	})
+	return gotrace.ExtractParentSpanContext()
 }
-

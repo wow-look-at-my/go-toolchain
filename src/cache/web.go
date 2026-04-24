@@ -538,13 +538,11 @@ func (b *WebBackend) removeClaimed(key string) {
 	b.keysMu.Unlock()
 }
 
-// Close drains the batch coalescer, flushes the HTTP error logger,
-// and shuts down the OTel exporter (if one was started). It is safe to
-// call on a partially-constructed WebBackend (e.g. in tests that build
-// &WebBackend{} bare).
-//
-// Order matters: flush the errLog first so any pending spans are
-// produced, then shut down the tracer to force-flush the exporter.
+// Close drains the batch coalescer and flushes the HTTP error logger.
+// The OTel tracer provider is process-wide (see src/trace) and is shut
+// down once by the build entrypoint, not per WebBackend — multiple
+// components (timeline exporter, cacheprog) share the same provider so
+// all spans land in a single OTLP batch.
 func (b *WebBackend) Close() error {
 	if b.batchStop != nil {
 		close(b.batchStop)
@@ -553,7 +551,6 @@ func (b *WebBackend) Close() error {
 	if b.errLog != nil {
 		_ = b.errLog.Close()
 	}
-	b.tracer.Shutdown()
 	return nil
 }
 
