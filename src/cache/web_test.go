@@ -286,6 +286,60 @@ func TestWebBackend_GetMissingMetadata(t *testing.T) {
 	require.True(t, miss)
 }
 
+// primeIndex forces a key into the in-memory index so subsequent Gets
+// take the getIndividual path instead of falling through to batch GET.
+// Test helper only — in production, keys enter the index via listAllKeys
+// or the check-and-claim step in Put.
+func primeIndex(b *WebBackend, actionID string) {
+	b.keysMu.Lock()
+	b.keys.Add(b.key(actionID))
+	b.keysMu.Unlock()
+}
+
+// TestWebBackend_GetIndividualMissPaths drives each error branch in
+// getIndividual by routing Gets past the batch fallback. The branches
+// are the same ones that emit miss-reason spans, so this also guards
+// against span-tagging regressions.
+func TestWebBackend_GetIndividualMissPaths(t *testing.T) {
+	cases := []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{"404", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(404) }},
+		{"http_error", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(500)
+			w.Write([]byte("boom"))
+		}},
+		{"no_outputid", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(200)
+			w.Write([]byte("data-without-outputid-header"))
+		}},
+		{"decompress", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Amz-Meta-Outputid", "aabbccdd")
+			w.WriteHeader(200)
+			// Not LZ4 — will fail decompress.
+			w.Write([]byte("not lz4 framed data"))
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(tc.handler)
+			defer srv.Close()
+
+			b, err := NewWebBackend(WebConfig{
+				Bucket: "testbucket", Endpoint: srv.URL,
+				AccessKey: "testkey", SecretKey: "testsecret",
+			})
+			require.NoError(t, err)
+			primeIndex(b, "deadbeef00000000")
+
+			_, _, _, _, miss, _ := b.Get("deadbeef00000000")
+			require.True(t, miss, "expected miss for %s path", tc.name)
+		})
+	}
+}
+
 func TestWebBackend_PutServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
@@ -323,7 +377,7 @@ func TestWebBackend_PutServerError_Coalesced(t *testing.T) {
 	// a long interval, so all flushing happens on Close.
 	_ = b.errLog.Close()
 	var buf bytes.Buffer
-	b.errLog = newHTTPErrLogger(&buf, time.Hour)
+	b.errLog = newHTTPErrLogger(&buf, time.Hour, b.tracer)
 
 	const n = 10
 	var wg sync.WaitGroup
