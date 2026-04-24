@@ -56,37 +56,40 @@ var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func stripANSI(s string) string	{ return ansiRE.ReplaceAllString(s, "") }
 
-var tsLineRE = regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} `)
+// durSuffixRE matches a line that ends with a space and a duration (e.g. " 0.00s").
+var durSuffixRE = regexp.MustCompile(` \d+\.\d{2}s\n$`)
 
-func TestInstallPrependsTimestampToStderr(t *testing.T) {
+// durLineRE matches a single line (no trailing newline) that ends with a duration.
+var durLineRE = regexp.MustCompile(` \d+\.\d{2}s$`)
+
+func TestInstallAppendsDurationToStderr(t *testing.T) {
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stderr, "hello stderr")
 	}))
-	require.False(t, !tsLineRE.MatchString(got) || !strings.Contains(got, "hello stderr\n"))
-
+	require.True(t, strings.Contains(got, "hello stderr"))
+	require.True(t, durSuffixRE.MatchString(got))
 }
 
-func TestInstallPrependsTimestampToStdout(t *testing.T) {
+func TestInstallAppendsDurationToStdout(t *testing.T) {
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stdout, "hello stdout")
 	}))
-	require.False(t, !tsLineRE.MatchString(got) || !strings.Contains(got, "hello stdout\n"))
-
+	require.True(t, strings.Contains(got, "hello stdout"))
+	require.True(t, durSuffixRE.MatchString(got))
 }
 
 func TestInstallHandlesPartialLines(t *testing.T) {
 	// Simulates the step pattern: print prefix without newline, do work,
-	// then print completion with newline — one logical line, one timestamp.
+	// then print completion with newline — one logical line, one duration.
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stdout, "⇒ Running tests with coverage...")
 		fmt.Fprintf(os.Stdout, " done. 1.82s\n")
 	}))
-	re := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} ⇒ Running tests with coverage\.\.\. done\. 1\.82s\n$`)
+	re := regexp.MustCompile(`^⇒ Running tests with coverage\.\.\. done\. 1\.82s \d+\.\d{2}s\n$`)
 	require.True(t, re.MatchString(got))
-
 }
 
-func TestInstallTimestampsEachLineIndividually(t *testing.T) {
+func TestInstallAppendsDurationToEachLine(t *testing.T) {
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "one\ntwo\nthree\n")
 	}))
@@ -94,8 +97,7 @@ func TestInstallTimestampsEachLineIndividually(t *testing.T) {
 	require.Equal(t, 3, len(lines))
 
 	for _, line := range lines {
-		require.True(t, tsLineRE.MatchString(line))
-
+		require.True(t, durLineRE.MatchString(line))
 	}
 }
 
@@ -103,18 +105,16 @@ func TestLogfConvenience(t *testing.T) {
 	got := stripANSI(captureInstalled(t, func() {
 		Logf("hello %s", "world")
 	}))
-	re := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} hello world\n$`)
+	re := regexp.MustCompile(`^hello world \d+\.\d{2}s\n$`)
 	require.True(t, re.MatchString(got))
-
 }
 
 func TestPrintfConvenience(t *testing.T) {
 	got := stripANSI(captureInstalled(t, func() {
 		Printf("status: %d", 42)
 	}))
-	re := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} status: 42\n$`)
+	re := regexp.MustCompile(`^status: 42 \d+\.\d{2}s\n$`)
 	require.True(t, re.MatchString(got))
-
 }
 
 func TestPartialLineAtFlushIsEmitted(t *testing.T) {
@@ -122,9 +122,8 @@ func TestPartialLineAtFlushIsEmitted(t *testing.T) {
 		fmt.Fprintf(os.Stderr, "no newline yet")
 		// No newline — Flush should still deliver it.
 	}))
-	re := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} no newline yet\n$`)
+	re := regexp.MustCompile(`^no newline yet \d+\.\d{2}s\n$`)
 	require.True(t, re.MatchString(got))
-
 }
 
 func TestConcurrentWritesDoNotInterleaveMidLine(t *testing.T) {
@@ -139,10 +138,9 @@ func TestConcurrentWritesDoNotInterleaveMidLine(t *testing.T) {
 		}
 		wg.Wait()
 	}))
-	lineRE := regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\.\d{3} line-\d{3}-with-padding$`)
+	lineRE := regexp.MustCompile(`^line-\d{3}-with-padding \d+\.\d{2}s$`)
 	for _, line := range strings.Split(strings.TrimRight(got, "\n"), "\n") {
 		require.True(t, lineRE.MatchString(line))
-
 	}
 }
 

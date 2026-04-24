@@ -9,14 +9,6 @@ import (
 	"time"
 )
 
-// watchdogTimestamp returns a short wall-clock prefix matching logx's
-// format. Watchdog stall warnings bypass os.Stderr so they don't reset
-// their own stall timer, which means they also bypass the logx pipe —
-// so we prepend the timestamp here directly.
-func watchdogTimestamp() string {
-	return time.Now().Format("15:04:05.000")
-}
-
 // activeWatchdog is the current output watchdog, if any.
 // Accessed by the step system to report current step names.
 var activeWatchdog *outputWatchdog
@@ -76,11 +68,11 @@ func (w *outputWatchdog) watchLoop(ctx context.Context) {
 					step, _ = v.(string)
 				}
 				if step != "" {
-					fmt.Fprintf(w.origStderr, "%s %s⚠ STALLED: no output for %ds (currently: %s)%s\n",
-						watchdogTimestamp(), colorBoldRed, int(gap.Seconds()), step, colorReset)
+					fmt.Fprintf(w.origStderr, "%s⚠ STALLED: no output for %ds (currently: %s)%s\n",
+						colorBoldRed, int(gap.Seconds()), step, colorReset)
 				} else {
-					fmt.Fprintf(w.origStderr, "%s %s⚠ STALLED: no output for %ds%s\n",
-						watchdogTimestamp(), colorBoldRed, int(gap.Seconds()), colorReset)
+					fmt.Fprintf(w.origStderr, "%s⚠ STALLED: no output for %ds%s\n",
+						colorBoldRed, int(gap.Seconds()), colorReset)
 				}
 			}
 		}

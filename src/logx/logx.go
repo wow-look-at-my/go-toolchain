@@ -1,4 +1,4 @@
-// Package logx installs a process-wide timestamp pipeline for the
+// Package logx installs a process-wide elapsed-duration pipeline for the
 // toolchain's stdout and stderr.
 //
 // # Why
@@ -9,12 +9,12 @@
 // would miss the output of child subprocesses (which inherit our
 // stdout/stderr FDs). Instead, Install() swaps os.Stdout and os.Stderr for
 // pipe write-ends and starts goroutines that read each complete line and
-// forward it to the real stream prefixed with a wall-clock timestamp.
+// forward it to the real stream with an elapsed-time suffix (e.g. " 0.19s").
 //
 // With Install() active, every line emitted by this process — from our own
 // fmt.Printf calls, from subprocess output inherited via the pipe, from
-// timedLineWriter, from anywhere — arrives on the real terminal with a
-// timestamp at column 0. Call sites don't change.
+// anywhere — arrives on the real terminal with a duration suffix. Call
+// sites don't change.
 //
 // # When not to install
 //
@@ -42,8 +42,8 @@ import (
 )
 
 const (
-	colorReset   = "\033[0m"
-	colorDimGray = "\033[38;2;128;128;128m"
+	colorReset    = "\033[0m"
+	colorDimCyan  = "\033[38;2;100;160;160m"
 )
 
 // Stdout / Stderr are dynamic forwarders to the current os.Stdout /
@@ -77,7 +77,7 @@ var (
 
 // Install redirects os.Stdout and os.Stderr through pipes. A goroutine
 // per stream reads complete lines and writes them back to the original
-// stream prefixed with "HH:MM:SS.mmm ".
+// stream with an elapsed-duration suffix (e.g. " 0.19s").
 //
 // Do NOT call this in GOCACHEPROG mode — the Go toolchain expects raw
 // JSON on stdout there.
@@ -135,22 +135,23 @@ func Flush() {
 	installed = false
 }
 
-// drain reads lines from r and writes them to w with a timestamp prefix.
+// drain reads lines from r and writes them to w with an elapsed-duration
+// suffix. The duration is the wall-clock gap between successive lines —
+// the same semantics as timedLineWriter in cmd/console.go.
 // Partial content at EOF (no trailing newline) is emitted with an
 // appended newline so nothing is lost.
 func drain(r *os.File, w io.Writer) {
 	defer drainedWG.Done()
 	defer r.Close()
 	br := bufio.NewReader(r)
+	lineStart := time.Now()
 	for {
 		line, err := br.ReadString('\n')
 		if len(line) > 0 {
-			hasNL := strings.HasSuffix(line, "\n")
-			if hasNL {
-				fmt.Fprintf(w, "%s %s", timestamp(time.Now()), line)
-			} else {
-				fmt.Fprintf(w, "%s %s\n", timestamp(time.Now()), line)
-			}
+			content := strings.TrimRight(line, "\n")
+			elapsed := time.Since(lineStart)
+			fmt.Fprintf(w, "%s %s\n", content, fmtElapsed(elapsed))
+			lineStart = time.Now()
 		}
 		if err != nil {
 			return
@@ -158,7 +159,7 @@ func drain(r *os.File, w io.Writer) {
 	}
 }
 
-// decideColor reports whether timestamps should be dimmed. Honors
+// decideColor reports whether durations should be colorized. Honors
 // NO_COLOR (https://no-color.org). Must be called before Install() swaps
 // os.Stderr for a pipe.
 func decideColor() bool {
@@ -172,17 +173,16 @@ func decideColor() bool {
 	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
-func timestamp(now time.Time) string {
-	ts := now.Format("15:04:05.000")
+func fmtElapsed(d time.Duration) string {
 	if colorDecision {
-		return colorDimGray + ts + colorReset
+		return fmt.Sprintf("%s%.2fs%s", colorDimCyan, d.Seconds(), colorReset)
 	}
-	return ts
+	return fmt.Sprintf("%.2fs", d.Seconds())
 }
 
 // Logf writes a formatted message to os.Stderr with a trailing newline
-// (appended if missing). When Install() has been called, the line is
-// timestamped by the drainer.
+// (appended if missing). When Install() has been called, the drainer
+// appends an elapsed-duration suffix.
 func Logf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	if !strings.HasSuffix(msg, "\n") {

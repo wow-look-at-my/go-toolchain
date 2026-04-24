@@ -356,8 +356,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if !quiet {
 		modTidyStep = logStep("go mod tidy")
 	}
-	timedStderr := newTimedLineWriter(logx.Stderr)
-	proc, err := runner.Cmd("go", "mod", "tidy", "-v").WithStderrWriter(timedStderr).WithOnFirstOutput(func() {
+	proc, err := runner.Cmd("go", "mod", "tidy", "-v").WithOnFirstOutput(func() {
 		if modTidyStep != nil {
 			modTidyStep.noteOutput()
 		}
@@ -371,7 +370,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 		return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
 	}
-	timedStderr.Flush()
 	if modTidyStep != nil {
 		modTidyStep.done()
 	}
