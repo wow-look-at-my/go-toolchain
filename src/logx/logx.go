@@ -65,14 +65,13 @@ var (
 )
 
 var (
-	installOnce   sync.Once
-	installed     bool
-	origStdout    *os.File
-	origStderr    *os.File
-	pipeStdoutW   *os.File
-	pipeStderrW   *os.File
-	drainedWG     sync.WaitGroup
-	colorDecision bool
+	installOnce sync.Once
+	installed   bool
+	origStdout  *os.File
+	origStderr  *os.File
+	pipeStdoutW *os.File
+	pipeStderrW *os.File
+	drainedWG   sync.WaitGroup
 )
 
 // Install redirects os.Stdout and os.Stderr through pipes. A goroutine
@@ -83,11 +82,6 @@ var (
 // JSON on stdout there.
 func Install() {
 	installOnce.Do(func() {
-		// Latch the color decision NOW, while the original stderr is still
-		// a TTY. After we swap it for a pipe, os.Stderr.Stat() would
-		// report ModeNamedPipe and we'd wrongly disable color.
-		colorDecision = decideColor()
-
 		origStdout = os.Stdout
 		origStderr = os.Stderr
 
@@ -159,25 +153,8 @@ func drain(r *os.File, w io.Writer) {
 	}
 }
 
-// decideColor reports whether durations should be colorized. Honors
-// NO_COLOR (https://no-color.org). Must be called before Install() swaps
-// os.Stderr for a pipe.
-func decideColor() bool {
-	if os.Getenv("NO_COLOR") != "" {
-		return false
-	}
-	fi, err := os.Stderr.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
-}
-
 func fmtElapsed(d time.Duration) string {
-	if colorDecision {
-		return fmt.Sprintf("%s%.2fs%s", colorDimCyan, d.Seconds(), colorReset)
-	}
-	return fmt.Sprintf("%.2fs", d.Seconds())
+	return fmt.Sprintf("%s%.2fs%s", colorDimCyan, d.Seconds(), colorReset)
 }
 
 // Logf writes a formatted message to os.Stderr with a trailing newline
