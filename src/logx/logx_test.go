@@ -52,8 +52,6 @@ func captureInstalled(t *testing.T, fn func()) string {
 	return string(outBytes) + string(errBytes)
 }
 
-var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
 func stripANSI(s string) string	{ return ansiRE.ReplaceAllString(s, "") }
 
 // durSuffixRE matches a line that ends with a space and a duration (e.g. " 0.00s").
@@ -80,13 +78,28 @@ func TestInstallAppendsDurationToStdout(t *testing.T) {
 
 func TestInstallHandlesPartialLines(t *testing.T) {
 	// Simulates the step pattern: print prefix without newline, do work,
-	// then print completion with newline — one logical line, one duration.
+	// then print completion with newline. The line already ends with a
+	// duration (1.82s) so drain() must NOT append another one.
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stdout, "⇒ Running tests with coverage...")
 		fmt.Fprintf(os.Stdout, " done. 1.82s\n")
 	}))
-	re := regexp.MustCompile(`^⇒ Running tests with coverage\.\.\. done\. 1\.82s \d+\.\d{2}s\n$`)
+	re := regexp.MustCompile(`^⇒ Running tests with coverage\.\.\. done\. 1\.82s\n$`)
 	require.True(t, re.MatchString(got))
+}
+
+func TestInstallSkipsAlreadyTimedLines(t *testing.T) {
+	// step.finish writes lines that already end with a fmtDuration suffix.
+	// drain() should detect that and leave the line alone.
+	got := stripANSI(captureInstalled(t, func() {
+		fmt.Fprintln(os.Stderr, "    vet: type-check 5.73s")
+		fmt.Fprintln(os.Stdout, "⇒ go vet ./... done. 28.46s")
+	}))
+	require.True(t, strings.Contains(got, "    vet: type-check 5.73s\n"))
+	require.True(t, strings.Contains(got, "⇒ go vet ./... done. 28.46s\n"))
+	// No double duration — nothing should look like "5.73s \d+\.\d{2}s".
+	doubleRE := regexp.MustCompile(`\d+\.\d{2}s \d+\.\d{2}s`)
+	require.False(t, doubleRE.MatchString(got))
 }
 
 func TestInstallAppendsDurationToEachLine(t *testing.T) {

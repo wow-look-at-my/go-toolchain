@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -129,9 +130,23 @@ func Flush() {
 	installed = false
 }
 
+// ansiRE matches ANSI escape sequences so we can strip them before
+// checking whether a line already ends with a duration.
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// alreadyTimedRE matches a line that already ends with a " X.XXs"-style
+// duration suffix (e.g. output from cmd/console.go's fmtDuration, used
+// by step.finish). We skip adding another duration in that case.
+var alreadyTimedRE = regexp.MustCompile(` \d+\.\d{2}s$`)
+
 // drain reads lines from r and writes them to w with an elapsed-duration
 // suffix. The duration is the wall-clock gap between successive lines —
 // the same semantics as timedLineWriter in cmd/console.go.
+//
+// Lines that already end with a " X.XXs" duration (after stripping ANSI
+// color codes) are passed through unchanged, so we don't double-stamp
+// output from step.finish or other places that already format timing.
+//
 // Partial content at EOF (no trailing newline) is emitted with an
 // appended newline so nothing is lost.
 func drain(r *os.File, w io.Writer) {
@@ -143,8 +158,13 @@ func drain(r *os.File, w io.Writer) {
 		line, err := br.ReadString('\n')
 		if len(line) > 0 {
 			content := strings.TrimRight(line, "\n")
-			elapsed := time.Since(lineStart)
-			fmt.Fprintf(w, "%s %s\n", content, fmtElapsed(elapsed))
+			stripped := ansiRE.ReplaceAllString(content, "")
+			if alreadyTimedRE.MatchString(stripped) {
+				fmt.Fprintln(w, content)
+			} else {
+				elapsed := time.Since(lineStart)
+				fmt.Fprintf(w, "%s %s\n", content, fmtElapsed(elapsed))
+			}
 			lineStart = time.Now()
 		}
 		if err != nil {
