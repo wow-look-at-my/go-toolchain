@@ -5,11 +5,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
 	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
 )
+
+// parseVersion parses a version string using strict semver (MAJOR.MINOR.PATCH),
+// stripping an optional leading "v". Unlike [semver.NewVersion], this rejects
+// bare numbers like "0648669" (a git short SHA composed entirely of digits),
+// which NewVersion would otherwise accept as major=648669.
+func parseVersion(s string) (*semver.Version, error) {
+	return semver.StrictNewVersion(strings.TrimPrefix(s, "v"))
+}
 
 // selfUpdater abstracts the self-update mechanism for testability.
 type selfUpdater interface {
@@ -57,13 +66,14 @@ func (g *githubUpdater) isNewer(currentVersion string) bool {
 		return false
 	}
 	// Validate that currentVersion is valid semver before comparing.
-	// Non-semver versions (e.g. git-describe output like "latest-1-g649dd4a")
-	// are treated as older so the update proceeds.
-	cur, err := semver.NewVersion(currentVersion)
+	// Non-semver versions (e.g. git-describe output like "latest-1-g649dd4a",
+	// or a bare short SHA like "0648669") are treated as older so the update
+	// proceeds.
+	cur, err := parseVersion(currentVersion)
 	if err != nil {
 		return true
 	}
-	latest, err := semver.NewVersion(g.latest.Version.Version)
+	latest, err := parseVersion(g.latest.Version.Version)
 	if err != nil {
 		return false
 	}
@@ -107,7 +117,7 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 
 	if buildVersion == "dev" {
 		fmt.Println("    Warning: this is a dev build (no embedded version)")
-	} else if _, err := semver.NewVersion(buildVersion); err != nil {
+	} else if _, err := parseVersion(buildVersion); err != nil {
 		fmt.Printf("    Warning: current version %q is not valid semver, proceeding with update\n", buildVersion)
 	} else if !u.isNewer(buildVersion) {
 		fmt.Println("⇒ Already up to date.")

@@ -7,6 +7,7 @@ import (
 
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
+	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
 )
 
 type mockUpdater struct {
@@ -84,6 +85,40 @@ func TestDoUpdate_NonSemverVersion(t *testing.T) {
 	if err == nil {
 		assert.Equal(t, 1, m.applyCalls)
 	}
+}
+
+// TestDoUpdate_BareShortSHA guards against regressing on a Masterminds/semver
+// NewVersion() quirk: it leniently accepts a bare number like "0648669" (a
+// git short SHA of all digits) as major=648669, which incorrectly compares
+// as newer than any real "v0.0.N" release. The fix is to parse strictly so
+// bare SHAs are treated as non-semver and the update proceeds.
+func TestDoUpdate_BareShortSHA(t *testing.T) {
+	old := buildVersion
+	buildVersion = "0648669"
+	defer func() { buildVersion = old }()
+
+	m := &mockUpdater{version: "v0.0.1776682440", found: true, newer: false}
+	err := doUpdate(context.Background(), m)
+	if err == nil {
+		assert.Equal(t, 1, m.applyCalls, "update should proceed for bare short SHA")
+	}
+}
+
+func TestIsNewer_BareShortSHA(t *testing.T) {
+	g := &githubUpdater{latest: &selfupdate.Release{
+		Version: selfupdate.Version{Version: "0.0.1776682440"},
+	}}
+	assert.True(t, g.isNewer("0648669"),
+		"bare short SHA must be treated as older than any real release")
+}
+
+func TestIsNewer_Semver(t *testing.T) {
+	g := &githubUpdater{latest: &selfupdate.Release{
+		Version: selfupdate.Version{Version: "0.0.200"},
+	}}
+	assert.True(t, g.isNewer("v0.0.100"), "v0.0.100 < v0.0.200")
+	assert.False(t, g.isNewer("v0.0.200"), "v0.0.200 == v0.0.200")
+	assert.False(t, g.isNewer("v0.0.300"), "v0.0.300 > v0.0.200")
 }
 
 func TestDoUpdate_ApplyError(t *testing.T) {
