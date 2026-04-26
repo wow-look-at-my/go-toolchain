@@ -288,8 +288,8 @@ func TestWebBackend_GetMissingMetadata(t *testing.T) {
 
 // primeIndex forces a key into the in-memory index so subsequent Gets
 // take the getIndividual path instead of falling through to batch GET.
-// Test helper only — in production, keys enter the index via listAllKeys
-// or the check-and-claim step in Put.
+// Test helper only — in production, keys enter the index via the GBCI
+// blob loaded by loadOrFetchIndex, or the check-and-claim step in Put.
 func primeIndex(b *WebBackend, actionID string) {
 	b.keysMu.Lock()
 	b.keys.Add(b.key(actionID))
