@@ -3,6 +3,7 @@ package cache
 import (
 	"bytes"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/pierrec/lz4/v4"
@@ -59,11 +60,20 @@ func describeData(data []byte) string {
 	goVer, target := parseArchiveHeader(data)
 	if objType == "go-archive" {
 		pkg := parseImportPath(data)
+		files := parseSourceFiles(data)
+		fileStr := ""
+		switch len(files) {
+		case 0:
+		case 1:
+			fileStr = " (" + files[0] + ")"
+		default:
+			fileStr = " (" + files[0] + " +" + strconv.Itoa(len(files)-1) + ")"
+		}
 		if pkg != "" && goVer != "" && target != "" {
-			return objType + " " + pkg + " " + goVer + " " + target
+			return objType + " " + pkg + fileStr + " " + goVer + " " + target
 		}
 		if pkg != "" {
-			return objType + " " + pkg
+			return objType + " " + pkg + fileStr
 		}
 	}
 	if goVer != "" && target != "" {

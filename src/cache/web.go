@@ -507,6 +507,9 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	if pkg := parseImportPath(raw); pkg != "" {
 		req.Header.Set("X-Amz-Meta-Pkg", pkg)
 	}
+	if files := parseSourceFiles(raw); len(files) > 0 {
+		req.Header.Set("X-Amz-Meta-Src", strings.Join(files, " "))
+	}
 	b.signRequest(req)
 
 	b.Pool.Acquire()

@@ -3,35 +3,42 @@ package cache
 import (
 	"bytes"
 	"encoding/binary"
+	"path/filepath"
 )
 
 // parseImportPath extracts the Go package import path from the binary export
 // data embedded in a Go ar archive (the __.PKGDEF member). Returns "" if the
 // data is not a recognised Go archive or has no decodable import path.
 func parseImportPath(data []byte) string {
-	pkgdef := arMember(data, "__.PKGDEF")
-	if pkgdef == nil {
+	p := openPkgbits(data)
+	if p == nil {
 		return ""
 	}
+	return p.readSectionString(pbSectionPkg, 0, pbSyncPkgDef)
+}
 
-	// Find "$$B\n" which marks the start of the binary export section.
-	// The byte immediately after is the format code: 'u' for unified IR (pkgbits).
-	// Layout: $$B\n | u<pkgbits-payload> | \n$$\n
-	marker := []byte("$$B\n")
-	idx := bytes.Index(pkgdef, marker)
-	if idx < 0 {
-		return ""
+// parseSourceFiles extracts the basenames of the Go source files compiled into
+// a Go ar archive. Returns nil for non-archives or archives without pkgbits.
+func parseSourceFiles(data []byte) []string {
+	p := openPkgbits(data)
+	if p == nil {
+		return nil
 	}
-	after := pkgdef[idx+len(marker):]
-	if len(after) == 0 || after[0] != 'u' {
-		return "" // only unified IR (pkgbits) is supported
+	n := p.sectionLen(pbSectionPosBase)
+	seen := make(map[string]bool, n)
+	var files []string
+	for i := 0; i < n; i++ {
+		full := p.readSectionString(pbSectionPosBase, i, pbSyncPosBase)
+		if full == "" {
+			continue
+		}
+		base := filepath.Base(full)
+		if !seen[base] && filepath.Ext(base) == ".go" {
+			seen[base] = true
+			files = append(files, base)
+		}
 	}
-	pkgbitsData := after[1:]
-	// Strip the trailing end-of-section marker "\n$$\n" that follows the pkgbits payload.
-	if end := bytes.Index(pkgbitsData, []byte("\n$$\n")); end >= 0 {
-		pkgbitsData = pkgbitsData[:end]
-	}
-	return pkgbitsImportPath(pkgbitsData)
+	return files
 }
 
 // arMember finds and returns the body of a named member in an ar archive.
@@ -82,9 +89,10 @@ func arMember(data []byte, name string) []byte {
 
 // pkgbits constants mirroring internal/pkgbits.
 const (
-	pbSectionString = 0
-	pbSectionPkg    = 3
-	pbNumSections   = 10
+	pbSectionString  = 0
+	pbSectionPosBase = 2
+	pbSectionPkg     = 3
+	pbNumSections    = 10
 
 	pbFlagSyncMarkers = 1
 
@@ -94,122 +102,150 @@ const (
 	pbSyncUseReloc = 10
 	pbSyncUint64   = 4
 	pbSyncString   = 5
+	pbSyncPosBase  = 13
 	pbSyncPkgDef   = 17
 )
 
-// pkgbitsImportPath decodes the import path from a pkgbits payload (the bytes
-// immediately after the "$B\n" marker in __.PKGDEF). Returns "" on any error.
-func pkgbitsImportPath(payload []byte) string {
-	if len(payload) < 4 {
-		return ""
-	}
+// pkgbitsPayload holds the decoded outer header of a pkgbits payload,
+// providing section-element access without reparsing on each call.
+type pkgbitsPayload struct {
+	elemEndsEnds [pbNumSections]uint32
+	elemEnds     []uint32
+	elemData     []byte
+	sync         bool
+}
 
-	// Outer header: uint32 LE version.
+// openPkgbits locates and parses the pkgbits header from a Go ar archive.
+// Returns nil if the data is not a recognised unified-IR archive.
+func openPkgbits(data []byte) *pkgbitsPayload {
+	pkgdef := arMember(data, "__.PKGDEF")
+	if pkgdef == nil {
+		return nil
+	}
+	// Layout: ...$$B\n | u<pkgbits-payload> | \n$$\n
+	marker := []byte("$$B\n")
+	idx := bytes.Index(pkgdef, marker)
+	if idx < 0 {
+		return nil
+	}
+	after := pkgdef[idx+len(marker):]
+	if len(after) == 0 || after[0] != 'u' {
+		return nil
+	}
+	payload := after[1:]
+	if end := bytes.Index(payload, []byte("\n$$\n")); end >= 0 {
+		payload = payload[:end]
+	}
+	return parsePkgbits(payload)
+}
+
+// parsePkgbits decodes the pkgbits outer header from a raw payload slice.
+func parsePkgbits(payload []byte) *pkgbitsPayload {
+	if len(payload) < 4 {
+		return nil
+	}
 	version := binary.LittleEndian.Uint32(payload[:4])
 	payload = payload[4:]
 
-	// V1+ adds uint32 LE flags.
 	var flags uint32
 	if version >= 1 {
 		if len(payload) < 4 {
-			return ""
+			return nil
 		}
 		flags = binary.LittleEndian.Uint32(payload[:4])
 		payload = payload[4:]
 	}
-	sync := flags&pbFlagSyncMarkers != 0
 
-	// [numSections]uint32 elemEndsEnds.
 	const endsEndsBytes = pbNumSections * 4
 	if len(payload) < endsEndsBytes {
-		return ""
+		return nil
 	}
-	var elemEndsEnds [pbNumSections]uint32
-	for i := range elemEndsEnds {
-		elemEndsEnds[i] = binary.LittleEndian.Uint32(payload[i*4:])
+	var p pkgbitsPayload
+	p.sync = flags&pbFlagSyncMarkers != 0
+	for i := range p.elemEndsEnds {
+		p.elemEndsEnds[i] = binary.LittleEndian.Uint32(payload[i*4:])
 	}
 	payload = payload[endsEndsBytes:]
 
-	// []uint32 elemEnds (total count = elemEndsEnds[numSections-1]).
-	numElems := int(elemEndsEnds[pbNumSections-1])
+	numElems := int(p.elemEndsEnds[pbNumSections-1])
 	if len(payload) < numElems*4 {
-		return ""
+		return nil
 	}
-	elemEnds := make([]uint32, numElems)
-	for i := range elemEnds {
-		elemEnds[i] = binary.LittleEndian.Uint32(payload[i*4:])
+	p.elemEnds = make([]uint32, numElems)
+	for i := range p.elemEnds {
+		p.elemEnds[i] = binary.LittleEndian.Uint32(payload[i*4:])
 	}
 	payload = payload[numElems*4:]
 
-	// The remainder (minus the 8-byte fingerprint at the end) is elemData.
 	const fingerprintSize = 8
 	if len(payload) < fingerprintSize {
+		return nil
+	}
+	p.elemData = payload[:len(payload)-fingerprintSize]
+	return &p
+}
+
+// sectionLen returns the number of elements in section s.
+func (p *pkgbitsPayload) sectionLen(s int) int {
+	end := int(p.elemEndsEnds[s])
+	start := 0
+	if s > 0 {
+		start = int(p.elemEndsEnds[s-1])
+	}
+	return end - start
+}
+
+// readSectionString returns the first String() value from element relIdx within
+// section s, which must be opened with the given openingSync marker.
+// Returns "" on any parse error.
+func (p *pkgbitsPayload) readSectionString(s, relIdx int, openingSync uint64) string {
+	// Absolute element index.
+	base := 0
+	if s > 0 {
+		base = int(p.elemEndsEnds[s-1])
+	}
+	absIdx := base + relIdx
+	if absIdx >= int(p.elemEndsEnds[s]) {
 		return ""
 	}
-	elemData := payload[:len(payload)-fingerprintSize]
 
-	// Helper: start byte offset of absolute element index e.
-	elemStart := func(e int) uint32 {
-		if e == 0 {
-			return 0
-		}
-		return elemEnds[e-1]
+	var start uint32
+	if absIdx > 0 {
+		start = p.elemEnds[absIdx-1]
 	}
-
-	// Helper: absolute index of section s's element 0.
-	sectionBase := func(s int) int {
-		if s == 0 {
-			return 0
-		}
-		return int(elemEndsEnds[s-1])
-	}
-
-	// Validate that SectionPkg has at least one element.
-	pkgBase := sectionBase(pbSectionPkg)
-	pkgEnd := int(elemEndsEnds[pbSectionPkg])
-	if pkgEnd <= pkgBase {
+	end := p.elemEnds[absIdx]
+	if int(end) > len(p.elemData) || start > end {
 		return ""
 	}
+	r := bytes.NewReader(p.elemData[start:end])
 
-	// Get the raw bytes for SectionPkg[0].
-	elem0 := pkgBase
-	start := elemStart(elem0)
-	end := elemEnds[elem0]
-	if int(end) > len(elemData) || start > end {
+	// Element header: reloc table.
+	// [sync(SyncRelocs)] [sync(SyncUint64)] nrelocs
+	// for each: [sync(SyncReloc)] [sync(SyncUint64)] kind [sync(SyncUint64)] idx
+	if !skipSync(r, p.sync, pbSyncRelocs) {
 		return ""
 	}
-	r := bytes.NewReader(elemData[start:end])
-
-	// --- Parse the element header (reloc table) ---
-	// Format (from NewDecoderRaw / TempDecoderRaw in internal/pkgbits):
-	//   [sync(SyncRelocs)] [sync(SyncUint64)] uvarint:nrelocs
-	//   for each reloc: [sync(SyncReloc)] [sync(SyncUint64)] uvarint:kind [sync(SyncUint64)] uvarint:idx
-
-	if !skipSync(r, sync, pbSyncRelocs) {
-		return ""
-	}
-	if !skipSync(r, sync, pbSyncUint64) {
+	if !skipSync(r, p.sync, pbSyncUint64) {
 		return ""
 	}
 	nrelocs, err := rawUvarint(r)
 	if err != nil {
 		return ""
 	}
-
 	type reloc struct{ kind, idx uint64 }
 	relocs := make([]reloc, nrelocs)
 	for i := range relocs {
-		if !skipSync(r, sync, pbSyncReloc) {
+		if !skipSync(r, p.sync, pbSyncReloc) {
 			return ""
 		}
-		if !skipSync(r, sync, pbSyncUint64) {
+		if !skipSync(r, p.sync, pbSyncUint64) {
 			return ""
 		}
 		kind, err := rawUvarint(r)
 		if err != nil {
 			return ""
 		}
-		if !skipSync(r, sync, pbSyncUint64) {
+		if !skipSync(r, p.sync, pbSyncUint64) {
 			return ""
 		}
 		idx, err := rawUvarint(r)
@@ -219,22 +255,19 @@ func pkgbitsImportPath(payload []byte) string {
 		relocs[i] = reloc{kind, idx}
 	}
 
-	// --- Opening sync marker for this element (TempDecoder(SyncPkgDef)) ---
-	if !skipSync(r, sync, pbSyncPkgDef) {
+	// Opening sync marker.
+	if !skipSync(r, p.sync, openingSync) {
 		return ""
 	}
 
-	// --- r.String() body ---
-	// String() calls: Sync(SyncString), Reloc(SectionString)
-	// Reloc() calls:  Sync(SyncUseReloc), Uint64()
-	// Uint64() calls: Sync(SyncUint64), rawUvarint
-	if !skipSync(r, sync, pbSyncString) {
+	// String(): [sync(SyncString)] [sync(SyncUseReloc)] [sync(SyncUint64)] relocIdx
+	if !skipSync(r, p.sync, pbSyncString) {
 		return ""
 	}
-	if !skipSync(r, sync, pbSyncUseReloc) {
+	if !skipSync(r, p.sync, pbSyncUseReloc) {
 		return ""
 	}
-	if !skipSync(r, sync, pbSyncUint64) {
+	if !skipSync(r, p.sync, pbSyncUint64) {
 		return ""
 	}
 	relocIdx, err := rawUvarint(r)
@@ -249,20 +282,22 @@ func pkgbitsImportPath(payload []byte) string {
 		return ""
 	}
 
-	// --- Resolve SectionString[ref.idx] ---
-	// String elements are stored as raw UTF-8 bytes (no header, no sync markers).
-	strBase := sectionBase(pbSectionString)
-	strEnd := int(elemEndsEnds[pbSectionString])
+	// Resolve SectionString[ref.idx] — raw UTF-8 bytes, no header.
+	strBase := 0
+	strEnd := int(p.elemEndsEnds[pbSectionString])
 	strElemAbs := strBase + int(ref.idx)
 	if strElemAbs >= strEnd {
 		return ""
 	}
-	strStart := elemStart(strElemAbs)
-	strEndOff := elemEnds[strElemAbs]
-	if int(strEndOff) > len(elemData) || strStart > strEndOff {
+	var strStart uint32
+	if strElemAbs > 0 {
+		strStart = p.elemEnds[strElemAbs-1]
+	}
+	strEndOff := p.elemEnds[strElemAbs]
+	if int(strEndOff) > len(p.elemData) || strStart > strEndOff {
 		return ""
 	}
-	return string(elemData[strStart:strEndOff])
+	return string(p.elemData[strStart:strEndOff])
 }
 
 // skipSync optionally reads and verifies a pkgbits sync marker varint.
@@ -293,4 +328,13 @@ func rawUvarint(r *bytes.Reader) (uint64, error) {
 		x |= uint64(b&0x7f) << s
 		s += 7
 	}
+}
+
+// pkgbitsImportPath is kept for tests that call it directly.
+func pkgbitsImportPath(payload []byte) string {
+	p := parsePkgbits(payload)
+	if p == nil {
+		return ""
+	}
+	return p.readSectionString(pbSectionPkg, 0, pbSyncPkgDef)
 }
