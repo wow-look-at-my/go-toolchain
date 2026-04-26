@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -127,11 +128,19 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
 	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
+		// e.Key is the full S3 key (e.g. "go-buildcache/v1abcdef...").
+		// LocalCache is keyed by the bare action ID ("abcdef..."), which is
+		// what Server.handleGet uses. Strip the prefix so the paths match.
+		keyPrefix := wb.prefix + "v1"
 		for _, e := range entries {
 			if e.OutputID == "" {
 				continue
 			}
-			if _, miss := local.Get(e.Key); !miss {
+			actionID := strings.TrimPrefix(e.Key, keyPrefix)
+			if actionID == e.Key {
+				continue // unexpected key format; skip
+			}
+			if _, miss := local.Get(actionID); !miss {
 				continue // already cached
 			}
 			// The data from the server is LZ4-compressed (same as individual GETs).
@@ -139,7 +148,7 @@ func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
 			if err != nil {
 				continue
 			}
-			local.Put(e.Key, e.OutputID, bytes.NewReader(decompressed))
+			local.Put(actionID, e.OutputID, bytes.NewReader(decompressed))
 			populated++
 		}
 		if populated > 0 {
