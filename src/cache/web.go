@@ -421,9 +421,8 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 	b.Stats.Hits.Increment()
 	span.SetAttributes(attribute.Bool("cacheprog.hit", true),
 		attribute.Int("cacheprog.bytes_compressed", len(compressed)),
-		attribute.Int("cacheprog.bytes_uncompressed", len(decompressed)))
-	fmt.Fprintf(os.Stderr, "cacheprog: web get %s HIT [%s] output=%s\n",
-		shortID(actionID), describeData(decompressed), shortID(outputID))
+		attribute.Int("cacheprog.bytes_uncompressed", len(decompressed)),
+		attribute.String("cacheprog.label", describeData(decompressed)))
 	return outputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), t, false, nil
 }
 
@@ -540,8 +539,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	uploaded = true
 	b.Stats.Puts.Increment()
-	fmt.Fprintf(os.Stderr, "cacheprog: web put %s [%s] bytes=%d->%d\n",
-		shortID(actionID), describeData(raw), bodySize, len(compressed))
+	span.SetAttributes(attribute.String("cacheprog.label", describeData(raw)))
 	return nil
 }
 
