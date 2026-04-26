@@ -504,6 +504,9 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		req.Header.Set("X-Amz-Meta-Go-Version", goVer)
 		req.Header.Set("X-Amz-Meta-Target", target)
 	}
+	if pkg := parseImportPath(raw); pkg != "" {
+		req.Header.Set("X-Amz-Meta-Pkg", pkg)
+	}
 	b.signRequest(req)
 
 	b.Pool.Acquire()
