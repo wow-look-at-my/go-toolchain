@@ -1,15 +1,20 @@
 package cmd
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func init() {
@@ -176,6 +181,18 @@ func enableCacheProg() error {
 	statsListener = sl
 	os.Setenv("GOCACHE_STATS_SOCK", sockPath)
 
+	// Generate and propagate W3C trace context BEFORE the daemon (and
+	// its WebBackend) starts: the shared tracer provider reads
+	// OTEL_TRACEPARENT during init to force the timeline root span's
+	// spanID to match what cacheprog subprocesses will report as their
+	// parent. Setting this env var after the daemon starts would leave
+	// the provider's root-ID generator unconfigured.
+	if os.Getenv("OTEL_TRACEPARENT") == "" {
+		traceID, spanID := generateTraceIDs()
+		traceparent := fmt.Sprintf("00-%s-%s-01", traceID.String(), spanID.String())
+		os.Setenv("OTEL_TRACEPARENT", traceparent)
+	}
+
 	// Start cache daemon so child go processes share a single web index.
 	daemonSock := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-daemon-%d.sock", os.Getpid()))
 	d, remoteEndpoint, err := startCacheDaemon(daemonSock)
@@ -249,6 +266,16 @@ func printCacheStats(close bool) {
 	if close && cacheDaemon != nil {
 		cacheDaemon.Close()
 	}
+	// Flush and shut down the process-wide OTel tracer provider now that
+	// the daemon has drained (and therefore no more cacheprog spans will
+	// be enqueued). Done here rather than in Daemon.Close so the timeline
+	// exporter spans emitted by src/trace.Export are included in the
+	// same final batch.
+	if close {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = gotrace.Shutdown(ctx)
+	}
 	if statsListener == nil {
 		switch {
 		case !cacheEnabled:
@@ -303,4 +330,12 @@ func cacheHome() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".cache", "go-toolchain")
+}
+
+func generateTraceIDs() (trace.TraceID, trace.SpanID) {
+	traceIDBytes := [16]byte{}
+	spanIDBytes := [8]byte{}
+	rand.Read(traceIDBytes[:])
+	rand.Read(spanIDBytes[:])
+	return trace.TraceID(traceIDBytes), trace.SpanID(spanIDBytes)
 }

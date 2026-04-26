@@ -78,8 +78,8 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        gh extension install PazerOP/gh-wait-ci
-        gh wait-ci -R wow-look-at-my/go-toolchain
+        gh extension install PazerOP/gh-wait-ci || true
+        gh wait-ci -R wow-look-at-my/go-toolchain || true
 
     - name: Download go-toolchain from release
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
@@ -95,6 +95,13 @@ runs:
       run: |
         chmod +x "${{ inputs.binary }}"
         sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
+
+    - name: Install timeout (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install coreutils
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
 
     - name: Run go-toolchain
       shell: bash

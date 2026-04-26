@@ -2,9 +2,16 @@ package cache
 
 import (
 	"archive/tar"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
+	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // batchGetRequest is the JSON body sent to the server's /_batch/get endpoint.
@@ -81,4 +88,196 @@ func parseBatchResponse(r io.Reader) ([]BatchEntry, error) {
 		})
 	}
 	return entries, nil
+}
+
+// batchCoalescer collects incoming batchReqs on a short coalescing window
+// and dispatches each batch as one HTTP request to the server's batch
+// endpoint. Up to batchMaxKeys keys per HTTP request.
+func (b *WebBackend) batchCoalescer() {
+	defer close(b.batchDone)
+
+	var pending []batchReq
+	timer := time.NewTimer(time.Hour)
+	if !timer.Stop() {
+		<-timer.C
+	}
+
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		batch := pending
+		pending = nil
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		b.batchHTTPWG.Add(1)
+		go func() {
+			defer b.batchHTTPWG.Done()
+			b.sendBatch(batch)
+		}()
+	}
+
+	for {
+		select {
+		case req, ok := <-b.batchReqCh:
+			if !ok {
+				flush()
+				b.batchHTTPWG.Wait()
+				return
+			}
+			if len(pending) == 0 {
+				timer.Reset(batchCoalesceWait)
+			}
+			pending = append(pending, req)
+			if len(pending) >= batchMaxKeys {
+				flush()
+			}
+		case <-timer.C:
+			flush()
+		case <-b.batchStop:
+			flush()
+			b.batchHTTPWG.Wait()
+			return
+		}
+	}
+}
+
+// sendBatch issues one HTTP request to /_batch/get for all keys in reqs,
+// distributes the matching entries back to the waiting callers via their
+// reply channels, and feeds prefetched entries to OnBatchEntries.
+func (b *WebBackend) sendBatch(reqs []batchReq) {
+	start := time.Now()
+	keys := make([]string, len(reqs))
+	for i, r := range reqs {
+		keys[i] = r.key
+	}
+
+	ctx, span := b.tracer.Start("cacheprog.web.batch_get",
+		attribute.Int("cacheprog.batch.requests", len(reqs)))
+	defer span.End()
+
+	respondAllMiss := func() {
+		for _, r := range reqs {
+			r.resp <- batchResp{miss: true}
+		}
+	}
+
+	reqBody, _ := json.Marshal(batchGetRequest{Keys: keys, Prefetch: true})
+	batchURL := b.endpoint + "/" + b.bucket + "/_batch/get"
+	httpReq, err := http.NewRequest("GET", batchURL, bytes.NewReader(reqBody))
+	if err != nil {
+		span.SetStatus(codes.Error, "build request")
+		respondAllMiss()
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	b.signRequest(httpReq)
+
+	b.Pool.Acquire()
+	resp, err := b.client.Do(httpReq)
+	if err != nil {
+		b.Pool.Release()
+		markSpanErr(span, "network", err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: %v\n", err)
+		respondAllMiss()
+		return
+	}
+	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
+
+	if resp.StatusCode != 200 {
+		resp.Body.Close()
+		b.Pool.Release()
+		// 404/405 → server has no batch endpoint; fall back to individual
+		// GETs for every caller in this batch.
+		if resp.StatusCode == 404 || resp.StatusCode == 405 {
+			span.SetAttributes(attribute.Bool("cacheprog.batch.fallback_individual", true))
+			for _, r := range reqs {
+				outputID, body, size, t, miss, _ := b.getIndividual(ctx, r.actionID, r.key)
+				r.resp <- batchResp{outputID: outputID, body: body, size: size, t: t, miss: miss}
+			}
+			return
+		}
+		// 5xx etc. — coalesced via errLog. Use the first actionID as the
+		// representative; the count of affected requests is captured by the
+		// errLog group's total.
+		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
+		for _, r := range reqs {
+			b.errLog.Record("web batch get", resp.StatusCode, r.actionID, "")
+		}
+		respondAllMiss()
+		return
+	}
+
+	entries, err := parseBatchResponse(resp.Body)
+	resp.Body.Close()
+	b.Pool.Release()
+	if err != nil {
+		markSpanErr(span, "parse response", err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: parse: %v\n", err)
+		respondAllMiss()
+		return
+	}
+
+	var nPrefetch int
+	for _, e := range entries {
+		if e.Prefetch {
+			nPrefetch++
+		}
+	}
+	span.SetAttributes(attribute.Int("cacheprog.batch.entries_returned", len(entries)),
+		attribute.Int("cacheprog.batch.prefetched", nPrefetch))
+	b.errLog.RecordBatchHTTP(len(reqs), len(entries), nPrefetch, time.Since(start))
+
+	// Hand prefetched (and non-requested) entries to the local-cache populator.
+	if b.OnBatchEntries != nil && len(entries) > 0 {
+		b.OnBatchEntries(entries)
+	}
+
+	// Index returned entries by key for O(1) lookup.
+	entryByKey := make(map[string]*BatchEntry, len(entries))
+	for i := range entries {
+		entryByKey[entries[i].Key] = &entries[i]
+	}
+
+	// Distribute responses to each caller. Each request gets its own
+	// cacheprog.web.get child span so the batch span has one child per
+	// individual cache request it served — making the parent/child
+	// hierarchy in OTel match the build's logical request structure.
+	for _, r := range reqs {
+		_, itemSpan := b.tracer.StartFromCtx(ctx, "cacheprog.web.get",
+			attribute.String("cacheprog.action_id", shortID(r.actionID)))
+		e, ok := entryByKey[r.key]
+		if !ok {
+			markSpanMiss(itemSpan, "not_in_batch_response")
+			itemSpan.End()
+			r.resp <- batchResp{miss: true}
+			continue
+		}
+		decompressed, err := decompressData(e.Data)
+		if err != nil {
+			markSpanErr(itemSpan, "decompress", err)
+			markSpanMiss(itemSpan, "decompress")
+			itemSpan.End()
+			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: decompress: %v\n", r.actionID[:8], err)
+			r.resp <- batchResp{miss: true}
+			continue
+		}
+		b.Stats.Hits.Increment()
+		itemSpan.SetAttributes(
+			attribute.Bool("cacheprog.hit", true),
+			attribute.Int("cacheprog.bytes_compressed", len(e.Data)),
+			attribute.Int("cacheprog.bytes_uncompressed", len(decompressed)),
+		)
+		itemSpan.End()
+		r.resp <- batchResp{
+			outputID: e.OutputID,
+			body:     io.NopCloser(bytes.NewReader(decompressed)),
+			size:     int64(len(decompressed)),
+			t:        time.Now(),
+		}
+	}
 }

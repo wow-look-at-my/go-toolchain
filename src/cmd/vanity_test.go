@@ -121,9 +121,9 @@ func TestInjectVanityReplacesNoGoSum(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	assert.Nil(t, err)
-	assert.Nil(t, replaces)
+	assert.Nil(t, state)
 }
 
 func TestInjectVanityReplacesAllReachable(t *testing.T) {
@@ -143,9 +143,9 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	vanityHostChecker = func(host string) bool { return true }
 	defer func() { vanityHostChecker = old }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	assert.Nil(t, err)
-	assert.Nil(t, replaces)
+	assert.Nil(t, state)
 }
 
 func TestInjectAndRemoveVanityReplaces(t *testing.T) {
@@ -181,11 +181,13 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	defer func() { jsonOutput = oldJSON }()
 
 	// Inject
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	require.Nil(t, err)
-	require.Equal(t, 1, len(replaces))
-	assert.Equal(t, "gotest.tools/gotestsum", replaces[0].OldPath)
-	assert.Equal(t, "github.com/gotestyourself/gotestsum", replaces[0].NewPath)
+	require.NotNil(t, state)
+	require.Equal(t, 1, len(state.Replaces))
+	assert.Equal(t, "gotest.tools/gotestsum", state.Replaces[0].OldPath)
+	assert.Equal(t, "github.com/gotestyourself/gotestsum", state.Replaces[0].NewPath)
+	assert.Equal(t, gosum, string(state.OrigGoSum))
 
 	// Verify go.mod has the replace directive
 	data, _ := os.ReadFile("go.mod")
@@ -193,8 +195,12 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	assert.Contains(t, content, "replace gotest.tools/gotestsum")
 	assert.Contains(t, content, "github.com/gotestyourself/gotestsum")
 
+	// Corrupt go.sum to simulate what go mod tidy would do while the
+	// replace is active (swap vanity entries for replacement entries).
+	os.WriteFile("go.sum", []byte("github.com/gotestyourself/gotestsum v1.13.0 h1:xxx=\n"), 0644)
+
 	// Remove
-	err = removeVanityReplaces(replaces)
+	err = removeVanityReplaces(state)
 	require.Nil(t, err)
 
 	// Verify replace is gone
@@ -203,6 +209,10 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	assert.NotContains(t, content, "replace")
 	// Original require should still be there
 	assert.Contains(t, content, "gotest.tools/gotestsum")
+
+	// go.sum should be restored to its pre-injection state
+	restored, _ := os.ReadFile("go.sum")
+	assert.Equal(t, gosum, string(restored))
 }
 
 func TestInjectVanityReplacesMultipleModulesSameHost(t *testing.T) {
@@ -242,9 +252,10 @@ modernc.org/libc v1.67.6/go.mod h1:ddd=
 	jsonOutput = true
 	defer func() { jsonOutput = oldJSON }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	require.Nil(t, err)
-	assert.Equal(t, 2, len(replaces))
+	require.NotNil(t, state)
+	assert.Equal(t, 2, len(state.Replaces))
 
 	// Verify both replaces are in go.mod
 	data, _ := os.ReadFile("go.mod")
@@ -253,7 +264,7 @@ modernc.org/libc v1.67.6/go.mod h1:ddd=
 	assert.Contains(t, content, "gitlab.com/cznic/libc")
 
 	// Clean up
-	err = removeVanityReplaces(replaces)
+	err = removeVanityReplaces(state)
 	require.Nil(t, err)
 
 	data, _ = os.ReadFile("go.mod")
@@ -287,9 +298,9 @@ func TestInjectVanityReplacesSkipsUnresolvable(t *testing.T) {
 	jsonOutput = true
 	defer func() { jsonOutput = oldJSON }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	assert.Nil(t, err)
-	assert.Nil(t, replaces)
+	assert.Nil(t, state)
 
 	// go.mod should be unchanged
 	data, _ := os.ReadFile("go.mod")
@@ -321,18 +332,19 @@ func TestInjectVanityReplacesAppendsVersionSuffix(t *testing.T) {
 	jsonOutput = true
 	defer func() { jsonOutput = oldJSON }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	require.Nil(t, err)
-	require.Equal(t, 1, len(replaces))
+	require.NotNil(t, state)
+	require.Equal(t, 1, len(state.Replaces))
 
 	// The replacement path must include /v3 suffix for the version to be valid
-	assert.Equal(t, "github.com/yaml/go-yaml/v3", replaces[0].NewPath)
-	assert.Equal(t, "v3.0.4", replaces[0].NewVersion)
+	assert.Equal(t, "github.com/yaml/go-yaml/v3", state.Replaces[0].NewPath)
+	assert.Equal(t, "v3.0.4", state.Replaces[0].NewVersion)
 
 	data, _ := os.ReadFile("go.mod")
 	assert.Contains(t, string(data), "github.com/yaml/go-yaml/v3 v3.0.4")
 
-	err = removeVanityReplaces(replaces)
+	err = removeVanityReplaces(state)
 	require.Nil(t, err)
 }
 
@@ -394,9 +406,10 @@ replace example.com/existing => example.com/replacement v1.0.0
 	jsonOutput = true
 	defer func() { jsonOutput = oldJSON }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	require.Nil(t, err)
-	require.Equal(t, 1, len(replaces))
+	require.NotNil(t, state)
+	require.Equal(t, 1, len(state.Replaces))
 
 	// Existing replace should still be there
 	data, _ := os.ReadFile("go.mod")
@@ -404,7 +417,7 @@ replace example.com/existing => example.com/replacement v1.0.0
 	assert.Contains(t, content, "example.com/existing")
 
 	// Remove only injected replaces
-	err = removeVanityReplaces(replaces)
+	err = removeVanityReplaces(state)
 	require.Nil(t, err)
 
 	data, _ = os.ReadFile("go.mod")

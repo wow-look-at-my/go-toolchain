@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -126,11 +128,19 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
 	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
+		// e.Key is the full S3 key (e.g. "go-buildcache/v1abcdef...").
+		// LocalCache is keyed by the bare action ID ("abcdef..."), which is
+		// what Server.handleGet uses. Strip the prefix so the paths match.
+		keyPrefix := wb.prefix + "v1"
 		for _, e := range entries {
 			if e.OutputID == "" {
 				continue
 			}
-			if _, miss := local.Get(e.Key); !miss {
+			actionID := strings.TrimPrefix(e.Key, keyPrefix)
+			if actionID == e.Key {
+				continue // unexpected key format; skip
+			}
+			if _, miss := local.Get(actionID); !miss {
 				continue // already cached
 			}
 			// The data from the server is LZ4-compressed (same as individual GETs).
@@ -138,7 +148,7 @@ func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
 			if err != nil {
 				continue
 			}
-			local.Put(e.Key, e.OutputID, bytes.NewReader(decompressed))
+			local.Put(actionID, e.OutputID, bytes.NewReader(decompressed))
 			populated++
 		}
 		if populated > 0 {
@@ -230,7 +240,8 @@ type StatsListener struct {
 	pool      ConcurrencyTracker
 	hasRemote atomic.Bool // true if a remote backend was configured (set by caller)
 	hasBatch  atomic.Bool
-	wg        sync.WaitGroup
+	wg        sync.WaitGroup // tracks active handleConn goroutines
+	acceptWg  sync.WaitGroup // tracks the accept loop goroutine
 }
 
 // SetHasRemote marks the listener as having a remote backend configured.
@@ -248,7 +259,11 @@ func NewStatsListener(path string) (*StatsListener, error) {
 		return nil, err
 	}
 	sl := &StatsListener{listener: ln, path: path}
-	go sl.accept()
+	sl.acceptWg.Add(1)
+	go func() {
+		defer sl.acceptWg.Done()
+		sl.accept()
+	}()
 	return sl, nil
 }
 
@@ -301,9 +316,21 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 }
 
 // Close stops the listener, waits for all connections to drain, and cleans up.
+// Uses SetDeadline instead of immediately closing the listener so that connections
+// already in the accept queue are drained before the socket is closed.
+// listener.Close() drops queued-but-not-yet-accepted connections, causing a race
+// where stats sent just before Close arrives are silently lost.
 func (sl *StatsListener) Close() {
+	// Give the accept loop a short window to drain any connections that are
+	// already in the kernel accept queue. listener.Close() would drop them.
+	if ul, ok := sl.listener.(*net.UnixListener); ok {
+		ul.SetDeadline(time.Now().Add(10 * time.Millisecond))
+	} else {
+		sl.listener.Close()
+	}
+	sl.acceptWg.Wait() // wait for accept loop to exit after draining queue
+	sl.wg.Wait()       // wait for all handleConn goroutines to finish
 	sl.listener.Close()
-	sl.wg.Wait()
 	os.Remove(sl.path)
 }
 
@@ -483,7 +510,7 @@ func (s *Server) handleGet(req Request) Response {
 	if !miss {
 		s.sendStat(StatEvent{LocalHit: 1})
 		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: HIT local  %s size=%d\n", actionID, meta.Size)
+			fmt.Fprintf(os.Stderr, "cache: HIT local  %s output=%s size=%d\n", actionID, shortID(meta.OutputID), meta.Size)
 		}
 		t := meta.Time
 		return Response{
@@ -522,9 +549,6 @@ func (s *Server) handleGet(req Request) Response {
 	}
 	s.Latency.RemoteGet.Record(time.Since(remoteStart))
 	s.sendStat(StatEvent{RemoteHit: 1})
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: HIT remote %s\n", actionID)
-	}
 	defer body.Close()
 
 	// Write to local cache for future hits.
@@ -534,6 +558,10 @@ func (s *Server) handleGet(req Request) Response {
 
 	if err != nil {
 		return Response{ID: req.ID, Miss: true}
+	}
+
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "cache: HIT remote %s [%s] output=%s\n", actionID, describeFile(diskPath), shortID(outputID))
 	}
 
 	return Response{
@@ -562,7 +590,7 @@ func (s *Server) handlePut(req Request) Response {
 
 	if !miss {
 		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s\n", actionID)
+			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s output=%s\n", actionID, shortID(meta.OutputID))
 		}
 		return Response{ID: req.ID, DiskPath: meta.DiskPath, Size: meta.Size}
 	}
@@ -578,7 +606,7 @@ func (s *Server) handlePut(req Request) Response {
 	}
 	s.sendStat(StatEvent{LocalPut: 1})
 	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s size=%d\n", actionID, len(req.Body))
+		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s [%s] size=%d\n", actionID, describeData(req.Body), len(req.Body))
 	}
 	// Async write to remote. The semaphore bounds concurrency to avoid
 	// connection churn — each goroutine reuses a pooled HTTP connection
@@ -597,7 +625,9 @@ func (s *Server) handlePut(req Request) Response {
 			err := s.remote.Put(actionID, outputID, bytes.NewReader(data), int64(len(data)))
 			s.Latency.RemotePut.Record(time.Since(remotePutStart))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "cacheprog: remote put: %v\n", err)
+				if !errors.Is(err, errLogged) {
+					fmt.Fprintf(os.Stderr, "cacheprog: remote put: %v\n", err)
+				}
 			} else {
 				s.sendStat(StatEvent{RemotePut: 1})
 			}
@@ -624,4 +654,18 @@ func fileSize(path string) int64 {
 		return 0
 	}
 	return info.Size()
+}
+
+// describeFile reads the first 1024 bytes of a cached object on disk and
+// returns a human-readable label via describeData. Used in debug logs to
+// decode what a given actionID actually represents.
+func describeFile(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return "unknown"
+	}
+	defer f.Close()
+	header := make([]byte, 1024)
+	n, _ := f.Read(header)
+	return describeData(header[:n])
 }

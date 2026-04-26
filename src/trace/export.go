@@ -5,52 +5,45 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
-// Export converts timeline entries to OTel spans and exports them via OTLP/HTTP.
-// It is a no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset or if entries is empty.
+// Export converts timeline entries to OTel spans and emits them through
+// the shared tracer provider (see provider.go). It is a no-op if
+// OTEL_EXPORTER_OTLP_ENDPOINT is unset or if entries is empty.
+//
+// The shared provider owns the batcher and exporter for the whole
+// build, so this function doesn't build or shut down its own — the
+// build entrypoint calls Shutdown once, after Export, which flushes
+// every emitter's queued spans in a single OTLP round-trip.
 func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" || len(entries) == 0 {
 		return nil
 	}
+
+	tp, err := Provider(ctx)
+	if err != nil {
+		return err
+	}
+	if tp == nil {
+		return nil
+	}
+
 	fmt.Fprintf(os.Stderr, "⇒ Exporting %d timeline entries to %s\n", len(entries), endpoint)
-
-	exporter, err := otlptracehttp.New(ctx)
-	if err != nil {
-		return err
-	}
-
-	res, err := buildResource(ctx)
-	if err != nil {
-		return err
-	}
-
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
-
 	buildSpans(ctx, tp, entries)
-
-	if err := tp.ForceFlush(ctx); err != nil {
-		return err
-	}
-	return tp.Shutdown(ctx)
+	return nil
 }
 
-// buildSpans creates the three-level span hierarchy: root → thread → step.
+// buildSpans creates the three-level span hierarchy: root → worker → step.
 func buildSpans(ctx context.Context, tp *sdktrace.TracerProvider, entries []summary.TimelineEntry) {
 	tracer := tp.Tracer("go-toolchain")
 
@@ -75,71 +68,80 @@ func buildSpans(ctx context.Context, tp *sdktrace.TracerProvider, entries []summ
 	// Root span.
 	rootCtx, rootSpan := tracer.Start(ctx, "go-toolchain",
 		trace.WithTimestamp(minStart),
+		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
-			attribute.Int("build.threads", len(threadOrder)),
+			attribute.Int("build.workers", len(threadOrder)),
 			attribute.Int("build.steps", len(entries)),
-			attribute.Bool("build.success", allSuccess),
 		),
 	)
-	if !allSuccess {
+	if allSuccess {
+		rootSpan.SetStatus(codes.Ok, "")
+	} else {
 		rootSpan.SetStatus(codes.Error, "build had failures")
 	}
 
-	// Thread and step spans.
+	// Worker and step spans.
 	for _, thread := range threadOrder {
 		tes := threadEntries[thread]
 		tStart, tEnd := threadBounds(tes)
 
-		threadCtx, threadSpan := tracer.Start(rootCtx, "thread:"+thread,
+		workerSuccess := true
+		for _, e := range tes {
+			if e.Failed {
+				workerSuccess = false
+				break
+			}
+		}
+
+		threadCtx, workerSpan := tracer.Start(rootCtx, "build.worker",
 			trace.WithTimestamp(tStart),
-			trace.WithAttributes(attribute.String("thread.name", thread)),
+			trace.WithSpanKind(trace.SpanKindInternal),
+			trace.WithAttributes(attribute.String("build.worker.id", thread)),
 		)
+		if workerSuccess {
+			workerSpan.SetStatus(codes.Ok, "")
+		} else {
+			workerSpan.SetStatus(codes.Error, "worker had failures")
+		}
 
 		for _, e := range tes {
-			_, stepSpan := tracer.Start(threadCtx, e.Label,
+			name, attrs := stepSpanInfo(e)
+			_, stepSpan := tracer.Start(threadCtx, name,
 				trace.WithTimestamp(e.Start),
-				trace.WithAttributes(
-					attribute.String("step.thread", e.Thread),
-					attribute.Bool("step.failed", e.Failed),
-				),
+				trace.WithSpanKind(trace.SpanKindInternal),
+				trace.WithAttributes(attrs...),
 			)
 			if e.Failed {
 				stepSpan.SetStatus(codes.Error, "step failed")
+			} else {
+				stepSpan.SetStatus(codes.Ok, "")
 			}
 			stepSpan.End(trace.WithTimestamp(e.End))
 		}
 
-		threadSpan.End(trace.WithTimestamp(tEnd))
+		workerSpan.End(trace.WithTimestamp(tEnd))
 	}
 
 	rootSpan.End(trace.WithTimestamp(maxEnd))
 }
 
-// buildResource creates the OTel resource with service name and GitHub CI attributes.
-func buildResource(ctx context.Context) (*resource.Resource, error) {
-	serviceName := os.Getenv("OTEL_SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = "go-toolchain"
-	}
-
+// stepSpanInfo returns a static span name and the attributes describing the step.
+// Cross-compile labels formatted as "os/arch" (e.g. "linux/amd64") collapse into a
+// single "build.compile" span with the platform recorded as attributes; all other
+// labels are preserved as-is and assumed to already be static.
+func stepSpanInfo(e summary.TimelineEntry) (string, []attribute.KeyValue) {
 	attrs := []attribute.KeyValue{
-		semconv.ServiceName(serviceName),
+		attribute.String("build.worker.id", e.Thread),
 	}
-
-	// Add GitHub CI attributes when available.
-	for _, kv := range []struct{ envVar, attrKey string }{
-		{"GITHUB_SHA", "github.sha"},
-		{"GITHUB_REPOSITORY", "github.repository"},
-		{"GITHUB_REF", "github.ref"},
-		{"GITHUB_RUN_ID", "github.run_id"},
-		{"GITHUB_RUN_ATTEMPT", "github.run_attempt"},
-	} {
-		if v := os.Getenv(kv.envVar); v != "" {
-			attrs = append(attrs, attribute.String(kv.attrKey, v))
-		}
+	if goos, goarch, ok := strings.Cut(e.Label, "/"); ok && goos != "" && goarch != "" &&
+		!strings.ContainsAny(goos, " /") && !strings.ContainsAny(goarch, " /") {
+		attrs = append(attrs,
+			attribute.String("build.target.os", goos),
+			attribute.String("build.target.arch", goarch),
+		)
+		return "build.compile", attrs
 	}
-
-	return resource.New(ctx, resource.WithAttributes(attrs...))
+	return e.Label, attrs
 }
 
 // groupByThread groups entries by thread, preserving first-seen order.

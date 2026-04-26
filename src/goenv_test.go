@@ -11,9 +11,14 @@ import (
 )
 
 func TestEnsureDirectFallback(t *testing.T) {
-	assert.Equal(t, "https://proxy.example.com,direct", ensureDirectFallback("https://proxy.example.com"))
-	assert.Equal(t, "https://proxy.example.com,direct", ensureDirectFallback("https://proxy.example.com,direct"))
-	assert.Equal(t, "https://a.com,https://b.com,direct", ensureDirectFallback("https://a.com,https://b.com,direct"))
+	// No "direct" present: append "|direct" so any proxy error falls through.
+	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com"))
+	// Existing "|direct" stays as-is.
+	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com|direct"))
+	// Trailing ",direct" upgrades to "|direct" so 503s fall through, not just 404/410.
+	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com,direct"))
+	assert.Equal(t, "https://a.com,https://b.com|direct", ensureDirectFallback("https://a.com,https://b.com,direct"))
+	assert.Equal(t, "https://a.com,https://b.com|direct", ensureDirectFallback("https://a.com,https://b.com|direct"))
 }
 
 func TestParseProxyConfig_Valid(t *testing.T) {
@@ -143,7 +148,7 @@ func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
 
 	configureGoEnv()
 
-	assert.Equal(t, "https://proxy.example.com,direct", os.Getenv("GOPROXY"))
+	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
 	// No GOSUMDB → disabled.
 	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
 }
@@ -157,7 +162,8 @@ func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 
 	configureGoEnv()
 
-	assert.Equal(t, "https://proxy.example.com,direct", os.Getenv("GOPROXY"))
+	// Trailing ",direct" is upgraded to "|direct" so 503s fall through.
+	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "sum.golang.org", os.Getenv("GOSUMDB"))
 	assert.Empty(t, os.Getenv("GONOSUMDB"))
 	assert.Empty(t, os.Getenv("GONOSUMCHECK"))
@@ -175,7 +181,7 @@ func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
 
 	configureGoEnv()
 
-	assert.Equal(t, "https://proxy.example.com,direct", os.Getenv("GOPROXY"))
+	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "mydb+abc123+AKeyHere https://proxy.example.com/sumdb/mydb", os.Getenv("GOSUMDB"))
 	assert.Empty(t, os.Getenv("GONOSUMDB"))
 	assert.Empty(t, os.Getenv("GONOSUMCHECK"))
@@ -199,7 +205,8 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 	configureGoEnv()
 
 	// Explicit GOPROXY/GOSUMDB take precedence over GO_PROXY_CONFIG.
-	assert.Equal(t, "https://other-proxy.example.com,direct", os.Getenv("GOPROXY"))
+	// Trailing ",direct" is upgraded to "|direct" so 503s fall through.
+	assert.Equal(t, "https://other-proxy.example.com|direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "sum.golang.org", os.Getenv("GOSUMDB"))
 }
 
@@ -216,7 +223,7 @@ func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
 	configureGoEnv()
 
 	// Proxy from config, but no sumdb key → sumdb disabled.
-	assert.Equal(t, "https://proxy.example.com,direct", os.Getenv("GOPROXY"))
+	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
 	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
 }

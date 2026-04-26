@@ -340,7 +340,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	}
 
 	// Handle vanity-URL modules: inject replace directives for unreachable hosts
-	vanityReplaces, vanityErr := injectVanityReplaces()
+	vanity, vanityErr := injectVanityReplaces()
 	if vanityErr != nil {
 		return false, nil, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
 	}
@@ -406,7 +406,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	// stages complete. Tests and build need the replaces to resolve modules
 	// when the vanity host is unreachable.
 	defer func() {
-		_ = removeVanityReplaces(vanityReplaces)
+		_ = removeVanityReplaces(vanity)
 	}()
 
 	var vetStep *step
@@ -473,11 +473,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep = logStep("Running tests with coverage")
 	}
 
-	// Use a deterministic path so Go's test cache keys (which include
-	// -coverprofile=<path>) are stable across runs.
+	// Use a process-unique path to avoid collisions when tests call
+	// RunTestsWithCoverage with mock runners — they write and then delete
+	// this file, which would corrupt the outer go test's coverprofile.
+	// With -count=1 already disabling test-result caching, cache-key
+	// stability from a deterministic path is no longer required.
 	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
 	os.MkdirAll(coverDir, 0o755)
-	coverFile := filepath.Join(coverDir, "coverage.out")
+	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
 	defer os.Remove(coverFile)
 
 	var onTestOutput func()
@@ -593,6 +596,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		var totalUncovered int
 		for _, pkg := range report.Packages {
 			totalUncovered += pkg.Uncovered()
+		}
+		// Packages exist but no statements were measured — coverage data is missing or broken.
+		if totalUncovered == 0 && len(report.Packages) > 0 {
+			panic(fmt.Sprintf("coverage %.1f%% is below minimum %.1f%% with 0 uncovered statements — coverage data is missing or broken", report.Total, effectiveMin))
 		}
 		// Allow reduced coverage if fewer than 10 statements are uncovered
 		// (e.g. small programs where main() can't be easily covered)
