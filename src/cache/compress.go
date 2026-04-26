@@ -51,12 +51,21 @@ func detectObjectType(data []byte) string {
 }
 
 // describeData returns a short human-readable label for a cache entry from
-// its raw bytes: object type plus Go version and target when embedded in the
-// archive header (e.g. "go-archive go1.24.0 linux/amd64"). Falls back to
+// its raw bytes: object type, optional import path, Go version, and target
+// (e.g. "go-archive github.com/foo/bar go1.24.0 linux/amd64"). Falls back to
 // just the object type for binaries and unknown formats.
 func describeData(data []byte) string {
 	objType := detectObjectType(data)
 	goVer, target := parseArchiveHeader(data)
+	if objType == "go-archive" {
+		pkg := parseImportPath(data)
+		if pkg != "" && goVer != "" && target != "" {
+			return objType + " " + pkg + " " + goVer + " " + target
+		}
+		if pkg != "" {
+			return objType + " " + pkg
+		}
+	}
 	if goVer != "" && target != "" {
 		return objType + " " + goVer + " " + target
 	}
