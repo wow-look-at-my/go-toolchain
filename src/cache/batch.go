@@ -156,7 +156,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		keys[i] = r.key
 	}
 
-	_, span := b.tracer.Start("cacheprog.web.batch_get",
+	ctx, span := b.tracer.Start("cacheprog.web.batch_get",
 		attribute.Int("cacheprog.batch.requests", len(reqs)))
 	defer span.End()
 
@@ -196,7 +196,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		if resp.StatusCode == 404 || resp.StatusCode == 405 {
 			span.SetAttributes(attribute.Bool("cacheprog.batch.fallback_individual", true))
 			for _, r := range reqs {
-				outputID, body, size, t, miss, _ := b.getIndividual(r.actionID, r.key)
+				outputID, body, size, t, miss, _ := b.getIndividual(ctx, r.actionID, r.key)
 				r.resp <- batchResp{outputID: outputID, body: body, size: size, t: t, miss: miss}
 			}
 			return
@@ -243,20 +243,36 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		entryByKey[entries[i].Key] = &entries[i]
 	}
 
-	// Distribute responses to each caller.
+	// Distribute responses to each caller. Each request gets its own
+	// cacheprog.web.get child span so the batch span has one child per
+	// individual cache request it served — making the parent/child
+	// hierarchy in OTel match the build's logical request structure.
 	for _, r := range reqs {
+		_, itemSpan := b.tracer.StartFromCtx(ctx, "cacheprog.web.get",
+			attribute.String("cacheprog.action_id", shortID(r.actionID)))
 		e, ok := entryByKey[r.key]
 		if !ok {
+			markSpanMiss(itemSpan, "not_in_batch_response")
+			itemSpan.End()
 			r.resp <- batchResp{miss: true}
 			continue
 		}
 		decompressed, err := decompressData(e.Data)
 		if err != nil {
+			markSpanErr(itemSpan, "decompress", err)
+			markSpanMiss(itemSpan, "decompress")
+			itemSpan.End()
 			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: decompress: %v\n", r.actionID[:8], err)
 			r.resp <- batchResp{miss: true}
 			continue
 		}
 		b.Stats.Hits.Increment()
+		itemSpan.SetAttributes(
+			attribute.Bool("cacheprog.hit", true),
+			attribute.Int("cacheprog.bytes_compressed", len(e.Data)),
+			attribute.Int("cacheprog.bytes_uncompressed", len(decompressed)),
+		)
+		itemSpan.End()
 		r.resp <- batchResp{
 			outputID: e.OutputID,
 			body:     io.NopCloser(bytes.NewReader(decompressed)),
