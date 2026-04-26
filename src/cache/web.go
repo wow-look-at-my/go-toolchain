@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/binary"
@@ -420,7 +421,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	known := b.keys.Contains(key)
 	b.keysMu.RUnlock()
 	if known {
-		return b.getIndividual(actionID, key)
+		return b.getIndividual(nil, actionID, key)
 	}
 
 	// Key not in index — try batch GET with prefetch.
@@ -429,8 +430,12 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 }
 
 // getIndividual fetches a single object stored as an individual S3 key.
-func (b *WebBackend) getIndividual(actionID, key string) (string, io.ReadCloser, int64, time.Time, bool, error) {
-	_, span := b.tracer.Start("cacheprog.web.get",
+// parentCtx, when non-nil and carrying a valid span, becomes the parent
+// of the emitted cacheprog.web.get span — used by sendBatch's 404/405
+// fallback path so individual GETs nest under the batch span instead of
+// detaching to the run-level root.
+func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key string) (string, io.ReadCloser, int64, time.Time, bool, error) {
+	_, span := b.tracer.StartFromCtx(parentCtx, "cacheprog.web.get",
 		attribute.String("cacheprog.action_id", shortID(actionID)),
 	)
 	defer span.End()

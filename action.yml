@@ -78,8 +78,8 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        gh extension install PazerOP/gh-wait-ci
-        gh wait-ci -R wow-look-at-my/go-toolchain
+        gh extension install PazerOP/gh-wait-ci || true
+        gh wait-ci -R wow-look-at-my/go-toolchain || true
 
     - name: Download go-toolchain from release
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
