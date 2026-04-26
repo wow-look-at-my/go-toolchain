@@ -510,7 +510,7 @@ func (s *Server) handleGet(req Request) Response {
 	if !miss {
 		s.sendStat(StatEvent{LocalHit: 1})
 		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: HIT local  %s size=%d\n", actionID, meta.Size)
+			fmt.Fprintf(os.Stderr, "cache: HIT local  %s output=%s size=%d\n", actionID, shortID(meta.OutputID), meta.Size)
 		}
 		t := meta.Time
 		return Response{
@@ -549,9 +549,6 @@ func (s *Server) handleGet(req Request) Response {
 	}
 	s.Latency.RemoteGet.Record(time.Since(remoteStart))
 	s.sendStat(StatEvent{RemoteHit: 1})
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: HIT remote %s\n", actionID)
-	}
 	defer body.Close()
 
 	// Write to local cache for future hits.
@@ -561,6 +558,10 @@ func (s *Server) handleGet(req Request) Response {
 
 	if err != nil {
 		return Response{ID: req.ID, Miss: true}
+	}
+
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "cache: HIT remote %s [%s] output=%s\n", actionID, describeFile(diskPath), shortID(outputID))
 	}
 
 	return Response{
@@ -589,7 +590,7 @@ func (s *Server) handlePut(req Request) Response {
 
 	if !miss {
 		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s\n", actionID)
+			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s output=%s\n", actionID, shortID(meta.OutputID))
 		}
 		return Response{ID: req.ID, DiskPath: meta.DiskPath, Size: meta.Size}
 	}
@@ -605,7 +606,7 @@ func (s *Server) handlePut(req Request) Response {
 	}
 	s.sendStat(StatEvent{LocalPut: 1})
 	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s size=%d\n", actionID, len(req.Body))
+		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s [%s] size=%d\n", actionID, describeData(req.Body), len(req.Body))
 	}
 	// Async write to remote. The semaphore bounds concurrency to avoid
 	// connection churn — each goroutine reuses a pooled HTTP connection
@@ -653,4 +654,18 @@ func fileSize(path string) int64 {
 		return 0
 	}
 	return info.Size()
+}
+
+// describeFile reads the first 1024 bytes of a cached object on disk and
+// returns a human-readable label via describeData. Used in debug logs to
+// decode what a given actionID actually represents.
+func describeFile(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return "unknown"
+	}
+	defer f.Close()
+	header := make([]byte, 1024)
+	n, _ := f.Read(header)
+	return describeData(header[:n])
 }

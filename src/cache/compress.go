@@ -3,6 +3,7 @@ package cache
 import (
 	"bytes"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/pierrec/lz4/v4"
@@ -48,6 +49,37 @@ func detectObjectType(data []byte) string {
 		return "go-object"
 	}
 	return "unknown"
+}
+
+// describeData returns a short human-readable label for a cache entry from
+// its raw bytes: object type, optional import path, Go version, and target
+// (e.g. "go-archive github.com/foo/bar go1.24.0 linux/amd64"). Falls back to
+// just the object type for binaries and unknown formats.
+func describeData(data []byte) string {
+	objType := detectObjectType(data)
+	goVer, target := parseArchiveHeader(data)
+	if objType == "go-archive" {
+		pkg := parseImportPath(data)
+		files := parseSourceFiles(data)
+		fileStr := ""
+		switch len(files) {
+		case 0:
+		case 1:
+			fileStr = " (" + files[0] + ")"
+		default:
+			fileStr = " (" + files[0] + " +" + strconv.Itoa(len(files)-1) + ")"
+		}
+		if pkg != "" && goVer != "" && target != "" {
+			return objType + " " + pkg + fileStr + " " + goVer + " " + target
+		}
+		if pkg != "" {
+			return objType + " " + pkg + fileStr
+		}
+	}
+	if goVer != "" && target != "" {
+		return objType + " " + goVer + " " + target
+	}
+	return objType
 }
 
 // parseArchiveHeader scans a Go archive for the "go object" line inside
