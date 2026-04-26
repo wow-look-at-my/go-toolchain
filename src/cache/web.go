@@ -352,7 +352,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissNetwork.Increment()
 		markSpanErr(span, "network", err)
 		markSpanMiss(span, "network")
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", actionID[:8], err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
@@ -380,7 +380,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.Pool.Release()
 		b.MissNoOutputID.Increment()
 		markSpanMiss(span, "no_outputid")
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", actionID[:8])
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", shortID(actionID))
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -394,7 +394,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissReadBody.Increment()
 		markSpanErr(span, "read_body", err)
 		markSpanMiss(span, "read_body")
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", actionID[:8], err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -407,7 +407,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissDecompress.Increment()
 		markSpanErr(span, "decompress", err)
 		markSpanMiss(span, "decompress")
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", actionID[:8], err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -422,6 +422,8 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 	span.SetAttributes(attribute.Bool("cacheprog.hit", true),
 		attribute.Int("cacheprog.bytes_compressed", len(compressed)),
 		attribute.Int("cacheprog.bytes_uncompressed", len(decompressed)))
+	fmt.Fprintf(os.Stderr, "cacheprog: web get %s HIT [%s] output=%s\n",
+		shortID(actionID), describeData(decompressed), shortID(outputID))
 	return outputID, io.NopCloser(bytes.NewReader(decompressed)), int64(len(decompressed)), t, false, nil
 }
 
@@ -513,7 +515,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	}
 	if err != nil {
 		markSpanErr(span, "network", err)
-		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", actionID[:8], err)
+		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", shortID(actionID), err)
 		return err
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
@@ -532,6 +534,8 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	uploaded = true
 	b.Stats.Puts.Increment()
+	fmt.Fprintf(os.Stderr, "cacheprog: web put %s [%s] bytes=%d->%d\n",
+		shortID(actionID), describeData(raw), bodySize, len(compressed))
 	return nil
 }
 

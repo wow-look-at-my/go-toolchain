@@ -50,6 +50,19 @@ func detectObjectType(data []byte) string {
 	return "unknown"
 }
 
+// describeData returns a short human-readable label for a cache entry from
+// its raw bytes: object type plus Go version and target when embedded in the
+// archive header (e.g. "go-archive go1.24.0 linux/amd64"). Falls back to
+// just the object type for binaries and unknown formats.
+func describeData(data []byte) string {
+	objType := detectObjectType(data)
+	goVer, target := parseArchiveHeader(data)
+	if goVer != "" && target != "" {
+		return objType + " " + goVer + " " + target
+	}
+	return objType
+}
+
 // parseArchiveHeader scans a Go archive for the "go object" line inside
 // __.PKGDEF. Returns Go version and target (GOOS/GOARCH), or empty strings
 // if not found. Only scans the first 1024 bytes.
