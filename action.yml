@@ -47,6 +47,10 @@ inputs:
     description: 'Timeout in minutes for the go-toolchain build step'
     required: false
     default: '10'
+  wait-ci:
+    description: 'Wait for the latest go-toolchain CI run to finish before downloading the release binary'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -73,7 +77,7 @@ runs:
         sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
 
     - name: Wait for go-toolchain CI to finish
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain' && inputs.wait-ci == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
