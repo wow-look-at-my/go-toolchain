@@ -27,7 +27,7 @@ jobs:
           OTEL_SERVICE_NAME: ${{ github.repository }}
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: go-toolchain-binary
           path: build/go-toolchain
@@ -35,7 +35,7 @@ jobs:
 
       - name: Upload profiles
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-profiles
           path: /tmp/go-toolchain-profile/
@@ -54,7 +54,7 @@ jobs:
       - uses: ./
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-output
           path: build/
