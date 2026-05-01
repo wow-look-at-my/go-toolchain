@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 // Test seams — overridden in tests to avoid real downloads.
@@ -109,7 +110,7 @@ func bootstrapGo(reason string) error {
 		return fmt.Errorf("bootstrap completed but go still not found in PATH: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s %s\n", required, goRoot, fmtDuration(time.Since(bootstrapStart)))
+	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s %s\n", required, goRoot, logx.FmtDuration(time.Since(bootstrapStart)))
 	recordGoMinor(required)
 	return nil
 }
@@ -267,7 +268,7 @@ func downloadGo(version, cacheDir, goRoot string) error {
 		dlStart := time.Now()
 		resp, lastErr = http.Get(url)
 		if lastErr == nil && resp.StatusCode == http.StatusOK {
-			fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(dlStart)))
+			fmt.Fprintf(os.Stderr, " %s\n", logx.FmtDuration(time.Since(dlStart)))
 			break
 		}
 		if resp != nil {
@@ -295,7 +296,7 @@ func downloadGo(version, cacheDir, goRoot string) error {
 	if err := extractTarGz(resp.Body, cacheDir); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(extractStart)))
+	fmt.Fprintf(os.Stderr, " %s\n", logx.FmtDuration(time.Since(extractStart)))
 
 	// Rename go/ -> go<version>/
 	if err := os.Rename(tmpRoot, goRoot); err != nil {

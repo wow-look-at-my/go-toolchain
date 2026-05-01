@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 	"github.com/wow-look-at-my/testify/assert"
 )
 
@@ -80,7 +81,7 @@ func TestLogStepSilent(t *testing.T) {
 	assert.Contains(t, output, "⇒ go build...")
 	assert.Contains(t, output, "done.")
 	assert.Contains(t, output, colorGreen+"done."+colorReset)
-	assert.Contains(t, output, colorDimCyan)
+	assert.Contains(t, output, logx.ColorDimCyan)
 	// Should be on a single line (no newline between "..." and " done.")
 	assert.NotContains(t, output, "...\n")
 }
@@ -107,7 +108,7 @@ func TestLogStepFailed(t *testing.T) {
 	})
 	assert.Contains(t, output, "⇒ Running tests...")
 	assert.Contains(t, output, colorRed+"failed!"+colorReset)
-	assert.Contains(t, output, colorDimCyan)
+	assert.Contains(t, output, logx.ColorDimCyan)
 }
 
 func TestLogStepFailedSilent(t *testing.T) {
@@ -118,82 +119,6 @@ func TestLogStepFailedSilent(t *testing.T) {
 	assert.Contains(t, output, "⇒ go vet...")
 	assert.Contains(t, output, colorRed+"failed!"+colorReset)
 	assert.NotContains(t, output, "...\n")
-}
-
-func TestTimedLineWriter(t *testing.T) {
-	var buf bytes.Buffer
-	w := newTimedLineWriter(&buf)
-
-	w.Write([]byte("go: downloading foo v1.0\n"))
-	// Content is written immediately, but newline+timing is deferred
-	assert.Equal(t, "go: downloading foo v1.0", buf.String())
-	assert.NotContains(t, buf.String(), "\n")
-
-	time.Sleep(10 * time.Millisecond)
-	w.Write([]byte("go: downloading bar v2.0\n"))
-
-	// First line should now be closed with timing
-	output := buf.String()
-	assert.Contains(t, output, "go: downloading foo v1.0 ")
-	assert.Contains(t, output, colorDimCyan)
-
-	// Flush closes the second line
-	w.Flush()
-	output = buf.String()
-	assert.Contains(t, output, "go: downloading bar v2.0 ")
-	// Should have exactly 2 lines
-	lines := bytes.Count([]byte(output), []byte("\n"))
-	assert.Equal(t, 2, lines)
-}
-
-func TestTimedLineWriterPartialWrites(t *testing.T) {
-	var buf bytes.Buffer
-	w := newTimedLineWriter(&buf)
-
-	// Simulate partial writes that combine into a full line
-	w.Write([]byte("go: down"))
-	w.Write([]byte("loading foo\n"))
-	// Content is written, but newline+timing is deferred
-	assert.Equal(t, "go: downloading foo", buf.String())
-	assert.NotContains(t, buf.String(), "\n")
-
-	w.Flush()
-	output := buf.String()
-	assert.Contains(t, output, "go: downloading foo ")
-	assert.Contains(t, output, colorDimCyan)
-}
-
-func TestTimedLineWriterFlushPartial(t *testing.T) {
-	var buf bytes.Buffer
-	w := newTimedLineWriter(&buf)
-
-	w.Write([]byte("unterminated"))
-	w.Flush()
-
-	output := buf.String()
-	// Unterminated line should be flushed without timing
-	assert.Equal(t, "unterminated", output)
-}
-
-func TestTimedLineWriterClosesOnPartialContent(t *testing.T) {
-	var buf bytes.Buffer
-	w := newTimedLineWriter(&buf)
-
-	w.Write([]byte("line one\n"))
-	assert.Equal(t, "line one", buf.String())
-	assert.NotContains(t, buf.String(), "\n")
-
-	time.Sleep(10 * time.Millisecond)
-	// Partial content (no newline) should close the previous line
-	w.Write([]byte("partial"))
-	output := buf.String()
-	assert.Contains(t, output, "line one ")
-	assert.Contains(t, output, colorDimCyan)
-	assert.Contains(t, output, "\n")
-
-	w.Flush()
-	output = buf.String()
-	assert.Contains(t, output, "partial")
 }
 
 func TestLogStepNoteOutputIdempotent(t *testing.T) {

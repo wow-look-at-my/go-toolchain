@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
@@ -186,10 +187,10 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	for result := range results {
 		completed++
 		if result.err != nil {
-			fmt.Printf("  FAIL [%d/%d] %s/%s: %v %s\n", completed, len(jobs), result.job.goos, result.job.goarch, result.err, fmtDuration(result.duration))
+			fmt.Printf("  FAIL [%d/%d] %s/%s: %v %s\n", completed, len(jobs), result.job.goos, result.job.goarch, result.err, logx.FmtDuration(result.duration))
 			failed = append(failed, result)
 		} else {
-			fmt.Printf("  OK   [%d/%d] %s %s\n", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
+			fmt.Printf("  OK   [%d/%d] %s %s\n", completed, len(jobs), result.job.outputPath, logx.FmtDuration(result.duration))
 			if _, statErr := os.Stat(result.job.outputPath); statErr == nil {
 				builtFiles = append(builtFiles, result.job.outputPath)
 			}
@@ -212,7 +213,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return err
 	}
 
-	fmt.Printf("⇒ All %d binaries built successfully in %s/ %s\n", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	fmt.Printf("⇒ All %d binaries built successfully in %s/ %s\n", len(jobs), outputDir, logx.FmtDuration(time.Since(buildStart)))
 
 	// Run benchmarks after successful build
 	if !noBenchmark {

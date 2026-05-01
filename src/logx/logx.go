@@ -42,10 +42,11 @@ import (
 	"time"
 )
 
-const (
-	colorReset    = "\033[0m"
-	colorDimCyan  = "\033[38;2;100;160;160m"
-)
+// ColorDimCyan is the ANSI color used for elapsed-duration suffixes.
+// Exported so cmd's tests can assert on the expected formatting.
+const ColorDimCyan = "\033[38;2;100;160;160m"
+
+const colorReset = "\033[0m"
 
 // Stdout / Stderr are dynamic forwarders to the current os.Stdout /
 // os.Stderr. Using these as io.Writer destinations is equivalent to
@@ -140,12 +141,13 @@ var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 var alreadyTimedRE = regexp.MustCompile(` \d+\.\d{2}s$`)
 
 // drain reads lines from r and writes them to w with an elapsed-duration
-// suffix. The duration is the wall-clock gap between successive lines —
-// the same semantics as timedLineWriter in cmd/console.go.
+// suffix (the wall-clock gap since the previous line, formatted by
+// FmtDuration).
 //
 // Lines that already end with a " X.XXs" duration (after stripping ANSI
 // color codes) are passed through unchanged, so we don't double-stamp
-// output from step.finish or other places that already format timing.
+// output from step.finish or other places that already format timing
+// via FmtDuration.
 //
 // Partial content at EOF (no trailing newline) is emitted with an
 // appended newline so nothing is lost.
@@ -163,7 +165,7 @@ func drain(r *os.File, w io.Writer) {
 				fmt.Fprintln(w, content)
 			} else {
 				elapsed := time.Since(lineStart)
-				fmt.Fprintf(w, "%s %s\n", content, fmtElapsed(elapsed))
+				fmt.Fprintf(w, "%s %s\n", content, FmtDuration(elapsed))
 			}
 			lineStart = time.Now()
 		}
@@ -173,8 +175,12 @@ func drain(r *os.File, w io.Writer) {
 	}
 }
 
-func fmtElapsed(d time.Duration) string {
-	return fmt.Sprintf("%s%.2fs%s", colorDimCyan, d.Seconds(), colorReset)
+// FmtDuration formats a duration as dark greyish-cyan colored "X.XXs"
+// (e.g. "0.19s"). Used by both the drain and by cmd/console.go's step
+// system, so output stays consistent and the drain's already-timed-line
+// detection works.
+func FmtDuration(d time.Duration) string {
+	return fmt.Sprintf("%s%.2fs%s", ColorDimCyan, d.Seconds(), colorReset)
 }
 
 // Logf writes a formatted message to os.Stderr with a trailing newline

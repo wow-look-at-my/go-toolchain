@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
 	_ "modernc.org/sqlite"
@@ -425,7 +426,7 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 		case <-dc.doneCh:
 			elapsed := time.Since(startWait)
 			if showProgress {
-				fmt.Printf(" %sdone.%s %s\n", colorGreen, colorReset, fmtDuration(elapsed))
+				fmt.Printf(" %sdone.%s %s\n", colorGreen, colorReset, logx.FmtDuration(elapsed))
 			}
 			dc.mu.Lock()
 			result := dc.results
@@ -436,7 +437,7 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 			dc.mu.Unlock()
 			if showProgress && elapsed > 5*time.Second {
 				fmt.Printf("    deps: list=%s, checked=%d/%d (%d live)\n",
-					fmtDuration(listTime), checked, total, liveChecks)
+					logx.FmtDuration(listTime), checked, total, liveChecks)
 			}
 			return result
 		case <-ticker.C:
