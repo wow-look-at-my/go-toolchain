@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -170,15 +171,11 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 	// roundtripped through actions/upload-artifact (which dereferences
 	// symlinks, turning the aliases into full duplicate file copies that
 	// the symlink-mode check can no longer recognize).
-	expected := map[string]bool{
-		"checksums.txt":     true,
-		"checksums.txt.sig": true,
-		"checksums.txt.pem": true,
-	}
+	expected := set.Of("checksums.txt", "checksums.txt.sig", "checksums.txt.pem")
 	for _, line := range strings.Split(checksumsContent, "\n") {
 		// Format: "<hex-digest>  <filename>"
 		if _, name, ok := strings.Cut(strings.TrimSpace(line), "  "); ok {
-			expected[name] = true
+			expected.Add(name)
 		}
 	}
 
@@ -191,7 +188,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			continue
 		}
-		if !expected[filepath.Base(p)] {
+		if !expected.Contains(filepath.Base(p)) {
 			continue
 		}
 		ghArgs = append(ghArgs, p)
