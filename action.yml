@@ -116,8 +116,12 @@ runs:
       uses: github/codeql-action/init@v3
       with:
         languages: go
-        build-mode: manual
+        build-mode: autobuild
         queries: security-and-quality
+
+    - name: CodeQL autobuild
+      if: inputs.codeql == 'true'
+      uses: github/codeql-action/autobuild@v3
 
     - name: Run go-toolchain
       shell: bash
