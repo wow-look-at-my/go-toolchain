@@ -609,7 +609,10 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			}
 		} else {
 			msg := fmt.Sprintf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
-			if isGHA() {
+			// Skip annotation in --json mode: the coverage report has already
+			// been written to stdout above, and a workflow command on stdout
+			// would corrupt the JSON payload.
+			if isGHA() && !quiet {
 				logError("", msg)
 			}
 			return false, result, fmt.Errorf("%s", msg)
