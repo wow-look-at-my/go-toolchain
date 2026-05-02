@@ -21,13 +21,8 @@ jobs:
       - uses: github/codeql-action/init@v3
         with:
           languages: go
-          build-mode: manual
+          build-mode: autobuild
           queries: security-and-quality
-
-      - name: Build (incl. tests) for CodeQL extraction
-        run: |
-          go build ./...
-          go test -count=0 -run='^$' ./...
 
       - uses: github/codeql-action/analyze@v3
         with:
