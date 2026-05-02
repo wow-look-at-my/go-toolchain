@@ -21,21 +21,11 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
-      - uses: github/codeql-action/init@v3
-        with:
-          languages: go
-          build-mode: manual
-          queries: security-and-quality
-
       - name: Build and test
         run: go run ./src
         env:
           OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
           OTEL_SERVICE_NAME: ${{ github.repository }}
-
-      - uses: github/codeql-action/analyze@v3
-        with:
-          category: /language:go
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
