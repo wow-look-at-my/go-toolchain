@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -162,11 +163,22 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 	// Build gh release create args
 	ghArgs := []string{"create", tag}
 
-	// Add release artifacts from outputDir: the cross-compiled binaries
-	// (one per GOOS/GOARCH target), checksums.txt, and the cosign signature
-	// files. Skip symlinks (the bare host-name aliases the matrix build
-	// creates) and any directories. The binary name depends on the consuming
-	// module, so we don't hardcode a prefix.
+	// Build the set of files to include in the release. checksums.txt is
+	// the authoritative list of platform binaries produced by `matrix` —
+	// the bare host-name aliases (`<name>` and `<name>_host`) are
+	// deliberately excluded from it. Filtering against this allowlist
+	// keeps the release clean even when the build directory has been
+	// roundtripped through actions/upload-artifact (which dereferences
+	// symlinks, turning the aliases into full duplicate file copies that
+	// the symlink-mode check can no longer recognize).
+	expected := set.Of("checksums.txt", "checksums.txt.sig", "checksums.txt.pem")
+	for _, line := range strings.Split(checksumsContent, "\n") {
+		// Format: "<hex-digest>  <filename>"
+		if _, name, ok := strings.Cut(strings.TrimSpace(line), "  "); ok {
+			expected.Add(name)
+		}
+	}
+
 	entries, _ := filepath.Glob(filepath.Join(outputDir, "*"))
 	for _, p := range entries {
 		info, err := os.Lstat(p)
@@ -174,6 +186,9 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 			continue
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		if !expected.Contains(filepath.Base(p)) {
 			continue
 		}
 		ghArgs = append(ghArgs, p)
