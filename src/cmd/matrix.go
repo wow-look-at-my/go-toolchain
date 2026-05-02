@@ -207,9 +207,13 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		}
 	}
 
-	// Create _host and bare symlinks for the current platform
-	if err := createHostSymlinks(targets, outputDir); err != nil {
-		return err
+	// Create _host and bare symlinks for the current platform. In CI these
+	// are pointless (nothing consumes them) and harmful: upload-artifact
+	// dereferences symlinks, bloating the artifact with full duplicate copies.
+	if os.Getenv("CI") == "" {
+		if err := createHostSymlinks(targets, outputDir); err != nil {
+			return err
+		}
 	}
 
 	fmt.Printf("⇒ All %d binaries built successfully in %s/ %s\n", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
