@@ -27,32 +27,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
-// runCodeQLAnalyze runs `codeql database analyze` and uploads the SARIF.
-// No-op if CodeQL was not enabled by the surrounding workflow. Errors are
-// reported but not propagated — a failed code-scanning upload should not
-// fail the build.
-func runCodeQLAnalyze(r runner.CommandRunner) {
-	if !codeql.Enabled() {
-		return
-	}
-	azStep := logStep("codeql analyze")
-	sarifPath, err := codeql.Analyze(r)
-	if err != nil {
-		azStep.failed()
-		fmt.Fprintf(os.Stderr, "⇒ Warning: codeql analyze failed: %v\n", err)
-		return
-	}
-	azStep.done()
-
-	upStep := logStep("codeql upload sarif")
-	if err := codeql.UploadSARIF(r, sarifPath); err != nil {
-		upStep.failed()
-		fmt.Fprintf(os.Stderr, "⇒ Warning: codeql sarif upload failed: %v\n", err)
-		return
-	}
-	upStep.done()
-}
-
 // activeTrace collects fine-grained trace events for Chrome trace export.
 var activeTrace *gotrace.Trace
 
@@ -192,8 +166,6 @@ func run(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-
-	runCodeQLAnalyze(r)
 
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
