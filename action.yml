@@ -116,12 +116,22 @@ runs:
       uses: github/codeql-action/init@v3
       with:
         languages: go
-        build-mode: autobuild
+        build-mode: manual
         queries: security-and-quality
 
-    - name: CodeQL autobuild
+    - name: CodeQL Go extract (standalone, no compile)
       if: inputs.codeql == 'true'
-      uses: github/codeql-action/autobuild@v3
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        case "${RUNNER_OS}" in
+          Linux)   PLAT=linux64; EXT='' ;;
+          macOS)   PLAT=osx64;   EXT='' ;;
+          Windows) PLAT=win64;   EXT='.exe' ;;
+          *) echo "Unsupported runner OS: ${RUNNER_OS}" >&2; exit 1 ;;
+        esac
+        "${CODEQL_EXTRACTOR_GO_ROOT}/tools/${PLAT}/go-extractor${EXT}" ./...
 
     - name: Run go-toolchain
       shell: bash
