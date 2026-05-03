@@ -125,6 +125,7 @@ runs:
       env:
         OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
         OTEL_SERVICE_NAME: ${{ github.repository }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         TIMEOUT_SECONDS=$(( ${{ inputs.timeout }} * 60 ))
