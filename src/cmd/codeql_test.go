@@ -21,6 +21,7 @@ func TestRunCodeQLAnalyzeDisabled(t *testing.T) {
 func TestRunCodeQLAnalyzeEnabled(t *testing.T) {
 	t.Setenv("CODEQL_DIST", "/opt/codeql")
 	t.Setenv("CODEQL_EXTRACTOR_GO_WIP_DATABASE", "/tmp/db")
+	t.Setenv("GO_TOOLCHAIN_SKIP_SARIF_UPLOAD", "")
 	t.Setenv("GITHUB_TOKEN", "tok")
 	t.Setenv("GITHUB_SHA", "deadbeef")
 	t.Setenv("GITHUB_REF", "refs/heads/main")
