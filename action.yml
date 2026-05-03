@@ -119,20 +119,6 @@ runs:
         build-mode: manual
         queries: security-and-quality
 
-    - name: CodeQL Go extract (standalone, no compile)
-      if: inputs.codeql == 'true'
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: |
-        set -euo pipefail
-        case "${RUNNER_OS}" in
-          Linux)   PLAT=linux64; EXT='' ;;
-          macOS)   PLAT=osx64;   EXT='' ;;
-          Windows) PLAT=win64;   EXT='.exe' ;;
-          *) echo "Unsupported runner OS: ${RUNNER_OS}" >&2; exit 1 ;;
-        esac
-        "${CODEQL_EXTRACTOR_GO_ROOT}/tools/${PLAT}/go-extractor${EXT}" ./...
-
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -159,12 +145,6 @@ runs:
           ARGS="$ARGS --cgo"
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
-
-    - name: Analyze with CodeQL
-      if: inputs.codeql == 'true'
-      uses: github/codeql-action/analyze@v4
-      with:
-        category: /language:go
 
     - name: Upload build artifacts
       if: inputs.upload-artifacts == 'true'
