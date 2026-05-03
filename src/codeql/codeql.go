@@ -31,16 +31,7 @@ func Extract(r runner.CommandRunner) error {
 	if err != nil {
 		return err
 	}
-	proc, err := runner.Cmd(bin, "./...").Run(r)
-	if err != nil {
-		return fmt.Errorf("codeql extract: spawn: %w", err)
-	}
-	io.Copy(io.Discard, proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
-	if err := proc.Wait(); err != nil {
-		if len(stderr) > 0 {
-			return fmt.Errorf("codeql extract: %w\n%s", err, stderr)
-		}
+	if err := runWait(r, bin, "./..."); err != nil {
 		return fmt.Errorf("codeql extract: %w", err)
 	}
 	return nil
@@ -152,8 +143,19 @@ func runWaitConfig(r runner.CommandRunner, cfg *runner.Config) error {
 	if err != nil {
 		return fmt.Errorf("spawn %s: %w", cfg.Name, err)
 	}
-	io.Copy(io.Discard, proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
+	// Drain stdout and stderr concurrently. If we read one pipe to completion
+	// before touching the other, the subprocess can deadlock when the unread
+	// pipe's OS buffer fills (~64KB on Linux). The codeql extractor emits one
+	// stderr line per package, which trips this on real projects.
+	var stderr []byte
+	done := make(chan struct{})
+	go func() {
+		io.Copy(io.Discard, proc.Stdout())
+		close(done)
+	}()
+	stderr, _ = io.ReadAll(proc.Stderr())
+	<-done
+
 	if err := proc.Wait(); err != nil {
 		if len(stderr) > 0 {
 			return fmt.Errorf("%w\n%s", err, stderr)
