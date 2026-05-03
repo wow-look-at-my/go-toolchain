@@ -37,7 +37,7 @@ This shows a hierarchical view: packages > files > functions, sorted by uncovere
 ## Project Structure
 
 - `src/main.go` — entry point
-- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, update, version, release, ignore/unignore, cacheprog) using Cobra
+- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, update, version, release, ignore/unignore, cacheprog) using Cobra; also includes dependabot (automatic dependency graph submission to GitHub in CI)
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via filesystem walking
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery)

@@ -69,6 +69,8 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	maybeSubmitDeps()
+
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
 		sd := summary.SummaryData{Timeline: tl.Entries()}

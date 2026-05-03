@@ -167,6 +167,8 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	maybeSubmitDeps()
+
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
 		allSummary.Timeline = tl.Entries()
