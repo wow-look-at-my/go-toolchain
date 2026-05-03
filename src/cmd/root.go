@@ -194,6 +194,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	runCodeQLAnalyze(r)
+	maybeSubmitDeps()
 
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {

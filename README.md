@@ -13,6 +13,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Auto-fix** — automatically fixes linter violations on non-CI systems
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
+- **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot
 - **Self-update** — update the binary in place via the `update` subcommand
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
@@ -206,7 +207,8 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 14. If coverage meets the threshold, builds the project binary into `build/`
 15. Automatically adds `build/` to `.gitignore` (if in a git repo)
 16. Runs benchmarks and compares against previously stored results
-17. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
+17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts
+18. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
 
 ## Development
 

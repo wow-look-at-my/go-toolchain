@@ -70,6 +70,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	}
 
 	runCodeQLAnalyze(r)
+	maybeSubmitDeps()
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
