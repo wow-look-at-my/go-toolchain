@@ -2,47 +2,38 @@ package codeql
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestEnabled(t *testing.T) {
 	t.Setenv("CODEQL_DIST", "")
-	if Enabled() {
-		t.Fatal("Enabled() = true with CODEQL_DIST unset")
-	}
+	assert.False(t, Enabled(), "Enabled() with CODEQL_DIST unset")
+
 	t.Setenv("CODEQL_DIST", "/opt/codeql")
-	if !Enabled() {
-		t.Fatal("Enabled() = false with CODEQL_DIST set")
-	}
+	assert.True(t, Enabled(), "Enabled() with CODEQL_DIST set")
 }
 
 func TestExtractInvokesGoExtractor(t *testing.T) {
 	t.Setenv("CODEQL_EXTRACTOR_GO_ROOT", "/opt/codeql/go")
 	mock := runner.NewMock()
-	if err := Extract(mock); err != nil {
-		t.Fatalf("Extract: %v", err)
-	}
+	require.NoError(t, Extract(mock))
+
 	calls := mock.Calls()
-	if len(calls) != 1 {
-		t.Fatalf("want 1 call, got %d", len(calls))
-	}
-	want := "/opt/codeql/go/tools/linux64/go-extractor"
-	if calls[0].Name != want && calls[0].Name != "/opt/codeql/go/tools/osx64/go-extractor" && calls[0].Name != "/opt/codeql/go/tools/win64/go-extractor.exe" {
-		t.Errorf("extractor path = %q, want platform-suffixed go-extractor under %s", calls[0].Name, want)
-	}
-	if len(calls[0].Args) != 1 || calls[0].Args[0] != "./..." {
-		t.Errorf("args = %v, want [./...]", calls[0].Args)
-	}
+	require.Len(t, calls, 1)
+	assert.Contains(t, calls[0].Name, "/opt/codeql/go/tools/")
+	assert.Contains(t, calls[0].Name, "go-extractor")
+	assert.Equal(t, []string{"./..."}, calls[0].Args)
 }
 
 func TestExtractMissingEnv(t *testing.T) {
 	t.Setenv("CODEQL_EXTRACTOR_GO_ROOT", "")
-	mock := runner.NewMock()
-	if err := Extract(mock); err == nil {
-		t.Fatal("Extract: want error when CODEQL_EXTRACTOR_GO_ROOT unset")
-	}
+	require.Error(t, Extract(runner.NewMock()),
+		"Extract should fail when CODEQL_EXTRACTOR_GO_ROOT unset")
 }
 
 func TestExtractPropagatesStderrOnFailure(t *testing.T) {
@@ -52,12 +43,9 @@ func TestExtractPropagatesStderrOnFailure(t *testing.T) {
 		return runner.MockProcessWithStderr(nil, []byte("permission denied"), errors.New("exit 1")), nil
 	}
 	err := Extract(mock)
-	if err == nil {
-		t.Fatal("Extract: want error")
-	}
-	if !contains(err.Error(), "permission denied") {
-		t.Errorf("error %q does not contain stderr", err)
-	}
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "permission denied"),
+		"error %q should contain stderr", err)
 }
 
 func TestAnalyzeRunsFinalizeAndAnalyze(t *testing.T) {
@@ -65,34 +53,25 @@ func TestAnalyzeRunsFinalizeAndAnalyze(t *testing.T) {
 	t.Setenv("CODEQL_EXTRACTOR_GO_WIP_DATABASE", "/tmp/db")
 	mock := runner.NewMock()
 	sarif, err := Analyze(mock)
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	if sarif == "" {
-		t.Fatal("Analyze: empty sarif path")
-	}
+	require.NoError(t, err)
+	assert.NotEmpty(t, sarif)
+
 	calls := mock.Calls()
-	if len(calls) != 2 {
-		t.Fatalf("want 2 calls, got %d", len(calls))
-	}
-	if calls[0].Args[0] != "database" || calls[0].Args[1] != "finalize" {
-		t.Errorf("first call = %v, want codeql database finalize", calls[0].Args)
-	}
-	if calls[1].Args[0] != "database" || calls[1].Args[1] != "analyze" {
-		t.Errorf("second call = %v, want codeql database analyze", calls[1].Args)
-	}
+	require.Len(t, calls, 2)
+	assert.Equal(t, []string{"database", "finalize", "/tmp/db"}, calls[0].Args)
+	assert.Equal(t, "database", calls[1].Args[0])
+	assert.Equal(t, "analyze", calls[1].Args[1])
 }
 
 func TestAnalyzeMissingDatabase(t *testing.T) {
 	t.Setenv("CODEQL_EXTRACTOR_GO_WIP_DATABASE", "")
-	if _, err := Analyze(runner.NewMock()); err == nil {
-		t.Fatal("Analyze: want error when CODEQL_EXTRACTOR_GO_WIP_DATABASE unset")
-	}
+	_, err := Analyze(runner.NewMock())
+	require.Error(t, err, "Analyze should fail when CODEQL_EXTRACTOR_GO_WIP_DATABASE unset")
 }
 
 func TestUploadSARIFRequiresEnv(t *testing.T) {
 	cases := []struct {
-		name           string
+		name                  string
 		token, sha, ref, repo string
 	}{
 		{"no-token", "", "abc", "refs/heads/main", "o/r"},
@@ -108,9 +87,7 @@ func TestUploadSARIFRequiresEnv(t *testing.T) {
 			t.Setenv("GITHUB_REF", c.ref)
 			t.Setenv("GITHUB_REPOSITORY", c.repo)
 			t.Setenv("CODEQL_DIST", "/opt/codeql")
-			if err := UploadSARIF(runner.NewMock(), "/tmp/r.sarif"); err == nil {
-				t.Fatal("UploadSARIF: want error when required env missing")
-			}
+			require.Error(t, UploadSARIF(runner.NewMock(), "/tmp/r.sarif"))
 		})
 	}
 }
@@ -121,28 +98,19 @@ func TestUploadSARIFPassesAllArgs(t *testing.T) {
 	t.Setenv("GITHUB_REF", "refs/heads/main")
 	t.Setenv("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 	t.Setenv("CODEQL_DIST", "/opt/codeql")
+
 	mock := runner.NewMock()
-	if err := UploadSARIF(mock, "/tmp/r.sarif"); err != nil {
-		t.Fatalf("UploadSARIF: %v", err)
-	}
+	require.NoError(t, UploadSARIF(mock, "/tmp/r.sarif"))
+
 	calls := mock.Calls()
-	if len(calls) != 1 {
-		t.Fatalf("want 1 call, got %d", len(calls))
-	}
-	want := []string{"github", "upload-results",
+	require.Len(t, calls, 1)
+	assert.Equal(t, []string{
+		"github", "upload-results",
 		"--sarif=/tmp/r.sarif",
 		"--commit=deadbeef",
 		"--ref=refs/heads/main",
 		"--repository=wow-look-at-my/go-toolchain",
-	}
-	if len(calls[0].Args) != len(want) {
-		t.Fatalf("args length = %d, want %d (%v)", len(calls[0].Args), len(want), calls[0].Args)
-	}
-	for i, a := range want {
-		if calls[0].Args[i] != a {
-			t.Errorf("arg[%d] = %q, want %q", i, calls[0].Args[i], a)
-		}
-	}
+	}, calls[0].Args)
 }
 
 func TestUploadSARIFFallsBackToGHToken(t *testing.T) {
@@ -152,24 +120,13 @@ func TestUploadSARIFFallsBackToGHToken(t *testing.T) {
 	t.Setenv("GITHUB_REF", "refs/heads/main")
 	t.Setenv("GITHUB_REPOSITORY", "o/r")
 	t.Setenv("CODEQL_DIST", "/opt/codeql")
-	mock := runner.NewMock()
-	if err := UploadSARIF(mock, "/tmp/r.sarif"); err != nil {
-		t.Fatalf("UploadSARIF: %v", err)
-	}
-	calls := mock.Calls()
-	if len(calls) != 1 {
-		t.Fatalf("want 1 call, got %d", len(calls))
-	}
-	if got, _ := calls[0].Env.Get("GITHUB_TOKEN"); got != "ghtok" {
-		t.Errorf("GITHUB_TOKEN env override = %q, want %q", got, "ghtok")
-	}
-}
 
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
+	mock := runner.NewMock()
+	require.NoError(t, UploadSARIF(mock, "/tmp/r.sarif"))
+
+	calls := mock.Calls()
+	require.Len(t, calls, 1)
+	require.NotNil(t, calls[0].Env)
+	got, _ := calls[0].Env.Get("GITHUB_TOKEN")
+	assert.Equal(t, "ghtok", got)
 }
