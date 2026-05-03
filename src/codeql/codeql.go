@@ -50,10 +50,7 @@ func Analyze(r runner.CommandRunner) (string, error) {
 		return "", fmt.Errorf("codeql database finalize: %w", err)
 	}
 
-	sarifPath := os.Getenv("GO_TOOLCHAIN_SARIF_PATH")
-	if sarifPath == "" {
-		sarifPath = filepath.Join(os.TempDir(), "go-toolchain-codeql.sarif")
-	}
+	sarifPath := filepath.Join(os.TempDir(), "go-toolchain-codeql.sarif")
 	if err := runWait(r, codeql, "database", "analyze",
 		db,
 		"--format=sarif-latest",

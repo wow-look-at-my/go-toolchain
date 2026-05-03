@@ -151,11 +151,6 @@ runs:
         OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
         OTEL_SERVICE_NAME: ${{ github.repository }}
         GITHUB_TOKEN: ${{ github.token }}
-        # Hand SARIF off to github/codeql-action/upload-sarif so init's
-        # post-cleanup sees the UPLOAD_RUN workflow-state marker and
-        # reports success instead of "configuration error".
-        GO_TOOLCHAIN_SKIP_SARIF_UPLOAD: ${{ inputs.codeql == 'true' && '1' || '' }}
-        GO_TOOLCHAIN_SARIF_PATH: ${{ runner.temp }}/go-toolchain-codeql.sarif
       run: |
         set -euo pipefail
         TIMEOUT_SECONDS=$(( ${{ inputs.timeout }} * 60 ))
@@ -177,22 +172,10 @@ runs:
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
-    - name: Check for CodeQL SARIF
+    - name: Analyze with CodeQL
       if: inputs.codeql == 'true'
-      id: codeql-sarif
-      shell: bash
-      run: |
-        if [ -s "${RUNNER_TEMP}/go-toolchain-codeql.sarif" ]; then
-          echo "exists=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "exists=false" >> "$GITHUB_OUTPUT"
-        fi
-
-    - name: Upload CodeQL SARIF
-      if: inputs.codeql == 'true' && steps.codeql-sarif.outputs.exists == 'true'
-      uses: github/codeql-action/upload-sarif@v4
+      uses: github/codeql-action/analyze@v4
       with:
-        sarif_file: ${{ runner.temp }}/go-toolchain-codeql.sarif
         category: /language:go
 
     - name: Upload build artifacts

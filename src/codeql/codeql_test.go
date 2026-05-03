@@ -69,21 +69,6 @@ func TestAnalyzeMissingDatabase(t *testing.T) {
 	require.Error(t, err, "Analyze should fail when CODEQL_EXTRACTOR_GO_WIP_DATABASE unset")
 }
 
-func TestAnalyzeUsesSarifPathOverride(t *testing.T) {
-	t.Setenv("CODEQL_DIST", "/opt/codeql")
-	t.Setenv("CODEQL_EXTRACTOR_GO_WIP_DATABASE", "/tmp/db")
-	t.Setenv("GO_TOOLCHAIN_SARIF_PATH", "/runner/temp/custom.sarif")
-
-	mock := runner.NewMock()
-	got, err := Analyze(mock)
-	require.NoError(t, err)
-	assert.Equal(t, "/runner/temp/custom.sarif", got)
-
-	calls := mock.Calls()
-	require.Len(t, calls, 2)
-	assert.Contains(t, calls[1].Args, "--output=/runner/temp/custom.sarif")
-}
-
 func TestUploadSARIFRequiresEnv(t *testing.T) {
 	cases := []struct {
 		name                  string
