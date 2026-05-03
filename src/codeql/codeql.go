@@ -107,7 +107,11 @@ func extractorPath() (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("CODEQL_EXTRACTOR_GO_ROOT not set")
 	}
-	plat, ext, err := platform()
+	return extractorPathFor(root, runtime.GOOS)
+}
+
+func extractorPathFor(root, goos string) (string, error) {
+	plat, ext, err := platformFor(goos)
 	if err != nil {
 		return "", err
 	}
@@ -116,16 +120,19 @@ func extractorPath() (string, error) {
 
 // codeqlBin returns the path to the codeql CLI driver inside CODEQL_DIST.
 func codeqlBin() string {
-	dist := os.Getenv("CODEQL_DIST")
+	return codeqlBinFor(os.Getenv("CODEQL_DIST"), runtime.GOOS)
+}
+
+func codeqlBinFor(dist, goos string) string {
 	bin := "codeql"
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		bin += ".exe"
 	}
 	return filepath.Join(dist, bin)
 }
 
-func platform() (plat, ext string, err error) {
-	switch runtime.GOOS {
+func platformFor(goos string) (plat, ext string, err error) {
+	switch goos {
 	case "linux":
 		return "linux64", "", nil
 	case "darwin":
@@ -133,7 +140,7 @@ func platform() (plat, ext string, err error) {
 	case "windows":
 		return "win64", ".exe", nil
 	}
-	return "", "", fmt.Errorf("unsupported GOOS for CodeQL: %s", runtime.GOOS)
+	return "", "", fmt.Errorf("unsupported GOOS for CodeQL: %s", goos)
 }
 
 func runWait(r runner.CommandRunner, name string, args ...string) error {

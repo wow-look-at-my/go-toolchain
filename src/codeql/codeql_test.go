@@ -113,6 +113,49 @@ func TestUploadSARIFPassesAllArgs(t *testing.T) {
 	}, calls[0].Args)
 }
 
+func TestPlatformFor(t *testing.T) {
+	cases := []struct {
+		goos, plat, ext string
+		wantErr         bool
+	}{
+		{"linux", "linux64", "", false},
+		{"darwin", "osx64", "", false},
+		{"windows", "win64", ".exe", false},
+		{"plan9", "", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.goos, func(t *testing.T) {
+			plat, ext, err := platformFor(c.goos)
+			if c.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, c.plat, plat)
+			assert.Equal(t, c.ext, ext)
+		})
+	}
+}
+
+func TestExtractorPathFor(t *testing.T) {
+	p, err := extractorPathFor("/opt/codeql/go", "windows")
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/codeql/go/tools/win64/go-extractor.exe", p)
+
+	p, err = extractorPathFor("/opt/codeql/go", "darwin")
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/codeql/go/tools/osx64/go-extractor", p)
+
+	_, err = extractorPathFor("/opt/codeql/go", "freebsd")
+	require.Error(t, err)
+}
+
+func TestCodeqlBinFor(t *testing.T) {
+	assert.Equal(t, "/opt/codeql/codeql", codeqlBinFor("/opt/codeql", "linux"))
+	assert.Equal(t, "/opt/codeql/codeql", codeqlBinFor("/opt/codeql", "darwin"))
+	assert.Equal(t, "/opt/codeql/codeql.exe", codeqlBinFor("/opt/codeql", "windows"))
+}
+
 func TestUploadSARIFFallsBackToGHToken(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "ghtok")
