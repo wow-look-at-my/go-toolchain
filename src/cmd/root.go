@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
@@ -25,6 +26,32 @@ import (
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
+
+// runCodeQLAnalyze runs `codeql database analyze` and uploads the SARIF.
+// No-op if CodeQL was not enabled by the surrounding workflow. Errors are
+// reported but not propagated — a failed code-scanning upload should not
+// fail the build.
+func runCodeQLAnalyze(r runner.CommandRunner) {
+	if !codeql.Enabled() {
+		return
+	}
+	azStep := logStep("codeql analyze")
+	sarifPath, err := codeql.Analyze(r)
+	if err != nil {
+		azStep.failed()
+		fmt.Fprintf(os.Stderr, "⇒ Warning: codeql analyze failed: %v\n", err)
+		return
+	}
+	azStep.done()
+
+	upStep := logStep("codeql upload sarif")
+	if err := codeql.UploadSARIF(r, sarifPath); err != nil {
+		upStep.failed()
+		fmt.Fprintf(os.Stderr, "⇒ Warning: codeql sarif upload failed: %v\n", err)
+		return
+	}
+	upStep.done()
+}
 
 // activeTrace collects fine-grained trace events for Chrome trace export.
 var activeTrace *gotrace.Trace
@@ -166,6 +193,8 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	runCodeQLAnalyze(r)
+
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
 		allSummary.Timeline = tl.Entries()
@@ -244,6 +273,15 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	if !isRetry && filesChanged {
 		fmt.Println("\n⇒ Files changed, rebuilding...")
 		return runWithRunnerOnce(r, true, sd)
+	}
+
+	if codeql.Enabled() {
+		ex := logStep("codeql extract")
+		if err := codeql.Extract(r); err != nil {
+			ex.failed()
+			return err
+		}
+		ex.done()
 	}
 
 	br, err := runBuildPhase(r, quiet)

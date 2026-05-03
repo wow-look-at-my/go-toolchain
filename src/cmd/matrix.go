@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
@@ -68,6 +69,8 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	runCodeQLAnalyze(r)
+
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
 		sd := summary.SummaryData{Timeline: tl.Entries()}
@@ -94,6 +97,15 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	// Run tests with coverage first (same as default command)
 	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
 		return err
+	}
+
+	if codeql.Enabled() {
+		ex := logStep("codeql extract")
+		if err := codeql.Extract(r); err != nil {
+			ex.failed()
+			return err
+		}
+		ex.done()
 	}
 
 	// Resolve what to build

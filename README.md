@@ -33,6 +33,7 @@ Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched a
 permissions:
   contents: write
   id-token: write
+  security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
 
 jobs:
   build:
@@ -42,7 +43,14 @@ jobs:
       - uses: wow-look-at-my/go-toolchain@v1
 ```
 
-The action handles everything: fetching secrets, configuring the Go proxy, private repo access, web build cache, and running `go-toolchain matrix`.
+The action handles everything: fetching secrets, configuring the Go proxy, private repo access, web build cache, running `go-toolchain matrix`, and a CodeQL `security-and-quality` analysis around the build.
+
+**CodeQL prerequisites** (the action runs CodeQL by default):
+
+- The workflow must grant `security-events: write`.
+- The repo must NOT have GitHub's default CodeQL setup enabled — disable it under *Settings → Code security → Code scanning → CodeQL → Default setup*. Otherwise SARIF uploads fail with `"CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled"`.
+
+To opt out, pass `codeql: 'false'`.
 
 ### Inputs
 
@@ -58,6 +66,8 @@ The action handles everything: fetching secrets, configuring the Go proxy, priva
 | `autorelease`       | string   | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
 | `upload-artifacts`  | string   | `true`     | Upload `build/` directory as a GitHub Actions artifact after building |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
+| `wait-ci`           | string   | `false`    | Wait for the latest go-toolchain CI run before downloading the release binary |
+| `codeql`            | string   | `true`     | Run CodeQL `security-and-quality` analysis around the build (see prerequisites above) |
 
 ## CLI Usage
 
