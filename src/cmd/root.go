@@ -31,6 +31,11 @@ import (
 // No-op if CodeQL was not enabled by the surrounding workflow. Errors are
 // reported but not propagated — a failed code-scanning upload should not
 // fail the build.
+//
+// If GO_TOOLCHAIN_SKIP_SARIF_UPLOAD is set, the in-process upload is
+// skipped — the surrounding action is expected to upload via
+// github/codeql-action/upload-sarif so init's post-cleanup sees the
+// expected workflow-state markers.
 func runCodeQLAnalyze(r runner.CommandRunner) {
 	if !codeql.Enabled() {
 		return
@@ -43,6 +48,10 @@ func runCodeQLAnalyze(r runner.CommandRunner) {
 		return
 	}
 	azStep.done()
+
+	if os.Getenv("GO_TOOLCHAIN_SKIP_SARIF_UPLOAD") != "" {
+		return
+	}
 
 	upStep := logStep("codeql upload sarif")
 	if err := codeql.UploadSARIF(r, sarifPath); err != nil {

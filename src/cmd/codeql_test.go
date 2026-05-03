@@ -37,6 +37,23 @@ func TestRunCodeQLAnalyzeEnabled(t *testing.T) {
 	assert.Equal(t, "upload-results", calls[2].Args[1])
 }
 
+// GO_TOOLCHAIN_SKIP_SARIF_UPLOAD suppresses the upload step (the
+// surrounding action does the upload via github/codeql-action/upload-sarif).
+func TestRunCodeQLAnalyzeSkipUpload(t *testing.T) {
+	t.Setenv("CODEQL_DIST", "/opt/codeql")
+	t.Setenv("CODEQL_EXTRACTOR_GO_WIP_DATABASE", "/tmp/db")
+	t.Setenv("GO_TOOLCHAIN_SKIP_SARIF_UPLOAD", "1")
+	InitTimeline()
+
+	mock := runner.NewMock()
+	runCodeQLAnalyze(mock)
+
+	calls := mock.Calls()
+	require.Len(t, calls, 2, "expected finalize + analyze, no upload")
+	assert.Equal(t, []string{"database", "finalize", "/tmp/db"}, calls[0].Args)
+	assert.Equal(t, "analyze", calls[1].Args[1])
+}
+
 // Analyze failure must be logged and swallowed (not propagate); upload skipped.
 func TestRunCodeQLAnalyzeAnalyzeFails(t *testing.T) {
 	t.Setenv("CODEQL_DIST", "/opt/codeql")
