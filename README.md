@@ -47,7 +47,7 @@ The action handles everything: fetching secrets, configuring the Go proxy, priva
 
 **CodeQL prerequisites** (the action runs CodeQL by default):
 
-- The workflow must grant `security-events: write`.
+- The workflow must grant `security-events: write`. The action probes the SARIF upload endpoint up front and **fails fast** if this permission is missing.
 - The repo must NOT have GitHub's default CodeQL setup enabled — disable it under *Settings → Code security → Code scanning → CodeQL → Default setup*. Otherwise SARIF uploads fail with `"CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled"`.
 
 To opt out, pass `codeql: 'false'`.
