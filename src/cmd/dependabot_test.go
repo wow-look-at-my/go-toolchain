@@ -80,6 +80,7 @@ func TestBuildDepSnapshot_IndirectDeps(t *testing.T) {
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
 	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_WORKSPACE", "")
 
 	snapshot, err := buildDepSnapshot()
 	require.Nil(t, err)
