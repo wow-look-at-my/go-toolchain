@@ -64,6 +64,11 @@ jobs:
     if: github.ref == 'refs/heads/v1'
     needs: [build, action-test]
     runs-on: ubuntu-latest
+    env:
+      # Gitea npm registry. The owner is the Gitea user/org that hosts the
+      # packages; the scope is what consumers reference in package.json.
+      NPM_REGISTRY: https://git.pazer.us/api/packages/pazer/npm/
+      NPM_SCOPE: '@pazer'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,6 +79,8 @@ jobs:
         with:
           name: build-output
           path: build
+
+      - uses: wow-look-at-my/actions@secret-server#latest
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -93,3 +100,32 @@ jobs:
           ./build/go-toolchain_linux_amd64 release --tag "${{ steps.tag.outputs.tag }}"
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Configure npm registry auth
+        # GITEA_NPM_TOKEN is published into $GITHUB_ENV by the secret-server
+        # step earlier in this job; rename on the secret server if you prefer
+        # a different key.
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEA_NPM_TOKEN:-}" ]; then
+            echo "::error::GITEA_NPM_TOKEN is not set; configure it on the secret server"
+            exit 1
+          fi
+          # Strip protocol so the .npmrc auth key matches npm's expected form.
+          host_path="${NPM_REGISTRY#https:}"
+          {
+            echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}"
+            echo "${host_path}:_authToken=${GITEA_NPM_TOKEN}"
+            echo "${host_path}:always-auth=true"
+          } > "${HOME}/.npmrc"
+
+      - name: Publish npm packages
+        run: |
+          ./build/go-toolchain_linux_amd64 npm-publish \
+            --registry "${NPM_REGISTRY}" \
+            --scope "${NPM_SCOPE}" \
+            --tag "${{ steps.tag.outputs.tag }}"
