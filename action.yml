@@ -54,7 +54,7 @@ inputs:
   codeql:
     description: 'Run CodeQL security-and-quality analysis around the build (requires security-events: write permission, and the consumer repo must NOT have GitHub default CodeQL setup enabled)'
     required: false
-    default: 'true'
+    default: 'false'
 
 runs:
   using: 'composite'
