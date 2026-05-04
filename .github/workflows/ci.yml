@@ -101,20 +101,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - uses: actions/setup-node@v4
+      - name: Detect npm publish prerequisites
+        id: npm
+        # GITEA_NPM_TOKEN is published into $GITHUB_ENV by the secret-server
+        # step earlier in this job. Skip the npm publish steps cleanly when
+        # the secret isn't configured yet, so the GitHub release still succeeds.
+        run: |
+          if [ -n "${GITEA_NPM_TOKEN:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::GITEA_NPM_TOKEN not set on the secret server; skipping npm publish"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.npm.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Configure npm registry auth
-        # GITEA_NPM_TOKEN is published into $GITHUB_ENV by the secret-server
-        # step earlier in this job; rename on the secret server if you prefer
-        # a different key.
+        if: steps.npm.outputs.enabled == 'true'
         run: |
           set -euo pipefail
-          if [ -z "${GITEA_NPM_TOKEN:-}" ]; then
-            echo "::error::GITEA_NPM_TOKEN is not set; configure it on the secret server"
-            exit 1
-          fi
           # Strip protocol so the .npmrc auth key matches npm's expected form.
           host_path="${NPM_REGISTRY#https:}"
           {
@@ -124,6 +132,7 @@ jobs:
           } > "${HOME}/.npmrc"
 
       - name: Publish npm packages
+        if: steps.npm.outputs.enabled == 'true'
         run: |
           ./build/go-toolchain_linux_amd64 npm-publish \
             --registry "${NPM_REGISTRY}" \
