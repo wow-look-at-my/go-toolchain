@@ -14,7 +14,7 @@ func TestGenerateReleaseNotes(t *testing.T) {
 	commits := []string{"add feature X", "fix bug Y"}
 	checksums := "abc123  tool_linux_amd64\ndef456  tool_darwin_arm64\n"
 
-	notes := generateReleaseNotes("v1.0.0", commits, checksums)
+	notes := generateReleaseNotes("v1.0.0", commits, checksums, false)
 
 	assert.Contains(t, notes, "## What's Changed")
 	assert.Contains(t, notes, "- add feature X")
@@ -27,7 +27,7 @@ func TestGenerateReleaseNotes(t *testing.T) {
 
 func TestGenerateReleaseNotesNoChecksums(t *testing.T) {
 	commits := []string{"initial commit"}
-	notes := generateReleaseNotes("v0.1.0", commits, "")
+	notes := generateReleaseNotes("v0.1.0", commits, "", false)
 
 	assert.Contains(t, notes, "## What's Changed")
 	assert.Contains(t, notes, "- initial commit")
@@ -36,9 +36,21 @@ func TestGenerateReleaseNotesNoChecksums(t *testing.T) {
 }
 
 func TestGenerateReleaseNotesNoCommits(t *testing.T) {
-	notes := generateReleaseNotes("v0.0.1", nil, "")
+	notes := generateReleaseNotes("v0.0.1", nil, "", false)
 
 	assert.Contains(t, notes, "- Initial release")
+}
+
+func TestGenerateReleaseNotesNoCosign(t *testing.T) {
+	commits := []string{"add feature X"}
+	checksums := "abc123  tool_linux_amd64\n"
+
+	notes := generateReleaseNotes("v1.0.0", commits, checksums, true)
+
+	assert.Contains(t, notes, "## What's Changed")
+	assert.Contains(t, notes, "## Checksums")
+	assert.NotContains(t, notes, "## Verification")
+	assert.NotContains(t, notes, "cosign verify-blob")
 }
 
 func TestParseCommitLines(t *testing.T) {
@@ -108,7 +120,7 @@ func TestReleaseCmdAbort(t *testing.T) {
 		},
 	}
 	stdin := strings.NewReader("n\n")
-	err := runReleaseCmdImpl(stdin, mock)
+	err := runReleaseCmdImpl(stdin, mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "release aborted")
 }
@@ -128,7 +140,7 @@ func TestReleaseCmdAbortEmpty(t *testing.T) {
 		},
 	}
 	stdin := strings.NewReader("\n")
-	err := runReleaseCmdImpl(stdin, mock)
+	err := runReleaseCmdImpl(stdin, mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "release aborted")
 }
@@ -162,7 +174,7 @@ func TestReleaseCmdSuccess(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.Nil(t, err)
 
 	// Verify git tag and push were called
@@ -215,7 +227,7 @@ func TestReleaseCmdAutoTag(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.Nil(t, err)
 
 	// Verify the auto-detected tag was used
@@ -243,7 +255,7 @@ func TestReleaseCmdGitTagFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to create tag")
 }
@@ -266,7 +278,7 @@ func TestReleaseCmdGhReleaseFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "gh release create failed")
 }
@@ -299,7 +311,7 @@ func TestReleaseCmdSkipsSymlinks(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.Nil(t, err)
 
 	// Verify symlink was excluded from gh release args
@@ -346,7 +358,7 @@ func TestReleaseCmdSkipsRoundtrippedHostAliases(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.Nil(t, err)
 
 	ghArgs := mock.ghReleaseCalls[0]
@@ -387,7 +399,7 @@ func TestReleaseCmdPushTagFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to push tag")
 }
@@ -404,7 +416,7 @@ func TestReleaseCmdAutoTagFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to determine tag")
 }
@@ -421,7 +433,7 @@ func TestReleaseCmdCollectCommitsFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to collect commits")
 }
@@ -488,7 +500,7 @@ func TestReleaseCmdWithChecksums(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.Nil(t, err)
 
 	// All three checksum files should be in gh args
@@ -531,7 +543,7 @@ func TestReleaseCmdIncludesNonToolchainBinaries(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.Nil(t, err)
 
 	ghArgs := strings.Join(mock.ghReleaseCalls[0], " ")
@@ -563,9 +575,73 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to update latest tag")
+}
+
+func TestResolveNoCosign(t *testing.T) {
+	tests := []struct {
+		name      string
+		cosign    bool
+		noCosign  bool
+		serverURL string
+		want      bool
+		wantErr   bool
+	}{
+		{"both flags error", true, true, "", false, true},
+		{"--cosign forces cosign", true, false, "", false, false},
+		{"--no-cosign skips cosign", false, true, "", true, false},
+		{"auto github.com", false, false, "https://github.com", false, false},
+		{"auto ghes", false, false, "https://ghes.example.com", true, false},
+		{"auto local", false, false, "", true, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveNoCosign(tc.cosign, tc.noCosign, tc.serverURL)
+			if tc.wantErr {
+				assert.NotNil(t, err)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestReleaseCmdNoCosignSkipsFiles(t *testing.T) {
+	t.Setenv("CI", "true")
+
+	tmpDir := t.TempDir()
+	oldOutput := outputDir
+	oldTag := releaseTag
+	outputDir = tmpDir
+	releaseTag = "v1.0.0"
+	defer func() {
+		outputDir = oldOutput
+		releaseTag = oldTag
+	}()
+
+	os.WriteFile(filepath.Join(tmpDir, "checksums.txt"), []byte("abc  bin\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "checksums.txt.sig"), []byte("sig"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "checksums.txt.pem"), []byte("cert"), 0644)
+
+	mock := &mockExecutor{
+		gitOutputFunc: func(args ...string) (string, error) {
+			if len(args) > 0 && args[0] == "log" {
+				return "abc1234 commit", nil
+			}
+			return "", fmt.Errorf("not found")
+		},
+	}
+
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, true)
+	assert.Nil(t, err)
+
+	ghArgs := strings.Join(mock.ghReleaseCalls[0], " ")
+	assert.Contains(t, ghArgs, "checksums.txt")
+	assert.NotContains(t, ghArgs, "checksums.txt.sig")
+	assert.NotContains(t, ghArgs, "checksums.txt.pem")
 }
 
 func TestRealExecutorGitOutput(t *testing.T) {

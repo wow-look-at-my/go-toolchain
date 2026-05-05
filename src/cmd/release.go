@@ -15,9 +15,11 @@ import (
 )
 
 var (
-	releaseTag   string
-	releaseFrom  string
-	releaseBuild bool
+	releaseTag      string
+	releaseFrom     string
+	releaseBuild    bool
+	releaseCosign   bool
+	releaseNoCosign bool
 )
 
 func init() {
@@ -31,7 +33,25 @@ func init() {
 	cmd.Flags().StringVar(&releaseTag, "tag", "", "Tag name for this release (required in CI, default: auto-generated)")
 	cmd.Flags().StringVar(&releaseFrom, "from", "", "Start ref for changelog (default: previous tag)")
 	cmd.Flags().BoolVar(&releaseBuild, "build", false, "Run matrix cross-compilation before releasing")
+	cmd.Flags().BoolVar(&releaseCosign, "cosign", false, "Include cosign signature files and verification section (default: auto, enabled on github.com)")
+	cmd.Flags().BoolVar(&releaseNoCosign, "no-cosign", false, "Skip cosign signature files and verification section in release notes")
 	rootCmd.AddCommand(cmd)
+}
+
+// resolveNoCosign returns true if cosign should be skipped, based on explicit
+// flags and the server URL for auto-detection. serverURL is GITHUB_SERVER_URL.
+func resolveNoCosign(cosign, noCosign bool, serverURL string) (bool, error) {
+	if cosign && noCosign {
+		return false, fmt.Errorf("--cosign and --no-cosign are mutually exclusive")
+	}
+	if cosign {
+		return false, nil
+	}
+	if noCosign {
+		return true, nil
+	}
+	// Auto: enable cosign only when running on github.com
+	return !strings.Contains(serverURL, "github.com"), nil
 }
 
 // releaseExecutor abstracts external command execution for testability.
@@ -70,10 +90,14 @@ func (realExecutor) ghRelease(args ...string) error {
 }
 
 func runReleaseCmd(cmd *cobra.Command, args []string) error {
-	return runReleaseCmdImpl(os.Stdin, realExecutor{})
+	noCosign, err := resolveNoCosign(releaseCosign, releaseNoCosign, os.Getenv("GITHUB_SERVER_URL"))
+	if err != nil {
+		return err
+	}
+	return runReleaseCmdImpl(os.Stdin, realExecutor{}, noCosign)
 }
 
-func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
+func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error {
 	// Optional: run matrix build first
 	if releaseBuild {
 		r := runner.New()
@@ -115,7 +139,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 	}
 
 	// Generate release notes
-	notes := generateReleaseNotes(tag, commits, checksumsContent)
+	notes := generateReleaseNotes(tag, commits, checksumsContent, noCosign)
 
 	// Interactive confirmation when not in CI
 	if os.Getenv("CI") == "" {
@@ -171,7 +195,11 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 	// roundtripped through actions/upload-artifact (which dereferences
 	// symlinks, turning the aliases into full duplicate file copies that
 	// the symlink-mode check can no longer recognize).
-	expected := set.Of("checksums.txt", "checksums.txt.sig", "checksums.txt.pem")
+	expected := set.Of("checksums.txt")
+	if !noCosign {
+		expected.Add("checksums.txt.sig")
+		expected.Add("checksums.txt.pem")
+	}
 	for _, line := range strings.Split(checksumsContent, "\n") {
 		// Format: "<hex-digest>  <filename>"
 		if _, name, ok := strings.Cut(strings.TrimSpace(line), "  "); ok {
@@ -245,7 +273,7 @@ func parseCommitLines(output string) []string {
 }
 
 // generateReleaseNotes produces markdown release notes.
-func generateReleaseNotes(tag string, commits []string, checksumsContent string) string {
+func generateReleaseNotes(tag string, commits []string, checksumsContent string, noCosign bool) string {
 	var sb strings.Builder
 
 	sb.WriteString("## What's Changed\n\n")
@@ -263,13 +291,15 @@ func generateReleaseNotes(tag string, commits []string, checksumsContent string)
 		sb.WriteString("```\n")
 	}
 
-	sb.WriteString("\n## Verification\n\n```bash\n")
-	sb.WriteString("cosign verify-blob checksums.txt \\\n")
-	sb.WriteString("  --signature checksums.txt.sig \\\n")
-	sb.WriteString("  --certificate checksums.txt.pem \\\n")
-	sb.WriteString("  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\\n")
-	sb.WriteString("  --certificate-identity-regexp 'github\\.com/wow-look-at-my/go-toolchain'\n")
-	sb.WriteString("```\n")
+	if !noCosign {
+		sb.WriteString("\n## Verification\n\n```bash\n")
+		sb.WriteString("cosign verify-blob checksums.txt \\\n")
+		sb.WriteString("  --signature checksums.txt.sig \\\n")
+		sb.WriteString("  --certificate checksums.txt.pem \\\n")
+		sb.WriteString("  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\\n")
+		sb.WriteString("  --certificate-identity-regexp 'github\\.com/wow-look-at-my/go-toolchain'\n")
+		sb.WriteString("```\n")
+	}
 
 	return sb.String()
 }
