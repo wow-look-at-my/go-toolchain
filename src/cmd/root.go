@@ -49,7 +49,7 @@ var (
 func skipCache(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "cacheprog", "version", "install", "update", "release", "npm-publish":
+		case "cacheprog", "version", "install", "update", "release":
 			return true
 		}
 	}

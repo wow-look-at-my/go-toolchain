@@ -25,7 +25,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) to configure proxy URL, credentials (via ~/.netrc), and sumdb key automatically
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
-- **npm package publishing** — package cross-compiled binaries as scoped npm packages (one wrapper plus one per `(os, arch)`) and publish them to a Gitea or other npm registry via the `npm-publish` subcommand
+- **npm package publishing** — CI automatically publishes cross-compiled binaries as scoped npm packages (one wrapper plus one per `(os, arch)`) to a Gitea npm registry; branch builds use prerelease versions with per-branch dist-tags
 
 ## GitHub Action Usage
 
@@ -112,12 +112,6 @@ go-toolchain version json
 
 # Create a GitHub release with checksums
 go-toolchain release --tag v1.0.0
-
-# Publish cross-compiled binaries as npm packages to a Gitea registry
-# (run after `go-toolchain matrix` so build/ contains all platform binaries)
-go-toolchain npm-publish \
-  --registry https://git.pazer.us/api/packages/wow-look-at-my/npm/ \
-  --tag v1.0.0
 ```
 
 ### Flags
@@ -153,7 +147,6 @@ go-toolchain npm-publish \
 - **`install`** — install the binary to `~/.local/bin`
 - **`update`** — self-update to the latest GitHub release
 - **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
-- **`npm-publish`** — package the cross-compiled binaries in `build/` as scoped npm packages and publish them (`--registry`, `--scope`, `--name`, `--tag`, `--build-dir`, `--out-dir`, `--access`, `--dry-run`). Generates one wrapper package plus one binary-only package per `(os, arch)`; the wrapper depends on the platform packages as `optionalDependencies` so consumers only download the binary that matches their machine. The scope is inferred from a Gitea-style registry URL (`https://host/api/packages/<owner>/npm/` -> `@<owner>`) when `--scope` is omitted. Authentication uses the standard `.npmrc` (e.g. a `//host/api/packages/<owner>/npm/:_authToken=...` line) — this command does not write tokens itself.
 - **`version`** — show build version and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)

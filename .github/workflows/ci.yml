@@ -117,11 +117,10 @@ jobs:
           } > "${HOME}/.npmrc"
 
       - name: Publish npm packages
-        run: |
-          ./build/go-toolchain_linux_amd64 npm-publish \
-            --registry "${NPM_REGISTRY}" \
-            --scope "${NPM_SCOPE}" \
-            --tag "${{ steps.tag.outputs.tag }}"
+        run: .github/npm-publish.sh "${TAG#v}"
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          NPM_BUILD_DIR: build
 
   # Publish per-branch prerelease packages so consumers can install
   # `@wow-look-at-my/go-toolchain@branch-<sanitized-name>` to track a branch.
@@ -180,9 +179,6 @@ jobs:
           } > "${HOME}/.npmrc"
 
       - name: Publish branch npm packages
-        run: |
-          ./build/go-toolchain_linux_amd64 npm-publish \
-            --registry "${NPM_REGISTRY}" \
-            --scope "${NPM_SCOPE}" \
-            --tag "${{ steps.ver.outputs.version }}" \
-            --dist-tag "${{ steps.ver.outputs.dist_tag }}"
+        run: .github/npm-publish.sh "${{ steps.ver.outputs.version }}" "${{ steps.ver.outputs.dist_tag }}"
+        env:
+          NPM_BUILD_DIR: build
