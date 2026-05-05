@@ -67,8 +67,8 @@ jobs:
     env:
       # Gitea npm registry. The owner is the Gitea user/org that hosts the
       # packages; the scope is what consumers reference in package.json.
-      NPM_REGISTRY: https://git.pazer.us/api/packages/pazer/npm/
-      NPM_SCOPE: '@pazer'
+      NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
+      NPM_SCOPE: '@wow-look-at-my'
     steps:
       - uses: actions/checkout@v4
         with:

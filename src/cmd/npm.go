@@ -62,7 +62,7 @@ not write or read tokens itself.`,
 		RunE:         runNpmPublish,
 	}
 	cmd.Flags().StringVar(&npmTag, "tag", "", "Version to publish (leading 'v' is stripped); defaults to git describe")
-	cmd.Flags().StringVar(&npmRegistry, "registry", "", "Target npm registry URL (e.g. https://git.pazer.us/api/packages/pazer/npm/)")
+	cmd.Flags().StringVar(&npmRegistry, "registry", "", "Target npm registry URL (e.g. https://git.pazer.us/api/packages/wow-look-at-my/npm/)")
 	cmd.Flags().StringVar(&npmScope, "scope", "", "npm scope including the leading @ (defaults to @<owner> from a Gitea-style registry)")
 	cmd.Flags().StringVar(&npmName, "name", "", "Package name without scope (defaults to the Go module's basename)")
 	cmd.Flags().StringVar(&npmBuildDir, "build-dir", "build", "Directory containing built binaries to package")

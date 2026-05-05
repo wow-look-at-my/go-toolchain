@@ -116,7 +116,7 @@ go-toolchain release --tag v1.0.0
 # Publish cross-compiled binaries as npm packages to a Gitea registry
 # (run after `go-toolchain matrix` so build/ contains all platform binaries)
 go-toolchain npm-publish \
-  --registry https://git.pazer.us/api/packages/pazer/npm/ \
+  --registry https://git.pazer.us/api/packages/wow-look-at-my/npm/ \
   --tag v1.0.0
 
 # Enable coverage watermark
