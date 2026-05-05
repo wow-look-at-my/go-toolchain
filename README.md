@@ -13,6 +13,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Auto-fix** — automatically fixes linter violations on non-CI systems
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
+- **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot
 - **Self-update** — update the binary in place via the `update` subcommand
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
@@ -24,6 +25,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) to configure proxy URL, credentials (via ~/.netrc), and sumdb key automatically
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
+- **npm package publishing** — CI automatically publishes cross-compiled binaries as scoped npm packages (one wrapper plus one per `(os, arch)`) to a Gitea npm registry; branch builds use prerelease versions with per-branch dist-tags
 
 ## GitHub Action Usage
 
@@ -33,6 +35,7 @@ Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched a
 permissions:
   contents: write
   id-token: write
+  security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
 
 jobs:
   build:
@@ -42,7 +45,14 @@ jobs:
       - uses: wow-look-at-my/go-toolchain@v1
 ```
 
-The action handles everything: fetching secrets, configuring the Go proxy, private repo access, web build cache, and running `go-toolchain matrix`.
+The action handles everything: fetching secrets, configuring the Go proxy, private repo access, web build cache, running `go-toolchain matrix`, and a CodeQL `security-and-quality` analysis around the build.
+
+**CodeQL prerequisites** (the action runs CodeQL by default):
+
+- The workflow must grant `security-events: write`. The action probes the SARIF upload endpoint up front and **fails fast** if this permission is missing.
+- The repo must NOT have GitHub's default CodeQL setup enabled — disable it under *Settings → Code security → Code scanning → CodeQL → Default setup*. Otherwise SARIF uploads fail with `"CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled"`.
+
+To opt out, pass `codeql: 'false'`.
 
 ### Inputs
 
@@ -58,6 +68,8 @@ The action handles everything: fetching secrets, configuring the Go proxy, priva
 | `autorelease`       | string   | `false`    | Automatically create a GitHub release when on the default branch (requires `contents: write`) |
 | `upload-artifacts`  | string   | `true`     | Upload `build/` directory as a GitHub Actions artifact after building |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
+| `wait-ci`           | string   | `false`    | Wait for the latest go-toolchain CI run before downloading the release binary |
+| `codeql`            | string   | `true`     | Run CodeQL `security-and-quality` analysis around the build (see prerequisites above) |
 
 ## CLI Usage
 
@@ -100,9 +112,6 @@ go-toolchain version json
 
 # Create a GitHub release with checksums
 go-toolchain release --tag v1.0.0
-
-# Enable coverage watermark
-go-toolchain ignore coverage
 ```
 
 ### Flags
@@ -141,10 +150,6 @@ go-toolchain ignore coverage
 - **`version`** — show build version and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
-- **`ignore`** — manage build-check exemptions
-  - `coverage` — enable coverage ratchet (watermark)
-- **`unignore`** — remove build-check exemptions
-  - `coverage` — remove coverage watermark
 
 ## OpenTelemetry Trace Export
 
@@ -196,7 +201,8 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 14. If coverage meets the threshold, builds the project binary into `build/`
 15. Automatically adds `build/` to `.gitignore` (if in a git repo)
 16. Runs benchmarks and compares against previously stored results
-17. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
+17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts
+18. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
 
 ## Development
 

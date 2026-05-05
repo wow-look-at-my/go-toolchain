@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
@@ -166,6 +167,8 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	maybeSubmitDeps()
+
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
 		allSummary.Timeline = tl.Entries()
@@ -244,6 +247,15 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	if !isRetry && filesChanged {
 		fmt.Println("\n⇒ Files changed, rebuilding...")
 		return runWithRunnerOnce(r, true, sd)
+	}
+
+	if codeql.Enabled() {
+		ex := logStep("codeql extract")
+		if err := codeql.Extract(r); err != nil {
+			ex.failed()
+			return err
+		}
+		ex.done()
 	}
 
 	br, err := runBuildPhase(r, quiet)

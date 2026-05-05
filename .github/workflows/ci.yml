@@ -6,6 +6,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  security-events: write
 
 jobs:
   build:
@@ -88,7 +89,35 @@ jobs:
         run: cosign sign-blob build/checksums.txt --yes --output-signature build/checksums.txt.sig --output-certificate build/checksums.txt.pem
 
       - name: Release
-        run: |
-          ./build/go-toolchain_linux_amd64 release --tag "${{ steps.tag.outputs.tag }}"
+        run: ./build/go-toolchain_linux_amd64 release --tag "${{ steps.tag.outputs.tag }}"
         env:
           GH_TOKEN: ${{ github.token }}
+
+  npm-publish:
+    if: github.ref_type == 'branch'
+    needs: [build, action-test]
+    runs-on: ubuntu-latest
+    env:
+      NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
+      NPM_SCOPE: '@wow-look-at-my'
+      NPM_REPOSITORY_URL: https://git.pazer.us/wow-look-at-my/packages.git
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: build
+
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Publish npm packages
+        env:
+          BRANCH: ${{ github.ref_name }}
+          NPM_BUILD_DIR: build
+        run: npx --yes tsx .github/npm-publish.ts

@@ -284,9 +284,11 @@ func TestReleaseCmdSkipsSymlinks(t *testing.T) {
 		releaseTag = oldTag
 	}()
 
-	// Create a real binary and a symlink
+	// Create a real binary and a symlink. checksums.txt only declares the
+	// real binary — the host-alias symlink is intentionally omitted.
 	os.WriteFile(filepath.Join(tmpDir, "go-toolchain_linux_amd64"), []byte("binary"), 0755)
 	os.Symlink("go-toolchain_linux_amd64", filepath.Join(tmpDir, "go-toolchain_host"))
+	os.WriteFile(filepath.Join(tmpDir, "checksums.txt"), []byte("abc  go-toolchain_linux_amd64\n"), 0644)
 
 	mock := &mockExecutor{
 		gitOutputFunc: func(args ...string) (string, error) {
@@ -305,6 +307,61 @@ func TestReleaseCmdSkipsSymlinks(t *testing.T) {
 	argsStr := strings.Join(ghArgs, " ")
 	assert.Contains(t, argsStr, "go-toolchain_linux_amd64")
 	assert.NotContains(t, argsStr, "go-toolchain_host")
+}
+
+// TestReleaseCmdSkipsRoundtrippedHostAliases is the regression test for the
+// real-world failure observed on release v0.0.1777743285: the build/
+// directory was uploaded as a CI artifact (which dereferences symlinks),
+// then downloaded into the release job as plain files. By the time
+// release.go ran, `go-toolchain` and `go-toolchain_host` were full
+// duplicate copies of `go-toolchain_linux_amd64`, indistinguishable from
+// platform binaries via os.Lstat. The fix filters against checksums.txt,
+// which only declares true platform artifacts.
+func TestReleaseCmdSkipsRoundtrippedHostAliases(t *testing.T) {
+	t.Setenv("CI", "true")
+
+	tmpDir := t.TempDir()
+	oldOutput := outputDir
+	oldTag := releaseTag
+	outputDir = tmpDir
+	releaseTag = "v1.0.0"
+	defer func() {
+		outputDir = oldOutput
+		releaseTag = oldTag
+	}()
+
+	// All three are real files (not symlinks) — simulating an artifact
+	// roundtrip that has dereferenced the host-alias symlinks.
+	os.WriteFile(filepath.Join(tmpDir, "go-toolchain_linux_amd64"), []byte("binary"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "go-toolchain_host"), []byte("binary"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "go-toolchain"), []byte("binary"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "checksums.txt"), []byte("abc  go-toolchain_linux_amd64\n"), 0644)
+
+	mock := &mockExecutor{
+		gitOutputFunc: func(args ...string) (string, error) {
+			if len(args) > 0 && args[0] == "log" {
+				return "abc1234 commit", nil
+			}
+			return "", fmt.Errorf("not found")
+		},
+	}
+
+	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	assert.Nil(t, err)
+
+	ghArgs := mock.ghReleaseCalls[0]
+	argsStr := strings.Join(ghArgs, " ")
+	assert.Contains(t, argsStr, "go-toolchain_linux_amd64")
+	assert.Contains(t, argsStr, "checksums.txt")
+	assert.NotContains(t, argsStr, "go-toolchain_host")
+	// The bare alias must NOT appear as a positional arg. Checking the
+	// joined string with substring search is unreliable here because
+	// "go-toolchain" is a prefix of "go-toolchain_linux_amd64" — match
+	// the exact full path against each arg instead.
+	bareAlias := filepath.Join(tmpDir, "go-toolchain")
+	for _, a := range ghArgs {
+		assert.NotEqual(t, bareAlias, a)
+	}
 }
 
 func TestReleaseCmdPushTagFails(t *testing.T) {
@@ -463,7 +520,7 @@ func TestReleaseCmdIncludesNonToolchainBinaries(t *testing.T) {
 	// not "go-toolchain".
 	os.WriteFile(filepath.Join(tmpDir, "test-server_linux_amd64"), []byte("binary"), 0755)
 	os.WriteFile(filepath.Join(tmpDir, "test-server_darwin_arm64"), []byte("binary"), 0755)
-	os.WriteFile(filepath.Join(tmpDir, "checksums.txt"), []byte("abc  test-server_linux_amd64\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "checksums.txt"), []byte("abc  test-server_linux_amd64\ndef  test-server_darwin_arm64\n"), 0644)
 
 	mock := &mockExecutor{
 		gitOutputFunc: func(args ...string) (string, error) {
