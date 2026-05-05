@@ -3,7 +3,7 @@
  * Publish cross-compiled Go binaries as per-platform npm packages.
  *
  * Usage: npm-publish.ts <version> [dist-tag]
- * Env (required): NPM_REGISTRY, NPM_SCOPE
+ * Env (required): NPM_REGISTRY, NPM_SCOPE, NPM_REPOSITORY_URL
  * Env (optional): NPM_NAME (default: go module basename), NPM_BUILD_DIR (default: build/)
  */
 
@@ -31,6 +31,11 @@ const ARCH_MAP: Record<GoArch, NpmArch> = {
   arm: "arm",
 };
 
+interface Repository {
+  type: "git";
+  url: string;
+}
+
 interface PlatformPackage {
   name: string;
   version: string;
@@ -39,6 +44,7 @@ interface PlatformPackage {
   cpu: NpmArch[];
   bin: Record<string, string>;
   files: string[];
+  repository: Repository;
 }
 
 interface WrapperPackage {
@@ -48,6 +54,7 @@ interface WrapperPackage {
   bin: Record<string, string>;
   optionalDependencies: Record<string, string>;
   files: string[];
+  repository: Repository;
 }
 
 function require_env(name: string): string {
@@ -132,6 +139,7 @@ function main(): void {
 
   const registry = require_env("NPM_REGISTRY");
   const scope = require_env("NPM_SCOPE");
+  const repository: Repository = { type: "git", url: require_env("NPM_REPOSITORY_URL") };
   const name = process.env.NPM_NAME || module_basename();
   const build_dir = process.env.NPM_BUILD_DIR || "build";
 
@@ -163,6 +171,7 @@ function main(): void {
       cpu: [b.npm_arch],
       bin: { [name]: `bin/${name}${b.exe}` },
       files: ["bin/"],
+      repository,
     };
     write_json(path.join(pkg_dir, "package.json"), pkg);
 
@@ -188,6 +197,7 @@ function main(): void {
     bin: { [name]: `bin/${name}.js` },
     optionalDependencies: optional_deps,
     files: ["bin/"],
+    repository,
   };
   write_json(path.join(wrapper_dir, "package.json"), wrapper);
 

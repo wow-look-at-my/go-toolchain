@@ -67,6 +67,7 @@ jobs:
     env:
       NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
       NPM_SCOPE: '@wow-look-at-my'
+      NPM_REPOSITORY_URL: https://git.pazer.us/wow-look-at-my/packages.git
     steps:
       - uses: actions/checkout@v4
         with:
