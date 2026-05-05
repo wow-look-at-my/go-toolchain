@@ -120,24 +120,4 @@ jobs:
         env:
           BRANCH: ${{ github.ref_name }}
           NPM_BUILD_DIR: build
-        run: |
-          set -euo pipefail
-          chmod +x build/go-toolchain_linux_amd64
-          BASE_NUM=$(./build/go-toolchain_linux_amd64 version raw | sed 's/^v//')
-          if [ "$BRANCH" = "v1" ]; then
-            VERSION="$BASE_NUM"
-            DIST_TAG=""
-          else
-            SANITIZED=$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]' \
-              | sed -E 's#[^a-z0-9.]+#-#g; s#-+#-#g; s#^-+##; s#-+$##')
-            if [ -z "$SANITIZED" ]; then SANITIZED="branch"; fi
-            VERSION="${BASE_NUM}-${SANITIZED}"
-            DIST_TAG="branch-${SANITIZED}"
-          fi
-          host_path="${NPM_REGISTRY#https:}"
-          {
-            echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}"
-            echo "${host_path}:_authToken=${GITEA_NPM_TOKEN}"
-            echo "${host_path}:always-auth=true"
-          } > "${HOME}/.npmrc"
-          npx --yes tsx .github/npm-publish.ts "$VERSION" "$DIST_TAG"
+        run: npx --yes tsx .github/npm-publish.ts

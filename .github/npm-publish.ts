@@ -2,12 +2,15 @@
 /**
  * Publish cross-compiled Go binaries as per-platform npm packages.
  *
- * Usage: npm-publish.ts <version> [dist-tag]
- * Env (required): NPM_REGISTRY, NPM_SCOPE, NPM_REPOSITORY_URL
+ * Env (required): NPM_REGISTRY, NPM_SCOPE, NPM_REPOSITORY_URL, GITEA_NPM_TOKEN, BRANCH
  * Env (optional): NPM_NAME (default: go module basename), NPM_BUILD_DIR (default: build/)
+ *
+ * On the default branch (v1), publishes with a clean version and the `latest` dist-tag.
+ * On other branches, appends the sanitized branch name as a semver prerelease
+ * and publishes under a `branch-<name>` dist-tag.
  */
 
-import { spawnSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -59,9 +62,7 @@ interface WrapperPackage {
 
 function require_env(name: string): string {
   const v = process.env[name];
-  if (!v) {
-    throw new Error(`required env var ${name} is not set`);
-  }
+  if (!v) throw new Error(`required env var ${name} is not set`);
   return v;
 }
 
@@ -72,27 +73,46 @@ function module_basename(): string {
   return path.basename(match[1]);
 }
 
+function sanitize_branch(branch: string): string {
+  const s = branch.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return s || "branch";
+}
+
+function resolve_version(build_dir: string, branch: string): { version: string; dist_tag: string } {
+  const binary = path.join(build_dir, "go-toolchain_linux_amd64");
+  fs.chmodSync(binary, 0o755);
+  const raw = execSync(`${binary} version raw`, { encoding: "utf8" }).trim().replace(/^v/, "");
+
+  if (branch === "v1") {
+    return { version: raw, dist_tag: "" };
+  }
+  const sanitized = sanitize_branch(branch);
+  return { version: `${raw}-${sanitized}`, dist_tag: `branch-${sanitized}` };
+}
+
+function configure_npmrc(registry: string, scope: string, token: string): void {
+  const host_path = registry.replace(/^https:/, "");
+  const lines = [
+    `${scope}:registry=${registry}`,
+    `${host_path}:_authToken=${token}`,
+    `${host_path}:always-auth=true`,
+  ];
+  fs.writeFileSync(path.join(os.homedir(), ".npmrc"), lines.join("\n") + "\n");
+}
+
 function npm_publish(pkg_dir: string, dist_tag: string, registry: string): void {
   const args = ["publish", "--access", "public", "--registry", registry];
   if (dist_tag) args.push("--tag", dist_tag);
-
   const r = spawnSync("npm", args, { cwd: pkg_dir, stdio: "inherit" });
-  if (r.status !== 0) {
-    throw new Error(`npm publish in ${pkg_dir} exited with ${r.status}`);
-  }
+  if (r.status !== 0) throw new Error(`npm publish in ${pkg_dir} exited with ${r.status}`);
 }
 
 function discover_binaries(build_dir: string, name: string) {
   const entries = fs.readdirSync(build_dir, { withFileTypes: true });
-  const binaries: Array<{
-    path: string;
-    npm_os: NpmOS;
-    npm_arch: NpmArch;
-    exe: string;
-  }> = [];
+  const binaries: Array<{ path: string; npm_os: NpmOS; npm_arch: NpmArch; exe: string }> = [];
 
   for (const e of entries) {
-    if (!e.isFile()) continue;          // skips directories AND symlinks
+    if (!e.isFile()) continue;
     if (e.name.startsWith("checksums")) continue;
 
     let base = e.name;
@@ -113,15 +133,9 @@ function discover_binaries(build_dir: string, name: string) {
     const npm_arch = ARCH_MAP[goarch as GoArch];
     if (!npm_os || !npm_arch) continue;
 
-    binaries.push({
-      path: path.join(build_dir, e.name),
-      npm_os,
-      npm_arch,
-      exe,
-    });
+    binaries.push({ path: path.join(build_dir, e.name), npm_os, npm_arch, exe });
   }
 
-  // Stable order: (npm_os, npm_arch).
   binaries.sort((a, b) => a.npm_os.localeCompare(b.npm_os) || a.npm_arch.localeCompare(b.npm_arch));
   return binaries;
 }
@@ -131,17 +145,16 @@ function write_json(file: string, data: unknown): void {
 }
 
 function main(): void {
-  const [, , version, dist_tag = ""] = process.argv;
-  if (!version) {
-    console.error("usage: npm-publish.ts <version> [dist-tag]");
-    process.exit(2);
-  }
-
   const registry = require_env("NPM_REGISTRY");
   const scope = require_env("NPM_SCOPE");
+  const token = require_env("GITEA_NPM_TOKEN");
+  const branch = require_env("BRANCH");
   const repository: Repository = { type: "git", url: require_env("NPM_REPOSITORY_URL") };
   const name = process.env.NPM_NAME || module_basename();
   const build_dir = process.env.NPM_BUILD_DIR || "build";
+
+  const { version, dist_tag } = resolve_version(build_dir, branch);
+  configure_npmrc(registry, scope, token);
 
   const binaries = discover_binaries(build_dir, name);
   if (binaries.length === 0) {
@@ -153,6 +166,7 @@ function main(): void {
   process.on("exit", () => fs.rmSync(work, { recursive: true, force: true }));
 
   const optional_deps: Record<string, string> = {};
+  const script_dir = path.dirname(__filename);
 
   for (const b of binaries) {
     const pkg_name = `${scope}/${name}-${b.npm_os}-${b.npm_arch}`;
@@ -180,9 +194,6 @@ function main(): void {
     npm_publish(pkg_dir, dist_tag, registry);
   }
 
-  // Wrapper package: ship the JS shim verbatim from the repo so it isn't
-  // generated/templated at publish time.
-  const script_dir = path.dirname(__filename);
   const wrapper_dir = path.join(work, "wrapper");
   fs.mkdirSync(path.join(wrapper_dir, "bin"), { recursive: true });
 
