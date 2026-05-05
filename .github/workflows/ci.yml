@@ -117,7 +117,7 @@ jobs:
           } > "${HOME}/.npmrc"
 
       - name: Publish npm packages
-        run: .github/npm-publish.sh "${TAG#v}"
+        run: npx --yes tsx .github/npm-publish.ts "${TAG#v}"
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           NPM_BUILD_DIR: build
@@ -167,4 +167,4 @@ jobs:
             echo "${host_path}:_authToken=${GITEA_NPM_TOKEN}"
             echo "${host_path}:always-auth=true"
           } > "${HOME}/.npmrc"
-          .github/npm-publish.sh "${BASE_NUM}-${SANITIZED}" "branch-${SANITIZED}"
+          npx --yes tsx .github/npm-publish.ts "${BASE_NUM}-${SANITIZED}" "branch-${SANITIZED}"
