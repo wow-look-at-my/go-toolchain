@@ -101,26 +101,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Detect npm publish prerequisites
-        id: npm
-        # GITEA_NPM_TOKEN is published into $GITHUB_ENV by the secret-server
-        # step earlier in this job. Skip the npm publish steps cleanly when
-        # the secret isn't configured yet, so the GitHub release still succeeds.
-        run: |
-          if [ -n "${GITEA_NPM_TOKEN:-}" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::GITEA_NPM_TOKEN not set on the secret server; skipping npm publish"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: steps.npm.outputs.enabled == 'true'
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Configure npm registry auth
-        if: steps.npm.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           # Strip protocol so the .npmrc auth key matches npm's expected form.
@@ -132,9 +117,72 @@ jobs:
           } > "${HOME}/.npmrc"
 
       - name: Publish npm packages
-        if: steps.npm.outputs.enabled == 'true'
         run: |
           ./build/go-toolchain_linux_amd64 npm-publish \
             --registry "${NPM_REGISTRY}" \
             --scope "${NPM_SCOPE}" \
             --tag "${{ steps.tag.outputs.tag }}"
+
+  # Publish per-branch prerelease packages so consumers can install
+  # `@wow-look-at-my/go-toolchain@branch-<sanitized-name>` to track a branch.
+  # The version baked in is `<base>-<sanitized-branch>`, which sorts as a
+  # semver prerelease (always lower than the equivalent <base>) and is
+  # published under a per-branch dist-tag so it never wins `latest`.
+  npm-branch:
+    if: github.ref_type == 'branch' && github.ref_name != 'v1'
+    needs: [build, action-test]
+    runs-on: ubuntu-latest
+    env:
+      NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
+      NPM_SCOPE: '@wow-look-at-my'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: build
+
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Compute branch version and dist-tag
+        id: ver
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          chmod +x build/go-toolchain_linux_amd64
+          BASE=$(./build/go-toolchain_linux_amd64 version raw)   # v0.0.<commit-ts>
+          BASE_NUM="${BASE#v}"
+          # Sanitize the branch into a semver-prerelease-safe identifier:
+          # lowercase, replace any run of non-[a-z0-9.] with a single hyphen,
+          # then trim leading/trailing hyphens. Empty result falls back to
+          # 'branch' so we never emit a bare trailing hyphen.
+          SANITIZED=$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's#[^a-z0-9.]+#-#g; s#-+#-#g; s#^-+##; s#-+$##')
+          if [ -z "$SANITIZED" ]; then SANITIZED="branch"; fi
+          echo "version=${BASE_NUM}-${SANITIZED}" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=branch-${SANITIZED}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure npm registry auth
+        run: |
+          set -euo pipefail
+          host_path="${NPM_REGISTRY#https:}"
+          {
+            echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}"
+            echo "${host_path}:_authToken=${GITEA_NPM_TOKEN}"
+            echo "${host_path}:always-auth=true"
+          } > "${HOME}/.npmrc"
+
+      - name: Publish branch npm packages
+        run: |
+          ./build/go-toolchain_linux_amd64 npm-publish \
+            --registry "${NPM_REGISTRY}" \
+            --scope "${NPM_SCOPE}" \
+            --tag "${{ steps.ver.outputs.version }}" \
+            --dist-tag "${{ steps.ver.outputs.dist_tag }}"

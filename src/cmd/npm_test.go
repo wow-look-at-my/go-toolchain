@@ -20,12 +20,16 @@ func TestNormalizeNpmVersion(t *testing.T) {
 		{"v1.2.3", "1.2.3", false},
 		{"v0.0.1759872345", "0.0.1759872345", false},
 		{"v1.2.3-rc.1", "1.2.3-rc.1", false},
+		// Branch-style prereleases must work even when the suffix happens to
+		// contain "-g" (e.g. "feat-graceful-shutdown" or "branch-RbFie").
+		{"0.0.1777890000-feat-graceful-shutdown", "0.0.1777890000-feat-graceful-shutdown", false},
+		{"0.0.1777890000-claude-setup-npm-autorelease-RbFie", "0.0.1777890000-claude-setup-npm-autorelease-RbFie", false},
 		{"", "", true},
 		{"v", "", true},
-		{"1.2", "", true},                    // missing patch
-		{"v1.2.3-4-g1234567", "", true},      // git describe with sha suffix
-		{"abc", "", true},                    // not numeric
-		{"1.2.x", "", true},                  // non-numeric component
+		{"1.2", "", true},               // missing patch
+		{"v1.2.3-4-g1234567", "", true}, // git describe with sha suffix
+		{"abc", "", true},               // not numeric
+		{"1.2.x", "", true},             // non-numeric component
 	}
 	for _, tc := range cases {
 		got, err := normalizeNpmVersion(tc.in)
@@ -181,10 +185,11 @@ type fakePublish struct {
 	dir      string
 	registry string
 	access   string
+	distTag  string
 }
 
-func (f *fakeNpmExecutor) publish(dir, registry, access string) error {
-	f.publishCalls = append(f.publishCalls, fakePublish{dir: dir, registry: registry, access: access})
+func (f *fakeNpmExecutor) publish(dir, registry, access, distTag string) error {
+	f.publishCalls = append(f.publishCalls, fakePublish{dir: dir, registry: registry, access: access, distTag: distTag})
 	return f.publishReturns
 }
 
@@ -273,6 +278,38 @@ func TestRunNpmPublishImplGeneratesAndPublishes(t *testing.T) {
 	shim, err := os.ReadFile(shimPath)
 	assert.NoError(t, err)
 	assert.Contains(t, string(shim), `"@pazer"`)
+}
+
+func TestRunNpmPublishImplPropagatesDistTag(t *testing.T) {
+	tmp := t.TempDir()
+	buildDir := filepath.Join(tmp, "build")
+	assert.NoError(t, os.MkdirAll(buildDir, 0o755))
+	assert.NoError(t, os.WriteFile(filepath.Join(buildDir, "go-toolchain_linux_amd64"), []byte("x"), 0o755))
+
+	saved := saveNpmFlags()
+	defer saved.restore()
+	npmRegistry = "https://git.pazer.us/api/packages/wow-look-at-my/npm/"
+	npmTag = "0.0.1777890000-claude-setup-npm-autorelease-RbFie"
+	npmName = "go-toolchain"
+	npmBuildDir = buildDir
+	npmOutDir = filepath.Join(tmp, "out")
+	npmDistTag = "branch-claude-setup-npm-autorelease-rbfie"
+
+	ex := &fakeNpmExecutor{}
+	assert.NoError(t, runNpmPublishImpl(ex, os.Stderr))
+	assert.Equal(t, 2, len(ex.publishCalls)) // one platform + wrapper
+	for _, c := range ex.publishCalls {
+		assert.Equal(t, "branch-claude-setup-npm-autorelease-rbfie", c.distTag)
+	}
+
+	// Also assert the version landed in the wrapper's package.json so we know
+	// the branch-prerelease form survives normalization.
+	wrapperPkg := filepath.Join(npmOutDir, "wow-look-at-my__go-toolchain", "package.json")
+	data, err := os.ReadFile(wrapperPkg)
+	assert.NoError(t, err)
+	var pkg map[string]any
+	assert.NoError(t, json.Unmarshal(data, &pkg))
+	assert.Equal(t, "0.0.1777890000-claude-setup-npm-autorelease-RbFie", pkg["version"])
 }
 
 func TestRunNpmPublishImplDryRun(t *testing.T) {
@@ -402,8 +439,8 @@ func TestRunNpmPublishImplUsesGitDescribeWhenNoTag(t *testing.T) {
 // --- helpers -----------------------------------------------------------------
 
 type savedNpmFlags struct {
-	tag, registry, scope, name, buildDir, outDir, access string
-	dryRun                                               bool
+	tag, registry, scope, name, buildDir, outDir, access, distTag string
+	dryRun                                                        bool
 }
 
 func saveNpmFlags() savedNpmFlags {
@@ -416,6 +453,7 @@ func saveNpmFlags() savedNpmFlags {
 		outDir:   npmOutDir,
 		dryRun:   npmDryRun,
 		access:   npmAccess,
+		distTag:  npmDistTag,
 	}
 }
 
@@ -428,6 +466,7 @@ func (s savedNpmFlags) restore() {
 	npmOutDir = s.outDir
 	npmDryRun = s.dryRun
 	npmAccess = s.access
+	npmDistTag = s.distTag
 }
 
 type assertErr string

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -42,6 +43,7 @@ var (
 	npmOutDir   string
 	npmDryRun   bool
 	npmAccess   string
+	npmDistTag  string
 )
 
 func init() {
@@ -69,24 +71,30 @@ not write or read tokens itself.`,
 	cmd.Flags().StringVar(&npmOutDir, "out-dir", "build/npm", "Directory where generated package directories are written")
 	cmd.Flags().BoolVar(&npmDryRun, "dry-run", false, "Generate package directories but do not run npm publish")
 	cmd.Flags().StringVar(&npmAccess, "access", "public", "Value passed to npm publish --access")
+	cmd.Flags().StringVar(&npmDistTag, "dist-tag", "", "npm dist-tag for the publish (defaults to npm's 'latest'); use a per-branch tag like 'branch-feat-x' for prerelease/branch builds so consumers don't pick them up by default")
 	rootCmd.AddCommand(cmd)
 }
 
 // npmExecutor abstracts npm command execution so tests can replace it.
 type npmExecutor interface {
-	publish(packageDir, registry, access string) error
+	publish(packageDir, registry, access, distTag string) error
 	gitOutput(args ...string) (string, error)
 }
 
 type realNpmExecutor struct{}
 
-func (realNpmExecutor) publish(packageDir, registry, access string) error {
+func (realNpmExecutor) publish(packageDir, registry, access, distTag string) error {
 	args := []string{"publish"}
 	if access != "" {
 		args = append(args, "--access", access)
 	}
 	if registry != "" {
 		args = append(args, "--registry", registry)
+	}
+	if distTag != "" {
+		// npm publish's --tag sets the dist-tag, NOT the version. We use
+		// our --tag flag for the version, and pass --dist-tag through here.
+		args = append(args, "--tag", distTag)
 	}
 	cmd := exec.Command("npm", args...)
 	cmd.Dir = packageDir
@@ -155,12 +163,12 @@ func runNpmPublishImpl(ex npmExecutor, logOut io.Writer) error {
 	// so the registry must already have them when consumers install the wrapper.
 	for i, dir := range platformDirs {
 		fmt.Fprintf(logOut, "⇒ npm publish [%d/%d] %s\n", i+1, len(platformDirs)+1, dir)
-		if err := ex.publish(dir, cfg.registry, cfg.access); err != nil {
+		if err := ex.publish(dir, cfg.registry, cfg.access, cfg.distTag); err != nil {
 			return fmt.Errorf("publish %s: %w", dir, err)
 		}
 	}
 	fmt.Fprintf(logOut, "⇒ npm publish [%d/%d] %s\n", len(platformDirs)+1, len(platformDirs)+1, wrapperDir)
-	if err := ex.publish(wrapperDir, cfg.registry, cfg.access); err != nil {
+	if err := ex.publish(wrapperDir, cfg.registry, cfg.access, cfg.distTag); err != nil {
 		return fmt.Errorf("publish %s: %w", wrapperDir, err)
 	}
 
@@ -178,6 +186,7 @@ type npmConfig struct {
 	outDir     string
 	dryRun     bool
 	access     string
+	distTag    string
 }
 
 func resolveNpmConfig(ex npmExecutor) (npmConfig, error) {
@@ -188,6 +197,7 @@ func resolveNpmConfig(ex npmExecutor) (npmConfig, error) {
 		outDir:   npmOutDir,
 		dryRun:   npmDryRun,
 		access:   npmAccess,
+		distTag:  strings.TrimSpace(npmDistTag),
 	}
 
 	// Scope: explicit, then inferred from a Gitea-style registry path.
@@ -229,6 +239,12 @@ func resolveNpmConfig(ex npmExecutor) (npmConfig, error) {
 	return cfg, nil
 }
 
+// gitDescribeSuffix matches the trailing "-<count>-g<hex>" that `git describe`
+// appends to a tag when the working tree is past it. The leading hyphen and
+// the digit-count anchor it precisely enough that legitimate prerelease
+// identifiers containing 'g' (e.g. "feat-graceful-shutdown") do not match.
+var gitDescribeSuffix = regexp.MustCompile(`-\d+-g[0-9a-f]+$`)
+
 // normalizeNpmVersion strips a leading 'v' and validates the result is a
 // plausible npm semver. npm enforces strict semver on publish, so we want
 // to fail fast with a useful message rather than let `npm publish` report
@@ -238,10 +254,10 @@ func normalizeNpmVersion(tag string) (string, error) {
 	if v == "" {
 		return "", fmt.Errorf("empty version")
 	}
-	// Reject git describe output containing "-g<sha>" suffixes, which are
-	// not valid semver and would produce confusing tarball names.
-	if strings.Contains(v, "-g") {
-		return "", fmt.Errorf("version %q looks like `git describe` output (contains -g<sha>); pass --tag with a clean semver like 1.2.3", tag)
+	// Reject git describe output ending in "-N-g<sha>", which is not valid
+	// semver and would produce confusing tarball names.
+	if gitDescribeSuffix.MatchString(v) {
+		return "", fmt.Errorf("version %q looks like `git describe` output (-N-g<sha>); pass --tag with a clean semver like 1.2.3", tag)
 	}
 	// Minimal semver shape check: must start with a digit and contain at
 	// least two dots' worth of numeric components.
