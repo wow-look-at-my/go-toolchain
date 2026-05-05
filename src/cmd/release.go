@@ -39,8 +39,8 @@ func init() {
 }
 
 // resolveNoCosign returns true if cosign should be skipped, based on explicit
-// flags and the server URL for auto-detection. serverURL is GITHUB_SERVER_URL.
-func resolveNoCosign(cosign, noCosign bool, serverURL string) (bool, error) {
+// flags and the git remote URL for auto-detection.
+func resolveNoCosign(cosign, noCosign bool, remoteURL string) (bool, error) {
 	if cosign && noCosign {
 		return false, fmt.Errorf("--cosign and --no-cosign are mutually exclusive")
 	}
@@ -50,8 +50,8 @@ func resolveNoCosign(cosign, noCosign bool, serverURL string) (bool, error) {
 	if noCosign {
 		return true, nil
 	}
-	// Auto: enable cosign only when running on github.com
-	return !strings.Contains(serverURL, "github.com"), nil
+	// Auto: enable cosign only when the remote is on github.com
+	return !strings.Contains(remoteURL, "github.com"), nil
 }
 
 // releaseExecutor abstracts external command execution for testability.
@@ -90,11 +90,13 @@ func (realExecutor) ghRelease(args ...string) error {
 }
 
 func runReleaseCmd(cmd *cobra.Command, args []string) error {
-	noCosign, err := resolveNoCosign(releaseCosign, releaseNoCosign, os.Getenv("GITHUB_SERVER_URL"))
+	ex := realExecutor{}
+	remoteURL, _ := ex.gitOutput("remote", "get-url", "origin")
+	noCosign, err := resolveNoCosign(releaseCosign, releaseNoCosign, remoteURL)
 	if err != nil {
 		return err
 	}
-	return runReleaseCmdImpl(os.Stdin, realExecutor{}, noCosign)
+	return runReleaseCmdImpl(os.Stdin, ex, noCosign)
 }
 
 func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error {

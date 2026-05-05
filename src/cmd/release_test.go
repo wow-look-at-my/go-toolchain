@@ -585,20 +585,21 @@ func TestResolveNoCosign(t *testing.T) {
 		name      string
 		cosign    bool
 		noCosign  bool
-		serverURL string
+		remoteURL string
 		want      bool
 		wantErr   bool
 	}{
 		{"both flags error", true, true, "", false, true},
 		{"--cosign forces cosign", true, false, "", false, false},
 		{"--no-cosign skips cosign", false, true, "", true, false},
-		{"auto github.com", false, false, "https://github.com", false, false},
-		{"auto ghes", false, false, "https://ghes.example.com", true, false},
-		{"auto local", false, false, "", true, false},
+		{"auto github.com https", false, false, "https://github.com/owner/repo", false, false},
+		{"auto github.com ssh", false, false, "git@github.com:owner/repo.git", false, false},
+		{"auto ghes", false, false, "https://ghes.example.com/owner/repo", true, false},
+		{"auto no remote", false, false, "", true, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveNoCosign(tc.cosign, tc.noCosign, tc.serverURL)
+			got, err := resolveNoCosign(tc.cosign, tc.noCosign, tc.remoteURL)
 			if tc.wantErr {
 				assert.NotNil(t, err)
 			} else {
