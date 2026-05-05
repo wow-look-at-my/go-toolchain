@@ -120,7 +120,7 @@ function discover_binaries(build_dir: string, name: string) {
 }
 
 function write_json(file: string, data: unknown): void {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+  fs.writeFileSync(file, JSON.stringify(data, null, "\t") + "\n");
 }
 
 function main(): void {
