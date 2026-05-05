@@ -1,13 +1,20 @@
 package cmd
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"bytes"
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
-	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
 )
 
 type mockUpdater struct {
@@ -105,20 +112,16 @@ func TestDoUpdate_BareShortSHA(t *testing.T) {
 }
 
 func TestIsNewer_BareShortSHA(t *testing.T) {
-	g := &githubUpdater{latest: &selfupdate.Release{
-		Version: selfupdate.Version{Version: "0.0.1776682440"},
-	}}
-	assert.True(t, g.isNewer("0648669"),
+	u := &npmUpdater{latestVersion: "0.0.1776682440"}
+	assert.True(t, u.isNewer("0648669"),
 		"bare short SHA must be treated as older than any real release")
 }
 
 func TestIsNewer_Semver(t *testing.T) {
-	g := &githubUpdater{latest: &selfupdate.Release{
-		Version: selfupdate.Version{Version: "0.0.200"},
-	}}
-	assert.True(t, g.isNewer("v0.0.100"), "v0.0.100 < v0.0.200")
-	assert.False(t, g.isNewer("v0.0.200"), "v0.0.200 == v0.0.200")
-	assert.False(t, g.isNewer("v0.0.300"), "v0.0.300 > v0.0.200")
+	u := &npmUpdater{latestVersion: "0.0.200"}
+	assert.True(t, u.isNewer("v0.0.100"), "v0.0.100 < v0.0.200")
+	assert.False(t, u.isNewer("v0.0.200"), "v0.0.200 == v0.0.200")
+	assert.False(t, u.isNewer("v0.0.300"), "v0.0.300 > v0.0.200")
 }
 
 func TestDoUpdate_ApplyError(t *testing.T) {
@@ -147,4 +150,132 @@ func TestDoUpdate_Success(t *testing.T) {
 	err := doUpdate(context.Background(), m)
 	require.Nil(t, err)
 	assert.Equal(t, 1, m.applyCalls)
+}
+
+// makeFakeNpmServer returns a test server that serves npm-registry-style JSON
+// for the wrapper package and the platform-specific package, plus a tarball
+// containing a fake binary. version must be a bare semver (no "v" prefix).
+func makeFakeNpmServer(t *testing.T, version string) *httptest.Server {
+	t.Helper()
+	platPkg := npmPkgName + "-" + npmOS() + "-" + npmArch()
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/@wow-look-at-my/"+npmPkgName:
+			fmt.Fprintf(w, `{"dist-tags":{"latest":%q}}`, version)
+
+		case r.URL.Path == "/@wow-look-at-my/"+platPkg:
+			tarballURL := srv.URL + "/tarball/" + version + ".tgz"
+			fmt.Fprintf(w, `{"versions":{%q:{"dist":{"tarball":%q}}}}`, version, tarballURL)
+
+		case r.URL.Path == "/tarball/"+version+".tgz":
+			w.Header().Set("Content-Type", "application/octet-stream")
+			writeFakeTarball(t, w)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// writeFakeTarball writes a .tgz containing a tiny fake binary at the
+// expected path (package/bin/go-toolchain or .exe on Windows).
+func writeFakeTarball(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	binName := npmPkgName
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	content := []byte("#!/bin/sh\necho fake\n")
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	hdr := &tar.Header{
+		Name: "package/bin/" + binName,
+		Mode: 0755,
+		Size: int64(len(content)),
+	}
+	require.Nil(t, tw.WriteHeader(hdr))
+	_, err := tw.Write(content)
+	require.Nil(t, err)
+	require.Nil(t, tw.Close())
+	require.Nil(t, gz.Close())
+	w.Write(buf.Bytes()) //nolint:errcheck
+}
+
+func TestNpmUpdaterDetect(t *testing.T) {
+	srv := makeFakeNpmServer(t, "0.0.100")
+	u := &npmUpdater{registryBase: srv.URL + "/"}
+
+	version, found, err := u.detect(context.Background(), "")
+	require.Nil(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "0.0.100", version)
+	assert.NotEmpty(t, u.tarballURL)
+}
+
+func TestNpmUpdaterDetect_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	u := &npmUpdater{registryBase: srv.URL + "/"}
+	_, _, err := u.detect(context.Background(), "")
+	require.NotNil(t, err)
+}
+
+func TestNpmUpdaterDetect_NoLatestTag(t *testing.T) {
+	platPkg := npmPkgName + "-" + npmOS() + "-" + npmArch()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/@wow-look-at-my/"+npmPkgName:
+			fmt.Fprint(w, `{"dist-tags":{}}`)
+		case r.URL.Path == "/@wow-look-at-my/"+platPkg:
+			fmt.Fprint(w, `{"versions":{}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	u := &npmUpdater{registryBase: srv.URL + "/"}
+	_, found, err := u.detect(context.Background(), "")
+	require.Nil(t, err)
+	assert.False(t, found)
+}
+
+func TestNpmUpdaterApplyUpdate(t *testing.T) {
+	srv := makeFakeNpmServer(t, "0.0.200")
+	u := &npmUpdater{registryBase: srv.URL + "/"}
+	_, found, err := u.detect(context.Background(), "")
+	require.Nil(t, err)
+	require.True(t, found)
+
+	// Write a placeholder "binary" to a temp dir and apply the update.
+	dir := t.TempDir()
+	target := filepath.Join(dir, npmPkgName)
+	require.Nil(t, os.WriteFile(target, []byte("old"), 0755))
+
+	err = u.applyUpdate(context.Background(), target)
+	require.Nil(t, err)
+
+	got, err := os.ReadFile(target)
+	require.Nil(t, err)
+	assert.Equal(t, "#!/bin/sh\necho fake\n", string(got))
+}
+
+func TestNpmUpdaterApplyUpdate_BadTarball(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("not a tarball")) //nolint:errcheck
+	}))
+	t.Cleanup(srv.Close)
+
+	u := &npmUpdater{tarballURL: srv.URL + "/bin.tgz"}
+	err := u.applyUpdate(context.Background(), "/tmp/nowhere")
+	require.NotNil(t, err)
 }
