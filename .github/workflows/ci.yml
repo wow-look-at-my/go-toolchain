@@ -131,6 +131,7 @@ jobs:
   npm-branch:
     if: github.ref_type == 'branch' && github.ref_name != 'v1'
     needs: [build, action-test]
+    continue-on-error: true
     runs-on: ubuntu-latest
     env:
       NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
