@@ -65,8 +65,6 @@ jobs:
     needs: [build, action-test]
     runs-on: ubuntu-latest
     env:
-      # Gitea npm registry. The owner is the Gitea user/org that hosts the
-      # packages; the scope is what consumers reference in package.json.
       NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
       NPM_SCOPE: '@wow-look-at-my'
     steps:
@@ -122,11 +120,6 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
           NPM_BUILD_DIR: build
 
-  # Publish per-branch prerelease packages so consumers can install
-  # `@wow-look-at-my/go-toolchain@branch-<sanitized-name>` to track a branch.
-  # The version baked in is `<base>-<sanitized-branch>`, which sorts as a
-  # semver prerelease (always lower than the equivalent <base>) and is
-  # published under a per-branch dist-tag so it never wins `latest`.
   npm-branch:
     if: github.ref_type == 'branch' && github.ref_name != 'v1'
     needs: [build, action-test]
