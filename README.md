@@ -25,6 +25,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) to configure proxy URL, credentials (via ~/.netrc), and sumdb key automatically
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
+- **npm package publishing** — CI automatically publishes cross-compiled binaries as scoped npm packages (one wrapper plus one per `(os, arch)`) to a Gitea npm registry; branch builds use prerelease versions with per-branch dist-tags
 
 ## GitHub Action Usage
 
@@ -111,9 +112,6 @@ go-toolchain version json
 
 # Create a GitHub release with checksums
 go-toolchain release --tag v1.0.0
-
-# Enable coverage watermark
-go-toolchain ignore coverage
 ```
 
 ### Flags
@@ -152,10 +150,6 @@ go-toolchain ignore coverage
 - **`version`** — show build version and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
-- **`ignore`** — manage build-check exemptions
-  - `coverage` — enable coverage ratchet (watermark)
-- **`unignore`** — remove build-check exemptions
-  - `coverage` — remove coverage watermark
 
 ## OpenTelemetry Trace Export
 
