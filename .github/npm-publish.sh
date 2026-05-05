@@ -82,43 +82,11 @@ fi
 opt_deps=$(echo "$platform_deps" | xargs -n2 | jq -Rn '[inputs | split(" ") | {(.[0]): .[1]}] | add')
 
 # Wrapper package
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 wrapper_dir="$WORK/wrapper"
 mkdir -p "$wrapper_dir/bin"
 
-cat > "$wrapper_dir/bin/${NAME}.js" << 'SHIM'
-#!/usr/bin/env node
-"use strict";
-const path = require("node:path");
-const fs = require("node:fs");
-const { spawnSync } = require("node:child_process");
-const { createRequire } = require("node:module");
-SHIM
-
-cat >> "$wrapper_dir/bin/${NAME}.js" << SHIM
-const SCOPE = $(jq -n --arg s "$NPM_SCOPE" '$s');
-const NAME = $(jq -n --arg n "$NAME" '$n');
-SHIM
-
-cat >> "$wrapper_dir/bin/${NAME}.js" << 'SHIM'
-function resolveBinary() {
-  const pkgName = SCOPE + "/" + NAME + "-" + process.platform + "-" + process.arch;
-  const req = createRequire(__filename);
-  let pkgJsonPath;
-  try { pkgJsonPath = req.resolve(pkgName + "/package.json"); }
-  catch (err) {
-    throw new Error("Cannot find " + pkgName + ". Platform " +
-      process.platform + "/" + process.arch + " may not be supported.");
-  }
-  const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
-  const rel = pkg.bin && pkg.bin[NAME];
-  if (!rel) throw new Error(pkgName + " missing bin." + NAME);
-  return path.join(path.dirname(pkgJsonPath), rel);
-}
-const r = spawnSync(resolveBinary(), process.argv.slice(2), {stdio:"inherit", windowsHide:true});
-if (r.error) { console.error(r.error.message); process.exit(1); }
-process.exit(r.status === null ? 1 : r.status);
-SHIM
-
+cp "$SCRIPT_DIR/npm-wrapper.js" "$wrapper_dir/bin/${NAME}.js"
 chmod 755 "$wrapper_dir/bin/${NAME}.js"
 
 jq -n \
