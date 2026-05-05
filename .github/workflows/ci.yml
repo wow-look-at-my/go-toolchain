@@ -149,36 +149,22 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Compute branch version and dist-tag
-        id: ver
+      - name: Publish branch npm packages
         env:
           BRANCH: ${{ github.ref_name }}
+          NPM_BUILD_DIR: build
         run: |
           set -euo pipefail
           chmod +x build/go-toolchain_linux_amd64
-          BASE=$(./build/go-toolchain_linux_amd64 version raw)   # v0.0.<commit-ts>
+          BASE=$(./build/go-toolchain_linux_amd64 version raw)
           BASE_NUM="${BASE#v}"
-          # Sanitize the branch into a semver-prerelease-safe identifier:
-          # lowercase, replace any run of non-[a-z0-9.] with a single hyphen,
-          # then trim leading/trailing hyphens. Empty result falls back to
-          # 'branch' so we never emit a bare trailing hyphen.
           SANITIZED=$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]' \
             | sed -E 's#[^a-z0-9.]+#-#g; s#-+#-#g; s#^-+##; s#-+$##')
           if [ -z "$SANITIZED" ]; then SANITIZED="branch"; fi
-          echo "version=${BASE_NUM}-${SANITIZED}" >> "$GITHUB_OUTPUT"
-          echo "dist_tag=branch-${SANITIZED}" >> "$GITHUB_OUTPUT"
-
-      - name: Configure npm registry auth
-        run: |
-          set -euo pipefail
           host_path="${NPM_REGISTRY#https:}"
           {
             echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}"
             echo "${host_path}:_authToken=${GITEA_NPM_TOKEN}"
             echo "${host_path}:always-auth=true"
           } > "${HOME}/.npmrc"
-
-      - name: Publish branch npm packages
-        run: .github/npm-publish.sh "${{ steps.ver.outputs.version }}" "${{ steps.ver.outputs.dist_tag }}"
-        env:
-          NPM_BUILD_DIR: build
+          .github/npm-publish.sh "${BASE_NUM}-${SANITIZED}" "branch-${SANITIZED}"
