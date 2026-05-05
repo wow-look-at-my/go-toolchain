@@ -118,9 +118,6 @@ go-toolchain release --tag v1.0.0
 go-toolchain npm-publish \
   --registry https://git.pazer.us/api/packages/wow-look-at-my/npm/ \
   --tag v1.0.0
-
-# Enable coverage watermark
-go-toolchain ignore coverage
 ```
 
 ### Flags
@@ -160,10 +157,6 @@ go-toolchain ignore coverage
 - **`version`** — show build version and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
-- **`ignore`** — manage build-check exemptions
-  - `coverage` — enable coverage ratchet (watermark)
-- **`unignore`** — remove build-check exemptions
-  - `coverage` — remove coverage watermark
 
 ## OpenTelemetry Trace Export
 
