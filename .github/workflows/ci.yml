@@ -103,22 +103,19 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Configure npm registry auth
+      - name: Publish npm packages
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          NPM_BUILD_DIR: build
         run: |
           set -euo pipefail
-          # Strip protocol so the .npmrc auth key matches npm's expected form.
           host_path="${NPM_REGISTRY#https:}"
           {
             echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}"
             echo "${host_path}:_authToken=${GITEA_NPM_TOKEN}"
             echo "${host_path}:always-auth=true"
           } > "${HOME}/.npmrc"
-
-      - name: Publish npm packages
-        run: npx --yes tsx .github/npm-publish.ts "${TAG#v}"
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-          NPM_BUILD_DIR: build
+          npx --yes tsx .github/npm-publish.ts "${TAG#v}"
 
   npm-branch:
     if: github.ref_type == 'branch' && github.ref_name != 'v1'
