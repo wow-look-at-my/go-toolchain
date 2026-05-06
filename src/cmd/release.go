@@ -13,9 +13,11 @@ import (
 )
 
 var (
-	releaseTag   string
-	releaseFrom  string
-	releaseBuild bool
+	releaseTag      string
+	releaseFrom     string
+	releaseBuild    bool
+	releaseCosign   bool
+	releaseNoCosign bool
 )
 
 func init() {
@@ -29,7 +31,67 @@ func init() {
 	cmd.Flags().StringVar(&releaseTag, "tag", "", "Tag name for this release (required in CI, default: auto-generated)")
 	cmd.Flags().StringVar(&releaseFrom, "from", "", "Start ref for changelog (default: previous tag)")
 	cmd.Flags().BoolVar(&releaseBuild, "build", false, "Run matrix cross-compilation before releasing")
+	cmd.Flags().BoolVar(&releaseCosign, "cosign", false, "Include cosign signature files and verification section (default: auto, enabled on github.com)")
+	cmd.Flags().BoolVar(&releaseNoCosign, "no-cosign", false, "Skip cosign signature files and verification section in release notes")
 	rootCmd.AddCommand(cmd)
+}
+
+// parseRemoteHost extracts the hostname from a git remote URL, supporting
+// https://, ssh://, and SCP-style (git@host:) formats. Returns "" if the
+// URL doesn't look like a network remote (e.g. local path or empty).
+func parseRemoteHost(remoteURL string) string {
+	if remoteURL == "" {
+		return ""
+	}
+	// SCP-style: git@host:owner/repo.git
+	if !strings.Contains(remoteURL, "://") {
+		if at := strings.Index(remoteURL, "@"); at >= 0 {
+			hostAndPath := remoteURL[at+1:]
+			if colon := strings.Index(hostAndPath, ":"); colon >= 0 {
+				return hostAndPath[:colon]
+			}
+		}
+		return "" // local path or unrecognized
+	}
+	// URL scheme: https://host/... or ssh://host/...
+	rest := remoteURL[strings.Index(remoteURL, "://")+3:]
+	if slash := strings.Index(rest, "/"); slash >= 0 {
+		rest = rest[:slash]
+	}
+	// Strip userinfo (user@host)
+	if at := strings.Index(rest, "@"); at >= 0 {
+		rest = rest[at+1:]
+	}
+	// Strip port
+	if colon := strings.LastIndex(rest, ":"); colon >= 0 {
+		rest = rest[:colon]
+	}
+	return rest
+}
+
+// resolveNoCosign returns true if cosign should be skipped. Explicit flags
+// take priority; otherwise the git remote URL is inspected. If the URL can't
+// be parsed to a recognizable host, ghHost (GH_HOST env var) is used as a
+// fallback.
+func resolveNoCosign(cosign, noCosign bool, remoteURL, ghHost string) (bool, error) {
+	if cosign && noCosign {
+		return false, fmt.Errorf("--cosign and --no-cosign are mutually exclusive")
+	}
+	if cosign {
+		return false, nil
+	}
+	if noCosign {
+		return true, nil
+	}
+	// Auto-detect from remote URL.
+	if host := parseRemoteHost(remoteURL); host != "" {
+		return host != "github.com", nil
+	}
+	// Fall back to GH_HOST when the remote URL isn't parseable.
+	if ghHost != "" {
+		return ghHost != "github.com", nil
+	}
+	return true, nil // default: skip cosign
 }
 
 // releaseExecutor abstracts external command execution for testability.
@@ -59,10 +121,16 @@ func (realExecutor) gitRun(args ...string) error {
 }
 
 func runReleaseCmd(cmd *cobra.Command, args []string) error {
-	return runReleaseCmdImpl(os.Stdin, realExecutor{})
+	ex := realExecutor{}
+	remoteURL, _ := ex.gitOutput("remote", "get-url", "origin")
+	noCosign, err := resolveNoCosign(releaseCosign, releaseNoCosign, remoteURL, os.Getenv("GH_HOST"))
+	if err != nil {
+		return err
+	}
+	return runReleaseCmdImpl(os.Stdin, ex, noCosign)
 }
 
-func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
+func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error {
 	// Optional: run matrix build first
 	if releaseBuild {
 		r := runner.New()

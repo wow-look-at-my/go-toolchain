@@ -64,7 +64,7 @@ func TestReleaseCmdAbort(t *testing.T) {
 		},
 	}
 	stdin := strings.NewReader("n\n")
-	err := runReleaseCmdImpl(stdin, mock)
+	err := runReleaseCmdImpl(stdin, mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "release aborted")
 }
@@ -84,7 +84,7 @@ func TestReleaseCmdAbortEmpty(t *testing.T) {
 		},
 	}
 	stdin := strings.NewReader("\n")
-	err := runReleaseCmdImpl(stdin, mock)
+	err := runReleaseCmdImpl(stdin, mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "release aborted")
 }
@@ -110,7 +110,7 @@ func TestReleaseCmdSuccess(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.Nil(t, err)
 
 	// Verify git tag and push were called
@@ -148,7 +148,7 @@ func TestReleaseCmdAutoTag(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.Nil(t, err)
 
 	assert.Equal(t, []string{"tag", "v1.0.0-3-gabc1234"}, mock.gitRunCalls[0])
@@ -175,7 +175,7 @@ func TestReleaseCmdGitTagFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to create tag")
 }
@@ -203,7 +203,7 @@ func TestReleaseCmdPushTagFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to push tag")
 }
@@ -220,7 +220,7 @@ func TestReleaseCmdAutoTagFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to determine tag")
 }
@@ -237,7 +237,7 @@ func TestReleaseCmdCollectCommitsFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to collect commits")
 }
@@ -265,10 +265,67 @@ func TestReleaseCmdRollingTagFails(t *testing.T) {
 		},
 	}
 
-	err := runReleaseCmdImpl(strings.NewReader(""), mock)
+	err := runReleaseCmdImpl(strings.NewReader(""), mock, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "failed to update latest tag")
 }
+
+func TestParseRemoteHost(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"https://github.com/owner/repo.git", "github.com"},
+		{"https://github.com/owner/repo", "github.com"},
+		{"https://ghes.corp.com/owner/repo", "ghes.corp.com"},
+		{"git@github.com:owner/repo.git", "github.com"},
+		{"git@ghes.corp.com:owner/repo.git", "ghes.corp.com"},
+		{"ssh://git@github.com/owner/repo.git", "github.com"},
+		{"https://user:pass@github.com/owner/repo", "github.com"},
+		{"https://github.com:443/owner/repo", "github.com"},
+		{"/local/path", ""},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.url, func(t *testing.T) {
+			assert.Equal(t, tc.want, parseRemoteHost(tc.url))
+		})
+	}
+}
+
+func TestResolveNoCosign(t *testing.T) {
+	tests := []struct {
+		name      string
+		cosign    bool
+		noCosign  bool
+		remoteURL string
+		ghHost    string
+		want      bool
+		wantErr   bool
+	}{
+		{"both flags error", true, true, "", "", false, true},
+		{"--cosign forces cosign", true, false, "", "", false, false},
+		{"--no-cosign skips cosign", false, true, "", "", true, false},
+		{"auto github.com https", false, false, "https://github.com/owner/repo", "", false, false},
+		{"auto github.com ssh", false, false, "git@github.com:owner/repo.git", "", false, false},
+		{"auto ghes", false, false, "https://ghes.example.com/owner/repo", "", true, false},
+		{"fallback GH_HOST github.com", false, false, "", "github.com", false, false},
+		{"fallback GH_HOST ghes", false, false, "", "ghes.corp.com", true, false},
+		{"no remote no GH_HOST", false, false, "", "", true, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveNoCosign(tc.cosign, tc.noCosign, tc.remoteURL, tc.ghHost)
+			if tc.wantErr {
+				assert.NotNil(t, err)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
 
 func TestRealExecutorGitOutput(t *testing.T) {
 	ex := realExecutor{}
