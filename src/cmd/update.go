@@ -12,11 +12,7 @@ import (
 	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
 )
 
-const (
-	npmRegistryBase = "https://git.pazer.us/api/packages/wow-look-at-my/npm/"
-	npmScope        = "@wow-look-at-my"
-	npmPkgName      = "go-toolchain"
-)
+const npmRegistryBase = "https://git.pazer.us/api/packages/wow-look-at-my/npm/"
 
 // parseVersion parses a version string using strict semver (MAJOR.MINOR.PATCH),
 // stripping an optional leading "v". Unlike [semver.NewVersion], this rejects
@@ -61,7 +57,10 @@ func (n *npmUpdater) detect(ctx context.Context, _ string) (string, bool, error)
 	}
 	n.updater = updater
 
-	repo := selfupdate.NpmRepository{Scope: npmScope, Name: npmPkgName}
+	repo, err := selfupdate.NpmRepositoryFromBuildInfo()
+	if err != nil {
+		return "", false, fmt.Errorf("npm auto-detect package: %w", err)
+	}
 	rel, found, err := updater.DetectLatest(ctx, repo)
 	if err != nil {
 		return "", false, err

@@ -18,6 +18,11 @@ import (
 	"github.com/wow-look-at-my/testify/require"
 )
 
+// testPkgName is the npm package name for go-toolchain, used only in tests to
+// construct mock server URL paths. Production code derives this automatically
+// via selfupdate.NpmRepositoryFromBuildInfo().
+const testPkgName = "go-toolchain"
+
 // makeRelease builds a minimal selfupdate.Release for testing isNewer.
 func makeRelease(version string) *selfupdate.Release {
 	return &selfupdate.Release{
@@ -185,7 +190,7 @@ func testNpmArch() string {
 // version must be a bare semver (no "v" prefix).
 func makeFakeNpmServer(t *testing.T, version string) *httptest.Server {
 	t.Helper()
-	platPkg := npmPkgName + "-" + testNpmOS() + "-" + testNpmArch()
+	platPkg := testPkgName + "-" + testNpmOS() + "-" + testNpmArch()
 
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +219,7 @@ func makeFakeNpmServer(t *testing.T, version string) *httptest.Server {
 // expected path (package/bin/go-toolchain or .exe on Windows).
 func writeFakeTarball(t *testing.T, w http.ResponseWriter) {
 	t.Helper()
-	binName := npmPkgName
+	binName := testPkgName
 	if runtime.GOOS == "windows" {
 		binName += ".exe"
 	}
@@ -268,7 +273,7 @@ func TestNpmUpdaterApplyUpdate(t *testing.T) {
 
 	// Write a placeholder "binary" to a temp dir and apply the update.
 	dir := t.TempDir()
-	target := filepath.Join(dir, npmPkgName)
+	target := filepath.Join(dir, testPkgName)
 	require.Nil(t, os.WriteFile(target, []byte("old"), 0755))
 
 	err = u.applyUpdate(context.Background(), target)
@@ -298,7 +303,7 @@ func TestNpmUpdaterApplyUpdate_BadTarball(t *testing.T) {
 
 func makeBadTarballServer(t *testing.T, badTarballURL string) *httptest.Server {
 	t.Helper()
-	platPkg := npmPkgName + "-" + testNpmOS() + "-" + testNpmArch()
+	platPkg := testPkgName + "-" + testNpmOS() + "-" + testNpmArch()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

@@ -118,8 +118,8 @@ github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12 h1:i4d0
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12/go.mod h1:zoj5hE7+mIqpkqq3a9dZnovf/Mk2/D9fXv/sdp9hHjA=
 github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d h1:kNQpKMSpc6Ynu2dfPa4xO4b0iXZEVRqaVg207/OXmw4=
 github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d/go.mod h1:AGGzFZheJSooQmBf0LdfoAGXr7jSGxsn7N1NrOdhmIs=
-github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260507193018-f75a043c2ba2 h1:2+uVDqGybgwxqGYCw3CjG4U65/Z39sifirl3YnJsBww=
-github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260507193018-f75a043c2ba2/go.mod h1:W2Mg8mvSaFVcg4H2MfMRBrimWnLJWpSH1r3I6tAmIIU=
+github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260507224846-747f99b107fd h1:2B4f8YBX+DAzOKocswM51cs2MZlgurqgxlr1NfSNF3c=
+github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260507224846-747f99b107fd/go.mod h1:W2Mg8mvSaFVcg4H2MfMRBrimWnLJWpSH1r3I6tAmIIU=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb h1:kLSElPimf1wjuunb+noAlkV/xzrE65BzqnQr3Xr31u4=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb/go.mod h1:xlD/Hz0iizP83KvPMWiQ8dbEvfjRGQ2A5qsK+GBq9do=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
