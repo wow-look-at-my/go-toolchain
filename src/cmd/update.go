@@ -1,28 +1,18 @@
 package cmd
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"time"
 
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
+	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
 )
 
-const (
-	npmRegistryBase = "https://git.pazer.us/api/packages/wow-look-at-my/npm/"
-	npmScope        = "@wow-look-at-my"
-	npmPkgName      = "go-toolchain"
-)
+const npmRegistryBase = "https://git.pazer.us/api/packages/wow-look-at-my/npm/"
 
 // parseVersion parses a version string using strict semver (MAJOR.MINOR.PATCH),
 // stripping an optional leading "v". Unlike [semver.NewVersion], this rejects
@@ -39,31 +29,11 @@ type selfUpdater interface {
 	applyUpdate(ctx context.Context, exePath string) error
 }
 
-// npmOS maps runtime.GOOS to the npm platform string used in package names.
-func npmOS() string {
-	switch runtime.GOOS {
-	case "windows":
-		return "win32"
-	default:
-		return runtime.GOOS
-	}
-}
-
-// npmArch maps runtime.GOARCH to the npm cpu string used in package names.
-func npmArch() string {
-	switch runtime.GOARCH {
-	case "amd64":
-		return "x64"
-	default:
-		return runtime.GOARCH
-	}
-}
-
-// npmUpdater downloads the latest binary from the private npm registry.
+// npmUpdater uses go-selfupdate-mini with an NpmSource backend.
 type npmUpdater struct {
-	latestVersion string
-	tarballURL    string
-	registryBase  string // overrides npmRegistryBase; used in tests
+	updater      *selfupdate.Updater
+	latest       *selfupdate.Release
+	registryBase string // overrides npmRegistryBase; used in tests
 }
 
 func (n *npmUpdater) effectiveBase() string {
@@ -74,92 +44,43 @@ func (n *npmUpdater) effectiveBase() string {
 }
 
 func (n *npmUpdater) detect(ctx context.Context, _ string) (string, bool, error) {
-	token := os.Getenv("GITEA_NPM_TOKEN")
-	base := n.effectiveBase()
-
-	// Fetch wrapper package metadata to find the latest version.
-	metaURL := base + npmScope + "/" + npmPkgName
-	req, err := http.NewRequestWithContext(ctx, "GET", metaURL, nil)
+	source, err := selfupdate.NewNpmSource(selfupdate.NpmConfig{
+		Registry: n.effectiveBase(),
+		Token:    os.Getenv("GITEA_NPM_TOKEN"),
+	})
 	if err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("create npm source: %w", err)
 	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	updater, err := selfupdate.NewUpdater(selfupdate.Config{Source: source})
 	if err != nil {
-		return "", false, fmt.Errorf("npm registry request failed: %w", err)
+		return "", false, fmt.Errorf("create updater: %w", err)
 	}
-	defer resp.Body.Close()
+	n.updater = updater
 
-	if resp.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("npm registry returned HTTP %d", resp.StatusCode)
+	repo, err := selfupdate.NpmRepositoryFromBuildInfo()
+	if err != nil {
+		return "", false, fmt.Errorf("npm auto-detect package: %w", err)
 	}
-
-	var meta struct {
-		DistTags map[string]string `json:"dist-tags"`
+	rel, found, err := updater.DetectLatest(ctx, repo)
+	if err != nil {
+		return "", false, fmt.Errorf("query registry %s: %w", n.effectiveBase(), err)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		return "", false, fmt.Errorf("failed to parse npm registry response: %w", err)
-	}
-
-	latest := meta.DistTags["latest"]
-	if latest == "" {
+	if !found {
 		return "", false, nil
 	}
-	n.latestVersion = latest
-
-	// Fetch the platform-specific package metadata to get the tarball URL.
-	platPkg := npmPkgName + "-" + npmOS() + "-" + npmArch()
-	platMetaURL := base + npmScope + "/" + platPkg
-	platReq, err := http.NewRequestWithContext(ctx, "GET", platMetaURL, nil)
-	if err != nil {
-		return "", false, err
-	}
-	if token != "" {
-		platReq.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	platResp, err := client.Do(platReq)
-	if err != nil {
-		return "", false, fmt.Errorf("npm platform package request failed: %w", err)
-	}
-	defer platResp.Body.Close()
-
-	if platResp.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("npm platform package returned HTTP %d", platResp.StatusCode)
-	}
-
-	var platMeta struct {
-		Versions map[string]struct {
-			Dist struct {
-				Tarball string `json:"tarball"`
-			} `json:"dist"`
-		} `json:"versions"`
-	}
-	if err := json.NewDecoder(platResp.Body).Decode(&platMeta); err != nil {
-		return "", false, fmt.Errorf("failed to parse platform package metadata: %w", err)
-	}
-
-	ver := strings.TrimPrefix(latest, "v")
-	if vd, ok := platMeta.Versions[ver]; ok {
-		n.tarballURL = vd.Dist.Tarball
-	}
-	if n.tarballURL == "" {
-		return "", false, fmt.Errorf("no tarball found for %s@%s", platPkg, ver)
-	}
-
-	return latest, true, nil
+	n.latest = rel
+	return rel.Version.Original, true, nil
 }
 
 func (n *npmUpdater) isNewer(currentVersion string) bool {
+	if n.latest == nil {
+		return false
+	}
 	cur, err := parseVersion(currentVersion)
 	if err != nil {
 		return true
 	}
-	latest, err := parseVersion(n.latestVersion)
+	latest, err := parseVersion(n.latest.Version.Version)
 	if err != nil {
 		return false
 	}
@@ -167,84 +88,7 @@ func (n *npmUpdater) isNewer(currentVersion string) bool {
 }
 
 func (n *npmUpdater) applyUpdate(ctx context.Context, exePath string) error {
-	token := os.Getenv("GITEA_NPM_TOKEN")
-
-	req, err := http.NewRequestWithContext(ctx, "GET", n.tarballURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create download request: %w", err)
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to download update: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download returned HTTP %d", resp.StatusCode)
-	}
-
-	binData, err := extractBinaryFromTarGz(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to extract binary: %w", err)
-	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(exePath), ".go-toolchain-update-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(binData); err != nil {
-		tmp.Close()
-		return fmt.Errorf("failed to write update: %w", err)
-	}
-	if err := tmp.Chmod(0755); err != nil {
-		tmp.Close()
-		return fmt.Errorf("failed to chmod update: %w", err)
-	}
-	tmp.Close()
-
-	if err := os.Rename(tmpName, exePath); err != nil {
-		return fmt.Errorf("failed to replace binary: %w", err)
-	}
-	return nil
-}
-
-// extractBinaryFromTarGz reads a .tgz and returns the contents of
-// package/bin/go-toolchain (or .exe on Windows).
-func extractBinaryFromTarGz(r io.Reader) ([]byte, error) {
-	binName := npmPkgName
-	if runtime.GOOS == "windows" {
-		binName += ".exe"
-	}
-	target := "package/bin/" + binName
-
-	gz, err := gzip.NewReader(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decompress: %w", err)
-	}
-	defer gz.Close()
-
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to read archive: %w", err)
-		}
-		if hdr.Name == target {
-			return io.ReadAll(tr)
-		}
-	}
-	return nil, fmt.Errorf("binary %q not found in archive", target)
+	return n.updater.UpdateTo(ctx, n.latest, exePath)
 }
 
 // newUpdater is the factory for creating updaters. Replaceable for testing.
