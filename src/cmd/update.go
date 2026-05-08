@@ -49,11 +49,11 @@ func (n *npmUpdater) detect(ctx context.Context, _ string) (string, bool, error)
 		Token:    os.Getenv("GITEA_NPM_TOKEN"),
 	})
 	if err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("create npm source: %w", err)
 	}
 	updater, err := selfupdate.NewUpdater(selfupdate.Config{Source: source})
 	if err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("create updater: %w", err)
 	}
 	n.updater = updater
 
@@ -63,7 +63,7 @@ func (n *npmUpdater) detect(ctx context.Context, _ string) (string, bool, error)
 	}
 	rel, found, err := updater.DetectLatest(ctx, repo)
 	if err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("query registry %s: %w", n.effectiveBase(), err)
 	}
 	if !found {
 		return "", false, nil
