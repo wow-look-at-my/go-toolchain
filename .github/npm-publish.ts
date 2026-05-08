@@ -75,10 +75,17 @@ function module_basename(): string {
 
 function sanitize_branch(branch: string): string {
   let s = branch.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-  // Gitea's npm registry rejects long dist-tags and version strings.
-  // The known-passing branch had a 35-char sanitized name (42-char dist-tag, 50-char version).
-  // Cap at 35 to match that proven-safe length.
-  if (s.length > 35) s = s.slice(0, 35).replace(/-$/g, "");
+  // Gitea uses the 6543/go-version fork whose VersionRegexpRaw starts with `(?:\w+\-)*`,
+  // stripping ALL leading `word-` components. If what remains starts with a digit (or v+digit),
+  // Gitea treats the whole string as a version and rejects it as a dist-tag. Strip trailing
+  // components that would trigger this until the remainder is safe.
+  while (s) {
+    const dash = s.lastIndexOf("-");
+    const tail = dash >= 0 ? s.slice(dash + 1) : s;
+    if (/^[vV]?[0-9]/.test(tail)) {
+      s = dash >= 0 ? s.slice(0, dash) : "";
+    } else break;
+  }
   return s || "branch";
 }
 
