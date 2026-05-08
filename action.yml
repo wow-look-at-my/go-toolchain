@@ -89,13 +89,19 @@ runs:
         gh extension install PazerOP/gh-wait-ci || true
         gh wait-ci -R wow-look-at-my/go-toolchain || true
 
-    - name: Download go-toolchain from release
+    - name: Install go-toolchain from npm
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
-      uses: wow-look-at-my/actions@download-release-binary#latest
-      with:
-        repo: wow-look-at-my/go-toolchain
-        name: go-toolchain
-        token: ${{ github.token }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -z "${GITEA_NPM_TOKEN:-}" ]; then
+          echo "::error title=Missing GITEA_NPM_TOKEN::GITEA_NPM_TOKEN is required to install from the private npm registry. Ensure the secrets server step has run and the token is available."
+          exit 1
+        fi
+        NPM_HOST="//git.pazer.us/api/packages/wow-look-at-my/npm/"
+        printf '@wow-look-at-my:registry=https://git.pazer.us/api/packages/wow-look-at-my/npm/\n%s:_authToken=%s\n%s:always-auth=true\n' \
+          "${NPM_HOST}" "${GITEA_NPM_TOKEN}" "${NPM_HOST}" >> "$HOME/.npmrc"
+        npm install -g @wow-look-at-my/go-toolchain
 
     - name: Install provided binary
       if: inputs.binary != ''

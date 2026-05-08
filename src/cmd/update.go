@@ -12,6 +12,8 @@ import (
 	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
 )
 
+const npmRegistryBase = "https://git.pazer.us/api/packages/wow-look-at-my/npm/"
+
 // parseVersion parses a version string using strict semver (MAJOR.MINOR.PATCH),
 // stripping an optional leading "v". Unlike [semver.NewVersion], this rejects
 // bare numbers like "0648669" (a git short SHA composed entirely of digits),
@@ -22,77 +24,85 @@ func parseVersion(s string) (*semver.Version, error) {
 
 // selfUpdater abstracts the self-update mechanism for testability.
 type selfUpdater interface {
-	detect(ctx context.Context, slug string) (version string, found bool, err error)
+	detect(ctx context.Context) (version string, found bool, err error)
 	isNewer(currentVersion string) bool
 	applyUpdate(ctx context.Context, exePath string) error
 }
 
-// githubUpdater wraps go-selfupdate-mini for real GitHub releases.
-type githubUpdater struct {
-	updater	*selfupdate.Updater
-	latest	*selfupdate.Release
+// npmUpdater uses go-selfupdate-mini with an NpmSource backend.
+type npmUpdater struct {
+	updater      *selfupdate.Updater
+	latest       *selfupdate.Release
+	registryBase string // overrides npmRegistryBase; used in tests
 }
 
-func (g *githubUpdater) detect(ctx context.Context, slug string) (string, bool, error) {
-	token := discoverGitHubToken()
-	if token != "" {
-		source, err := selfupdate.NewGitHubSource(selfupdate.GitHubConfig{
-			APIToken: token,
-		})
-		if err == nil {
-			updater, err := selfupdate.NewUpdater(selfupdate.Config{Source: source})
-			if err == nil {
-				g.updater = updater
-			}
-		}
+func (n *npmUpdater) effectiveBase() string {
+	if n.registryBase != "" {
+		return n.registryBase
 	}
-	if g.updater == nil {
-		g.updater = selfupdate.DefaultUpdater()
-	}
-	repo := selfupdate.ParseSlug(slug)
-	rel, found, err := g.updater.DetectLatest(ctx, repo)
+	return npmRegistryBase
+}
+
+func (n *npmUpdater) detect(ctx context.Context) (string, bool, error) {
+	source, err := selfupdate.NewNpmSource(selfupdate.NpmConfig{
+		Registry: n.effectiveBase(),
+		Token:    os.Getenv("GITEA_NPM_TOKEN"),
+	})
 	if err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("create npm source: %w", err)
+	}
+	updater, err := selfupdate.NewUpdater(selfupdate.Config{Source: source})
+	if err != nil {
+		return "", false, fmt.Errorf("create updater: %w", err)
+	}
+	n.updater = updater
+
+	repo, err := selfupdate.NpmRepositoryFromBuildInfo()
+	if err != nil {
+		return "", false, fmt.Errorf("npm auto-detect package: %w", err)
+	}
+	rel, found, err := updater.DetectLatest(ctx, repo)
+	if err != nil {
+		return "", false, fmt.Errorf("query registry %s: %w", n.effectiveBase(), err)
 	}
 	if !found {
 		return "", false, nil
 	}
-	g.latest = rel
+	n.latest = rel
 	return rel.Version.Original, true, nil
 }
 
-func (g *githubUpdater) isNewer(currentVersion string) bool {
-	if g.latest == nil {
+func (n *npmUpdater) isNewer(currentVersion string) bool {
+	if n.latest == nil {
 		return false
 	}
-	// Validate that currentVersion is valid semver before comparing.
-	// Non-semver versions (e.g. git-describe output like "latest-1-g649dd4a",
-	// or a bare short SHA like "0648669") are treated as older so the update
-	// proceeds.
 	cur, err := parseVersion(currentVersion)
 	if err != nil {
 		return true
 	}
-	latest, err := parseVersion(g.latest.Version.Version)
+	latest, err := parseVersion(n.latest.Version.Version)
 	if err != nil {
 		return false
 	}
 	return latest.GreaterThan(cur)
 }
 
-func (g *githubUpdater) applyUpdate(ctx context.Context, exePath string) error {
-	return g.updater.UpdateTo(ctx, g.latest, exePath)
+func (n *npmUpdater) applyUpdate(ctx context.Context, exePath string) error {
+	if n.updater == nil || n.latest == nil {
+		return fmt.Errorf("applyUpdate called before detect: no update state available")
+	}
+	return n.updater.UpdateTo(ctx, n.latest, exePath)
 }
 
 // newUpdater is the factory for creating updaters. Replaceable for testing.
-var newUpdater = func() selfUpdater { return &githubUpdater{} }
+var newUpdater = func() selfUpdater { return &npmUpdater{} }
 
 func init() {
 	updateCmd := &cobra.Command{
-		Use:		"update",
-		Short:		"Update go-toolchain to the latest release",
-		SilenceUsage:	true,
-		RunE:		runUpdate,
+		Use:          "update",
+		Short:        "Update go-toolchain to the latest release",
+		SilenceUsage: true,
+		RunE:         runUpdate,
 	}
 	rootCmd.AddCommand(updateCmd)
 }
@@ -104,7 +114,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 func doUpdate(ctx context.Context, u selfUpdater) error {
 	fmt.Println("⇒ Checking for updates...")
 
-	latestVersion, found, err := u.detect(ctx, "wow-look-at-my/go-toolchain")
+	latestVersion, found, err := u.detect(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to detect latest release: %w", err)
 	}
@@ -144,7 +154,7 @@ func doUpdate(ctx context.Context, u selfUpdater) error {
 	// Re-create go-safe-build compat symlink if binary is in ~/.local/bin/
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil	// non-fatal
+		return nil // non-fatal
 	}
 	localBin := filepath.Join(home, ".local", "bin")
 	if filepath.Dir(exePath) == localBin {

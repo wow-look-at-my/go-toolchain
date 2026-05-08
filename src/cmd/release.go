@@ -6,11 +6,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -25,8 +23,8 @@ var (
 func init() {
 	cmd := &cobra.Command{
 		Use:          "release",
-		Short:        "Create a GitHub release with checksums and structured notes",
-		Long:         "Orchestrates the full release lifecycle: optional build, release notes generation, tag management, and GitHub release creation.",
+		Short:        "Tag a release and push the git tags",
+		Long:         "Creates and pushes a versioned git tag plus the rolling 'latest' tag.",
 		SilenceUsage: true,
 		RunE:         runReleaseCmd,
 	}
@@ -102,11 +100,9 @@ type releaseExecutor interface {
 	gitOutput(args ...string) (string, error)
 	// gitRun runs a git command, connecting stdout/stderr to the terminal.
 	gitRun(args ...string) error
-	// ghRelease runs gh release create with the given arguments.
-	ghRelease(args ...string) error
 }
 
-// realExecutor shells out to git/gh.
+// realExecutor shells out to git.
 type realExecutor struct{}
 
 func (realExecutor) gitOutput(args ...string) (string, error) {
@@ -119,13 +115,6 @@ func (realExecutor) gitOutput(args ...string) (string, error) {
 
 func (realExecutor) gitRun(args ...string) error {
 	cmd := exec.Command("git", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func (realExecutor) ghRelease(args ...string) error {
-	cmd := exec.Command("gh", append([]string{"release"}, args...)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -166,31 +155,19 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 		if out, err := ex.gitOutput("describe", "--tags", "--abbrev=0", "HEAD^"); err == nil {
 			from = out
 		}
-		// If no previous tag exists, from stays empty (first release)
 	}
 
-	// Collect commits
+	// Collect commits for display during confirmation
 	commits, err := collectCommitsWithExecutor(from, ex)
 	if err != nil {
 		return err
 	}
 
-	// Read checksums if available
-	checksumsContent := ""
-	checksumsPath := filepath.Join(outputDir, "checksums.txt")
-	if data, err := os.ReadFile(checksumsPath); err == nil {
-		checksumsContent = string(data)
-	}
-
-	// Generate release notes
-	notes := generateReleaseNotes(tag, commits, checksumsContent, noCosign)
-
 	// Interactive confirmation when not in CI
 	if os.Getenv("CI") == "" {
 		fmt.Fprintf(os.Stderr, "Release: %s\n", tag)
 		fmt.Fprintf(os.Stderr, "Commits: %d\n", len(commits))
-		fmt.Fprintf(os.Stderr, "\n--- Release Notes ---\n%s\n---------------------\n\n", notes)
-		fmt.Fprintf(os.Stderr, "Are you sure you want to create this release? [y/N] ")
+		fmt.Fprintf(os.Stderr, "Are you sure you want to tag and push %s? [y/N] ", tag)
 
 		scanner := bufio.NewScanner(stdin)
 		if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
@@ -206,9 +183,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 		return fmt.Errorf("failed to push tag %s: %w", tag, err)
 	}
 
-	// Update the rolling "latest" tag to point at this release. Push with the
-	// explicit refs/tags/ prefix so the refspec is unambiguous even if the
-	// consumer's repo happens to have a branch of the same name.
+	// Update the rolling "latest" tag to point at this release.
 	if err := ex.gitRun("tag", "-f", "latest", "HEAD"); err != nil {
 		return fmt.Errorf("failed to update latest tag: %w", err)
 	}
@@ -216,64 +191,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 		return fmt.Errorf("failed to push latest tag: %w", err)
 	}
 
-	// Write release notes to temp file for gh
-	notesFile, err := os.CreateTemp("", "release-notes-*.md")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer os.Remove(notesFile.Name())
-	if _, err := notesFile.WriteString(notes); err != nil {
-		notesFile.Close()
-		return fmt.Errorf("failed to write release notes: %w", err)
-	}
-	notesFile.Close()
-
-	// Build gh release create args
-	ghArgs := []string{"create", tag}
-
-	// Build the set of files to include in the release. checksums.txt is
-	// the authoritative list of platform binaries produced by `matrix` —
-	// the bare host-name aliases (`<name>` and `<name>_host`) are
-	// deliberately excluded from it. Filtering against this allowlist
-	// keeps the release clean even when the build directory has been
-	// roundtripped through actions/upload-artifact (which dereferences
-	// symlinks, turning the aliases into full duplicate file copies that
-	// the symlink-mode check can no longer recognize).
-	expected := set.Of("checksums.txt")
-	if !noCosign {
-		expected.Add("checksums.txt.sig")
-		expected.Add("checksums.txt.pem")
-	}
-	for _, line := range strings.Split(checksumsContent, "\n") {
-		// Format: "<hex-digest>  <filename>"
-		if _, name, ok := strings.Cut(strings.TrimSpace(line), "  "); ok {
-			expected.Add(name)
-		}
-	}
-
-	entries, _ := filepath.Glob(filepath.Join(outputDir, "*"))
-	for _, p := range entries {
-		info, err := os.Lstat(p)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			continue
-		}
-		if !expected.Contains(filepath.Base(p)) {
-			continue
-		}
-		ghArgs = append(ghArgs, p)
-	}
-
-	ghArgs = append(ghArgs, "--notes-file", notesFile.Name())
-
-	fmt.Printf("⇒ Creating GitHub release %s\n", tag)
-	if err := ex.ghRelease(ghArgs...); err != nil {
-		return fmt.Errorf("gh release create failed: %w", err)
-	}
-
-	fmt.Printf("⇒ Release %s created successfully\n", tag)
+	fmt.Printf("⇒ Tagged and pushed %s\n", tag)
 	return nil
 }
 
@@ -314,36 +232,4 @@ func parseCommitLines(output string) []string {
 		commits = append(commits, line)
 	}
 	return commits
-}
-
-// generateReleaseNotes produces markdown release notes.
-func generateReleaseNotes(tag string, commits []string, checksumsContent string, noCosign bool) string {
-	var sb strings.Builder
-
-	sb.WriteString("## What's Changed\n\n")
-	if len(commits) == 0 {
-		sb.WriteString("- Initial release\n")
-	} else {
-		for _, c := range commits {
-			fmt.Fprintf(&sb, "- %s\n", c)
-		}
-	}
-
-	if checksumsContent != "" {
-		sb.WriteString("\n## Checksums\n\n```\n")
-		sb.WriteString(checksumsContent)
-		sb.WriteString("```\n")
-	}
-
-	if !noCosign {
-		sb.WriteString("\n## Verification\n\n```bash\n")
-		sb.WriteString("cosign verify-blob checksums.txt \\\n")
-		sb.WriteString("  --signature checksums.txt.sig \\\n")
-		sb.WriteString("  --certificate checksums.txt.pem \\\n")
-		sb.WriteString("  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\\n")
-		sb.WriteString("  --certificate-identity-regexp 'github\\.com/wow-look-at-my/go-toolchain'\n")
-		sb.WriteString("```\n")
-	}
-
-	return sb.String()
 }

@@ -9,7 +9,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
 	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
-	github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260415051227-9fd51b31c528
+	github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260507224846-747f99b107fd
 	github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0
@@ -73,3 +73,35 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace gonum.org/v1/gonum v0.17.0 => github.com/gonum/gonum v0.17.0
+
+replace modernc.org/cc/v4 v4.27.3 => gitlab.com/cznic/cc/v4 v4.27.3
+
+replace modernc.org/ccgo/v4 v4.32.4 => gitlab.com/cznic/ccgo/v4 v4.32.4
+
+replace modernc.org/fileutil v1.4.0 => gitlab.com/cznic/fileutil v1.4.0
+
+replace modernc.org/gc/v2 v2.6.5 => gitlab.com/cznic/gc/v2 v2.6.5
+
+replace modernc.org/gc/v3 v3.1.2 => gitlab.com/cznic/gc/v3 v3.1.2
+
+replace modernc.org/goabi0 v0.2.0 => gitlab.com/cznic/goabi0 v0.2.0
+
+replace modernc.org/libc v1.72.0 => gitlab.com/cznic/libc v1.72.0
+
+replace modernc.org/mathutil v1.7.1 => gitlab.com/cznic/mathutil v1.7.1
+
+replace modernc.org/memory v1.11.0 => gitlab.com/cznic/memory v1.11.0
+
+replace modernc.org/opt v0.1.4 => gitlab.com/cznic/opt v0.1.4
+
+replace modernc.org/sortutil v1.2.1 => gitlab.com/cznic/sortutil v1.2.1
+
+replace modernc.org/sqlite v1.50.0 => gitlab.com/cznic/sqlite v1.50.0
+
+replace modernc.org/strutil v1.2.1 => gitlab.com/cznic/strutil v1.2.1
+
+replace modernc.org/token v1.1.0 => gitlab.com/cznic/token v1.1.0
+
+replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
