@@ -75,9 +75,10 @@ function module_basename(): string {
 
 function sanitize_branch(branch: string): string {
   let s = branch.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-  // Gitea's npm registry rejects dist-tags at or above ~50 chars; the base "branch-"
-  // prefix is 7 chars, so cap the sanitized part at 40 (total dist-tag ≤ 47).
-  if (s.length > 40) s = s.slice(0, 40).replace(/-$/g, "");
+  // Gitea's npm registry rejects long dist-tags and version strings.
+  // The known-passing branch had a 35-char sanitized name (42-char dist-tag, 50-char version).
+  // Cap at 35 to match that proven-safe length.
+  if (s.length > 35) s = s.slice(0, 35).replace(/-$/g, "");
   return s || "branch";
 }
 
