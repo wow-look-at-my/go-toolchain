@@ -167,7 +167,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 	if os.Getenv("CI") == "" {
 		fmt.Fprintf(os.Stderr, "Release: %s\n", tag)
 		fmt.Fprintf(os.Stderr, "Commits: %d\n", len(commits))
-		fmt.Fprintf(os.Stderr, "Are you sure you want to create this release? [y/N] ")
+		fmt.Fprintf(os.Stderr, "Are you sure you want to tag and push %s? [y/N] ", tag)
 
 		scanner := bufio.NewScanner(stdin)
 		if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {

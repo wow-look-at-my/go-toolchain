@@ -26,7 +26,7 @@ type mockUpdater struct {
 	applyCalls int
 }
 
-func (m *mockUpdater) detect(_ context.Context, slug string) (string, bool, error) {
+func (m *mockUpdater) detect(_ context.Context) (string, bool, error) {
 	return m.version, m.found, m.detectErr
 }
 
@@ -211,7 +211,7 @@ func TestNpmUpdaterDetect(t *testing.T) {
 	srv := makeFakeNpmServer(t, "0.0.100")
 	u := &npmUpdater{registryBase: srv.URL + "/"}
 
-	version, found, err := u.detect(context.Background(), "")
+	version, found, err := u.detect(context.Background())
 	require.Nil(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "0.0.100", version)
@@ -225,7 +225,7 @@ func TestNpmUpdaterDetect_NotFound(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	u := &npmUpdater{registryBase: srv.URL + "/"}
-	_, _, err := u.detect(context.Background(), "")
+	_, _, err := u.detect(context.Background())
 	require.NotNil(t, err)
 }
 
@@ -244,7 +244,7 @@ func TestNpmUpdaterDetect_NoLatestTag(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	u := &npmUpdater{registryBase: srv.URL + "/"}
-	_, found, err := u.detect(context.Background(), "")
+	_, found, err := u.detect(context.Background())
 	require.Nil(t, err)
 	assert.False(t, found)
 }
@@ -252,7 +252,7 @@ func TestNpmUpdaterDetect_NoLatestTag(t *testing.T) {
 func TestNpmUpdaterApplyUpdate(t *testing.T) {
 	srv := makeFakeNpmServer(t, "0.0.200")
 	u := &npmUpdater{registryBase: srv.URL + "/"}
-	_, found, err := u.detect(context.Background(), "")
+	_, found, err := u.detect(context.Background())
 	require.Nil(t, err)
 	require.True(t, found)
 
@@ -276,6 +276,6 @@ func TestNpmUpdaterApplyUpdate_BadTarball(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	u := &npmUpdater{tarballURL: srv.URL + "/bin.tgz"}
-	err := u.applyUpdate(context.Background(), "/tmp/nowhere")
+	err := u.applyUpdate(context.Background(), filepath.Join(t.TempDir(), "nowhere"))
 	require.NotNil(t, err)
 }

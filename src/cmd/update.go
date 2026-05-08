@@ -34,7 +34,7 @@ func parseVersion(s string) (*semver.Version, error) {
 
 // selfUpdater abstracts the self-update mechanism for testability.
 type selfUpdater interface {
-	detect(ctx context.Context, slug string) (version string, found bool, err error)
+	detect(ctx context.Context) (version string, found bool, err error)
 	isNewer(currentVersion string) bool
 	applyUpdate(ctx context.Context, exePath string) error
 }
@@ -73,7 +73,7 @@ func (n *npmUpdater) effectiveBase() string {
 	return npmRegistryBase
 }
 
-func (n *npmUpdater) detect(ctx context.Context, _ string) (string, bool, error) {
+func (n *npmUpdater) detect(ctx context.Context) (string, bool, error) {
 	token := os.Getenv("GITEA_NPM_TOKEN")
 	base := n.effectiveBase()
 
@@ -167,6 +167,9 @@ func (n *npmUpdater) isNewer(currentVersion string) bool {
 }
 
 func (n *npmUpdater) applyUpdate(ctx context.Context, exePath string) error {
+	if n.tarballURL == "" {
+		return fmt.Errorf("applyUpdate called before detect: no tarball URL available")
+	}
 	token := os.Getenv("GITEA_NPM_TOKEN")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", n.tarballURL, nil)
@@ -267,7 +270,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 func doUpdate(ctx context.Context, u selfUpdater) error {
 	fmt.Println("⇒ Checking for updates...")
 
-	latestVersion, found, err := u.detect(ctx, "wow-look-at-my/go-toolchain")
+	latestVersion, found, err := u.detect(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to detect latest release: %w", err)
 	}
