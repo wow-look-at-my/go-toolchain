@@ -207,4 +207,8 @@ runs:
         TAG="v0.0.$(git log -1 --format=%ct)"
         echo "⇒ Auto-releasing $TAG on default branch"
         go-toolchain release --tag "$TAG"
+        if [ -z "${GITEA_NPM_TOKEN:-}" ]; then
+          echo "::error title=Missing GITEA_NPM_TOKEN::GITEA_NPM_TOKEN is required to publish npm packages. Ensure the secrets server step has run and the token is available."
+          exit 1
+        fi
         NPM_VERSION="${TAG#v}" npx --yes tsx "${{ github.action_path }}/.github/npm-publish.ts"
