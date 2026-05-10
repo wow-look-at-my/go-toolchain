@@ -90,7 +90,13 @@ function sanitize_branch(branch: string): string {
 }
 
 function resolve_version(build_dir: string, branch: string): { version: string; dist_tag: string } {
-  const binary = path.join(build_dir, "go-toolchain_linux_amd64");
+  const explicit = process.env.NPM_VERSION;
+  if (explicit) {
+    return { version: explicit.replace(/^v/, ""), dist_tag: "" };
+  }
+
+  const name = process.env.NPM_NAME || module_basename();
+  const binary = path.join(build_dir, `${name}_linux_amd64`);
   fs.chmodSync(binary, 0o755);
   const raw = execSync(`${binary} version raw`, { encoding: "utf8" }).trim().replace(/^v/, "");
 
