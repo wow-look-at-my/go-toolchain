@@ -6,6 +6,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  security-events: write
 
 jobs:
   build:
@@ -59,14 +60,16 @@ jobs:
           name: build-output
           path: build/
 
-  release:
-    if: github.ref == 'refs/heads/v1'
+  npm-publish:
+    if: github.ref_type == 'branch'
     needs: [build, action-test]
     runs-on: ubuntu-latest
+    env:
+      NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
+      NPM_SCOPE: '@wow-look-at-my'
+      NPM_REPOSITORY_URL: https://git.pazer.us/wow-look-at-my/packages.git
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Download binaries
         uses: actions/download-artifact@v4
@@ -74,21 +77,14 @@ jobs:
           name: build-output
           path: build
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+      - uses: wow-look-at-my/actions@secret-server#latest
 
-      - name: Determine tag
-        id: tag
-        run: |
-          chmod +x build/go-toolchain_linux_amd64
-          TAG=$(./build/go-toolchain_linux_amd64 version raw)
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-      - name: Sign checksums
-        run: cosign sign-blob build/checksums.txt --yes --output-signature build/checksums.txt.sig --output-certificate build/checksums.txt.pem
-
-      - name: Release
-        run: |
-          ./build/go-toolchain_linux_amd64 release --tag "${{ steps.tag.outputs.tag }}"
+      - name: Publish npm packages
         env:
-          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          NPM_BUILD_DIR: build
+        run: npx --yes tsx .github/npm-publish.ts
