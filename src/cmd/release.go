@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -14,23 +13,85 @@ import (
 )
 
 var (
-	releaseTag   string
-	releaseFrom  string
-	releaseBuild bool
+	releaseTag      string
+	releaseFrom     string
+	releaseBuild    bool
+	releaseCosign   bool
+	releaseNoCosign bool
 )
 
 func init() {
 	cmd := &cobra.Command{
 		Use:          "release",
-		Short:        "Create a GitHub release with checksums and structured notes",
-		Long:         "Orchestrates the full release lifecycle: optional build, release notes generation, tag management, and GitHub release creation.",
+		Short:        "Tag a release and push the git tags",
+		Long:         "Creates and pushes a versioned git tag plus the rolling 'latest' tag.",
 		SilenceUsage: true,
 		RunE:         runReleaseCmd,
 	}
 	cmd.Flags().StringVar(&releaseTag, "tag", "", "Tag name for this release (required in CI, default: auto-generated)")
 	cmd.Flags().StringVar(&releaseFrom, "from", "", "Start ref for changelog (default: previous tag)")
 	cmd.Flags().BoolVar(&releaseBuild, "build", false, "Run matrix cross-compilation before releasing")
+	cmd.Flags().BoolVar(&releaseCosign, "cosign", false, "Include cosign signature files and verification section (default: auto, enabled on github.com)")
+	cmd.Flags().BoolVar(&releaseNoCosign, "no-cosign", false, "Skip cosign signature files and verification section in release notes")
 	rootCmd.AddCommand(cmd)
+}
+
+// parseRemoteHost extracts the hostname from a git remote URL, supporting
+// https://, ssh://, and SCP-style (git@host:) formats. Returns "" if the
+// URL doesn't look like a network remote (e.g. local path or empty).
+func parseRemoteHost(remoteURL string) string {
+	if remoteURL == "" {
+		return ""
+	}
+	// SCP-style: git@host:owner/repo.git
+	if !strings.Contains(remoteURL, "://") {
+		if at := strings.Index(remoteURL, "@"); at >= 0 {
+			hostAndPath := remoteURL[at+1:]
+			if colon := strings.Index(hostAndPath, ":"); colon >= 0 {
+				return hostAndPath[:colon]
+			}
+		}
+		return "" // local path or unrecognized
+	}
+	// URL scheme: https://host/... or ssh://host/...
+	rest := remoteURL[strings.Index(remoteURL, "://")+3:]
+	if slash := strings.Index(rest, "/"); slash >= 0 {
+		rest = rest[:slash]
+	}
+	// Strip userinfo (user@host)
+	if at := strings.Index(rest, "@"); at >= 0 {
+		rest = rest[at+1:]
+	}
+	// Strip port
+	if colon := strings.LastIndex(rest, ":"); colon >= 0 {
+		rest = rest[:colon]
+	}
+	return rest
+}
+
+// resolveNoCosign returns true if cosign should be skipped. Explicit flags
+// take priority; otherwise the git remote URL is inspected. If the URL can't
+// be parsed to a recognizable host, ghHost (GH_HOST env var) is used as a
+// fallback.
+func resolveNoCosign(cosign, noCosign bool, remoteURL, ghHost string) (bool, error) {
+	if cosign && noCosign {
+		return false, fmt.Errorf("--cosign and --no-cosign are mutually exclusive")
+	}
+	if cosign {
+		return false, nil
+	}
+	if noCosign {
+		return true, nil
+	}
+	// Auto-detect from remote URL.
+	if host := parseRemoteHost(remoteURL); host != "" {
+		return host != "github.com", nil
+	}
+	// Fall back to GH_HOST when the remote URL isn't parseable.
+	if ghHost != "" {
+		return ghHost != "github.com", nil
+	}
+	return true, nil // default: skip cosign
 }
 
 // releaseExecutor abstracts external command execution for testability.
@@ -39,11 +100,9 @@ type releaseExecutor interface {
 	gitOutput(args ...string) (string, error)
 	// gitRun runs a git command, connecting stdout/stderr to the terminal.
 	gitRun(args ...string) error
-	// ghRelease runs gh release create with the given arguments.
-	ghRelease(args ...string) error
 }
 
-// realExecutor shells out to git/gh.
+// realExecutor shells out to git.
 type realExecutor struct{}
 
 func (realExecutor) gitOutput(args ...string) (string, error) {
@@ -61,18 +120,17 @@ func (realExecutor) gitRun(args ...string) error {
 	return cmd.Run()
 }
 
-func (realExecutor) ghRelease(args ...string) error {
-	cmd := exec.Command("gh", append([]string{"release"}, args...)...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
 func runReleaseCmd(cmd *cobra.Command, args []string) error {
-	return runReleaseCmdImpl(os.Stdin, realExecutor{})
+	ex := realExecutor{}
+	remoteURL, _ := ex.gitOutput("remote", "get-url", "origin")
+	noCosign, err := resolveNoCosign(releaseCosign, releaseNoCosign, remoteURL, os.Getenv("GH_HOST"))
+	if err != nil {
+		return err
+	}
+	return runReleaseCmdImpl(os.Stdin, ex, noCosign)
 }
 
-func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
+func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error {
 	// Optional: run matrix build first
 	if releaseBuild {
 		r := runner.New()
@@ -97,31 +155,19 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 		if out, err := ex.gitOutput("describe", "--tags", "--abbrev=0", "HEAD^"); err == nil {
 			from = out
 		}
-		// If no previous tag exists, from stays empty (first release)
 	}
 
-	// Collect commits
+	// Collect commits for display during confirmation
 	commits, err := collectCommitsWithExecutor(from, ex)
 	if err != nil {
 		return err
 	}
 
-	// Read checksums if available
-	checksumsContent := ""
-	checksumsPath := filepath.Join(outputDir, "checksums.txt")
-	if data, err := os.ReadFile(checksumsPath); err == nil {
-		checksumsContent = string(data)
-	}
-
-	// Generate release notes
-	notes := generateReleaseNotes(tag, commits, checksumsContent)
-
 	// Interactive confirmation when not in CI
 	if os.Getenv("CI") == "" {
 		fmt.Fprintf(os.Stderr, "Release: %s\n", tag)
 		fmt.Fprintf(os.Stderr, "Commits: %d\n", len(commits))
-		fmt.Fprintf(os.Stderr, "\n--- Release Notes ---\n%s\n---------------------\n\n", notes)
-		fmt.Fprintf(os.Stderr, "Are you sure you want to create this release? [y/N] ")
+		fmt.Fprintf(os.Stderr, "Are you sure you want to tag and push %s? [y/N] ", tag)
 
 		scanner := bufio.NewScanner(stdin)
 		if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
@@ -137,9 +183,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 		return fmt.Errorf("failed to push tag %s: %w", tag, err)
 	}
 
-	// Update the rolling "latest" tag to point at this release. Push with the
-	// explicit refs/tags/ prefix so the refspec is unambiguous even if the
-	// consumer's repo happens to have a branch of the same name.
+	// Update the rolling "latest" tag to point at this release.
 	if err := ex.gitRun("tag", "-f", "latest", "HEAD"); err != nil {
 		return fmt.Errorf("failed to update latest tag: %w", err)
 	}
@@ -147,46 +191,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor) error {
 		return fmt.Errorf("failed to push latest tag: %w", err)
 	}
 
-	// Write release notes to temp file for gh
-	notesFile, err := os.CreateTemp("", "release-notes-*.md")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer os.Remove(notesFile.Name())
-	if _, err := notesFile.WriteString(notes); err != nil {
-		notesFile.Close()
-		return fmt.Errorf("failed to write release notes: %w", err)
-	}
-	notesFile.Close()
-
-	// Build gh release create args
-	ghArgs := []string{"create", tag}
-
-	// Add release artifacts from outputDir: the cross-compiled binaries
-	// (one per GOOS/GOARCH target), checksums.txt, and the cosign signature
-	// files. Skip symlinks (the bare host-name aliases the matrix build
-	// creates) and any directories. The binary name depends on the consuming
-	// module, so we don't hardcode a prefix.
-	entries, _ := filepath.Glob(filepath.Join(outputDir, "*"))
-	for _, p := range entries {
-		info, err := os.Lstat(p)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			continue
-		}
-		ghArgs = append(ghArgs, p)
-	}
-
-	ghArgs = append(ghArgs, "--notes-file", notesFile.Name())
-
-	fmt.Printf("⇒ Creating GitHub release %s\n", tag)
-	if err := ex.ghRelease(ghArgs...); err != nil {
-		return fmt.Errorf("gh release create failed: %w", err)
-	}
-
-	fmt.Printf("⇒ Release %s created successfully\n", tag)
+	fmt.Printf("⇒ Tagged and pushed %s\n", tag)
 	return nil
 }
 
@@ -227,34 +232,4 @@ func parseCommitLines(output string) []string {
 		commits = append(commits, line)
 	}
 	return commits
-}
-
-// generateReleaseNotes produces markdown release notes.
-func generateReleaseNotes(tag string, commits []string, checksumsContent string) string {
-	var sb strings.Builder
-
-	sb.WriteString("## What's Changed\n\n")
-	if len(commits) == 0 {
-		sb.WriteString("- Initial release\n")
-	} else {
-		for _, c := range commits {
-			fmt.Fprintf(&sb, "- %s\n", c)
-		}
-	}
-
-	if checksumsContent != "" {
-		sb.WriteString("\n## Checksums\n\n```\n")
-		sb.WriteString(checksumsContent)
-		sb.WriteString("```\n")
-	}
-
-	sb.WriteString("\n## Verification\n\n```bash\n")
-	sb.WriteString("cosign verify-blob checksums.txt \\\n")
-	sb.WriteString("  --signature checksums.txt.sig \\\n")
-	sb.WriteString("  --certificate checksums.txt.pem \\\n")
-	sb.WriteString("  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\\n")
-	sb.WriteString("  --certificate-identity-regexp 'github\\.com/wow-look-at-my/go-toolchain'\n")
-	sb.WriteString("```\n")
-
-	return sb.String()
 }
