@@ -36,7 +36,7 @@ inputs:
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically create a GitHub release when running on the default branch (requires contents: write permission)'
+    description: 'Automatically tag a release and publish npm packages when running on the default branch (requires contents: write permission)'
     required: false
     default: 'false'
   upload-artifacts:
@@ -197,8 +197,18 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         GH_TOKEN: ${{ github.token }}
+        NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
+        NPM_SCOPE: '@wow-look-at-my'
+        NPM_REPOSITORY_URL: https://git.pazer.us/wow-look-at-my/packages.git
+        NPM_BUILD_DIR: build
+        BRANCH: ${{ github.ref_name }}
       run: |
         set -euo pipefail
         TAG="v0.0.$(git log -1 --format=%ct)"
         echo "⇒ Auto-releasing $TAG on default branch"
         go-toolchain release --tag "$TAG"
+        if [ -z "${GITEA_NPM_TOKEN:-}" ]; then
+          echo "::error title=Missing GITEA_NPM_TOKEN::GITEA_NPM_TOKEN is required to publish npm packages. Ensure the secrets server step has run and the token is available."
+          exit 1
+        fi
+        NPM_VERSION="${TAG#v}" npx --yes tsx "${{ github.action_path }}/.github/npm-publish.ts"
