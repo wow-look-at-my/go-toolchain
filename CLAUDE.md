@@ -26,13 +26,12 @@ Do NOT use `go run ./src`, `go build`, `go test`, `go vet`, or any bare `go` com
 
 ## Coverage Analysis
 
-Use `--cov-detail func` to see which functions lack coverage:
+After running `go-toolchain`, the output includes a "Coverage targets" section showing the top functions to test, ranked by potential gain (how much total coverage would increase if the function were fully covered). Functions are split into two groups:
 
-```bash
-go run ./src --cov-detail func
-```
+- **UNTESTED** (0% covered) — likely just needs one test that calls the function
+- **PARTIAL** (some coverage) — needs specific inputs to hit uncovered branches
 
-This shows a hierarchical view: packages > files > functions, sorted by uncovered statements. Fully covered items are hidden by default; add `-v` to show all.
+Each line shows: `+gain%  N lines  file:line  FunctionName`. Always start from the top of the list when improving coverage.
 
 ## Project Structure
 

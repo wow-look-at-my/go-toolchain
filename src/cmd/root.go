@@ -564,7 +564,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			return false, nil, fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
-		fmt.Println("\n⇒ Package coverage:")
+		fmt.Println("\n⇒ Coverage targets (by potential gain):")
 		report.Print()
 
 		fmt.Printf("\n⇒ Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
