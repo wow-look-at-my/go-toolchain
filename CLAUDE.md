@@ -31,7 +31,7 @@ After running `go-toolchain`, the output includes a "Coverage targets" section s
 - **UNTESTED** (0% covered) — likely just needs one test that calls the function
 - **PARTIAL** (some coverage) — needs specific inputs to hit uncovered branches
 
-Each line shows: `+gain%  N lines  file:line  FunctionName`. Always start from the top of the list when improving coverage.
+Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered Go statements). Always start from the top of the list when improving coverage.
 
 ## Project Structure
 

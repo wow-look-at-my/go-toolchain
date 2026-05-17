@@ -324,7 +324,7 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 	// Should show the untested function with its gain and location
 	assert.Contains(t, output, "NeverCalled", "should show untested function")
 	assert.Contains(t, output, "untested.go:5", "should show file:line for untested function")
-	assert.Contains(t, output, "30 lines", "should show uncovered line count")
+	assert.Contains(t, output, "30 stmts", "should show uncovered statement count")
 
 	// Should show the partially-covered function
 	assert.Contains(t, output, "NeedsCoverage", "should show partially covered function")

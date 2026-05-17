@@ -87,11 +87,10 @@ func sortByUncovered[T ICoverageItem](items []T) {
 	})
 }
 
-// funcWithPath holds a function and its path for top-N display
+// funcWithPath holds a function and its containing file for display
 type funcWithPath struct {
 	fn   *FuncCoverage
 	file *FileCoverage
-	pkg  *PackageCoverage
 }
 
 // shortFile returns just the last directory + filename from an import path
@@ -128,13 +127,12 @@ func (r Report) Print() {
 	// Collect all functions with uncovered statements
 	var allFuncs []funcWithPath
 	for i := range r.Packages {
-		pkg := &r.Packages[i]
-		for j := range pkg.Files {
-			file := &pkg.Files[j]
+		for j := range r.Packages[i].Files {
+			file := &r.Packages[i].Files[j]
 			for k := range file.Functions {
 				fn := &file.Functions[k]
 				if fn.Uncovered() > 0 {
-					allFuncs = append(allFuncs, funcWithPath{fn: fn, file: file, pkg: pkg})
+					allFuncs = append(allFuncs, funcWithPath{fn: fn, file: file})
 				}
 			}
 		}
@@ -196,7 +194,7 @@ func printTargetGroup(funcs []funcWithPath, header string, totalStatements int) 
 			}
 		}
 
-		fmt.Printf("   %s  %s%3d lines%s  %-28s %s\n",
+		fmt.Printf("   %s  %s%3d stmts%s  %-28s %s\n",
 			colorGain(gain),
 			dim, f.fn.Uncovered(), fgReset,
 			location,

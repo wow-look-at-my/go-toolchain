@@ -83,9 +83,14 @@ func TestWriteChromeEmptyInput(t *testing.T) {
 	err := WriteChrome(path, nil, nil)
 	require.NoError(t, err)
 
-	// File should NOT be created (no events to write)
-	_, err = os.Stat(path)
-	assert.True(t, os.IsNotExist(err))
+	// Even with no timeline/trace data, the process_name metadata is always written
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var events []chromeEvent
+	require.NoError(t, json.Unmarshal(data, &events))
+	assert.Len(t, events, 1)
+	assert.Equal(t, "process_name", events[0].Name)
 }
 
 func TestWriteChromeOverlappingEvents(t *testing.T) {
@@ -112,13 +117,13 @@ func TestWriteChromeOverlappingEvents(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &events))
 
 	// Find event "b" — its start should be clamped to after "a" ends
+	var foundB bool
 	for _, e := range events {
 		if e.Name == "b" {
-			// "a" ends at t0+5s = ts_a + dur_a. "b" should start >= that.
-			aStart := t0.UnixMicro()
-			_ = aStart
+			foundB = true
 			assert.True(t, e.Ts >= t0.Add(5*time.Second).UnixMicro(),
 				"overlapping event should be clamped: ts=%d", e.Ts)
 		}
 	}
+	require.True(t, foundB, "event 'b' not found in output")
 }
