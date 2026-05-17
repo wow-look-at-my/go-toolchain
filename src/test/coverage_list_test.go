@@ -2,7 +2,9 @@ package test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/wow-look-at-my/testify/assert"
@@ -75,44 +77,38 @@ func TestSortByUncovered(t *testing.T) {
 	assert.Equal(t, "example.com/pkg/foo.go", files[0].File)
 }
 
-func TestPrintItemIndentation(t *testing.T) {
-	// Test that columns are aligned and indentation is applied before the name
-	item := FileCoverage{
-		baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 8},
-		File:             "test.go",
-	}
-
-	for depth := 0; depth < 3; depth++ {
-		output := captureOutput(func() {
-			printItem(item, depth, 100)
-		})
-		if depth == 0 {
-			// Depth 0 starts with bold escape code
-			assert.True(t, len(output) > 4 && output[:4] == bold, "depth 0: line should start with bold")
-		} else {
-			// Other depths start with "  " before percentage
-			assert.True(t, len(output) > 2 && output[:2] == "  ", "depth %d: line should start with 2 spaces", depth)
-		}
-		// Name should appear in output
-		assert.Contains(t, output, "test.go", "depth %d: should contain filename", depth)
-	}
-}
-
-func TestPrintItemNoOSC8InCI(t *testing.T) {
-	// When CI env var is set, OSC 8 links should be suppressed
-	item := FileCoverage{
-		baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 8},
-		File:             "test.go",
-	}
-
+func TestPrintTargetGroupNoOSC8InCI(t *testing.T) {
 	t.Setenv("CI", "true")
 
+	file := FileCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 0},
+		File:             "example.com/pkg/test.go",
+	}
+	fn := FuncCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 0},
+		FuncLine:         5,
+		Function:         "MyFunc",
+		File:             &file,
+	}
+	file.Functions = []FuncCoverage{fn}
+
+	report := Report{
+		Packages: []PackageCoverage{
+			{
+				baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 0},
+				Package:          "example.com/pkg",
+				Files:            []FileCoverage{file},
+			},
+		},
+	}
+
 	output := captureOutput(func() {
-		printItem(item, 0, 100)
+		report.Print()
 	})
 
 	assert.NotContains(t, output, "\033]8;;", "should not contain OSC 8 escape sequences in CI")
-	assert.Contains(t, output, "test.go")
+	assert.Contains(t, output, "MyFunc")
+	assert.Contains(t, output, "test.go:5")
 }
 
 func TestDimText(t *testing.T) {
@@ -162,63 +158,111 @@ func TestHsvToRGB(t *testing.T) {
 	assert.Equal(t, uint8(0), b)
 }
 
-func TestPrintEmptyPackage(t *testing.T) {
-	// Test that empty packages show ∅ symbol
-	item := FileCoverage{
-		baseCoverageItem: baseCoverageItem{Statements: 0, Covered: 0},
-		File:             "empty.go",
-	}
+func TestColorGain(t *testing.T) {
+	// High gain should be red (hue near 0) — most urgent
+	high := colorGain(1.0)
+	assert.Contains(t, high, " 1.0%")
 
-	output := captureOutput(func() {
-		printItem(item, 0, 100)
-	})
-	assert.Contains(t, output, "∅", "empty package should show ∅ symbol")
-	assert.Contains(t, output, "empty.go")
+	// Low gain should be green (hue near 120) — less urgent
+	low := colorGain(0.1)
+	assert.Contains(t, low, " 0.1%")
+
+	// Very high gain gets capped at red (hue=0)
+	capped := colorGain(5.0)
+	assert.Contains(t, capped, " 5.0%")
 }
 
-func TestPrintItemImpact(t *testing.T) {
+func TestShortFile(t *testing.T) {
+	assert.Equal(t, "pkg/file.go", shortFile("example.com/org/pkg/file.go"))
+	assert.Equal(t, "src/main.go", shortFile("github.com/user/repo/src/main.go"))
+	assert.Equal(t, "file.go", shortFile("file.go"))
+	assert.Equal(t, "", shortFile(""))
+}
+
+func TestPrintCapsAtFivePerGroup(t *testing.T) {
 	t.Setenv("CI", "true")
 
-	// 20 uncovered out of 200 total = -10.0% impact
-	item := FileCoverage{
-		baseCoverageItem: baseCoverageItem{Statements: 50, Covered: 30},
-		File:             "impact.go",
+	// Create 7 untested functions and 7 partial functions — only 5 of each should appear
+	var files []FileCoverage
+	for i := range 7 {
+		f := FileCoverage{
+			baseCoverageItem: baseCoverageItem{Statements: 10 + i, Covered: 0},
+			File:             fmt.Sprintf("example.com/pkg/untested%d.go", i),
+		}
+		fn := FuncCoverage{
+			baseCoverageItem: baseCoverageItem{Statements: 10 + i, Covered: 0},
+			FuncLine:         1,
+			Function:         fmt.Sprintf("Untested%d", i),
+			File:             &f,
+		}
+		f.Functions = []FuncCoverage{fn}
+		files = append(files, f)
 	}
+	for i := range 7 {
+		f := FileCoverage{
+			baseCoverageItem: baseCoverageItem{Statements: 20 + i, Covered: 1},
+			File:             fmt.Sprintf("example.com/pkg/partial%d.go", i),
+		}
+		fn := FuncCoverage{
+			baseCoverageItem: baseCoverageItem{Statements: 20 + i, Covered: 1},
+			FuncLine:         1,
+			Function:         fmt.Sprintf("Partial%d", i),
+			File:             &f,
+		}
+		f.Functions = []FuncCoverage{fn}
+		files = append(files, f)
+	}
+
+	report := Report{
+		Packages: []PackageCoverage{
+			{
+				baseCoverageItem: baseCoverageItem{Statements: 300, Covered: 7},
+				Package:          "example.com/pkg",
+				Files:            files,
+			},
+		},
+	}
+
 	output := captureOutput(func() {
-		printItem(item, 0, 200)
+		report.Print()
 	})
-	assert.Contains(t, output, "-10.0%", "should show -10.0%% impact")
-	assert.Contains(t, output, "impact.go")
 
-	// 5 uncovered out of 500 total = -1.0% impact
-	item2 := FileCoverage{
-		baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 5},
-		File:             "small.go",
-	}
-	output2 := captureOutput(func() {
-		printItem(item2, 1, 500)
-	})
-	assert.Contains(t, output2, "- 1.0%", "should show - 1.0%% impact")
+	// Untested: 5 largest should appear (Untested6=16, ..., Untested2=12)
+	assert.Contains(t, output, "Untested6")
+	assert.Contains(t, output, "Untested2")
+	assert.NotContains(t, output, "Untested0")
+	assert.NotContains(t, output, "Untested1")
 
-	// 0 total statements = -0.0% impact
-	output3 := captureOutput(func() {
-		printItem(item, 0, 0)
-	})
-	assert.Contains(t, output3, "- 0.0%", "should show - 0.0%% impact when totalStatements is 0")
+	// Partial: 5 largest should appear (Partial6=25 uncov, ..., Partial2=21 uncov)
+	assert.Contains(t, output, "Partial6")
+	assert.Contains(t, output, "Partial2")
+	assert.NotContains(t, output, "Partial0")
+	assert.NotContains(t, output, "Partial1")
 }
 
-func TestColorImpact(t *testing.T) {
-	// High impact should produce red-ish color (hue near 0)
-	high := colorImpact(10.0, 1.0, 1.0)
-	assert.Contains(t, high, "-10.0%")
+func TestPrintEmptyReport(t *testing.T) {
+	report := Report{
+		Packages: []PackageCoverage{
+			{
+				baseCoverageItem: baseCoverageItem{Statements: 10, Covered: 10},
+				Package:          "example.com/pkg",
+			},
+		},
+	}
 
-	// Zero impact should produce green-ish color (hue near 120)
-	low := colorImpact(0.0, 1.0, 1.0)
-	assert.Contains(t, low, "- 0.0%")
+	output := captureOutput(func() {
+		report.Print()
+	})
+
+	// Fully covered: no targets to show
+	assert.NotContains(t, output, "UNTESTED")
+	assert.NotContains(t, output, "PARTIAL")
 }
 
 func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
-	// Create file coverage with functions
+	t.Setenv("CI", "true")
+
+	// File with a partially-covered function (has Covered > 0)
 	file1 := FileCoverage{
 		baseCoverageItem: baseCoverageItem{Statements: 20, Covered: 10},
 		File:             "example.com/pkg/partial.go",
@@ -231,6 +275,7 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 	}
 	file1.Functions = []FuncCoverage{fn1}
 
+	// File with a fully-covered function (no uncovered lines)
 	file2 := FileCoverage{
 		baseCoverageItem: baseCoverageItem{Statements: 5, Covered: 5},
 		File:             "example.com/pkg/full.go",
@@ -243,12 +288,25 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 	}
 	file2.Functions = []FuncCoverage{fn2}
 
+	// File with a completely untested function (Covered == 0)
+	file3 := FileCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 30, Covered: 0},
+		File:             "example.com/pkg/untested.go",
+	}
+	fn3 := FuncCoverage{
+		baseCoverageItem: baseCoverageItem{Statements: 30, Covered: 0},
+		FuncLine:         5,
+		Function:         "NeverCalled",
+		File:             &file3,
+	}
+	file3.Functions = []FuncCoverage{fn3}
+
 	report := Report{
 		Packages: []PackageCoverage{
 			{
-				baseCoverageItem: baseCoverageItem{Statements: 25, Covered: 15},
+				baseCoverageItem: baseCoverageItem{Statements: 55, Covered: 15},
 				Package:          "example.com/pkg",
-				Files:            []FileCoverage{file1, file2},
+				Files:            []FileCoverage{file1, file2, file3},
 			},
 		},
 	}
@@ -257,19 +315,29 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 		report.Print()
 	})
 
-	// Should show impact header
-	assert.Contains(t, output, "impact", "should show impact column header")
+	// Should show UNTESTED section header (for 0%-covered functions)
+	assert.Contains(t, output, "UNTESTED", "should show UNTESTED section")
 
-	// Should show package
-	assert.Contains(t, output, "example.com/pkg", "should show package")
+	// Should show PARTIAL section header (for partially-covered functions)
+	assert.Contains(t, output, "PARTIAL", "should show PARTIAL section")
 
-	// Should show file with uncovered function
-	assert.Contains(t, output, "partial.go", "should show file with uncovered function")
+	// Should show the untested function with its gain and location
+	assert.Contains(t, output, "NeverCalled", "should show untested function")
+	assert.Contains(t, output, "untested.go:5", "should show file:line for untested function")
+	assert.Contains(t, output, "30 stmts", "should show uncovered statement count")
 
-	// Should show uncovered function
-	assert.Contains(t, output, "NeedsCoverage", "should show uncovered function")
+	// Should show the partially-covered function
+	assert.Contains(t, output, "NeedsCoverage", "should show partially covered function")
+	assert.Contains(t, output, "partial.go:10", "should show file:line for partial function")
 
-	// Should NOT show fully covered file/function (not in top 10 uncovered)
-	assert.NotContains(t, output, "full.go", "should not show fully covered file")
+	// Should NOT show fully covered function
 	assert.NotContains(t, output, "FullyCovered", "should not show covered function")
+	assert.NotContains(t, output, "full.go", "should not show fully covered file")
+
+	// Untested function (30 lines) should appear before partial (5 lines)
+	// because it has more uncovered lines and thus higher gain
+	untestedIdx := strings.Index(output, "NeverCalled")
+	partialIdx := strings.Index(output, "NeedsCoverage")
+	assert.True(t, untestedIdx < partialIdx,
+		"untested function should appear before partial (untested=%d, partial=%d)", untestedIdx, partialIdx)
 }

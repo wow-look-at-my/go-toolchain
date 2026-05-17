@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
@@ -166,6 +167,8 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	maybeSubmitDeps()
+
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
 		allSummary.Timeline = tl.Entries()
@@ -244,6 +247,15 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	if !isRetry && filesChanged {
 		fmt.Println("\n⇒ Files changed, rebuilding...")
 		return runWithRunnerOnce(r, true, sd)
+	}
+
+	if codeql.Enabled() {
+		ex := logStep("codeql extract")
+		if err := codeql.Extract(r); err != nil {
+			ex.failed()
+			return err
+		}
+		ex.done()
 	}
 
 	br, err := runBuildPhase(r, quiet)
@@ -552,7 +564,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			return false, nil, fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	} else {
-		fmt.Println("\n⇒ Package coverage:")
+		fmt.Println("\n⇒ Coverage targets (by potential gain):")
 		report.Print()
 
 		fmt.Printf("\n⇒ Total coverage: %s\n", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
@@ -608,7 +620,14 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 				fmt.Printf("⇒ Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing\n", report.Total, effectiveMin, totalUncovered)
 			}
 		} else {
-			return false, result, fmt.Errorf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
+			msg := fmt.Sprintf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
+			// Skip annotation in --json mode: the coverage report has already
+			// been written to stdout above, and a workflow command on stdout
+			// would corrupt the JSON payload.
+			if isGHA() && !quiet {
+				logError("", msg)
+			}
+			return false, result, fmt.Errorf("%s", msg)
 		}
 	}
 

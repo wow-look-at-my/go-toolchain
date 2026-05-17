@@ -26,18 +26,17 @@ Do NOT use `go run ./src`, `go build`, `go test`, `go vet`, or any bare `go` com
 
 ## Coverage Analysis
 
-Use `--cov-detail func` to see which functions lack coverage:
+After running `go-toolchain`, the output includes a "Coverage targets" section showing the top functions to test, ranked by potential gain (how much total coverage would increase if the function were fully covered). Functions are split into two groups:
 
-```bash
-go run ./src --cov-detail func
-```
+- **UNTESTED** (0% covered) — likely just needs one test that calls the function
+- **PARTIAL** (some coverage) — needs specific inputs to hit uncovered branches
 
-This shows a hierarchical view: packages > files > functions, sorted by uncovered statements. Fully covered items are hidden by default; add `-v` to show all.
+Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered Go statements). Always start from the top of the list when improving coverage.
 
 ## Project Structure
 
 - `src/main.go` — entry point
-- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, update, version, release, ignore/unignore, cacheprog) using Cobra
+- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, update, version, release, ignore/unignore, cacheprog) using Cobra; also includes dependabot (automatic dependency graph submission to GitHub in CI)
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via filesystem walking
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery)

@@ -72,73 +72,10 @@ func hsvToRGB(h, s, v float64) (r, g, b uint8) {
 	return uint8((r1 + m) * 255), uint8((g1 + m) * 255), uint8((b1 + m) * 255)
 }
 
-// colorPct formats a percentage with color based on coverage (red=0%, green=100%)
-func colorPct(pct float32, saturation, value float64) string {
-	hue := float64(pct) * 1.2 // 0% = 0°, 100% = 120°
-	r, g, b := hsvToRGB(hue, saturation, value)
-	return fmt.Sprintf("\033[38;2;%d;%d;%dm%5.1f%%%s", r, g, b, pct, fgReset)
-}
-
 // dimText returns ANSI code for dimmed white/grey text based on value
 func dimText(value float64) string {
 	v := uint8(value * 255)
 	return fmt.Sprintf("\033[38;2;%d;%d;%dm", v, v, v)
-}
-
-// depthToStyle returns saturation and value for a given depth
-func depthToStyle(depth int) (saturation, value float64) {
-	switch depth {
-	case 0:
-		return 1.0, 1.0
-	case 1:
-		return 0.5, 0.75
-	default:
-		return 0.35, 0.5
-	}
-}
-
-const bold = "\033[1m"
-
-// colorImpact formats an impact percentage with color (high impact = red, low = green)
-func colorImpact(impact float32, saturation, value float64) string {
-	// Map impact to hue: 0% impact = 120° (green), ≥10% impact = 0° (red)
-	scaled := float64(impact) * 10 // 10% impact maps to 100
-	if scaled > 100 {
-		scaled = 100
-	}
-	hue := (1 - scaled/100) * 120
-	r, g, b := hsvToRGB(hue, saturation, value)
-	return fmt.Sprintf("\033[38;2;%d;%d;%dm-%4.1f%%%s", r, g, b, impact, fgReset)
-}
-
-func printItem(c ICoverageItem, depth int, totalStatements int) {
-	pad := ""
-	for i := 0; i < depth; i++ {
-		pad += "  "
-	}
-
-	name := c.Name()
-	if os.Getenv("CI") == "" {
-		if url := resolveToFileURL(c.ImportPath(), c.Line()); url != "" {
-			name = osc8Link(url, name)
-		}
-	}
-
-	sat, val := depthToStyle(depth)
-	dim := dimText(val)
-	prefix := ""
-	if depth == 0 {
-		prefix = bold
-	}
-	if c.Uncovered() == 0 && c.Pct() == 0 {
-		fmt.Printf("%s%s       ∅              %s%s%s\n", prefix, dim, pad, name, colorReset)
-	} else {
-		var impact float32
-		if totalStatements > 0 {
-			impact = float32(c.Uncovered()) / float32(totalStatements) * 100
-		}
-		fmt.Printf("%s  %s  %s%3d  %s  %s%s%s\n", prefix, colorPct(c.Pct(), sat, val), dim, c.Uncovered(), colorImpact(impact, sat, val), pad, name, colorReset)
-	}
 }
 
 func sortByUncovered[T ICoverageItem](items []T) {
@@ -150,89 +87,118 @@ func sortByUncovered[T ICoverageItem](items []T) {
 	})
 }
 
-// funcWithPath holds a function and its path for top-N display
+// funcWithPath holds a function and its containing file for display
 type funcWithPath struct {
 	fn   *FuncCoverage
 	file *FileCoverage
-	pkg  *PackageCoverage
 }
 
-// Print prints coverage in package > file > function hierarchy
-// Always shows packages, plus top 10 uncovered functions in tree structure
+// shortFile returns just the last directory + filename from an import path
+func shortFile(importPath string) string {
+	parts := strings.Split(importPath, "/")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return importPath
+}
+
+// colorGain formats a gain percentage with green color (higher = more green)
+func colorGain(gain float32) string {
+	hue := 120 - float64(gain)*120
+	if hue < 0 {
+		hue = 0
+	}
+	r, g, b := hsvToRGB(hue, 0.8, 0.9)
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm%4.1f%%%s", r, g, b, gain, fgReset)
+}
+
+// Print prints coverage as a flat ranked list of functions to test,
+// sorted by potential gain (uncovered lines / total statements).
+// Functions are split into UNTESTED (0% covered) and PARTIAL groups.
 func (r Report) Print() {
-	// Sort everything FIRST before collecting pointers
-	// (sorting moves elements in memory, invalidating pointers)
-	sortByUncovered(r.Packages)
-	for i := range r.Packages {
-		sortByUncovered(r.Packages[i].Files)
-		for j := range r.Packages[i].Files {
-			sortByUncovered(r.Packages[i].Files[j].Functions)
-		}
-	}
-
-	// Now collect all functions with uncovered statements (pointers are stable)
-	var uncoveredFuncs []funcWithPath
-	for i := range r.Packages {
-		pkg := &r.Packages[i]
-		for j := range pkg.Files {
-			file := &pkg.Files[j]
-			for k := range file.Functions {
-				fn := &file.Functions[k]
-				if fn.Uncovered() > 0 {
-					uncoveredFuncs = append(uncoveredFuncs, funcWithPath{fn: fn, file: file, pkg: pkg})
-				}
-			}
-		}
-	}
-
-	// Sort by uncovered count (descending) - this only sorts our slice of pointers
-	sort.Slice(uncoveredFuncs, func(i, j int) bool {
-		if uncoveredFuncs[i].fn.Uncovered() != uncoveredFuncs[j].fn.Uncovered() {
-			return uncoveredFuncs[i].fn.Uncovered() > uncoveredFuncs[j].fn.Uncovered()
-		}
-		return uncoveredFuncs[i].fn.Function < uncoveredFuncs[j].fn.Function
-	})
-
-	// Take top 10
-	if len(uncoveredFuncs) > 10 {
-		uncoveredFuncs = uncoveredFuncs[:10]
-	}
-
-	// Build sets of packages and files that contain top functions
-	pkgHasTop := make(map[*PackageCoverage]bool)
-	fileHasTop := make(map[*FileCoverage]bool)
-	fnIsTop := make(map[*FuncCoverage]bool)
-	for _, f := range uncoveredFuncs {
-		pkgHasTop[f.pkg] = true
-		fileHasTop[f.file] = true
-		fnIsTop[f.fn] = true
-	}
-
-	// Calculate total statements for impact percentages
 	var totalStatements int
 	for i := range r.Packages {
 		totalStatements += r.Packages[i].Statements
 	}
 
-	// Print packages, with files/funcs only for top 10
-	fmt.Println("     cov  miss  impact  name")
+	// Collect all functions with uncovered statements
+	var allFuncs []funcWithPath
 	for i := range r.Packages {
-		pkg := &r.Packages[i]
-		printItem(*pkg, 0, totalStatements)
-		if pkgHasTop[pkg] {
-			for j := range pkg.Files {
-				file := &pkg.Files[j]
-				if !fileHasTop[file] {
-					continue
-				}
-				printItem(*file, 1, totalStatements)
-				for k := range file.Functions {
-					fn := &file.Functions[k]
-					if fnIsTop[fn] {
-						printItem(*fn, 2, totalStatements)
-					}
+		for j := range r.Packages[i].Files {
+			file := &r.Packages[i].Files[j]
+			for k := range file.Functions {
+				fn := &file.Functions[k]
+				if fn.Uncovered() > 0 {
+					allFuncs = append(allFuncs, funcWithPath{fn: fn, file: file})
 				}
 			}
 		}
+	}
+
+	// Sort by uncovered count (descending), then by name
+	sort.Slice(allFuncs, func(i, j int) bool {
+		if allFuncs[i].fn.Uncovered() != allFuncs[j].fn.Uncovered() {
+			return allFuncs[i].fn.Uncovered() > allFuncs[j].fn.Uncovered()
+		}
+		return allFuncs[i].fn.Function < allFuncs[j].fn.Function
+	})
+
+	// Split into untested (0% covered) and partial
+	var untested, partial []funcWithPath
+	for _, f := range allFuncs {
+		if f.fn.Covered == 0 {
+			untested = append(untested, f)
+		} else {
+			partial = append(partial, f)
+		}
+	}
+
+	// Cap each group at 5
+	if len(untested) > 5 {
+		untested = untested[:5]
+	}
+	if len(partial) > 5 {
+		partial = partial[:5]
+	}
+
+	printTargetGroup(untested, "UNTESTED (0% covered — one test likely covers most lines):", totalStatements)
+	if len(untested) > 0 && len(partial) > 0 {
+		fmt.Println()
+	}
+	printTargetGroup(partial, "PARTIAL (need specific branches/inputs):", totalStatements)
+}
+
+func printTargetGroup(funcs []funcWithPath, header string, totalStatements int) {
+	if len(funcs) == 0 {
+		return
+	}
+
+	dim := dimText(0.6)
+	fmt.Printf("  %s%s%s\n", dim, header, colorReset)
+
+	for _, f := range funcs {
+		var gain float32
+		if totalStatements > 0 {
+			gain = float32(f.fn.Uncovered()) / float32(totalStatements) * 100
+		}
+
+		location := fmt.Sprintf("%s:%d", shortFile(f.file.File), f.fn.FuncLine)
+
+		name := f.fn.Function
+		if os.Getenv("CI") == "" {
+			if url := resolveToFileURL(f.file.File, f.fn.FuncLine); url != "" {
+				name = osc8Link(url, name)
+			}
+		}
+
+		fmt.Printf("   %s  %s%3d stmts%s  %-28s %s\n",
+			colorGain(gain),
+			dim, f.fn.Uncovered(), fgReset,
+			location,
+			name,
+		)
 	}
 }
