@@ -107,12 +107,12 @@ func shortFile(importPath string) string {
 
 // colorGain formats a gain percentage with green color (higher = more green)
 func colorGain(gain float32) string {
-	hue := float64(gain) * 120 // scale so +1% = fully green
-	if hue > 120 {
-		hue = 120
+	hue := 120 - float64(gain)*120
+	if hue < 0 {
+		hue = 0
 	}
 	r, g, b := hsvToRGB(hue, 0.8, 0.9)
-	return fmt.Sprintf("\033[38;2;%d;%d;%dm+%4.1f%%%s", r, g, b, gain, fgReset)
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm%4.1f%%%s", r, g, b, gain, fgReset)
 }
 
 // Print prints coverage as a flat ranked list of functions to test,

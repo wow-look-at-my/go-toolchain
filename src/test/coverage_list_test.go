@@ -159,17 +159,17 @@ func TestHsvToRGB(t *testing.T) {
 }
 
 func TestColorGain(t *testing.T) {
-	// High gain should produce green-ish color
+	// High gain should be red (hue near 0) — most urgent
 	high := colorGain(1.0)
-	assert.Contains(t, high, "+ 1.0%")
+	assert.Contains(t, high, " 1.0%")
 
-	// Low gain should produce red-ish color
+	// Low gain should be green (hue near 120) — less urgent
 	low := colorGain(0.1)
-	assert.Contains(t, low, "+ 0.1%")
+	assert.Contains(t, low, " 0.1%")
 
-	// Very high gain gets capped at green (hue=120)
+	// Very high gain gets capped at red (hue=0)
 	capped := colorGain(5.0)
-	assert.Contains(t, capped, "+ 5.0%")
+	assert.Contains(t, capped, " 5.0%")
 }
 
 func TestShortFile(t *testing.T) {
