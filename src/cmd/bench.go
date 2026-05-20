@@ -10,18 +10,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// stepWriter writes to stdout and calls step.noteOutput() on the first write
-// so the step's "..." line gets terminated before benchmark output starts.
-type stepWriter struct {
-	step *step
-}
-
-func (w *stepWriter) Write(p []byte) (int, error) {
-	if len(p) > 0 {
-		w.step.noteOutput()
-	}
-	return os.Stdout.Write(p)
-}
 
 var (
 	noBenchmark bool
@@ -94,7 +82,8 @@ func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
 		Verbose: verbose,
 	}
 	if benchStep != nil {
-		opts.StreamTo = &stepWriter{step: benchStep}
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
@@ -149,7 +138,8 @@ func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
 		Verbose: verbose,
 	}
 	if benchStep != nil {
-		opts.StreamTo = &stepWriter{step: benchStep}
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
@@ -239,6 +229,10 @@ type benchResult struct {
 // runBenchmarkInBuild runs benchmarks as part of the default build
 // and shows comparison against previous stored results.
 func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
+	if !bench.HasBenchmarks() {
+		return nil, nil
+	}
+
 	var benchStep *step
 	if !jsonOutput {
 		benchStep = logStep("Running benchmarks")
@@ -251,7 +245,8 @@ func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
 		Verbose: verbose,
 	}
 	if benchStep != nil {
-		opts.StreamTo = &stepWriter{step: benchStep}
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
