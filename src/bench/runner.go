@@ -1,19 +1,24 @@
 package bench
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // Options configures benchmark execution
 type Options struct {
-	Time    string // -benchtime
-	Count   int    // -count
-	CPU     string // -cpu
-	Verbose bool
+	Time     string    // -benchtime
+	Count    int       // -count
+	CPU      string    // -cpu
+	Verbose  bool
+	StreamTo io.Writer // if set, benchmark results are printed here as they complete
 }
 
 // RunBenchmarks executes go test -bench and returns parsed results
@@ -31,8 +36,23 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	// Tee stderr to console for compilation progress while draining to
 	// prevent deadlock on the OS pipe buffer.
 	go io.Copy(os.Stderr, proc.Stderr())
-	output, _ := io.ReadAll(proc.Stdout())
+
+	// Read stdout line by line so benchmark results stream as they
+	// complete, rather than buffering everything until the process exits.
+	var buf bytes.Buffer
+	scanner := bufio.NewScanner(proc.Stdout())
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		buf.Write(line)
+		buf.WriteByte('\n')
+
+		if opts.StreamTo != nil {
+			streamBenchResult(line, opts.StreamTo)
+		}
+	}
+
 	waitErr := proc.Wait()
+	output := buf.Bytes()
 
 	if waitErr != nil {
 		// Try to parse and return partial results on failure
@@ -50,6 +70,23 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	}
 
 	return report, nil
+}
+
+func streamBenchResult(line []byte, w io.Writer) {
+	var event struct {
+		Action string `json:"Action"`
+		Output string `json:"Output"`
+	}
+	if err := json.Unmarshal(line, &event); err != nil {
+		return
+	}
+	if event.Action != "output" {
+		return
+	}
+	trimmed := strings.TrimSpace(event.Output)
+	if benchPattern.MatchString(trimmed) {
+		fmt.Fprintf(w, "    %s\n", trimmed)
+	}
 }
 
 func buildBenchArgs(opts Options) []string {

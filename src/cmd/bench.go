@@ -10,6 +10,19 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// stepWriter writes to stdout and calls step.noteOutput() on the first write
+// so the step's "..." line gets terminated before benchmark output starts.
+type stepWriter struct {
+	step *step
+}
+
+func (w *stepWriter) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		w.step.noteOutput()
+	}
+	return os.Stdout.Write(p)
+}
+
 var (
 	noBenchmark bool
 	benchTime   string
@@ -80,6 +93,9 @@ func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
 		CPU:     benchCPU,
 		Verbose: verbose,
 	}
+	if benchStep != nil {
+		opts.StreamTo = &stepWriter{step: benchStep}
+	}
 
 	report, err := bench.RunBenchmarks(r, opts)
 	if benchStep != nil {
@@ -131,6 +147,9 @@ func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
 		Count:   benchCount,
 		CPU:     benchCPU,
 		Verbose: verbose,
+	}
+	if benchStep != nil {
+		opts.StreamTo = &stepWriter{step: benchStep}
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
@@ -230,6 +249,9 @@ func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
 		Count:   benchCount,
 		CPU:     benchCPU,
 		Verbose: verbose,
+	}
+	if benchStep != nil {
+		opts.StreamTo = &stepWriter{step: benchStep}
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
