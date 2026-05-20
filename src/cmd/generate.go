@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -180,12 +182,10 @@ func parseDirectives(path string) ([]generateDirective, error) {
 func executeDirective(d generateDirective, quiet bool) error {
 	dir := filepath.Dir(d.File)
 
-	// Print the command being executed
 	if !quiet {
 		fmt.Printf("\t%s\n", d.Command)
 	}
 
-	// Set up environment like go generate does
 	env := os.Environ()
 	env = append(env,
 		"GOFILE="+filepath.Base(d.File),
@@ -193,24 +193,30 @@ func executeDirective(d generateDirective, quiet bool) error {
 		"GOPACKAGE="+guessPackage(d.File),
 	)
 
-	// Use bash with strict mode to handle pipes, redirects, etc.
-	cmd := exec.Command("bash", "-euo", "pipefail", "-c", d.Command)
+	expanded := expandGenerateVars(d.Command, d)
+
+	args, err := splitGenerateCommand(expanded)
+	if err != nil {
+		return fmt.Errorf("generate directive in %s:%d: %w", d.File, d.Line, err)
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("generate directive in %s:%d: empty command", d.File, d.Line)
+	}
+
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = dir
 	cmd.Env = env
 
-	// Capture stdout and stderr together to preserve chronological order
 	var combined bytes.Buffer
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
 
-	err := cmd.Run()
+	err = cmd.Run()
 	output := combined.String()
 
-	// Prefix each line with "> "
 	prefixed := prefixOutput(output)
 
 	if err != nil {
-		// On failure, re-print the command and all output to stderr
 		fmt.Fprintf(os.Stderr, "\t%s\n", d.Command)
 		if prefixed != "" {
 			fmt.Fprint(os.Stderr, prefixed)
@@ -218,12 +224,85 @@ func executeDirective(d generateDirective, quiet bool) error {
 		return fmt.Errorf("generate failed in %s:%d: %w", d.File, d.Line, err)
 	}
 
-	// On success, print output to stdout
 	if !quiet && prefixed != "" {
 		fmt.Print(prefixed)
 	}
 
 	return nil
+}
+
+func splitGenerateCommand(line string) ([]string, error) {
+	var words []string
+	for {
+		line = strings.TrimLeft(line, " \t")
+		if line == "" {
+			break
+		}
+
+		switch line[0] {
+		case '"':
+			i := 1
+			for i < len(line) {
+				if line[i] == '\\' && i+1 < len(line) {
+					i += 2
+					continue
+				}
+				if line[i] == '"' {
+					break
+				}
+				i++
+			}
+			if i >= len(line) {
+				return nil, fmt.Errorf("unterminated double-quoted string")
+			}
+			word, err := strconv.Unquote(line[:i+1])
+			if err != nil {
+				return nil, fmt.Errorf("bad quoted string: %w", err)
+			}
+			words = append(words, word)
+			line = line[i+1:]
+
+		case '`':
+			i := strings.Index(line[1:], "`")
+			if i < 0 {
+				return nil, fmt.Errorf("unterminated raw string")
+			}
+			words = append(words, line[1:1+i])
+			line = line[2+i:]
+
+		default:
+			i := strings.IndexAny(line, " \t")
+			if i < 0 {
+				i = len(line)
+			}
+			words = append(words, line[:i])
+			line = line[i:]
+		}
+	}
+	return words, nil
+}
+
+func expandGenerateVars(s string, d generateDirective) string {
+	return os.Expand(s, func(key string) string {
+		switch key {
+		case "GOARCH":
+			return runtime.GOARCH
+		case "GOOS":
+			return runtime.GOOS
+		case "GOFILE":
+			return filepath.Base(d.File)
+		case "GOLINE":
+			return fmt.Sprintf("%d", d.Line)
+		case "GOPACKAGE":
+			return guessPackage(d.File)
+		case "GOROOT":
+			return runtime.GOROOT()
+		case "DOLLAR":
+			return "$"
+		default:
+			return os.Getenv(key)
+		}
+	})
 }
 
 // prefixOutput prefixes each line with "\t> "
