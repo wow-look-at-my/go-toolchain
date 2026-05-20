@@ -80,6 +80,10 @@ func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
 		CPU:     benchCPU,
 		Verbose: verbose,
 	}
+	if benchStep != nil {
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
+	}
 
 	report, err := bench.RunBenchmarks(r, opts)
 	if benchStep != nil {
@@ -131,6 +135,10 @@ func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
 		Count:   benchCount,
 		CPU:     benchCPU,
 		Verbose: verbose,
+	}
+	if benchStep != nil {
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
@@ -220,6 +228,10 @@ type benchResult struct {
 // runBenchmarkInBuild runs benchmarks as part of the default build
 // and shows comparison against previous stored results.
 func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
+	if !bench.HasBenchmarks() {
+		return nil, nil
+	}
+
 	var benchStep *step
 	if !jsonOutput {
 		benchStep = logStep("Running benchmarks")
@@ -230,6 +242,10 @@ func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
 		Count:   benchCount,
 		CPU:     benchCPU,
 		Verbose: verbose,
+	}
+	if benchStep != nil {
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
