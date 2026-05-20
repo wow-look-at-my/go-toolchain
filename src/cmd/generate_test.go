@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -145,7 +146,7 @@ func TestExecuteDirectiveFailure(t *testing.T) {
 	d := generateDirective{
 		File:    testFile,
 		Line:    1,
-		Command: "exit 1",
+		Command: "false",
 	}
 
 	err := executeDirective(d, true)
@@ -329,4 +330,140 @@ func TestComputeDirectivesHash(t *testing.T) {
 	}
 	hash3 := computeDirectivesHash(different)
 	assert.NotEqual(t, hash3, hash1)
+}
+
+func TestSplitGenerateCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:  "simple",
+			input: "echo hello",
+			want:  []string{"echo", "hello"},
+		},
+		{
+			name:  "double quoted",
+			input: `sh -c "echo hello world"`,
+			want:  []string{"sh", "-c", "echo hello world"},
+		},
+		{
+			name:  "backtick quoted",
+			input: "sh -c `echo hello world`",
+			want:  []string{"sh", "-c", "echo hello world"},
+		},
+		{
+			name:  "brace expansion with comma",
+			input: `go run ./cmd/gen -regex [a-z]+@[a-z]+\.[a-z]{2,}`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `[a-z]+@[a-z]+\.[a-z]{2,}`},
+		},
+		{
+			name:  "glob star",
+			input: `go run ./cmd/gen -regex [A-Za-z_][A-Za-z0-9_]*`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `[A-Za-z_][A-Za-z0-9_]*`},
+		},
+		{
+			name:  "parentheses and question mark",
+			input: `go run ./cmd/gen -regex (https?://)?[a-z]+\.[a-z]{2,}`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `(https?://)?[a-z]+\.[a-z]{2,}`},
+		},
+		{
+			name:  "hash character",
+			input: `go run ./cmd/gen -regex #[0-9a-f]{6}`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `#[0-9a-f]{6}`},
+		},
+		{
+			name:  "backslash digit sequence",
+			input: `go run ./cmd/gen -regex \d{3}-\d{2}-\d{4}`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `\d{3}-\d{2}-\d{4}`},
+		},
+		{
+			name:  "group with flag",
+			input: `go run ./cmd/gen -regex (?i)hello`,
+			want:  []string{"go", "run", "./cmd/gen", "-regex", `(?i)hello`},
+		},
+		{
+			name:  "extra whitespace",
+			input: "  echo   hello  world  ",
+			want:  []string{"echo", "hello", "world"},
+		},
+		{
+			name:  "tabs",
+			input: "echo\thello",
+			want:  []string{"echo", "hello"},
+		},
+		{
+			name:  "escaped chars in double quotes",
+			input: `echo "hello\tworld"`,
+			want:  []string{"echo", "hello\tworld"},
+		},
+		{
+			name:    "unterminated double quote",
+			input:   `echo "hello`,
+			wantErr: true,
+		},
+		{
+			name:    "unterminated backtick",
+			input:   "echo `hello",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := splitGenerateCommand(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestExpandGenerateVars(t *testing.T) {
+	d := generateDirective{
+		File:    "sub/foo.go",
+		Line:    42,
+		Command: "ignored",
+	}
+
+	got := expandGenerateVars("$GOFILE $GOLINE $GOPACKAGE $GOARCH $GOOS", d)
+	assert.Contains(t, got, "foo.go")
+	assert.Contains(t, got, "42")
+	assert.Contains(t, got, "sub")
+	assert.Contains(t, got, runtime.GOARCH)
+	assert.Contains(t, got, runtime.GOOS)
+
+	got = expandGenerateVars("price is $DOLLAR 5", d)
+	assert.Equal(t, "price is $ 5", got)
+}
+
+func TestExecuteDirectivePreservesMetachars(t *testing.T) {
+	dir := t.TempDir()
+
+	helper := filepath.Join(dir, "dump-args")
+	outFile := filepath.Join(dir, "args.txt")
+	script := "#!/bin/sh\nfor arg; do printf '%s\\n' \"$arg\"; done > " + outFile + "\n"
+	require.NoError(t, os.WriteFile(helper, []byte(script), 0755))
+
+	testFile := filepath.Join(dir, "test.go")
+	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
+
+	d := generateDirective{
+		File:    testFile,
+		Line:    1,
+		Command: helper + ` -regex [A-Za-z_][A-Za-z0-9_]* -func E`,
+	}
+
+	err := executeDirective(d, true)
+	require.Nil(t, err)
+
+	content, err := os.ReadFile(outFile)
+	require.Nil(t, err)
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	assert.Equal(t, []string{"-regex", "[A-Za-z_][A-Za-z0-9_]*", "-func", "E"}, lines)
 }
