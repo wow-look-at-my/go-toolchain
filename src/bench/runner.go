@@ -45,6 +45,7 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	var buf bytes.Buffer
 	var firstOnce sync.Once
 	scanner := bufio.NewScanner(proc.Stdout())
+	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), 1<<20)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		buf.Write(line)
@@ -53,6 +54,10 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 		if opts.StreamTo != nil {
 			streamBenchResult(line, opts.StreamTo, &firstOnce, opts.OnFirstResult)
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		io.Copy(&buf, proc.Stdout())
 	}
 
 	waitErr := proc.Wait()
@@ -101,8 +106,8 @@ func streamBenchResult(line []byte, w io.Writer, once *sync.Once, onFirst func()
 func HasBenchmarks() bool {
 	found := false
 	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
-		if err != nil || found {
-			return filepath.SkipDir
+		if err != nil {
+			return nil
 		}
 		if d.IsDir() {
 			if name := d.Name(); name == "vendor" || name == "testdata" || (name != "." && strings.HasPrefix(name, ".")) {
@@ -119,6 +124,7 @@ func HasBenchmarks() bool {
 		}
 		if bytes.Contains(data, []byte("\nfunc Benchmark")) {
 			found = true
+			return filepath.SkipAll
 		}
 		return nil
 	})

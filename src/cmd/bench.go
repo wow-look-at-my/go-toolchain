@@ -10,7 +10,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-
 var (
 	noBenchmark bool
 	benchTime   string
