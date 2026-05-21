@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,9 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
 	"github.com/wow-look-at-my/testify/assert"
 	"github.com/wow-look-at-my/testify/require"
-
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -78,14 +77,19 @@ func TestSynthesizeVersion(t *testing.T) {
 }
 
 func TestCollectGitInfoSynthesizedEpoch(t *testing.T) {
-	// Synthesized version suffix should equal buildStartEpoch
+	// Synthesized version suffix should equal the git commit timestamp,
+	// NOT wall-clock time. This ensures deterministic ldflags for cache hits.
+	old := cachedGitTimestamp
+	defer func() { cachedGitTimestamp = old }()
+	cachedGitTimestamp = 0 // force re-read from git
+
 	info, err := collectGitInfo()
 	require.NoError(t, err)
 
 	re := regexp.MustCompile(`^v0\.0\.(\d+)(-dirty)?$`)
 	m := re.FindStringSubmatch(info.version)
 	require.Len(t, m, 3, "version %q did not match synthesized form", info.version)
-	assert.Equal(t, fmt.Sprintf("%d", buildStartEpoch), m[1])
+	assert.Equal(t, info.timestamp, m[1], "synthesized version epoch must match git commit timestamp")
 }
 
 func TestEnvOr(t *testing.T) {

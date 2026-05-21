@@ -21,9 +21,12 @@ var (
 	buildDate      = ""
 )
 
-// buildStartEpoch is captured once at process start so that multiple calls
-// to collectGitInfo() within the same invocation produce identical ldflags.
-var buildStartEpoch = time.Now().Unix()
+// cachedGitTimestamp is set once by collectGitInfo and reused by subsequent
+// calls so that multiple callers within the same invocation get identical
+// ldflags.  Using the git commit timestamp (not wall-clock time) keeps
+// synthesized versions deterministic: same commit → same version → same
+// ldflags → Go build cache hit on the link step.
+var cachedGitTimestamp int64
 
 const ldflagsPrefix = "github.com/wow-look-at-my/go-toolchain/src/cmd"
 
@@ -267,10 +270,22 @@ func collectGitInfo() (gitInfo, error) {
 		}
 	}
 
-	// Version: explicit tag refs from CI win; otherwise synthesize from the
-	// build start epoch. The old fallback to `git describe --tags --always
-	// --dirty` produced bare SHAs like "0648669" when no tag existed on
-	// HEAD, which breaks semver comparisons in `update`.
+	// Timestamp: collect early so synthesizeVersion can use it.
+	// Cached across calls so repeated collectGitInfo() within one
+	// invocation produces identical ldflags.
+	if cachedGitTimestamp == 0 {
+		if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
+			if ts, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64); err == nil {
+				cachedGitTimestamp = ts
+			}
+		}
+	}
+	if cachedGitTimestamp != 0 {
+		info.timestamp = strconv.FormatInt(cachedGitTimestamp, 10)
+	}
+
+	// Version: explicit tag refs from CI win; otherwise synthesize from
+	// the git commit timestamp for deterministic builds.
 	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
 		info.version = os.Getenv("GITHUB_REF_NAME")
 	}
@@ -279,12 +294,7 @@ func collectGitInfo() (gitInfo, error) {
 		if out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output(); err == nil {
 			dirty = strings.HasSuffix(strings.TrimSpace(string(out)), "-dirty")
 		}
-		info.version = synthesizeVersion(buildStartEpoch, dirty)
-	}
-
-	// Timestamp: no env var for this, always from git
-	if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
-		info.timestamp = strings.TrimSpace(string(out))
+		info.version = synthesizeVersion(cachedGitTimestamp, dirty)
 	}
 
 	return info, nil
