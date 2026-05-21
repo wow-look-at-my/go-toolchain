@@ -13,7 +13,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Build-time variables, set via -ldflags -X.
+// Build-time variables, set via -ldflags -X on the main package.
+// SetBuildInfo copies them into this package for the version command.
 var (
 	buildVersion   = "dev"
 	buildCommit    = "unknown"
@@ -21,14 +22,14 @@ var (
 	buildDate      = ""
 )
 
-// cachedGitTimestamp is set once by collectGitInfo and reused by subsequent
-// calls so that multiple callers within the same invocation get identical
-// ldflags.  Using the git commit timestamp (not wall-clock time) keeps
-// synthesized versions deterministic: same commit → same version → same
-// ldflags → Go build cache hit on the link step.
-var cachedGitTimestamp int64
-
-const ldflagsPrefix = "github.com/wow-look-at-my/go-toolchain/src/cmd"
+// SetBuildInfo copies build-time variables from the main package into
+// this package so the version command can display them.
+func SetBuildInfo(version, commit, timestamp, date string) {
+	buildVersion = version
+	buildCommit = commit
+	buildTimestamp = timestamp
+	buildDate = date
+}
 
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 var githubAPIBase = "https://api.github.com"
@@ -270,90 +271,43 @@ func collectGitInfo() (gitInfo, error) {
 		}
 	}
 
-	// Timestamp: collect early so synthesizeVersion can use it.
-	// Cached across calls so repeated collectGitInfo() within one
-	// invocation produces identical ldflags.
-	if cachedGitTimestamp == 0 {
-		if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
-			if ts, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64); err == nil {
-				cachedGitTimestamp = ts
-			}
-		}
-	}
-	if cachedGitTimestamp != 0 {
-		info.timestamp = strconv.FormatInt(cachedGitTimestamp, 10)
+	// Timestamp: always from git
+	if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
+		info.timestamp = strings.TrimSpace(string(out))
 	}
 
-	// Version: explicit tag refs from CI win; otherwise synthesize from
-	// the git commit timestamp for deterministic builds.
+	// Version: only from explicit tag refs in CI.  Non-tag builds leave
+	// version empty — the consumer project owns its own versioning.
 	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
 		info.version = os.Getenv("GITHUB_REF_NAME")
-	}
-	if info.version == "" {
-		dirty := false
-		if out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output(); err == nil {
-			dirty = strings.HasSuffix(strings.TrimSpace(string(out)), "-dirty")
-		}
-		info.version = synthesizeVersion(cachedGitTimestamp, dirty)
 	}
 
 	return info, nil
 }
 
-// synthesizeVersion builds a semver string of the form v0.0.<epoch>, with
-// an optional -dirty suffix. Matches the CI release tag scheme so the
-// embedded build version and the eventual release tag are comparable.
-func synthesizeVersion(epoch int64, dirty bool) string {
-	v := fmt.Sprintf("v0.0.%d", epoch)
-	if dirty {
-		v += "-dirty"
-	}
-	return v
-}
-
-// checkDirtyInCI returns an error if running in CI with a version that
-// has a "-dirty" suffix. Call this at build sites to enforce that CI
-// builds never embed a dirty version string. Collection of git info is
-// kept separate so tests of collectGitInfo need not care about the
-// transient dirty-tree state the build pipeline itself may create
-// (e.g. injected vanity-URL replaces in go.mod).
-func checkDirtyInCI(info gitInfo) error {
-	if os.Getenv("CI") != "" && strings.HasSuffix(info.version, "-dirty") {
-		// Diagnostic: surface what's dirty so the cause is visible in CI logs
-		// instead of requiring a local reproduction.
-		if out, err := exec.Command("git", "status", "--porcelain").Output(); err == nil && len(out) > 0 {
-			fmt.Fprintf(os.Stderr, "⇒ git status --porcelain:\n%s", out)
-		}
-		if out, err := exec.Command("git", "diff", "--stat").Output(); err == nil && len(out) > 0 {
-			fmt.Fprintf(os.Stderr, "⇒ git diff --stat:\n%s", out)
-		}
-		return fmt.Errorf("refusing to build: version %q has -dirty suffix in CI (working tree is not clean)", info.version)
-	}
-	return nil
-}
-
 // ldflags returns a string suitable for `go build -ldflags`.
+// prefix is the import path of the main package being built, so -X
+// flags target that package's build-time variables.
 // Build date uses SOURCE_DATE_EPOCH or the git commit timestamp
 // for reproducible builds (never wall-clock time).
-func (g gitInfo) ldflags() string {
+func (g gitInfo) ldflags(prefix string) string {
 	var flags []string
 	if g.version != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildVersion=%s", ldflagsPrefix, g.version))
+		flags = append(flags, fmt.Sprintf("-X %s.buildVersion=%s", prefix, g.version))
 	}
 	if g.commit != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildCommit=%s", ldflagsPrefix, g.commit))
+		flags = append(flags, fmt.Sprintf("-X %s.buildCommit=%s", prefix, g.commit))
 	}
 	if g.timestamp != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildTimestamp=%s", ldflagsPrefix, g.timestamp))
+		flags = append(flags, fmt.Sprintf("-X %s.buildTimestamp=%s", prefix, g.timestamp))
 	}
-	// Build date: SOURCE_DATE_EPOCH > git commit timestamp
 	if epoch := os.Getenv("SOURCE_DATE_EPOCH"); epoch != "" {
 		if ts, err := strconv.ParseInt(epoch, 10, 64); err == nil {
-			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", ldflagsPrefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
+			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", prefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
 		}
 	} else if g.timestamp != "" {
 		if ts, err := strconv.ParseInt(g.timestamp, 10, 64); err == nil {
-			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", ldflagsPrefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
+			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", prefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
 		}
 	}
 	return strings.Join(flags, " ")

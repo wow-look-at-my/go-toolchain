@@ -128,10 +128,6 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if err != nil {
 		return err
 	}
-	if err := checkDirtyInCI(info); err != nil {
-		return err
-	}
-	ldflags := info.ldflags()
 
 	// Build job queue - cartesian product of OS x Arch x Targets
 	var jobs []buildJob
@@ -144,7 +140,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 					goarch:     goarch,
 					srcPath:    target.ImportPath,
 					outputPath: filepath.Join(outputDir, outputName),
-					ldflags:    ldflags,
+					ldflags:    info.ldflags(target.ImportPath),
 				})
 			}
 		}

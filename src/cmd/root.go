@@ -291,10 +291,6 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := checkDirtyInCI(info); err != nil {
-		return nil, err
-	}
-	ldflags := info.ldflags()
 	if !quiet {
 		fmt.Printf("⇒ Embedding version: %s\n", info)
 	}
@@ -316,7 +312,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		job := buildJob{
 			srcPath:    t.ImportPath,
 			outputPath: outPath,
-			ldflags:    ldflags,
+			ldflags:    info.ldflags(t.ImportPath),
 		}
 		if err := runBuild(r, job, onFirstOutput); err != nil {
 			return nil, fmt.Errorf("go build failed: %w", err)

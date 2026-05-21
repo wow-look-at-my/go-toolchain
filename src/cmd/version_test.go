@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -40,10 +39,8 @@ func TestCollectGitInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, "", info.commit)
 	assert.NotEqual(t, "", info.timestamp)
-	// Version must be a synthesized v0.0.<epoch> string (since this repo has
-	// no semver tag on HEAD). A bare SHA like "0648669" here is exactly the
-	// bug this code fixes.
-	assert.Regexp(t, `^v0\.0\.\d+(-dirty)?$`, info.version)
+	// Without a tag ref, version is empty (consumer projects own their versioning).
+	assert.Equal(t, "", info.version)
 }
 
 func TestCollectGitInfoFromEnv(t *testing.T) {
@@ -59,37 +56,13 @@ func TestCollectGitInfoFromEnv(t *testing.T) {
 }
 
 func TestCollectGitInfoBranchRef(t *testing.T) {
-	// Branch refs should NOT override version (only tags)
+	// Branch refs should NOT set version (only tags)
 	t.Setenv("GITHUB_REF_TYPE", "branch")
 	t.Setenv("GITHUB_REF_NAME", "main")
 
 	info, err := collectGitInfo()
 	require.NoError(t, err)
-	// version should be synthesized, never the branch name
-	assert.NotEqual(t, "main", info.version)
-	assert.Regexp(t, `^v0\.0\.\d+(-dirty)?$`, info.version)
-}
-
-func TestSynthesizeVersion(t *testing.T) {
-	assert.Equal(t, "v0.0.1700000000", synthesizeVersion(1700000000, false))
-	assert.Equal(t, "v0.0.1700000000-dirty", synthesizeVersion(1700000000, true))
-	assert.Equal(t, "v0.0.0", synthesizeVersion(0, false))
-}
-
-func TestCollectGitInfoSynthesizedEpoch(t *testing.T) {
-	// Synthesized version suffix should equal the git commit timestamp,
-	// NOT wall-clock time. This ensures deterministic ldflags for cache hits.
-	old := cachedGitTimestamp
-	defer func() { cachedGitTimestamp = old }()
-	cachedGitTimestamp = 0 // force re-read from git
-
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-
-	re := regexp.MustCompile(`^v0\.0\.(\d+)(-dirty)?$`)
-	m := re.FindStringSubmatch(info.version)
-	require.Len(t, m, 3, "version %q did not match synthesized form", info.version)
-	assert.Equal(t, info.timestamp, m[1], "synthesized version epoch must match git commit timestamp")
+	assert.Equal(t, "", info.version)
 }
 
 func TestEnvOr(t *testing.T) {
@@ -111,60 +84,55 @@ func TestGithubRepoFromEnv(t *testing.T) {
 	assert.Equal(t, "other-org/other-repo", githubRepo)
 }
 
-func TestCheckDirtyInCIErrors(t *testing.T) {
-	t.Setenv("CI", "true")
-	info := gitInfo{version: "abc1234-dirty"}
-	err := checkDirtyInCI(info)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "-dirty")
-	assert.Contains(t, err.Error(), "refusing to build")
-}
-
-func TestCheckDirtyInCIAllowsCleanVersion(t *testing.T) {
-	t.Setenv("CI", "true")
-	info := gitInfo{version: "v1.2.3"}
-	err := checkDirtyInCI(info)
-	assert.NoError(t, err)
-}
-
-func TestCheckDirtyInCIAllowsDirtyOutsideCI(t *testing.T) {
-	t.Setenv("CI", "")
-	info := gitInfo{version: "abc1234-dirty"}
-	err := checkDirtyInCI(info)
-	assert.NoError(t, err)
-}
-
 func TestGitInfoLdflags(t *testing.T) {
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	ldflags := info.ldflags()
+	info := gitInfo{version: "v1.0.0", commit: "abc123", timestamp: "1700000000"}
+	ldflags := info.ldflags("example.com/myapp")
 
-	assert.NotEqual(t, "", ldflags)
-	for _, want := range []string{"buildVersion", "buildCommit", "buildTimestamp", "buildDate"} {
-		assert.Contains(t, ldflags, want)
-	}
+	assert.Contains(t, ldflags, "-X example.com/myapp.buildVersion=v1.0.0")
+	assert.Contains(t, ldflags, "-X example.com/myapp.buildCommit=abc123")
+	assert.Contains(t, ldflags, "-X example.com/myapp.buildTimestamp=1700000000")
+	assert.Contains(t, ldflags, "-X example.com/myapp.buildDate=")
+}
+
+func TestGitInfoLdflagsNoVersion(t *testing.T) {
+	info := gitInfo{commit: "abc123", timestamp: "1700000000"}
+	ldflags := info.ldflags("example.com/myapp")
+
+	assert.NotContains(t, ldflags, "buildVersion")
+	assert.Contains(t, ldflags, "buildCommit")
 }
 
 func TestGitInfoLdflagsReproducible(t *testing.T) {
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	ldflags1 := info.ldflags()
-	ldflags2 := info.ldflags()
+	info := gitInfo{commit: "abc123", timestamp: "1700000000"}
+	ldflags1 := info.ldflags("example.com/myapp")
+	ldflags2 := info.ldflags("example.com/myapp")
 	assert.Equal(t, ldflags2, ldflags1)
 }
 
 func TestGitInfoLdflagsSourceDateEpoch(t *testing.T) {
 	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
 	info := gitInfo{version: "v1.0.0", commit: "abc123", timestamp: "1600000000"}
-	ldflags := info.ldflags()
-	// Should use SOURCE_DATE_EPOCH (1700000000) not git timestamp (1600000000)
+	ldflags := info.ldflags("example.com/myapp")
 	assert.Contains(t, ldflags, "2023-11-14")
 }
 
 func TestGitInfoLdflagsNoTimestamp(t *testing.T) {
 	info := gitInfo{version: "v1.0.0", commit: "abc123"}
-	ldflags := info.ldflags()
+	ldflags := info.ldflags("example.com/myapp")
 	assert.NotContains(t, ldflags, "buildDate")
+}
+
+func TestSetBuildInfo(t *testing.T) {
+	old := [4]string{buildVersion, buildCommit, buildTimestamp, buildDate}
+	defer func() {
+		buildVersion, buildCommit, buildTimestamp, buildDate = old[0], old[1], old[2], old[3]
+	}()
+
+	SetBuildInfo("v3.0.0", "deadbeef", "1700000000", "2023-11-14T22:13:20Z")
+	assert.Equal(t, "v3.0.0", buildVersion)
+	assert.Equal(t, "deadbeef", buildCommit)
+	assert.Equal(t, "1700000000", buildTimestamp)
+	assert.Equal(t, "2023-11-14T22:13:20Z", buildDate)
 }
 
 func TestGitInfoString(t *testing.T) {
