@@ -35,6 +35,7 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestCollectTagVersion(t *testing.T) {
+	// Set CI env vars
 	t.Setenv("GITHUB_REF_TYPE", "tag")
 	t.Setenv("GITHUB_REF_NAME", "v2.0.0")
 	assert.Equal(t, "v2.0.0", collectTagVersion())
@@ -119,6 +120,7 @@ func TestVersionRaw(t *testing.T) {
 	buf := new(strings.Builder)
 	cmd.SetOut(buf)
 
+	// Invoke via cobra directly
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -311,6 +313,7 @@ func TestFetchCommitsBehindHTTPError(t *testing.T) {
 func TestPrintStalenessUpToDate(t *testing.T) {
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
+	// Use a timestamp that's in the future relative to the mock
 	cachedVCS = &vcsInfo{
 		Revision: "abc123",
 		Time:     "2300-01-01T00:00:00Z",
@@ -352,5 +355,6 @@ func TestPrintStalenessAPIFailure(t *testing.T) {
 	defer server.Close()
 	defer withMockGitHub(t, server)()
 
+	// Should print error message, not panic
 	printStaleness()
 }
