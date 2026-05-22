@@ -3,6 +3,7 @@ package cache
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -311,6 +312,135 @@ func TestIndexCachePathSuffix(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	b := &WebBackend{endpoint: "https://example.com", bucket: "b", prefix: "go-buildcache/"}
 	require.True(t, strings.HasSuffix(b.indexCachePath(), ".bin"))
+}
+
+func TestClose_UploadsIndex(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	initialKeys := set.New[string]()
+	var h [gbciHashSize]byte
+	h[0] = 0x01
+	initialKeys.Add(gbciKeyPrefix + hex.EncodeToString(h[:]))
+
+	var uploaded atomic.Pointer[[]byte]
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/_index") {
+			blob := marshalIndex(initialKeys)
+			w.WriteHeader(200)
+			w.Write(blob)
+			return
+		}
+		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/_index") {
+			body, _ := io.ReadAll(r.Body)
+			uploaded.Store(&body)
+			w.WriteHeader(200)
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "bk", Endpoint: srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, b.keys.Len())
+
+	// Simulate a successful PUT by adding a key and bumping the counter.
+	var h2 [gbciHashSize]byte
+	h2[0] = 0x02
+	newKey := gbciKeyPrefix + hex.EncodeToString(h2[:])
+	b.keysMu.Lock()
+	b.keys.Add(newKey)
+	b.keysMu.Unlock()
+	b.Stats.Puts.Increment()
+
+	require.NoError(t, b.Close())
+
+	// Verify the index was uploaded.
+	require.NotNil(t, uploaded.Load(), "expected index PUT on Close")
+	uploadedBlob := *uploaded.Load()
+	parsedKeys, _, err := parseIndexBlob(uploadedBlob)
+	require.NoError(t, err)
+	require.Equal(t, 2, parsedKeys.Len())
+	require.True(t, parsedKeys.Contains(newKey))
+
+	// Verify disk cache was updated.
+	_, diskKeys, _ := b.readDiskIndex(b.indexCachePath())
+	require.Equal(t, 2, diskKeys.Len())
+}
+
+func TestClose_DiskCacheUpdatedEvenOnServerError(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	initialKeys := set.New[string]()
+	var h [gbciHashSize]byte
+	h[0] = 0x01
+	initialKeys.Add(gbciKeyPrefix + hex.EncodeToString(h[:]))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/_index") {
+			blob := marshalIndex(initialKeys)
+			w.WriteHeader(200)
+			w.Write(blob)
+			return
+		}
+		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/_index") {
+			w.WriteHeader(500)
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "bk", Endpoint: srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+
+	var h2 [gbciHashSize]byte
+	h2[0] = 0x02
+	newKey := gbciKeyPrefix + hex.EncodeToString(h2[:])
+	b.keysMu.Lock()
+	b.keys.Add(newKey)
+	b.keysMu.Unlock()
+	b.Stats.Puts.Increment()
+
+	require.NoError(t, b.Close())
+
+	// Disk cache must still be updated even though the server returned 500.
+	_, diskKeys, _ := b.readDiskIndex(b.indexCachePath())
+	require.Equal(t, 2, diskKeys.Len())
+	require.True(t, diskKeys.Contains(newKey))
+}
+
+func TestClose_SkipsUploadWhenNoPuts(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	var putSeen atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/_index") {
+			blob := marshalIndex(set.New[string]())
+			w.WriteHeader(200)
+			w.Write(blob)
+			return
+		}
+		if r.Method == http.MethodPut {
+			putSeen.Store(true)
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "bk", Endpoint: srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.Close())
+	require.False(t, putSeen.Load(), "should not upload index when no PUTs occurred")
 }
 
 // Sanity test for the helper: read a blob written via writeIndexBlob.
