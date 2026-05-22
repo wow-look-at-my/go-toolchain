@@ -100,11 +100,6 @@ function resolve_version(build_dir: string, branch: string, names: string[]): { 
     throw new Error(`cannot resolve version: no linux_amd64 binary found for any of [${names.join(", ")}]`);
   }
 
-  if (raw === "dev") {
-    const epoch = execSync("git log -1 --format=%ct", { encoding: "utf8" }).trim();
-    raw = `0.0.${epoch}`;
-  }
-
   if (branch === "v1") {
     return { version: raw, dist_tag: "" };
   }
