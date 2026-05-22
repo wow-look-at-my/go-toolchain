@@ -39,8 +39,8 @@ func TestCollectGitInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, "", info.commit)
 	assert.NotEqual(t, "", info.timestamp)
-	// Without a tag ref, version is empty (consumer projects own their versioning).
-	assert.Equal(t, "", info.version)
+	// Without a tag, version is synthesized from git commit timestamp.
+	assert.Equal(t, "v0.0."+info.timestamp, info.version)
 }
 
 func TestCollectGitInfoFromEnv(t *testing.T) {
@@ -56,13 +56,14 @@ func TestCollectGitInfoFromEnv(t *testing.T) {
 }
 
 func TestCollectGitInfoBranchRef(t *testing.T) {
-	// Branch refs should NOT set version (only tags)
+	// Branch refs should NOT use the branch name as version
 	t.Setenv("GITHUB_REF_TYPE", "branch")
 	t.Setenv("GITHUB_REF_NAME", "main")
 
 	info, err := collectGitInfo()
 	require.NoError(t, err)
-	assert.Equal(t, "", info.version)
+	assert.NotEqual(t, "main", info.version)
+	assert.Equal(t, "v0.0."+info.timestamp, info.version)
 }
 
 func TestEnvOr(t *testing.T) {

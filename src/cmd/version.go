@@ -276,10 +276,18 @@ func collectGitInfo() (gitInfo, error) {
 		info.timestamp = strings.TrimSpace(string(out))
 	}
 
-	// Version: only from explicit tag refs in CI.  Non-tag builds leave
-	// version empty — the consumer project owns its own versioning.
+	// Version: explicit tag refs from CI win; otherwise synthesize from
+	// the git commit timestamp so the version is deterministic per commit
+	// (same commit = same ldflags = build cache hit on the link step).
 	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
 		info.version = os.Getenv("GITHUB_REF_NAME")
+	}
+	if info.version == "" {
+		epoch := info.timestamp
+		if epoch == "" {
+			epoch = "0"
+		}
+		info.version = "v0.0." + epoch
 	}
 
 	return info, nil
