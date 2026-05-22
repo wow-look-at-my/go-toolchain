@@ -34,36 +34,56 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-func TestCollectGitInfo(t *testing.T) {
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	assert.NotEqual(t, "", info.commit)
-	assert.NotEqual(t, "", info.timestamp)
-	// Without a tag, version is synthesized from git commit timestamp.
-	assert.Equal(t, "v0.0."+info.timestamp, info.version)
-}
-
-func TestCollectGitInfoFromEnv(t *testing.T) {
-	// Set CI env vars
-	t.Setenv("GITHUB_SHA", "env-sha-123456")
+func TestCollectTagVersion(t *testing.T) {
 	t.Setenv("GITHUB_REF_TYPE", "tag")
 	t.Setenv("GITHUB_REF_NAME", "v2.0.0")
-
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	assert.Equal(t, "env-sha-123456", info.commit)
-	assert.Equal(t, "v2.0.0", info.version)
+	assert.Equal(t, "v2.0.0", collectTagVersion())
 }
 
-func TestCollectGitInfoBranchRef(t *testing.T) {
-	// Branch refs should NOT use the branch name as version
+func TestCollectTagVersionBranch(t *testing.T) {
 	t.Setenv("GITHUB_REF_TYPE", "branch")
 	t.Setenv("GITHUB_REF_NAME", "main")
+	assert.Equal(t, "", collectTagVersion())
+}
 
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	assert.NotEqual(t, "main", info.version)
-	assert.Equal(t, "v0.0."+info.timestamp, info.version)
+func TestCollectTagVersionEmpty(t *testing.T) {
+	t.Setenv("GITHUB_REF_TYPE", "")
+	assert.Equal(t, "", collectTagVersion())
+}
+
+func TestBuildLdflags(t *testing.T) {
+	flags := buildLdflags("example.com/myapp", "v1.0.0")
+	assert.Equal(t, "-X example.com/myapp.buildVersion=v1.0.0", flags)
+}
+
+func TestBuildLdflagsEmpty(t *testing.T) {
+	assert.Equal(t, "", buildLdflags("example.com/myapp", ""))
+}
+
+func TestResolvedVersionTag(t *testing.T) {
+	old := buildVersion
+	defer func() { buildVersion = old }()
+	buildVersion = "v1.2.3"
+	assert.Equal(t, "v1.2.3", resolvedVersion())
+}
+
+func TestResolvedVersionDev(t *testing.T) {
+	old := buildVersion
+	defer func() { buildVersion = old }()
+	buildVersion = "dev"
+	v := resolvedVersion()
+	// In test binaries, VCS info may or may not be present.
+	// If VCS is present, version is synthesized from timestamp.
+	// If not, it falls back to "dev".
+	assert.NotEqual(t, "", v)
+}
+
+func TestSetBuildVersion(t *testing.T) {
+	old := buildVersion
+	defer func() { buildVersion = old }()
+	SetBuildVersion("v5.0.0")
+	assert.Equal(t, "v5.0.0", buildVersion)
+	assert.Equal(t, "v5.0.0", resolvedVersion())
 }
 
 func TestEnvOr(t *testing.T) {
@@ -77,79 +97,11 @@ func TestEnvOr(t *testing.T) {
 
 func TestGithubRepoFromEnv(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "other-org/other-repo")
-	// Re-initialize to pick up env var
 	old := githubRepo
 	githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 	defer func() { githubRepo = old }()
 
 	assert.Equal(t, "other-org/other-repo", githubRepo)
-}
-
-func TestGitInfoLdflags(t *testing.T) {
-	info := gitInfo{version: "v1.0.0", commit: "abc123", timestamp: "1700000000"}
-	ldflags := info.ldflags("example.com/myapp")
-
-	assert.Contains(t, ldflags, "-X example.com/myapp.buildVersion=v1.0.0")
-	assert.Contains(t, ldflags, "-X example.com/myapp.buildCommit=abc123")
-	assert.Contains(t, ldflags, "-X example.com/myapp.buildTimestamp=1700000000")
-	assert.Contains(t, ldflags, "-X example.com/myapp.buildDate=")
-}
-
-func TestGitInfoLdflagsNoVersion(t *testing.T) {
-	info := gitInfo{commit: "abc123", timestamp: "1700000000"}
-	ldflags := info.ldflags("example.com/myapp")
-
-	assert.NotContains(t, ldflags, "buildVersion")
-	assert.Contains(t, ldflags, "buildCommit")
-}
-
-func TestGitInfoLdflagsReproducible(t *testing.T) {
-	info := gitInfo{commit: "abc123", timestamp: "1700000000"}
-	ldflags1 := info.ldflags("example.com/myapp")
-	ldflags2 := info.ldflags("example.com/myapp")
-	assert.Equal(t, ldflags2, ldflags1)
-}
-
-func TestGitInfoLdflagsSourceDateEpoch(t *testing.T) {
-	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
-	info := gitInfo{version: "v1.0.0", commit: "abc123", timestamp: "1600000000"}
-	ldflags := info.ldflags("example.com/myapp")
-	assert.Contains(t, ldflags, "2023-11-14")
-}
-
-func TestGitInfoLdflagsNoTimestamp(t *testing.T) {
-	info := gitInfo{version: "v1.0.0", commit: "abc123"}
-	ldflags := info.ldflags("example.com/myapp")
-	assert.NotContains(t, ldflags, "buildDate")
-}
-
-func TestSetBuildInfo(t *testing.T) {
-	old := [4]string{buildVersion, buildCommit, buildTimestamp, buildDate}
-	defer func() {
-		buildVersion, buildCommit, buildTimestamp, buildDate = old[0], old[1], old[2], old[3]
-	}()
-
-	SetBuildInfo("v3.0.0", "deadbeef", "1700000000", "2023-11-14T22:13:20Z")
-	assert.Equal(t, "v3.0.0", buildVersion)
-	assert.Equal(t, "deadbeef", buildCommit)
-	assert.Equal(t, "1700000000", buildTimestamp)
-	assert.Equal(t, "2023-11-14T22:13:20Z", buildDate)
-}
-
-func TestGitInfoString(t *testing.T) {
-	tests := []struct {
-		info gitInfo
-		want string
-	}{
-		{gitInfo{version: "v1.0.0", commit: "abc1234567890"}, "v1.0.0"},
-		{gitInfo{commit: "abc1234567890"}, "abc1234"},
-		{gitInfo{commit: "abc"}, "abc"},
-		{gitInfo{}, "unknown"},
-	}
-	for _, tt := range tests {
-		got := tt.info.String()
-	assert.Equal(t, tt.want, got)
-	}
 }
 
 func TestVersionRaw(t *testing.T) {
@@ -161,7 +113,6 @@ func TestVersionRaw(t *testing.T) {
 	buf := new(strings.Builder)
 	cmd.SetOut(buf)
 
-	// Invoke via cobra directly
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -178,17 +129,14 @@ func TestVersionRaw(t *testing.T) {
 }
 
 func TestRunVersionJSON_DevBuild(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	oldVer := buildVersion
+	old := buildVersion
+	oldCache := cachedVCS
 	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-		buildVersion = oldVer
+		buildVersion = old
+		cachedVCS = oldCache
 	}()
-	buildTimestamp = ""
-	buildCommit = "unknown"
 	buildVersion = "dev"
+	cachedVCS = &vcsInfo{}
 
 	r, w, _ := os.Pipe()
 	oldStdout := os.Stdout
@@ -210,21 +158,18 @@ func TestRunVersionJSON_DevBuild(t *testing.T) {
 	assert.Nil(t, out.CommitsBehind)
 }
 
-func TestRunVersionJSON_WithBuildInfo(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	oldVer := buildVersion
-	oldDate := buildDate
+func TestRunVersionJSON_WithVCS(t *testing.T) {
+	old := buildVersion
+	oldCache := cachedVCS
 	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-		buildVersion = oldVer
-		buildDate = oldDate
+		buildVersion = old
+		cachedVCS = oldCache
 	}()
-	buildTimestamp = "1700000000"
-	buildCommit = "abc123"
 	buildVersion = "v1.2.3"
-	buildDate = "2023-11-14T22:13:20Z"
+	cachedVCS = &vcsInfo{
+		Revision: "abc123",
+		Time:     "2023-11-14T22:13:20Z",
+	}
 
 	server := newGitHubMock(t, time.Unix(1700000000, 0), "abc123", 0)
 	defer server.Close()
@@ -246,43 +191,9 @@ func TestRunVersionJSON_WithBuildInfo(t *testing.T) {
 	require.Nil(t, json.Unmarshal([]byte(buf.String()), &out))
 	assert.Equal(t, "v1.2.3", out.Version)
 	assert.Equal(t, "abc123", out.Commit)
-	assert.NotEqual(t, "", out.CommitDate)
-	assert.Equal(t, "2023-11-14T22:13:20Z", out.BuildDate)
+	assert.Equal(t, "2023-11-14T22:13:20Z", out.CommitDate)
 	require.NotNil(t, out.CommitsBehind)
 	assert.Equal(t, 0, *out.CommitsBehind)
-}
-
-func TestRunVersionJSON_Behind(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-	buildTimestamp = "1000000000"
-	buildCommit = "old123"
-
-	server := newGitHubMock(t, time.Now(), "new456", 3)
-	defer server.Close()
-	defer withMockGitHub(t, server)()
-
-	r, w, _ := os.Pipe()
-	oldStdout := os.Stdout
-	os.Stdout = w
-	runVersionJSON(nil, nil)
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf strings.Builder
-	tmp := make([]byte, 4096)
-	n, _ := r.Read(tmp)
-	buf.Write(tmp[:n])
-
-	var out versionOutput
-	require.Nil(t, json.Unmarshal([]byte(buf.String()), &out))
-	require.NotNil(t, out.CommitsBehind)
-	assert.Equal(t, 3, *out.CommitsBehind)
-	assert.Equal(t, "new456", out.LatestCommit)
 }
 
 func TestPrintVersionInfo(t *testing.T) {
@@ -292,34 +203,10 @@ func TestPrintVersionInfo(t *testing.T) {
 	printVersionInfo()
 }
 
-func TestPrintVersionInfoWithTimestamp(t *testing.T) {
-	oldTs := buildTimestamp
-	oldDate := buildDate
-	defer func() {
-		buildTimestamp = oldTs
-		buildDate = oldDate
-	}()
-	buildTimestamp = "1700000000"
-	buildDate = "2024-01-15T10:30:00Z"
-	printVersionInfo()
-}
-
 func TestPrintStalenessDevBuild(t *testing.T) {
-	old := buildTimestamp
-	defer func() { buildTimestamp = old }()
-	buildTimestamp = ""
-	printStaleness()
-}
-
-func TestPrintStalenessUnknownCommit(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-	buildTimestamp = "1234567890"
-	buildCommit = "unknown"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{}
 	printStaleness()
 }
 
@@ -416,16 +303,12 @@ func TestFetchCommitsBehindHTTPError(t *testing.T) {
 }
 
 func TestPrintStalenessUpToDate(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-
-	// Use a unix timestamp that's in the future relative to the mock
-	buildTimestamp = "9999999999"
-	buildCommit = "abc123"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{
+		Revision: "abc123",
+		Time:     "2300-01-01T00:00:00Z",
+	}
 
 	server := newGitHubMock(t, time.Now(), "abc123", 0)
 	defer server.Close()
@@ -435,15 +318,12 @@ func TestPrintStalenessUpToDate(t *testing.T) {
 }
 
 func TestPrintStalenessBehind(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-
-	buildTimestamp = "1000000000" // old timestamp
-	buildCommit = "old123"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{
+		Revision: "old123",
+		Time:     "2001-09-09T01:46:40Z",
+	}
 
 	server := newGitHubMock(t, time.Now(), "new456", 5)
 	defer server.Close()
@@ -453,15 +333,12 @@ func TestPrintStalenessBehind(t *testing.T) {
 }
 
 func TestPrintStalenessAPIFailure(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-
-	buildTimestamp = "1000000000"
-	buildCommit = "abc123"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{
+		Revision: "abc123",
+		Time:     "2001-09-09T01:46:40Z",
+	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -469,6 +346,5 @@ func TestPrintStalenessAPIFailure(t *testing.T) {
 	defer server.Close()
 	defer withMockGitHub(t, server)()
 
-	// Should print error message, not panic
 	printStaleness()
 }

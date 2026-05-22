@@ -287,13 +287,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
-	info, err := collectGitInfo()
-	if err != nil {
-		return nil, err
-	}
-	if !quiet {
-		fmt.Printf("⇒ Embedding version: %s\n", info)
-	}
+	tagVersion := collectTagVersion()
 	inDocker := build.InDocker()
 	for _, t := range targets {
 		outputName := t.OutputName
@@ -312,7 +306,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		job := buildJob{
 			srcPath:    t.ImportPath,
 			outputPath: outPath,
-			ldflags:    info.ldflags(t.ImportPath),
+			ldflags:    buildLdflags(t.ImportPath, tagVersion),
 		}
 		if err := runBuild(r, job, onFirstOutput); err != nil {
 			return nil, fmt.Errorf("go build failed: %w", err)

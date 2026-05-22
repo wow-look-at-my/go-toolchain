@@ -5,30 +5,80 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
-	"strconv"
-	"strings"
+	"runtime/debug"
 	"time"
 
 	"github.com/spf13/cobra"
 )
 
-// Build-time variables, set via -ldflags -X on the main package.
-// SetBuildInfo copies them into this package for the version command.
-var (
-	buildVersion   = "dev"
-	buildCommit    = "unknown"
-	buildTimestamp = ""
-	buildDate      = ""
-)
+// buildVersion may be overridden via -ldflags for tag releases.
+// All other build metadata (commit, timestamp) comes from Go's
+// built-in VCS stamping via debug.ReadBuildInfo().
+var buildVersion = "dev"
 
-// SetBuildInfo copies build-time variables from the main package into
-// this package so the version command can display them.
-func SetBuildInfo(version, commit, timestamp, date string) {
+// SetBuildVersion copies the build-time version override from the
+// main package into this package for the version command.
+func SetBuildVersion(version string) {
 	buildVersion = version
-	buildCommit = commit
-	buildTimestamp = timestamp
-	buildDate = date
+}
+
+// vcsInfo reads Go's built-in VCS stamping from the binary.
+type vcsInfo struct {
+	Revision string
+	Time     string
+	Modified bool
+}
+
+var cachedVCS *vcsInfo
+
+func getVCS() vcsInfo {
+	if cachedVCS != nil {
+		return *cachedVCS
+	}
+	var v vcsInfo
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				v.Revision = s.Value
+			case "vcs.time":
+				v.Time = s.Value
+			case "vcs.modified":
+				v.Modified = s.Value == "true"
+			}
+		}
+	}
+	cachedVCS = &v
+	return v
+}
+
+func resolvedVersion() string {
+	if buildVersion != "dev" {
+		return buildVersion
+	}
+	vcs := getVCS()
+	if vcs.Time != "" {
+		if t, err := time.Parse(time.RFC3339, vcs.Time); err == nil {
+			return fmt.Sprintf("v0.0.%d", t.Unix())
+		}
+	}
+	return buildVersion
+}
+
+func resolvedCommit() string {
+	if vcs := getVCS(); vcs.Revision != "" {
+		return vcs.Revision
+	}
+	return "unknown"
+}
+
+func resolvedTimestamp() (int64, bool) {
+	if vcs := getVCS(); vcs.Time != "" {
+		if t, err := time.Parse(time.RFC3339, vcs.Time); err == nil {
+			return t.Unix(), true
+		}
+	}
+	return 0, false
 }
 
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
@@ -53,7 +103,7 @@ func init() {
 	versionCmd.AddCommand(&cobra.Command{
 		Use:   "raw",
 		Short: "Print just the version number",
-		Run:   func(cmd *cobra.Command, args []string) { fmt.Println(buildVersion) },
+		Run:   func(cmd *cobra.Command, args []string) { fmt.Println(resolvedVersion()) },
 	})
 	versionCmd.AddCommand(&cobra.Command{
 		Use:   "json",
@@ -73,29 +123,21 @@ type versionOutput struct {
 }
 
 func runVersionJSON(cmd *cobra.Command, args []string) {
+	commit := resolvedCommit()
 	out := versionOutput{
-		Version: buildVersion,
-		Commit:  buildCommit,
+		Version: resolvedVersion(),
+		Commit:  commit,
 	}
 
-	if buildTimestamp != "" {
-		if ts, err := strconv.ParseInt(buildTimestamp, 10, 64); err == nil {
-			out.CommitDate = time.Unix(ts, 0).UTC().Format(time.RFC3339)
-		}
-	}
+	if ts, ok := resolvedTimestamp(); ok {
+		out.CommitDate = time.Unix(ts, 0).UTC().Format(time.RFC3339)
 
-	if buildDate != "" {
-		out.BuildDate = buildDate
-	}
-
-	if buildTimestamp != "" && buildCommit != "unknown" {
-		builtTs, err := strconv.ParseInt(buildTimestamp, 10, 64)
-		if err == nil {
+		if commit != "unknown" {
 			if latest, err := fetchLatestCommitFromGitHub(); err == nil {
 				out.LatestCommit = latest.sha
 				behind := 0
-				if latest.timestamp > builtTs {
-					if count, err := fetchCommitsBehind(buildCommit, latest.sha); err == nil {
+				if latest.timestamp > ts {
+					if count, err := fetchCommitsBehind(commit, latest.sha); err == nil {
 						behind = count
 					}
 				}
@@ -115,18 +157,11 @@ func runVersion(cmd *cobra.Command, args []string) {
 }
 
 func printVersionInfo() {
-	fmt.Printf("Version:     %s\n", buildVersion)
-	fmt.Printf("Commit:      %s\n", buildCommit)
+	fmt.Printf("Version:     %s\n", resolvedVersion())
+	fmt.Printf("Commit:      %s\n", resolvedCommit())
 
-	if buildTimestamp != "" {
-		if ts, err := strconv.ParseInt(buildTimestamp, 10, 64); err == nil {
-			commitTime := time.Unix(ts, 0).UTC()
-			fmt.Printf("Commit date: %s\n", commitTime.Format(time.RFC3339))
-		}
-	}
-
-	if buildDate != "" {
-		fmt.Printf("Build date:  %s\n", buildDate)
+	if ts, ok := resolvedTimestamp(); ok {
+		fmt.Printf("Commit date: %s\n", time.Unix(ts, 0).UTC().Format(time.RFC3339))
 	}
 }
 
@@ -140,13 +175,10 @@ type commitInfo struct {
 }
 
 func printStaleness() {
-	if buildTimestamp == "" || buildCommit == "unknown" {
+	builtTs, ok := resolvedTimestamp()
+	commit := resolvedCommit()
+	if !ok || commit == "unknown" {
 		fmt.Println("\nNo build info embedded (dev build).")
-		return
-	}
-
-	builtTs, err := strconv.ParseInt(buildTimestamp, 10, 64)
-	if err != nil {
 		return
 	}
 
@@ -164,7 +196,7 @@ func printStaleness() {
 	diff := time.Duration(latest.timestamp-builtTs) * time.Second
 	msg := fmt.Sprintf("\nBuild is %s behind latest commit.", formatDuration(diff))
 
-	if count, err := fetchCommitsBehind(buildCommit, latest.sha); err == nil && count > 0 {
+	if count, err := fetchCommitsBehind(commit, latest.sha); err == nil && count > 0 {
 		msg += fmt.Sprintf(" (%d commits)", count)
 	}
 
@@ -250,88 +282,22 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 	return result.AheadBy, nil
 }
 
-// gitInfo holds version metadata collected from git.
-type gitInfo struct {
-	version   string
-	commit    string
-	timestamp string
-}
-
-// collectGitInfo gathers version metadata from environment variables first
-// (GITHUB_SHA, GITHUB_REF_NAME, GITHUB_REF_TYPE), falling back to git
-// commands only when env vars are not set.
-func collectGitInfo() (gitInfo, error) {
-	var info gitInfo
-
-	// Commit: GITHUB_SHA or git rev-parse HEAD
-	info.commit = os.Getenv("GITHUB_SHA")
-	if info.commit == "" {
-		if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
-			info.commit = strings.TrimSpace(string(out))
-		}
-	}
-
-	// Timestamp: always from git
-	if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
-		info.timestamp = strings.TrimSpace(string(out))
-	}
-
-	// Version: explicit tag refs from CI win; otherwise synthesize from
-	// the git commit timestamp so the version is deterministic per commit
-	// (same commit = same ldflags = build cache hit on the link step).
+// collectTagVersion returns the version from a CI tag ref, or empty string.
+func collectTagVersion() string {
 	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
-		info.version = os.Getenv("GITHUB_REF_NAME")
+		return os.Getenv("GITHUB_REF_NAME")
 	}
-	if info.version == "" {
-		epoch := info.timestamp
-		if epoch == "" {
-			epoch = "0"
-		}
-		info.version = "v0.0." + epoch
-	}
-
-	return info, nil
+	return ""
 }
 
-// ldflags returns a string suitable for `go build -ldflags`.
-// prefix is the import path of the main package being built, so -X
-// flags target that package's build-time variables.
-// Build date uses SOURCE_DATE_EPOCH or the git commit timestamp
-// for reproducible builds (never wall-clock time).
-func (g gitInfo) ldflags(prefix string) string {
-	var flags []string
-	if g.version != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildVersion=%s", prefix, g.version))
+// buildLdflags returns ldflags for `go build`. Only sets buildVersion
+// when a CI tag is present. All other metadata (commit, timestamp) is
+// provided by Go's built-in VCS stamping at zero cache cost.
+func buildLdflags(prefix, tagVersion string) string {
+	if tagVersion == "" {
+		return ""
 	}
-	if g.commit != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildCommit=%s", prefix, g.commit))
-	}
-	if g.timestamp != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildTimestamp=%s", prefix, g.timestamp))
-	}
-	if epoch := os.Getenv("SOURCE_DATE_EPOCH"); epoch != "" {
-		if ts, err := strconv.ParseInt(epoch, 10, 64); err == nil {
-			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", prefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
-		}
-	} else if g.timestamp != "" {
-		if ts, err := strconv.ParseInt(g.timestamp, 10, 64); err == nil {
-			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", prefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
-		}
-	}
-	return strings.Join(flags, " ")
-}
-
-func (g gitInfo) String() string {
-	if g.version != "" {
-		return g.version
-	}
-	if g.commit != "" {
-		if len(g.commit) > 7 {
-			return g.commit[:7]
-		}
-		return g.commit
-	}
-	return "unknown"
+	return fmt.Sprintf("-X %s.buildVersion=%s", prefix, tagVersion)
 }
 
 func formatDuration(d time.Duration) string {

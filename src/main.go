@@ -7,13 +7,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 )
 
-// Build-time variables, set via -ldflags -X targeting this main package.
-var (
-	buildVersion   = "dev"
-	buildCommit    = "unknown"
-	buildTimestamp = ""
-	buildDate      = ""
-)
+// buildVersion may be overridden via -ldflags for tag releases.
+var buildVersion = "dev"
 
 func init() {
 	// When invoked as GOCACHEPROG, skip all env setup — just serve the protocol.
@@ -63,7 +58,7 @@ func needsGo() bool {
 }
 
 func main() {
-	cmd.SetBuildInfo(buildVersion, buildCommit, buildTimestamp, buildDate)
+	cmd.SetBuildVersion(buildVersion)
 	if needsGo() {
 		if err := cmd.EnsureGoVersion(); err != nil {
 			fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
