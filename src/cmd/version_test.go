@@ -34,62 +34,23 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-func TestCollectTagVersion(t *testing.T) {
-	// Set CI env vars
-	t.Setenv("GITHUB_REF_TYPE", "tag")
-	t.Setenv("GITHUB_REF_NAME", "v2.0.0")
-	assert.Equal(t, "v2.0.0", collectTagVersion())
-}
-
-func TestCollectTagVersionBranch(t *testing.T) {
-	t.Setenv("GITHUB_REF_TYPE", "branch")
-	t.Setenv("GITHUB_REF_NAME", "main")
-	assert.Equal(t, "", collectTagVersion())
-}
-
-func TestCollectTagVersionEmpty(t *testing.T) {
-	t.Setenv("GITHUB_REF_TYPE", "")
-	assert.Equal(t, "", collectTagVersion())
-}
-
-func TestBuildLdflags(t *testing.T) {
-	flags := buildLdflags("example.com/myapp", "v1.0.0")
-	assert.Equal(t, "-X example.com/myapp.buildVersion=v1.0.0", flags)
-}
-
-func TestBuildLdflagsEmpty(t *testing.T) {
-	assert.Equal(t, "", buildLdflags("example.com/myapp", ""))
-}
-
 func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 	t.Setenv("CI", "")
 	assert.NoError(t, checkDirtyInCI())
 }
 
-func TestResolvedVersionTag(t *testing.T) {
-	old := buildVersion
-	defer func() { buildVersion = old }()
-	buildVersion = "v1.2.3"
-	assert.Equal(t, "v1.2.3", resolvedVersion())
+func TestResolvedVersionFromVCS(t *testing.T) {
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
+	assert.Equal(t, "v0.0.1700000000", resolvedVersion())
 }
 
-func TestResolvedVersionDev(t *testing.T) {
-	old := buildVersion
-	defer func() { buildVersion = old }()
-	buildVersion = "dev"
-	v := resolvedVersion()
-	// In test binaries, VCS info may or may not be present.
-	// If VCS is present, version is synthesized from timestamp.
-	// If not, it falls back to "dev".
-	assert.NotEqual(t, "", v)
-}
-
-func TestSetBuildVersion(t *testing.T) {
-	old := buildVersion
-	defer func() { buildVersion = old }()
-	SetBuildVersion("v5.0.0")
-	assert.Equal(t, "v5.0.0", buildVersion)
-	assert.Equal(t, "v5.0.0", resolvedVersion())
+func TestResolvedVersionNoVCS(t *testing.T) {
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{}
+	assert.Equal(t, "dev", resolvedVersion())
 }
 
 func TestEnvOr(t *testing.T) {
@@ -112,9 +73,9 @@ func TestGithubRepoFromEnv(t *testing.T) {
 }
 
 func TestVersionRaw(t *testing.T) {
-	old := buildVersion
-	defer func() { buildVersion = old }()
-	buildVersion = "v9.9.9"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
 
 	cmd := rootCmd
 	buf := new(strings.Builder)
@@ -133,17 +94,12 @@ func TestVersionRaw(t *testing.T) {
 	buf2 := make([]byte, 1024)
 	n, _ := r.Read(buf2)
 	out.Write(buf2[:n])
-	assert.Contains(t, out.String(), "v9.9.9")
+	assert.Contains(t, out.String(), "v0.0.1700000000")
 }
 
 func TestRunVersionJSON_DevBuild(t *testing.T) {
-	old := buildVersion
 	oldCache := cachedVCS
-	defer func() {
-		buildVersion = old
-		cachedVCS = oldCache
-	}()
-	buildVersion = "dev"
+	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
 
 	r, w, _ := os.Pipe()
@@ -167,13 +123,8 @@ func TestRunVersionJSON_DevBuild(t *testing.T) {
 }
 
 func TestRunVersionJSON_WithVCS(t *testing.T) {
-	old := buildVersion
 	oldCache := cachedVCS
-	defer func() {
-		buildVersion = old
-		cachedVCS = oldCache
-	}()
-	buildVersion = "v1.2.3"
+	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
 		Revision: "abc123",
 		Time:     "2023-11-14T22:13:20Z",
@@ -197,7 +148,7 @@ func TestRunVersionJSON_WithVCS(t *testing.T) {
 
 	var out versionOutput
 	require.Nil(t, json.Unmarshal([]byte(buf.String()), &out))
-	assert.Equal(t, "v1.2.3", out.Version)
+	assert.Equal(t, "v0.0.1700000000", out.Version)
 	assert.Equal(t, "abc123", out.Commit)
 	assert.Equal(t, "2023-11-14T22:13:20Z", out.CommitDate)
 	require.NotNil(t, out.CommitsBehind)
@@ -205,9 +156,12 @@ func TestRunVersionJSON_WithVCS(t *testing.T) {
 }
 
 func TestPrintVersionInfo(t *testing.T) {
-	old := buildVersion
-	defer func() { buildVersion = old }()
-	buildVersion = "test-version"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{
+		Revision: "abc123",
+		Time:     "2023-11-14T22:13:20Z",
+	}
 	printVersionInfo()
 }
 

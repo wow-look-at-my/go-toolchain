@@ -12,16 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildVersion may be overridden via -ldflags for tag releases.
-// All other build metadata (commit, timestamp) comes from Go's
-// built-in VCS stamping via debug.ReadBuildInfo().
-var buildVersion = "dev"
-
-// SetBuildVersion copies the build-time version override from the
-// main package into this package for the version command.
-func SetBuildVersion(version string) {
-	buildVersion = version
-}
+// buildVersion is derived from Go's built-in VCS stamping.
+// Other commands (update, cacheprog, dependabot) read this directly.
+var buildVersion = resolvedVersion()
 
 // vcsInfo reads Go's built-in VCS stamping from the binary.
 type vcsInfo struct {
@@ -54,16 +47,13 @@ func getVCS() vcsInfo {
 }
 
 func resolvedVersion() string {
-	if buildVersion != "dev" {
-		return buildVersion
-	}
 	vcs := getVCS()
 	if vcs.Time != "" {
 		if t, err := time.Parse(time.RFC3339, vcs.Time); err == nil {
 			return fmt.Sprintf("v0.0.%d", t.Unix())
 		}
 	}
-	return buildVersion
+	return "dev"
 }
 
 func resolvedCommit() string {
@@ -297,23 +287,6 @@ func checkDirtyInCI() error {
 	return fmt.Errorf("refusing to build: working tree is dirty in CI")
 }
 
-// collectTagVersion returns the version from a CI tag ref, or empty string.
-func collectTagVersion() string {
-	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
-		return os.Getenv("GITHUB_REF_NAME")
-	}
-	return ""
-}
-
-// buildLdflags returns ldflags for `go build`. Only sets buildVersion
-// when a CI tag is present. All other metadata (commit, timestamp) is
-// provided by Go's built-in VCS stamping at zero cache cost.
-func buildLdflags(prefix, tagVersion string) string {
-	if tagVersion == "" {
-		return ""
-	}
-	return fmt.Sprintf("-X %s.buildVersion=%s", prefix, tagVersion)
-}
 
 func formatDuration(d time.Duration) string {
 	hours := int(d.Hours())

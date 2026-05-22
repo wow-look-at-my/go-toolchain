@@ -125,7 +125,6 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if err := checkDirtyInCI(); err != nil {
 		return err
 	}
-	tagVersion := collectTagVersion()
 
 	// Build job queue - cartesian product of OS x Arch x Targets
 	var jobs []buildJob
@@ -138,7 +137,6 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 					goarch:     goarch,
 					srcPath:    target.ImportPath,
 					outputPath: filepath.Join(outputDir, outputName),
-					ldflags:    buildLdflags(target.ImportPath, tagVersion),
 				})
 			}
 		}
@@ -274,7 +272,10 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if onFirstOutput != nil {
 		args = append(args, "-v") // print packages as they are compiled
 	}
-	args = append(args, "-ldflags", job.ldflags, "-o", job.outputPath, job.srcPath)
+	if job.ldflags != "" {
+		args = append(args, "-ldflags", job.ldflags)
+	}
+	args = append(args, "-o", job.outputPath, job.srcPath)
 	cmd := runner.Cmd("go", args...)
 	if job.goos != "" {
 		cmd = cmd.WithEnv("GOOS", job.goos)

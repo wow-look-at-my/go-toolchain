@@ -290,7 +290,6 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	if err := checkDirtyInCI(); err != nil {
 		return nil, err
 	}
-	tagVersion := collectTagVersion()
 	inDocker := build.InDocker()
 	for _, t := range targets {
 		outputName := t.OutputName
@@ -309,7 +308,6 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		job := buildJob{
 			srcPath:    t.ImportPath,
 			outputPath: outPath,
-			ldflags:    buildLdflags(t.ImportPath, tagVersion),
 		}
 		if err := runBuild(r, job, onFirstOutput); err != nil {
 			return nil, fmt.Errorf("go build failed: %w", err)
