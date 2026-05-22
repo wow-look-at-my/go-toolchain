@@ -3,6 +3,7 @@ package cache
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -107,14 +108,16 @@ func TestDecodeActionHash_Bad(t *testing.T) {
 }
 
 // indexFixture serves /<bucket>/_index from an in-memory blob with proper
-// ETag/304 semantics. PUT/GET on object keys are no-ops/404s — this fixture
-// is only for exercising the index-fetch path.
+// ETag/304 semantics. PUT to /_index accepts a new blob. PUT/GET on other
+// object keys are no-ops/404s — this fixture is for exercising the index
+// fetch and upload paths.
 type indexFixture struct {
 	t        *testing.T
 	bucket   string
 	blob     atomic.Pointer[[]byte]
 	hits200  atomic.Int32
 	hits304  atomic.Int32
+	hitsPut  atomic.Int32
 	hitsAny  atomic.Int32
 	srv      *httptest.Server
 }
@@ -125,21 +128,35 @@ func newIndexFixture(t *testing.T, bucket string, initial set.Set[string]) *inde
 	f.blob.Store(&b)
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.hitsAny.Add(1)
-		if r.Method == http.MethodGet && r.URL.Path == "/"+bucket+"/_index" {
-			cur := *f.blob.Load()
-			etag := indexETag(cur)
-			if r.Header.Get("If-None-Match") == etag {
-				f.hits304.Add(1)
+		indexPath := "/" + bucket + "/_index"
+		if r.URL.Path == indexPath {
+			switch r.Method {
+			case http.MethodGet:
+				cur := *f.blob.Load()
+				etag := indexETag(cur)
+				if r.Header.Get("If-None-Match") == etag {
+					f.hits304.Add(1)
+					w.Header().Set("ETag", etag)
+					w.WriteHeader(http.StatusNotModified)
+					return
+				}
+				f.hits200.Add(1)
 				w.Header().Set("ETag", etag)
-				w.WriteHeader(http.StatusNotModified)
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.WriteHeader(http.StatusOK)
+				w.Write(cur)
+				return
+			case http.MethodPut:
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				f.blob.Store(&body)
+				f.hitsPut.Add(1)
+				w.WriteHeader(http.StatusOK)
 				return
 			}
-			f.hits200.Add(1)
-			w.Header().Set("ETag", etag)
-			w.Header().Set("Content-Type", "application/octet-stream")
-			w.WriteHeader(http.StatusOK)
-			w.Write(cur)
-			return
 		}
 		// Default: 404 for everything else (object Get/Put paths not exercised here).
 		w.WriteHeader(http.StatusNotFound)
@@ -330,5 +347,111 @@ func TestWriteAndReadIndexBlob(t *testing.T) {
 	require.Equal(t, blob, got)
 	require.Equal(t, 1, gotKeys.Len())
 	require.NotEqual(t, "", etag)
+}
+
+// TestUploadIndex_OnClose verifies that Close uploads the updated index
+// when PUTs happened during the session, and that the server receives a
+// valid GBCI blob containing all keys (original + newly added).
+func TestUploadIndex_OnClose(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	// Start with 2 keys in the server index.
+	initial := set.New[string]()
+	for i := 0; i < 2; i++ {
+		var h [gbciHashSize]byte
+		h[0] = byte(i + 1)
+		initial.Add(gbciKeyPrefix + hex.EncodeToString(h[:]))
+	}
+	f := newIndexFixture(t, "bk", initial)
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "bk", Endpoint: f.srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, b.keys.Len())
+
+	// Simulate adding a new key (as Put would do) and recording the put.
+	var newHash [gbciHashSize]byte
+	newHash[0] = 0xAA
+	newKey := gbciKeyPrefix + hex.EncodeToString(newHash[:])
+	b.keysMu.Lock()
+	b.keys.Add(newKey)
+	b.keysMu.Unlock()
+	b.Stats.Puts.Increment()
+
+	// Close should upload the index.
+	require.NoError(t, b.Close())
+
+	require.Equal(t, int32(1), f.hitsPut.Load(), "expected one PUT to /_index")
+
+	// Parse the blob the server received and verify it has all 3 keys.
+	serverBlob := *f.blob.Load()
+	serverKeys, _, err := parseIndexBlob(serverBlob)
+	require.NoError(t, err)
+	require.Equal(t, 3, serverKeys.Len())
+	require.True(t, serverKeys.Contains(newKey), "new key should be in uploaded index")
+	for k := range initial.All() {
+		require.True(t, serverKeys.Contains(k), "original key %q should be in uploaded index", k)
+	}
+
+	// Verify the on-disk cache was also updated.
+	diskBlob, diskKeys, _ := b.readDiskIndex(b.indexCachePath())
+	require.NotNil(t, diskBlob)
+	require.Equal(t, 3, diskKeys.Len())
+}
+
+// TestUploadIndex_NoPuts verifies that Close does NOT upload the index
+// when no PUTs happened during the session.
+func TestUploadIndex_NoPuts(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	initial := set.New[string]()
+	var h [gbciHashSize]byte
+	h[0] = 1
+	initial.Add(gbciKeyPrefix + hex.EncodeToString(h[:]))
+	f := newIndexFixture(t, "bk", initial)
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "bk", Endpoint: f.srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+
+	// No puts — Close should not upload.
+	require.NoError(t, b.Close())
+	require.Equal(t, int32(0), f.hitsPut.Load(), "should not upload index when no PUTs happened")
+}
+
+// TestUploadIndex_ServerError verifies that an upload failure is handled
+// gracefully — it logs but does not return an error from Close.
+func TestUploadIndex_ServerError(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/_index") {
+			blob := marshalIndex(set.New[string]())
+			w.WriteHeader(http.StatusOK)
+			w.Write(blob)
+			return
+		}
+		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/_index") {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("simulated failure"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "bk", Endpoint: srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+	b.Stats.Puts.Increment()
+
+	// Should not return an error even though the upload failed.
+	require.NoError(t, b.Close())
 }
 

@@ -654,7 +654,8 @@ func (b *WebBackend) removeClaimed(key string) {
 	b.keysMu.Unlock()
 }
 
-// Close drains the batch coalescer and flushes the HTTP error logger.
+// Close drains the batch coalescer, uploads the updated index if any PUTs
+// happened during this session, and flushes the HTTP error logger.
 // The OTel tracer provider is process-wide (see src/trace) and is shut
 // down once by the build entrypoint, not per WebBackend — multiple
 // components (timeline exporter, cacheprog) share the same provider so
@@ -664,10 +665,52 @@ func (b *WebBackend) Close() error {
 		close(b.batchStop)
 		<-b.batchDone
 	}
+	if b.Stats.Puts.Load() > 0 {
+		b.uploadIndex()
+	}
 	if b.errLog != nil {
 		_ = b.errLog.Close()
 	}
 	return nil
+}
+
+// uploadIndex marshals the current key set and uploads it to the server's
+// _index endpoint, then updates the on-disk cache. This makes newly PUT
+// objects discoverable by subsequent builds that load the index at startup.
+func (b *WebBackend) uploadIndex() {
+	b.keysMu.RLock()
+	blob := marshalIndex(b.keys)
+	n := b.keys.Len()
+	b.keysMu.RUnlock()
+
+	url := b.endpoint + "/" + b.bucket + "/_index"
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(blob))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: web index upload: build request: %v\n", err)
+		return
+	}
+	req.ContentLength = int64(len(blob))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	b.signRequest(req)
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: web index upload: %v\n", err)
+		return
+	}
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		fmt.Fprintf(os.Stderr, "cacheprog: web index upload: HTTP %d: %s\n", resp.StatusCode, bytes.TrimSpace(body))
+		return
+	}
+
+	b.writeIndexBlob(b.indexCachePath(), blob)
+	fmt.Fprintf(os.Stderr, "cacheprog: web index: uploaded %d keys\n", n)
 }
 
 func (b *WebBackend) GetStats() *CacheStats { return &b.Stats }
