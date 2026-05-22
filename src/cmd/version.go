@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -290,15 +289,12 @@ func checkDirtyInCI() error {
 	if os.Getenv("CI") == "" {
 		return nil
 	}
-	out, err := exec.Command("git", "status", "--porcelain").Output()
+	out, err := exec.Command("git", "status", "--short").Output()
 	if err != nil || len(out) == 0 {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "⇒ git status --porcelain:\n%s", out)
-	if diffOut, err := exec.Command("git", "diff", "--stat").Output(); err == nil && len(diffOut) > 0 {
-		fmt.Fprintf(os.Stderr, "⇒ git diff --stat:\n%s", diffOut)
-	}
-	return fmt.Errorf("refusing to build: working tree is dirty in CI\n%s", strings.TrimSpace(string(out)))
+	fmt.Fprintf(os.Stderr, "⇒ git status --short:\n%s", out)
+	return fmt.Errorf("refusing to build: working tree is dirty in CI")
 }
 
 // collectTagVersion returns the version from a CI tag ref, or empty string.
