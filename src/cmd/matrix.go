@@ -122,6 +122,9 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 	ensureBuildDirInGitignore()
+	if err := checkDirtyInCI(); err != nil {
+		return err
+	}
 	tagVersion := collectTagVersion()
 
 	// Build job queue - cartesian product of OS x Arch x Targets

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -280,6 +282,23 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 	}
 
 	return result.AheadBy, nil
+}
+
+// checkDirtyInCI returns an error if running in CI with a dirty working
+// tree. This prevents shipping binaries built from uncommitted changes.
+func checkDirtyInCI() error {
+	if os.Getenv("CI") == "" {
+		return nil
+	}
+	out, err := exec.Command("git", "status", "--porcelain").Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "⇒ git status --porcelain:\n%s", out)
+	if diffOut, err := exec.Command("git", "diff", "--stat").Output(); err == nil && len(diffOut) > 0 {
+		fmt.Fprintf(os.Stderr, "⇒ git diff --stat:\n%s", diffOut)
+	}
+	return fmt.Errorf("refusing to build: working tree is dirty in CI\n%s", strings.TrimSpace(string(out)))
 }
 
 // collectTagVersion returns the version from a CI tag ref, or empty string.

@@ -287,6 +287,9 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
+	if err := checkDirtyInCI(); err != nil {
+		return nil, err
+	}
 	tagVersion := collectTagVersion()
 	inDocker := build.InDocker()
 	for _, t := range targets {

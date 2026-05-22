@@ -60,6 +60,11 @@ func TestBuildLdflagsEmpty(t *testing.T) {
 	assert.Equal(t, "", buildLdflags("example.com/myapp", ""))
 }
 
+func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
+	t.Setenv("CI", "")
+	assert.NoError(t, checkDirtyInCI())
+}
+
 func TestResolvedVersionTag(t *testing.T) {
 	old := buildVersion
 	defer func() { buildVersion = old }()
