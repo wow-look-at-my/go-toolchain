@@ -102,6 +102,7 @@ func TestEnvOr(t *testing.T) {
 
 func TestGithubRepoFromEnv(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "other-org/other-repo")
+	// Re-initialize to pick up env var
 	old := githubRepo
 	githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 	defer func() { githubRepo = old }()
