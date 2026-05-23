@@ -36,7 +36,7 @@ inputs:
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically tag a release and publish to buildhost when running on the default branch (requires contents: write and id-token: write permissions)'
+    description: 'Automatically publish to buildhost when running on the default branch (requires id-token: write permission)'
     required: false
     default: 'false'
   upload-artifacts:
@@ -192,19 +192,7 @@ runs:
         name: go-build
         path: ${{ inputs.working-directory }}/build/
 
-    - name: Auto-release tag
-      if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        TAG="v0.0.$(git log -1 --format=%ct)"
-        echo "⇒ Auto-releasing $TAG on default branch"
-        go-toolchain release --tag "$TAG"
-
-    - name: Auto-release publish to buildhost
+    - name: Auto-release to buildhost
       if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:

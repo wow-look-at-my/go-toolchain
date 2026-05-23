@@ -65,7 +65,7 @@ To opt out, pass `codeql: 'false'`.
 | `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | string   | `false`    | Automatically tag a release and publish to buildhost when on the default branch (requires `contents: write` and `id-token: write`) |
+| `autorelease`       | string   | `false`    | Automatically publish to buildhost when on the default branch (requires `id-token: write`) |
 | `upload-artifacts`  | string   | `true`     | Upload `build/` directory as a GitHub Actions artifact after building |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
 | `wait-ci`           | string   | `false`    | Wait for the latest go-toolchain CI run before downloading the release binary |
