@@ -185,5 +185,3 @@ runs:
     - name: Auto-release to buildhost
       if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
-      with:
-        server: https://pazer.build

@@ -68,5 +68,3 @@ jobs:
       id-token: write
     steps:
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
-        with:
-          server: https://pazer.build
