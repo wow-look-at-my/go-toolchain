@@ -45,7 +45,7 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
 - `src/vet/` — custom vet checks (assert normalization, unused imports)
 - `tests/` — BATS integration tests
 - `action.yml` — composite GitHub Action (fetches secrets via OIDC, builds with go-toolchain, optionally uploads build artifacts)
-- `.github/workflows/ci.yml` — CI workflow (builds from source, tests the action, releases)
+- `.github/workflows/ci.yml` — CI workflow (builds from source, tests the action, publishes to buildhost)
 
 ## Code Conventions
 
