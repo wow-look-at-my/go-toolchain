@@ -66,5 +66,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      actions: read
     steps:
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
