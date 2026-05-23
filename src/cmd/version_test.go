@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -78,14 +77,15 @@ func TestSynthesizeVersion(t *testing.T) {
 }
 
 func TestCollectGitInfoSynthesizedEpoch(t *testing.T) {
-	// Synthesized version suffix should equal buildStartEpoch
 	info, err := collectGitInfo()
 	require.NoError(t, err)
 
 	re := regexp.MustCompile(`^v0\.0\.(\d+)(-dirty)?$`)
 	m := re.FindStringSubmatch(info.version)
 	require.Len(t, m, 3, "version %q did not match synthesized form", info.version)
-	assert.Equal(t, fmt.Sprintf("%d", buildStartEpoch), m[1])
+
+	// The epoch should be the git commit timestamp, not time.Now().
+	assert.Equal(t, info.timestamp, m[1])
 }
 
 func TestEnvOr(t *testing.T) {
