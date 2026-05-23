@@ -267,10 +267,17 @@ func collectGitInfo() (gitInfo, error) {
 		}
 	}
 
+	// Timestamp: no env var for this, always from git.
+	// Must be resolved before version synthesis so the commit epoch is
+	// available as a stable fallback for the version string.
+	if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
+		info.timestamp = strings.TrimSpace(string(out))
+	}
+
 	// Version: explicit tag refs from CI win; otherwise synthesize from the
-	// build start epoch. The old fallback to `git describe --tags --always
-	// --dirty` produced bare SHAs like "0648669" when no tag existed on
-	// HEAD, which breaks semver comparisons in `update`.
+	// git commit timestamp. Using the commit epoch (not time.Now()) keeps the
+	// version — and thus the ldflags — stable across rebuilds of the same
+	// commit, which preserves Go build cache hits for the link step.
 	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
 		info.version = os.Getenv("GITHUB_REF_NAME")
 	}
@@ -279,12 +286,11 @@ func collectGitInfo() (gitInfo, error) {
 		if out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output(); err == nil {
 			dirty = strings.HasSuffix(strings.TrimSpace(string(out)), "-dirty")
 		}
-		info.version = synthesizeVersion(buildStartEpoch, dirty)
-	}
-
-	// Timestamp: no env var for this, always from git
-	if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
-		info.timestamp = strings.TrimSpace(string(out))
+		epoch := buildStartEpoch
+		if ts, err := strconv.ParseInt(info.timestamp, 10, 64); err == nil {
+			epoch = ts
+		}
+		info.version = synthesizeVersion(epoch, dirty)
 	}
 
 	return info, nil
