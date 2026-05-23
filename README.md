@@ -25,7 +25,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) to configure proxy URL, credentials (via ~/.netrc), and sumdb key automatically
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
-- **npm package publishing** — CI automatically publishes cross-compiled binaries as scoped npm packages (one wrapper plus one per `(os, arch)`) to a Gitea npm registry; branch builds use prerelease versions with per-branch dist-tags
+- **Buildhost publishing** — CI automatically publishes cross-compiled binaries to [buildhost](https://pazer.build) via OIDC, making them available for download in multiple formats (raw binary, tar.gz, deb, Homebrew, npm, OCI)
 
 ## GitHub Action Usage
 
@@ -65,7 +65,7 @@ To opt out, pass `codeql: 'false'`.
 | `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | string   | `false`    | Automatically tag a release and publish npm packages when on the default branch (requires `contents: write`) |
+| `autorelease`       | string   | `false`    | Automatically tag a release and publish to buildhost when on the default branch (requires `contents: write` and `id-token: write`) |
 | `upload-artifacts`  | string   | `true`     | Upload `build/` directory as a GitHub Actions artifact after building |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
 | `wait-ci`           | string   | `false`    | Wait for the latest go-toolchain CI run before downloading the release binary |

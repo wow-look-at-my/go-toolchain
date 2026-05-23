@@ -60,31 +60,13 @@ jobs:
           name: build-output
           path: build/
 
-  npm-publish:
+  publish-buildhost:
     if: github.ref_type == 'branch'
     needs: [build, action-test]
     runs-on: ubuntu-latest
-    env:
-      NPM_REGISTRY: https://git.pazer.us/api/packages/wow-look-at-my/npm/
-      NPM_SCOPE: '@wow-look-at-my'
-      NPM_REPOSITORY_URL: https://git.pazer.us/wow-look-at-my/packages.git
+    permissions:
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download binaries
-        uses: actions/download-artifact@v8
+      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
         with:
-          name: build-output
-          path: build
-
-      - uses: wow-look-at-my/actions@secret-server#latest
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
-      - name: Publish npm packages
-        env:
-          BRANCH: ${{ github.ref_name }}
-          NPM_BUILD_DIR: build
-        run: npx --yes tsx .github/npm-publish.ts
+          server: https://pazer.build
