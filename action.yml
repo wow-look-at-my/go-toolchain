@@ -38,7 +38,7 @@ inputs:
   autorelease:
     description: 'Automatically publish to buildhost when running on the default branch (requires id-token: write permission)'
     required: false
-    default: 'false'
+    default: 'true'
   upload-artifacts:
     description: 'Upload build/ directory as a GitHub Actions artifact after building'
     required: false
