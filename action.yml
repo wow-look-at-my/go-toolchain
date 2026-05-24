@@ -95,7 +95,6 @@ runs:
       run: |
         npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/ || true
         if ! command -v go-toolchain &>/dev/null; then
-          # npm wrapper package has no bin field; find it in the platform package
           NPM_ROOT="$(npm root -g 2>/dev/null)"
           BIN=$(find "$NPM_ROOT/@buildhost" -name 'go-toolchain' -path '*/bin/*' -type f -print -quit 2>/dev/null)
           if [ -n "$BIN" ]; then
