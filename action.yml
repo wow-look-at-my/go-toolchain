@@ -38,7 +38,11 @@ inputs:
   autorelease:
     description: 'Automatically publish to buildhost when running on the default branch (requires id-token: write permission)'
     required: false
-    default: 'false'
+    default: 'true'
+  buildhost-url:
+    description: 'Buildhost base URL'
+    required: false
+    default: 'https://pazer.build'
   upload-artifacts:
     description: 'Upload build/ directory as a GitHub Actions artifact after building'
     required: false
@@ -93,7 +97,7 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
-        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/ || true
+        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${{ inputs.buildhost-url }}/npm/" || true
         if ! go-toolchain version &>/dev/null; then
           echo "::warning::buildhost binary not usable, building from source"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
