@@ -93,8 +93,17 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
-        if ! npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/; then
-          echo "::warning::buildhost install failed, building from source"
+        npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/ || true
+        if ! command -v go-toolchain &>/dev/null; then
+          # npm wrapper package has no bin field; find it in the platform package
+          NPM_ROOT="$(npm root -g 2>/dev/null)"
+          BIN=$(find "$NPM_ROOT/@buildhost" -name 'go-toolchain' -path '*/bin/*' -type f -print -quit 2>/dev/null)
+          if [ -n "$BIN" ]; then
+            sudo install -m 755 "$BIN" /usr/local/bin/go-toolchain
+          fi
+        fi
+        if ! go-toolchain version &>/dev/null; then
+          echo "::warning::buildhost binary not usable, building from source"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
           sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
         fi
