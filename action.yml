@@ -95,7 +95,7 @@ runs:
       run: |
         set -euo pipefail
 
-        if npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/ 2>/dev/null; then
+        if npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/; then
           echo "Installed go-toolchain from buildhost"
           exit 0
         fi
