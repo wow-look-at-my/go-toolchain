@@ -93,8 +93,9 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
-        if ! npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/; then
-          echo "::warning::buildhost install failed, building from source"
+        npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/ || true
+        if ! go-toolchain version &>/dev/null; then
+          echo "::warning::buildhost binary not usable, building from source"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
           sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
         fi
