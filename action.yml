@@ -93,8 +93,11 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
-        npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/ \
-          || echo "::warning::buildhost install failed, will build from source"
+        if ! npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/; then
+          echo "::warning::buildhost install failed, building from source"
+          GOTOOLCHAIN=auto go install github.com/wow-look-at-my/go-toolchain/src@latest
+          sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
+        fi
 
     - name: Install provided binary
       if: inputs.binary != ''
@@ -169,12 +172,7 @@ runs:
         if [ "${{ inputs.cgo }}" = "true" ]; then
           ARGS="$ARGS --cgo"
         fi
-        if command -v go-toolchain &>/dev/null; then
-          CMD="go-toolchain"
-        else
-          CMD="GOTOOLCHAIN=auto go run github.com/wow-look-at-my/go-toolchain/src@latest"
-        fi
-        timeout "${TIMEOUT_SECONDS}" $CMD matrix $ARGS
+        timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
     - name: Analyze with CodeQL
       if: inputs.codeql == 'true'
