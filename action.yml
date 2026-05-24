@@ -95,8 +95,7 @@ runs:
       run: |
         if ! npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/; then
           echo "::warning::buildhost install failed, building from source"
-          GOTOOLCHAIN=auto go install github.com/wow-look-at-my/go-toolchain/src@c9bec70a3067a4befd77aeee5d0111949b170ed9
-          sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
+          GOTOOLCHAIN=auto go build -o /usr/local/bin/go-toolchain "${{ github.action_path }}/src"
         fi
 
     - name: Install provided binary
