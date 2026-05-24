@@ -89,10 +89,22 @@ runs:
         gh extension install PazerOP/gh-wait-ci || true
         gh wait-ci -R wow-look-at-my/go-toolchain || true
 
-    - name: Install go-toolchain from buildhost
+    - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
-      run: npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/
+      run: |
+        set -euo pipefail
+
+        if npm install -g @buildhost/go-toolchain --registry=https://pazer.build/npm/ 2>/dev/null; then
+          echo "Installed go-toolchain from buildhost"
+          exit 0
+        fi
+        echo "::warning::buildhost install failed, building from source"
+
+        printf '#!/bin/sh\nGOTOOLCHAIN=auto exec go run github.com/wow-look-at-my/go-toolchain/src@latest "$@"\n' \
+          | sudo tee /usr/local/bin/go-toolchain > /dev/null
+        sudo chmod +x /usr/local/bin/go-toolchain
+        echo "Installed go-toolchain wrapper (go run fallback)"
 
     - name: Install provided binary
       if: inputs.binary != ''
