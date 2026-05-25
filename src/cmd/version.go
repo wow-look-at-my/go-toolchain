@@ -286,11 +286,10 @@ func checkDirtyInCI() error {
 	}
 	files := strings.TrimRight(string(out), "\n")
 	logError("", fmt.Sprintf(
-		"Working tree is dirty in CI — refusing to build. Dirty files:\n%s\n\n"+
-			"This usually means `go mod tidy`, `go generate`, or another pipeline step modified files "+
-			"that were not committed. Fix: run `go-toolchain` locally, commit the changes, and push.",
-		files))
-	return fmt.Errorf("working tree is dirty in CI (run go-toolchain locally, commit the changes, and push)")
+		"Working tree is dirty in CI (go-toolchain %s). Dirty files:\n%s\n\n"+
+			"Fix: run `go-toolchain` locally, review the diff, commit the changes, and push.",
+		buildVersion, files))
+	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
 
