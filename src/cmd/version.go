@@ -284,7 +284,7 @@ func checkDirtyInCI() error {
 	if err != nil || len(out) == 0 {
 		return nil
 	}
-	files := strings.TrimRight(string(out), "\n")
+	files := strings.TrimRight(string(out), "\r\n")
 	logError("", fmt.Sprintf(
 		"Working tree is dirty in CI (go-toolchain %s). Dirty files:\n%s\n\n"+
 			"Fix: run `go-toolchain` locally, review the diff, commit the changes, and push.",
