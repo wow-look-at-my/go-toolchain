@@ -27,6 +27,19 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
           OTEL_SERVICE_NAME: ${{ github.repository }}
 
+      - name: Cache validation (second build)
+        run: |
+          cp build/go-toolchain /usr/local/bin/go-toolchain
+          rm -rf build/
+          start=$SECONDS
+          go-toolchain
+          elapsed=$(( SECONDS - start ))
+          echo "Second build took ${elapsed}s"
+          if [ "$elapsed" -gt 15 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 15s)"
+            exit 1
+          fi
+
       - name: Upload binary
         uses: actions/upload-artifact@v7
         with:
@@ -59,33 +72,6 @@ jobs:
         with:
           name: build-output
           path: build/
-
-  cache-validation:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-          cache: false
-      - uses: wow-look-at-my/actions@secret-server#latest
-      - uses: actions/download-artifact@v4
-        with:
-          name: go-toolchain-binary
-          path: build/
-      - run: chmod +x build/go-toolchain && cp build/go-toolchain /usr/local/bin/go-toolchain
-      - name: Second build (cache validation)
-        run: |
-          rm -rf build/
-          start=$SECONDS
-          go-toolchain
-          elapsed=$(( SECONDS - start ))
-          echo "Second build took ${elapsed}s"
-          if [ "$elapsed" -gt 15 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 15s)"
-            exit 1
-          fi
 
   publish-buildhost:
     if: github.ref_type == 'branch'
