@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -283,8 +284,14 @@ func checkDirtyInCI() error {
 	if err != nil || len(out) == 0 {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "⇒ git status --short:\n%s", out)
-	return fmt.Errorf("refusing to build: working tree is dirty in CI")
+	files := strings.TrimRight(string(out), "\r\n")
+	if !jsonOutput {
+		logError("", fmt.Sprintf(
+			"Working tree is dirty in CI (go-toolchain %s). Dirty files:\n%s\n\n"+
+				"Fix: run `go-toolchain` locally, review the diff, commit the changes, and push.",
+			buildVersion, files))
+	}
+	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
 
