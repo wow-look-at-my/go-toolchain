@@ -20,9 +20,8 @@ func fingerprintFile() string {
 	dir := filepath.Join(os.TempDir(), "go-toolchain-fingerprint")
 	os.MkdirAll(dir, 0o755)
 	wd, _ := os.Getwd()
-	// Use hash of working directory to separate projects.
 	h := sha256.Sum256([]byte(wd))
-	return filepath.Join(dir, hex.EncodeToString(h[:8])+".sha256")
+	return filepath.Join(dir, hex.EncodeToString(h[:])+".sha256")
 }
 
 // computeFingerprint hashes all inputs that affect a go-toolchain run:
@@ -35,11 +34,10 @@ func computeFingerprint() (string, error) {
 	fmt.Fprintf(h, "cgo:%v\n", cgoEnabled)
 	fmt.Fprintf(h, "output:%s\n", outputDir)
 
-	// Collect all relevant files
 	var files []string
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if d.IsDir() {
 			name := d.Name()
@@ -97,7 +95,6 @@ func isUpToDate() bool {
 		return false
 	}
 
-	// Verify output binaries still exist
 	r := runner.New()
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
@@ -123,8 +120,11 @@ func isUpToDate() bool {
 func saveFingerprint() {
 	current, err := computeFingerprint()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "⇒ Warning: failed to compute fingerprint: %v\n", err)
 		return
 	}
 	fp := fingerprintFile()
-	os.WriteFile(fp, []byte(current), 0o644)
+	if err := os.WriteFile(fp, []byte(current), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "⇒ Warning: failed to save fingerprint: %v\n", err)
+	}
 }

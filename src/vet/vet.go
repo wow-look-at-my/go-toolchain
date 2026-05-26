@@ -155,13 +155,14 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		return false, fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	// Count packages loaded for diagnostics.
-	var nPkgs int
-	packages.Visit(pkgs, func(p *packages.Package) bool {
-		nPkgs++
-		return true
-	}, nil)
-	fmt.Fprintf(os.Stderr, "vet: loaded %d packages (%d files parsed) in %v\n", nPkgs, nParsed, loadDur.Round(time.Millisecond))
+	if progress != nil {
+		var nPkgs int
+		packages.Visit(pkgs, func(p *packages.Package) bool {
+			nPkgs++
+			return true
+		}, nil)
+		fmt.Fprintf(os.Stderr, "vet: loaded %d packages (%d files parsed) in %v\n", nPkgs, nParsed, loadDur.Round(time.Millisecond))
+	}
 
 	// Check for load errors, filtering out Go version mismatch warnings.
 	// These occur when go-toolchain was built with an older Go than the target

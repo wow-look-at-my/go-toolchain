@@ -192,6 +192,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	}
 
+	os.Chdir(startDir)
 	saveFingerprint()
 	return nil
 }
