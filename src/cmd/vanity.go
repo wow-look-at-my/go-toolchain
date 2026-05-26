@@ -179,7 +179,7 @@ func parseGoImportMeta(html, modulePath string) (repoURL, importPrefix string, e
 			continue
 		}
 		parts := strings.Fields(rest[:end])
-		if len(parts) >= 3 && strings.HasPrefix(modulePath, parts[0]) {
+		if len(parts) >= 3 && (modulePath == parts[0] || strings.HasPrefix(modulePath, parts[0]+"/")) {
 			return parts[2], parts[0], nil
 		}
 	}
@@ -254,7 +254,7 @@ func injectVanityReplaces() (*vanityState, error) {
 			// the import prefix, the extra path identifies a sub-module
 			// directory within the repository (e.g. otel/trace in
 			// opentelemetry-go).
-			if importPrefix != "" && m.Path != importPrefix && strings.HasPrefix(m.Path, importPrefix) {
+			if importPrefix != "" && strings.HasPrefix(m.Path, importPrefix+"/") {
 				ghPath += m.Path[len(importPrefix):]
 			}
 
