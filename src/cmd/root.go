@@ -112,7 +112,6 @@ func run(cmd *cobra.Command, args []string) error {
 	if cacheMisses {
 		tracker := newCacheMissTracker(os.Stderr)
 		activeMissTracker = tracker
-		vet.CompileStderr = tracker
 		defer tracker.Print()
 	}
 

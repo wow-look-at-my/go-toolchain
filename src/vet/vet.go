@@ -6,14 +6,12 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	runtimetrace "runtime/trace"
 	"sort"
 	"strings"
-	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"golang.org/x/tools/go/analysis"
@@ -75,11 +73,6 @@ func Analyzers() []*analysis.Analyzer {
 	}
 }
 
-// CompileStderr is the writer used for go build/test compilation output.
-// Defaults to os.Stderr. Set to a custom writer (e.g. a cache miss tracker)
-// to capture which packages are compiled.
-var CompileStderr io.Writer = os.Stderr
-
 // ActiveTrace, if set, receives fine-grained per-file and per-analyzer events.
 var ActiveTrace *gotrace.Trace
 
@@ -139,26 +132,8 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		}
 	}
 
-	// Pre-compile all packages with visible progress. go build -v prints
-	// each package to stderr as it compiles, warming the build cache.
-	// packages.Load then finds everything cached and runs fast.
-	report("compile")
-	var compileStderr io.Writer = CompileStderr
-	if ActiveTrace != nil {
-		compileStderr = &compileTracer{target: CompileStderr, trace: ActiveTrace}
-	}
-	compileCmd := exec.Command("go", "build", "-v", pattern)
-	compileCmd.Stdout = os.Stdout
-	compileCmd.Stderr = compileStderr
-	_ = compileCmd.Run() // best-effort; test-only packages may fail
-
-	// Also compile test binaries to warm the cache for test variants.
-	testCompileCmd := exec.Command("go", "test", "-run=^$", "-count=1", pattern)
-	testCompileCmd.Stdout = os.Stdout
-	testCompileCmd.Stderr = compileStderr
-	_ = testCompileCmd.Run() // best-effort
-
-	// Now load packages for analysis — should be fast with warm cache.
+	// Load packages for analysis.
+	report("type-check")
 	report("type-check")
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
@@ -279,48 +254,6 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		fmt.Fprintf(&sb, "%s:%d:%d: %s\n", d.File, d.Line, d.Column, d.Message)
 	}
 	return filesChanged, fmt.Errorf("%s", sb.String())
-}
-
-// compileTracer wraps a writer and records per-package compile events from
-// go build -v stderr output. Each line is a package import path that was compiled.
-type compileTracer struct {
-	target io.Writer
-	trace  *gotrace.Trace
-	buf    []byte
-	last   time.Time // when the previous package finished
-}
-
-func (w *compileTracer) Write(p []byte) (int, error) {
-	if w.last.IsZero() {
-		w.last = time.Now()
-	}
-	w.buf = append(w.buf, p...)
-	for {
-		idx := -1
-		for i, b := range w.buf {
-			if b == '\n' {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			break
-		}
-		line := strings.TrimSpace(string(w.buf[:idx]))
-		w.buf = w.buf[idx+1:]
-		now := time.Now()
-		if line != "" && strings.Contains(line, "/") && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
-			w.trace.Record(gotrace.Event{
-				Name:     line,
-				Category: "compile",
-				Thread:   "compile",
-				Start:    w.last,
-				End:      now,
-			})
-		}
-		w.last = now
-	}
-	return w.target.Write(p)
 }
 
 // instrumentAnalyzers wraps each analyzer's Run function in-place to record
