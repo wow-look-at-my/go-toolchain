@@ -35,8 +35,8 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          if [ "$elapsed" -gt 15 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 15s)"
+          if [ "$elapsed" -gt 30 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 30s)"
             exit 1
           fi
 

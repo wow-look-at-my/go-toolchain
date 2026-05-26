@@ -134,7 +134,6 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 
 	// Load packages for analysis.
 	report("type-check")
-	report("type-check")
 	cfg := &packages.Config{
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
