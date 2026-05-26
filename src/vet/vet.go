@@ -12,6 +12,7 @@ import (
 	runtimetrace "runtime/trace"
 	"sort"
 	"strings"
+	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"golang.org/x/tools/go/analysis"
@@ -138,19 +139,29 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		Mode:  packages.LoadAllSyntax,
 		Tests: true,
 	}
-	// ParseFile adds runtime/trace regions for per-file visibility in go tool trace.
-	// (Chrome trace.json only has pipeline-level events; trace.out has full goroutine detail.)
+	var nParsed int
 	cfg.ParseFile = func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+		nParsed++
 		_, task := runtimetrace.NewTask(context.Background(), "parse/"+filepath.Base(filename))
 		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		task.End()
 		return f, err
 	}
 
+	loadStart := time.Now()
 	pkgs, err := packages.Load(cfg, pattern)
+	loadDur := time.Since(loadStart)
 	if err != nil {
 		return false, fmt.Errorf("failed to load packages: %w", err)
 	}
+
+	// Count packages loaded for diagnostics.
+	var nPkgs int
+	packages.Visit(pkgs, func(p *packages.Package) bool {
+		nPkgs++
+		return true
+	}, nil)
+	fmt.Fprintf(os.Stderr, "vet: loaded %d packages (%d files parsed) in %v\n", nPkgs, nParsed, loadDur.Round(time.Millisecond))
 
 	// Check for load errors, filtering out Go version mismatch warnings.
 	// These occur when go-toolchain was built with an older Go than the target
