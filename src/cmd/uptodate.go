@@ -30,11 +30,9 @@ func fingerprintFile() string {
 func computeFingerprint() (string, error) {
 	h := sha256.New()
 
-	// Include Go version
 	fmt.Fprintf(h, "go:%s\n", runtime.Version())
-	// Include CGO setting
+	fmt.Fprintf(h, "toolchain:%s\n", buildVersion)
 	fmt.Fprintf(h, "cgo:%v\n", cgoEnabled)
-	// Include output dir
 	fmt.Fprintf(h, "output:%s\n", outputDir)
 
 	// Collect all relevant files
