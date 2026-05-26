@@ -282,7 +282,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// Enumerate only packages that have test files to avoid the "no such tool
 	// covdata" error on main packages without tests. Also excludes packages
 	// where all non-test .go files are generated code (e.g. sqlc output).
-	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
+	args := []string{"test", "-json", "-timeout=" + testTimeout.String()}
 	if coverFile != "" {
 		// -count=1 disables Go's test-result cache for this invocation.
 		// Go#74873: when -coverpkg=./... is in play, cached coverprofile

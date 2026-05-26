@@ -6,7 +6,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,66 +18,21 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
-	"golang.org/x/tools/go/analysis/passes/assign"
-	"golang.org/x/tools/go/analysis/passes/atomic"
-	"golang.org/x/tools/go/analysis/passes/bools"
-	"golang.org/x/tools/go/analysis/passes/buildtag"
-	"golang.org/x/tools/go/analysis/passes/composite"
-	"golang.org/x/tools/go/analysis/passes/copylock"
-	"golang.org/x/tools/go/analysis/passes/errorsas"
-	"golang.org/x/tools/go/analysis/passes/httpresponse"
-	"golang.org/x/tools/go/analysis/passes/loopclosure"
-	"golang.org/x/tools/go/analysis/passes/lostcancel"
-	"golang.org/x/tools/go/analysis/passes/nilfunc"
-	"golang.org/x/tools/go/analysis/passes/printf"
-	"golang.org/x/tools/go/analysis/passes/shift"
-	"golang.org/x/tools/go/analysis/passes/stdmethods"
-	"golang.org/x/tools/go/analysis/passes/stringintconv"
-	"golang.org/x/tools/go/analysis/passes/structtag"
-	"golang.org/x/tools/go/analysis/passes/tests"
-	"golang.org/x/tools/go/analysis/passes/unmarshal"
-	"golang.org/x/tools/go/analysis/passes/unreachable"
-	"golang.org/x/tools/go/analysis/passes/unsafeptr"
-	"golang.org/x/tools/go/analysis/passes/unusedresult"
 	"golang.org/x/tools/go/packages"
 )
 
-// Analyzers returns all analyzers to run (standard + custom).
+// Analyzers returns the custom analyzers to run in-process.
+// Standard go vet analyzers (assign, atomic, printf, lostcancel, etc.)
+// run via go test's built-in -vet flag during test compilation, using
+// Go's build cache for efficient inter-package fact propagation.
+// Only custom analyzers that go vet doesn't know about run here.
 func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
-		// Standard go vet analyzers
-		assign.Analyzer,
-		atomic.Analyzer,
-		bools.Analyzer,
-		buildtag.Analyzer,
-		composite.Analyzer,
-		copylock.Analyzer,
-		errorsas.Analyzer,
-		httpresponse.Analyzer,
-		loopclosure.Analyzer,
-		lostcancel.Analyzer,
-		nilfunc.Analyzer,
-		printf.Analyzer,
-		shift.Analyzer,
-		stdmethods.Analyzer,
-		stringintconv.Analyzer,
-		structtag.Analyzer,
-		tests.Analyzer,
-		unmarshal.Analyzer,
-		unreachable.Analyzer,
-		unsafeptr.Analyzer,
-		unusedresult.Analyzer,
-		// Custom analyzers
 		AssertLintAnalyzer,
 		AssertNormAnalyzer,
 		RedundantCastAnalyzer,
 	}
 }
-
-// CompileStderr is the writer used for go build/test compilation output.
-// Defaults to os.Stderr. Set to a custom writer (e.g. a cache miss tracker)
-// to capture which packages are compiled.
-var CompileStderr io.Writer = os.Stderr
 
 // ActiveTrace, if set, receives fine-grained per-file and per-analyzer events.
 var ActiveTrace *gotrace.Trace
@@ -139,43 +93,35 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		}
 	}
 
-	// Pre-compile all packages with visible progress. go build -v prints
-	// each package to stderr as it compiles, warming the build cache.
-	// packages.Load then finds everything cached and runs fast.
-	report("compile")
-	var compileStderr io.Writer = CompileStderr
-	if ActiveTrace != nil {
-		compileStderr = &compileTracer{target: CompileStderr, trace: ActiveTrace}
-	}
-	compileCmd := exec.Command("go", "build", "-v", pattern)
-	compileCmd.Stdout = os.Stdout
-	compileCmd.Stderr = compileStderr
-	_ = compileCmd.Run() // best-effort; test-only packages may fail
-
-	// Also compile test binaries to warm the cache for test variants.
-	testCompileCmd := exec.Command("go", "test", "-run=^$", "-count=1", pattern)
-	testCompileCmd.Stdout = os.Stdout
-	testCompileCmd.Stderr = compileStderr
-	_ = testCompileCmd.Run() // best-effort
-
-	// Now load packages for analysis — should be fast with warm cache.
+	// Load packages for analysis.
 	report("type-check")
 	cfg := &packages.Config{
-		Mode:  packages.LoadAllSyntax,
+		Mode:  packages.LoadSyntax,
 		Tests: true,
 	}
-	// ParseFile adds runtime/trace regions for per-file visibility in go tool trace.
-	// (Chrome trace.json only has pipeline-level events; trace.out has full goroutine detail.)
+	var nParsed int
 	cfg.ParseFile = func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+		nParsed++
 		_, task := runtimetrace.NewTask(context.Background(), "parse/"+filepath.Base(filename))
 		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		task.End()
 		return f, err
 	}
 
+	loadStart := time.Now()
 	pkgs, err := packages.Load(cfg, pattern)
+	loadDur := time.Since(loadStart)
 	if err != nil {
 		return false, fmt.Errorf("failed to load packages: %w", err)
+	}
+
+	if progress != nil {
+		var nPkgs int
+		packages.Visit(pkgs, func(p *packages.Package) bool {
+			nPkgs++
+			return true
+		}, nil)
+		fmt.Fprintf(os.Stderr, "vet: loaded %d packages (%d files parsed) in %v\n", nPkgs, nParsed, loadDur.Round(time.Millisecond))
 	}
 
 	// Check for load errors, filtering out Go version mismatch warnings.
@@ -279,48 +225,6 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		fmt.Fprintf(&sb, "%s:%d:%d: %s\n", d.File, d.Line, d.Column, d.Message)
 	}
 	return filesChanged, fmt.Errorf("%s", sb.String())
-}
-
-// compileTracer wraps a writer and records per-package compile events from
-// go build -v stderr output. Each line is a package import path that was compiled.
-type compileTracer struct {
-	target io.Writer
-	trace  *gotrace.Trace
-	buf    []byte
-	last   time.Time // when the previous package finished
-}
-
-func (w *compileTracer) Write(p []byte) (int, error) {
-	if w.last.IsZero() {
-		w.last = time.Now()
-	}
-	w.buf = append(w.buf, p...)
-	for {
-		idx := -1
-		for i, b := range w.buf {
-			if b == '\n' {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			break
-		}
-		line := strings.TrimSpace(string(w.buf[:idx]))
-		w.buf = w.buf[idx+1:]
-		now := time.Now()
-		if line != "" && strings.Contains(line, "/") && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
-			w.trace.Record(gotrace.Event{
-				Name:     line,
-				Category: "compile",
-				Thread:   "compile",
-				Start:    w.last,
-				End:      now,
-			})
-		}
-		w.last = now
-	}
-	return w.target.Write(p)
 }
 
 // instrumentAnalyzers wraps each analyzer's Run function in-place to record

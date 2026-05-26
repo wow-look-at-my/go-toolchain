@@ -64,6 +64,10 @@ var rootCmd = &cobra.Command{
 		if skipCache(cmd) {
 			return nil
 		}
+		if cmd.Parent() == nil && isUpToDate() {
+			fmt.Println("⇒ Up to date, nothing to do")
+			os.Exit(0)
+		}
 		return enableCacheProg()
 	},
 	RunE: run,
@@ -108,7 +112,6 @@ func run(cmd *cobra.Command, args []string) error {
 	if cacheMisses {
 		tracker := newCacheMissTracker(os.Stderr)
 		activeMissTracker = tracker
-		vet.CompileStderr = tracker
 		defer tracker.Print()
 	}
 
@@ -189,6 +192,8 @@ func run(cmd *cobra.Command, args []string) error {
 
 	}
 
+	os.Chdir(startDir)
+	saveFingerprint()
 	return nil
 }
 

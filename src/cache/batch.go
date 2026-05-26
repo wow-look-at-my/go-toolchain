@@ -161,9 +161,12 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	defer span.End()
 
 	respondAllMiss := func() {
+		b.missesMu.Lock()
 		for _, r := range reqs {
+			b.knownMiss.Add(r.key)
 			r.resp <- batchResp{miss: true}
 		}
+		b.missesMu.Unlock()
 	}
 
 	reqBody, _ := json.Marshal(batchGetRequest{Keys: keys, Prefetch: true})
@@ -252,6 +255,9 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			attribute.String("cacheprog.action_id", shortID(r.actionID)))
 		e, ok := entryByKey[r.key]
 		if !ok {
+			b.missesMu.Lock()
+			b.knownMiss.Add(r.key)
+			b.missesMu.Unlock()
 			markSpanMiss(itemSpan, "not_in_batch_response")
 			itemSpan.End()
 			r.resp <- batchResp{miss: true}
