@@ -60,6 +60,30 @@ jobs:
           name: build-output
           path: build/
 
+  cache-validation:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: false
+      - uses: wow-look-at-my/actions@secret-server#latest
+      - uses: actions/download-artifact@v4
+        with:
+          name: go-toolchain-binary
+          path: build/
+      - run: chmod +x build/go-toolchain
+      - name: Second build (cache validation)
+        run: |
+          build/go-toolchain 2>&1 | tee second-run.log
+          miss=$(grep -oP 'miss \K[0-9]+' second-run.log | head -1)
+          if [ "$miss" != "0" ]; then
+            echo "::error::Cache misses on second build: $miss (expected 0)"
+            exit 1
+          fi
+
   publish-buildhost:
     if: github.ref_type == 'branch'
     needs: [build, action-test]
