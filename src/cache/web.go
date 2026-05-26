@@ -57,8 +57,10 @@ type WebBackend struct {
 	Stats   CacheStats
 	Pool    ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
 	Latency *LatencyStats      // optional; set by Server for sub-operation tracking
-	keysMu  sync.RWMutex
-	keys    set.Set[string] // known keys, built from ListObjects on startup
+	keysMu    sync.RWMutex
+	keys      set.Set[string] // known keys, built from ListObjects on startup
+	missesMu  sync.RWMutex
+	knownMiss set.Set[string] // keys confirmed absent from remote this session
 
 	// OnBatchEntries is called when a batch GET returns prefetch entries.
 	// The caller (Server/Daemon) uses this to populate the local cache,
@@ -187,6 +189,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	b.batchDone = make(chan struct{})
 	go b.batchCoalescer()
 	b.keys = b.loadOrFetchIndex()
+	b.knownMiss = set.New[string]()
 	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
 	return b, nil
 }
@@ -424,7 +427,15 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 		return b.getIndividual(nil, actionID, key)
 	}
 
-	// Key not in index — try batch GET with prefetch.
+	// Key not in index — check if we already know it's absent.
+	b.missesMu.RLock()
+	alreadyMissed := b.knownMiss.Contains(key)
+	b.missesMu.RUnlock()
+	if alreadyMissed {
+		b.MissNotInIndex.Increment()
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
 	b.MissNotInIndex.Increment()
 	return b.getBatch(actionID, key)
 }
