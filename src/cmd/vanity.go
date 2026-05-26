@@ -110,10 +110,15 @@ func isVanityHostReachable(host string) bool {
 	return true
 }
 
-// resolveVanityVCSURL discovers the VCS repository URL for a vanity module.
+// resolveVanityVCSURL discovers the VCS repository URL and import prefix for
+// a vanity module. The import prefix identifies the root of the vanity
+// namespace that maps to the repository; any path beyond the prefix is a
+// sub-module path within the repo.
+//
 // It first queries the Go module proxy (go mod download -json) to get the
-// Origin URL, then falls back to the go-import meta tag on the vanity host.
-func resolveVanityVCSURL(modulePath, version string) (string, error) {
+// Origin URL and Subdir, then falls back to the go-import meta tag on the
+// vanity host.
+func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
 	// Strategy 1: use go mod download -json via proxy to get Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
 	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct")
@@ -121,11 +126,16 @@ func resolveVanityVCSURL(modulePath, version string) (string, error) {
 	if err == nil {
 		var info struct {
 			Origin *struct {
-				URL string `json:"URL"`
+				URL    string `json:"URL"`
+				Subdir string `json:"Subdir"`
 			} `json:"Origin"`
 		}
 		if json.Unmarshal(output, &info) == nil && info.Origin != nil && info.Origin.URL != "" {
-			return info.Origin.URL, nil
+			importPrefix := modulePath
+			if info.Origin.Subdir != "" {
+				importPrefix = strings.TrimSuffix(modulePath, "/"+info.Origin.Subdir)
+			}
+			return info.Origin.URL, importPrefix, nil
 		}
 	}
 
@@ -134,27 +144,27 @@ func resolveVanityVCSURL(modulePath, version string) (string, error) {
 }
 
 // resolveGoImportMeta fetches the go-import meta tag from a vanity host.
-func resolveGoImportMeta(modulePath string) (string, error) {
+func resolveGoImportMeta(modulePath string) (vcsURL, importPrefix string, err error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get("https://" + modulePath + "?go-get=1")
 	if err != nil {
-		return "", fmt.Errorf("fetch go-import for %s: %w", modulePath, err)
+		return "", "", fmt.Errorf("fetch go-import for %s: %w", modulePath, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	return parseGoImportMeta(string(body), modulePath)
 }
 
-// parseGoImportMeta extracts the VCS repo URL from HTML containing a go-import
-// meta tag.  The expected format is:
+// parseGoImportMeta extracts the VCS repo URL and import prefix from HTML
+// containing a go-import meta tag.  The expected format is:
 //
 //	<meta name="go-import" content="prefix vcs repo-url">
-func parseGoImportMeta(html, modulePath string) (string, error) {
+func parseGoImportMeta(html, modulePath string) (repoURL, importPrefix string, err error) {
 	for _, line := range strings.Split(html, "\n") {
 		if !strings.Contains(line, "go-import") {
 			continue
@@ -170,10 +180,10 @@ func parseGoImportMeta(html, modulePath string) (string, error) {
 		}
 		parts := strings.Fields(rest[:end])
 		if len(parts) >= 3 && strings.HasPrefix(modulePath, parts[0]) {
-			return parts[2], nil
+			return parts[2], parts[0], nil
 		}
 	}
-	return "", fmt.Errorf("no go-import meta found for %s", modulePath)
+	return "", "", fmt.Errorf("no go-import meta found for %s", modulePath)
 }
 
 // vcsURLToModulePath strips the scheme and .git suffix from a VCS URL,
@@ -186,7 +196,7 @@ func vcsURLToModulePath(vcsURL string) string {
 }
 
 // vanityVCSResolver abstracts VCS URL resolution for testing.
-var vanityVCSResolver func(modulePath, version string) (string, error)
+var vanityVCSResolver func(modulePath, version string) (string, string, error)
 
 // injectVanityReplaces parses go.sum for vanity-URL modules, checks host
 // reachability, and injects replace directives into go.mod for any module
@@ -228,7 +238,7 @@ func injectVanityReplaces() (*vanityState, error) {
 			if vanityVCSResolver != nil {
 				resolve = vanityVCSResolver
 			}
-			vcsURL, err := resolve(m.Path, m.Version)
+			vcsURL, importPrefix, err := resolve(m.Path, m.Version)
 			if err != nil {
 				if !jsonOutput {
 					fmt.Printf("    warning: cannot resolve %s: %v\n", m.Path, err)
@@ -238,6 +248,14 @@ func injectVanityReplaces() (*vanityState, error) {
 			ghPath := vcsURLToModulePath(vcsURL)
 			if ghPath == "" || ghPath == m.Path {
 				continue
+			}
+
+			// Append sub-module suffix: if the module path extends beyond
+			// the import prefix, the extra path identifies a sub-module
+			// directory within the repository (e.g. otel/trace in
+			// opentelemetry-go).
+			if importPrefix != "" && m.Path != importPrefix && strings.HasPrefix(m.Path, importPrefix) {
+				ghPath += m.Path[len(importPrefix):]
 			}
 
 			// If the vanity module has a /vN major version suffix (e.g.
