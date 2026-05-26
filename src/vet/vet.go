@@ -18,56 +18,16 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
-	"golang.org/x/tools/go/analysis/passes/assign"
-	"golang.org/x/tools/go/analysis/passes/atomic"
-	"golang.org/x/tools/go/analysis/passes/bools"
-	"golang.org/x/tools/go/analysis/passes/buildtag"
-	"golang.org/x/tools/go/analysis/passes/composite"
-	"golang.org/x/tools/go/analysis/passes/copylock"
-	"golang.org/x/tools/go/analysis/passes/errorsas"
-	"golang.org/x/tools/go/analysis/passes/httpresponse"
-	"golang.org/x/tools/go/analysis/passes/loopclosure"
-	"golang.org/x/tools/go/analysis/passes/lostcancel"
-	"golang.org/x/tools/go/analysis/passes/nilfunc"
-	"golang.org/x/tools/go/analysis/passes/printf"
-	"golang.org/x/tools/go/analysis/passes/shift"
-	"golang.org/x/tools/go/analysis/passes/stdmethods"
-	"golang.org/x/tools/go/analysis/passes/stringintconv"
-	"golang.org/x/tools/go/analysis/passes/structtag"
-	"golang.org/x/tools/go/analysis/passes/tests"
-	"golang.org/x/tools/go/analysis/passes/unmarshal"
-	"golang.org/x/tools/go/analysis/passes/unreachable"
-	"golang.org/x/tools/go/analysis/passes/unsafeptr"
-	"golang.org/x/tools/go/analysis/passes/unusedresult"
 	"golang.org/x/tools/go/packages"
 )
 
-// Analyzers returns all analyzers to run (standard + custom).
+// Analyzers returns the custom analyzers to run in-process.
+// Standard go vet analyzers (assign, atomic, printf, lostcancel, etc.)
+// run via go test's built-in -vet flag during test compilation, using
+// Go's build cache for efficient inter-package fact propagation.
+// Only custom analyzers that go vet doesn't know about run here.
 func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
-		// Standard go vet analyzers
-		assign.Analyzer,
-		atomic.Analyzer,
-		bools.Analyzer,
-		buildtag.Analyzer,
-		composite.Analyzer,
-		copylock.Analyzer,
-		errorsas.Analyzer,
-		httpresponse.Analyzer,
-		loopclosure.Analyzer,
-		lostcancel.Analyzer,
-		nilfunc.Analyzer,
-		printf.Analyzer,
-		shift.Analyzer,
-		stdmethods.Analyzer,
-		stringintconv.Analyzer,
-		structtag.Analyzer,
-		tests.Analyzer,
-		unmarshal.Analyzer,
-		unreachable.Analyzer,
-		unsafeptr.Analyzer,
-		unusedresult.Analyzer,
-		// Custom analyzers
 		AssertLintAnalyzer,
 		AssertNormAnalyzer,
 		RedundantCastAnalyzer,
@@ -136,7 +96,7 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 	// Load packages for analysis.
 	report("type-check")
 	cfg := &packages.Config{
-		Mode:  packages.LoadAllSyntax,
+		Mode:  packages.LoadSyntax,
 		Tests: true,
 	}
 	var nParsed int
