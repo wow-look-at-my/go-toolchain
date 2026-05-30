@@ -147,12 +147,17 @@ runs:
       if: inputs.autorelease == 'true'
       uses: wow-look-at-my/actions@typescript#latest
       with:
+        github: ${{ toJSON(github) }}
         script: |
           // Probe the artifacts endpoint to verify actions: read.
           // A 403 means the workflow is missing the permission.
+          // Use getOctokit(github.token) -- the pre-authenticated octokit proxy
+          // relies on GITHUB_TOKEN in process.env, which is not propagated to
+          // sub-action processes from composite actions.
+          const oct = getOctokit(github.token as string);
           let actionsReadOk = false;
           try {
-            await octokit.rest.actions.listWorkflowRunArtifacts({
+            await oct.rest.actions.listWorkflowRunArtifacts({
               owner: context.repo.owner,
               repo: context.repo.repo,
               run_id: context.runId,
