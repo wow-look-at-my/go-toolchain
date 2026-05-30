@@ -36,7 +36,7 @@ inputs:
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically publish to buildhost when running on the default branch (requires id-token: write permission)'
+    description: 'Automatically publish to buildhost when running on the default branch (requires id-token: write and actions: read permissions)'
     required: false
     default: 'true'
   buildhost-url:
@@ -142,6 +142,48 @@ runs:
           exit 1
         fi
         echo "security-events: write confirmed (probe HTTP ${HTTP_CODE})"
+
+    - name: Verify autorelease permissions
+      if: inputs.autorelease == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        GH_API: ${{ github.api_url }}
+      run: |
+        set -euo pipefail
+        # Probe the artifacts endpoint to verify actions: read.
+        # 403 = workflow lacks actions: read.
+        # 200 = permission OK (artifacts list, may be empty).
+        HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+          -H "Authorization: Bearer ${GH_TOKEN}" \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "${GH_API}/repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/artifacts")
+        if [ "${HTTP_CODE}" = "403" ]; then
+          echo "::error title=Missing actions: read::autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing."
+          exit 1
+        fi
+        echo "actions: read confirmed (probe HTTP ${HTTP_CODE})"
+        # Verify id-token: write by checking OIDC environment variables.
+        # On external fork PRs GitHub withholds OIDC for security; skip rather
+        # than produce a spurious failure -- autorelease is gated to the default
+        # branch and won't run on fork PRs regardless.
+        IS_FORK_PR=false
+        if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ -f "${GITHUB_EVENT_PATH}" ]; then
+          HEAD_REPO=$(jq -r '.pull_request.head.repo.full_name // ""' "${GITHUB_EVENT_PATH}")
+          if [ -n "${HEAD_REPO}" ] && [ "${HEAD_REPO}" != "${GITHUB_REPOSITORY}" ]; then
+            IS_FORK_PR=true
+          fi
+        fi
+        if [ "${IS_FORK_PR}" = "true" ]; then
+          echo "External fork PR detected: skipping id-token check (OIDC unavailable; autorelease won't run on non-default branches)"
+        elif [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          echo "::error title=Missing id-token: write::autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing."
+          exit 1
+        else
+          echo "id-token: write confirmed (OIDC environment variables present)"
+        fi
 
     - name: Initialize CodeQL
       if: inputs.codeql == 'true'
