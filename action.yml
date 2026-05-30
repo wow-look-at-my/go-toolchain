@@ -36,7 +36,7 @@ inputs:
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically publish to buildhost when running on the default branch (requires id-token: write permission)'
+    description: 'Automatically publish to buildhost on every branch push (requires id-token: write and actions: read permissions)'
     required: false
     default: 'true'
   buildhost-url:
@@ -143,6 +143,46 @@ runs:
         fi
         echo "security-events: write confirmed (probe HTTP ${HTTP_CODE})"
 
+    - name: Verify autorelease permissions
+      if: inputs.autorelease == 'true'
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        github: ${{ toJSON(github) }}
+        script: |
+          // Probe the artifacts endpoint to verify actions: read.
+          // A 403 means the workflow is missing the permission.
+          // Use getOctokit(github.token) -- the pre-authenticated octokit proxy
+          // relies on GITHUB_TOKEN in process.env, which is not propagated to
+          // sub-action processes from composite actions.
+          const oct = getOctokit(github.token as string);
+          let actionsReadOk = false;
+          try {
+            await oct.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            actionsReadOk = true;
+          } catch (e: any) {
+            if (e.status !== 403) throw e;
+            core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing.");
+          }
+          if (actionsReadOk) {
+            core.info('actions: read confirmed');
+            // Verify id-token: write via OIDC environment variables.
+            // On external fork PRs GitHub withholds OIDC regardless of
+            // declared permissions; skip rather than fail spuriously.
+            const isForkPr = context.eventName === 'pull_request' &&
+              (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+            if (isForkPr) {
+              core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
+            } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+              core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
+            } else {
+              core.info('id-token: write confirmed (OIDC environment variables present)');
+            }
+          }
+
     - name: Initialize CodeQL
       if: inputs.codeql == 'true'
       uses: github/codeql-action/init@v4
@@ -193,5 +233,5 @@ runs:
         path: ${{ inputs.working-directory }}/build/
 
     - name: Auto-release to buildhost
-      if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      if: inputs.autorelease == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master

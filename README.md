@@ -36,6 +36,7 @@ permissions:
   contents: write
   id-token: write
   security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
+  actions: read            # required for buildhost autorelease (listWorkflowRunArtifacts/downloadArtifact)
 
 jobs:
   build:
@@ -65,7 +66,7 @@ To opt out, pass `codeql: 'false'`.
 | `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | string   | `true`     | Automatically publish to buildhost when on the default branch (requires `id-token: write`) |
+| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write` and `actions: read`) |
 | `buildhost-url`     | string   | `https://pazer.build` | Buildhost base URL |
 | `upload-artifacts`  | string   | `true`     | Upload `build/` directory as a GitHub Actions artifact after building |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
