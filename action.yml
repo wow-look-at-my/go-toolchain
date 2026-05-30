@@ -150,32 +150,33 @@ runs:
         script: |
           // Probe the artifacts endpoint to verify actions: read.
           // A 403 means the workflow is missing the permission.
+          let actionsReadOk = false;
           try {
             await octokit.rest.actions.listWorkflowRunArtifacts({
               owner: context.repo.owner,
               repo: context.repo.repo,
               run_id: context.runId,
             });
-            core.info('actions: read confirmed');
+            actionsReadOk = true;
           } catch (e: any) {
-            if (e.status === 403) {
-              core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing.");
-              return;
-            }
-            throw e;
+            if (e.status !== 403) throw e;
+            core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing.");
           }
-          // Verify id-token: write via OIDC environment variables.
-          // On external fork PRs GitHub withholds OIDC; skip rather than fail
-          // spuriously -- autorelease is gated to the default branch and won't
-          // run on fork PRs regardless.
-          const isForkPr = context.eventName === 'pull_request' &&
-            context.payload?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
-          if (isForkPr) {
-            core.info("External fork PR: skipping id-token check (OIDC unavailable; autorelease won't run on non-default branches)");
-          } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
-            core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
-          } else {
-            core.info('id-token: write confirmed (OIDC environment variables present)');
+          if (actionsReadOk) {
+            core.info('actions: read confirmed');
+            // Verify id-token: write via OIDC environment variables.
+            // On external fork PRs GitHub withholds OIDC; skip rather than fail
+            // spuriously -- autorelease is gated to the default branch and won't
+            // run on fork PRs regardless.
+            const isForkPr = context.eventName === 'pull_request' &&
+              (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+            if (isForkPr) {
+              core.info("External fork PR: skipping id-token check (OIDC unavailable; autorelease won't run on non-default branches)");
+            } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+              core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
+            } else {
+              core.info('id-token: write confirmed (OIDC environment variables present)');
+            }
           }
 
     - name: Initialize CodeQL
