@@ -36,7 +36,7 @@ inputs:
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically publish to buildhost when running on the default branch (requires id-token: write and actions: read permissions)'
+    description: 'Automatically publish to buildhost on every branch push (requires id-token: write and actions: read permissions)'
     required: false
     default: 'true'
   buildhost-url:
@@ -170,13 +170,12 @@ runs:
           if (actionsReadOk) {
             core.info('actions: read confirmed');
             // Verify id-token: write via OIDC environment variables.
-            // On external fork PRs GitHub withholds OIDC; skip rather than fail
-            // spuriously -- autorelease is gated to the default branch and won't
-            // run on fork PRs regardless.
+            // On external fork PRs GitHub withholds OIDC regardless of
+            // declared permissions; skip rather than fail spuriously.
             const isForkPr = context.eventName === 'pull_request' &&
               (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
             if (isForkPr) {
-              core.info("External fork PR: skipping id-token check (OIDC unavailable; autorelease won't run on non-default branches)");
+              core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
             } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
               core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
             } else {
@@ -234,5 +233,5 @@ runs:
         path: ${{ inputs.working-directory }}/build/
 
     - name: Auto-release to buildhost
-      if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      if: inputs.autorelease == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
