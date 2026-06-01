@@ -85,6 +85,13 @@ func CaseNamedString(t *testing.T) {
 	assert.Equal(t, getName(), "")
 }
 
+// Non-numeric same-kind named type with the *literal* on the expected side:
+// the string constant must still be wrapped (the numeric representability
+// guard must not block a non-numeric conversion).
+func CaseNamedStringLiteralExpected(t *testing.T) {
+	assert.Equal(t, "", getName())
+}
+
 // Cross-package named numeric type: conversion spelled with the import
 // qualifier (time.Duration), exercising the alias-resolution path.
 func CaseCrossPackageType(t *testing.T) {

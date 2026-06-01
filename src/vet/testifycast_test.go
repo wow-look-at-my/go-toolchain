@@ -87,6 +87,9 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 		"assert.Equal(t, float64(getCelsius()), getFloat64())",
 		// Rule 5: non-numeric same-kind named type Name vs string.
 		`assert.Equal(t, string(getName()), "")`,
+		// Rule 5 with the literal on the expected side: wrap the string literal
+		// into the named type (numeric representability guard must not apply).
+		`assert.Equal(t, Name(""), getName())`,
 		// Cross-package named numeric type spelled with the import qualifier.
 		"assert.Equal(t, time.Duration(0), getDuration())",
 	}

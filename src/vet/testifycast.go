@@ -238,8 +238,11 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 // compares the original numeric values and would not have considered such a
 // pair equal.
 func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV types.TypeAndValue, target types.Type) *CastEdit {
+	// Guard numeric constants against value-changing conversions (truncation /
+	// overflow). Non-numeric conversions (e.g. string -> named string type) are
+	// always representable, so the guard only applies to numeric targets.
 	if argTV.Value != nil {
-		if tb, ok := target.Underlying().(*types.Basic); ok {
+		if tb, ok := target.Underlying().(*types.Basic); ok && tb.Info()&types.IsNumeric != 0 {
 			if !constRepresentable(argTV.Value, tb) {
 				return nil
 			}
