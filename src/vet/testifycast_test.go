@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,22 +19,27 @@ import (
 // returns the rewritten source of every file that had fixes applied.
 func applyCastFixtures(t *testing.T) string {
 	t.Helper()
-	testdata, err := filepath.Abs("testdata")
+	// The fixture is a self-contained module (with a local replace to the stub
+	// testify), so load it module-mode: point analysistest at the module root
+	// with pattern ".", mirroring the assertnorm test.
+	dir, err := filepath.Abs(filepath.Join("testdata", "src", "testifycast"))
 	require.NoError(t, err)
 
-	results := analysistest.Run(t, testdata, TestifyCastAnalyzer, "testifycast")
+	results := analysistest.Run(t, dir, TestifyCastAnalyzer, ".")
 
 	var out strings.Builder
 	for _, r := range results {
-		fixesList, ok := r.Result.([]*ASTFixes)
+		editsList, ok := r.Result.([]*CastEdits)
 		if !ok {
 			continue
 		}
-		for _, f := range fixesList {
-			if f == nil || len(f.Fixes) == 0 {
+		for _, c := range editsList {
+			if c == nil || len(c.Edits) == 0 {
 				continue
 			}
-			require.NoError(t, f.Fprint(&out))
+			src, err := os.ReadFile(c.Filename)
+			require.NoError(t, err)
+			out.Write(c.rendered(src))
 		}
 	}
 	return out.String()

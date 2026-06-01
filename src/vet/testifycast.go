@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"go/ast"
 	"go/constant"
-	"go/parser"
+	"go/token"
 	"go/types"
 	"math"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 
+	ansi "github.com/wow-look-at-my/ansi-writer"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -34,11 +36,28 @@ const (
 // compared operands the same static type by wrapping one of them in a
 // conversion — mirroring exactly the cases ObjectsAreEqual would have treated
 // as equal.
+//
+// Fixes are emitted as surgical byte edits (CastEdits) rather than whole-file
+// AST reprints, so all surrounding formatting and comments are preserved.
 var TestifyCastAnalyzer = &analysis.Analyzer{
 	Name:       "testifycast",
 	Doc:        "inserts type conversions for cross-type testify Equal/NotEqual assertions so they pass against upstream testify",
 	Run:        runTestifyCast,
-	ResultType: reflect.TypeOf([]*ASTFixes{}),
+	ResultType: reflect.TypeOf([]*CastEdits{}),
+}
+
+// CastEdit records a single conversion to insert: wrap the source span
+// [Start,End) in TypeName(...).
+type CastEdit struct {
+	Start, End token.Pos
+	TypeName   string
+}
+
+// CastEdits is the set of conversions to apply to one file.
+type CastEdits struct {
+	Filename string
+	Fset     *token.FileSet
+	Edits    []CastEdit
 }
 
 // equalityFuncs are the testify assertions whose semantics changed in the fork
@@ -62,13 +81,14 @@ var elementFuncs = map[string]bool{
 }
 
 func runTestifyCast(pass *analysis.Pass) (any, error) {
-	fileToFixes := make(map[*ast.File][]ASTFix)
+	fileToEdits := make(map[*ast.File]*CastEdits)
 
 	for _, file := range pass.Files {
 		// Cheap pre-scan: skip files that don't import upstream testify at all.
 		if !importsUpstreamTestify(file) {
 			continue
 		}
+		filename := pass.Fset.File(file.Pos()).Name()
 
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -97,8 +117,13 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 
 			switch {
 			case equalityFuncs[name]:
-				if fix := castFixForEqual(pass, file, call, expIdx, actIdx); fix != nil {
-					fileToFixes[file] = append(fileToFixes[file], *fix)
+				if edit := castEditForEqual(pass, file, call, expIdx, actIdx); edit != nil {
+					ce := fileToEdits[file]
+					if ce == nil {
+						ce = &CastEdits{Filename: filename, Fset: pass.Fset}
+						fileToEdits[file] = ce
+					}
+					ce.Edits = append(ce.Edits, *edit)
 				}
 			case elementFuncs[name]:
 				warnElementMismatch(pass, call, name, expIdx, actIdx)
@@ -107,17 +132,13 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 		})
 	}
 
-	if len(fileToFixes) == 0 {
-		return []*ASTFixes(nil), nil
+	if len(fileToEdits) == 0 {
+		return []*CastEdits(nil), nil
 	}
 
-	var result []*ASTFixes
-	for file, fixes := range fileToFixes {
-		result = append(result, &ASTFixes{
-			File:  file,
-			Fset:  pass.Fset,
-			Fixes: fixes,
-		})
+	var result []*CastEdits
+	for _, ce := range fileToEdits {
+		result = append(result, ce)
 	}
 	return result, nil
 }
@@ -144,13 +165,13 @@ func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool)
 	return exp, act, true
 }
 
-// castFixForEqual decides whether a conversion is needed to make the two
+// castEditForEqual decides whether a conversion is needed to make the two
 // operands of an Equal/NotEqual assertion the same static type, and if so
-// returns an ASTFix wrapping the chosen operand. It returns nil when no sound
+// returns the edit wrapping the chosen operand. It returns nil when no sound
 // conversion applies (identical types, non-convertible, fractional-truncating
 // constants, etc.), in which case the assertion is left exactly as the fork
 // would have evaluated it.
-func castFixForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, expIdx, actIdx int) *ASTFix {
+func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, expIdx, actIdx int) *CastEdit {
 	expExpr := call.Args[expIdx]
 	actExpr := call.Args[actIdx]
 
@@ -177,52 +198,46 @@ func castFixForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, ex
 		return nil
 	}
 
-	// Rule 6: the fork returns false when types aren't convertible. Leave such
-	// assertions to fail under upstream exactly as they failed under the fork.
 	expNumeric := isForkNumeric(expBasic)
 	actNumeric := isForkNumeric(actBasic)
 
 	switch {
 	case expNumeric && actNumeric:
-		// Rule 3: numeric mismatch. Pick which side to convert.
-		// If the actual is an untyped literal and the expected is not, convert
-		// the actual (the literal) to the expected's type; otherwise convert
-		// the expected to the actual's type (keeps the value-under-test visible).
+		// Rule 3: numeric mismatch. Pick which side to convert. If the actual
+		// is an untyped literal and the expected is not, convert the actual
+		// (the literal) to the expected's type; otherwise convert the expected
+		// to the actual's type (keeps the value-under-test visible).
 		if isUntypedLiteral(actExpr) && !isUntypedLiteral(expExpr) {
-			return buildCastFix(pass, file, call, actExpr, actTV, expType)
+			return buildCastEdit(pass, file, actExpr, actTV, expType)
 		}
-		return buildCastFix(pass, file, call, expExpr, expTV, actType)
+		return buildCastEdit(pass, file, expExpr, expTV, actType)
 
 	case expNumeric != actNumeric:
-		// One numeric, one not (e.g. string vs []byte handled elsewhere): the
-		// fork required matching kinds, so a numeric-vs-nonnumeric pair with
-		// different kinds compared false. No sound cast. Rule 2.
+		// One numeric, one not: the fork required matching kinds, so this pair
+		// compared false. No sound cast (rule 2).
 		return nil
 
 	default:
 		// Rule 5: neither numeric. The fork converts only when Kind() matches
 		// and the types are convertible, then DeepEqual. Mirror that for
-		// same-kind convertible named types (e.g. type Celsius float64 vs
-		// float64). []byte vs []byte is already handled by upstream (bytes.Equal)
-		// and is caught by the identical-types check above on its element basis.
+		// same-kind convertible named types (e.g. type Name string vs string).
 		if expBasic.Kind() != actBasic.Kind() {
 			return nil
 		}
 		if !types.ConvertibleTo(expType, actType) {
 			return nil
 		}
-		return buildCastFix(pass, file, call, expExpr, expTV, actType)
+		return buildCastEdit(pass, file, expExpr, expTV, actType)
 	}
 }
 
-// buildCastFix constructs the ASTFix that wraps argExpr (whose type-and-value is
+// buildCastEdit constructs the edit that wraps argExpr (whose type-and-value is
 // argTV) in a conversion to target. It returns nil when the conversion would be
 // unsound — for constant operands, when the constant isn't representable in the
 // target type (fractional truncation or overflow), mirroring the fork, which
 // compares the original numeric values and would not have considered such a
 // pair equal.
-func buildCastFix(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, argExpr ast.Expr, argTV types.TypeAndValue, target types.Type) *ASTFix {
-	// Guard constants against value-changing conversions (rules 3 & 10).
+func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV types.TypeAndValue, target types.Type) *CastEdit {
 	if argTV.Value != nil {
 		if tb, ok := target.Underlying().(*types.Basic); ok {
 			if !constRepresentable(argTV.Value, tb) {
@@ -231,43 +246,18 @@ func buildCastFix(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, argEx
 		}
 	}
 
-	typeExpr := typeNameExpr(pass.Pkg, file, target)
-	if typeExpr == nil {
+	name := types.TypeString(target, fileQualifier(pass.Pkg, file))
+	if name == "" || strings.ContainsAny(name, " \t\n") || strings.Contains(name, "invalid") {
+		// Anything we can't spell as a bare conversion function: skip rather
+		// than emit something that won't compile.
 		return nil
 	}
 
-	wrapper := &ast.CallExpr{
-		Fun:  typeExpr,
-		Args: []ast.Expr{argExpr},
+	return &CastEdit{
+		Start:    argExpr.Pos(),
+		End:      argExpr.End(),
+		TypeName: name,
 	}
-	// Clear synthetic and reused positions so the printer reflows the wrapped
-	// expression compactly inline rather than honoring stale offsets.
-	clearNodePositions(wrapper)
-
-	return &ASTFix{
-		OldNode:  argExpr,
-		NewNodes: []ast.Node{wrapper},
-	}
-}
-
-// typeNameExpr renders target as an ast.Expr spelled the way it appears in the
-// scope of file (honoring import aliases), suitable for use as a conversion
-// function. Returns nil if the type can't be spelled as a simple conversion
-// (e.g. it references a package not imported in this file).
-func typeNameExpr(pkg *types.Package, file *ast.File, target types.Type) ast.Expr {
-	qual := fileQualifier(pkg, file)
-	s := types.TypeString(target, qual)
-	// A qualifier that returns "" for an un-imported foreign package would yield
-	// a bare type name that doesn't resolve; reject anything we can't spell.
-	if s == "" || strings.Contains(s, "invalid type") {
-		return nil
-	}
-	expr, err := parser.ParseExpr(s)
-	if err != nil {
-		return nil
-	}
-	clearNodePositions(expr)
-	return expr
 }
 
 // fileQualifier returns a types.Qualifier that names packages using the import
@@ -295,9 +285,9 @@ func fileQualifier(self *types.Package, file *ast.File) types.Qualifier {
 }
 
 // isForkNumeric reports whether a basic type is numeric in the sense the fork's
-// isNumericType used: reflect kinds Int..Complex128. We additionally exclude
-// complex here because toFloat64 (the fork's numeric comparison path) does not
-// handle complex, and constant casts into complex are out of scope.
+// isNumericType used (reflect kinds Int..Complex128), excluding complex: the
+// fork's numeric comparison path (toFloat64) does not handle complex, and
+// constant casts into complex are out of scope.
 func isForkNumeric(b *types.Basic) bool {
 	switch b.Kind() {
 	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
@@ -434,4 +424,61 @@ func importsUpstreamTestify(file *ast.File) bool {
 		}
 	}
 	return false
+}
+
+// rendered returns the file's source with all edits applied, without writing to
+// disk. Edits are applied right-to-left so byte offsets stay valid.
+func (c *CastEdits) rendered(src []byte) []byte {
+	edits := append([]CastEdit(nil), c.Edits...)
+	sort.Slice(edits, func(i, j int) bool { return edits[i].Start > edits[j].Start })
+
+	out := src
+	for _, e := range edits {
+		s := c.Fset.Position(e.Start).Offset
+		en := c.Fset.Position(e.End).Offset
+		if s < 0 || en > len(out) || s > en {
+			continue
+		}
+		var b []byte
+		b = append(b, out[:s]...)
+		b = append(b, e.TypeName...)
+		b = append(b, '(')
+		b = append(b, out[s:en]...)
+		b = append(b, ')')
+		b = append(b, out[en:]...)
+		out = b
+	}
+	return out
+}
+
+// Apply rewrites the file on disk with all edits and prints a fix line per edit.
+func (c *CastEdits) Apply() error {
+	src, err := os.ReadFile(c.Filename)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(c.Filename, c.rendered(src), 0644); err != nil {
+		return err
+	}
+	for _, e := range c.Edits {
+		c.printEdit(src, e)
+	}
+	return nil
+}
+
+// printEdit prints a colored old -> new line for a single conversion.
+func (c *CastEdits) printEdit(src []byte, e CastEdit) {
+	pos := c.Fset.Position(e.Start)
+	loc := SourceLocation{File: pos.Filename, Line: pos.Line, Column: pos.Column}
+	s := c.Fset.Position(e.Start).Offset
+	en := c.Fset.Position(e.End).Offset
+	old := ""
+	if s >= 0 && en <= len(src) && s <= en {
+		old = string(src[s:en])
+	}
+	yellow := ansi.Concat(ansi.Yellow.FG, "fixed:", ansi.Reset)
+	grey := ansi.Concat(ansi.BrightBlack.FG, loc.ShortLoc(), ansi.Reset)
+	red := ansi.Concat(ansi.Red.FG, old, ansi.Reset)
+	green := ansi.Concat(ansi.Green.FG, e.TypeName+"("+old+")", ansi.Reset)
+	fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
 }
