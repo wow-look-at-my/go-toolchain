@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestLogger returns a logger with a long flush interval so that all
