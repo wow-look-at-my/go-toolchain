@@ -405,6 +405,44 @@ go.opentelemetry.io/otel/sdk v1.35.0 h1:ccc=
 	assert.NotContains(t, string(data), "replace")
 }
 
+func TestInjectVanityReplacesSkipsNonDirectHost(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	gomod := "module test\n\ngo 1.21\n\nrequire google.golang.org/protobuf v1.36.11\n"
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+	gosum := "google.golang.org/protobuf v1.36.11 h1:aaa=\n"
+	os.WriteFile("go.sum", []byte(gosum), 0644)
+
+	oldChecker := vanityHostChecker
+	vanityHostChecker = func(host string) bool { return false }
+	defer func() { vanityHostChecker = oldChecker }()
+
+	// The module's real repository is on go.googlesource.com, which is not a
+	// direct code host. Rewriting onto it would only swap one indirect host for
+	// another, so the replace must be skipped entirely.
+	oldResolver := vanityVCSResolver
+	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
+		return "https://go.googlesource.com/protobuf", "google.golang.org/protobuf", nil
+	}
+	defer func() { vanityVCSResolver = oldResolver }()
+
+	oldJSON := jsonOutput
+	jsonOutput = true
+	defer func() { jsonOutput = oldJSON }()
+
+	state, err := injectVanityReplaces()
+	assert.Nil(t, err)
+	assert.Nil(t, state)
+
+	// go.mod must be untouched — no replace onto a non-direct host.
+	data, _ := os.ReadFile("go.mod")
+	assert.NotContains(t, string(data), "replace")
+	assert.NotContains(t, string(data), "go.googlesource.com")
+}
+
 func TestRemoveVanityReplacesEmpty(t *testing.T) {
 	err := removeVanityReplaces(nil)
 	assert.Nil(t, err)
