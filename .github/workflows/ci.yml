@@ -75,6 +75,8 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
       - uses: ./
+        with:
+          autorelease: 'false'
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
