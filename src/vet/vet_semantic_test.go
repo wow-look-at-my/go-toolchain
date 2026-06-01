@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRemoveImport(t *testing.T) {
@@ -408,6 +408,12 @@ func TestIsRedundantCastChar(t *testing.T) {
 }
 
 func TestVetSemanticWithFixRecursive(t *testing.T) {
+	// assertlint will add a stretchr/testify import; resolve it to the local
+	// stub via a replace so the go mod tidy the fix triggers needs no network
+	// (the per-package test timeout is tight).
+	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
+	require.NoError(t, err)
+
 	// Test that after applying fixes, vetSemantic re-runs and go mod tidy is called
 	dir := t.TempDir()
 
@@ -424,7 +430,8 @@ func TestFoo(t *testing.T) {
 }
 `
 	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644)
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
+	gomod := "module testmod\n\ngo 1.21\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
 
 	// Initialize git repo and commit the file (required by checkFileCommitted)
 	oldWd, _ := os.Getwd()

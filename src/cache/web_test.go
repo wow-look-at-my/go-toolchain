@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompressDecompress_RoundTrip(t *testing.T) {

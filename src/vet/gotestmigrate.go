@@ -6,7 +6,6 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -16,8 +15,8 @@ import (
 const (
 	gotestAssert    = "gotest.tools/v3/assert"
 	gotestAssertCmp = "gotest.tools/v3/assert/cmp"
-	testifyRequire  = "github.com/wow-look-at-my/testify/require"
-	testifyAssert   = "github.com/wow-look-at-my/testify/assert"
+	testifyRequire  = "github.com/stretchr/testify/require"
+	testifyAssert   = "github.com/stretchr/testify/assert"
 )
 
 // gotestFuncRenames maps gotest.tools function names to their testify/require equivalents.
@@ -68,7 +67,7 @@ func extractCmpCall(expr ast.Expr) (*ast.CallExpr, *ast.SelectorExpr, bool) {
 }
 
 // MigrateGotestTools scans all Go files and migrates gotest.tools/v3/assert
-// imports to github.com/wow-look-at-my/testify/require. Returns true if any
+// imports to github.com/stretchr/testify/require. Returns true if any
 // files were modified.
 func MigrateGotestTools() (bool, error) {
 	var anyFixed bool
@@ -96,11 +95,11 @@ func MigrateGotestTools() (bool, error) {
 		return false, err
 	}
 
+	// Sync the module graph (go mod tidy, plus go mod vendor when vendored) so a
+	// vendored repo that only needs gotest.tools migration doesn't end up with
+	// updated imports/go.mod but stale vendor metadata.
 	if anyFixed {
-		cmd := exec.Command("go", "mod", "tidy")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := syncModuleGraph(); err != nil {
 			return anyFixed, err
 		}
 	}

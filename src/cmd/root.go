@@ -352,6 +352,16 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vanityErr != nil {
 		return false, nil, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
 	}
+	// Remove the injected vanity replace directives (and restore go.sum) when
+	// this function returns, however it returns — including the early returns
+	// when `go mod tidy` fails below. Registering the cleanup here, rather than
+	// after tidy, is what guarantees a failed tidy cannot leave the injected
+	// GitHub/GitLab mirror replaces festering in the user's go.mod. The replaces
+	// stay active for tidy, generate, vet, tests, and build (all run before this
+	// function returns).
+	defer func() {
+		_ = removeVanityReplaces(vanity)
+	}()
 
 	var modTidyStep *step
 	if !quiet {
@@ -409,13 +419,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			tidyStep2.done()
 		}
 	}
-
-	// Defer removal of vanity replace directives until after all pipeline
-	// stages complete. Tests and build need the replaces to resolve modules
-	// when the vanity host is unreachable.
-	defer func() {
-		_ = removeVanityReplaces(vanity)
-	}()
 
 	var vetStep *step
 	if !quiet {

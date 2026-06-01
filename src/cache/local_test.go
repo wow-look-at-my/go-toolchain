@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLocalCache_PutAndGet(t *testing.T) {
