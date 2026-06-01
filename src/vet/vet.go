@@ -31,6 +31,7 @@ func Analyzers() []*analysis.Analyzer {
 		AssertLintAnalyzer,
 		AssertNormAnalyzer,
 		RedundantCastAnalyzer,
+		TestifyCastAnalyzer,
 	}
 }
 
@@ -186,6 +187,21 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 					filesChanged = true
 				}
 			}
+			// Apply surgical byte-edit fixes (testifycast conversions).
+			if results, ok := action.Result.([]*CastEdits); ok {
+				for _, result := range results {
+					if result == nil || len(result.Edits) == 0 {
+						continue
+					}
+					if err := checkFileCommittedByName(result.Filename); err != nil {
+						return false, err
+					}
+					if err := result.Apply(); err != nil {
+						return false, fmt.Errorf("failed to apply cast edits: %w", err)
+					}
+					filesChanged = true
+				}
+			}
 		}
 	}
 
@@ -270,7 +286,12 @@ type Diagnostic struct {
 // for infrastructure reasons (e.g., unsupported repo format, worktree bugs).
 func checkFileCommitted(fixes *ASTFixes) error {
 	filename := fixes.Fset.Position(fixes.File.Pos()).Filename
+	return checkFileCommittedByName(filename)
+}
 
+// checkFileCommittedByName is checkFileCommitted keyed by an explicit filename,
+// used by fix producers that don't carry an *ASTFixes (e.g. cast text edits).
+func checkFileCommittedByName(filename string) error {
 	err := checkFileCommittedGoGit(filename)
 	if err == nil {
 		return nil

@@ -13,9 +13,9 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 // testPkgName is the npm package name for go-toolchain, used only in tests to
