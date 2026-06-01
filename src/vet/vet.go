@@ -31,6 +31,7 @@ func Analyzers() []*analysis.Analyzer {
 		AssertLintAnalyzer,
 		AssertNormAnalyzer,
 		RedundantCastAnalyzer,
+		TestifyCastAnalyzer,
 	}
 }
 

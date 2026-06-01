@@ -40,7 +40,7 @@ func TestFoo(t *testing.T) {
 	assert.Nil(t, err)
 
 	s := string(result)
-	assert.Contains(t, s, `"github.com/wow-look-at-my/testify/require"`)
+	assert.Contains(t, s, `"github.com/stretchr/testify/require"`)
 	assert.NotContains(t, s, `"gotest.tools/v3/assert"`)
 	assert.Contains(t, s, "require.NoError")
 	assert.NotContains(t, s, "assert.NilError")
@@ -110,7 +110,7 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 	dir := t.TempDir()
 
 	// File that already has testify/require AND gotest.tools/assert
-	content := "package example\n\nimport (\n\t\"testing\"\n\n\t\"github.com/wow-look-at-my/testify/require\"\n\t\"gotest.tools/v3/assert\"\n)\n\nfunc TestFoo(t *testing.T) {\n\trequire.NoError(t, nil)\n\tassert.NilError(t, nil)\n}\n"
+	content := "package example\n\nimport (\n\t\"testing\"\n\n\t\"github.com/stretchr/testify/require\"\n\t\"gotest.tools/v3/assert\"\n)\n\nfunc TestFoo(t *testing.T) {\n\trequire.NoError(t, nil)\n\tassert.NilError(t, nil)\n}\n"
 	filePath := filepath.Join(dir, "example_test.go")
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
@@ -124,7 +124,7 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 
 	s := string(result)
 	// Should have exactly one require import, not two
-	count := strings.Count(s, `"github.com/wow-look-at-my/testify/require"`)
+	count := strings.Count(s, `"github.com/stretchr/testify/require"`)
 	assert.Equal(t, 1, count, "should have exactly one require import, got %d", count)
 }
 
@@ -136,7 +136,7 @@ func TestMigrateGotestTools_NoChanges(t *testing.T) {
 import (
 	"testing"
 
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFoo(t *testing.T) {
@@ -185,9 +185,9 @@ func TestFoo(t *testing.T) {
 	// Check → assert.True (non-fatal)
 	assert.Contains(t, s, "assert.True")
 	// Should have added testify/assert import
-	assert.Contains(t, s, `"github.com/wow-look-at-my/testify/assert"`)
+	assert.Contains(t, s, `"github.com/stretchr/testify/assert"`)
 	// Should have testify/require import
-	assert.Contains(t, s, `"github.com/wow-look-at-my/testify/require"`)
+	assert.Contains(t, s, `"github.com/stretchr/testify/require"`)
 }
 
 func TestMigrateGotestTools_CmpUnwrap(t *testing.T) {

@@ -16,8 +16,8 @@ import (
 const (
 	gotestAssert    = "gotest.tools/v3/assert"
 	gotestAssertCmp = "gotest.tools/v3/assert/cmp"
-	testifyRequire  = "github.com/wow-look-at-my/testify/require"
-	testifyAssert   = "github.com/wow-look-at-my/testify/assert"
+	testifyRequire  = "github.com/stretchr/testify/require"
+	testifyAssert   = "github.com/stretchr/testify/assert"
 )
 
 // gotestFuncRenames maps gotest.tools function names to their testify/require equivalents.
@@ -68,7 +68,7 @@ func extractCmpCall(expr ast.Expr) (*ast.CallExpr, *ast.SelectorExpr, bool) {
 }
 
 // MigrateGotestTools scans all Go files and migrates gotest.tools/v3/assert
-// imports to github.com/wow-look-at-my/testify/require. Returns true if any
+// imports to github.com/stretchr/testify/require. Returns true if any
 // files were modified.
 func MigrateGotestTools() (bool, error) {
 	var anyFixed bool

@@ -44,6 +44,7 @@ func TestAnalyzers(t *testing.T) {
 	assert.True(t, names["assertlint"])
 	assert.True(t, names["assertnorm"])
 	assert.True(t, names["redundantcast"])
+	assert.True(t, names["testifycast"])
 }
 
 func TestRunNoGoMod(t *testing.T) {
