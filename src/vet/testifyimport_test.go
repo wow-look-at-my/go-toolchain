@@ -2,6 +2,7 @@ package vet
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -141,4 +142,78 @@ func TestSyncVendorIfPresent_NoVendor(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	assert.NoError(t, syncVendorIfPresent())
+}
+
+// TestFixTestifyImports_VendorConsistency builds a real vendored module on the
+// fork, runs the rewriter, and verifies the result is a consistent vendor tree
+// on upstream testify: go.mod requires stretchr, vendor/modules.txt agrees, and
+// `go build -mod=vendor ./...` and `go vet -mod=vendor ./...` succeed. This is
+// the regression guard for the "inconsistent vendoring" failure the old
+// fork-direction rewrite produced.
+func TestFixTestifyImports_VendorConsistency(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0644))
+	}
+	write("go.mod", "module vendoredexample\n\ngo 1.21\n")
+	write("foo.go", "package vendoredexample\n\n// Foo exists so the package has a non-test file to build.\nfunc Foo() int { return 1 }\n")
+	write("foo_test.go", `package vendoredexample
+
+import (
+	"testing"
+
+	"github.com/wow-look-at-my/testify/assert"
+)
+
+func TestFoo(t *testing.T) {
+	assert.Equal(t, 1, Foo())
+}
+`)
+
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(oldWd)
+
+	// Set up a real vendored state on the fork. If this setup can't reach the
+	// module proxy, skip rather than fail — the rewrite logic is what's under
+	// test, not network availability.
+	for _, args := range [][]string{{"mod", "tidy"}, {"mod", "vendor"}} {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("vendor setup (go %v) unavailable: %v\n%s", args, err, out)
+		}
+	}
+	modulesTxt := filepath.Join(dir, "vendor", "modules.txt")
+	pre, err := os.ReadFile(modulesTxt)
+	require.NoError(t, err)
+	require.Contains(t, string(pre), "github.com/wow-look-at-my/testify", "fixture should start vendored on the fork")
+
+	// Run the rewriter: flip imports to upstream and resync the vendor tree.
+	fixed, err := FixTestifyImports()
+	require.NoError(t, err)
+	assert.True(t, fixed)
+
+	// Imports flipped.
+	src, _ := os.ReadFile(filepath.Join(dir, "foo_test.go"))
+	assert.Contains(t, string(src), "github.com/stretchr/testify/assert")
+	assert.NotContains(t, string(src), "wow-look-at-my/testify")
+
+	// go.mod and vendor/modules.txt agree on upstream, with no fork left.
+	gomod, _ := os.ReadFile(filepath.Join(dir, "go.mod"))
+	assert.Contains(t, string(gomod), "github.com/stretchr/testify")
+	assert.NotContains(t, string(gomod), "wow-look-at-my/testify")
+	post, err := os.ReadFile(modulesTxt)
+	require.NoError(t, err)
+	assert.Contains(t, string(post), "github.com/stretchr/testify")
+	assert.NotContains(t, string(post), "github.com/wow-look-at-my/testify")
+
+	// The vendored module builds and vets with -mod=vendor (no "inconsistent
+	// vendoring" error).
+	for _, args := range [][]string{{"build", "-mod=vendor", "./..."}, {"vet", "-mod=vendor", "./..."}} {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		assert.NoError(t, err, "go %v failed:\n%s", args, out)
+	}
 }
