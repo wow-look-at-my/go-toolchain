@@ -5,6 +5,7 @@ package testifycast
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,10 @@ func getInt() int         { return 0 }
 func getInt64() int64     { return 0 }
 func getInt32() int32     { return 0 }
 func getUint() uint       { return 0 }
+
+// getDuration returns a named numeric type defined in another package, so the
+// conversion must be spelled with the file's import qualifier (time.Duration).
+func getDuration() time.Duration { return 0 }
 
 // Celsius is a numeric named type (same kind as float64).
 type Celsius float64
@@ -78,6 +83,18 @@ func CaseNamedNumeric(t *testing.T) {
 // Rule 5 (non-numeric same-kind named type): Name vs string -> conversion.
 func CaseNamedString(t *testing.T) {
 	assert.Equal(t, getName(), "")
+}
+
+// Cross-package named numeric type: conversion spelled with the import
+// qualifier (time.Duration), exercising the alias-resolution path.
+func CaseCrossPackageType(t *testing.T) {
+	assert.Equal(t, 0, getDuration())
+}
+
+// Element-comparison with a type-mismatched numeric element: the analyzer
+// warns (to stderr) but does not rewrite Contains-family assertions.
+func CaseContainsMismatch(t *testing.T) {
+	assert.Contains(t, []int{1, 2, 3}, int64(2))
 }
 
 // --- Negative cases: the analyzer must NOT change these ---

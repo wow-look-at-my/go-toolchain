@@ -3,8 +3,10 @@ package vet
 import (
 	"go/ast"
 	"go/constant"
+	"go/parser"
 	"go/token"
 	"go/types"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,8 +18,9 @@ import (
 )
 
 // applyCastFixtures runs the analyzer over the testifycast fixture module and
-// returns the rewritten source of every file that had fixes applied.
-func applyCastFixtures(t *testing.T) string {
+// returns the rewritten source of every file that had fixes applied, plus
+// anything the analyzer wrote to stderr (element-mismatch warnings).
+func applyCastFixtures(t *testing.T) (output, stderrText string) {
 	t.Helper()
 	// The fixture is a self-contained module (with a local replace to the stub
 	// testify), so load it module-mode: point analysistest at the module root
@@ -25,7 +28,22 @@ func applyCastFixtures(t *testing.T) string {
 	dir, err := filepath.Abs(filepath.Join("testdata", "src", "testifycast"))
 	require.NoError(t, err)
 
+	// Capture os.Stderr so we can assert on element-mismatch warnings.
+	oldStderr := os.Stderr
+	pr, pw, _ := os.Pipe()
+	os.Stderr = pw
+	captured := make(chan string, 1)
+	go func() {
+		var sb strings.Builder
+		io.Copy(&sb, pr)
+		captured <- sb.String()
+	}()
+
 	results := analysistest.Run(t, dir, TestifyCastAnalyzer, ".")
+
+	pw.Close()
+	os.Stderr = oldStderr
+	stderrText = <-captured
 
 	var out strings.Builder
 	for _, r := range results {
@@ -42,11 +60,11 @@ func applyCastFixtures(t *testing.T) string {
 			out.Write(c.rendered(src))
 		}
 	}
-	return out.String()
+	return out.String(), stderrText
 }
 
 func TestTestifyCastAnalyzer(t *testing.T) {
-	out := applyCastFixtures(t)
+	out, stderr := applyCastFixtures(t)
 	require.NotEmpty(t, out, "expected some fixes to be applied")
 
 	// Cases that MUST gain a conversion.
@@ -69,10 +87,17 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 		"assert.Equal(t, float64(getCelsius()), getFloat64())",
 		// Rule 5: non-numeric same-kind named type Name vs string.
 		`assert.Equal(t, string(getName()), "")`,
+		// Cross-package named numeric type spelled with the import qualifier.
+		"assert.Equal(t, time.Duration(0), getDuration())",
 	}
 	for _, w := range want {
 		assert.Contains(t, out, w)
 	}
+
+	// Element-comparison mismatches are warned about, not rewritten.
+	assert.Contains(t, stderr, "testifycast: warning")
+	assert.Contains(t, stderr, "Contains")
+	assert.Contains(t, out, "assert.Contains(t, []int{1, 2, 3}, int64(2))")
 
 	// Cases that MUST be left exactly as written.
 	unchanged := []string{
@@ -144,6 +169,54 @@ func TestConstRepresentable(t *testing.T) {
 	// Unknown / nil are not representable.
 	assert.False(t, constRepresentable(nil, intT))
 	assert.False(t, constRepresentable(constant.MakeUnknown(), intT))
+
+	// Exercise every integer-kind range branch.
+	assert.True(t, constRepresentable(mkInt(30000), types.Typ[types.Int16]))
+	assert.False(t, constRepresentable(mkInt(40000), types.Typ[types.Int16]))
+	assert.True(t, constRepresentable(mkInt(40000), types.Typ[types.Int32]))
+	assert.True(t, constRepresentable(mkInt(60000), types.Typ[types.Uint16]))
+	assert.False(t, constRepresentable(mkInt(70000), types.Typ[types.Uint16]))
+	assert.True(t, constRepresentable(mkInt(100), types.Typ[types.Uint32]))
+	assert.False(t, constRepresentable(mkInt(-1), types.Typ[types.Uint32]))
+	assert.True(t, constRepresentable(mkInt(100), types.Typ[types.Int64]))
+	assert.True(t, constRepresentable(mkInt(100), types.Typ[types.Uint64]))
+	assert.True(t, constRepresentable(mkInt(100), types.Typ[types.Uint]))
+	assert.False(t, constRepresentable(mkInt(-1), types.Typ[types.Uint]))
+	assert.True(t, constRepresentable(mkInt(100), types.Typ[types.Uintptr]))
+	// Complex target is out of scope -> not representable.
+	assert.False(t, constRepresentable(mkInt(0), types.Typ[types.Complex128]))
+}
+
+func TestCastEditsApply(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "x.go")
+	src := "package p\n\nvar _ = 0\n"
+	require.NoError(t, os.WriteFile(fp, []byte(src), 0644))
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, fp, src, 0)
+	require.NoError(t, err)
+
+	var lit *ast.BasicLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if b, ok := n.(*ast.BasicLit); ok {
+			lit = b
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, lit)
+
+	ce := &CastEdits{
+		Filename: fp,
+		Fset:     fset,
+		Edits:    []CastEdit{{Start: lit.Pos(), End: lit.End(), TypeName: "float64"}},
+	}
+	require.NoError(t, ce.Apply())
+
+	got, err := os.ReadFile(fp)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "var _ = float64(0)")
 }
 
 func TestImportsUpstreamTestify(t *testing.T) {
