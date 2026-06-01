@@ -97,7 +97,10 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
-        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${{ inputs.buildhost-url }}/npm/" || true
+        # buildhost serves the npm registry on the npm.<domain> subdomain (since
+        # the subdomain routing refactor), not under a /npm/ path -- derive it.
+        NPM_REGISTRY="$(printf '%s' '${{ inputs.buildhost-url }}' | sed -E 's#://#://npm.#; s#/+$##')"
+        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${NPM_REGISTRY}/" || true
         if ! go-toolchain version &>/dev/null; then
           echo "::warning::buildhost binary not usable, building from source"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
