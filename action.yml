@@ -145,47 +145,28 @@ runs:
 
     - name: Verify autorelease permissions
       if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@typescript#latest
-      with:
-        github: ${{ toJSON(github) }}
-        script: |
-          // Probe listWorkflowRuns (repo-wide) to verify actions: read.
-          // We intentionally avoid listWorkflowRunArtifacts for the current run:
-          // GitHub implicitly grants the active run access to its own artifacts
-          // regardless of declared permissions, so that call never returns 403.
-          // listWorkflowRuns has no such exception and will 403 when actions: read
-          // is absent from the workflow permissions block.
-          // Use getOctokit(github.token) -- the pre-authenticated octokit proxy
-          // relies on GITHUB_TOKEN in process.env, which is not propagated to
-          // sub-action processes from composite actions.
-          const oct = getOctokit(github.token as string);
-          let actionsReadOk = false;
-          try {
-            await oct.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 1,
-            });
-            actionsReadOk = true;
-          } catch (e: any) {
-            if (e.status !== 403) throw e;
-            core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing.");
-          }
-          if (actionsReadOk) {
-            core.info('actions: read confirmed');
-            // Verify id-token: write via OIDC environment variables.
-            // On external fork PRs GitHub withholds OIDC regardless of
-            // declared permissions; skip rather than fail spuriously.
-            const isForkPr = context.eventName === 'pull_request' &&
-              (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
-            if (isForkPr) {
-              core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
-            } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
-              core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
-            } else {
-              core.info('id-token: write confirmed (OIDC environment variables present)');
-            }
-          }
+      shell: bash
+      run: |
+        failed=0
+        actions_perm="${{ permissions.actions }}"
+        if [[ "$actions_perm" != "read" && "$actions_perm" != "write" ]]; then
+          echo "::error title=Missing permission: actions: read::autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add it to the workflow permissions block, or pass autorelease: 'false' to disable publishing."
+          failed=1
+        else
+          echo "actions: read confirmed (permissions.actions = ${actions_perm})"
+        fi
+        if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+          is_fork_pr="${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}"
+          if [[ "$is_fork_pr" == "true" ]]; then
+            echo "External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)"
+          else
+            echo "::error title=Missing permission: id-token: write::autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add it to the workflow permissions block, or pass autorelease: 'false' to disable publishing."
+            failed=1
+          fi
+        else
+          echo "id-token: write confirmed (OIDC environment variables present)"
+        fi
+        exit $failed
 
     - name: Initialize CodeQL
       if: inputs.codeql == 'true'
