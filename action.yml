@@ -95,36 +95,50 @@ runs:
 
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
-      shell: bash
-      run: |
-        # go-toolchain publishes a per-os/arch binary to buildhost on every
-        # push, and CI already knows its own platform -- so fetch the exact
-        # binary from the dl.<domain> subdomain in one request. No npm, no
-        # platform-resolution dance. dl defaults fmt to the raw binary and
-        # resolves the latest version. curl --max-time also works on macOS,
-        # where GNU `timeout` isn't installed until a later step.
-        case "$RUNNER_OS" in
-          Linux) GT_OS=linux ;;
-          macOS) GT_OS=darwin ;;
-          *)     GT_OS="$(printf '%s' "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')" ;;
-        esac
-        case "$RUNNER_ARCH" in
-          X64)   GT_ARCH=amd64 ;;
-          ARM64) GT_ARCH=arm64 ;;
-          *)     GT_ARCH="$(printf '%s' "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')" ;;
-        esac
-        DL_URL="$(printf '%s' '${{ inputs.buildhost-url }}' | sed -E 's#://#://dl.#; s#/+$##')"
-        curl --connect-timeout 10 --max-time 60 --retry 2 -fsSL \
-          "${DL_URL}/go-toolchain?os=${GT_OS}&arch=${GT_ARCH}" -o /tmp/go-toolchain || true
-        if [ -s /tmp/go-toolchain ]; then
-          chmod +x /tmp/go-toolchain
-          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
-        fi
-        if ! go-toolchain version &>/dev/null; then
-          echo "::warning::buildhost binary not usable, building from source"
-          (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
-          sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
-        fi
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          // go-toolchain publishes a per-os/arch binary to buildhost on every
+          // push, and CI already knows its own platform -- so fetch the exact
+          // binary from the dl.<domain> subdomain in one request. No npm, no
+          // platform-resolution dance. Falls back to building from source if
+          // buildhost is unreachable or the downloaded binary won't run.
+          const base = new URL("${{ inputs.buildhost-url }}");
+          if (!base.hostname.startsWith("dl.")) base.hostname = `dl.${base.hostname}`;
+
+          const osMap: Record<string, string> = { Linux: "linux", macOS: "darwin", Windows: "windows" };
+          const archMap: Record<string, string> = { X64: "amd64", ARM64: "arm64" };
+          const runnerOS = process.env.RUNNER_OS ?? "";
+          const runnerArch = process.env.RUNNER_ARCH ?? "";
+
+          const url = new URL("/go-toolchain", base);
+          url.searchParams.set("os", osMap[runnerOS] ?? runnerOS.toLowerCase());
+          url.searchParams.set("arch", archMap[runnerArch] ?? runnerArch.toLowerCase());
+
+          // Download into a fresh dir so a stale file can never be installed.
+          const dir = fs.mkdtempSync(path.join(os.tmpdir(), "go-toolchain-"));
+          const bin = path.join(dir, "go-toolchain");
+
+          let usable = false;
+          try {
+            await $`curl --connect-timeout 10 --max-time 60 --retry 2 -fsSL ${url.href} -o ${bin}`;
+            fs.chmodSync(bin, 0o755);
+            await $`${bin} version`.silent();
+            usable = true;
+            core.info(`installed go-toolchain from ${url.href}`);
+          } catch (err) {
+            core.warning(`buildhost binary not usable (${err instanceof Error ? err.message : String(err)}); building from source`);
+          }
+
+          if (!usable) {
+            process.env.GOTOOLCHAIN = "auto";
+            await $`go install ./src`.cwd("${{ github.action_path }}");
+            const gopath = (await exec.getExecOutput("go", ["env", "GOPATH"], { silent: true })).stdout.trim();
+            fs.copyFileSync(path.join(gopath, "bin", "src"), bin);
+            fs.chmodSync(bin, 0o755);
+          }
+
+          await $`sudo cp ${bin} /usr/local/bin/go-toolchain`;
 
     - name: Install provided binary
       if: inputs.binary != ''
