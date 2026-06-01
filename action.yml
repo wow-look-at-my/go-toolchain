@@ -39,6 +39,10 @@ inputs:
     description: 'Automatically publish to buildhost on every branch push (requires id-token: write and actions: read permissions)'
     required: false
     default: 'true'
+  permissions:
+    description: 'Pass toJSON(permissions) from the calling workflow. Required for autorelease permission checking — the permissions context is unavailable inside composite actions.'
+    required: false
+    default: '{}'
   buildhost-url:
     description: 'Buildhost base URL'
     required: false
@@ -149,14 +153,20 @@ runs:
       with:
         github: ${{ toJSON(github) }}
         script: |
-          // Use ${{ permissions.actions }} -- a workflow expression resolved before
-          // the step runs -- to read the declared permission directly, with no API
-          // probe needed. This works correctly for public and private repos alike.
-          const actionsPerm = "${{ permissions.actions }}";
-          if (actionsPerm !== 'read' && actionsPerm !== 'write') {
-            core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add it to the workflow permissions block, or pass autorelease: 'false' to disable publishing.");
+          // The permissions context is not available inside composite actions, so
+          // the caller must pass toJSON(permissions) as the 'permissions' input.
+          // If omitted (default '{}'), the actions: read check is skipped with a warning.
+          const permsJson = "${{ inputs.permissions }}";
+          const perms = JSON.parse(permsJson);
+          if (Object.keys(perms).length === 0) {
+            core.warning("permissions input not provided; skipping actions: read check. Pass 'permissions: \${{ toJSON(permissions) }}' to enable it.");
           } else {
-            core.info(`actions: read confirmed (permissions.actions = ${actionsPerm})`);
+            const actionsPerm = perms.actions ?? '';
+            if (actionsPerm !== 'read' && actionsPerm !== 'write') {
+              core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add it to the workflow permissions block, or pass autorelease: 'false' to disable publishing.");
+            } else {
+              core.info(`actions: read confirmed (permissions.actions = ${actionsPerm})`);
+            }
           }
           const isForkPr = context.eventName === 'pull_request' &&
             (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
