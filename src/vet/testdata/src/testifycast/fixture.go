@@ -104,6 +104,13 @@ func CaseContainsMismatch(t *testing.T) {
 	assert.Contains(t, []int{1, 2, 3}, int64(2))
 }
 
+// Collection-vs-collection assertion with mismatched element types: the warning
+// must compare the two collections' element types (int vs int64), not treat the
+// second operand as a scalar.
+func CaseElementsMatchMismatch(t *testing.T) {
+	assert.ElementsMatch(t, []int{1, 2}, []int64{1, 2})
+}
+
 // --- Negative cases: the analyzer must NOT change these ---
 
 // Case 6: identical static types -> no change.

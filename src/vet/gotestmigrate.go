@@ -6,7 +6,6 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -96,11 +95,11 @@ func MigrateGotestTools() (bool, error) {
 		return false, err
 	}
 
+	// Sync the module graph (go mod tidy, plus go mod vendor when vendored) so a
+	// vendored repo that only needs gotest.tools migration doesn't end up with
+	// updated imports/go.mod but stale vendor metadata.
 	if anyFixed {
-		cmd := exec.Command("go", "mod", "tidy")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := syncModuleGraph(); err != nil {
 			return anyFixed, err
 		}
 	}

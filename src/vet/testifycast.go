@@ -275,7 +275,12 @@ func fileQualifier(self *types.Package, file *ast.File) types.Qualifier {
 			if path != p.Path() {
 				continue
 			}
-			if imp.Name != nil {
+			if imp.Name != nil && imp.Name.Name != "_" {
+				if imp.Name.Name == "." {
+					// Dot import: the package's identifiers are in file scope, so
+					// the type is spelled unqualified (Duration, not .Duration).
+					return ""
+				}
 				return imp.Name.Name
 			}
 			return p.Name()
@@ -331,7 +336,13 @@ func constRepresentable(v constant.Value, b *types.Basic) bool {
 			return false
 		}
 		f, _ := constant.Float64Val(fv)
-		return !math.IsInf(f, 0)
+		if math.IsInf(f, 0) {
+			return false // overflows float64
+		}
+		if b.Kind() == types.Float32 && math.IsInf(float64(float32(f)), 0) {
+			return false // value is finite in float64 but overflows float32
+		}
+		return true
 	default:
 		return false
 	}
@@ -388,19 +399,25 @@ func warnElementMismatch(pass *analysis.Pass, call *ast.CallExpr, name string, c
 	if elem == nil {
 		return
 	}
-	valType := types.Default(valTV.Type)
-	if types.Identical(types.Default(elem), valType) {
+	// For collection-vs-collection assertions (ElementsMatch/Subset/NotSubset)
+	// the second operand is itself a collection, so compare its element type;
+	// for value-in-collection (Contains) the second operand is a scalar value.
+	cmpType := types.Default(valTV.Type)
+	if e2 := elementType(valTV.Type); e2 != nil {
+		cmpType = types.Default(e2)
+	}
+	if types.Identical(types.Default(elem), cmpType) {
 		return
 	}
 	eb, ok1 := types.Default(elem).Underlying().(*types.Basic)
-	vb, ok2 := valType.Underlying().(*types.Basic)
+	vb, ok2 := cmpType.Underlying().(*types.Basic)
 	if !ok1 || !ok2 || !isForkNumeric(eb) || !isForkNumeric(vb) {
 		return
 	}
 	pos := pass.Fset.Position(call.Pos())
 	fmt.Fprintf(os.Stderr,
 		"testifycast: warning: %s:%d: %s compares %s elements against %s; the testify fork may have matched these via loose numeric equality, but upstream will not — add an explicit conversion if a match was intended\n",
-		pos.Filename, pos.Line, name, elem, valType)
+		pos.Filename, pos.Line, name, elem, cmpType)
 }
 
 // elementType returns the element type of a slice, array, or map value type, or

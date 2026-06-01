@@ -92,14 +92,21 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 		`assert.Equal(t, Name(""), getName())`,
 		// Cross-package named numeric type spelled with the import qualifier.
 		"assert.Equal(t, time.Duration(0), getDuration())",
+		// Dot-imported named type: spelled unqualified, not ".Duration".
+		"assert.Equal(t, Duration(0), getDot())",
 	}
 	for _, w := range want {
 		assert.Contains(t, out, w)
 	}
+	// The dot-import conversion must not carry a stray "." qualifier (the buggy
+	// form would be "(t, .Duration(0)").
+	assert.NotContains(t, out, "(t, .Duration(0)")
 
-	// Element-comparison mismatches are warned about, not rewritten.
+	// Element-comparison mismatches are warned about, not rewritten — for both
+	// value-in-collection (Contains) and collection-vs-collection (ElementsMatch).
 	assert.Contains(t, stderr, "testifycast: warning")
 	assert.Contains(t, stderr, "Contains")
+	assert.Contains(t, stderr, "ElementsMatch")
 	assert.Contains(t, out, "assert.Contains(t, []int{1, 2, 3}, int64(2))")
 
 	// Cases that MUST be left exactly as written.
@@ -188,6 +195,12 @@ func TestConstRepresentable(t *testing.T) {
 	assert.True(t, constRepresentable(mkInt(100), types.Typ[types.Uintptr]))
 	// Complex target is out of scope -> not representable.
 	assert.False(t, constRepresentable(mkInt(0), types.Typ[types.Complex128]))
+
+	// Float target width matters: a value finite in float64 but too large for
+	// float32 must not be cast to float32 (it would not compile).
+	assert.True(t, constRepresentable(mkFloat(1e38), float32T))
+	assert.False(t, constRepresentable(mkFloat(1e100), float32T))
+	assert.True(t, constRepresentable(mkFloat(1e100), float64T))
 }
 
 func TestCastEditsApply(t *testing.T) {
