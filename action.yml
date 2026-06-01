@@ -39,10 +39,6 @@ inputs:
     description: 'Automatically publish to buildhost on every branch push (requires id-token: write and actions: read permissions)'
     required: false
     default: 'true'
-  permissions:
-    description: 'Pass toJSON(permissions) from the calling workflow. Required for autorelease permission checking — the permissions context is unavailable inside composite actions.'
-    required: false
-    default: '{}'
   buildhost-url:
     description: 'Buildhost base URL'
     required: false
@@ -153,29 +149,34 @@ runs:
       with:
         github: ${{ toJSON(github) }}
         script: |
-          // The permissions context is not available inside composite actions, so
-          // the caller must pass toJSON(permissions) as the 'permissions' input.
-          // If omitted (default '{}'), the actions: read check is skipped with a warning.
-          const permsJson = "${{ inputs.permissions }}";
-          const perms = JSON.parse(permsJson);
-          if (Object.keys(perms).length === 0) {
-            core.warning("permissions input not provided; skipping actions: read check. Pass 'permissions: \${{ toJSON(permissions) }}' to enable it.");
-          } else {
-            const actionsPerm = perms.actions ?? '';
-            if (actionsPerm !== 'read' && actionsPerm !== 'write') {
-              core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add it to the workflow permissions block, or pass autorelease: 'false' to disable publishing.");
-            } else {
-              core.info(`actions: read confirmed (permissions.actions = ${actionsPerm})`);
-            }
+          // Probe getActionsCacheUsage to verify actions: read.
+          // Cache stats are internal repo data -- not publicly accessible even for
+          // public repos -- so this endpoint reliably returns 403 when the permission
+          // is absent, unlike listWorkflowRunArtifacts which GitHub implicitly grants
+          // to the active run regardless of declared permissions.
+          const oct = getOctokit(github.token as string);
+          let actionsReadOk = false;
+          try {
+            await oct.rest.actions.getActionsCacheUsage({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            actionsReadOk = true;
+          } catch (e: any) {
+            if (e.status !== 403) throw e;
+            core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing.");
           }
-          const isForkPr = context.eventName === 'pull_request' &&
-            (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
-          if (isForkPr) {
-            core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
-          } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
-            core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add it to the workflow permissions block, or pass autorelease: 'false' to disable publishing.");
-          } else {
-            core.info('id-token: write confirmed (OIDC environment variables present)');
+          if (actionsReadOk) {
+            core.info('actions: read confirmed');
+            const isForkPr = context.eventName === 'pull_request' &&
+              (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+            if (isForkPr) {
+              core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
+            } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+              core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
+            } else {
+              core.info('id-token: write confirmed (OIDC environment variables present)');
+            }
           }
 
     - name: Initialize CodeQL
