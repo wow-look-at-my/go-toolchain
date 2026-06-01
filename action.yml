@@ -97,10 +97,29 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
-        # buildhost serves the npm registry on the npm.<domain> subdomain (since
-        # the subdomain routing refactor), not under a /npm/ path -- derive it.
-        NPM_REGISTRY="$(printf '%s' '${{ inputs.buildhost-url }}' | sed -E 's#://#://npm.#; s#/+$##')"
-        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${NPM_REGISTRY}/" || true
+        # go-toolchain publishes a per-os/arch binary to buildhost on every
+        # push, and CI already knows its own platform -- so fetch the exact
+        # binary from the dl.<domain> subdomain in one request. No npm, no
+        # platform-resolution dance. dl defaults fmt to the raw binary and
+        # resolves the latest version. curl --max-time also works on macOS,
+        # where GNU `timeout` isn't installed until a later step.
+        case "$RUNNER_OS" in
+          Linux) GT_OS=linux ;;
+          macOS) GT_OS=darwin ;;
+          *)     GT_OS="$(printf '%s' "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')" ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64)   GT_ARCH=amd64 ;;
+          ARM64) GT_ARCH=arm64 ;;
+          *)     GT_ARCH="$(printf '%s' "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')" ;;
+        esac
+        DL_URL="$(printf '%s' '${{ inputs.buildhost-url }}' | sed -E 's#://#://dl.#; s#/+$##')"
+        curl --connect-timeout 10 --max-time 60 --retry 2 -fsSL \
+          "${DL_URL}/go-toolchain?os=${GT_OS}&arch=${GT_ARCH}" -o /tmp/go-toolchain || true
+        if [ -s /tmp/go-toolchain ]; then
+          chmod +x /tmp/go-toolchain
+          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        fi
         if ! go-toolchain version &>/dev/null; then
           echo "::warning::buildhost binary not usable, building from source"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
