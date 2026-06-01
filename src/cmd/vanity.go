@@ -24,6 +24,18 @@ var wellKnownHosts = map[string]bool{
 	"gopkg.in":      true,
 }
 
+// directMirrorHosts are the hosts we are willing to rewrite a vanity module
+// *onto*. They serve plain git repositories that resolve without any further
+// vanity/meta indirection. If a vanity module's real repository lives anywhere
+// else (e.g. go.googlesource.com), rewriting to it merely swaps one indirect
+// host for another — and can break resolution that the module proxy would
+// otherwise satisfy for the original path — so we leave such modules untouched.
+var directMirrorHosts = map[string]bool{
+	"github.com":    true,
+	"gitlab.com":    true,
+	"bitbucket.org": true,
+}
+
 type vanityModule struct {
 	Path    string // e.g. "gotest.tools/gotestsum"
 	Version string // e.g. "v1.13.0"
@@ -121,7 +133,17 @@ func isVanityHostReachable(host string) bool {
 func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
 	// Strategy 1: use go mod download -json via proxy to get Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
-	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct")
+	// Resolve in a scratch directory, outside the current module, so that
+	// downloading this one module does not load the main module's full
+	// requirement graph. On a cold machine that graph can pull in other
+	// uncached or unreachable vanity modules and make this call fail — which
+	// would force the go-import meta fallback below. That fallback cannot see a
+	// module's repository subdirectory, so it produces flat, colliding replaces
+	// for sub-modules (e.g. dropping "/sdk" from go.opentelemetry.io/auto/sdk,
+	// or mapping every go.opentelemetry.io/otel/* onto the same repo path). The
+	// proxy's Origin.Subdir is the authoritative source for that suffix.
+	cmd.Dir = os.TempDir()
+	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct", "GOWORK=off", "GOFLAGS=")
 	output, err := cmd.Output()
 	if err == nil {
 		var info struct {
@@ -250,6 +272,17 @@ func injectVanityReplaces() (*vanityState, error) {
 				continue
 			}
 
+			// Only rewrite onto a direct code host. If the resolved repository
+			// lives elsewhere (e.g. go.googlesource.com), a replace would just
+			// move the indirection — and may break what the proxy could resolve
+			// for the original path — so skip it and let the proxy handle it.
+			if targetHost := strings.SplitN(ghPath, "/", 2)[0]; !directMirrorHosts[targetHost] {
+				if !jsonOutput {
+					fmt.Printf("    skipping %s: resolved host %s is not a direct mirror\n", m.Path, targetHost)
+				}
+				continue
+			}
+
 			// Append sub-module suffix: if the module path extends beyond
 			// the import prefix, the extra path identifies a sub-module
 			// directory within the repository (e.g. otel/trace in
@@ -356,6 +389,11 @@ func removeVanityReplaces(state *vanityState) error {
 			return fmt.Errorf("remove replace for %s: %w", r.OldPath, err)
 		}
 	}
+
+	// Collapse the now-empty replace slots that DropReplace leaves behind so
+	// removal restores go.mod to its original shape, rather than leaving stray
+	// `replace ( ... )` blocks with blank lines festering in the user's file.
+	f.Cleanup()
 
 	newData, err := f.Format()
 	if err != nil {

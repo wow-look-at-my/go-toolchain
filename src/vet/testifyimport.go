@@ -13,12 +13,19 @@ import (
 )
 
 const (
-	brokenTestify  = "github.com/stretchr/testify/"
-	correctTestify = "github.com/wow-look-at-my/testify/"
+	// forkTestify is the in-house fork that loosened numeric equality. We are
+	// migrating off it back to upstream; the cast-inserting analyzer
+	// (testifycast) preserves the loose-equality behavior with explicit casts.
+	forkTestify = "github.com/wow-look-at-my/testify/"
+	// upstreamTestify is the canonical, widely-audited module.
+	upstreamTestify = "github.com/stretchr/testify/"
 )
 
-// FixTestifyImports scans all Go files and replaces stretchr/testify imports
-// with wow-look-at-my/testify. Returns true if any files were modified.
+// FixTestifyImports scans all Go files and replaces the in-house
+// wow-look-at-my/testify fork imports with upstream stretchr/testify. After
+// rewriting it syncs the module graph (go mod tidy, plus go mod vendor when the
+// repo vendors its dependencies) so go.mod, go.sum and vendor/modules.txt all
+// agree. Returns true if any files were modified.
 func FixTestifyImports() (bool, error) {
 	var anyFixed bool
 
@@ -45,12 +52,10 @@ func FixTestifyImports() (bool, error) {
 		return false, err
 	}
 
-	// Run go mod tidy to update dependencies after import changes
+	// Sync the module graph after import changes so upstream testify is the
+	// required module and any vendor tree is consistent.
 	if anyFixed {
-		cmd := exec.Command("go", "mod", "tidy")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := syncModuleGraph(); err != nil {
 			return anyFixed, err
 		}
 	}
@@ -70,13 +75,12 @@ func fixFileTestifyImports(filename string) (bool, error) {
 	var modified bool
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
-		if strings.HasPrefix(path, brokenTestify) {
-			// Replace with correct import
-			newPath := correctTestify + strings.TrimPrefix(path, brokenTestify)
+		if strings.HasPrefix(path, forkTestify) {
+			// Replace the fork with upstream, preserving the sub-package path.
+			newPath := upstreamTestify + strings.TrimPrefix(path, forkTestify)
 			imp.Path.Value = `"` + newPath + `"`
 			modified = true
 
-			// Print fix message
 			printTestifyFix(filename, path, newPath)
 		}
 	}
@@ -97,6 +101,31 @@ func fixFileTestifyImports(filename string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// syncModuleGraph runs go mod tidy and, when the repo vendors its dependencies,
+// go mod vendor — leaving go.mod, go.sum and vendor/modules.txt consistent.
+func syncModuleGraph() error {
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Stdout = os.Stdout
+	tidy.Stderr = os.Stderr
+	if err := tidy.Run(); err != nil {
+		return err
+	}
+	return syncVendorIfPresent()
+}
+
+// syncVendorIfPresent rebuilds the vendor tree when vendor/modules.txt exists so
+// that a vendored repo (e.g. containerd) stays buildable with -mod=vendor after
+// imports change. It is a no-op for repos that don't vendor.
+func syncVendorIfPresent() error {
+	if _, err := os.Stat(filepath.Join("vendor", "modules.txt")); err != nil {
+		return nil // not a vendored module
+	}
+	vendor := exec.Command("go", "mod", "vendor")
+	vendor.Stdout = os.Stdout
+	vendor.Stderr = os.Stderr
+	return vendor.Run()
 }
 
 func printTestifyFix(filename, oldImport, newImport string) {

@@ -38,10 +38,10 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		hasAssert := false
 		hasRequire := false
 		for _, imp := range file.Imports {
-			if imp.Path.Value == `"github.com/wow-look-at-my/testify/assert"` {
+			if imp.Path.Value == `"github.com/stretchr/testify/assert"` {
 				hasAssert = true
 			}
-			if imp.Path.Value == `"github.com/wow-look-at-my/testify/require"` {
+			if imp.Path.Value == `"github.com/stretchr/testify/require"` {
 				hasRequire = true
 			}
 		}
@@ -111,10 +111,10 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		// Add imports directly to the AST if needed
 		if (needsAssert && !hasAssert) || (needsRequire && !hasRequire) {
 			if needsAssert && !hasAssert {
-				astutil.AddImport(pass.Fset, file, "github.com/wow-look-at-my/testify/assert")
+				astutil.AddImport(pass.Fset, file, "github.com/stretchr/testify/assert")
 			}
 			if needsRequire && !hasRequire {
-				astutil.AddImport(pass.Fset, file, "github.com/wow-look-at-my/testify/require")
+				astutil.AddImport(pass.Fset, file, "github.com/stretchr/testify/require")
 			}
 		}
 	}

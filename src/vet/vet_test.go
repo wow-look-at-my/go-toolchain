@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
@@ -44,6 +44,7 @@ func TestAnalyzers(t *testing.T) {
 	assert.True(t, names["assertlint"])
 	assert.True(t, names["assertnorm"])
 	assert.True(t, names["redundantcast"])
+	assert.True(t, names["testifycast"])
 }
 
 func TestRunNoGoMod(t *testing.T) {

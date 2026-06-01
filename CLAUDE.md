@@ -42,7 +42,7 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery)
 - `src/cache/` — GOCACHEPROG protocol server with local and web backends, server-side batch GET with prefetch
 - `src/trace/` — OpenTelemetry trace export for build pipeline timings
-- `src/vet/` — custom vet checks (assert normalization, unused imports)
+- `src/vet/` — custom vet checks (assert normalization, unused imports, gotest.tools migration, testify import rewrite fork→upstream with vendor resync, and the `testifycast` analyzer that inserts explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` operands so they pass against upstream testify)
 - `tests/` — BATS integration tests
 - `action.yml` — composite GitHub Action (fetches secrets via OIDC, builds with go-toolchain, optionally uploads build artifacts)
 - `.github/workflows/ci.yml` — CI workflow (builds from source, tests the action, publishes to buildhost)
@@ -53,6 +53,7 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
 - Go version: 1.24.7 (module), CI tests on 1.25
 - CLI framework: `github.com/spf13/cobra`
 - Test parsing: `gotest.tools/gotestsum/testjson`
+- Test assertions: upstream `github.com/stretchr/testify` (`assert`/`require`) — the in-house `wow-look-at-my/testify` fork has been removed; the `testifycast` analyzer supplies the fork's loose cross-type numeric equality via explicit conversions
 - No Makefile — use `go run ./src` as the build entry point
 - Binaries are output to `build/` directory
 - Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go` suffixes (see `src/test/watermark_*.go`)
