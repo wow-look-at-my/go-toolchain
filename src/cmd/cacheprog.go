@@ -91,6 +91,11 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 
+	// Standalone mode (no daemon) uses the loose-file cache, not the FUSE store:
+	// the virtual filesystem is owned by the single daemon process so that
+	// concurrent standalone cacheprog invocations can't collide on one mount
+	// point. In the normal go-toolchain flow a daemon is always started and
+	// this path is only the fallback.
 	local, err := cache.NewLocalCache(cacheDir)
 	if err != nil {
 		return fmt.Errorf("local cache: %w", err)
@@ -217,7 +222,11 @@ func enableCacheProg() error {
 // Returns the daemon, the remote endpoint (empty if no remote), and any error.
 func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
-	local, err := cache.NewLocalCache(cacheDir)
+	// The daemon is the single, shared cache process for the whole build, so it
+	// owns the FUSE mount: NewLocalStore prefers the FUSE-backed packed cache
+	// (the "virtual filesystem"), falling back to the loose-file cache when
+	// FUSE is unavailable.
+	local, err := cache.NewLocalStore(cacheDir)
 	if err != nil {
 		return nil, "", err
 	}

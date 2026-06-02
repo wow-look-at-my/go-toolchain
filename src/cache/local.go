@@ -112,6 +112,13 @@ func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, err
 	return dataPath, nil
 }
 
+// StatsPtr returns the live hit/put counters, satisfying LocalStore.
+func (c *LocalCache) StatsPtr() *CacheStats { return &c.Stats }
+
+// Close releases resources. The loose-file cache holds none, so this is a nop;
+// it exists to satisfy LocalStore (FuseCache uses it to unmount).
+func (c *LocalCache) Close() error { return nil }
+
 // dataPath returns the absolute path for a cached object.
 // Layout: dir/{first-byte-hex}/v1{actionID}
 func (c *LocalCache) dataPath(actionID string) string {

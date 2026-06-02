@@ -40,7 +40,7 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via filesystem walking
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery)
-- `src/cache/` — GOCACHEPROG protocol server with local and web backends, server-side batch GET with prefetch
+- `src/cache/` — GOCACHEPROG protocol server with local and web backends, server-side batch GET with prefetch. The local tier (`LocalStore` interface) is a FUSE virtual filesystem (`fusecache.go` + `pack.go`): bodies are stored in append-only pack files and served on demand through a read-only mount, eliminating the per-entry tiny files. `local.go` is the loose-file fallback used when FUSE is unavailable. See `docs/CACHE.md` for the full architecture and diagrams
 - `src/trace/` — OpenTelemetry trace export for build pipeline timings
 - `src/vet/` — custom vet checks (assert normalization, unused imports, gotest.tools migration, testify import rewrite fork→upstream with vendor resync, and the `testifycast` analyzer that inserts explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` operands so they pass against upstream testify)
 - `tests/` — BATS integration tests
