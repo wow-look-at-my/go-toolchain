@@ -4,6 +4,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -55,7 +56,13 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 	}
 	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		lockFile.Close()
-		return nil, errFuseBusy // another live owner; caller falls back to loose
+		// Only a would-block means another live owner holds the lock (-> fall
+		// back to loose quietly). Anything else (EBADF, permissions, fs issues)
+		// is a real error worth surfacing rather than masking as "busy".
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errFuseBusy
+		}
+		return nil, fmt.Errorf("fuse cache lock %s: %w", filepath.Join(cacheDir, ".fuse.lock"), err)
 	}
 	// We hold the lock, so any mount still on mnt is stale (left by a crashed
 	// owner whose flock the kernel already released). Clear it before mounting.
@@ -163,14 +170,23 @@ func (c *FuseCache) StatsPtr() *CacheStats { return &c.store.Stats }
 func (c *FuseCache) Close() error {
 	var firstErr error
 	if c.server != nil {
-		if err := c.server.Unmount(); err != nil {
-			if uerr := syscall.Unmount(c.mnt, 0); uerr != nil {
-				// Last resort: lazy unmount so we never leave the mount wedged.
-				if derr := syscall.Unmount(c.mnt, unmountDetach); derr != nil {
-					firstErr = fmt.Errorf("unmount %s: %v (fusermount: %v)", c.mnt, derr, err)
-				}
-			}
-			c.server.Wait() // drain the serve loop now that the mount is gone
+		// Try a clean unmount (fusermount helper), then the unmount(2) syscall
+		// (we're root where there's no helper), then a lazy detach. Wait() for
+		// the serve loop only if the mount actually came down — once /dev/fuse
+		// closes the loop returns; if every attempt failed, Wait() would block
+		// forever, so we skip it.
+		unmounted := false
+		if err := c.server.Unmount(); err == nil {
+			unmounted = true
+		} else if err := syscall.Unmount(c.mnt, 0); err == nil {
+			unmounted = true
+		} else if err := syscall.Unmount(c.mnt, unmountDetach); err == nil {
+			unmounted = true
+		} else {
+			firstErr = fmt.Errorf("unmount %s failed: %w", c.mnt, err)
+		}
+		if unmounted {
+			c.server.Wait() // drain the serve loop before closing pack handles
 		}
 	}
 	if err := c.store.Close(); err != nil && firstErr == nil {

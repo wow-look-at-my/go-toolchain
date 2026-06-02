@@ -40,7 +40,7 @@ type LocalStore interface {
 }
 
 // fuseStore is a LocalStore backed by a FUSE mount. The extra mountInfo method
-// lets newLocalStore log a useful one-liner about where the virtual filesystem
+// lets NewLocalStore log a useful one-liner about where the virtual filesystem
 // is mounted. newFuseCache returns this concrete-ish type so the platform
 // stub (which returns a nil fuseStore) and the real implementation share a
 // signature.

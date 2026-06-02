@@ -105,6 +105,10 @@ var (
 
 var packCRC = crc32.MakeTable(crc32.IEEE)
 
+// maxInt is the largest value representable by int on this platform, used to
+// bound a body length before converting int64 -> int for make().
+const maxInt = int(^uint(0) >> 1)
+
 // OpenPackStore opens (or creates) a pack store rooted at dir, rebuilding the
 // in-memory index by scanning every pack file.
 func OpenPackStore(dir string) (*PackStore, error) {
@@ -227,9 +231,15 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 		dataLen := int64(binary.LittleEndian.Uint64(hdr[12+2*hashLen : 20+2*hashLen]))
 
 		if magic == packAliasMagic {
-			// Alias: the body lives under outputID, written by an earlier full
-			// record (records are scanned in write order). Point the action at
-			// it. If the body record was lost/torn, the alias is orphaned — skip.
+			// Aliases carry no body; dataLen must be 0. A non-zero value means
+			// corruption — stop rather than advance by only the header and risk
+			// desyncing from the true record boundaries.
+			if dataLen != 0 {
+				break
+			}
+			// The body lives under outputID, written by an earlier full record
+			// (records are scanned in write order). Point the action at it. If
+			// the body record was lost/torn, the alias is orphaned — skip.
 			if bodyLoc, ok := s.byOutput[outputID]; ok {
 				loc := bodyLoc
 				loc.created = created
@@ -250,6 +260,14 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 			s.byOutput[outputID] = loc
 		}
 		off = dataOff + dataLen
+	}
+	// Reclaim a stranded tail: bytes after the last valid record (a torn/garbage
+	// append from a crash) are dead weight that inflates disk usage and the
+	// reset accounting, and future appends would start past them. Truncate back
+	// to the last good boundary. Best-effort — safe because the single-owner
+	// lock means no other process is using this pack.
+	if off < size {
+		_ = f.Truncate(off)
 	}
 	return off, nil
 }
@@ -318,20 +336,22 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 	return loc, nil
 }
 
-// appendRecordLoc appends a record (header + optional body) and returns the
-// body's location within the pack.
+// appendRecordLoc appends a record (fixed header + optional body) and returns
+// the body's location within the pack. The header and body are written
+// separately rather than concatenated into one buffer, so a large body already
+// held in memory (e.g. an archive fetched from the remote tier) is not copied
+// again just to be written.
 func (s *PackStore) appendRecordLoc(magic uint32, aid, oid, data []byte) (packLoc, error) {
 	created := packNow()
-	rec := make([]byte, packHeaderLen+len(data))
-	binary.LittleEndian.PutUint32(rec[0:4], magic)
-	copy(rec[4:4+hashLen], aid)
-	copy(rec[4+hashLen:4+2*hashLen], oid)
-	binary.LittleEndian.PutUint64(rec[4+2*hashLen:12+2*hashLen], uint64(created))
-	binary.LittleEndian.PutUint64(rec[12+2*hashLen:20+2*hashLen], uint64(len(data)))
-	binary.LittleEndian.PutUint32(rec[20+2*hashLen:packHeaderLen], crc32.Checksum(data, packCRC))
-	copy(rec[packHeaderLen:], data)
+	var hdr [packHeaderLen]byte
+	binary.LittleEndian.PutUint32(hdr[0:4], magic)
+	copy(hdr[4:4+hashLen], aid)
+	copy(hdr[4+hashLen:4+2*hashLen], oid)
+	binary.LittleEndian.PutUint64(hdr[4+2*hashLen:12+2*hashLen], uint64(created))
+	binary.LittleEndian.PutUint64(hdr[12+2*hashLen:20+2*hashLen], uint64(len(data)))
+	binary.LittleEndian.PutUint32(hdr[20+2*hashLen:packHeaderLen], crc32.Checksum(data, packCRC))
 
-	id, off, err := s.appendRaw(rec)
+	id, off, err := s.appendRaw(hdr[:], data)
 	if err != nil {
 		return packLoc{}, err
 	}
@@ -350,9 +370,11 @@ func (s *PackStore) appendRecord(magic uint32, aid, oid, data []byte) error {
 	return err
 }
 
-// appendRaw appends rec to the active pack under wmu and returns where it
-// landed, rotating to a new pack afterward if the active one is full.
-func (s *PackStore) appendRaw(rec []byte) (id int, off int64, err error) {
+// appendRaw appends a header and optional body to the active pack under wmu and
+// returns where the record landed, rotating to a new pack afterward if it's
+// full. On a partial write the size is not advanced, so the orphaned header is
+// overwritten by the next append (and read back as a torn record meanwhile).
+func (s *PackStore) appendRaw(hdr, body []byte) (id int, off int64, err error) {
 	s.wmu.Lock()
 	id = s.activeID
 	off = s.activeSize
@@ -361,11 +383,17 @@ func (s *PackStore) appendRaw(rec []byte) (id int, off int64, err error) {
 		s.wmu.Unlock()
 		return 0, 0, fmt.Errorf("pack append: active pack %d missing", id)
 	}
-	if _, err := f.WriteAt(rec, off); err != nil {
+	if _, err := f.WriteAt(hdr, off); err != nil {
 		s.wmu.Unlock()
-		return 0, 0, fmt.Errorf("pack append write: %w", err)
+		return 0, 0, fmt.Errorf("pack append header: %w", err)
 	}
-	s.activeSize = off + int64(len(rec))
+	if len(body) > 0 {
+		if _, err := f.WriteAt(body, off+int64(len(hdr))); err != nil {
+			s.wmu.Unlock()
+			return 0, 0, fmt.Errorf("pack append body: %w", err)
+		}
+	}
+	s.activeSize = off + int64(len(hdr)) + int64(len(body))
 	rotate := s.activeSize >= maxPackBytes
 	s.wmu.Unlock()
 
@@ -401,9 +429,11 @@ func (s *PackStore) GetByOutput(outputID string) (packLoc, bool) {
 }
 
 // ReadAt reads up to len(dest) bytes of loc's body starting at body-relative
-// offset off. It is safe for concurrent use (os.File.ReadAt is).
+// offset off. It is safe for concurrent use (os.File.ReadAt is). A negative or
+// past-end offset reads nothing — guarding it keeps a bad offset from
+// underflowing into the record header or a neighbouring body.
 func (s *PackStore) ReadAt(loc packLoc, dest []byte, off int64) (int, error) {
-	if off >= loc.dataLen {
+	if off < 0 || off >= loc.dataLen {
 		return 0, io.EOF
 	}
 	want := loc.dataLen - off
@@ -436,6 +466,12 @@ func (s *PackStore) fdForRead(loc packLoc, off int64) (fd uintptr, absOff, avail
 
 // ReadAll returns the full body at loc.
 func (s *PackStore) ReadAll(loc packLoc) ([]byte, error) {
+	// dataLen comes from a scanned record (validated <= file size) or a Put
+	// (len of an in-memory slice), so it's always a sane non-negative value;
+	// guard anyway so a corrupt/overflowing length can't drive a bad make().
+	if loc.dataLen < 0 || loc.dataLen > int64(maxInt) {
+		return nil, fmt.Errorf("pack read: invalid body length %d", loc.dataLen)
+	}
 	buf := make([]byte, loc.dataLen)
 	n, err := s.ReadAt(loc, buf, 0)
 	if err != nil && err != io.EOF {
