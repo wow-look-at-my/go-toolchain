@@ -187,8 +187,13 @@ Design properties:
   record (crash mid-append) declares a length running past EOF and is silently
   dropped — the store is crash-safe by construction.
 - **Content-addressed dedup.** `outputID` is the SHA-256 of the body, so
-  identical content put under different actions is stored once; later puts just
-  add an action→location mapping.
+  identical content put under different actions is stored once. The second and
+  later actions append a tiny header-only **alias record** (a second magic,
+  `dataLen 0`) that maps their `actionID` onto the already-stored `outputID`.
+  The alias is written to disk on purpose: a build is full of duplicate content
+  (every empty output — vet success, empty stdout — shares `sha256("")`), and if
+  the dedup lived only in memory those thousands of mappings would vanish on
+  restart and miss on the next build, falling through to the slow network tier.
 - **Bounded growth.** Packs rotate at 1 GiB (`pack-000001.data`,
   `pack-000002.data`, ...). If the total exceeds a cap at startup, the store
   resets to a cold cache rather than growing forever — the same "purge instead of

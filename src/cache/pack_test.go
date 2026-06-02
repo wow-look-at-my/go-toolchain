@@ -131,10 +131,11 @@ func TestPackStore_ContentDedup(t *testing.T) {
 	// Same content (outputID) => second Put reuses the first body's offset.
 	require.Equal(t, loc1.dataOff, loc2.dataOff)
 
-	// The pack file therefore holds exactly one record, not two.
+	// The body is stored once; the second Put adds only a header-only alias
+	// record (which is what makes the dedup survive a restart).
 	info, err := os.Stat(s.packPath(1))
 	require.Nil(t, err)
-	require.Equal(t, int64(packHeaderLen+len(body)), info.Size())
+	require.Equal(t, int64(packHeaderLen+len(body)+packHeaderLen), info.Size())
 
 	// Both actions resolve to the same bytes.
 	for _, aid := range []string{hexID(1), hexID(2)} {
@@ -144,6 +145,61 @@ func TestPackStore_ContentDedup(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, body, data)
 	}
+}
+
+// TestPackStore_DedupPersistsAcrossReopen guards the warm-cache regression:
+// when two actions share content (the very common empty-output case), the
+// second is stored as an alias record. That alias MUST survive a reopen, or the
+// next build misses it and falls through to the (slow) network tier.
+func TestPackStore_DedupPersistsAcrossReopen(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+
+	empty := hexID(200) // outputID for empty content
+	// Many actions, all producing identical (empty) content — only the first
+	// writes a body; the rest are aliases.
+	var actions []string
+	for i := 0; i < 50; i++ {
+		a := hexID(byte(i))
+		actions = append(actions, a)
+		_, err := s.Put(a, empty, bytes.NewReader(nil))
+		require.Nil(t, err)
+	}
+	// A couple with non-empty shared content too.
+	shared := hexID(201)
+	body := []byte("shared body across actions")
+	_, err = s.Put(hexID(100), shared, bytes.NewReader(body))
+	require.Nil(t, err)
+	_, err = s.Put(hexID(101), shared, bytes.NewReader(body))
+	require.Nil(t, err)
+	require.Nil(t, s.Close())
+
+	// Reopen: every deduped action must still resolve from disk alone.
+	s2, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s2.Close()
+	for _, a := range actions {
+		loc, ok := s2.Get(a)
+		require.True(t, ok, "deduped action %s lost after reopen", a)
+		require.Equal(t, empty, loc.outputID)
+		require.Equal(t, int64(0), loc.dataLen)
+	}
+	for _, a := range []string{hexID(100), hexID(101)} {
+		loc, ok := s2.Get(a)
+		require.True(t, ok, "shared-content action %s lost after reopen", a)
+		data, err := s2.ReadAll(loc)
+		require.Nil(t, err)
+		require.Equal(t, body, data)
+	}
+	// The shared non-empty body is stored once (one full record + one alias),
+	// not twice.
+	info, err := os.Stat(s2.packPath(1))
+	require.Nil(t, err)
+	// 50 empty: 1 full (header only) + 49 alias (header only) = 50 headers.
+	// shared: 1 full (header+body) + 1 alias (header). Total bytes:
+	want := int64(50*packHeaderLen) + int64(packHeaderLen+len(body)) + int64(packHeaderLen)
+	require.Equal(t, want, info.Size())
 }
 
 func TestPackStore_OverwriteAction(t *testing.T) {

@@ -92,9 +92,15 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 			// containers); go-fuse falls back to the fusermount helper when
 			// that fails (works for non-root CI runners). Not Strict, so the
 			// fallback is allowed.
-			DirectMount:   true,
-			FsName:        "go-toolchain-cache",
-			Name:          "gtcache",
+			DirectMount: true,
+			FsName:      "go-toolchain-cache",
+			Name:        "gtcache",
+			// Big reads + readahead: the compiler mmaps cached archives, so each
+			// page fault becomes a read here. Larger max_read and readahead let
+			// the kernel pull big chunks per round-trip, which is what keeps a
+			// warm (all-hits) build fast despite the FUSE indirection.
+			MaxWrite:      1 << 20,
+			MaxReadAhead:  1 << 20,
 			DisableXAttrs: true,
 			Debug:         os.Getenv("GOCACHE_FUSE_GODEBUG") == "1",
 		},
@@ -237,9 +243,17 @@ func (f *fuseFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint3
 }
 
 func (f *fuseFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
-	n, err := f.store.ReadAt(f.loc, dest, off)
-	if err != nil && err != io.EOF {
-		return nil, syscall.EIO
+	// Zero-copy: hand the kernel the pack fd + offset so it reads/splices the
+	// bytes directly, instead of copying them through the daemon. This is what
+	// keeps a warm, all-hits build fast despite the FUSE indirection — the
+	// compiler mmaps these archives, so every page fault is a read here.
+	fd, absOff, avail := f.store.fdForRead(f.loc, off)
+	if avail <= 0 {
+		return fuse.ReadResultData(nil), 0
 	}
-	return fuse.ReadResultData(dest[:n]), 0
+	sz := int64(len(dest))
+	if sz > avail {
+		sz = avail
+	}
+	return fuse.ReadResultFd(fd, absOff, int(sz)), 0
 }

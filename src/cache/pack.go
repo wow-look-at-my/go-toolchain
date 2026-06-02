@@ -72,9 +72,15 @@ type packLoc struct {
 }
 
 const (
-	// packRecordMagic ("GTPR") marks the start of every record. A scan that
-	// reads anything else has hit garbage or a torn write and stops.
+	// packRecordMagic ("GTPR") marks the start of a full record (header + body).
+	// A scan that reads neither this nor packAliasMagic has hit garbage or a
+	// torn write and stops.
 	packRecordMagic = 0x47545052
+	// packAliasMagic ("GTAL") marks an alias record: a header with no body that
+	// maps an actionID onto an outputID whose body is already stored. This is how
+	// content dedup is persisted — without it, a deduped action would live only
+	// in memory and vanish on restart, missing on the next build.
+	packAliasMagic = 0x4754414c
 	// packHeaderLen is the fixed header size preceding each body:
 	// magic(4) + actionID(32) + outputID(32) + created(8) + dataLen(8) + crc(4).
 	packHeaderLen = 4 + 32 + 32 + 8 + 8 + 4
@@ -211,13 +217,28 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 		if _, err := f.ReadAt(hdr, off); err != nil {
 			break
 		}
-		if binary.LittleEndian.Uint32(hdr[0:4]) != packRecordMagic {
+		magic := binary.LittleEndian.Uint32(hdr[0:4])
+		if magic != packRecordMagic && magic != packAliasMagic {
 			break // garbage or torn write
 		}
 		actionID := hex.EncodeToString(hdr[4 : 4+hashLen])
 		outputID := hex.EncodeToString(hdr[4+hashLen : 4+2*hashLen])
 		created := int64(binary.LittleEndian.Uint64(hdr[4+2*hashLen : 12+2*hashLen]))
 		dataLen := int64(binary.LittleEndian.Uint64(hdr[12+2*hashLen : 20+2*hashLen]))
+
+		if magic == packAliasMagic {
+			// Alias: the body lives under outputID, written by an earlier full
+			// record (records are scanned in write order). Point the action at
+			// it. If the body record was lost/torn, the alias is orphaned — skip.
+			if bodyLoc, ok := s.byOutput[outputID]; ok {
+				loc := bodyLoc
+				loc.created = created
+				s.byAction[actionID] = loc
+			}
+			off += packHeaderLen // header only, no body
+			continue
+		}
+
 		dataOff := off + packHeaderLen
 		if dataLen < 0 || dataOff+dataLen > size {
 			break // declared body runs past EOF: torn final record
@@ -233,9 +254,17 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 	return off, nil
 }
 
-// Put stores body under actionID/outputID and returns its location. Identical
-// content (same outputID) already present is not re-appended — only the action
-// mapping is added, giving content-addressed dedup for free.
+// Put stores body under actionID/outputID and returns its location.
+//
+// Three cases, cheapest first:
+//   - The action already maps to this exact content (a warm-build re-populate):
+//     nothing is written.
+//   - The content (outputID) is already stored under some other action: a tiny
+//     alias record (actionID -> outputID) is appended. This persists the dedup
+//     so the mapping survives a restart — the bug that, when this was an
+//     in-memory-only shortcut, lost thousands of empty-output actions on every
+//     warm build and sent them to the network.
+//   - New content: a full record (header + body) is appended.
 func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, error) {
 	data, err := io.ReadAll(body)
 	if err != nil {
@@ -250,11 +279,23 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 		return packLoc{}, fmt.Errorf("pack put output id: %w", err)
 	}
 
-	// Content dedup: if we already hold these exact bytes, reuse them.
 	s.mu.RLock()
-	existing, ok := s.byOutput[outputID]
+	prev, prevOK := s.byAction[actionID]
+	existing, existOK := s.byOutput[outputID]
 	s.mu.RUnlock()
-	if ok && existing.dataLen == int64(len(data)) {
+
+	// Already persisted exactly this mapping: nothing to do.
+	if prevOK && prev.outputID == outputID && prev.dataLen == int64(len(data)) {
+		s.Stats.Puts.Increment()
+		return prev, nil
+	}
+
+	// Content already stored: persist an alias record (no body) and point the
+	// action at the existing body.
+	if existOK && existing.dataLen == int64(len(data)) {
+		if err := s.appendRecord(packAliasMagic, aid, oid, nil); err != nil {
+			return packLoc{}, err
+		}
 		loc := existing
 		loc.created = packNow()
 		s.mu.Lock()
@@ -264,9 +305,25 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 		return loc, nil
 	}
 
+	// New content: append a full record (header + body).
+	loc, err := s.appendRecordLoc(packRecordMagic, aid, oid, data)
+	if err != nil {
+		return packLoc{}, err
+	}
+	s.mu.Lock()
+	s.byAction[actionID] = loc
+	s.byOutput[outputID] = loc
+	s.mu.Unlock()
+	s.Stats.Puts.Increment()
+	return loc, nil
+}
+
+// appendRecordLoc appends a record (header + optional body) and returns the
+// body's location within the pack.
+func (s *PackStore) appendRecordLoc(magic uint32, aid, oid, data []byte) (packLoc, error) {
 	created := packNow()
 	rec := make([]byte, packHeaderLen+len(data))
-	binary.LittleEndian.PutUint32(rec[0:4], packRecordMagic)
+	binary.LittleEndian.PutUint32(rec[0:4], magic)
 	copy(rec[4:4+hashLen], aid)
 	copy(rec[4+hashLen:4+2*hashLen], oid)
 	binary.LittleEndian.PutUint64(rec[4+2*hashLen:12+2*hashLen], uint64(created))
@@ -274,28 +331,43 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 	binary.LittleEndian.PutUint32(rec[20+2*hashLen:packHeaderLen], crc32.Checksum(data, packCRC))
 	copy(rec[packHeaderLen:], data)
 
+	id, off, err := s.appendRaw(rec)
+	if err != nil {
+		return packLoc{}, err
+	}
+	return packLoc{
+		packID:   id,
+		dataOff:  off + packHeaderLen,
+		dataLen:  int64(len(data)),
+		created:  created,
+		outputID: hex.EncodeToString(oid),
+	}, nil
+}
+
+// appendRecord appends a header-only record (e.g. an alias, with data == nil).
+func (s *PackStore) appendRecord(magic uint32, aid, oid, data []byte) error {
+	_, err := s.appendRecordLoc(magic, aid, oid, data)
+	return err
+}
+
+// appendRaw appends rec to the active pack under wmu and returns where it
+// landed, rotating to a new pack afterward if the active one is full.
+func (s *PackStore) appendRaw(rec []byte) (id int, off int64, err error) {
 	s.wmu.Lock()
-	id := s.activeID
-	off := s.activeSize
+	id = s.activeID
+	off = s.activeSize
 	f := s.pack(id)
 	if f == nil {
 		s.wmu.Unlock()
-		return packLoc{}, fmt.Errorf("pack put: active pack %d missing", id)
+		return 0, 0, fmt.Errorf("pack append: active pack %d missing", id)
 	}
 	if _, err := f.WriteAt(rec, off); err != nil {
 		s.wmu.Unlock()
-		return packLoc{}, fmt.Errorf("pack put write: %w", err)
+		return 0, 0, fmt.Errorf("pack append write: %w", err)
 	}
 	s.activeSize = off + int64(len(rec))
 	rotate := s.activeSize >= maxPackBytes
 	s.wmu.Unlock()
-
-	loc := packLoc{packID: id, dataOff: off + packHeaderLen, dataLen: int64(len(data)), created: created, outputID: outputID}
-	s.mu.Lock()
-	s.byAction[actionID] = loc
-	s.byOutput[outputID] = loc
-	s.mu.Unlock()
-	s.Stats.Puts.Increment()
 
 	if rotate {
 		s.wmu.Lock()
@@ -304,7 +376,7 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 		}
 		s.wmu.Unlock()
 	}
-	return loc, nil
+	return id, off, nil
 }
 
 // Get returns the location of actionID's body, incrementing the hit counter.
@@ -343,6 +415,23 @@ func (s *PackStore) ReadAt(loc packLoc, dest []byte, off int64) (int, error) {
 		return 0, fmt.Errorf("pack read: pack %d missing", loc.packID)
 	}
 	return f.ReadAt(dest, loc.dataOff+off)
+}
+
+// fdForRead returns the pack file descriptor and absolute offset for serving a
+// read of loc starting at body-relative off, plus how many bytes remain. It
+// lets the FUSE layer hand the kernel a (fd, offset, size) so reads are served
+// zero-copy (fuse.ReadResultFd) straight from the pack — no copy through the
+// daemon. The fd stays valid for the store's lifetime; pread at an explicit
+// offset is safe for concurrent use.
+func (s *PackStore) fdForRead(loc packLoc, off int64) (fd uintptr, absOff, avail int64) {
+	if off < 0 || off >= loc.dataLen {
+		return 0, 0, 0
+	}
+	f := s.pack(loc.packID)
+	if f == nil {
+		return 0, 0, 0
+	}
+	return f.Fd(), loc.dataOff + off, loc.dataLen - off
 }
 
 // ReadAll returns the full body at loc.
