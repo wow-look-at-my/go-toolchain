@@ -311,7 +311,7 @@ func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
 	err = db.QueryRow(`SELECT checked_at FROM deps WHERE path = ? AND version = ?`,
 		"github.com/spf13/cobra", "v1.10.2").Scan(&checkedAt)
 	require.Nil(t, err)
-	assert.NotEqual(t, 0, checkedAt)
+	assert.NotEqual(t, int64(0), checkedAt)
 }
 
 func TestDepChecker_run_Canceled(t *testing.T) {

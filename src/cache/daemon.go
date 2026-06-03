@@ -21,7 +21,7 @@ func (n *noCloseBackend) Close() error { return nil }
 // Daemon listens on a Unix socket and serves GOCACHEPROG protocol to
 // multiple clients, sharing a single web index and local cache.
 type Daemon struct {
-	local    *LocalCache
+	local    LocalStore
 	remote   IBackend // real backend (closeable)
 	wrapped  IBackend // no-close wrapper for per-connection servers
 	listener net.Listener
@@ -37,7 +37,7 @@ type Daemon struct {
 // Each connection gets its own Server that shares the underlying backends.
 // Batch callbacks are wired once here (not per-connection) with a dedicated
 // stats connection that outlives any individual client connection.
-func NewDaemon(sockPath string, local *LocalCache, remote IBackend) (*Daemon, error) {
+func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -131,6 +131,13 @@ func (d *Daemon) Close() {
 			}
 		}
 		d.remote.Close()
+	}
+	// Unmount/close the local store after all connections have drained (so no
+	// in-flight compiler read can hit a closed FUSE mount or pack handle).
+	if d.local != nil {
+		if err := d.local.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "cacheprog: local cache close: %v\n", err)
+		}
 	}
 	// Close the stats connection AFTER remote.Close() so that batch flush
 	// stat events are sent before the connection is torn down.

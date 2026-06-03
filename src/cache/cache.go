@@ -73,7 +73,7 @@ const maxConcurrentPuts = 64
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
-	local    *LocalCache
+	local    LocalStore
 	remote   IBackend // nil if no remote backend configured
 	mu       sync.Mutex
 	locks    map[string]*sync.Mutex
@@ -93,7 +93,7 @@ type Server struct {
 // For standalone mode (direct WebBackend), this also wires up batch
 // callbacks. In daemon mode, use Daemon.wireBatchCallbacks instead —
 // callbacks must be set once on the shared WebBackend, not per-connection.
-func NewServer(local *LocalCache, remote IBackend) *Server {
+func NewServer(local LocalStore, remote IBackend) *Server {
 	s := &Server{
 		local:  local,
 		remote: remote,
@@ -125,7 +125,7 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 // wireBatchCallbacks sets up the OnBatchEntries callback on a WebBackend.
 // When a batch GET returns prefetch entries, this callback writes them to
 // the local cache so future GETs hit locally.
-func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
+func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
 		// e.Key is the full S3 key (e.g. "go-buildcache/v1abcdef...").
@@ -216,7 +216,7 @@ type ServerStats struct {
 // GetStats returns pointers to the live cache layer stats.
 func (s *Server) GetStats() *ServerStats {
 	ss := &ServerStats{
-		Local:   &s.local.Stats,
+		Local:   s.local.StatsPtr(),
 		Misses:  &s.Misses,
 		Batch:   &s.batch,
 		Latency: &s.Latency,
