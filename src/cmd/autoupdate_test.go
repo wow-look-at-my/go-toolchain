@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -156,6 +158,11 @@ func TestMaybeAutoUpdate_NewerSucceedsAndReexecs(t *testing.T) {
 }
 
 func TestReexecCommand(t *testing.T) {
+	// A pre-existing (here empty) marker must not survive ahead of the
+	// authoritative one, or the child's os.Getenv would read the stale value
+	// first and re-update in a loop.
+	t.Setenv(autoUpdateDoneEnvVar, "")
+
 	c := reexecCommand("/path/to/go-toolchain", []string{"matrix", "--json"})
 
 	assert.Equal(t, []string{"/path/to/go-toolchain", "matrix", "--json"}, c.Args)
@@ -163,11 +170,31 @@ func TestReexecCommand(t *testing.T) {
 	assert.Equal(t, os.Stderr, c.Stderr)
 	assert.Equal(t, os.Stdin, c.Stdin)
 
-	var found bool
+	var doneVals []string
 	for _, e := range c.Env {
-		if e == autoUpdateDoneEnvVar+"=1" {
-			found = true
+		if strings.HasPrefix(e, autoUpdateDoneEnvVar+"=") {
+			doneVals = append(doneVals, e)
 		}
 	}
-	assert.True(t, found, "child env must carry the done marker to prevent re-exec loops")
+	assert.Equal(t, []string{autoUpdateDoneEnvVar + "=1"}, doneVals,
+		"child env must carry exactly one done marker, set to 1, to prevent re-exec loops")
+}
+
+// TestMaybeAutoUpdate_ProgressGoesToStderr verifies auto-update progress never
+// lands on stdout, which must stay clean for --json consumers (matrix/bench/lint).
+func TestMaybeAutoUpdate_ProgressGoesToStderr(t *testing.T) {
+	m := &mockUpdater{version: "v0.0.200", found: true, newer: true}
+	withAutoUpdateStubs(t, m)
+
+	r, w, err := os.Pipe()
+	require.Nil(t, err)
+	orig := os.Stdout
+	os.Stdout = w
+	runErr := maybeAutoUpdate()
+	os.Stdout = orig
+	w.Close()
+	out, _ := io.ReadAll(r)
+
+	require.Nil(t, runErr)
+	assert.Empty(t, string(out), "auto-update must not write to stdout (keeps --json output clean)")
 }

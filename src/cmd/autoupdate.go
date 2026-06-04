@@ -57,8 +57,24 @@ var currentExePath = func() (string, error) {
 func reexecCommand(exePath string, args []string) *exec.Cmd {
 	c := exec.Command(exePath, args...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-	c.Env = append(os.Environ(), autoUpdateDoneEnvVar+"=1")
+	// Replace (not merely append) the done marker. A pre-existing entry — even
+	// an empty GO_TOOLCHAIN_AUTO_UPDATE_DONE= — would otherwise sit ahead of our
+	// marker, and Go's os.Getenv returns the first match, so the child could
+	// read the stale value and defeat loop prevention.
+	c.Env = append(envWithout(os.Environ(), autoUpdateDoneEnvVar), autoUpdateDoneEnvVar+"=1")
 	return c
+}
+
+// envWithout returns a copy of environ with every "key=..." entry removed.
+func envWithout(environ []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(environ))
+	for _, e := range environ {
+		if !strings.HasPrefix(e, prefix) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // reexecSelf replaces the current invocation with a fresh run of the
@@ -113,12 +129,14 @@ func maybeAutoUpdate() error {
 		return nil
 	}
 
-	fmt.Printf("⇒ Auto-updating go-toolchain %s → %s (%s set)\n", buildVersion, latest, autoUpdateEnvVar)
+	// Progress goes to stderr so it never corrupts stdout when a --json command
+	// (matrix/bench/lint) is the one that triggered the update.
+	fmt.Fprintf(os.Stderr, "⇒ Auto-updating go-toolchain %s → %s (%s set)\n", buildVersion, latest, autoUpdateEnvVar)
 	if err := u.applyUpdate(ctx, exePath); err != nil {
 		fmt.Fprintf(os.Stderr, "⇒ Auto-update failed (%v); continuing on %s\n", err, buildVersion)
 		return nil
 	}
-	fmt.Printf("⇒ Updated to %s; re-running\n", latest)
+	fmt.Fprintf(os.Stderr, "⇒ Updated to %s; re-running\n", latest)
 
 	return reexecSelf(exePath, os.Args[1:])
 }
