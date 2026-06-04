@@ -43,6 +43,10 @@ inputs:
     description: 'Buildhost base URL'
     required: false
     default: 'https://pazer.build'
+  allow-source-build:
+    description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
+    required: false
+    default: 'false'
   upload-artifacts:
     description: 'Upload build/ directory as a GitHub Actions artifact after building'
     required: false
@@ -97,16 +101,42 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
+        set -euo pipefail
         # buildhost serves its npm registry on the "npm." service subdomain
         # (npm.{domain}/@buildhost/{project}), not under a "/npm/" path on the
         # base domain -- API/service routes are dispatched by Host subdomain.
-        # Derive the subdomain registry URL from the configured base URL.
+        # Normalize the configured base URL into that subdomain registry URL:
+        # default a missing scheme to https, then prepend "npm." to the host
+        # only when it is not already there (so an explicit npm.* base is not
+        # doubled up).
         BASE="${{ inputs.buildhost-url }}"
-        REGISTRY="${BASE%/}"
-        REGISTRY="${REGISTRY/:\/\//:\/\/npm.}/"
+        BASE="${BASE%/}"
+        SCHEME="https://"
+        HOST="${BASE}"
+        case "${BASE}" in
+          http://*)  SCHEME="http://";  HOST="${BASE#http://}" ;;
+          https://*) SCHEME="https://"; HOST="${BASE#https://}" ;;
+        esac
+        case "${HOST}" in
+          npm.*) ;;
+          *) HOST="npm.${HOST}" ;;
+        esac
+        REGISTRY="${SCHEME}${HOST}/"
         timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${REGISTRY}" || true
-        if ! go-toolchain version &>/dev/null; then
-          echo "::warning::buildhost binary not usable, building from source"
+        # Probe the installed binary. Capture the output (don't discard it) so
+        # the real reason it is unusable -- 404, not on PATH, or a crash -- is
+        # shown rather than swallowed.
+        if ! probe=$(go-toolchain version 2>&1); then
+          echo "buildhost go-toolchain (${REGISTRY}) not usable; probe output:"
+          echo "${probe}"
+          # Fail fast unless the caller has explicitly opted in to a source
+          # build: a silent fallback hides buildhost outages and ships a
+          # locally-compiled toolchain that may differ from the released one.
+          if [ "${{ inputs.allow-source-build }}" != "true" ]; then
+            echo "::error::Could not install go-toolchain from buildhost (${REGISTRY}) and allow-source-build is not enabled. Fix buildhost availability, or set allow-source-build: 'true' to build from source instead."
+            exit 1
+          fi
+          echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
           sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
         fi
@@ -163,7 +193,12 @@ runs:
           // token, and composite actions don't propagate GITHUB_TOKEN to
           // sub-action processes, so pass it explicitly via the step env above
           // and build the client from process.env.
-          const oct = getOctokit(process.env.GITHUB_TOKEN as string);
+          const token = process.env.GITHUB_TOKEN;
+          if (!token) {
+            core.setFailed("autorelease permission check needs GITHUB_TOKEN, but it is empty. The action passes github.token via step env; ensure the workflow grants at least 'contents: read'.");
+            return;
+          }
+          const oct = getOctokit(token);
           let actionsReadOk = false;
           try {
             await oct.rest.actions.listWorkflowRunArtifacts({
