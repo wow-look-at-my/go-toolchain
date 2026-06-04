@@ -97,7 +97,14 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
-        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${{ inputs.buildhost-url }}/npm/" || true
+        # buildhost serves its npm registry on the "npm." service subdomain
+        # (npm.{domain}/@buildhost/{project}), not under a "/npm/" path on the
+        # base domain -- API/service routes are dispatched by Host subdomain.
+        # Derive the subdomain registry URL from the configured base URL.
+        BASE="${{ inputs.buildhost-url }}"
+        REGISTRY="${BASE%/}"
+        REGISTRY="${REGISTRY/:\/\//:\/\/npm.}/"
+        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${REGISTRY}" || true
         if ! go-toolchain version &>/dev/null; then
           echo "::warning::buildhost binary not usable, building from source"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
@@ -146,15 +153,17 @@ runs:
     - name: Verify autorelease permissions
       if: inputs.autorelease == 'true'
       uses: wow-look-at-my/actions@typescript#latest
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
       with:
-        github: ${{ toJSON(github) }}
         script: |
           // Probe the artifacts endpoint to verify actions: read.
           // A 403 means the workflow is missing the permission.
-          // Use getOctokit(github.token) -- the pre-authenticated octokit proxy
-          // relies on GITHUB_TOKEN in process.env, which is not propagated to
-          // sub-action processes from composite actions.
-          const oct = getOctokit(github.token as string);
+          // The typescript action's auto-derived `github` context carries no
+          // token, and composite actions don't propagate GITHUB_TOKEN to
+          // sub-action processes, so pass it explicitly via the step env above
+          // and build the client from process.env.
+          const oct = getOctokit(process.env.GITHUB_TOKEN as string);
           let actionsReadOk = false;
           try {
             await oct.rest.actions.listWorkflowRunArtifacts({
