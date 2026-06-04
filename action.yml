@@ -39,10 +39,6 @@ inputs:
     description: 'Automatically publish to buildhost on every branch push (requires id-token: write and actions: read permissions)'
     required: false
     default: 'true'
-  buildhost-url:
-    description: 'Buildhost base URL'
-    required: false
-    default: 'https://pazer.build'
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
@@ -102,30 +98,11 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # buildhost serves its npm registry on the "npm." service subdomain
-        # (npm.{domain}/@buildhost/{project}), not under a "/npm/" path on the
-        # base domain -- API/service routes are dispatched by Host subdomain.
-        # Normalize the configured base URL into that subdomain registry URL:
-        # default a missing scheme to https, then prepend "npm." to the host
-        # only when it is not already there (so an explicit npm.* base is not
-        # doubled up).
-        BASE="${{ inputs.buildhost-url }}"
-        BASE="${BASE%/}"
-        SCHEME="https://"
-        HOST="${BASE}"
-        case "${BASE}" in
-          http://*)  SCHEME="http://";  HOST="${BASE#http://}" ;;
-          https://*) SCHEME="https://"; HOST="${BASE#https://}" ;;
-        esac
-        case "${HOST}" in
-          npm.*) ;;
-          *) HOST="npm.${HOST}" ;;
-        esac
-        REGISTRY="${SCHEME}${HOST}/"
+        # buildhost serves its npm registry on the npm. subdomain.
+        REGISTRY="https://npm.pazer.build/"
         timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${REGISTRY}" || true
         # Probe the installed binary. Capture the output (don't discard it) so
-        # the real reason it is unusable -- 404, not on PATH, or a crash -- is
-        # shown rather than swallowed.
+        # the real reason it is unusable -- 404, not on PATH, or a crash -- is shown.
         if ! probe=$(go-toolchain version 2>&1); then
           echo "buildhost go-toolchain (${REGISTRY}) not usable; probe output:"
           echo "${probe}"
@@ -133,7 +110,7 @@ runs:
           # build: a silent fallback hides buildhost outages and ships a
           # locally-compiled toolchain that may differ from the released one.
           if [ "${{ inputs.allow-source-build }}" != "true" ]; then
-            echo "::error::Could not install go-toolchain from buildhost (${REGISTRY}) and allow-source-build is not enabled. Fix buildhost availability, or set allow-source-build: 'true' to build from source instead."
+            echo "::error::Could not install go-toolchain from buildhost and allow-source-build is not enabled. Set allow-source-build: 'true' to build from source instead."
             exit 1
           fi
           echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
