@@ -411,21 +411,23 @@ func TestInjectVanityReplacesSkipsNonDirectHost(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	gomod := "module test\n\ngo 1.21\n\nrequire google.golang.org/protobuf v1.36.11\n"
+	gomod := "module test\n\ngo 1.21\n\nrequire vanity.test/widget v1.2.3\n"
 	os.WriteFile("go.mod", []byte(gomod), 0644)
-	gosum := "google.golang.org/protobuf v1.36.11 h1:aaa=\n"
+	gosum := "vanity.test/widget v1.2.3 h1:aaa=\n"
 	os.WriteFile("go.sum", []byte(gosum), 0644)
 
 	oldChecker := vanityHostChecker
 	vanityHostChecker = func(host string) bool { return false }
 	defer func() { vanityHostChecker = oldChecker }()
 
-	// The module's real repository is on go.googlesource.com, which is not a
-	// direct code host. Rewriting onto it would only swap one indirect host for
-	// another, so the replace must be skipped entirely.
+	// This vanity module's real repository is on go.googlesource.com, which is
+	// not a direct code host. Rewriting onto it would only swap one indirect
+	// host for another, so the replace must be skipped entirely. (google.golang.org
+	// modules can no longer reach this path — they are well-known and excluded
+	// before the reachability check.)
 	oldResolver := vanityVCSResolver
 	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
-		return "https://go.googlesource.com/protobuf", "google.golang.org/protobuf", nil
+		return "https://go.googlesource.com/widget", "vanity.test/widget", nil
 	}
 	defer func() { vanityVCSResolver = oldResolver }()
 
@@ -459,9 +461,16 @@ gitlab.com/baz/qux v2.0.0 h1:bbb=
 golang.org/x/mod v0.30.0 h1:ccc=
 gopkg.in/yaml.v3 v3.0.1 h1:ddd=
 bitbucket.org/test/repo v0.1.0 h1:eee=
+google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 h1:fff=
+google.golang.org/grpc v1.80.0 h1:ggg=
 `
 	os.WriteFile("go.sum", []byte(gosum), 0644)
 
+	// google.golang.org is a well-known host: its modules (genproto, grpc,
+	// protobuf, ...) always resolve via the Go proxy, so they must never be
+	// treated as rewritable vanity modules. Treating them as vanity caused a
+	// stale build to mis-rewrite them onto GitHub mirrors when a slow network
+	// made the reachability probe time out.
 	modules, err := parseVanityModulesFromSum()
 	require.Nil(t, err)
 	assert.Equal(t, 0, len(modules))

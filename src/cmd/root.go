@@ -36,7 +36,7 @@ var (
 	verbose       bool
 	cacheMisses   bool
 	generateHash  string
-	dupcode bool
+	dupcode       bool
 	lintThreshold float64
 	lintMinNodes  int
 	cgoEnabled    bool
@@ -63,6 +63,11 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if skipCache(cmd) {
 			return nil
+		}
+		// Heal a stale binary before doing any real work, when opted in via
+		// GO_TOOLCHAIN_AUTO_UPDATE. On success this re-execs and never returns.
+		if err := maybeAutoUpdate(); err != nil {
+			return err
 		}
 		if cmd.Parent() == nil && isUpToDate() {
 			fmt.Println("⇒ Up to date, nothing to do")
@@ -659,7 +664,6 @@ func needsGenerate() bool {
 	})
 	return err == errFound
 }
-
 
 // runDuplicateCheck scans Go source files for near-duplicate function bodies
 // and prints warnings. It never causes a build failure.

@@ -17,11 +17,12 @@ import (
 // wellKnownHosts are code-hosting domains that resolve directly without
 // vanity URL meta-tag resolution.
 var wellKnownHosts = map[string]bool{
-	"github.com":    true,
-	"gitlab.com":    true,
-	"bitbucket.org": true,
-	"golang.org":    true,
-	"gopkg.in":      true,
+	"github.com":        true,
+	"gitlab.com":        true,
+	"bitbucket.org":     true,
+	"golang.org":        true,
+	"google.golang.org": true,
+	"gopkg.in":          true,
 }
 
 // directMirrorHosts are the hosts we are willing to rewrite a vanity module
