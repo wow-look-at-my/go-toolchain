@@ -170,7 +170,7 @@ Each record is a fixed 88-byte header followed by the body:
 | `outputID` | 32 B | content hash (SHA-256) — also the virtual filename |
 | `created` | 8 B | unix seconds |
 | `dataLen` | 8 B | body length |
-| `crc32` | 4 B | IEEE CRC of the body (offline integrity checks) |
+| `crc32` | 4 B | IEEE CRC of the body, verified before the body is served |
 | `body` | `dataLen` B | the cached object, stored uncompressed |
 
 Records are simply concatenated:
@@ -186,6 +186,17 @@ Design properties:
   (never the bodies), so the scan is cheap even for multi-GB packs. A torn final
   record (crash mid-append) declares a length running past EOF and is silently
   dropped — the store is crash-safe by construction.
+- **Integrity-checked on read.** A torn-tail check cannot catch a body that is
+  full-length but corrupt in content (overlay/disk bit-rot, a partial overwrite,
+  a bad archive ingested from the remote tier). So a cache hit verifies the
+  body's CRC against the header before serving it (`GetVerified`); a mismatch
+  evicts the entry and reports a **miss**, so the toolchain recomputes rather
+  than being handed a corrupt object. Serving corrupt bytes is never an option —
+  e.g. a corrupt Go module index fails the build with `corrupt index`, which the
+  `go` process cannot recover from. Large bodies are verified over an **mmap** of
+  the pack region (via [go-mmap](https://github.com/wow-look-at-my/go-mmap)) so a
+  multi-MB archive is never copied onto the heap on every hit; tiny entries (the
+  common case) take a plain read.
 - **Content-addressed dedup.** `outputID` is the SHA-256 of the body, so
   identical content put under different actions is stored once. The second and
   later actions append a tiny header-only **alias record** (a second magic,

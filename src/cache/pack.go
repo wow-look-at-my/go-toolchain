@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	mmap "github.com/wow-look-at-my/go-mmap"
 )
 
 // packNow returns the current unix time. It is a var so tests can pin it.
@@ -36,7 +38,7 @@ var packNow = func() int64 { return time.Now().Unix() }
 //	outputID  [32]byte
 //	created   int64   (unix seconds)
 //	dataLen   uint64
-//	crc32     uint32  (IEEE crc of the body, for offline integrity checks)
+//	crc32     uint32  (IEEE crc of the body, verified before the body is served)
 //	data      [dataLen]byte
 //
 // The format is self-describing: the in-memory index is rebuilt purely by
@@ -69,6 +71,7 @@ type packLoc struct {
 	dataLen  int64
 	created  int64
 	outputID string
+	crc      uint32 // IEEE crc32 of the body, from the record header; verified on read
 }
 
 const (
@@ -108,6 +111,13 @@ var packCRC = crc32.MakeTable(crc32.IEEE)
 // maxInt is the largest value representable by int on this platform, used to
 // bound a body length before converting int64 -> int for make().
 const maxInt = int(^uint(0) >> 1)
+
+// mmapVerifyThreshold is the body size at or above which CRC verification maps
+// the pack region (via go-mmap) instead of reading the whole body onto the
+// heap. Large bodies are compiled archives/export data; copying them per hit
+// would be serious allocation pressure under parallel builds. Tiny entries (the
+// common case) aren't worth the mmap/munmap syscalls and take a plain read.
+const mmapVerifyThreshold = 1 << 16 // 64 KiB
 
 // OpenPackStore opens (or creates) a pack store rooted at dir, rebuilding the
 // in-memory index by scanning every pack file.
@@ -253,7 +263,8 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 		if dataLen < 0 || dataOff+dataLen > size {
 			break // declared body runs past EOF: torn final record
 		}
-		loc := packLoc{packID: id, dataOff: dataOff, dataLen: dataLen, created: created, outputID: outputID}
+		crc := binary.LittleEndian.Uint32(hdr[20+2*hashLen : packHeaderLen])
+		loc := packLoc{packID: id, dataOff: dataOff, dataLen: dataLen, created: created, outputID: outputID, crc: crc}
 		// Last write wins for an action; content dedup keeps the first sighting.
 		s.byAction[actionID] = loc
 		if _, ok := s.byOutput[outputID]; !ok {
@@ -343,13 +354,14 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 // again just to be written.
 func (s *PackStore) appendRecordLoc(magic uint32, aid, oid, data []byte) (packLoc, error) {
 	created := packNow()
+	crc := crc32.Checksum(data, packCRC)
 	var hdr [packHeaderLen]byte
 	binary.LittleEndian.PutUint32(hdr[0:4], magic)
 	copy(hdr[4:4+hashLen], aid)
 	copy(hdr[4+hashLen:4+2*hashLen], oid)
 	binary.LittleEndian.PutUint64(hdr[4+2*hashLen:12+2*hashLen], uint64(created))
 	binary.LittleEndian.PutUint64(hdr[12+2*hashLen:20+2*hashLen], uint64(len(data)))
-	binary.LittleEndian.PutUint32(hdr[20+2*hashLen:packHeaderLen], crc32.Checksum(data, packCRC))
+	binary.LittleEndian.PutUint32(hdr[20+2*hashLen:packHeaderLen], crc)
 
 	id, off, err := s.appendRaw(hdr[:], data)
 	if err != nil {
@@ -361,6 +373,7 @@ func (s *PackStore) appendRecordLoc(magic uint32, aid, oid, data []byte) (packLo
 		dataLen:  int64(len(data)),
 		created:  created,
 		outputID: hex.EncodeToString(oid),
+		crc:      crc,
 	}, nil
 }
 
@@ -426,6 +439,92 @@ func (s *PackStore) GetByOutput(outputID string) (packLoc, bool) {
 	loc, ok := s.byOutput[outputID]
 	s.mu.RUnlock()
 	return loc, ok
+}
+
+// GetVerified is like Get but first confirms the stored body still matches the
+// CRC recorded in its header. A build cache must never hand back corrupt bytes:
+// a damaged body (a torn append that nonetheless landed full-length, disk or
+// overlay bit-rot, a bad archive ingested from the remote tier) would be fed to
+// the Go toolchain as a valid object — e.g. a module index, which then fails the
+// build with "corrupt index", an error go cannot recover from in-process. So a
+// mismatch evicts the entry and reports a miss, letting the toolchain recompute
+// and re-Put clean data instead of consuming garbage.
+func (s *PackStore) GetVerified(actionID string) (packLoc, bool) {
+	s.mu.RLock()
+	loc, ok := s.byAction[actionID]
+	s.mu.RUnlock()
+	if !ok {
+		return packLoc{}, false
+	}
+	if !s.bodyMatchesCRC(loc) {
+		s.evictCorrupt(actionID, loc)
+		s.Stats.Corrupt.Increment()
+		return packLoc{}, false
+	}
+	s.Stats.Hits.Increment()
+	return loc, true
+}
+
+// bodyMatchesCRC reports whether loc's body still hashes to the CRC recorded in
+// its record header. A read error counts as a mismatch.
+//
+// Large bodies are verified over an mmap of the pack region so they are never
+// copied onto the heap on every hit (see mmapVerifyThreshold); small bodies
+// take a plain read, whose allocation is negligible and cheaper than the
+// mmap/munmap syscalls.
+func (s *PackStore) bodyMatchesCRC(loc packLoc) bool {
+	if loc.dataLen >= mmapVerifyThreshold && loc.dataLen <= int64(maxInt) {
+		if match, ok := s.bodyMatchesCRCMmap(loc); ok {
+			return match
+		}
+		// mmap unavailable (no fd / map error): fall back to a read.
+	}
+	body, err := s.ReadAll(loc)
+	if err != nil {
+		return false
+	}
+	return crc32.Checksum(body, packCRC) == loc.crc
+}
+
+// bodyMatchesCRCMmap verifies loc's CRC over a memory-mapped view of the pack,
+// avoiding a heap copy of the body. ok is false if the region could not be
+// mapped, so the caller can fall back to a read. mmap offsets must be
+// page-aligned, so it maps from the page boundary at or before the body and
+// indexes in.
+func (s *PackStore) bodyMatchesCRCMmap(loc packLoc) (match, ok bool) {
+	f := s.pack(loc.packID)
+	if f == nil {
+		return false, false
+	}
+	pageSize := int64(os.Getpagesize())
+	pageStart := loc.dataOff - loc.dataOff%pageSize
+	span := loc.dataOff - pageStart + loc.dataLen
+	m, err := mmap.MapRegion(int(f.Fd()), span, mmap.ProtRead, mmap.MapShared, pageStart)
+	if err != nil {
+		return false, false
+	}
+	defer m.Unmap()
+	_ = m.Advise(mmap.AdvSequential) // best-effort readahead hint for the linear scan
+	data := []byte(m)
+	bodyStart := int(loc.dataOff - pageStart)
+	body := data[bodyStart : bodyStart+int(loc.dataLen)]
+	return crc32.Checksum(body, packCRC) == loc.crc, true
+}
+
+// evictCorrupt drops a corrupt entry from the in-memory index so it is never
+// served again this process. The dead bytes stay in the pack (unreferenced)
+// until the next reset — correctness, not space, is the priority. Only the exact
+// location is removed, so a concurrent re-Put that already replaced the mapping
+// is left intact.
+func (s *PackStore) evictCorrupt(actionID string, loc packLoc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.byAction[actionID]; ok && cur == loc {
+		delete(s.byAction, actionID)
+	}
+	if cur, ok := s.byOutput[loc.outputID]; ok && cur == loc {
+		delete(s.byOutput, loc.outputID)
+	}
 }
 
 // ReadAt reads up to len(dest) bytes of loc's body starting at body-relative
