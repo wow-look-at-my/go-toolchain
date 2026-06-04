@@ -133,9 +133,11 @@ func (c *FuseCache) mountInfo() string {
 	return fmt.Sprintf("mount=%s packs=%d", c.mnt, c.store.Len())
 }
 
-// Get resolves actionID to a DiskPath inside the FUSE mount.
+// Get resolves actionID to a DiskPath inside the FUSE mount. The body is
+// integrity-checked first (see PackStore.GetVerified): a corrupt body is evicted
+// and reported as a miss rather than handed to the toolchain.
 func (c *FuseCache) Get(actionID string) (CacheMeta, bool) {
-	loc, ok := c.store.Get(actionID)
+	loc, ok := c.store.GetVerified(actionID)
 	if !ok {
 		return CacheMeta{}, true
 	}
