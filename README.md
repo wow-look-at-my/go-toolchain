@@ -15,7 +15,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
 - **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot
-- **Self-update** — update the binary in place via the `update` subcommand
+- **Self-update** — update the binary in place via the `update` subcommand, or enable automatic enforced updates with `GO_TOOLCHAIN_AUTO_UPDATE=1` so a stale binary baked into an image heals itself before it runs
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
@@ -153,6 +153,26 @@ go-toolchain release --tag v1.0.0
 - **`version`** — show build version and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
+
+### Automatic updates
+
+Setting `GO_TOOLCHAIN_AUTO_UPDATE=1` makes go-toolchain check for a newer release
+before each real build and, if one exists, update itself in place and re-execute
+on the new binary. This is intended for environments that ship a fixed, possibly
+stale binary (e.g. the Claude Code web image): an outdated binary heals itself on
+first use instead of silently running stale build logic.
+
+```bash
+# Opt in (e.g. in an image's environment)
+export GO_TOOLCHAIN_AUTO_UPDATE=1
+go-toolchain        # updates if behind, then re-runs on the new binary
+```
+
+The check **fails open** — a flaky or unreachable release registry prints a
+warning and continues on the current binary rather than blocking the build. Set
+the variable to `0`/`false`/`no`/`off` (or leave it unset) to disable. The
+`update`, `version`, `install`, `release`, and `cacheprog` subcommands are never
+auto-updated.
 
 ## OpenTelemetry Trace Export
 
