@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	mmap "github.com/wow-look-at-my/go-mmap"
 )
 
 // packNow returns the current unix time. It is a var so tests can pin it.
@@ -109,6 +111,13 @@ var packCRC = crc32.MakeTable(crc32.IEEE)
 // maxInt is the largest value representable by int on this platform, used to
 // bound a body length before converting int64 -> int for make().
 const maxInt = int(^uint(0) >> 1)
+
+// mmapVerifyThreshold is the body size at or above which CRC verification maps
+// the pack region (via go-mmap) instead of reading the whole body onto the
+// heap. Large bodies are compiled archives/export data; copying them per hit
+// would be serious allocation pressure under parallel builds. Tiny entries (the
+// common case) aren't worth the mmap/munmap syscalls and take a plain read.
+const mmapVerifyThreshold = 1 << 16 // 64 KiB
 
 // OpenPackStore opens (or creates) a pack store rooted at dir, rebuilding the
 // in-memory index by scanning every pack file.
@@ -456,14 +465,50 @@ func (s *PackStore) GetVerified(actionID string) (packLoc, bool) {
 	return loc, true
 }
 
-// bodyMatchesCRC reads loc's body and reports whether it still hashes to the
-// CRC recorded in its record header. A read error counts as a mismatch.
+// bodyMatchesCRC reports whether loc's body still hashes to the CRC recorded in
+// its record header. A read error counts as a mismatch.
+//
+// Large bodies are verified over an mmap of the pack region so they are never
+// copied onto the heap on every hit (see mmapVerifyThreshold); small bodies
+// take a plain read, whose allocation is negligible and cheaper than the
+// mmap/munmap syscalls.
 func (s *PackStore) bodyMatchesCRC(loc packLoc) bool {
+	if loc.dataLen >= mmapVerifyThreshold && loc.dataLen <= int64(maxInt) {
+		if match, ok := s.bodyMatchesCRCMmap(loc); ok {
+			return match
+		}
+		// mmap unavailable (no fd / map error): fall back to a read.
+	}
 	body, err := s.ReadAll(loc)
 	if err != nil {
 		return false
 	}
 	return crc32.Checksum(body, packCRC) == loc.crc
+}
+
+// bodyMatchesCRCMmap verifies loc's CRC over a memory-mapped view of the pack,
+// avoiding a heap copy of the body. ok is false if the region could not be
+// mapped, so the caller can fall back to a read. mmap offsets must be
+// page-aligned, so it maps from the page boundary at or before the body and
+// indexes in.
+func (s *PackStore) bodyMatchesCRCMmap(loc packLoc) (match, ok bool) {
+	f := s.pack(loc.packID)
+	if f == nil {
+		return false, false
+	}
+	pageSize := int64(os.Getpagesize())
+	pageStart := loc.dataOff - loc.dataOff%pageSize
+	span := loc.dataOff - pageStart + loc.dataLen
+	m, err := mmap.MapRegion(int(f.Fd()), span, mmap.ProtRead, mmap.MapShared, pageStart)
+	if err != nil {
+		return false, false
+	}
+	defer m.Unmap()
+	_ = m.Advise(mmap.AdvSequential) // best-effort readahead hint for the linear scan
+	data := []byte(m)
+	bodyStart := int(loc.dataOff - pageStart)
+	body := data[bodyStart : bodyStart+int(loc.dataLen)]
+	return crc32.Checksum(body, packCRC) == loc.crc, true
 }
 
 // evictCorrupt drops a corrupt entry from the in-memory index so it is never

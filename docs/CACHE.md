@@ -193,7 +193,10 @@ Design properties:
   evicts the entry and reports a **miss**, so the toolchain recomputes rather
   than being handed a corrupt object. Serving corrupt bytes is never an option —
   e.g. a corrupt Go module index fails the build with `corrupt index`, which the
-  `go` process cannot recover from.
+  `go` process cannot recover from. Large bodies are verified over an **mmap** of
+  the pack region (via [go-mmap](https://github.com/wow-look-at-my/go-mmap)) so a
+  multi-MB archive is never copied onto the heap on every hit; tiny entries (the
+  common case) take a plain read.
 - **Content-addressed dedup.** `outputID` is the SHA-256 of the body, so
   identical content put under different actions is stored once. The second and
   later actions append a tiny header-only **alias record** (a second magic,

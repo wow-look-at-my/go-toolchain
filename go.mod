@@ -11,6 +11,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
 	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
+	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9
 	github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260508001053-7d3c4280189c
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0

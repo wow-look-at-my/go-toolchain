@@ -100,6 +100,40 @@ func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
 	require.True(t, bytes.Equal(body, data))
 }
 
+func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s.Close()
+
+	aid, oid := hexID(9), hexID(90)
+	// Larger than mmapVerifyThreshold so verification takes the mmap path (a
+	// page-aligned region map indexed into), not the small-body read.
+	body := bytes.Repeat([]byte("go-toolchain pack-cache integrity probe; "), 4096) // ~168 KiB
+	require.Greater(t, len(body), mmapVerifyThreshold)
+	loc, err := s.Put(aid, oid, bytes.NewReader(body))
+	require.Nil(t, err)
+
+	// Clean large body verifies via mmap.
+	_, ok := s.GetVerified(aid)
+	require.True(t, ok)
+
+	// Corrupt the final body byte: it sits well past the first page, so the
+	// page-alignment/offset math and the full mapped span are both exercised.
+	f := s.pack(loc.packID)
+	require.NotNil(t, f)
+	pos := loc.dataOff + loc.dataLen - 1
+	var b [1]byte
+	_, err = f.ReadAt(b[:], pos)
+	require.Nil(t, err)
+	_, err = f.WriteAt([]byte{b[0] ^ 0xff}, pos)
+	require.Nil(t, err)
+
+	_, ok = s.GetVerified(aid)
+	require.False(t, ok, "corrupt large body must not be served (mmap verify path)")
+	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
+}
+
 func TestPackStore_Miss(t *testing.T) {
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
