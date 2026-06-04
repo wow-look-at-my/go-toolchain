@@ -195,8 +195,10 @@ runs:
           // and build the client from process.env.
           const token = process.env.GITHUB_TOKEN;
           if (!token) {
-            core.setFailed("autorelease permission check needs GITHUB_TOKEN, but it is empty. The action passes github.token via step env; ensure the workflow grants at least 'contents: read'.");
-            return;
+            // Top-level `return` is rejected by the typescript action's tsc
+            // validation (the script is type-checked as a module); throwing
+            // fails the step with this message via the action's catch handler.
+            throw new Error("autorelease permission check needs GITHUB_TOKEN, but it is empty -- the action passes github.token via step env; ensure the workflow grants at least 'contents: read'.");
           }
           const oct = getOctokit(token);
           let actionsReadOk = false;
