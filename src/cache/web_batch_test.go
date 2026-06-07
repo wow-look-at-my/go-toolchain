@@ -160,6 +160,34 @@ func TestGetBatch_RejectsCorruptEntry(t *testing.T) {
 	require.Equal(t, uint32(0), b.Stats.Hits.Load())
 }
 
+// TestGetBatch_MissingOutputIDNotCorrupt verifies that a batched entry with no
+// outputid metadata is counted as a no-outputid miss (a metadata gap), not as a
+// checksum mismatch / corruption — mirroring getIndividual.
+func TestGetBatch_MissingOutputIDNotCorrupt(t *testing.T) {
+	store := make(map[string][]byte)
+	meta := make(map[string]map[string]string)
+	srv := fakeBatchServer(t, store, meta)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+
+	compressed, _ := compressData([]byte("body with no advertised outputid"))
+	store["go-buildcache/v1aabbccdd11223344"] = compressed
+	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{} // no outputid
+
+	_, _, _, _, miss, err := b.getBatch("aabbccdd11223344", "go-buildcache/v1aabbccdd11223344")
+	require.NoError(t, err)
+	require.True(t, miss)
+	require.Equal(t, uint32(1), b.MissNoOutputID.Load())
+	require.Equal(t, uint32(0), b.MissChecksum.Load(), "missing outputid must not count as a checksum mismatch")
+	require.Equal(t, uint32(0), b.Stats.Corrupt.Load(), "missing outputid must not mark the entry corrupt")
+}
+
 func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)

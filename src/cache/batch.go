@@ -263,6 +263,18 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			r.resp <- batchResp{miss: true}
 			continue
 		}
+		// Missing outputid metadata is a metadata gap, not a corrupt body —
+		// mirror getIndividual and count it as no-outputid (without marking the
+		// entry corrupt) rather than letting the integrity check below report a
+		// misleading checksum mismatch against an empty id.
+		if e.OutputID == "" {
+			b.MissNoOutputID.Increment()
+			markSpanMiss(itemSpan, "no_outputid")
+			itemSpan.End()
+			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: missing outputid metadata\n", shortID(r.actionID))
+			r.resp <- batchResp{miss: true}
+			continue
+		}
 		decompressed, err := decompressData(e.Data)
 		if err != nil {
 			markSpanErr(itemSpan, "decompress", err)
