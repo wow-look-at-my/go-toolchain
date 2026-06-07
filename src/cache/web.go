@@ -74,6 +74,7 @@ type WebBackend struct {
 	MissNoOutputID AtomicCounter
 	MissReadBody   AtomicCounter
 	MissDecompress AtomicCounter
+	MissChecksum   AtomicCounter
 	MissNetwork    AtomicCounter
 
 	tracer *cacheTracer // nil when OTel is not configured
@@ -522,6 +523,23 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		markSpanErr(span, "decompress", err)
 		markSpanMiss(span, "decompress")
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", shortID(actionID), err)
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
+	// End-to-end integrity check: the body must hash to its advertised
+	// outputID (the go content hash). A mismatch means the remote object is
+	// corrupt — truncated, badly decoded, or poisoned/rotted in S3 — and
+	// serving it would feed the go command a damaged object (e.g. a module
+	// index -> "corrupt index"). Refuse to serve, and drop the key from the
+	// index so the next recompute re-uploads (overwrites) it clean instead of
+	// skipping the Put as already-present.
+	if got, ok := outputIDMatches(outputID, decompressed); !ok {
+		b.MissChecksum.Increment()
+		b.Stats.Corrupt.Increment()
+		markSpanMiss(span, "checksum")
+		b.removeClaimed(key)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: body checksum mismatch (want outputid=%s, got sha256=%s, len=%d); evicting and treating as miss\n",
+			shortID(actionID), shortID(outputID), shortID(got), len(decompressed))
 		return "", nil, 0, time.Time{}, true, nil
 	}
 

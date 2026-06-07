@@ -2,7 +2,9 @@ package cache
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -165,15 +167,16 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 
 	// Use a payload >= batchSizeThreshold so it's uploaded individually.
 	payload := largePayload(1024)
+	outputID := testOutputID(payload)
 
 	// Put.
-	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
+	err = b.Put("aabbccdd11223344", outputID, nopReader(payload), int64(len(payload)))
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), b.Stats.Puts.Load())
 
 	// Verify metadata headers were sent.
 	h := headers["/testbucket/go-buildcache/v1aabbccdd11223344"]
-	require.Equal(t, "eeff0011aabbccdd", h.Get("X-Amz-Meta-Outputid"))
+	require.Equal(t, outputID, h.Get("X-Amz-Meta-Outputid"))
 	require.Equal(t, "unknown", h.Get("X-Amz-Meta-Object-Type"))
 	require.Equal(t, strconv.Itoa(len(payload)), h.Get("X-Amz-Meta-Body-Size"))
 	require.Equal(t, "lz4", h.Get("X-Amz-Meta-Compression"))
@@ -184,10 +187,10 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	require.Empty(t, h.Get("X-Amz-Meta-Target"))
 
 	// Get.
-	outputID, body, size, _, miss, err := b.Get("aabbccdd11223344")
+	gotOutputID, body, size, _, miss, err := b.Get("aabbccdd11223344")
 	require.NoError(t, err)
 	require.False(t, miss)
-	require.Equal(t, "eeff0011aabbccdd", outputID)
+	require.Equal(t, outputID, gotOutputID)
 	data, _ := io.ReadAll(body)
 	require.Equal(t, payload, string(data))
 	require.Equal(t, int64(len(payload)), size)
@@ -338,6 +341,98 @@ func TestWebBackend_GetIndividualMissPaths(t *testing.T) {
 			require.True(t, miss, "expected miss for %s path", tc.name)
 		})
 	}
+}
+
+// TestWebBackend_GetRejectsCorruptBody is the regression test for the "corrupt
+// index" failure. A remote object whose body does not hash to its advertised
+// outputID is corrupt (truncated, badly decoded, or poisoned/rotted in S3) and
+// must be refused — treated as a miss, never served — so the go command never
+// consumes a damaged object. The key is also evicted from the in-memory index
+// so a later recompute re-uploads (overwrites) it clean instead of skipping the
+// Put as already-present.
+func TestWebBackend_GetRejectsCorruptBody(t *testing.T) {
+	const actionID = "aabbccdd11223344"
+	// outputID advertises the hash of the CORRECT body, but the server serves a
+	// different (corrupt) body of the same length under it.
+	good := largePayload(2048)
+	corrupt := good[:len(good)-10] + "XXXXXXXXXX"
+	outputID := testOutputID(good)
+	require.NotEqual(t, outputID, testOutputID(corrupt))
+
+	objectPath := "/testbucket/go-buildcache/v1" + actionID
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != objectPath {
+			w.WriteHeader(404) // index fetch etc.
+			return
+		}
+		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.WriteHeader(200)
+		c, _ := compressData([]byte(corrupt))
+		w.Write(c)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	primeIndex(b, actionID)
+
+	contains := func() bool {
+		b.keysMu.RLock()
+		defer b.keysMu.RUnlock()
+		return b.keys.Contains(b.key(actionID))
+	}
+	require.True(t, contains(), "precondition: key is in the index")
+
+	_, _, _, _, miss, err := b.Get(actionID)
+	require.NoError(t, err)
+	require.True(t, miss, "a corrupt body must be treated as a miss, never served")
+	require.Equal(t, uint32(1), b.MissChecksum.Load())
+	require.Equal(t, uint32(1), b.Stats.Corrupt.Load())
+	require.Equal(t, uint32(0), b.Stats.Hits.Load())
+	require.False(t, contains(), "corrupt key must be evicted from the index so a recompute re-uploads it clean")
+}
+
+// TestWebBackend_GetServesCorrectBody is the positive control for the integrity
+// check: a body that hashes to its advertised outputID is served as a hit.
+func TestWebBackend_GetServesCorrectBody(t *testing.T) {
+	const actionID = "aabbccdd11223344"
+	good := largePayload(2048)
+	outputID := testOutputID(good)
+
+	objectPath := "/testbucket/go-buildcache/v1" + actionID
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != objectPath {
+			w.WriteHeader(404)
+			return
+		}
+		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.WriteHeader(200)
+		c, _ := compressData([]byte(good))
+		w.Write(c)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	primeIndex(b, actionID)
+
+	gotOutputID, body, size, _, miss, err := b.Get(actionID)
+	require.NoError(t, err)
+	require.False(t, miss)
+	require.Equal(t, outputID, gotOutputID)
+	require.Equal(t, uint32(0), b.MissChecksum.Load())
+	require.Equal(t, uint32(1), b.Stats.Hits.Load())
+	data, _ := io.ReadAll(body)
+	require.Equal(t, good, string(data))
+	require.Equal(t, int64(len(good)), size)
 }
 
 func TestWebBackend_PutServerError(t *testing.T) {
@@ -567,6 +662,15 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 
 func nopReader(s string) io.Reader {
 	return strings.NewReader(s)
+}
+
+// testOutputID returns the cache outputID for a body: its lowercase-hex
+// SHA-256, exactly as the go command derives it. Web-tier GETs verify the
+// served body against this id (see outputIDMatches), so any test that exercises
+// a cache hit must advertise the body's real hash, not an arbitrary string.
+func testOutputID(data string) string {
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
 }
 
 // largePayload returns a payload of exactly n bytes (>= batchSizeThreshold)

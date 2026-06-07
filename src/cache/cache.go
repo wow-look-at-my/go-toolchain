@@ -148,6 +148,13 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if err != nil {
 				continue
 			}
+			// Never prefetch a body that does not hash to its outputID into the
+			// local pack: a corrupt entry would then be served as a "valid"
+			// local hit and fail the build ("corrupt index"). Skip it — the
+			// real GET for this key re-fetches and self-heals if needed.
+			if _, ok := outputIDMatches(e.OutputID, decompressed); !ok {
+				continue
+			}
 			local.Put(actionID, e.OutputID, bytes.NewReader(decompressed))
 			populated++
 		}

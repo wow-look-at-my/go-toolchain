@@ -120,16 +120,44 @@ func TestGetBatch_ReturnsRequestedEntry(t *testing.T) {
 	// Manually store a compressed entry.
 	compressed, _ := compressData([]byte("hello world"))
 	store["go-buildcache/v1aabbccdd11223344"] = compressed
-	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": "eeff0011"}
+	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": testOutputID("hello world")}
 
 	// getBatch should find it via the batch endpoint.
 	outputID, body, size, _, miss, err := b.getBatch("aabbccdd11223344", "go-buildcache/v1aabbccdd11223344")
 	require.NoError(t, err)
 	require.False(t, miss)
-	require.Equal(t, "eeff0011", outputID)
+	require.Equal(t, testOutputID("hello world"), outputID)
 	data, _ := io.ReadAll(body)
 	require.Equal(t, "hello world", string(data))
 	require.Equal(t, int64(11), size)
+}
+
+// TestGetBatch_RejectsCorruptEntry verifies the batch serve path applies the
+// same end-to-end integrity check as individual GETs: a batched entry whose
+// body does not hash to its advertised outputID is refused (miss), never served.
+func TestGetBatch_RejectsCorruptEntry(t *testing.T) {
+	store := make(map[string][]byte)
+	meta := make(map[string]map[string]string)
+	srv := fakeBatchServer(t, store, meta)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+
+	// Advertise the hash of one body but store a different one under it.
+	compressed, _ := compressData([]byte("a totally different body"))
+	store["go-buildcache/v1aabbccdd11223344"] = compressed
+	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": testOutputID("the correct body")}
+
+	_, _, _, _, miss, err := b.getBatch("aabbccdd11223344", "go-buildcache/v1aabbccdd11223344")
+	require.NoError(t, err)
+	require.True(t, miss, "a batched entry failing the checksum must be a miss")
+	require.Equal(t, uint32(1), b.MissChecksum.Load())
+	require.Equal(t, uint32(0), b.Stats.Hits.Load())
 }
 
 func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
@@ -148,9 +176,9 @@ func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
 	compressed1, _ := compressData([]byte("entry one"))
 	compressed2, _ := compressData([]byte("entry two"))
 	store["go-buildcache/v1aaaa000000000001"] = compressed1
-	meta["go-buildcache/v1aaaa000000000001"] = map[string]string{"outputid": "out1"}
+	meta["go-buildcache/v1aaaa000000000001"] = map[string]string{"outputid": testOutputID("entry one")}
 	store["go-buildcache/v1aaaa000000000002"] = compressed2
-	meta["go-buildcache/v1aaaa000000000002"] = map[string]string{"outputid": "out2"}
+	meta["go-buildcache/v1aaaa000000000002"] = map[string]string{"outputid": testOutputID("entry two")}
 
 	var callbackEntries []BatchEntry
 	b.OnBatchEntries = func(entries []BatchEntry) {
@@ -161,7 +189,7 @@ func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
 	outputID, body, _, _, miss, err := b.getBatch("aaaa000000000001", "go-buildcache/v1aaaa000000000001")
 	require.NoError(t, err)
 	require.False(t, miss)
-	require.Equal(t, "out1", outputID)
+	require.Equal(t, testOutputID("entry one"), outputID)
 	data, _ := io.ReadAll(body)
 	require.Equal(t, "entry one", string(data))
 
@@ -229,7 +257,7 @@ func TestGetBatch_FallbackToIndividual(t *testing.T) {
 	// getIndividual can find it.
 	compressed, _ := compressData([]byte("fallback data"))
 	store["go-buildcache/v1aabbccdd11223344"] = compressed
-	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": "fallback-out"}
+	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": testOutputID("fallback data")}
 
 	// Add to index so getIndividual works.
 	b.keysMu.Lock()
@@ -240,7 +268,7 @@ func TestGetBatch_FallbackToIndividual(t *testing.T) {
 	outputID, body, _, _, miss, err := b.getBatch("aabbccdd11223344", "go-buildcache/v1aabbccdd11223344")
 	require.NoError(t, err)
 	require.False(t, miss)
-	require.Equal(t, "fallback-out", outputID)
+	require.Equal(t, testOutputID("fallback data"), outputID)
 	data, _ := io.ReadAll(body)
 	require.Equal(t, "fallback data", string(data))
 }
@@ -277,12 +305,12 @@ func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
 	// Key is NOT in b.keys index (simulating a fresh cache).
 	compressed, _ := compressData([]byte("batch hit"))
 	store["go-buildcache/v1aabbccdd11223344"] = compressed
-	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": "batch-out"}
+	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": testOutputID("batch hit")}
 
 	outputID, body, _, _, miss, err := b.Get("aabbccdd11223344")
 	require.NoError(t, err)
 	require.False(t, miss)
-	require.Equal(t, "batch-out", outputID)
+	require.Equal(t, testOutputID("batch hit"), outputID)
 	data, _ := io.ReadAll(body)
 	require.Equal(t, "batch hit", string(data))
 }

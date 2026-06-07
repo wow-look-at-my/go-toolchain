@@ -268,7 +268,22 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			markSpanErr(itemSpan, "decompress", err)
 			markSpanMiss(itemSpan, "decompress")
 			itemSpan.End()
-			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: decompress: %v\n", r.actionID[:8], err)
+			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: decompress: %v\n", shortID(r.actionID), err)
+			r.resp <- batchResp{miss: true}
+			continue
+		}
+		// End-to-end integrity check (see outputIDMatches): refuse to serve a
+		// body that does not hash to its advertised outputID. A corrupt remote
+		// object must never reach the go command as a "valid" cache hit. The
+		// key is absent from the in-memory index (that is why it took the batch
+		// path), so a subsequent recompute+Put re-uploads it clean on its own.
+		if got, ok := outputIDMatches(e.OutputID, decompressed); !ok {
+			b.MissChecksum.Increment()
+			b.Stats.Corrupt.Increment()
+			markSpanMiss(itemSpan, "checksum")
+			itemSpan.End()
+			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: body checksum mismatch (want outputid=%s, got sha256=%s, len=%d); treating as miss\n",
+				shortID(r.actionID), shortID(e.OutputID), shortID(got), len(decompressed))
 			r.resp <- batchResp{miss: true}
 			continue
 		}
