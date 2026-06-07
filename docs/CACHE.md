@@ -187,16 +187,18 @@ Design properties:
   record (crash mid-append) declares a length running past EOF and is silently
   dropped — the store is crash-safe by construction.
 - **Integrity-checked on read.** A torn-tail check cannot catch a body that is
-  full-length but corrupt in content (overlay/disk bit-rot, a partial overwrite,
-  a bad archive ingested from the remote tier). So a cache hit verifies the
-  body's CRC against the header before serving it (`GetVerified`); a mismatch
-  evicts the entry and reports a **miss**, so the toolchain recomputes rather
-  than being handed a corrupt object. Serving corrupt bytes is never an option —
-  e.g. a corrupt Go module index fails the build with `corrupt index`, which the
-  `go` process cannot recover from. Large bodies are verified over an **mmap** of
-  the pack region (via [go-mmap](https://github.com/wow-look-at-my/go-mmap)) so a
-  multi-MB archive is never copied onto the heap on every hit; tiny entries (the
-  common case) take a plain read.
+  full-length but corrupt in content (overlay/disk bit-rot, a partial
+  overwrite). So a cache hit verifies the body's CRC against the header before
+  serving it (`GetVerified`); a mismatch evicts the entry and reports a
+  **miss**, so the toolchain recomputes rather than being handed a corrupt
+  object. Serving corrupt bytes is never an option — e.g. a corrupt Go module
+  index fails the build with `corrupt index`, which the `go` process cannot
+  recover from. Large bodies are verified over an **mmap** of the pack region
+  (via [go-mmap](https://github.com/wow-look-at-my/go-mmap)) so a multi-MB
+  archive is never copied onto the heap on every hit; tiny entries (the common
+  case) take a plain read. The CRC is recorded at write time, so it vouches only
+  for bytes that were correct when stored; a body that arrives *already* corrupt
+  from the remote tier is caught earlier, at ingestion — see below.
 - **Content-addressed dedup.** `outputID` is the SHA-256 of the body, so
   identical content put under different actions is stored once. The second and
   later actions append a tiny header-only **alias record** (a second magic,
@@ -236,6 +238,7 @@ sequenceDiagram
         S->>W: Get(actionID)
         W->>R: GET /bucket/key (plus batch GET for neighbours)
         R-->>W: body (LZ4) and related entries
+        Note over W: verify sha256(body) == outputID<br/>mismatch → miss + evict key
         W-->>S: body
         Note over S,L: materialize into a pack
         S->>L: Put(actionID, outputID, body)
@@ -243,6 +246,24 @@ sequenceDiagram
         S-->>Go: DiskPath, size, outputID
     end
 ```
+
+**Integrity at the network boundary.** The remote tier is shared (one S3 cache
+serves every machine), so a single corrupt object — a truncated upload, a bad
+LZ4 round-trip, or bit-rot at rest — would otherwise poison every consumer and
+stick across runs: stored into a pack with a self-consistent CRC, it would pass
+`GetVerified` on every later hit and be served as "valid" forever, surfacing in
+the `go` command as an unrecoverable `corrupt index`. The pack CRC cannot stop
+this because it is computed *from the bytes handed to `Put`* — including ones
+that were already corrupt on arrival. So every body ingested from the web tier
+is verified **end to end** before it is materialized: it must hash (SHA-256) to
+its advertised `outputID`, which is exactly the content hash the `go` command
+computed (and which the pack store's content-addressed dedup already trusts). A
+mismatch is refused — treated as a miss, never stored or served — and the
+poisoned key is dropped from the in-memory remote index, so the toolchain
+recomputes the object and the next `Put` re-uploads it clean instead of skipping
+as already-present. This covers all three ingestion paths: the individual GET,
+the batch GET, and the prefetch population of neighbours. The check is counted
+as `checksum` in the daemon's `web summary` miss breakdown.
 
 ### PUT
 
