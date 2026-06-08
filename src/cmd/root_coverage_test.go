@@ -77,7 +77,7 @@ func TestRunWithRunnerGenerateSkip(t *testing.T) {
 	setupMockProject()
 
 	// Add a //go:generate directive so needsGenerate() returns true.
-	os.WriteFile(filepath.Join(tmpDir, "pkg", "main.go"), []byte("package main\n//go:generate echo hello\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "pkg", "main.go"), []byte("package main\n\n//go:generate echo hello\n"), 0644)
 
 	oldHash := generateHash
 	generateHash = "skip"
