@@ -1,0 +1,109 @@
+package vet
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestRunGofmtClean(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "main.go"), `package main
+
+func main() {
+	println("hello")
+}
+`)
+	chdir(t, dir)
+
+	changed, err := RunGofmt(false)
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
+
+func TestRunGofmtDetectsUnformatted(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\nfunc main(){println(\"hello\")}\n")
+	chdir(t, dir)
+
+	changed, err := RunGofmt(false)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "main.go")
+	assert.False(t, changed)
+}
+
+func TestRunGofmtFix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	writeFile(t, path, "package main\nfunc main(){println(\"hello\")}\n")
+	chdir(t, dir)
+
+	changed, err := RunGofmt(true)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	// Running again should find nothing to fix.
+	changed2, err2 := RunGofmt(false)
+	require.NoError(t, err2)
+	assert.False(t, changed2)
+}
+
+func TestRunGofmtSkipsVendor(t *testing.T) {
+	dir := t.TempDir()
+	vendorDir := filepath.Join(dir, "vendor")
+	require.NoError(t, os.MkdirAll(vendorDir, 0o755))
+	writeFile(t, filepath.Join(vendorDir, "bad.go"), "package bad\nfunc f(){}\n")
+	chdir(t, dir)
+
+	changed, err := RunGofmt(false)
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
+
+func TestRunGofmtSkipsTestdata(t *testing.T) {
+	dir := t.TempDir()
+	tdDir := filepath.Join(dir, "testdata")
+	require.NoError(t, os.MkdirAll(tdDir, 0o755))
+	writeFile(t, filepath.Join(tdDir, "bad.go"), "package bad\nfunc f(){}\n")
+	chdir(t, dir)
+
+	changed, err := RunGofmt(false)
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
+
+func TestRunGofmtSkipsUnparseable(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "broken.go"), "package main\nfunc ({\n")
+	chdir(t, dir)
+
+	// Should not return an error for parse failures — go vet covers those.
+	_, err := RunGofmt(false)
+	require.NoError(t, err)
+}
+
+func TestRunGofmtEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+
+	changed, err := RunGofmt(false)
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
+
+// helpers
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+}
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	old, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { os.Chdir(old) })
+}

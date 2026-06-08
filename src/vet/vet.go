@@ -54,7 +54,15 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
 		return false, nil
 	}
-	return RunOnPattern("./...", fix, progress)
+	if progress != nil {
+		progress("gofmt")
+	}
+	fmtChanged, err := RunGofmt(fix)
+	if err != nil {
+		return false, err
+	}
+	semanticChanged, err := RunOnPattern("./...", fix, progress)
+	return fmtChanged || semanticChanged, err
 }
 
 // RunOnPattern executes all analyzers on packages matching the pattern.
