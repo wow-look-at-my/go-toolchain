@@ -208,7 +208,11 @@ type fuseRoot struct {
 var _ = (fs.NodeLookuper)((*fuseRoot)(nil))
 
 func (r *fuseRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-	loc, ok := r.store.GetByOutput(name)
+	// GetByOutputVerified, not GetByOutput: this is the path the compiler reads
+	// through, so the body's CRC is checked here before it is exposed. A corrupt
+	// body is evicted and reported as ENOENT (a miss) rather than handed to the
+	// toolchain — the serve-path counterpart to GetVerified on the GET RPC.
+	loc, ok := r.store.GetByOutputVerified(name)
 	if !ok {
 		return nil, syscall.ENOENT
 	}

@@ -441,6 +441,35 @@ func (s *PackStore) GetByOutput(outputID string) (packLoc, bool) {
 	return loc, ok
 }
 
+// GetByOutputVerified is GetByOutput with the same CRC integrity gate as
+// GetVerified, applied on the path that actually feeds the compiler.
+//
+// GetVerified guards the GET *RPC*, but the Go toolchain does not consume bytes
+// over that RPC: the GET response hands it a DiskPath, and the compiler opens
+// that path and reads the body through the FUSE mount (Lookup -> Read). That
+// read resolves the body via this method, not via GetVerified — so without a
+// check here the CRC guard is bypassed for exactly the bytes the compiler reads,
+// and a corrupt-but-indexed body (disk/overlay rot, a partial overwrite — the
+// case the startup scan's torn-tail check cannot catch) reaches the compiler as
+// "valid", surfacing as "unexpected EOF" / "corrupt index". A mismatch evicts
+// the entry from the output index and reports not-found, so the mount returns
+// ENOENT and the go command recomputes instead of consuming a damaged object.
+// Like GetByOutput it does not count as a hit — the originating Get already did.
+func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
+	s.mu.RLock()
+	loc, ok := s.byOutput[outputID]
+	s.mu.RUnlock()
+	if !ok {
+		return packLoc{}, false
+	}
+	if !s.bodyMatchesCRC(loc) {
+		s.evictCorruptByOutput(outputID, loc)
+		s.Stats.Corrupt.Increment()
+		return packLoc{}, false
+	}
+	return loc, true
+}
+
 // GetVerified is like Get but first confirms the stored body still matches the
 // CRC recorded in its header. A build cache must never hand back corrupt bytes:
 // a damaged body (a torn append that nonetheless landed full-length, disk or
@@ -524,6 +553,21 @@ func (s *PackStore) evictCorrupt(actionID string, loc packLoc) {
 	}
 	if cur, ok := s.byOutput[loc.outputID]; ok && cur == loc {
 		delete(s.byOutput, loc.outputID)
+	}
+}
+
+// evictCorruptByOutput drops a corrupt entry from the output index so the mount
+// stops serving it. It is the serve-path counterpart to evictCorrupt, which is
+// keyed by actionID; here only the outputID is known. Any action still mapped to
+// the same bytes is cleaned up by GetVerified on its next GET RPC (which
+// re-checks the CRC and misses), so the entry self-heals on the following build.
+// Only the exact location is removed, so a concurrent re-Put that already
+// replaced the mapping is left intact.
+func (s *PackStore) evictCorruptByOutput(outputID string, loc packLoc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.byOutput[outputID]; ok && cur == loc {
+		delete(s.byOutput, outputID)
 	}
 }
 

@@ -188,17 +188,25 @@ Design properties:
   dropped — the store is crash-safe by construction.
 - **Integrity-checked on read.** A torn-tail check cannot catch a body that is
   full-length but corrupt in content (overlay/disk bit-rot, a partial
-  overwrite). So a cache hit verifies the body's CRC against the header before
-  serving it (`GetVerified`); a mismatch evicts the entry and reports a
-  **miss**, so the toolchain recomputes rather than being handed a corrupt
-  object. Serving corrupt bytes is never an option — e.g. a corrupt Go module
-  index fails the build with `corrupt index`, which the `go` process cannot
-  recover from. Large bodies are verified over an **mmap** of the pack region
-  (via [go-mmap](https://github.com/wow-look-at-my/go-mmap)) so a multi-MB
-  archive is never copied onto the heap on every hit; tiny entries (the common
-  case) take a plain read. The CRC is recorded at write time, so it vouches only
-  for bytes that were correct when stored; a body that arrives *already* corrupt
-  from the remote tier is caught earlier, at ingestion — see below.
+  overwrite). So the body's CRC is verified against the header before it is
+  served; a mismatch evicts the entry and reports a **miss**, so the toolchain
+  recomputes rather than being handed a corrupt object. Serving corrupt bytes is
+  never an option — e.g. a corrupt Go module index fails the build with `corrupt
+  index`, which the `go` process cannot recover from. Crucially the check runs on
+  **both** read paths, because they are decoupled by the protocol: a GET *RPC*
+  returns a `DiskPath`, and the compiler then opens that path and reads the body
+  itself through the mount — a read that never re-enters the GET RPC. So the CRC
+  is verified (1) on the GET RPC, by `GetVerified`, which lets the server miss
+  and recompute in-band; **and** (2) on the mount's serve path, by
+  `GetByOutputVerified` when `Lookup` resolves `mnt/outputID` to an inode, which
+  is the gate on the bytes the compiler actually consumes. Verifying only the RPC
+  would leave the compiler-facing read unguarded. Large bodies are verified over
+  an **mmap** of the pack region (via
+  [go-mmap](https://github.com/wow-look-at-my/go-mmap)) so a multi-MB archive is
+  never copied onto the heap on every hit; tiny entries (the common case) take a
+  plain read. The CRC is recorded at write time, so it vouches only for bytes
+  that were correct when stored; a body that arrives *already* corrupt from the
+  remote tier is caught earlier, at ingestion — see below.
 - **Content-addressed dedup.** `outputID` is the SHA-256 of the body, so
   identical content put under different actions is stored once. The second and
   later actions append a tiny header-only **alias record** (a second magic,
@@ -229,10 +237,13 @@ sequenceDiagram
     Go->>S: get(actionID)
     S->>L: Get(actionID)
     alt local hit
+        Note over L: GetVerified: CRC-check body<br/>mismatch → evict + miss
         L-->>S: DiskPath = mnt/outputID
         S-->>Go: DiskPath, size, outputID
         Go->>K: open(DiskPath) then read
-        K->>L: FUSE read to PackStore.ReadAt
+        K->>L: FUSE Lookup(outputID)
+        Note over L: GetByOutputVerified: CRC-check body<br/>mismatch → evict + ENOENT
+        K->>L: FUSE read (zero-copy from pack)
         L-->>Go: body bytes (served virtually)
     else local miss
         S->>W: Get(actionID)
@@ -298,14 +309,19 @@ degrades gracefully:
 
 ```mermaid
 flowchart LR
-    A["NewLocalStore(dir)"] --> B{"newFuseCache:<br/>mount succeeds?"}
+    A["NewLocalStore(dir)"] --> Z{"GOCACHE_NO_FUSE=1?"}
+    Z -- yes --> E["LocalCache<br/>(loose files, the old behavior)"]
+    Z -- no --> B{"newFuseCache:<br/>mount succeeds?"}
     B -- yes --> C["FuseCache<br/>(virtual filesystem)"]
-    B -- "no: Windows, no /dev/fuse,<br/>no permission, no fusermount" --> E["LocalCache<br/>(loose files, the old behavior)"]
+    B -- "no: Windows, no /dev/fuse,<br/>no permission, no fusermount" --> E
 ```
 
 - **Mounting** uses go-fuse's `DirectMount`: the `mount(2)` syscall (works as
   **root**, e.g. in containers) with an automatic fallback to the `fusermount`
   helper (works for **non-root CI runners**). One setting covers both.
+- **Escape hatch**: setting `GOCACHE_NO_FUSE=1` forces the loose-file
+  `LocalCache` and skips FUSE entirely — a way to sidestep the FUSE tier
+  wholesale if a mount misbehaves in some environment, without a code change.
 - **Windows / no FUSE**: `newFuseCache` returns `errFuseUnsupported` and
   `NewLocalStore` falls back to the loose-file `LocalCache`.
 - **Single owner**: only the daemon (one process per build) owns the mount, so
