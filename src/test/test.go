@@ -383,7 +383,15 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 						pkg = pkg[:i]
 					}
 				}
-				buildProc, buildErr := runner.Cmd("go", "build", pkg).WithQuiet().Run(r)
+				// -o os.DevNull: this is a diagnostic compile to surface the real
+				// build error, not a build that should produce a binary. Without
+				// -o, `go build <main-pkg>` writes an executable named after the
+				// import path's last element into CWD; when that element is "src"
+				// (this module's main package) it collides with the src/ directory
+				// and fails with "build output \"src\" already exists and is a
+				// directory" — which would then mask the very error we are trying
+				// to capture. Discard the binary so only the compiler errors show.
+				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
 				}

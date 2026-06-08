@@ -70,6 +70,13 @@ var errFuseBusy = errors.New("FUSE cache already owned by another process")
 // loose cache rather than failing the build — the cache is an optimization,
 // never a correctness dependency.
 func NewLocalStore(dir string) (LocalStore, error) {
+	// Escape hatch: force the loose-file cache, skipping FUSE entirely. Lets an
+	// operator sidestep the FUSE tier wholesale if a mount misbehaves in some
+	// environment, without code changes.
+	if os.Getenv("GOCACHE_NO_FUSE") == "1" {
+		fmt.Fprintf(os.Stderr, "cacheprog: local cache: loose-file (GOCACHE_NO_FUSE=1)\n")
+		return NewLocalCache(dir)
+	}
 	fc, err := newFuseCache(dir)
 	if err == nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: local cache: FUSE virtual filesystem (%s)\n", fc.mountInfo())

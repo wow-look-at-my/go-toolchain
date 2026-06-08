@@ -134,6 +134,47 @@ func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
 	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
 }
 
+func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s.Close()
+
+	aid, oid := hexID(11), hexID(110)
+	body := []byte("a body resolved by outputID on the compiler's serve path")
+	loc, err := s.Put(aid, oid, bytes.NewReader(body))
+	require.Nil(t, err)
+
+	// A clean body resolves by output and verifies.
+	got, ok := s.GetByOutputVerified(oid)
+	require.True(t, ok)
+	require.Equal(t, oid, got.outputID)
+
+	// Rot one body byte in place: header length + recorded CRC stay intact, so
+	// the startup scan still indexes it (the disk/overlay-rot case the torn-tail
+	// check cannot catch).
+	f := s.pack(loc.packID)
+	require.NotNil(t, f)
+	var b [1]byte
+	_, err = f.ReadAt(b[:], loc.dataOff)
+	require.Nil(t, err)
+	_, err = f.WriteAt([]byte{b[0] ^ 0xff}, loc.dataOff)
+	require.Nil(t, err)
+
+	// The unverified accessor (what Lookup used to call) cannot detect the rot —
+	// it would hand these bytes to the compiler. This is the gap.
+	_, stillThere := s.GetByOutput(oid)
+	require.True(t, stillThere, "unverified GetByOutput cannot detect in-place rot")
+
+	// The verified accessor refuses it: report a miss, bump the corruption
+	// counter, and evict from the output index so the mount stops serving it.
+	_, ok = s.GetByOutputVerified(oid)
+	require.False(t, ok, "corrupt body must not be served on the verified serve path")
+	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
+	_, ok = s.GetByOutput(oid)
+	require.False(t, ok, "corrupt body evicted from the output index")
+}
+
 func TestPackStore_Miss(t *testing.T) {
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
