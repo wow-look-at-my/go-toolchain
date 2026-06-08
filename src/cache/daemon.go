@@ -21,14 +21,14 @@ func (n *noCloseBackend) Close() error { return nil }
 // Daemon listens on a Unix socket and serves GOCACHEPROG protocol to
 // multiple clients, sharing a single web index and local cache.
 type Daemon struct {
-	local    LocalStore
-	remote   IBackend // real backend (closeable)
-	wrapped  IBackend // no-close wrapper for per-connection servers
-	listener net.Listener
-	path     string
-	wg       sync.WaitGroup
-	batch    BatchStats // shared batch stats, reported to parent
-	statsMu  sync.Mutex
+	local     LocalStore
+	remote    IBackend // real backend (closeable)
+	wrapped   IBackend // no-close wrapper for per-connection servers
+	listener  net.Listener
+	path      string
+	wg        sync.WaitGroup
+	batch     BatchStats // shared batch stats, reported to parent
+	statsMu   sync.Mutex
 	statsConn net.Conn // persistent connection to parent's stats socket
 }
 

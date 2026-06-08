@@ -177,8 +177,8 @@ func TestDeterminePositiveAssertFunc(t *testing.T) {
 			expected: "True",
 		},
 		{
-			name: "parenthesized",
-			cond: &ast.ParenExpr{X: &ast.Ident{Name: "ok"}},
+			name:     "parenthesized",
+			cond:     &ast.ParenExpr{X: &ast.Ident{Name: "ok"}},
 			expected: "True",
 		},
 	}

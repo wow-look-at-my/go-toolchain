@@ -326,7 +326,6 @@ func TestResolveNoCosign(t *testing.T) {
 	}
 }
 
-
 func TestRealExecutorGitOutput(t *testing.T) {
 	ex := realExecutor{}
 	out, err := ex.gitOutput("rev-parse", "--is-inside-work-tree")

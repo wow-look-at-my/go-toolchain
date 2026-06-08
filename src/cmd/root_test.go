@@ -502,8 +502,8 @@ func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 		cov, unc int
 		wantErr  bool
 	}{
-		{"5 uncovered allows", 12, 5, false},  // 70.6% < 80% but 5 < 10
-		{"40 uncovered fails", 60, 40, true},  // 60% < 80% and 40 >= 10
+		{"5 uncovered allows", 12, 5, false}, // 70.6% < 80% but 5 < 10
+		{"40 uncovered fails", 60, 40, true}, // 60% < 80% and 40 >= 10
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()

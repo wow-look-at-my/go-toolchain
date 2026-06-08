@@ -38,9 +38,9 @@ type CacheStats struct {
 // using lock-free atomics. Durations are stored as microseconds.
 type LatencyTracker struct {
 	count atomic.Uint64
-	sumUs atomic.Uint64  // total microseconds
-	minUs atomic.Uint64  // minimum microseconds
-	maxUs atomic.Uint64  // maximum microseconds
+	sumUs atomic.Uint64 // total microseconds
+	minUs atomic.Uint64 // minimum microseconds
+	maxUs atomic.Uint64 // maximum microseconds
 }
 
 // Record adds a single duration observation.

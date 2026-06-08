@@ -15,9 +15,9 @@ import (
 	"time"
 
 	git "github.com/go-git/go-git/v5"
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
-	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -54,7 +54,15 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
 		return false, nil
 	}
-	return RunOnPattern("./...", fix, progress)
+	if progress != nil {
+		progress("gofmt")
+	}
+	fmtChanged, err := RunGofmt(fix)
+	if err != nil {
+		return false, err
+	}
+	semanticChanged, err := RunOnPattern("./...", fix, progress)
+	return fmtChanged || semanticChanged, err
 }
 
 // RunOnPattern executes all analyzers on packages matching the pattern.
@@ -279,7 +287,6 @@ type Diagnostic struct {
 	Column  int
 	Message string
 }
-
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
 // It tries go-git first, falling back to shelling out to git if go-git fails

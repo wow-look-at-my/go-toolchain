@@ -2,11 +2,11 @@ package cache
 
 import (
 	"bytes"
+	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-	"github.com/stretchr/testify/require"
 )
 
 func TestLocalCache_PutAndGet(t *testing.T) {

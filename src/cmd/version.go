@@ -294,7 +294,6 @@ func checkDirtyInCI() error {
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
-
 func formatDuration(d time.Duration) string {
 	hours := int(d.Hours())
 	if hours < 1 {

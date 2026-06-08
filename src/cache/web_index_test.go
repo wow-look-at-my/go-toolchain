@@ -110,13 +110,13 @@ func TestDecodeActionHash_Bad(t *testing.T) {
 // ETag/304 semantics. PUT/GET on object keys are no-ops/404s — this fixture
 // is only for exercising the index-fetch path.
 type indexFixture struct {
-	t        *testing.T
-	bucket   string
-	blob     atomic.Pointer[[]byte]
-	hits200  atomic.Int32
-	hits304  atomic.Int32
-	hitsAny  atomic.Int32
-	srv      *httptest.Server
+	t       *testing.T
+	bucket  string
+	blob    atomic.Pointer[[]byte]
+	hits200 atomic.Int32
+	hits304 atomic.Int32
+	hitsAny atomic.Int32
+	srv     *httptest.Server
 }
 
 func newIndexFixture(t *testing.T, bucket string, initial set.Set[string]) *indexFixture {
@@ -331,4 +331,3 @@ func TestWriteAndReadIndexBlob(t *testing.T) {
 	require.Equal(t, 1, gotKeys.Len())
 	require.NotEqual(t, "", etag)
 }
-

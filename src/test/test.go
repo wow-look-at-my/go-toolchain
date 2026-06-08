@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -51,7 +51,7 @@ type coverageHandler struct {
 	onOutput    func()              // called before the first visible output
 	stderrLines []string            // build errors and panics from stderr
 	testCases   []TestCaseResult    // per-test results for CI summary
-	timeline    TimelineRecorder     // pipeline timeline for per-test spans
+	timeline    TimelineRecorder    // pipeline timeline for per-test spans
 	fastCount   int
 	fastElapsed float64
 }

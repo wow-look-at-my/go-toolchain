@@ -657,4 +657,3 @@ func castableType(lit *ast.BasicLit, targetType string) string {
 	}
 	return ""
 }
-
