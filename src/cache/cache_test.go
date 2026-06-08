@@ -24,9 +24,9 @@ type memBackend struct {
 }
 
 type memEntry struct {
-	outputID	string
-	data		[]byte
-	time		time.Time
+	outputID string
+	data     []byte
+	time     time.Time
 }
 
 func newMemBackend() *memBackend {
@@ -54,7 +54,7 @@ func (m *memBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	return nil
 }
 
-func (m *memBackend) Close() error        { return nil }
+func (m *memBackend) Close() error          { return nil }
 func (m *memBackend) GetStats() *CacheStats { return &m.stats }
 
 func TestServer_Handshake(t *testing.T) {
@@ -96,20 +96,20 @@ func TestServer_PutAndGet(t *testing.T) {
 	// Build input: PUT, GET, CLOSE.
 	var input strings.Builder
 	input.WriteString(makePutRequest(Request{
-		ID:		1,
-		Command:	CmdPut,
-		ActionID:	actionID,
-		OutputID:	outputID,
-		BodySize:	int64(len(body)),
+		ID:       1,
+		Command:  CmdPut,
+		ActionID: actionID,
+		OutputID: outputID,
+		BodySize: int64(len(body)),
 	}, body))
 	input.WriteString(makeRequest(Request{
-		ID:		2,
-		Command:	CmdGet,
-		ActionID:	actionID,
+		ID:       2,
+		Command:  CmdGet,
+		ActionID: actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:		3,
-		Command:	CmdClose,
+		ID:      3,
+		Command: CmdClose,
 	}))
 
 	var out bytes.Buffer
@@ -196,13 +196,13 @@ func TestServer_GetMiss(t *testing.T) {
 
 	var input strings.Builder
 	input.WriteString(makeRequest(Request{
-		ID:		1,
-		Command:	CmdGet,
-		ActionID:	actionID,
+		ID:       1,
+		Command:  CmdGet,
+		ActionID: actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:		2,
-		Command:	CmdClose,
+		ID:      2,
+		Command: CmdClose,
 	}))
 
 	var out bytes.Buffer
@@ -240,13 +240,13 @@ func TestServer_WithRemoteBackend(t *testing.T) {
 	// GET from server (local miss, remote hit).
 	var input strings.Builder
 	input.WriteString(makeRequest(Request{
-		ID:		1,
-		Command:	CmdGet,
-		ActionID:	actionID,
+		ID:       1,
+		Command:  CmdGet,
+		ActionID: actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:		2,
-		Command:	CmdClose,
+		ID:      2,
+		Command: CmdClose,
 	}))
 
 	var out bytes.Buffer
@@ -277,9 +277,9 @@ func TestServer_EOFWithoutClose(t *testing.T) {
 	// Just send a GET, no close command. The server should handle EOF gracefully.
 	actionID := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	input := makeRequest(Request{
-		ID:		1,
-		Command:	CmdGet,
-		ActionID:	actionID,
+		ID:       1,
+		Command:  CmdGet,
+		ActionID: actionID,
 	})
 
 	var out bytes.Buffer
@@ -400,7 +400,7 @@ func (e *errBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	return fmt.Errorf("backend error")
 }
 
-func (e *errBackend) Close() error        { return nil }
+func (e *errBackend) Close() error          { return nil }
 func (e *errBackend) GetStats() *CacheStats { return &e.stats }
 
 func TestServer_GetWithRemoteError(t *testing.T) {

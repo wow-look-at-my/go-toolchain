@@ -137,7 +137,9 @@ func buildProviderResource(ctx context.Context) (*resource.Resource, error) {
 // a single HTTP POST, which is the actually-interesting number.
 type loggingExporter struct {
 	inner sdktrace.SpanExporter
-	w     interface{ Write(p []byte) (n int, err error) }
+	w     interface {
+		Write(p []byte) (n int, err error)
+	}
 	count atomic.Uint64
 }
 

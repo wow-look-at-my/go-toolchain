@@ -16,8 +16,8 @@ func TestGenerateChecksums(t *testing.T) {
 
 	// Create dummy binaries with known content
 	files := map[string]string{
-		"tool_linux_amd64":  "linux-amd64-binary",
-		"tool_darwin_arm64": "darwin-arm64-binary",
+		"tool_linux_amd64":       "linux-amd64-binary",
+		"tool_darwin_arm64":      "darwin-arm64-binary",
 		"tool_windows_amd64.exe": "windows-amd64-binary",
 	}
 

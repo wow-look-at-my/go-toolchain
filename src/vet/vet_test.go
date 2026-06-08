@@ -193,8 +193,8 @@ func TestASTFixesPrintFix(t *testing.T) {
 	})
 
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{
-		{OldNode: call, NewNodes: []ast.Node{call.Args[0]}},	// replacement
-		{OldNode: call, NewNodes: nil},				// deletion
+		{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}, // replacement
+		{OldNode: call, NewNodes: nil},                      // deletion
 	}}
 
 	// Just ensure printFix doesn't panic
@@ -212,29 +212,29 @@ func TestSourceLocationShortLocRelative(t *testing.T) {
 
 func TestRedundantCastFixes(t *testing.T) {
 	tests := []struct {
-		name	string
-		before	string
-		after	string
+		name   string
+		before string
+		after  string
 	}{
 		{
-			name:	"int literal",
-			before:	"package main\n\nfunc main() { x := int(0); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 0; _ = x }\n",
+			name:   "int literal",
+			before: "package main\n\nfunc main() { x := int(0); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 0; _ = x }\n",
 		},
 		{
-			name:	"float64 literal",
-			before:	"package main\n\nfunc main() { x := float64(1.5); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 1.5; _ = x }\n",
+			name:   "float64 literal",
+			before: "package main\n\nfunc main() { x := float64(1.5); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 1.5; _ = x }\n",
 		},
 		{
-			name:	"string literal",
-			before:	`package main` + "\n\n" + `func main() { x := string("hello"); _ = x }`,
-			after:	"package main\n\nfunc main()\t{ x := \"hello\"; _ = x }\n",
+			name:   "string literal",
+			before: `package main` + "\n\n" + `func main() { x := string("hello"); _ = x }`,
+			after:  "package main\n\nfunc main()\t{ x := \"hello\"; _ = x }\n",
 		},
 		{
-			name:	"rune literal",
-			before:	"package main\n\nfunc main() { x := rune('a'); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 'a'; _ = x }\n",
+			name:   "rune literal",
+			before: "package main\n\nfunc main() { x := rune('a'); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 'a'; _ = x }\n",
 		},
 	}
 

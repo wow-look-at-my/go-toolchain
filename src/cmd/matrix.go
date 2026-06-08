@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	matrixOS      []string
-	matrixArch    []string
+	matrixOS        []string
+	matrixArch      []string
 	releaseParallel int
 )
 
@@ -314,4 +314,3 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	}
 	return nil
 }
-

@@ -205,7 +205,7 @@ func migrateFileGotestTools(filename string) (bool, error) {
 					} else {
 						ident.Name = "require"
 					}
-				
+
 					return true
 				}
 			}
@@ -216,7 +216,7 @@ func migrateFileGotestTools(filename string) (bool, error) {
 			needAssertImport = true
 			keepAsAssert[ident] = true
 			sel.Sel.Name = "True"
-		
+
 			return true
 		}
 
@@ -226,7 +226,6 @@ func migrateFileGotestTools(filename string) (bool, error) {
 			sel.Sel.Name = newName
 		}
 
-	
 		return true
 	})
 
@@ -243,7 +242,7 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		}
 		if ident.Name == "assert" && !keepAsAssert[ident] {
 			ident.Name = "require"
-		
+
 		}
 		return true
 	})

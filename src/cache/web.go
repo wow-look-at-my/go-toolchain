@@ -54,9 +54,9 @@ type WebBackend struct {
 	accessKey string
 	secretKey string
 	version   string // go-toolchain version for object metadata
-	Stats   CacheStats
-	Pool    ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
-	Latency *LatencyStats      // optional; set by Server for sub-operation tracking
+	Stats     CacheStats
+	Pool      ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
+	Latency   *LatencyStats      // optional; set by Server for sub-operation tracking
 	keysMu    sync.RWMutex
 	keys      set.Set[string] // known keys, built from ListObjects on startup
 	missesMu  sync.RWMutex
@@ -84,10 +84,10 @@ type WebBackend struct {
 	// their keys through batchReqCh, the worker collects them on a short
 	// time window and ships them as one /_batch/get HTTP request, then
 	// fans the response back out via per-request reply channels.
-	batchReqCh   chan batchReq
-	batchStop    chan struct{}
-	batchDone    chan struct{}
-	batchHTTPWG  sync.WaitGroup
+	batchReqCh  chan batchReq
+	batchStop   chan struct{}
+	batchDone   chan struct{}
+	batchHTTPWG sync.WaitGroup
 }
 
 type batchReq struct {
@@ -152,7 +152,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		MaxIdleConnsPerHost:   MaxConnsPerHost,
 		MaxConnsPerHost:       MaxConnsPerHost,
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:  10 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 

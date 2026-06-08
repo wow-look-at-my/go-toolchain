@@ -16,9 +16,9 @@ type IProcess interface {
 	// Wait blocks until the process completes and returns the exit error
 	Wait() error
 	// Stdout returns captured stout
-	Stdout()  io.Reader
+	Stdout() io.Reader
 	// Stderr returns captured stderr
-	Stderr()  io.Reader
+	Stderr() io.Reader
 }
 
 // Config specifies how to run a command
@@ -26,10 +26,10 @@ type Config struct {
 	Name          string
 	Args          []string
 	Env           *sortedmap.SortedMap[string, string] // Merged with current environment
-	Quiet         bool              // Don't tee stdout/stderr to console
-	OnFirstOutput func()            // Called before the first byte of output is written to console
-	StdoutWriter  io.Writer         // If set, stdout is copied here instead of os.Stdout
-	StderrWriter  io.Writer         // If set, stderr is copied here instead of os.Stderr
+	Quiet         bool                                 // Don't tee stdout/stderr to console
+	OnFirstOutput func()                               // Called before the first byte of output is written to console
+	StdoutWriter  io.Writer                            // If set, stdout is copied here instead of os.Stdout
+	StderrWriter  io.Writer                            // If set, stderr is copied here instead of os.Stderr
 }
 
 // IsCmd checks if this config runs the given command with the given prefix args.

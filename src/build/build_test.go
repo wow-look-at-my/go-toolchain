@@ -267,4 +267,3 @@ func TestFindMainPackagesNoRunner(t *testing.T) {
 	require.Equal(t, 1, len(pkgs))
 	assert.Equal(t, "example.com/test", pkgs[0])
 }
-

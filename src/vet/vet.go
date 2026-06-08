@@ -15,9 +15,9 @@ import (
 	"time"
 
 	git "github.com/go-git/go-git/v5"
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
-	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -287,7 +287,6 @@ type Diagnostic struct {
 	Column  int
 	Message string
 }
-
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
 // It tries go-git first, falling back to shelling out to git if go-git fails
