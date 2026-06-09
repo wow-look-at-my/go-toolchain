@@ -16,7 +16,7 @@ const buildIDHashSize = 15
 // expectedBuildIDAction returns the build-id action field the Go toolchain
 // stamps into a package compiled under the cache action whose key is
 // actionIDHex (the 64-hex SHA-256 the cacheprog is asked for). Go derives it as
-// base64.RawURLEncoding(actionID[:15]) — see buildIDHashSize. Returns "" when
+// base64.RawURLEncoding(actionID[:15]) -- see buildIDHashSize. Returns "" when
 // actionIDHex is not at least buildIDHashSize bytes of valid hex, in which case
 // no expectation can be derived and the caller must not treat anything as a
 // mismatch.
@@ -31,7 +31,7 @@ func expectedBuildIDAction(actionIDHex string) string {
 // archiveBuildIDAction extracts the action field (the part before the first
 // '/') of the build id the Go toolchain stamps into a compiled package's
 // __.PKGDEF header, e.g. `build id "ACTION/CONTENT"` -> "ACTION". It returns ""
-// when data is not a Go ar archive, or carries no build id line — which is the
+// when data is not a Go ar archive, or carries no build id line -- which is the
 // case for every cache entry that is not a build-id-stamped compiled package
 // (vet facts, command stdout, source-file lists, or an archive produced by
 // `go tool compile` without stamping). Only the text header preceding the "$$"
@@ -70,8 +70,8 @@ func archiveBuildIDAction(data []byte) string {
 // the body<->outputID hash (outputIDMatches) cannot make: that hash proves a
 // body is internally consistent with its advertised content id, but NOT that
 // the content belongs under the requested action key. A self-consistent object
-// stored (or mapped) under the wrong action key — e.g. the internal/reflectlite
-// export data served for the `runtime` action — passes the hash check yet
+// stored (or mapped) under the wrong action key -- e.g. the internal/reflectlite
+// export data served for the `runtime` action -- passes the hash check yet
 // poisons the build with "imported as reflectlite". A compiled package carries
 // its own action key in its build id (the field before '/' is
 // base64.RawURLEncoding(actionID[:15])), so it can be matched against the key
@@ -79,7 +79,7 @@ func archiveBuildIDAction(data []byte) string {
 //
 // It returns the archive's stamped action field (got; "" if none) and ok:
 //   - ok == false ONLY when the object carries a build id proving it belongs to
-//     a DIFFERENT action than requested — proven cross-contamination.
+//     a DIFFERENT action than requested -- proven cross-contamination.
 //   - ok == true when the object is not a build-id-stamped archive, or when no
 //     expectation can be derived from actionIDHex: there is nothing to verify
 //     here and the body<->outputID hash remains the integrity gate.

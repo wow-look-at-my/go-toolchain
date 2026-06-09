@@ -23,8 +23,8 @@ func archiveWithBuildID(action string) []byte {
 // hermeticOTel pins the shared tracer provider to disabled for this test.
 // trace.Provider is a process-global sync.Once gated on
 // OTEL_EXPORTER_OTLP_ENDPOINT at first-call time (see src/trace/provider.go).
-// These are the first tests alphabetically to construct a WebBackend — which
-// initializes that provider via newCacheTracer — so under CI (where the
+// These are the first tests alphabetically to construct a WebBackend -- which
+// initializes that provider via newCacheTracer -- so under CI (where the
 // go-toolchain action sets an OTEL endpoint) they must not let it memoize
 // ENABLED, or TestHTTPErrLogger_OTELOptOutByDefault, which runs later and
 // asserts the provider is disabled, would fail. Clearing the env here makes the
@@ -36,7 +36,7 @@ func hermeticOTel(t *testing.T) { t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") }
 // from a real `go build`: the cached compile action whose key is this 64-hex
 // SHA-256 was stamped by the toolchain with build id action
 // "EPlPwC3MJFgg3YYfTGwl" (verified with `go tool buildid` on the cached -d
-// object). If Go ever changed HashToString — base64.RawURLEncoding(hash[:15]) —
+// object). If Go ever changed HashToString -- base64.RawURLEncoding(hash[:15]) --
 // this is the canary.
 func TestExpectedBuildIDAction_Golden(t *testing.T) {
 	const actionID = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b"
@@ -92,8 +92,8 @@ func TestBuildIDMatchesAction(t *testing.T) {
 
 // TestWebBackend_GetRejectsBuildIDMismatch is the core regression guard: a body
 // that hashes to its advertised outputID (so it passes the existing checksum
-// gate) but whose build id belongs to a DIFFERENT action — the exact
-// "internal/reflectlite served for the runtime action" poisoning — must be
+// gate) but whose build id belongs to a DIFFERENT action -- the exact
+// "internal/reflectlite served for the runtime action" poisoning -- must be
 // refused as a miss and its key evicted so a recompute re-uploads it clean.
 func TestWebBackend_GetRejectsBuildIDMismatch(t *testing.T) {
 	hermeticOTel(t)

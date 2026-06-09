@@ -547,7 +547,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 	// Cross-contamination guard: a compiled package self-certifies its action
 	// key in its build id. A body that hashes to its outputID but whose build id
 	// belongs to a DIFFERENT action is a poisoned mapping (the wrong object under
-	// this key) that the hash check above cannot catch — e.g. internal/reflectlite
+	// this key) that the hash check above cannot catch -- e.g. internal/reflectlite
 	// export data served for the `runtime` action, surfacing as "imported as
 	// reflectlite". Refuse it, and evict the key so a recompute re-uploads
 	// (overwrites) the correct object.
