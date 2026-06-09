@@ -249,7 +249,7 @@ sequenceDiagram
         S->>W: Get(actionID)
         W->>R: GET /bucket/key (plus batch GET for neighbours)
         R-->>W: body (LZ4) and related entries
-        Note over W: verify sha256(body) == outputID<br/>mismatch → miss + evict key
+        Note over W: verify sha256(body)==outputID<br/>and build id belongs to this action<br/>mismatch → miss + evict key
         W-->>S: body
         Note over S,L: materialize into a pack
         S->>L: Put(actionID, outputID, body)
@@ -275,6 +275,31 @@ recomputes the object and the next `Put` re-uploads it clean instead of skipping
 as already-present. This covers all three ingestion paths: the individual GET,
 the batch GET, and the prefetch population of neighbours. The check is counted
 as `checksum` in the daemon's `web summary` miss breakdown.
+
+**Integrity vs. the right key, not just the right bytes.** The outputID hash
+proves a body is internally consistent with its content id — but *not* that the
+content belongs under the **action** the cacheprog was asked for. A
+self-consistent object mapped to the wrong action key passes every hash check
+and still poisons the build: the canonical case is `internal/reflectlite` export
+data served for the `runtime` action, which the Go loader reports as the
+baffling `"runtime" imported as reflectlite`. Neither the CRC nor the outputID
+hash can catch this — the bytes are a perfectly valid object, just the wrong
+one. A compiled package, though, self-certifies which action produced it: the Go
+toolchain stamps `build id "ACTION/CONTENT"` into the archive's `__.PKGDEF`
+header, where `ACTION` is `base64.RawURLEncoding(actionID[:15])` — the very hash
+that is the cache key. So `buildIDMatchesAction`
+([`src/cache/buildid.go`](../src/cache/buildid.go)) parses that field and rejects
+any object whose build id belongs to a different action than requested, treating
+it as a miss and evicting the key so a recompute re-uploads the correct object.
+The guard runs on every remote ingestion path (individual GET, batch GET,
+prefetch population) **and** on the remote PUT, so a mis-keyed object can neither
+be served from the shared cache nor written to it. Entries with no build id (vet
+facts, command stdout, `go tool compile` output) carry nothing to check and fall
+through to the outputID hash as before. It is counted as `buildid` in the
+`web summary` miss breakdown. The poisoned key self-heals: under the cache
+server's default `write_once: allow`, the recompute's re-`Put` overwrites the
+bad object; an operator can also evict it directly via the cache server's
+`DELETE` endpoint.
 
 ### PUT
 

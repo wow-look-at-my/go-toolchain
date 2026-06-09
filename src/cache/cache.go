@@ -155,6 +155,13 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if _, ok := outputIDMatches(e.OutputID, decompressed); !ok {
 				continue
 			}
+			// Never prefetch a compiled object whose build id belongs to a
+			// different action than its key (cross-contamination the outputID
+			// hash cannot catch -- see buildIDMatchesAction). Populating it would
+			// seed a local hit that serves the wrong package's export data.
+			if _, ok := buildIDMatchesAction(actionID, decompressed); !ok {
+				continue
+			}
 			local.Put(actionID, e.OutputID, bytes.NewReader(decompressed))
 			populated++
 		}

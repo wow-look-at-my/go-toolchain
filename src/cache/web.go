@@ -75,6 +75,7 @@ type WebBackend struct {
 	MissReadBody   AtomicCounter
 	MissDecompress AtomicCounter
 	MissChecksum   AtomicCounter
+	MissBuildID    AtomicCounter
 	MissNetwork    AtomicCounter
 
 	tracer *cacheTracer // nil when OTel is not configured
@@ -543,6 +544,23 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
+	// Cross-contamination guard: a compiled package self-certifies its action
+	// key in its build id. A body that hashes to its outputID but whose build id
+	// belongs to a DIFFERENT action is a poisoned mapping (the wrong object under
+	// this key) that the hash check above cannot catch -- e.g. internal/reflectlite
+	// export data served for the `runtime` action, surfacing as "imported as
+	// reflectlite". Refuse it, and evict the key so a recompute re-uploads
+	// (overwrites) the correct object.
+	if act, ok := buildIDMatchesAction(actionID, decompressed); !ok {
+		b.MissBuildID.Increment()
+		b.Stats.Corrupt.Increment()
+		markSpanMiss(span, "buildid_mismatch")
+		b.removeClaimed(key)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: build-id action mismatch (want action=%s, got action=%s, len=%d); evicting and treating as miss\n",
+			shortID(actionID), expectedBuildIDAction(actionID), act, len(decompressed))
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
 	t := time.Now()
 	if lm := resp.Header.Get("Last-Modified"); lm != "" {
 		if parsed, parseErr := time.Parse(http.TimeFormat, lm); parseErr == nil {
@@ -604,6 +622,19 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	if err != nil {
 		markSpanErr(span, "read body", err)
 		return fmt.Errorf("web put read: %w", err)
+	}
+
+	// Write-side cross-contamination guard: never publish a compiled package to
+	// the shared cache under a key that disagrees with the package's own build
+	// id. The body<->outputID hash is self-consistent for a mis-keyed object, so
+	// only this check stops a swapped (actionID, object) pair from poisoning the
+	// remote cache for every other consumer. The deferred removeClaimed releases
+	// the optimistic index claim, so a later correct Put for this key still runs.
+	if act, ok := buildIDMatchesAction(actionID, raw); !ok {
+		markSpanMiss(span, "buildid_mismatch")
+		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: refusing upload, build-id action mismatch (want action=%s, got action=%s); object does not belong under this key\n",
+			shortID(actionID), expectedBuildIDAction(actionID), act)
+		return nil
 	}
 
 	compressStart := time.Now()
