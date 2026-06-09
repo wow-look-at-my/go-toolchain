@@ -53,7 +53,7 @@ func TestArchiveBuildIDAction(t *testing.T) {
 
 func TestBuildIDMatchesAction(t *testing.T) {
 	const actionA = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b" // -> EPlPwC3MJFgg3YYfTGwl
-	actionB := strings.Repeat("ab", 32)                                              // a different action
+	actionB := strings.Repeat("ab", 32)                                                // a different action
 	wantA := expectedBuildIDAction(actionA)
 	wantB := expectedBuildIDAction(actionB)
 	require.NotEqual(t, wantA, wantB)
