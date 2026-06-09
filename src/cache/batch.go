@@ -299,6 +299,20 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			r.resp <- batchResp{miss: true}
 			continue
 		}
+		// Cross-contamination guard (see buildIDMatchesAction): refuse a compiled
+		// object whose build id belongs to a different action than requested. The
+		// hash check above only proves body<->outputID consistency, not that the
+		// object belongs under this action key.
+		if act, ok := buildIDMatchesAction(r.actionID, decompressed); !ok {
+			b.MissBuildID.Increment()
+			b.Stats.Corrupt.Increment()
+			markSpanMiss(itemSpan, "buildid_mismatch")
+			itemSpan.End()
+			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: build-id action mismatch (want action=%s, got action=%s, len=%d); treating as miss\n",
+				shortID(r.actionID), expectedBuildIDAction(r.actionID), act, len(decompressed))
+			r.resp <- batchResp{miss: true}
+			continue
+		}
 		b.Stats.Hits.Increment()
 		itemSpan.SetAttributes(
 			attribute.Bool("cacheprog.hit", true),
