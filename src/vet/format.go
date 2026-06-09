@@ -1,14 +1,18 @@
 package vet
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"go/format"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var generatedCodeRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 // RunGofmt checks that all Go source files in the current directory tree are
 // formatted. If fix is true, unformatted files are rewritten in place and
@@ -34,6 +38,9 @@ func RunGofmt(fix bool) (bool, error) {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			return err
+		}
+		if isGeneratedGoSource(src) {
+			return nil
 		}
 		formatted, err := format.Source(src)
 		if err != nil {
@@ -67,4 +74,18 @@ func RunGofmt(fix bool) (bool, error) {
 		sb.WriteString("  " + f + "\n")
 	}
 	return false, fmt.Errorf("%s", strings.TrimRight(sb.String(), "\n"))
+}
+
+func isGeneratedGoSource(src []byte) bool {
+	scanner := bufio.NewScanner(bytes.NewReader(src))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if generatedCodeRe.MatchString(line) {
+			return true
+		}
+		if strings.HasPrefix(line, "package ") {
+			return false
+		}
+	}
+	return false
 }
