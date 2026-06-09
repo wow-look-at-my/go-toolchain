@@ -20,6 +20,18 @@ func archiveWithBuildID(action string) []byte {
 	return buildAr("__.PKGDEF", []byte(body))
 }
 
+// hermeticOTel pins the shared tracer provider to disabled for this test.
+// trace.Provider is a process-global sync.Once gated on
+// OTEL_EXPORTER_OTLP_ENDPOINT at first-call time (see src/trace/provider.go).
+// These are the first tests alphabetically to construct a WebBackend — which
+// initializes that provider via newCacheTracer — so under CI (where the
+// go-toolchain action sets an OTEL endpoint) they must not let it memoize
+// ENABLED, or TestHTTPErrLogger_OTELOptOutByDefault, which runs later and
+// asserts the provider is disabled, would fail. Clearing the env here makes the
+// first init disabled, exactly as it is when that opt-out test is the first
+// caller on a clean branch.
+func hermeticOTel(t *testing.T) { t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") }
+
 // TestExpectedBuildIDAction_Golden pins the encoding against a value captured
 // from a real `go build`: the cached compile action whose key is this 64-hex
 // SHA-256 was stamped by the toolchain with build id action
@@ -84,6 +96,7 @@ func TestBuildIDMatchesAction(t *testing.T) {
 // "internal/reflectlite served for the runtime action" poisoning — must be
 // refused as a miss and its key evicted so a recompute re-uploads it clean.
 func TestWebBackend_GetRejectsBuildIDMismatch(t *testing.T) {
+	hermeticOTel(t)
 	const actionID = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b"
 	otherAction := strings.Repeat("ab", 32) // a different action's key
 	poison := string(archiveWithBuildID(expectedBuildIDAction(otherAction)))
@@ -130,6 +143,7 @@ func TestWebBackend_GetRejectsBuildIDMismatch(t *testing.T) {
 // TestWebBackend_GetServesMatchingBuildID is the positive control: an object
 // whose build id matches the requested action is served as a hit.
 func TestWebBackend_GetServesMatchingBuildID(t *testing.T) {
+	hermeticOTel(t)
 	const actionID = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b"
 	good := string(archiveWithBuildID(expectedBuildIDAction(actionID)))
 	outputID := testOutputID(good)
@@ -168,6 +182,7 @@ func TestWebBackend_GetServesMatchingBuildID(t *testing.T) {
 // TestGetBatch_RejectsBuildIDMismatch verifies the batch serve path applies the
 // same cross-contamination guard as individual GETs.
 func TestGetBatch_RejectsBuildIDMismatch(t *testing.T) {
+	hermeticOTel(t)
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
 	srv := fakeBatchServer(t, store, meta)
@@ -201,6 +216,7 @@ func TestGetBatch_RejectsBuildIDMismatch(t *testing.T) {
 // to the shared cache: a Put whose body's build id disagrees with the key is
 // skipped (no upload) and the optimistic index claim is released.
 func TestWebBackend_PutRefusesBuildIDMismatch(t *testing.T) {
+	hermeticOTel(t)
 	const actionID = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b"
 	otherAction := strings.Repeat("ef", 32)
 	poison := archiveWithBuildID(expectedBuildIDAction(otherAction))
