@@ -125,6 +125,7 @@ func findGenerateDirectives(root string) ([]generateDirective, error) {
 }
 
 var generateRegex = regexp.MustCompile(`^//go:generate\s+(.+)$`)
+var shellGoFmtRegex = regexp.MustCompile(`(^|[;&|()\s])go\s+fmt($|[;&|()\s])`)
 
 // parseDirectives extracts //go:generate directives from a single file.
 // Uses bufio.Reader.ReadLine instead of Scanner to handle arbitrarily long lines
@@ -156,11 +157,15 @@ func parseDirectives(path string) ([]generateDirective, error) {
 
 		matches := generateRegex.FindSubmatch(chunk)
 		if matches != nil {
-			directives = append(directives, generateDirective{
+			d := generateDirective{
 				File:    path,
 				Line:    lineNum,
 				Command: string(matches[1]),
-			})
+			}
+			if isGoFmtGenerateCommand(d.Command) {
+				return nil, fmt.Errorf("%s:%d: go fmt is not allowed in go:generate directives", d.File, d.Line)
+			}
+			directives = append(directives, d)
 		}
 
 		// Discard remaining chunks of long lines without buffering
@@ -176,6 +181,39 @@ func parseDirectives(path string) ([]generateDirective, error) {
 	}
 
 	return directives, nil
+}
+
+func isGoFmtGenerateCommand(command string) bool {
+	args, err := splitGenerateCommand(command)
+	if err != nil || len(args) == 0 {
+		return false
+	}
+	if len(args) >= 2 && isGoCommand(args[0]) && args[1] == "fmt" {
+		return true
+	}
+	if isShellCommand(args[0]) {
+		for i := 1; i < len(args)-1; i++ {
+			if args[i] == "-c" && shellGoFmtRegex.MatchString(args[i+1]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isGoCommand(command string) bool {
+	base := filepath.Base(command)
+	base = strings.TrimSuffix(strings.ToLower(base), ".exe")
+	return base == "go"
+}
+
+func isShellCommand(command string) bool {
+	switch filepath.Base(command) {
+	case "sh", "bash":
+		return true
+	default:
+		return false
+	}
 }
 
 // executeDirective runs a single generate directive
