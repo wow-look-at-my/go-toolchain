@@ -283,6 +283,10 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 }
 
 func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
+	if err := injectMemLimitGuard(quiet); err != nil {
+		return nil, err
+	}
+
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return nil, err
