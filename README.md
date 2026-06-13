@@ -16,6 +16,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
 - **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot
 - **Self-update** — update the binary in place via the `update` subcommand, or enable automatic enforced updates with `GO_TOOLCHAIN_AUTO_UPDATE=1` so a stale binary baked into an image heals itself before it runs
+- **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Defers to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is a per-deploy kill switch); disable injection entirely with `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
@@ -174,6 +175,41 @@ the variable to `0`/`false`/`no`/`off` (or leave it unset) to disable. The
 `update`, `version`, `install`, `release`, and `cacheprog` subcommands are never
 auto-updated.
 
+### Automatic GOMEMLIMIT (cgroup-aware memory limit)
+
+By default, go-toolchain injects a small, stdlib-only startup guard
+(`gomemlimit_gen.go`) into every `main` package it builds. When the resulting
+binary starts, the guard reads the container's cgroup memory limit (cgroup v2 or
+v1) and calls `runtime/debug.SetMemoryLimit` with 90% of it. This keeps the Go
+garbage collector under the cgroup ceiling — as the heap approaches the limit
+the GC works harder, trading CPU for memory, instead of letting the process
+allocate until the kernel OOM-kills it.
+
+The guard is dependency-free (no `go.mod`/`go.sum` changes), carries the standard
+`// Code generated ... DO NOT EDIT.` marker (so it is excluded from coverage), and
+is a no-op when no cgroup limit is found, including on non-Linux systems. Commit
+the generated files so plain `go build` embeds the guard too; injection is
+idempotent, and in CI a missing or stale guard surfaces as a dirty tree with a
+message to run go-toolchain locally and commit.
+
+```bash
+# Build-time: disable injection (default is on)
+export GO_TOOLCHAIN_AUTO_MEMLIMIT=off
+```
+
+The following are read by the built program **when it starts**, not at build time:
+
+```bash
+# Opt a single deployment out without rebuilding — Go's own variable wins
+export GOMEMLIMIT=off
+
+# ...or pin an explicit limit (the guard then does nothing)
+export GOMEMLIMIT=2GiB
+
+# Tune the headroom ratio (default 0.9); "off" also disables the guard
+export GO_TOOLCHAIN_MEMLIMIT_RATIO=0.8
+```
+
 ## OpenTelemetry Trace Export
 
 go-toolchain can export build pipeline timings as OpenTelemetry traces, enabling visualization in Grafana Tempo or any OTLP-compatible backend.
@@ -221,7 +257,7 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 11. Runs `go test` across non-generated packages with coverage profiling
 12. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%)
 13. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-14. If coverage meets the threshold, builds the project binary into `build/`
+14. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`), then builds the project binaries into `build/`
 15. Automatically adds `build/` to `.gitignore` (if in a git repo)
 16. Runs benchmarks and compares against previously stored results
 17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts
