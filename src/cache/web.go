@@ -3,21 +3,17 @@ package cache
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
@@ -68,15 +64,29 @@ type WebBackend struct {
 	OnBatchEntries func(entries []BatchEntry)
 
 	// Miss reason counters for diagnostics.
-	MissNotInIndex AtomicCounter
-	MissHTTP404    AtomicCounter
-	MissHTTPError  AtomicCounter
-	MissNoOutputID AtomicCounter
-	MissReadBody   AtomicCounter
-	MissDecompress AtomicCounter
-	MissChecksum   AtomicCounter
-	MissBuildID    AtomicCounter
-	MissNetwork    AtomicCounter
+	MissNotInIndex  AtomicCounter
+	MissHTTP404     AtomicCounter
+	MissHTTPError   AtomicCounter
+	MissNoOutputID  AtomicCounter
+	MissReadBody    AtomicCounter
+	MissDecompress  AtomicCounter
+	MissChecksum    AtomicCounter
+	MissBuildID     AtomicCounter
+	MissNetwork     AtomicCounter
+	MissCircuitOpen AtomicCounter // gets served as misses because the breaker tripped
+
+	// Failure-handling resilience. A backend outage (5xx, timeout, reset) must
+	// never stall or corrupt a build: every remote op degrades to a clean miss
+	// (GET) or a silent drop (PUT). To stop a build's thousands of cache ops
+	// from each independently hammering a failing backend — amplifying the very
+	// load that caused the outage — a circuit breaker trips to local-only mode
+	// after breakerThreshold consecutive failures, logged exactly once.
+	maxRetries       int          // bounded retries for transient GET failures
+	breakerThreshold int          // consecutive failures before tripping (0 disables)
+	breakerFailures  atomic.Int64 // current consecutive-failure streak
+	breakerTripped   atomic.Bool  // true once the breaker has tripped
+	breakerLogOnce   sync.Once    // ensures the fallback warning is logged once
+	breakerLog       io.Writer    // where the fallback warning goes (nil => os.Stderr)
 
 	tracer *cacheTracer // nil when OTel is not configured
 	errLog *httpErrLogger
@@ -158,6 +168,8 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	}
 
 	b := &WebBackend{
+		maxRetries:       envInt("GO_TOOLCHAIN_CACHE_MAX_RETRIES", defaultMaxRetries),
+		breakerThreshold: envInt("GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD", defaultBreakerThreshold),
 		client: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
@@ -196,217 +208,6 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	return b, nil
 }
 
-// gbciKeyPrefix is the constant leading portion of every cacheprog cache
-// key. The wire format ships only the variable 32-byte action-ID hash that
-// follows this prefix; both client and server hardcode the same prefix.
-const gbciKeyPrefix = "go-buildcache/v1"
-
-// gbciHashSize is the number of bytes per entry in the index body.
-const gbciHashSize = 32
-
-// gbciHeaderSize is the fixed header size in bytes.
-const gbciHeaderSize = 24
-
-// gbciVersion is the wire-format version stored in the header.
-const gbciVersion = 1
-
-// gbciMagic is the four-byte file-format identifier "GBCI".
-var gbciMagic = [4]byte{'G', 'B', 'C', 'I'}
-
-// indexCachePath returns the path for the local on-disk index blob.
-// The hash makes the path unique per (endpoint, bucket, prefix) so multiple
-// daemons on the same machine targeting different caches don't collide.
-func (b *WebBackend) indexCachePath() string {
-	h := sha256.Sum256([]byte(b.endpoint + "/" + b.bucket + "/" + b.prefix))
-	name := "gocache-web-index-" + hex.EncodeToString(h[:8]) + ".bin"
-	return filepath.Join(os.TempDir(), name)
-}
-
-// loadOrFetchIndex returns the set of known cache keys for this backend.
-// It reads any previously cached blob from disk, then issues a conditional
-// GET /<bucket>/_index against the server. On 304 we keep the disk blob;
-// on 200 we adopt the new one and persist it. Any failure produces an
-// empty set — Get/Put still work, they just always miss b.keys until the
-// next refresh.
-func (b *WebBackend) loadOrFetchIndex() set.Set[string] {
-	path := b.indexCachePath()
-	diskBlob, diskKeys, diskETag := b.readDiskIndex(path)
-
-	blob, status, err := b.fetchIndexBlob(diskETag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: web index fetch: %v\n", err)
-		if diskBlob != nil {
-			return diskKeys
-		}
-		return set.New[string]()
-	}
-	if status == http.StatusNotModified {
-		if diskBlob != nil {
-			return diskKeys
-		}
-		// Server claimed not-modified but we have no disk copy (likely a
-		// cleared /tmp between the ETag fetch and now). Refetch unconditionally.
-		blob, _, err = b.fetchIndexBlob("")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: web index refetch: %v\n", err)
-			return set.New[string]()
-		}
-	}
-	keys, _, err := parseIndexBlob(blob)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: web index parse: %v\n", err)
-		if diskBlob != nil {
-			return diskKeys
-		}
-		return set.New[string]()
-	}
-	b.writeIndexBlob(path, blob)
-	return keys
-}
-
-// readDiskIndex returns (raw, parsed, etag) or (nil, empty, "") if the file
-// is missing or invalid.
-func (b *WebBackend) readDiskIndex(path string) ([]byte, set.Set[string], string) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, set.New[string](), ""
-	}
-	keys, etag, err := parseIndexBlob(data)
-	if err != nil {
-		return nil, set.New[string](), ""
-	}
-	return data, keys, etag
-}
-
-// fetchIndexBlob does a conditional GET <endpoint>/<bucket>/_index. Returns:
-//
-//	body, http.StatusOK, nil          for a 200 response
-//	nil,  http.StatusNotModified, nil for a 304 response
-//	nil,  0, err                      for any transport failure or bad status
-func (b *WebBackend) fetchIndexBlob(ifNoneMatch string) ([]byte, int, error) {
-	req, err := http.NewRequest("GET", b.endpoint+"/"+b.bucket+"/_index", nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	if ifNoneMatch != "" {
-		req.Header.Set("If-None-Match", ifNoneMatch)
-	}
-	b.signRequest(req)
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK:
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, 0, err
-		}
-		return body, http.StatusOK, nil
-	case http.StatusNotModified:
-		return nil, http.StatusNotModified, nil
-	default:
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(body))
-	}
-}
-
-// writeIndexBlob persists a GBCI v1 blob via tmp file + atomic rename.
-// Best-effort: failures are silently ignored, since a missing or stale on-disk
-// cache only forces the next start to do a fresh GET, never affects correctness.
-func (b *WebBackend) writeIndexBlob(path string, blob []byte) {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, blob, 0644); err != nil {
-		return
-	}
-	os.Rename(tmp, path)
-}
-
-// parseIndexBlob validates a GBCI v1 blob and returns:
-//
-//   - the reconstructed key set (full S3 key strings)
-//   - the strong ETag (hex-encoded SHA-256 trailer, RFC-7232 quoted)
-//   - or an error if magic, version, length, or trailer hash don't validate.
-func parseIndexBlob(blob []byte) (set.Set[string], string, error) {
-	if len(blob) < gbciHeaderSize+sha256.Size {
-		return set.Set[string]{}, "", fmt.Errorf("blob too small (%d bytes)", len(blob))
-	}
-	if !bytes.Equal(blob[0:4], gbciMagic[:]) {
-		return set.Set[string]{}, "", fmt.Errorf("bad magic")
-	}
-	if blob[4] != gbciVersion {
-		return set.Set[string]{}, "", fmt.Errorf("unsupported version %d", blob[4])
-	}
-	if blob[5] != gbciHashSize {
-		return set.Set[string]{}, "", fmt.Errorf("unsupported hash size %d", blob[5])
-	}
-	count := binary.LittleEndian.Uint64(blob[16:24])
-	bodyEnd := gbciHeaderSize + int(count)*gbciHashSize
-	if bodyEnd+sha256.Size != len(blob) {
-		return set.Set[string]{}, "", fmt.Errorf("length %d != header+%d*%d+trailer", len(blob), count, gbciHashSize)
-	}
-	expected := sha256.Sum256(blob[:bodyEnd])
-	if !bytes.Equal(expected[:], blob[bodyEnd:]) {
-		return set.Set[string]{}, "", fmt.Errorf("trailer hash mismatch")
-	}
-	keys := set.New[string]()
-	hashHex := make([]byte, gbciHashSize*2)
-	for i := uint64(0); i < count; i++ {
-		off := gbciHeaderSize + int(i)*gbciHashSize
-		hex.Encode(hashHex, blob[off:off+gbciHashSize])
-		keys.Add(gbciKeyPrefix + string(hashHex))
-	}
-	etag := `"` + hex.EncodeToString(blob[bodyEnd:]) + `"`
-	return keys, etag, nil
-}
-
-// marshalIndex encodes the given key set as a GBCI v1 blob. Keys not matching
-// the cacheprog pattern are skipped. Used by tests.
-func marshalIndex(keys set.Set[string]) []byte {
-	hashes := make([][gbciHashSize]byte, 0, keys.Len())
-	for k := range keys.All() {
-		if h, ok := decodeActionHash(k); ok {
-			hashes = append(hashes, h)
-		}
-	}
-	sort.Slice(hashes, func(i, j int) bool {
-		return bytes.Compare(hashes[i][:], hashes[j][:]) < 0
-	})
-	blob := make([]byte, gbciHeaderSize+len(hashes)*gbciHashSize+sha256.Size)
-	copy(blob[0:4], gbciMagic[:])
-	blob[4] = gbciVersion
-	blob[5] = gbciHashSize
-	binary.LittleEndian.PutUint16(blob[6:8], 0)
-	binary.LittleEndian.PutUint64(blob[8:16], 0)
-	binary.LittleEndian.PutUint64(blob[16:24], uint64(len(hashes)))
-	off := gbciHeaderSize
-	for i := range hashes {
-		copy(blob[off:off+gbciHashSize], hashes[i][:])
-		off += gbciHashSize
-	}
-	digest := sha256.Sum256(blob[:off])
-	copy(blob[off:], digest[:])
-	return blob
-}
-
-// decodeActionHash extracts the 32-byte action ID from a cacheprog cache key.
-func decodeActionHash(key string) ([gbciHashSize]byte, bool) {
-	var zero [gbciHashSize]byte
-	if !strings.HasPrefix(key, gbciKeyPrefix) {
-		return zero, false
-	}
-	hex64 := key[len(gbciKeyPrefix):]
-	if len(hex64) != gbciHashSize*2 {
-		return zero, false
-	}
-	var h [gbciHashSize]byte
-	if _, err := hex.Decode(h[:], []byte(hex64)); err != nil {
-		return zero, false
-	}
-	return h, true
-}
-
 func (b *WebBackend) key(actionID string) string {
 	return b.prefix + "v1" + actionID
 }
@@ -421,6 +222,13 @@ func (b *WebBackend) url(key string) string {
 // related entries from the same build, which are passed to OnBatchEntries
 // for local cache population.
 func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
+	// Circuit breaker tripped: the remote is known-unhealthy this run, so skip
+	// the network entirely and report a clean miss. The build recomputes from
+	// source — slower, always correct — instead of waiting on a failing backend.
+	if b.remoteDisabled() {
+		b.MissCircuitOpen.Increment()
+		return "", nil, 0, time.Time{}, true, nil
+	}
 	key := b.key(actionID)
 	b.keysMu.RLock()
 	known := b.keys.Contains(key)
@@ -462,10 +270,11 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 
 	b.Pool.Acquire()
 	httpStart := time.Now()
-	resp, err := b.client.Do(req)
+	resp, err := b.doRetryGET(req)
 	if err != nil {
 		b.Pool.Release()
 		b.MissNetwork.Increment()
+		b.noteRemoteResult(true)
 		markSpanErr(span, "network", err)
 		markSpanMiss(span, "network")
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", shortID(actionID), err)
@@ -477,6 +286,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTP404.Increment()
+		b.noteRemoteResult(false) // a definitive miss from a healthy backend
 		markSpanMiss(span, "http_404")
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -485,10 +295,12 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTPError.Increment()
+		b.noteRemoteResult(transientStatus(resp.StatusCode))
 		markSpanMiss(span, fmt.Sprintf("http_%d", resp.StatusCode))
 		b.errLog.Record("web get", resp.StatusCode, actionID, string(respBody))
 		return "", nil, 0, time.Time{}, true, nil
 	}
+	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
 	outputID := resp.Header.Get("X-Amz-Meta-Outputid")
 	if outputID == "" {
@@ -594,6 +406,12 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 // Put stores a cached object with LZ4 compression.
 // Skips upload if the key is already in the index.
 func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
+	// Circuit breaker tripped: drop the upload silently. PUTs are best-effort —
+	// a dropped upload only costs a future cache miss, never build correctness —
+	// and continuing to push at a failing backend would amplify its overload.
+	if b.remoteDisabled() {
+		return nil
+	}
 	key := b.key(actionID)
 
 	// Atomically check-and-claim: if the key is already known (or being
@@ -682,6 +500,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		b.Latency.HTTPPut.Record(time.Since(httpStart))
 	}
 	if err != nil {
+		b.noteRemoteResult(true)
 		markSpanErr(span, "network", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", shortID(actionID), err)
 		return err
@@ -695,10 +514,12 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
+		b.noteRemoteResult(transientStatus(resp.StatusCode))
 		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		b.errLog.Record("web put", resp.StatusCode, actionID, string(respBody))
 		return fmt.Errorf("web put: HTTP %d: %w", resp.StatusCode, errLogged)
 	}
+	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
 	uploaded = true
 	b.Stats.Puts.Increment()

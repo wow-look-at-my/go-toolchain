@@ -126,10 +126,11 @@ func (d *Daemon) Close() {
 			checksum := wb.MissChecksum.Load()
 			buildID := wb.MissBuildID.Load()
 			network := wb.MissNetwork.Load()
-			missTotal := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + checksum + buildID + network
+			circuitOpen := wb.MissCircuitOpen.Load()
+			missTotal := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + checksum + buildID + network + circuitOpen
 			if hits > 0 || puts > 0 || missTotal > 0 {
-				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d network=%d)\n",
-					hits, puts, missTotal, notInIndex, http404, httpErr, noOutputID, readBody, decompress, checksum, buildID, network)
+				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d network=%d circuit-open=%d)\n",
+					hits, puts, missTotal, notInIndex, http404, httpErr, noOutputID, readBody, decompress, checksum, buildID, network, circuitOpen)
 			}
 		}
 		d.remote.Close()

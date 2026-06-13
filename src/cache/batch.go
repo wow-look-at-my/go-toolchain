@@ -169,6 +169,14 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		b.missesMu.Unlock()
 	}
 
+	// Circuit breaker tripped between enqueue and dispatch: skip the network and
+	// miss the whole batch so the build recomputes from source.
+	if b.remoteDisabled() {
+		span.SetAttributes(attribute.Bool("cacheprog.batch.circuit_open", true))
+		respondAllMiss()
+		return
+	}
+
 	reqBody, _ := json.Marshal(batchGetRequest{Keys: keys, Prefetch: true})
 	batchURL := b.endpoint + "/" + b.bucket + "/_batch/get"
 	httpReq, err := http.NewRequest("GET", batchURL, bytes.NewReader(reqBody))
@@ -181,9 +189,10 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	b.signRequest(httpReq)
 
 	b.Pool.Acquire()
-	resp, err := b.client.Do(httpReq)
+	resp, err := b.doRetryGET(httpReq)
 	if err != nil {
 		b.Pool.Release()
+		b.noteRemoteResult(true)
 		markSpanErr(span, "network", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: %v\n", err)
 		respondAllMiss()
@@ -195,8 +204,10 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		resp.Body.Close()
 		b.Pool.Release()
 		// 404/405 → server has no batch endpoint; fall back to individual
-		// GETs for every caller in this batch.
+		// GETs for every caller in this batch. A healthy backend answered, so
+		// this is not a breaker failure.
 		if resp.StatusCode == 404 || resp.StatusCode == 405 {
+			b.noteRemoteResult(false)
 			span.SetAttributes(attribute.Bool("cacheprog.batch.fallback_individual", true))
 			for _, r := range reqs {
 				outputID, body, size, t, miss, _ := b.getIndividual(ctx, r.actionID, r.key)
@@ -207,6 +218,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		// 5xx etc. — coalesced via errLog. Use the first actionID as the
 		// representative; the count of affected requests is captured by the
 		// errLog group's total.
+		b.noteRemoteResult(transientStatus(resp.StatusCode))
 		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		for _, r := range reqs {
 			b.errLog.Record("web batch get", resp.StatusCode, r.actionID, "")
@@ -214,6 +226,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		respondAllMiss()
 		return
 	}
+	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
 	entries, err := parseBatchResponse(resp.Body)
 	resp.Body.Close()
