@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestGuardDetection compiles the embedded guard source together with a small
@@ -20,9 +22,9 @@ func TestGuardDetection(t *testing.T) {
 	bin := buildGuard(t)
 
 	const (
-		mb100 = 104857600
-		mb50  = 52428800
-		mb200 = 209715200
+		mb100 uint64 = 104857600
+		mb50  uint64 = 52428800
+		mb200 uint64 = 209715200
 	)
 
 	v2Mount := "30 23 0:26 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup2 rw\n"
@@ -114,9 +116,8 @@ func TestGuardDetection(t *testing.T) {
 			}
 
 			limit, ok := runGuard(t, bin, root)
-			if limit != c.wantLimit || ok != c.wantOK {
-				t.Fatalf("detected (%d, %t), want (%d, %t)", limit, ok, c.wantLimit, c.wantOK)
-			}
+			require.Equal(t, c.wantLimit, limit)
+			require.Equal(t, c.wantOK, ok)
 		})
 	}
 }
@@ -149,22 +150,19 @@ func main() {
 	// Neutralize inherited build settings (e.g. -mod=vendor) and avoid any
 	// toolchain download for the temp module.
 	cmd.Env = append(os.Environ(), "GOFLAGS=", "GOTOOLCHAIN=local")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building guard probe: %v\n%s", err, out)
-	}
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "building guard probe:\n%s", out)
 	return bin
 }
 
 func runGuard(t *testing.T, bin, root string) (uint64, bool) {
 	t.Helper()
 	out, err := exec.Command(bin, root).Output()
-	if err != nil {
-		t.Fatalf("running guard probe: %v", err)
-	}
+	require.NoError(t, err)
+
 	var limit uint64
 	var ok bool
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d %t", &limit, &ok); err != nil {
-		t.Fatalf("parsing probe output %q: %v", out, err)
-	}
+	_, err = fmt.Sscanf(strings.TrimSpace(string(out)), "%d %t", &limit, &ok)
+	require.NoErrorf(t, err, "parsing probe output %q", out)
 	return limit, ok
 }

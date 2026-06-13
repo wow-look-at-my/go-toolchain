@@ -5,64 +5,45 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestInjectCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 
 	created, err := Inject(dir)
-	if err != nil {
-		t.Fatalf("Inject: %v", err)
-	}
-	if !created {
-		t.Fatal("expected Inject to report the file was created")
-	}
+	require.NoError(t, err)
+	require.True(t, created)
 
 	got, err := os.ReadFile(filepath.Join(dir, GuardFileName))
-	if err != nil {
-		t.Fatalf("reading injected file: %v", err)
-	}
-	if string(got) != guardSource {
-		t.Fatal("injected content does not match the embedded guard source")
-	}
+	require.NoError(t, err)
+	require.Equal(t, guardSource, string(got))
 }
 
 func TestInjectIdempotent(t *testing.T) {
 	dir := t.TempDir()
 
-	if _, err := Inject(dir); err != nil {
-		t.Fatalf("first Inject: %v", err)
-	}
+	_, err := Inject(dir)
+	require.NoError(t, err)
+
 	created, err := Inject(dir)
-	if err != nil {
-		t.Fatalf("second Inject: %v", err)
-	}
-	if created {
-		t.Fatal("expected second Inject to be a no-op")
-	}
+	require.NoError(t, err)
+	require.False(t, created)
 }
 
 func TestInjectOverwritesStale(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, GuardFileName)
-	if err := os.WriteFile(target, []byte("package main\n// stale\n"), 0o644); err != nil {
-		t.Fatalf("seeding stale file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(target, []byte("package main\n// stale\n"), 0o644))
 
 	created, err := Inject(dir)
-	if err != nil {
-		t.Fatalf("Inject: %v", err)
-	}
-	if !created {
-		t.Fatal("expected Inject to overwrite the stale file")
-	}
+	require.NoError(t, err)
+	require.True(t, created)
+
 	got, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("reading file: %v", err)
-	}
-	if string(got) != guardSource {
-		t.Fatal("stale file was not refreshed to the current guard source")
-	}
+	require.NoError(t, err)
+	require.Equal(t, guardSource, string(got))
 }
 
 func TestInjectAllDiscoversMainPackages(t *testing.T) {
@@ -76,55 +57,36 @@ func TestInjectAllDiscoversMainPackages(t *testing.T) {
 	defer restore()
 
 	changed, err := InjectAll()
-	if err != nil {
-		t.Fatalf("InjectAll: %v", err)
-	}
+	require.NoError(t, err)
 
 	sort.Strings(changed)
-	want := []string{".", "cmd/tool"}
-	if len(changed) != len(want) || changed[0] != want[0] || changed[1] != want[1] {
-		t.Fatalf("changed dirs = %v, want %v", changed, want)
-	}
+	require.Equal(t, []string{".", "cmd/tool"}, changed)
 
 	// Guard present in both main packages, absent from the library package.
 	for _, dir := range []string{".", "cmd/tool"} {
-		if _, err := os.Stat(filepath.Join(mod, dir, GuardFileName)); err != nil {
-			t.Errorf("expected guard in %s: %v", dir, err)
-		}
+		_, statErr := os.Stat(filepath.Join(mod, dir, GuardFileName))
+		require.NoErrorf(t, statErr, "expected guard in %s", dir)
 	}
-	if _, err := os.Stat(filepath.Join(mod, "internal/lib", GuardFileName)); !os.IsNotExist(err) {
-		t.Errorf("guard should not be injected into a non-main package (err=%v)", err)
-	}
+	_, statErr := os.Stat(filepath.Join(mod, "internal/lib", GuardFileName))
+	require.True(t, os.IsNotExist(statErr), "guard should not be injected into a non-main package")
 
 	// Second pass is a clean no-op.
 	changed, err = InjectAll()
-	if err != nil {
-		t.Fatalf("second InjectAll: %v", err)
-	}
-	if len(changed) != 0 {
-		t.Fatalf("expected second InjectAll to change nothing, got %v", changed)
-	}
+	require.NoError(t, err)
+	require.Empty(t, changed)
 }
 
 func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir for %s: %v", rel, err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write %s: %v", rel, err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 }
 
 func chdir(t *testing.T, dir string) func() {
 	t.Helper()
 	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir %s: %v", dir, err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
 	return func() { _ = os.Chdir(prev) }
 }
