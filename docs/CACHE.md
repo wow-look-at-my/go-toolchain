@@ -326,6 +326,41 @@ an arbitrary offset with a single `ReadAt` — essential for the compiler's mmap
 random access, which a compressed stream could not satisfy without decompressing
 the whole object on every read.
 
+## Remote-cache resilience (fail-safe under outages)
+
+The remote (web) tier is best-effort. A backend problem — 5xx, timeout,
+connection reset, or an empty/corrupt response — must **never** stall or corrupt
+a build; it can only ever cost a slower build-from-source. Two independent
+invariants enforce this:
+
+1. **Integrity** (covered above): a body that fails its `outputID` hash, build-id
+   action, or pack CRC is treated as a miss, never served. A backend can hand us
+   garbage and the worst outcome is a recompute.
+2. **Failure handling** (`web_resilience.go`): the cache layer degrades cleanly
+   and *fast*, and never amplifies an outage.
+
+   - **GET** on any non-200 / timeout / network error returns a clean miss. The
+     toolchain recompiles from source.
+   - **PUT** is fire-and-forget: a failure is dropped silently (a missed upload
+     only costs a future cache miss). PUTs are never retried — retrying writes at
+     a struggling backend only deepens its overload.
+   - **Bounded retries** with exponential backoff + full jitter cover transient
+     GET-class blips (a single 502 among many 200s), so an isolated hiccup
+     becomes a hit rather than a wasteful recompute.
+   - **Circuit breaker**: after `GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD` (default
+     24) *consecutive* failures, the backend is tripped to **local-only** for the
+     rest of the process and a single warning is logged. This is the key
+     protection: without it, every one of a build's thousands of cache ops would
+     independently hammer a failing backend — adding latency to the build and
+     piling load onto the very server that is already struggling (the feedback
+     loop behind a cache-server 502 storm). Once tripped, GETs are instant local
+     misses and PUTs are instant drops, with zero further network traffic.
+
+   Tunable via `GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD` (consecutive failures before
+   tripping; `0` disables the breaker) and `GO_TOOLCHAIN_CACHE_MAX_RETRIES`
+   (transient GET retries; `0` disables). Circuit-open misses are reported in the
+   `cacheprog: web summary:` line as `circuit-open=N`.
+
 <a name="fallback-and-portability"></a>
 ## Fallback and portability
 
