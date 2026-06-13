@@ -107,10 +107,15 @@ runs:
         # Windows, RUNNER_ARCH X64/ARM64, ...), so pass them through verbatim, and
         # it serves the "latest" redirect no-store, so no cache-buster is needed.
         URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
-        curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}" || true
-        if [ -s /tmp/go-toolchain ]; then
+        # Install only on a successful download. A failure is reported (not hidden
+        # behind `|| true`) but is non-fatal here: gating with `if` keeps `set -e`
+        # from skipping the probe + source-build fallback below, which surface the
+        # reason and decide whether to fail the build.
+        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
           chmod +x /tmp/go-toolchain
           sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        else
+          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
         fi
         # Probe the installed binary. Capture the output (don't discard it) so
         # the real reason it is unusable -- 404, not on PATH, or a crash -- is shown.
