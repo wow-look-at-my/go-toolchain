@@ -36,7 +36,7 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
 ## Project Structure
 
 - `src/main.go` — entry point
-- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, update, version, release, ignore/unignore, cacheprog) using Cobra; also includes dependabot (automatic dependency graph submission to GitHub in CI) and `autoupdate.go` (env-gated enforced self-update via `GO_TOOLCHAIN_AUTO_UPDATE`, run from the root `PersistentPreRunE`)
+- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore, cacheprog) using Cobra; also includes dependabot (automatic dependency graph submission to GitHub in CI). The binary does not self-update: it is installed/updated from buildhost (the GitHub Action downloads it with `curl`; end users use a package manager such as Homebrew/npm/APT)
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via filesystem walking
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery)

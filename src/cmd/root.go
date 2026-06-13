@@ -49,7 +49,7 @@ var (
 func skipCache(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "cacheprog", "version", "install", "update", "release":
+		case "cacheprog", "version", "install", "release":
 			return true
 		}
 	}
@@ -63,11 +63,6 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if skipCache(cmd) {
 			return nil
-		}
-		// Heal a stale binary before doing any real work, when opted in via
-		// GO_TOOLCHAIN_AUTO_UPDATE. On success this re-execs and never returns.
-		if err := maybeAutoUpdate(); err != nil {
-			return err
 		}
 		if cmd.Parent() == nil && isUpToDate() {
 			fmt.Println("⇒ Up to date, nothing to do")

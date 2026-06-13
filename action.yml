@@ -98,13 +98,34 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # buildhost serves its npm registry on the npm. subdomain.
-        REGISTRY="https://npm.pazer.build/"
-        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${REGISTRY}" || true
+        # Download the released binary straight from buildhost's dl endpoint with
+        # curl -- no npm. --compressed advertises Accept-Encoding (including zstd
+        # when curl was built with it), so buildhost streams the stored zstd blob
+        # as-is and curl decompresses client-side; the server never pays the
+        # decompression cost. If curl lacks zstd it just gets the plain binary.
+        case "${RUNNER_OS}" in
+          Linux)   BH_OS=linux ;;
+          macOS)   BH_OS=darwin ;;
+          Windows) BH_OS=windows ;;
+          *) echo "::error::unsupported runner OS ${RUNNER_OS}"; exit 1 ;;
+        esac
+        case "${RUNNER_ARCH}" in
+          X64)   BH_ARCH=amd64 ;;
+          ARM64) BH_ARCH=arm64 ;;
+          *) echo "::error::unsupported runner arch ${RUNNER_ARCH}"; exit 1 ;;
+        esac
+        # cb= busts any CDN cache on the "latest" redirect so a fresh runner never
+        # picks up a stale pointer to an older release.
+        URL="https://dl.pazer.build/go-toolchain?os=${BH_OS}&arch=${BH_ARCH}&cb=$(date +%s)"
+        curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}" || true
+        if [ -s /tmp/go-toolchain ]; then
+          chmod +x /tmp/go-toolchain
+          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        fi
         # Probe the installed binary. Capture the output (don't discard it) so
         # the real reason it is unusable -- 404, not on PATH, or a crash -- is shown.
         if ! probe=$(go-toolchain version 2>&1); then
-          echo "buildhost go-toolchain (${REGISTRY}) not usable; probe output:"
+          echo "buildhost go-toolchain (${URL}) not usable; probe output:"
           echo "${probe}"
           # Fail fast unless the caller has explicitly opted in to a source
           # build: a silent fallback hides buildhost outages and ships a

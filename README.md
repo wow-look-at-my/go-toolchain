@@ -14,9 +14,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` operands so cross-type numeric comparisons that the fork's loose `ObjectsAreEqual` accepted keep compiling and passing against upstream — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`. The conversion is type-aware (only inserted when sound) and idempotent, and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
-- **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot
-- **Self-update** — update the binary in place via the `update` subcommand, or enable automatic enforced updates with `GO_TOOLCHAIN_AUTO_UPDATE=1` so a stale binary baked into an image heals itself before it runs
-- **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
+- **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot- **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
@@ -101,9 +99,6 @@ go-toolchain lint ./...
 # Install binary to ~/.local/bin
 go-toolchain install
 
-# Self-update to latest release
-go-toolchain update
-
 # Show version and staleness info
 go-toolchain version
 
@@ -148,31 +143,10 @@ go-toolchain release --tag v1.0.0
   - `compare <commit1> <commit2>` — compare benchmark results between two commits
 - **`lint`** — detect near-duplicate code blocks using AST comparison
 - **`install`** — install the binary to `~/.local/bin`
-- **`update`** — self-update to the latest GitHub release
 - **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
 - **`version`** — show build version and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
-
-### Automatic updates
-
-Setting `GO_TOOLCHAIN_AUTO_UPDATE=1` makes go-toolchain check for a newer release
-before each real build and, if one exists, update itself in place and re-execute
-on the new binary. This is intended for environments that ship a fixed, possibly
-stale binary (e.g. the Claude Code web image): an outdated binary heals itself on
-first use instead of silently running stale build logic.
-
-```bash
-# Opt in (e.g. in an image's environment)
-export GO_TOOLCHAIN_AUTO_UPDATE=1
-go-toolchain        # updates if behind, then re-runs on the new binary
-```
-
-The check **fails open** — a flaky or unreachable release registry prints a
-warning and continues on the current binary rather than blocking the build. Set
-the variable to `0`/`false`/`no`/`off` (or leave it unset) to disable. The
-`update`, `version`, `install`, `release`, and `cacheprog` subcommands are never
-auto-updated.
 
 ## OpenTelemetry Trace Export
 
