@@ -28,6 +28,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
 - **Buildhost publishing** — CI automatically publishes cross-compiled binaries to [buildhost](https://pazer.build) via OIDC, making them available for download in multiple formats (raw binary, tar.gz, deb, Homebrew, npm, OCI)
+- **Claude pipe-filter guard** — when go-toolchain runs under the Claude agent (detected via the `CLAUDECODE` environment marker and process ancestry) **and** its stdout is piped straight into an output-mangling filter such as `head`/`tail`/`grep`/`sed`/`awk`, it aborts immediately with an error instead of running. Filtering truncates or hides the coverage report and any build/test failures — the exact output an agent needs to read — so the guard steers it toward the full output (or a redirect to a file). It fires only on a real pipe into a recognized filter: redirecting to a file (`go-toolchain > out.log`), writing to a terminal, or piping into a non-filter (e.g. `tee`) is unaffected, and it is a no-op when not running under Claude. Disable with `GO_TOOLCHAIN_ALLOW_PIPE_FILTER=1`. Linux only (peer detection uses `/proc`)
 
 ## GitHub Action Usage
 
@@ -220,6 +221,8 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 `cacheprog` also exports a `cacheprog.http_error` span for each HTTP error from the remote cache (`web put`, `web get`, `web batch get`), with attributes `cacheprog.op`, `http.response.status_code`, `cacheprog.action_id`, and a truncated `cacheprog.body`. When OTel is not configured, these spans are skipped. Stderr only emits an aggregated summary line per (operation, status, body) at most every 30 seconds (plus one final flush at shutdown), so a flaky remote no longer floods the terminal with one line per failed request.
 
 ## How It Works
+
+Before the pipeline begins, go-toolchain runs a pre-flight check: if it is running under the Claude agent with its output piped into a filter (`head`/`tail`/`grep`/`sed`/`awk`/…), it aborts immediately with an error (see the Claude pipe-filter guard above; disable with `GO_TOOLCHAIN_ALLOW_PIPE_FILTER=1`). Otherwise the default workflow is:
 
 1. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
 2. Checks for outdated dependencies (auto-updates same-org deps)
