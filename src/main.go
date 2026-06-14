@@ -55,13 +55,23 @@ func needsGo() bool {
 }
 
 func main() {
+	// Kick off a non-blocking background check for a newer go-toolchain on
+	// buildhost. It runs while the real work happens and is surfaced (or killed)
+	// by ReportUpdateCheck on every exit path — it never blocks or delays.
+	if shouldCheckForUpdate() {
+		cmd.StartUpdateCheck()
+	}
+
 	if needsGo() {
 		if err := cmd.EnsureGoVersion(); err != nil {
+			cmd.ReportUpdateCheck()
 			fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
 			os.Exit(1)
 		}
 	}
-	if err := cmd.Execute(); err != nil {
+	err := cmd.Execute()
+	cmd.ReportUpdateCheck()
+	if err != nil {
 		// Self-recover from a poisoned shared build cache: if the failure looks
 		// like the cache served a mis-keyed object the in-line guards missed,
 		// retry once with the remote cache disabled and a fresh local cache so
@@ -71,4 +81,23 @@ func main() {
 		}
 		os.Exit(1)
 	}
+}
+
+// shouldCheckForUpdate reports whether to start the background update check. It
+// is skipped for the GOCACHEPROG subprocess (spawned by the Go build itself, not
+// a user invocation) and for the `version` command, which already reports its
+// own staleness.
+func shouldCheckForUpdate() bool {
+	if isCacheProgInvocation() {
+		return false
+	}
+	for _, arg := range os.Args[1:] {
+		if arg == "--" {
+			return true
+		}
+		if arg == "version" {
+			return false
+		}
+	}
+	return true
 }

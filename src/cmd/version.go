@@ -334,7 +334,57 @@ func statusLineIsGuard(line string) bool {
 		path = path[i+len(" -> "):]
 	}
 	path = strings.Trim(path, "\"")
-	return filepath.Base(path) == memlimit.GuardFileName
+	if filepath.Base(path) == memlimit.GuardFileName {
+		return true
+	}
+	// removeFromGitignore strips the stale guard line from .gitignore during the
+	// build; a .gitignore whose only change vs HEAD is that removal is the
+	// toolchain's own migration cleanup, not a developer edit, so it must not
+	// count as a dirty tree — mirroring the guard-file exclusion above. (A repo
+	// finalizes the migration by committing the removal once.)
+	if filepath.Base(path) == ".gitignore" && gitignoreChangeOnlyDropsGuard(path) {
+		return true
+	}
+	return false
+}
+
+// gitignoreChangeOnlyDropsGuard reports whether the working-tree change to the
+// .gitignore at path, relative to HEAD, is solely the removal of the GOMEMLIMIT
+// guard line.
+func gitignoreChangeOnlyDropsGuard(path string) bool {
+	out, err := exec.Command("git", "diff", "HEAD", "--", path).Output()
+	if err != nil {
+		return false
+	}
+	return diffOnlyDropsGuard(string(out))
+}
+
+// diffOnlyDropsGuard parses a unified diff and reports whether every content
+// change is the removal of the guard line: at least one guard line removed, no
+// additions, and nothing else removed (blank-line churn aside). It is split out
+// from the git invocation so it can be unit-tested without a repository.
+func diffOnlyDropsGuard(diff string) bool {
+	sawGuardRemoval := false
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+			// file headers, not content
+		case strings.HasPrefix(line, "+"):
+			if strings.TrimSpace(line[1:]) != "" {
+				return false // a real addition
+			}
+		case strings.HasPrefix(line, "-"):
+			content := strings.TrimSpace(line[1:])
+			if content == "" {
+				continue // removed blank line: cosmetic
+			}
+			if content != memlimit.GuardFileName {
+				return false // removed something other than the guard
+			}
+			sawGuardRemoval = true
+		}
+	}
+	return sawGuardRemoval
 }
 
 func formatDuration(d time.Duration) string {
