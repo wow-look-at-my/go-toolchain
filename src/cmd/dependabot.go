@@ -187,6 +187,18 @@ func maybeSubmitDeps() {
 		return
 	}
 
+	// Dependency submission requires a GitHub token with contents: write. When
+	// no token is present the feature simply isn't configured for this run, so
+	// skip silently rather than building a snapshot and warning -- a missing
+	// token is not an error worth surfacing on every build. This is the common
+	// case when go-toolchain runs in a CI step that didn't plumb GITHUB_TOKEN
+	// into its environment (the composite action sets it; a bare `go run ./src`
+	// or `go-toolchain` invocation does not). Submission still runs wherever a
+	// token is provided.
+	if os.Getenv("GITHUB_TOKEN") == "" && os.Getenv("GH_TOKEN") == "" {
+		return
+	}
+
 	snapshot, err := buildDepSnapshot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "=> Warning: dependency snapshot failed: %v\n", err)
