@@ -47,12 +47,26 @@ func TestClaudeOutputMessageVariants(t *testing.T) {
 	}
 }
 
-func TestClaudeOutputViolationDisabledByEnv(t *testing.T) {
-	t.Setenv(allowGuardEnv, "1")
-	_, bad := claudeOutputViolation()
-	assert.False(t, bad, "guard must be disabled when %s is set", allowGuardEnv)
-	// The exiting wrapper must be a no-op too (it would os.Exit otherwise).
+func TestGuardNoOpWhenNotUnderClaude(t *testing.T) {
+	if runningUnderClaude() {
+		t.Skip("guard engages under Claude; this case covers the off-Claude no-op")
+	}
+	// Off Claude the guard must never abort and must report no violation.
 	guardAgainstClaudeOutputCapture()
+	_, bad := claudeOutputViolation()
+	assert.False(t, bad, "no violation when not running under Claude")
+}
+
+func TestOutputGuardHasNoBypass(t *testing.T) {
+	if !runningUnderClaude() {
+		t.Skip("the output guard only engages under Claude")
+	}
+	// The removed GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE env must no longer disable the
+	// guard: under Claude the verdict tracks the stdout sink, never that env.
+	t.Setenv("GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE", "1")
+	_, bad := claudeOutputViolation()
+	assert.Equal(t, inspectStdout().kind != sinkVisible, bad,
+		"violation must track the stdout sink, not the former bypass env")
 }
 
 func TestProcCommPPIDSelf(t *testing.T) {

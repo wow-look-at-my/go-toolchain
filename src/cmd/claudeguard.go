@@ -6,12 +6,6 @@ import (
 	"strings"
 )
 
-// allowGuardEnv, when set to a non-empty value, disables the Claude output
-// guard below. It is an operator/CI escape hatch and a test seam; it is
-// deliberately NOT mentioned in the abort message, so the guard's default
-// behavior is to force the full output into view rather than offer a bypass.
-const allowGuardEnv = "GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE"
-
 // sinkKind classifies where go-toolchain's stdout is going.
 type sinkKind int
 
@@ -69,12 +63,11 @@ func isHarnessCapturePath(path string) bool {
 
 // claudeOutputViolation reports the offending sink and true when go-toolchain is
 // running under Claude with its output captured, redirected, or discarded
-// instead of printed where the agent will read it. It is a no-op (returns
-// false) when the guard is disabled or go-toolchain is not running under Claude.
+// instead of printed where the agent will read it. There is no bypass: under
+// Claude the only non-violation is genuinely visible output (a terminal or the
+// harness's own transcript capture). It is a no-op (returns false) only when
+// go-toolchain is not running under Claude.
 func claudeOutputViolation() (outputSink, bool) {
-	if os.Getenv(allowGuardEnv) != "" {
-		return outputSink{}, false
-	}
 	if !runningUnderClaude() {
 		return outputSink{}, false
 	}
