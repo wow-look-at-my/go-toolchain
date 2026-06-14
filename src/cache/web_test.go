@@ -149,7 +149,7 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 				return
 			}
 			h := headers[r.URL.Path]
-			w.Header().Set("X-Amz-Meta-Outputid", h.Get("X-Amz-Meta-Outputid"))
+			w.Header().Set("X-Cache-Meta-Outputid", h.Get("X-Cache-Meta-Outputid"))
 			w.WriteHeader(200)
 			w.Write(data)
 		}
@@ -176,15 +176,15 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 
 	// Verify metadata headers were sent.
 	h := headers["/testbucket/go-buildcache/v1aabbccdd11223344"]
-	require.Equal(t, outputID, h.Get("X-Amz-Meta-Outputid"))
-	require.Equal(t, "unknown", h.Get("X-Amz-Meta-Object-Type"))
-	require.Equal(t, strconv.Itoa(len(payload)), h.Get("X-Amz-Meta-Body-Size"))
-	require.Equal(t, "lz4", h.Get("X-Amz-Meta-Compression"))
-	require.NotEmpty(t, h.Get("X-Amz-Meta-Created"))
-	require.Equal(t, "v1.2.3", h.Get("X-Amz-Meta-Toolchain-Version"))
+	require.Equal(t, outputID, h.Get("X-Cache-Meta-Outputid"))
+	require.Equal(t, "unknown", h.Get("X-Cache-Meta-Object-Type"))
+	require.Equal(t, strconv.Itoa(len(payload)), h.Get("X-Cache-Meta-Body-Size"))
+	require.Equal(t, "lz4", h.Get("X-Cache-Meta-Compression"))
+	require.NotEmpty(t, h.Get("X-Cache-Meta-Created"))
+	require.Equal(t, "v1.2.3", h.Get("X-Cache-Meta-Toolchain-Version"))
 	// Plain text body has no go object header, so these should be absent.
-	require.Empty(t, h.Get("X-Amz-Meta-Go-Version"))
-	require.Empty(t, h.Get("X-Amz-Meta-Target"))
+	require.Empty(t, h.Get("X-Cache-Meta-Go-Version"))
+	require.Empty(t, h.Get("X-Cache-Meta-Target"))
 
 	// Get.
 	gotOutputID, body, size, _, miss, err := b.Get("aabbccdd11223344")
@@ -223,9 +223,9 @@ func TestWebBackend_PutArchiveMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	h := headers["/testbucket/go-buildcache/v11111111122222222"]
-	require.Equal(t, "go-archive", h.Get("X-Amz-Meta-Object-Type"))
-	require.Equal(t, "go1.24.7", h.Get("X-Amz-Meta-Go-Version"))
-	require.Equal(t, "linux/amd64", h.Get("X-Amz-Meta-Target"))
+	require.Equal(t, "go-archive", h.Get("X-Cache-Meta-Object-Type"))
+	require.Equal(t, "go1.24.7", h.Get("X-Cache-Meta-Go-Version"))
+	require.Equal(t, "linux/amd64", h.Get("X-Cache-Meta-Target"))
 }
 
 func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
@@ -251,7 +251,7 @@ func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	h := headers["/testbucket/go-buildcache/v1aaaa000011112222"]
-	require.Empty(t, h.Get("X-Amz-Meta-Toolchain-Version"))
+	require.Empty(t, h.Get("X-Cache-Meta-Toolchain-Version"))
 }
 
 func TestWebBackend_GetMiss(t *testing.T) {
@@ -318,7 +318,7 @@ func TestWebBackend_GetIndividualMissPaths(t *testing.T) {
 			w.Write([]byte("data-without-outputid-header"))
 		}},
 		{"decompress", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("X-Amz-Meta-Outputid", "aabbccdd")
+			w.Header().Set("X-Cache-Meta-Outputid", "aabbccdd")
 			w.WriteHeader(200)
 			// Not LZ4 — will fail decompress.
 			w.Write([]byte("not lz4 framed data"))
@@ -345,7 +345,7 @@ func TestWebBackend_GetIndividualMissPaths(t *testing.T) {
 
 // TestWebBackend_GetRejectsCorruptBody is the regression test for the "corrupt
 // index" failure. A remote object whose body does not hash to its advertised
-// outputID is corrupt (truncated, badly decoded, or poisoned/rotted in S3) and
+// outputID is corrupt (truncated, badly decoded, or poisoned/rotted remotely) and
 // must be refused — treated as a miss, never served — so the go command never
 // consumes a damaged object. The key is also evicted from the in-memory index
 // so a later recompute re-uploads (overwrites) it clean instead of skipping the
@@ -365,7 +365,7 @@ func TestWebBackend_GetRejectsCorruptBody(t *testing.T) {
 			w.WriteHeader(404) // index fetch etc.
 			return
 		}
-		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
 		w.WriteHeader(200)
 		c, _ := compressData([]byte(corrupt))
 		w.Write(c)
@@ -409,7 +409,7 @@ func TestWebBackend_GetServesCorrectBody(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
 		w.WriteHeader(200)
 		c, _ := compressData([]byte(good))
 		w.Write(c)
@@ -433,6 +433,45 @@ func TestWebBackend_GetServesCorrectBody(t *testing.T) {
 	data, _ := io.ReadAll(body)
 	require.Equal(t, good, string(data))
 	require.Equal(t, int64(len(good)), size)
+}
+
+// TestWebBackend_GetLegacyAmzMetaFallback verifies the deprecated read path: a
+// new client still reads the outputid from an older cache server that emits only
+// the legacy S3-style X-Amz-Meta-Outputid header (no native X-Cache-Meta-*).
+func TestWebBackend_GetLegacyAmzMetaFallback(t *testing.T) {
+	const actionID = "aabbccdd11223344"
+	good := largePayload(2048)
+	outputID := testOutputID(good)
+
+	objectPath := "/testbucket/go-buildcache/v1" + actionID
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != objectPath {
+			w.WriteHeader(404)
+			return
+		}
+		// Only the deprecated header — simulates a not-yet-upgraded server.
+		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.WriteHeader(200)
+		c, _ := compressData([]byte(good))
+		w.Write(c)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	primeIndex(b, actionID)
+
+	gotOutputID, body, _, _, miss, err := b.Get(actionID)
+	require.NoError(t, err)
+	require.False(t, miss, "client must fall back to X-Amz-Meta-Outputid when the native header is absent")
+	require.Equal(t, outputID, gotOutputID)
+	require.Equal(t, uint32(1), b.Stats.Hits.Load())
+	data, _ := io.ReadAll(body)
+	require.Equal(t, good, string(data))
 }
 
 func TestWebBackend_PutServerError(t *testing.T) {
