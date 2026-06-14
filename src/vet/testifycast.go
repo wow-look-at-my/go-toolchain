@@ -471,19 +471,25 @@ func (c *CastEdits) rendered(src []byte) []byte {
 	return out
 }
 
-// Apply rewrites the file on disk with all edits and prints a fix line per edit.
-func (c *CastEdits) Apply() error {
+// Apply routes the file with all edits applied through ed: a fix-mode editor
+// rewrites it on disk (and a fix line is printed per edit), a check-mode (CI)
+// editor records a violation. testifycast emits no analyzer diagnostic of its
+// own, so this recorded violation is what fails CI. Returns whether it wrote.
+func (c *CastEdits) Apply(ed Editor) (bool, error) {
 	src, err := os.ReadFile(c.Filename)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := os.WriteFile(c.Filename, c.rendered(src), 0644); err != nil {
-		return err
+	wrote, err := ed.Require(c.Filename, c.rendered(src), "testify Equal/NotEqual needs explicit type conversions for upstream testify")
+	if err != nil {
+		return false, err
 	}
-	for _, e := range c.Edits {
-		c.printEdit(src, e)
+	if wrote {
+		for _, e := range c.Edits {
+			c.printEdit(src, e)
+		}
 	}
-	return nil
+	return wrote, nil
 }
 
 // printEdit prints a colored old -> new line for a single conversion.

@@ -32,7 +32,7 @@ func TestFoo(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -70,11 +70,13 @@ func TestFoo(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	fixed, err := MigrateGotestTools(false)
-	assert.NotNil(t, err)
-	assert.False(t, fixed)
-	assert.Contains(t, err.Error(), "example_test.go")
-	assert.Contains(t, err.Error(), "gotest.tools")
+	ed := NewEditor(false)
+	wrote, err := MigrateGotestTools(ed)
+	assert.Nil(t, err)
+	assert.False(t, wrote)
+	assert.Error(t, ed.Err())
+	assert.Contains(t, ed.Err().Error(), "example_test.go")
+	assert.Contains(t, ed.Err().Error(), "gotest.tools")
 
 	// Check mode must not write: the import is still present.
 	got, readErr := os.ReadFile(filePath)
@@ -98,9 +100,11 @@ func TestFoo(t *testing.T) {}
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	fixed, err := MigrateGotestTools(false)
+	ed := NewEditor(false)
+	wrote, err := MigrateGotestTools(ed)
 	assert.Nil(t, err)
-	assert.False(t, fixed)
+	assert.False(t, wrote)
+	assert.NoError(t, ed.Err())
 }
 
 func TestMigrateGotestTools_FuncRenames(t *testing.T) {
@@ -126,7 +130,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -151,7 +155,7 @@ func TestMigrateGotestTools_Assert(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -172,7 +176,7 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -204,7 +208,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.False(t, fixed)
 }
@@ -229,7 +233,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -270,7 +274,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 

@@ -1,7 +1,7 @@
 package vet
 
 import (
-	"fmt"
+	"bytes"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -22,25 +22,20 @@ const (
 	upstreamTestify = "github.com/stretchr/testify/"
 )
 
+// importRewrite records one fork->upstream import path change, for printing.
+type importRewrite struct{ old, new string }
+
 // FixTestifyImports scans all Go files for imports of the in-house
-// wow-look-at-my/testify fork.
+// wow-look-at-my/testify fork and routes each offending file through ed. A
+// fix-mode editor rewrites the import to upstream stretchr/testify and resyncs
+// the module graph (go mod tidy, plus go mod vendor when the repo vendors its
+// dependencies); a check-mode (CI) editor records a violation instead, so a
+// tree still on the fork fails CI rather than passing green. (The fork is being
+// removed, so an unmigrated import is a latent unresolvable-module break.)
 //
-// In fix mode (fix == true, the local default) it replaces every fork import
-// with upstream stretchr/testify, then syncs the module graph (go mod tidy,
-// plus go mod vendor when the repo vendors its dependencies) so go.mod, go.sum
-// and vendor/modules.txt all agree.
-//
-// In check mode (fix == false, the CI path) it writes nothing and instead
-// returns a hard error listing every file that still imports the fork —
-// mirroring RunGofmt's check mode — so a non-canonical tree fails CI instead of
-// passing green on the fork. This is the enforcement that was missing: the fork
-// is being removed, so an unmigrated import is a latent unresolvable-module
-// break, and CI must reject it rather than silently accept it.
-//
-// Returns true if any files were modified (only possible in fix mode).
-func FixTestifyImports(fix bool) (bool, error) {
-	var anyFixed bool
-	var offending []string
+// Returns whether any file was written (only possible with a fix-mode editor).
+func FixTestifyImports(ed Editor) (bool, error) {
+	var anyWrote bool
 
 	err := filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -52,23 +47,22 @@ func FixTestifyImports(fix bool) (bool, error) {
 		if d.IsDir() || !strings.HasSuffix(p, ".go") {
 			return nil
 		}
-		if fix {
-			fixed, err := fixFileTestifyImports(p)
-			if err != nil {
-				return err
-			}
-			if fixed {
-				anyFixed = true
-			}
-			return nil
-		}
-		// Check mode: detect only, never write.
-		hasFork, err := fileImportsTestifyFork(p)
+		newSrc, changes, err := renderTestifyImports(p)
 		if err != nil {
 			return err
 		}
-		if hasFork {
-			offending = append(offending, p)
+		if len(changes) == 0 {
+			return nil
+		}
+		wrote, err := ed.Require(p, newSrc, "imports the removed github.com/wow-look-at-my/testify fork; migrate to github.com/stretchr/testify")
+		if err != nil {
+			return err
+		}
+		if wrote {
+			anyWrote = true
+			for _, ch := range changes {
+				printTestifyFix(p, ch.old, ch.new)
+			}
 		}
 		return nil
 	})
@@ -77,92 +71,49 @@ func FixTestifyImports(fix bool) (bool, error) {
 		return false, err
 	}
 
-	if !fix {
-		if len(offending) > 0 {
-			return false, forkImportError(offending)
-		}
-		return false, nil
-	}
-
-	// Sync the module graph after import changes so upstream testify is the
-	// required module and any vendor tree is consistent.
-	if anyFixed {
+	// Sync the module graph only after we actually rewrote files, so upstream
+	// testify is the required module and any vendor tree stays consistent.
+	if anyWrote {
 		if err := syncModuleGraph(); err != nil {
-			return anyFixed, err
+			return anyWrote, err
 		}
 	}
 
-	return anyFixed, nil
+	return anyWrote, nil
 }
 
-// fileImportsTestifyFork reports whether filename imports the in-house
-// wow-look-at-my/testify fork. It parses imports only — no rewrite, no write —
-// so it is safe to run on CI in check mode.
-func fileImportsTestifyFork(filename string) (bool, error) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, filename, nil, parser.ImportsOnly)
-	if err != nil {
-		return false, err
-	}
-	for _, imp := range f.Imports {
-		if strings.HasPrefix(strings.Trim(imp.Path.Value, `"`), forkTestify) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// forkImportError builds the check-mode failure listing every file that still
-// imports the fork, with the exact local remedy.
-func forkImportError(files []string) error {
-	var sb strings.Builder
-	sb.WriteString("testify: the following files import the removed " +
-		"github.com/wow-look-at-my/testify fork (run `go-toolchain` locally to " +
-		"migrate to github.com/stretchr/testify):\n")
-	for _, f := range files {
-		sb.WriteString("  " + f + "\n")
-	}
-	return fmt.Errorf("%s", strings.TrimRight(sb.String(), "\n"))
-}
-
-// fixFileTestifyImports fixes testify imports in a single file.
-// Returns true if the file was modified.
-func fixFileTestifyImports(filename string) (bool, error) {
+// renderTestifyImports parses filename and returns its source with every
+// wow-look-at-my/testify fork import rewritten to upstream stretchr/testify
+// (sub-package path preserved), along with the list of rewrites. It performs no
+// write; a file with no fork import returns (nil, nil, nil).
+func renderTestifyImports(filename string) ([]byte, []importRewrite, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return false, err
+		// Unparseable file: the type-check/go vet pass reports the syntax error
+		// with a proper location; don't surface it here as an import problem.
+		return nil, nil, nil
 	}
 
-	var modified bool
+	var changes []importRewrite
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
 		if strings.HasPrefix(path, forkTestify) {
-			// Replace the fork with upstream, preserving the sub-package path.
 			newPath := upstreamTestify + strings.TrimPrefix(path, forkTestify)
 			imp.Path.Value = `"` + newPath + `"`
-			modified = true
-
-			printTestifyFix(filename, path, newPath)
+			changes = append(changes, importRewrite{old: path, new: newPath})
 		}
 	}
 
-	if !modified {
-		return false, nil
+	if len(changes) == 0 {
+		return nil, nil, nil
 	}
 
-	// Write back
-	out, err := os.Create(filename)
-	if err != nil {
-		return false, err
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, f); err != nil {
+		return nil, nil, err
 	}
-	defer out.Close()
-
-	if err := printer.Fprint(out, fset, f); err != nil {
-		return false, err
-	}
-
-	return true, nil
+	return buf.Bytes(), changes, nil
 }
 
 // syncModuleGraph runs go mod tidy and, when the repo vendors its dependencies,

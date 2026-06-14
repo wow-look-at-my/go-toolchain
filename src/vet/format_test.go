@@ -19,9 +19,11 @@ func main() {
 `)
 	chdir(t, dir)
 
-	changed, err := RunGofmt(false)
+	ed := NewEditor(false)
+	changed, err := RunGofmt(ed)
 	require.NoError(t, err)
 	assert.False(t, changed)
+	require.NoError(t, ed.Err())
 }
 
 func TestRunGofmtDetectsUnformatted(t *testing.T) {
@@ -29,10 +31,14 @@ func TestRunGofmtDetectsUnformatted(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "main.go"), "package main\nfunc main(){println(\"hello\")}\n")
 	chdir(t, dir)
 
-	changed, err := RunGofmt(false)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "main.go")
+	// In check mode RunGofmt itself no longer errors; the unformatted file is
+	// recorded as a violation on the editor and never rewritten.
+	ed := NewEditor(false)
+	changed, err := RunGofmt(ed)
+	require.NoError(t, err)
 	assert.False(t, changed)
+	require.Error(t, ed.Err())
+	assert.Contains(t, ed.Err().Error(), "main.go")
 }
 
 func TestRunGofmtFix(t *testing.T) {
@@ -41,14 +47,18 @@ func TestRunGofmtFix(t *testing.T) {
 	writeFile(t, path, "package main\nfunc main(){println(\"hello\")}\n")
 	chdir(t, dir)
 
-	changed, err := RunGofmt(true)
+	ed := NewEditor(true)
+	changed, err := RunGofmt(ed)
 	require.NoError(t, err)
 	assert.True(t, changed)
+	require.NoError(t, ed.Err())
 
 	// Running again should find nothing to fix.
-	changed2, err2 := RunGofmt(false)
+	ed2 := NewEditor(false)
+	changed2, err2 := RunGofmt(ed2)
 	require.NoError(t, err2)
 	assert.False(t, changed2)
+	require.NoError(t, ed2.Err())
 }
 
 func TestRunGofmtSkipsVendor(t *testing.T) {
@@ -58,9 +68,11 @@ func TestRunGofmtSkipsVendor(t *testing.T) {
 	writeFile(t, filepath.Join(vendorDir, "bad.go"), "package bad\nfunc f(){}\n")
 	chdir(t, dir)
 
-	changed, err := RunGofmt(false)
+	ed := NewEditor(false)
+	changed, err := RunGofmt(ed)
 	require.NoError(t, err)
 	assert.False(t, changed)
+	require.NoError(t, ed.Err())
 }
 
 func TestRunGofmtSkipsTestdata(t *testing.T) {
@@ -70,9 +82,11 @@ func TestRunGofmtSkipsTestdata(t *testing.T) {
 	writeFile(t, filepath.Join(tdDir, "bad.go"), "package bad\nfunc f(){}\n")
 	chdir(t, dir)
 
-	changed, err := RunGofmt(false)
+	ed := NewEditor(false)
+	changed, err := RunGofmt(ed)
 	require.NoError(t, err)
 	assert.False(t, changed)
+	require.NoError(t, ed.Err())
 }
 
 func TestRunGofmtSkipsGeneratedFiles(t *testing.T) {
@@ -82,11 +96,13 @@ func TestRunGofmtSkipsGeneratedFiles(t *testing.T) {
 	writeFile(t, path, content)
 	chdir(t, dir)
 
-	changed, err := RunGofmt(false)
+	ed := NewEditor(false)
+	changed, err := RunGofmt(ed)
 	require.NoError(t, err)
 	assert.False(t, changed)
+	require.NoError(t, ed.Err())
 
-	changed, err = RunGofmt(true)
+	changed, err = RunGofmt(NewEditor(true))
 	require.NoError(t, err)
 	assert.False(t, changed)
 
@@ -101,17 +117,21 @@ func TestRunGofmtSkipsUnparseable(t *testing.T) {
 	chdir(t, dir)
 
 	// Should not return an error for parse failures — go vet covers those.
-	_, err := RunGofmt(false)
+	ed := NewEditor(false)
+	_, err := RunGofmt(ed)
 	require.NoError(t, err)
+	require.NoError(t, ed.Err())
 }
 
 func TestRunGofmtEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	chdir(t, dir)
 
-	changed, err := RunGofmt(false)
+	ed := NewEditor(false)
+	changed, err := RunGofmt(ed)
 	require.NoError(t, err)
 	assert.False(t, changed)
+	require.NoError(t, ed.Err())
 }
 
 // helpers

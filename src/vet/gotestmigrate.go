@@ -1,7 +1,7 @@
 package vet
 
 import (
-	"fmt"
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/printer"
@@ -67,22 +67,16 @@ func extractCmpCall(expr ast.Expr) (*ast.CallExpr, *ast.SelectorExpr, bool) {
 	return call, sel, true
 }
 
-// MigrateGotestTools scans all Go files for gotest.tools/v3/assert imports.
+// MigrateGotestTools scans all Go files for gotest.tools/v3/assert imports and
+// routes each offending file through ed: a fix-mode editor migrates it to
+// github.com/stretchr/testify and resyncs the module graph (go mod tidy, plus
+// go mod vendor when vendored); a check-mode (CI) editor records a violation
+// instead, so a tree still on gotest.tools fails CI rather than passing green —
+// the same enforcement FixTestifyImports gives the removed testify fork.
 //
-// In fix mode (fix == true, the local default) it migrates them to
-// github.com/stretchr/testify/require and syncs the module graph (go mod tidy,
-// plus go mod vendor when vendored) so a vendored repo doesn't end up with
-// updated imports/go.mod but stale vendor metadata.
-//
-// In check mode (fix == false, the CI path) it writes nothing and returns a
-// hard error listing every file that still imports gotest.tools, so a
-// non-canonical tree fails CI instead of passing green — the same enforcement
-// gap FixTestifyImports closes for the testify fork.
-//
-// Returns true if any files were modified (only possible in fix mode).
-func MigrateGotestTools(fix bool) (bool, error) {
-	var anyFixed bool
-	var offending []string
+// Returns whether any file was written (only possible with a fix-mode editor).
+func MigrateGotestTools(ed Editor) (bool, error) {
+	var anyWrote bool
 
 	err := filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -94,23 +88,12 @@ func MigrateGotestTools(fix bool) (bool, error) {
 		if d.IsDir() || !strings.HasSuffix(p, ".go") {
 			return nil
 		}
-		if fix {
-			fixed, err := migrateFileGotestTools(p)
-			if err != nil {
-				return err
-			}
-			if fixed {
-				anyFixed = true
-			}
-			return nil
-		}
-		// Check mode: detect only, never write.
-		has, err := fileImportsGotestTools(p)
+		wrote, err := migrateFileGotestTools(ed, p)
 		if err != nil {
 			return err
 		}
-		if has {
-			offending = append(offending, p)
+		if wrote {
+			anyWrote = true
 		}
 		return nil
 	})
@@ -119,57 +102,25 @@ func MigrateGotestTools(fix bool) (bool, error) {
 		return false, err
 	}
 
-	if !fix {
-		if len(offending) > 0 {
-			return false, gotestToolsImportError(offending)
-		}
-		return false, nil
-	}
-
-	if anyFixed {
+	if anyWrote {
 		if err := syncModuleGraph(); err != nil {
-			return anyFixed, err
+			return anyWrote, err
 		}
 	}
 
-	return anyFixed, nil
+	return anyWrote, nil
 }
 
-// fileImportsGotestTools reports whether filename imports gotest.tools/v3/assert,
-// the import migrateFileGotestTools rewrites. Imports-only parse, no write.
-func fileImportsGotestTools(filename string) (bool, error) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, filename, nil, parser.ImportsOnly)
-	if err != nil {
-		return false, err
-	}
-	for _, imp := range f.Imports {
-		if strings.Trim(imp.Path.Value, `"`) == gotestAssert {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// gotestToolsImportError builds the check-mode failure listing every file that
-// still imports gotest.tools, with the exact local remedy.
-func gotestToolsImportError(files []string) error {
-	var sb strings.Builder
-	sb.WriteString("gotest.tools: the following files import gotest.tools/v3/assert " +
-		"(run `go-toolchain` locally to migrate to github.com/stretchr/testify):\n")
-	for _, f := range files {
-		sb.WriteString("  " + f + "\n")
-	}
-	return fmt.Errorf("%s", strings.TrimRight(sb.String(), "\n"))
-}
-
-// migrateFileGotestTools migrates gotest.tools imports in a single file.
-// Returns true if the file was modified.
-func migrateFileGotestTools(filename string) (bool, error) {
+// migrateFileGotestTools rewrites gotest.tools imports/calls in a single file
+// and routes the result through ed (write locally, record a violation on CI).
+// Returns whether the file was written.
+func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return false, err
+		// Unparseable file: skip; the type-check/go vet pass reports the syntax
+		// error with a proper location.
+		return false, nil
 	}
 
 	var hasAssertImport bool  // tracks if gotest.tools/v3/assert was present
@@ -215,7 +166,8 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		}
 	}
 
-	printGotestFix(filename, gotestAssert, testifyRequire)
+	// Record fixes to print only if the change is actually written (fix mode).
+	fixLog := [][2]string{{gotestAssert, testifyRequire}}
 
 	// Phase 2: Walk call expressions to rename functions and unwrap cmp calls.
 	// Track which idents should stay as "assert" (non-fatal Check paths).
@@ -311,7 +263,7 @@ func migrateFileGotestTools(filename string) (bool, error) {
 				break
 			}
 		}
-		printGotestFix(filename, gotestAssertCmp, "(removed)")
+		fixLog = append(fixLog, [2]string{gotestAssertCmp, "(removed)"})
 	}
 
 	// Phase 4: Add testify/assert import if non-fatal (Check) calls were found
@@ -319,18 +271,20 @@ func migrateFileGotestTools(filename string) (bool, error) {
 		addImport(f, testifyAssert)
 	}
 
-	// Write back
-	out, err := os.Create(filename)
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, f); err != nil {
+		return false, err
+	}
+	wrote, err := ed.Require(filename, buf.Bytes(), "imports gotest.tools/v3/assert; migrate to github.com/stretchr/testify")
 	if err != nil {
 		return false, err
 	}
-	defer out.Close()
-
-	if err := printer.Fprint(out, fset, f); err != nil {
-		return false, err
+	if wrote {
+		for _, fx := range fixLog {
+			printGotestFix(filename, fx[0], fx[1])
+		}
 	}
-
-	return true, nil
+	return wrote, nil
 }
 
 // addImport adds an import path to the file's first import declaration.

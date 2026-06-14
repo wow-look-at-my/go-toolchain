@@ -31,13 +31,11 @@ func TestFoo(t *testing.T) {
 	filePath := filepath.Join(dir, "example_test.go")
 	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	fixed, err := fixFileTestifyImports(filePath)
+	newSrc, changes, err := renderTestifyImports(filePath)
 	require.NoError(t, err)
-	assert.True(t, fixed)
+	assert.Len(t, changes, 2)
 
-	got, err := os.ReadFile(filePath)
-	require.NoError(t, err)
-	s := string(got)
+	s := string(newSrc)
 	assert.Contains(t, s, `"github.com/stretchr/testify/assert"`)
 	assert.Contains(t, s, `"github.com/stretchr/testify/require"`)
 	assert.NotContains(t, s, `"github.com/wow-look-at-my/testify/assert"`)
@@ -63,13 +61,11 @@ func TestFoo(t *testing.T) {
 	filePath := filepath.Join(dir, "example_test.go")
 	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	fixed, err := fixFileTestifyImports(filePath)
+	newSrc, changes, err := renderTestifyImports(filePath)
 	require.NoError(t, err)
-	assert.True(t, fixed)
+	assert.Len(t, changes, 1)
 
-	got, _ := os.ReadFile(filePath)
-	s := string(got)
-	assert.Contains(t, s, `tassert "github.com/stretchr/testify/assert"`)
+	assert.Contains(t, string(newSrc), `tassert "github.com/stretchr/testify/assert"`)
 }
 
 // TestFixFileTestifyImports_NoChanges verifies a file already on upstream is
@@ -91,9 +87,10 @@ func TestFoo(t *testing.T) {
 	filePath := filepath.Join(dir, "example_test.go")
 	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	fixed, err := fixFileTestifyImports(filePath)
+	newSrc, changes, err := renderTestifyImports(filePath)
 	require.NoError(t, err)
-	assert.False(t, fixed)
+	assert.Empty(t, changes)
+	assert.Nil(t, newSrc)
 }
 
 // TestFixTestifyImports_CheckModeRejectsFork is the CI-enforcement regression
@@ -122,11 +119,13 @@ func TestFoo(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(oldWd)
 
-	fixed, err := FixTestifyImports(false)
-	require.Error(t, err)
-	assert.False(t, fixed)
-	assert.Contains(t, err.Error(), "example_test.go")
-	assert.Contains(t, err.Error(), "wow-look-at-my/testify")
+	ed := NewEditor(false)
+	wrote, err := FixTestifyImports(ed)
+	require.NoError(t, err)
+	assert.False(t, wrote)
+	require.Error(t, ed.Err())
+	assert.Contains(t, ed.Err().Error(), "example_test.go")
+	assert.Contains(t, ed.Err().Error(), "wow-look-at-my/testify")
 
 	// Check mode must not write: the fork import is still present, untouched.
 	got, readErr := os.ReadFile(filePath)
@@ -157,9 +156,11 @@ func TestFoo(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(oldWd)
 
-	fixed, err := FixTestifyImports(false)
+	ed := NewEditor(false)
+	wrote, err := FixTestifyImports(ed)
 	require.NoError(t, err)
-	assert.False(t, fixed)
+	assert.False(t, wrote)
+	require.NoError(t, ed.Err())
 }
 
 // TestFixTestifyImports_Orchestration exercises the full walk + module sync on a
@@ -192,9 +193,9 @@ func TestFoo(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(oldWd)
 
-	fixed, err := FixTestifyImports(true)
+	wrote, err := FixTestifyImports(NewEditor(true))
 	require.NoError(t, err)
-	assert.True(t, fixed)
+	assert.True(t, wrote)
 
 	src, _ := os.ReadFile(filepath.Join(dir, "example_test.go"))
 	assert.Contains(t, string(src), `"github.com/stretchr/testify/assert"`)
@@ -267,9 +268,9 @@ func TestFoo(t *testing.T) {
 	require.Contains(t, string(pre), "github.com/wow-look-at-my/testify/assert", "fixture should start with the fork vendored")
 
 	// Run the rewriter: flip imports to upstream and resync the vendor tree.
-	fixed, err := FixTestifyImports(true)
+	wrote, err := FixTestifyImports(NewEditor(true))
 	require.NoError(t, err)
-	assert.True(t, fixed)
+	assert.True(t, wrote)
 
 	// Imports flipped in source.
 	src, _ := os.ReadFile(filepath.Join(dir, "foo_test.go"))
