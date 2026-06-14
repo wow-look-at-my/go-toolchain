@@ -44,8 +44,11 @@ var resolvedGoMinor int
 // without the cacheprog), so the version must be blocklisted explicitly:
 // go-toolchain treats it as unusable and silently substitutes the replacement,
 // whether it is the runner's preinstalled Go or a go.mod requirement.
+// The replacement is a current 1.25.x rather than 1.25.0 so the substitution is
+// not a security downgrade: 1.24 is EOL (1.24.13 is the final 1.24.x, no
+// 1.24.14 will ship), and 1.24.13 itself carried CVE fixes that 1.25.0 predates.
 var poisonedGoVersions = map[string]string{
-	"1.24.13": "1.25.0",
+	"1.24.13": "1.25.11",
 }
 
 // unpoisonGoVersion returns the Go version go-toolchain should actually use for
