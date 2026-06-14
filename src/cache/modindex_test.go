@@ -47,7 +47,7 @@ func TestWebBackend_GetRefusesModuleIndex(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
 		w.WriteHeader(200)
 		c, _ := compressData([]byte(index))
 		w.Write(c)

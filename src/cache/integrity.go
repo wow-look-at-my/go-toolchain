@@ -21,7 +21,7 @@ import (
 // handed to Put, so it only catches corruption that happens AFTER a good body is
 // stored (disk/overlay bit-rot). A body that is already corrupt when it arrives
 // from the remote tier — a truncated download, a bad LZ4 decode, or a
-// poisoned/rotted S3 object — would be stored with a self-consistent CRC and
+// poisoned/rotted remote object — would be stored with a self-consistent CRC and
 // then served as "valid" on every future hit, surfacing in the go command as an
 // unrecoverable "corrupt index" build failure that persists across runs and
 // machines (one bad remote object poisons every consumer). Verifying end-to-end
@@ -29,8 +29,8 @@ import (
 // what stops a corrupt remote object from ever being trusted.
 //
 // The comparison is case-insensitive purely as defense against an intermediary
-// upper-casing the hex during the X-Amz-Meta-Outputid round-trip; both sides are
-// normally lowercase.
+// upper-casing the hex during the outputid metadata-header round-trip; both
+// sides are normally lowercase.
 func outputIDMatches(outputID string, body []byte) (got string, ok bool) {
 	sum := sha256.Sum256(body)
 	got = hex.EncodeToString(sum[:])
