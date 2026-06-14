@@ -108,6 +108,21 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		ex.done()
 	}
 
+	// Validate the working tree before go-toolchain writes any of its own
+	// build-time artifacts (the transient guard, the build/ dir, .gitignore
+	// upkeep), so those generated files never fail the dirty-tree check.
+	if err := checkDirtyInCI(); err != nil {
+		return err
+	}
+
+	// Inject the GOMEMLIMIT guard into each main package so the cross-compiled
+	// binaries cap the Go heap at the cgroup limit too, then remove the transient
+	// guards once every platform has been built.
+	if err := injectMemLimitGuard(false); err != nil {
+		return err
+	}
+	defer cleanupMemLimitGuards()
+
 	// Resolve what to build
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
@@ -122,9 +137,6 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 	ensureBuildDirInGitignore()
-	if err := checkDirtyInCI(); err != nil {
-		return err
-	}
 
 	// Build job queue - cartesian product of OS x Arch x Targets
 	var jobs []buildJob

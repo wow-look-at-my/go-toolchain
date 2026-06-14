@@ -283,9 +283,22 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 }
 
 func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
+	// Validate the working tree before go-toolchain writes any of its own
+	// build-time artifacts (the transient GOMEMLIMIT guard, the build/ output
+	// dir, the .gitignore upkeep below). checkDirtyInCI is meant to catch
+	// uncommitted source and the tidy/vet auto-fixes that ran earlier — not
+	// go-toolchain's own generated files, which would otherwise make a
+	// consumer's first CI build fail on artifacts it never authored.
+	if err := checkDirtyInCI(); err != nil {
+		return nil, err
+	}
+
 	if err := injectMemLimitGuard(quiet); err != nil {
 		return nil, err
 	}
+	// The guard is a build-time-only artifact; remove it once the build below
+	// has compiled it in, so it never lingers in the working tree.
+	defer cleanupMemLimitGuards()
 
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
@@ -296,9 +309,6 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 		return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
-	if err := checkDirtyInCI(); err != nil {
-		return nil, err
-	}
 	inDocker := build.InDocker()
 	for _, t := range targets {
 		outputName := t.OutputName

@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -18,10 +19,11 @@ import (
 	"github.com/Masterminds/semver/v3"
 )
 
-// Test seams — overridden in tests to avoid real downloads.
+// Test seams — overridden in tests to avoid real downloads / corrupted runners.
 var (
-	goCacheDirFunc     = goCacheDir
-	goDownloadURLsFunc = goDownloadURLs
+	goCacheDirFunc        = goCacheDir
+	goDownloadURLsFunc    = goDownloadURLs
+	verifyGoToolchainFunc = verifyGoToolchain
 )
 
 // resolvedGoMinor holds the minor version of the Go toolchain that
@@ -74,6 +76,15 @@ func EnsureGoVersion() error {
 	}
 
 	if !installedVer.LessThan(requiredVer) {
+		// Version is fine, but a fraction of GitHub-hosted runners ship a
+		// half-extracted Go whose binary runs and reports its version yet whose
+		// GOROOT std library is incomplete. Probe the toolchain before trusting
+		// it; if it's broken, treat it exactly like a missing/too-old Go and
+		// re-download a known-good copy.
+		if err := verifyGoToolchainFunc(goPath); err != nil {
+			fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is present but broken (%v); re-downloading\n", installed, err)
+			return bootstrapGo(fmt.Sprintf("installed %s is broken: %v", installed, err))
+		}
 		fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s satisfies required %s\n", installed, required)
 		recordGoMinor(installed)
 		return nil
@@ -81,6 +92,33 @@ func EnsureGoVersion() error {
 
 	fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is older than required %s\n", installed, required)
 	return bootstrapGo(fmt.Sprintf("installed %s < required %s", installed, required))
+}
+
+// verifyGoToolchain confirms a Go toolchain's standard library is intact by
+// forcing it to load a core std package ("runtime"). It catches corrupted
+// hosted-tool-cache installs — e.g. GitHub-hosted runners that ship a
+// half-extracted Go whose GOROOT is missing or has an incomplete src/runtime,
+// where the go binary still runs and reports its version but the first real
+// compile dies with "package runtime is not in std".
+//
+// It runs the resolved goPath — the same binary the build will use — so it
+// exercises the actual toolchain, with:
+//   - GOTOOLCHAIN=local, so it probes the on-disk toolchain instead of letting
+//     Go auto-download a module toolchain that would mask the breakage;
+//   - a neutral working directory (no go.mod), so neither a local toolchain
+//     directive nor a module's version requirement can influence the result.
+//
+// On a healthy toolchain "go list runtime" is sub-second (~20ms) and exits zero;
+// on a broken one it exits non-zero, so this is cheap enough to run on every
+// invocation.
+func verifyGoToolchain(goPath string) error {
+	cmd := exec.Command(goPath, "list", "runtime")
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	cmd.Dir = os.TempDir()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, bytes.TrimSpace(out))
+	}
+	return nil
 }
 
 // bootstrapGo downloads the Go version specified in go.mod and updates
@@ -105,8 +143,16 @@ func bootstrapGo(reason string) error {
 	os.Setenv("GOROOT", goRoot)
 
 	// Verify the bootstrapped Go is actually usable
-	if _, err := exec.LookPath("go"); err != nil {
+	newGoPath, err := exec.LookPath("go")
+	if err != nil {
 		return fmt.Errorf("bootstrap completed but go still not found in PATH: %w", err)
+	}
+
+	// Sanity assert: the freshly downloaded toolchain must pass the same integrity
+	// probe we use on preinstalled Go. If a clean download is somehow still broken,
+	// fail loudly here instead of limping into a guaranteed compile failure.
+	if err := verifyGoToolchainFunc(newGoPath); err != nil {
+		return fmt.Errorf("bootstrapped Go %s at %s failed integrity probe: %w", required, goRoot, err)
 	}
 
 	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s %s\n", required, goRoot, fmtDuration(time.Since(bootstrapStart)))
