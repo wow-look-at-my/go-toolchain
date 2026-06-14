@@ -21,6 +21,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
 - **Colorized output** — coverage percentages displayed with a red-to-green color gradient
 - **CI summary** — automatically writes a rich GitHub Step Summary with test results, source links, coverage, benchmark comparisons, and a Mermaid Gantt chart of the pipeline timeline when running in GitHub Actions
+- **Automatic Go toolchain bootstrap** — reads the Go version required by `go.mod` (preferring the `toolchain` directive) and, when the system Go is missing or older than required, downloads a known-good toolchain to `~/.cache/go-toolchain` and points the build at it. The preinstalled toolchain is also **integrity-checked** before use via a sub-second `go list runtime` probe under `GOTOOLCHAIN=local`: a fraction of GitHub-hosted runners ship a half-extracted Go whose binary runs and reports its version correctly but whose `GOROOT` standard library is incomplete, so the first real compile dies with `package runtime is not in std`. go-toolchain detects this corruption and re-downloads a clean Go for the required version instead of converting per-runner infrastructure rot into a hard build failure (the freshly downloaded toolchain is re-probed as a sanity check)
 - **Web-backed build cache** — GOCACHEPROG protocol server with local and web backends for shared build caching across CI runs (Go 1.24+). Uses server-side batch GET with prefetch: the server returns requested entries plus temporally related entries from the same build, proactively populating the local cache. The **local tier is a FUSE virtual filesystem**: cached object bodies are stored in append-only pack files and served on demand through a read-only mount, so a build cache that would otherwise be thousands of tiny files (two per entry) collapses to a handful of packs — with a graceful fallback to a loose-file cache when FUSE is unavailable (or forced off with `GOCACHE_NO_FUSE=1`). Every cached body is integrity-verified before it is served — the GET RPC checks a CRC (post-storage rot), while the mount read path the compiler actually uses verifies the body's SHA-256 against its content address (`outputID`), which also catches a torn or mis-mapped record that is self-consistent with its own CRC — so a bad entry is treated as a miss and recomputed rather than handed to the toolchain. Objects pulled from the shared remote cache are additionally verified end to end (the body must hash to its advertised `outputID`) and, for compiled packages, cross-checked against the **build id** stamped in the archive, so an object served under the wrong action key — the cause of confusing failures like `"runtime" imported as reflectlite` — is rejected as a miss instead of poisoning the build. The remote tier is also **fail-safe under outages**: any 5xx/timeout/reset degrades to a clean cache miss (build from source — slower, still correct), transient errors get bounded retries with jittered backoff, and after a run of consecutive failures a **circuit breaker** trips the backend to local-only for the rest of the run (logged once) so a struggling cache server is never hammered by a build's thousands of cache ops. Tunable via `GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD` (default 24; `0` disables) and `GO_TOOLCHAIN_CACHE_MAX_RETRIES` (default 2; `0` disables). See [docs/CACHE.md](docs/CACHE.md) for the architecture, diagrams, and on-disk format
 - **Vanity URL resolution** — automatically detects and resolves vanity-URL module dependencies via Go proxy or go-import meta tags
 - **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) to configure proxy URL, credentials (via ~/.netrc), and sumdb key automatically
@@ -162,14 +163,18 @@ allocate until the kernel OOM-kills it.
 
 The guard is a **transient build artifact**: go-toolchain writes it into each
 `main` package immediately before compiling and removes it again as soon as the
-build is done, so it never lingers in your working tree, never needs to be
-committed, and never shows up as an uncommitted change in CI. The filename is
-also added to `.gitignore` as a safety net, so a copy left behind by an
-interrupted build can't be committed by accident. The guard is dependency-free
-(no `go.mod`/`go.sum` changes), carries the standard
+build is done, so it never lingers in your working tree and never needs to be
+committed. The CI dirty-tree check ignores `gomemlimit_gen.go` in every git
+state — added, modified, or deleted — so neither the in-flight guard nor a copy
+left behind by an interrupted build ever fails a build. The guard is
+dependency-free (no `go.mod`/`go.sum` changes), carries the standard
 `// Code generated ... DO NOT EDIT.` marker (so it is excluded from coverage),
 is idempotent, and is a no-op when no cgroup limit is found, including on
 non-Linux systems.
+
+If a repository committed the guard under an older go-toolchain, the cleanup
+deletes those files from the working tree on the next run (without failing the
+build); commit that deletion once to drop the stale files for good.
 
 ```bash
 # Build-time: disable injection (default is on)
@@ -236,8 +241,8 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 11. Runs `go test` across non-generated packages with coverage profiling
 12. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%)
 13. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-14. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`), builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree
-15. Automatically adds `build/` (and the transient `gomemlimit_gen.go` guard) to `.gitignore` (if in a git repo)
+14. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`), builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
+15. Automatically adds `build/` to `.gitignore` (if in a git repo)
 16. Runs benchmarks and compares against previously stored results
 17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts
 18. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
