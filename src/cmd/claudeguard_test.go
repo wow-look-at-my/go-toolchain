@@ -47,26 +47,32 @@ func TestClaudeOutputMessageVariants(t *testing.T) {
 	}
 }
 
-func TestGuardNoOpWhenNotUnderClaude(t *testing.T) {
-	if runningUnderClaude() {
-		t.Skip("guard engages under Claude; this case covers the off-Claude no-op")
-	}
-	// Off Claude the guard must never abort and must report no violation.
-	guardAgainstClaudeOutputCapture()
+func TestClaudeOutputViolation(t *testing.T) {
+	origUnder, origSink := runningUnderClaudeFn, inspectStdoutFn
+	t.Cleanup(func() { runningUnderClaudeFn, inspectStdoutFn = origUnder, origSink })
+
+	// Not running under Claude: never a violation, whatever the sink.
+	runningUnderClaudeFn = func() bool { return false }
+	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkPipe, detail: "head"} }
 	_, bad := claudeOutputViolation()
 	assert.False(t, bad, "no violation when not running under Claude")
-}
 
-func TestOutputGuardHasNoBypass(t *testing.T) {
-	if !runningUnderClaude() {
-		t.Skip("the output guard only engages under Claude")
-	}
-	// The removed GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE env must no longer disable the
-	// guard: under Claude the verdict tracks the stdout sink, never that env.
-	t.Setenv("GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE", "1")
-	_, bad := claudeOutputViolation()
-	assert.Equal(t, inspectStdout().kind != sinkVisible, bad,
-		"violation must track the stdout sink, not the former bypass env")
+	// Under Claude with visible output (a terminal or the harness capture):
+	// allowed. The exiting wrapper must be a no-op on this path — it would
+	// os.Exit the test process otherwise.
+	runningUnderClaudeFn = func() bool { return true }
+	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkVisible} }
+	_, bad = claudeOutputViolation()
+	assert.False(t, bad, "visible output is not a violation")
+	guardAgainstClaudeOutputCapture()
+
+	// Under Claude with hidden output: a violation, reported with its sink.
+	// There is no env var or flag that can turn this off.
+	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkPipe, detail: "head"} }
+	s, bad := claudeOutputViolation()
+	assert.True(t, bad, "captured output under Claude is a violation")
+	assert.Equal(t, sinkPipe, s.kind)
+	assert.Equal(t, "head", s.detail)
 }
 
 func TestProcCommPPIDSelf(t *testing.T) {

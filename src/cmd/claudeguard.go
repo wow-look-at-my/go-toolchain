@@ -61,17 +61,27 @@ func isHarnessCapturePath(path string) bool {
 	return strings.HasSuffix(lower, ".output") && strings.Contains(lower, "claude")
 }
 
+// Indirection seams: claudeOutputViolation calls these rather than the
+// detectors directly, so a test can drive every branch deterministically
+// without a real Claude ancestor process or a captured stdout descriptor. They
+// are unexported, default to the real implementations, and are reassigned only
+// from tests in this package. They are NOT a bypass: there is no environment
+// variable, flag, or any other runtime knob that disables the guard.
+var (
+	runningUnderClaudeFn = runningUnderClaude
+	inspectStdoutFn      = inspectStdout
+)
+
 // claudeOutputViolation reports the offending sink and true when go-toolchain is
 // running under Claude with its output captured, redirected, or discarded
-// instead of printed where the agent will read it. There is no bypass: under
-// Claude the only non-violation is genuinely visible output (a terminal or the
-// harness's own transcript capture). It is a no-op (returns false) only when
-// go-toolchain is not running under Claude.
+// instead of printed where the agent will read it. It is a no-op (returns
+// false) only when go-toolchain is not running under Claude. The guard is
+// unconditional: there is deliberately no way to opt out of it.
 func claudeOutputViolation() (outputSink, bool) {
-	if !runningUnderClaude() {
+	if !runningUnderClaudeFn() {
 		return outputSink{}, false
 	}
-	s := inspectStdout()
+	s := inspectStdoutFn()
 	if s.kind == sinkVisible {
 		return s, false
 	}
