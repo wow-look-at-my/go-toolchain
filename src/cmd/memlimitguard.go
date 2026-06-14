@@ -28,18 +28,15 @@ func envTruthy(v string) bool {
 // injectMemLimitGuard writes the GOMEMLIMIT startup guard into every main
 // package before the build compiles them, so each binary caps the Go heap at
 // the container's cgroup memory limit instead of allocating until it is
-// OOM-killed. The guard is a transient build artifact: it is gitignored so a
-// copy that outlives the build can never be committed or fail checkDirtyInCI,
-// and cleanupMemLimitGuards deletes it once the build has consumed it.
+// OOM-killed. The guard is a transient build artifact: cleanupMemLimitGuards
+// deletes it once the build has consumed it, and checkDirtyInCI ignores it in
+// every git state so a copy that outlives the build (or a stale one a repo
+// committed under an older go-toolchain) never fails the dirty-tree check.
 // Injection is idempotent.
 func injectMemLimitGuard(quiet bool) error {
 	if v, ok := os.LookupEnv(memLimitEnvVar); ok && !envTruthy(v) {
 		return nil
 	}
-	// Ignore the generated guard before writing it: the build consumes it and
-	// cleanupMemLimitGuards removes it, but a run killed before cleanup must not
-	// leave a file that gets committed or fails the dirty-tree check.
-	ensureGitignored(memlimit.GuardFileName)
 	changed, err := memlimit.InjectAll()
 	if err != nil {
 		return fmt.Errorf("injecting GOMEMLIMIT guard: %w", err)

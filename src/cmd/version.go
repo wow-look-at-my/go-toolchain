@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
 // buildVersion is derived from Go's built-in VCS stamping.
@@ -276,15 +278,25 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 
 // checkDirtyInCI returns an error if running in CI with a dirty working
 // tree. This prevents shipping binaries built from uncommitted changes.
+//
+// The transient GOMEMLIMIT guard (memlimit.GuardFileName) is excluded in every
+// state — added, modified, or deleted. It is generated for the build and removed
+// afterward, so it must never count as a dirty change. The deleted case matters
+// for migration: a repo that committed the guard under an older go-toolchain
+// sheds it the first time the new cleanup runs, and that in-flight deletion must
+// not fail the build.
 func checkDirtyInCI() error {
 	if os.Getenv("CI") == "" {
 		return nil
 	}
 	out, err := exec.Command("git", "status", "--short").Output()
-	if err != nil || len(out) == 0 {
+	if err != nil {
 		return nil
 	}
-	files := strings.TrimRight(string(out), "\r\n")
+	files := dirtyFilesExcludingGuard(string(out))
+	if files == "" {
+		return nil
+	}
 	if !jsonOutput {
 		logError("", fmt.Sprintf(
 			"Working tree is dirty in CI (go-toolchain %s). Dirty files:\n%s\n\n"+
@@ -292,6 +304,37 @@ func checkDirtyInCI() error {
 			buildVersion, files))
 	}
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
+}
+
+// dirtyFilesExcludingGuard returns the trimmed `git status --short` lines that
+// represent real uncommitted changes, dropping any line that refers to the
+// go-toolchain-managed GOMEMLIMIT guard. An empty result means the tree is clean
+// apart from guard files.
+func dirtyFilesExcludingGuard(statusOut string) string {
+	var kept []string
+	for _, line := range strings.Split(statusOut, "\n") {
+		if strings.TrimSpace(line) == "" || statusLineIsGuard(line) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+// statusLineIsGuard reports whether a `git status --short` porcelain line refers
+// to a GOMEMLIMIT guard file. The format is "XY <path>" (or "XY <old> -> <new>"
+// for renames); the guard is matched by base name so it is ignored in any
+// package directory.
+func statusLineIsGuard(line string) bool {
+	if len(line) < 4 {
+		return false
+	}
+	path := strings.TrimSpace(line[3:])
+	if i := strings.Index(path, " -> "); i != -1 {
+		path = path[i+len(" -> "):]
+	}
+	path = strings.Trim(path, "\"")
+	return filepath.Base(path) == memlimit.GuardFileName
 }
 
 func formatDuration(d time.Duration) string {
