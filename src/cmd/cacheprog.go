@@ -28,11 +28,24 @@ func init() {
 }
 
 // buildCacheConfig is the JSON structure inside GO_BUILDCACHE_CONFIG.
+//
+// The cache server is no longer S3-compatible: it authenticates with plain HTTP
+// Basic Auth, so the native credential fields are username/password. The old
+// S3/AWS-style fields (key_id, access_key, region) are still accepted as
+// deprecated aliases — parseBuildCacheConfig warns when they are used and they
+// will be removed in a future release.
 type buildCacheConfig struct {
-	Endpoint  string `json:"endpoint"`
-	Bucket    string `json:"bucket"`
-	KeyID     string `json:"key_id"`
-	AccessKey string `json:"access_key"`
+	Endpoint string `json:"endpoint"`
+	Bucket   string `json:"bucket"`
+
+	// Native credential fields (HTTP Basic Auth).
+	Username string `json:"username"`
+	Password string `json:"password"`
+
+	// Deprecated S3/AWS-style aliases.
+	KeyID     string `json:"key_id"`     // deprecated alias for username
+	AccessKey string `json:"access_key"` // deprecated alias for password
+	Region    string `json:"region"`     // S3-only, ignored
 }
 
 // parseBuildCacheConfig reads web cache configuration from GO_BUILDCACHE_CONFIG
@@ -62,8 +75,29 @@ func parseBuildCacheConfig() cache.WebConfig {
 		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing endpoint field\n")
 		return cache.WebConfig{}
 	}
-	if cfg.KeyID == "" || cfg.AccessKey == "" {
-		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing key_id or access_key\n")
+
+	// Resolve credentials, preferring the native username/password fields and
+	// falling back to the deprecated S3/AWS-style aliases. Collect which
+	// deprecated fields were used so we can warn about them in one message.
+	var deprecated []string
+	username := cfg.Username
+	if username == "" && cfg.KeyID != "" {
+		username = cfg.KeyID
+		deprecated = append(deprecated, "key_id (use username)")
+	}
+	password := cfg.Password
+	if password == "" && cfg.AccessKey != "" {
+		password = cfg.AccessKey
+		deprecated = append(deprecated, "access_key (use password)")
+	}
+	if cfg.Region != "" {
+		deprecated = append(deprecated, "region (ignored; the cache server is not S3)")
+	}
+	if len(deprecated) > 0 {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: deprecated S3-style field(s): %s; these will be removed in a future release\n", strings.Join(deprecated, ", "))
+	}
+	if username == "" || password == "" {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing username or password\n")
 		return cache.WebConfig{}
 	}
 	bucket := cfg.Bucket
@@ -73,8 +107,8 @@ func parseBuildCacheConfig() cache.WebConfig {
 	return cache.WebConfig{
 		Bucket:    bucket,
 		Endpoint:  cfg.Endpoint,
-		AccessKey: cfg.KeyID,
-		SecretKey: cfg.AccessKey,
+		AccessKey: username,
+		SecretKey: password,
 		Version:   buildVersion,
 	}
 }
