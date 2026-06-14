@@ -10,7 +10,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Benchmarks** — benchmarks run automatically after builds; compare against previous results stored in git notes
 - **Near-duplicate detection** — scans Go source for structurally similar functions using AST comparison
 - **File length checks** — warns at 500 lines, errors at 750 lines (with exemption support)
-- **Auto-fix** — automatically fixes linter violations on non-CI systems
+- **Auto-fix / CI check** — locally (`CI` unset) it fixes linter violations and the migrations below in place; on CI (`CI` set) the very same checks run read-only and a tree that isn't already canonical is a hard build failure (listing the offending files and the local remedy), so CI can never pass green on something the local autofixer would have rewritten
 - **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` operands so cross-type numeric comparisons that the fork's loose `ObjectsAreEqual` accepted keep compiling and passing against upstream — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`. The conversion is type-aware (only inserted when sound) and idempotent, and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
@@ -226,7 +226,7 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts)
 4. Runs `go mod tidy`
 5. Detects and runs `//go:generate` directives (if present)
-6. Runs `go vet` with auto-fix (on non-CI systems): custom analyzers normalize assertions, migrate `gotest.tools`/fork-testify imports to upstream `stretchr/testify`, and insert explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` operands (resyncing the vendor tree afterward)
+6. Runs `go vet`: custom analyzers normalize assertions, migrate `gotest.tools`/fork-testify imports to upstream `stretchr/testify`, and insert explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` operands (resyncing the vendor tree afterward). Locally these fixes are applied in place; on CI (`CI` set) they run read-only and any change they would make is a hard failure instead — so importing the removed `wow-look-at-my/testify` fork fails CI rather than passing green
 7. Checks for near-duplicate code blocks (warnings only)
 8. Checks file lengths (warns at 500 lines, errors at 750)
 9. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). The local tier is a FUSE virtual filesystem backed by append-only pack files (see [docs/CACHE.md](docs/CACHE.md)); a cache hit returns a `DiskPath` into the mount and the kernel serves the body on demand from a pack, so no per-entry loose files or sidecars are written. Cache misses use the server's batch GET endpoint with prefetch — the server returns the requested entry plus temporally related entries from the same build, proactively populating the local cache. PUTs upload entries individually with LZ4 compression. Each object is tagged with metadata headers describing what it is:
