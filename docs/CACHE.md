@@ -249,7 +249,7 @@ sequenceDiagram
         S->>W: Get(actionID)
         W->>R: GET /bucket/key (plus batch GET for neighbours)
         R-->>W: body (LZ4) and related entries
-        Note over W: verify sha256(body)==outputID<br/>and build id belongs to this action<br/>mismatch → miss + evict key
+        Note over W: verify sha256(body)==outputID<br/>and build id belongs to this action<br/>refuse module-index blobs (unverifiable)<br/>mismatch → miss + evict key
         W-->>S: body
         Note over S,L: materialize into a pack
         S->>L: Put(actionID, outputID, body)
@@ -301,6 +301,33 @@ server's default `write_once: allow`, the recompute's re-`Put` overwrites the
 bad object; an operator can also evict it directly via the cache server's
 `DELETE` endpoint.
 
+**The one payload that cannot be key-verified: the Go module index.** `cmd/go`
+stores its package/directory index *through* the build cache too —
+`cache.Default()` is the GOCACHEPROG when one is set, so the index's
+`PutBytes`/`GetMmap` flow over this protocol just like compiled objects. But an
+index blob is the worst of both worlds for the guards above: it carries **no
+build id** (so `buildIDMatchesAction` waves it through, exactly like vet facts),
+and it does **not** embed the directory it indexes in any form checkable against
+the requested `dirHash` action key — yet a wrong one is *silently fatal at
+package load*. An index for a directory with no Go files served for
+`$GOROOT/src/runtime` makes the loader report `package runtime is not in std`
+and fail before compilation starts; a truncated or cross-version one yields
+`corrupt index`. The outputID hash only proves the blob is self-consistent, not
+that it belongs under this key, so a mis-keyed-but-well-formed index slips every
+check. Because an index is cheap for `cmd/go` to recompute locally (one
+directory read), the safe answer is to never trust one from the shared tier:
+`isGoModuleIndex` ([`src/cache/modindex.go`](../src/cache/modindex.go)) detects
+the `go index v` magic, and the cacheprog **refuses every module-index blob on
+ingestion** (individual GET, batch GET, prefetch population) — treating it as a
+miss so the index is rebuilt locally — **and refuses to upload one** on PUT, so
+the shared cache stops accumulating an unverifiable, build-breaking payload.
+Refused GETs are counted as `modindex` in the `web summary` miss breakdown. A
+false positive (some other payload starting with the same magic) costs only a
+recompute, never correctness, so the prefix match is deliberately conservative.
+This is a *client-side* defense: the cache server stores opaque bytes and cannot
+itself tell a good index from a poisoned one, so enforcement lives where the
+semantics are known — in the cacheprog.
+
 ### PUT
 
 ```mermaid
@@ -334,8 +361,9 @@ a build; it can only ever cost a slower build-from-source. Two independent
 invariants enforce this:
 
 1. **Integrity** (covered above): a body that fails its `outputID` hash, build-id
-   action, or pack CRC is treated as a miss, never served. A backend can hand us
-   garbage and the worst outcome is a recompute.
+   action, or pack CRC — or that is an unverifiable Go module index — is treated
+   as a miss, never served. A backend can hand us garbage and the worst outcome
+   is a recompute.
 2. **Failure handling** (`web_resilience.go`): the cache layer degrades cleanly
    and *fast*, and never amplifies an outage.
 

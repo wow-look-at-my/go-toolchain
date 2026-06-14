@@ -72,6 +72,7 @@ type WebBackend struct {
 	MissDecompress  AtomicCounter
 	MissChecksum    AtomicCounter
 	MissBuildID     AtomicCounter
+	MissModuleIndex AtomicCounter // module-index blobs refused: unverifiable under a key
 	MissNetwork     AtomicCounter
 	MissCircuitOpen AtomicCounter // gets served as misses because the breaker tripped
 
@@ -373,6 +374,22 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
+	// Module-index guard: a Go module index blob carries no build id and does not
+	// self-certify which directory it indexes, so neither the outputID hash nor
+	// the build-id check can prove it belongs under this key (see isGoModuleIndex).
+	// A wrong one is silently fatal at package load ("package runtime is not in
+	// std" / "corrupt index"), so refuse it from the shared cache and let cmd/go
+	// recompute it locally (a cheap directory read). Evict the claim so the
+	// recompute is free to re-Put.
+	if isGoModuleIndex(decompressed) {
+		b.MissModuleIndex.Increment()
+		markSpanMiss(span, "module_index")
+		b.removeClaimed(key)
+		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss\n",
+			shortID(actionID), len(decompressed))
+		return "", nil, 0, time.Time{}, true, nil
+	}
+
 	t := time.Now()
 	if lm := resp.Header.Get("Last-Modified"); lm != "" {
 		if parsed, parseErr := time.Parse(http.TimeFormat, lm); parseErr == nil {
@@ -452,6 +469,17 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		markSpanMiss(span, "buildid_mismatch")
 		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: refusing upload, build-id action mismatch (want action=%s, got action=%s); object does not belong under this key\n",
 			shortID(actionID), expectedBuildIDAction(actionID), act)
+		return nil
+	}
+
+	// Never publish a Go module index to the shared cache. It cannot be verified
+	// against an action key on the way back in (see isGoModuleIndex), so a
+	// consumer has no way to tell a correct one from a mis-keyed (build-breaking)
+	// one -- the read side refuses all of them. Uploading is therefore pure
+	// downside: wasted bytes plus a standing poison vector for any client. Every
+	// consumer recomputes the index locally, so dropping the upload costs nothing.
+	if isGoModuleIndex(raw) {
+		markSpanMiss(span, "module_index")
 		return nil
 	}
 
