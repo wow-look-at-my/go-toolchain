@@ -20,7 +20,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
-	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
@@ -50,7 +49,7 @@ var (
 func skipCache(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "cacheprog", "version", "install", "update", "release":
+		case "cacheprog", "version", "install", "release":
 			return true
 		}
 	}
@@ -64,11 +63,6 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if skipCache(cmd) {
 			return nil
-		}
-		// Heal a stale binary before doing any real work, when opted in via
-		// GO_TOOLCHAIN_AUTO_UPDATE. On success this re-execs and never returns.
-		if err := maybeAutoUpdate(); err != nil {
-			return err
 		}
 		if cmd.Parent() == nil && isUpToDate() {
 			fmt.Println("⇒ Up to date, nothing to do")
@@ -285,32 +279,6 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		}
 	}
 
-	return nil
-}
-
-// memLimitEnvVar gates injection of the cgroup→GOMEMLIMIT startup guard into
-// every built main package. Injection is on by default; set it to a falsey
-// value (0/false/no/off) to disable it for a build.
-const memLimitEnvVar = "GO_TOOLCHAIN_AUTO_MEMLIMIT"
-
-// injectMemLimitGuard writes the GOMEMLIMIT startup guard into every main
-// package before the build compiles them, so each binary caps the Go heap at
-// the container's cgroup memory limit instead of allocating until it is
-// OOM-killed. Injection is idempotent; in CI a missing or stale guard surfaces
-// as a dirty tree through checkDirtyInCI, which tells the developer to run
-// go-toolchain locally and commit the generated files.
-func injectMemLimitGuard(quiet bool) error {
-	if v, ok := os.LookupEnv(memLimitEnvVar); ok && !envTruthy(v) {
-		return nil
-	}
-	changed, err := memlimit.InjectAll()
-	if err != nil {
-		return fmt.Errorf("injecting GOMEMLIMIT guard: %w", err)
-	}
-	if len(changed) > 0 && !quiet {
-		fmt.Printf("  GOMEMLIMIT guard written to %d package(s): %s\n",
-			len(changed), strings.Join(changed, ", "))
-	}
 	return nil
 }
 

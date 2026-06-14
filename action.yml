@@ -98,13 +98,29 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # buildhost serves its npm registry on the npm. subdomain.
-        REGISTRY="https://npm.pazer.build/"
-        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${REGISTRY}" || true
+        # Download the released binary straight from buildhost's dl endpoint with
+        # curl -- no npm. --compressed advertises Accept-Encoding (including zstd
+        # when curl was built with it), so buildhost streams the stored zstd blob
+        # as-is and curl decompresses client-side; the server never pays the
+        # decompression cost. If curl lacks zstd it just gets the plain binary.
+        # buildhost normalizes platform aliases natively (RUNNER_OS Linux/macOS/
+        # Windows, RUNNER_ARCH X64/ARM64, ...), so pass them through verbatim, and
+        # it serves the "latest" redirect no-store, so no cache-buster is needed.
+        URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
+        # Install only on a successful download. A failure is reported (not hidden
+        # behind `|| true`) but is non-fatal here: gating with `if` keeps `set -e`
+        # from skipping the probe + source-build fallback below, which surface the
+        # reason and decide whether to fail the build.
+        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
+          chmod +x /tmp/go-toolchain
+          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        else
+          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
+        fi
         # Probe the installed binary. Capture the output (don't discard it) so
         # the real reason it is unusable -- 404, not on PATH, or a crash -- is shown.
         if ! probe=$(go-toolchain version 2>&1); then
-          echo "buildhost go-toolchain (${REGISTRY}) not usable; probe output:"
+          echo "buildhost go-toolchain (${URL}) not usable; probe output:"
           echo "${probe}"
           # Fail fast unless the caller has explicitly opted in to a source
           # build: a silent fallback hides buildhost outages and ships a
