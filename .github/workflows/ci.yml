@@ -76,8 +76,7 @@ jobs:
           if-no-files-found: ignore
 
   # Build + test via the composite action, which also autoreleases to buildhost
-  # (autorelease defaults to true). This is the single publish path -- kept
-  # explicit so a future default change can't silently stop publishing. There is
+  # (autorelease defaults to true) -- this is the single publish path. There is
   # intentionally no separate publish job; a second one duplicated every release.
   action-test:
     needs: build
@@ -89,8 +88,6 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
       - uses: ./
-        with:
-          autorelease: 'true'
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
