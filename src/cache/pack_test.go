@@ -2,7 +2,9 @@ package cache
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,15 @@ func hexID(seed byte) string {
 		b[i] = seed + byte(i)
 	}
 	return strings.ToLower(hexEncode(b))
+}
+
+// casID returns the content-addressed outputID for body: its lowercase hex
+// SHA-256. The GOCACHEPROG contract guarantees a cache entry's outputID is
+// sha256(body), so any test that exercises the content-address serve gate
+// (GetByOutputVerified) must store bodies under this id, as the go command does.
+func casID(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
 }
 
 func hexEncode(b []byte) string {
@@ -140,8 +151,8 @@ func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 	require.Nil(t, err)
 	defer s.Close()
 
-	aid, oid := hexID(11), hexID(110)
 	body := []byte("a body resolved by outputID on the compiler's serve path")
+	aid, oid := hexID(11), casID(body)
 	loc, err := s.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
 
@@ -173,6 +184,51 @@ func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
 	_, ok = s.GetByOutput(oid)
 	require.False(t, ok, "corrupt body evicted from the output index")
+}
+
+// TestPackStore_GetByOutputVerifiedRejectsContentMismatch is the regression for
+// the serve-path gap the CRC gate could not close: a record whose body is
+// self-consistent with its own recorded CRC but is NOT the content addressed by
+// the outputID it is served under (a torn or mis-mapped record, or a poisoned
+// remote object). The CRC gate would hand those bytes to the compiler, surfacing
+// as "corrupt index" / "package ... is not in std" for a module index. The
+// content-address (SHA-256) gate must refuse and evict it.
+func TestPackStore_GetByOutputVerifiedRejectsContentMismatch(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s.Close()
+
+	body := []byte("module-index bytes that do not hash to the outputID they are served under")
+	// Store the body under an outputID that is NOT sha256(body). Put does not
+	// enforce the invariant, so the record lands self-consistent with its own CRC
+	// — the exact shape the CRC gate cannot detect.
+	wrongOID := hexID(200)
+	require.NotEqual(t, casID(body), wrongOID)
+	loc, err := s.Put(hexID(1), wrongOID, bytes.NewReader(body))
+	require.Nil(t, err)
+
+	// The CRC gate would accept it: the body matches its own recorded CRC, and the
+	// unverified accessor still resolves it.
+	require.True(t, s.bodyMatchesCRC(loc), "record is self-consistent with its CRC")
+	_, ok := s.GetByOutput(wrongOID)
+	require.True(t, ok)
+
+	// The content-address gate refuses it, bumps the corruption counter, and
+	// evicts it so the mount stops serving it.
+	_, ok = s.GetByOutputVerified(wrongOID)
+	require.False(t, ok, "body that does not hash to its outputID must not be served")
+	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
+	_, ok = s.GetByOutput(wrongOID)
+	require.False(t, ok, "content-mismatched body evicted from the output index")
+
+	// A content-addressed entry for the same bytes IS served.
+	goodOID := casID(body)
+	_, err = s.Put(hexID(2), goodOID, bytes.NewReader(body))
+	require.Nil(t, err)
+	got, ok := s.GetByOutputVerified(goodOID)
+	require.True(t, ok, "a body that hashes to its outputID is served")
+	require.Equal(t, goodOID, got.outputID)
 }
 
 func TestPackStore_Miss(t *testing.T) {
