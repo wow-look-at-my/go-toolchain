@@ -305,10 +305,23 @@ any object whose build id belongs to a different action than requested, treating
 it as a miss and evicting the key so a recompute re-uploads the correct object.
 The guard runs on every remote ingestion path (individual GET, batch GET,
 prefetch population) **and** on the remote PUT, so a mis-keyed object can neither
-be served from the shared cache nor written to it. Entries with no build id (vet
-facts, command stdout, `go tool compile` output) carry nothing to check and fall
-through to the outputID hash as before. It is counted as `buildid` in the
-`web summary` miss breakdown. The poisoned key self-heals: under the cache
+be served from the shared cache nor written to it. It is counted as `buildid` in
+the `web summary` miss breakdown.
+
+The check also refuses a **package archive that carries no build id at all**:
+`go build`/`vet`/`test` always stamp one, so an object that presents as a
+loadable package (an ar archive with a `__.PKGDEF` member) yet lacks a build id
+is corrupt — or has been deliberately *stripped* to slip a different package's
+export data under this key while evading the comparison above. Plain non-archive
+entries (vet facts, command stdout, source-file lists, empty outputs) have no
+`__.PKGDEF` and legitimately carry no build id, so they fall through to the
+outputID hash as before; only objects shaped like a package are required to
+prove their key. This is best-effort *integrity*, not an *authorization*
+boundary: a writer who forges a build id matching the target action still
+passes, because the cache trusts whoever can write to it. A shared cache must
+therefore also control who may `PUT` (and treat the store as untrusted-write) —
+the build-id guard stops accidental cross-contamination and unsophisticated
+tampering, not a credentialed attacker. The poisoned key self-heals: under the cache
 server's default `write_once: allow`, the recompute's re-`Put` overwrites the
 bad object; an operator can also evict it directly via the cache server's
 `DELETE` endpoint.
