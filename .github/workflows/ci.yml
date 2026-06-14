@@ -31,12 +31,23 @@ jobs:
           fi
 
       - name: Build and test
-        run: go run ./src
         env:
           OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
           OTEL_SERVICE_NAME: ${{ github.repository }}
+          # Dependency-graph submission needs a token with contents: write
+          # (granted at the workflow level above). A bare `go run ./src` does
+          # not inherit one, so pass it explicitly. Without it, submission can't
+          # authenticate and fails loudly -- this is what wires the feature up.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: go run ./src
 
       - name: Cache validation (second build)
+        env:
+          # The second build re-invokes go-toolchain, which also submits the
+          # dependency snapshot; give it the same token so it succeeds rather
+          # than warning. Same job + correlator as the first submission, so it
+          # replaces it (idempotent) rather than duplicating.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
