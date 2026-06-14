@@ -108,7 +108,7 @@ func TestWebBackend_GetRejectsBuildIDMismatch(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
 		w.WriteHeader(200)
 		c, _ := compressData([]byte(poison))
 		w.Write(c)
@@ -154,7 +154,7 @@ func TestWebBackend_GetServesMatchingBuildID(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
 		w.WriteHeader(200)
 		c, _ := compressData([]byte(good))
 		w.Write(c)

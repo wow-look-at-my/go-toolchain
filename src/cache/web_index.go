@@ -147,7 +147,7 @@ func (b *WebBackend) writeIndexBlob(path string, blob []byte) {
 
 // parseIndexBlob validates a GBCI v1 blob and returns:
 //
-//   - the reconstructed key set (full S3 key strings)
+//   - the reconstructed key set (full cache key strings)
 //   - the strong ETag (hex-encoded SHA-256 trailer, RFC-7232 quoted)
 //   - or an error if magic, version, length, or trailer hash don't validate.
 func parseIndexBlob(blob []byte) (set.Set[string], string, error) {

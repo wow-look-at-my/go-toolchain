@@ -128,7 +128,7 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
-		// e.Key is the full S3 key (e.g. "go-buildcache/v1abcdef...").
+		// e.Key is the full cache key (e.g. "go-buildcache/v1abcdef...").
 		// LocalCache is keyed by the bare action ID ("abcdef..."), which is
 		// what Server.handleGet uses. Strip the prefix so the paths match.
 		keyPrefix := wb.prefix + "v1"
