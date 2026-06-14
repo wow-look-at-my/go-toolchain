@@ -169,21 +169,30 @@ func TestCommitsMatch(t *testing.T) {
 	}
 }
 
-func TestStartUpdateCheckDisabled(t *testing.T) {
+func TestStartUpdateCheckCannotBeDisabled(t *testing.T) {
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	activeUpdateCheck = nil
-	t.Setenv(updateCheckEnvVar, "1")
+	// There is no opt-out: even the old disable env var must not stop it.
+	t.Setenv("GO_TOOLCHAIN_NO_UPDATE_CHECK", "1")
+
+	srv := releaseServer(t, buildhostRelease{Version: "1", GitCommit: "abc", Published: true})
+	defer srv.Close()
+	defer withMockBuildhost(t, srv)()
 
 	StartUpdateCheck()
-	assert.Nil(t, activeUpdateCheck, "update check should not start when disabled")
+	require.NotNil(t, activeUpdateCheck, "update check must always start")
+	<-activeUpdateCheck.done // let the goroutine finish before the mock is restored
+}
 
-	// ReportUpdateCheck must be a safe no-op when nothing was started.
+func TestReportUpdateCheckNoOp(t *testing.T) {
+	t.Cleanup(func() { activeUpdateCheck = nil })
+	activeUpdateCheck = nil
+	// Safe no-op when nothing was started.
 	ReportUpdateCheck()
 }
 
 func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
 	t.Cleanup(func() { activeUpdateCheck = nil })
-	t.Setenv(updateCheckEnvVar, "")
 	defer setVCS(t, "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2024-01-01T00:00:00Z")()
 
 	pub := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -205,7 +214,6 @@ func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
 
 func TestReportUpdateCheck_KillsWhenSlow(t *testing.T) {
 	t.Cleanup(func() { activeUpdateCheck = nil })
-	t.Setenv(updateCheckEnvVar, "")
 	defer setVCS(t, "abc1234def", "2024-01-01T00:00:00Z")()
 
 	release := make(chan struct{})

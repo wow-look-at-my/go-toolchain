@@ -22,10 +22,6 @@ var (
 	buildhostProject = "go-toolchain"
 )
 
-// updateCheckEnvVar disables the background update check when set to a truthy
-// value (e.g. air-gapped environments or tests). The check is on by default.
-const updateCheckEnvVar = "GO_TOOLCHAIN_NO_UPDATE_CHECK"
-
 // updateCheck is a single in-flight background update check. The network work
 // runs in a goroutine; ReportUpdateCheck prints the result if the goroutine
 // finished, or cancels it if it did not. It never blocks the main flow.
@@ -43,12 +39,10 @@ var activeUpdateCheck *updateCheck
 // StartUpdateCheck kicks off a non-blocking background check for a newer
 // go-toolchain on buildhost. It returns immediately; the result is surfaced
 // later by ReportUpdateCheck. The work runs in a goroutine with a cancelable
-// context so it can be killed the moment the main work is done. Set
-// GO_TOOLCHAIN_NO_UPDATE_CHECK to a truthy value to disable it entirely.
+// context so it can be killed the moment the main work is done. The check
+// always runs (it cannot be disabled); it is silent on any error, so it never
+// gets in the way.
 func StartUpdateCheck() {
-	if envTruthy(os.Getenv(updateCheckEnvVar)) {
-		return
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	uc := &updateCheck{cancel: cancel, done: make(chan struct{})}
 	activeUpdateCheck = uc
