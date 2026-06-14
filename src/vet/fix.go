@@ -1,6 +1,7 @@
 package vet
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/printer"
@@ -146,28 +147,31 @@ func (f *ASTFixes) removeOrphanedComments() {
 	f.File.Comments = filtered
 }
 
-// Apply applies all fixes to the file and writes it back.
-func (f *ASTFixes) Apply() error {
+// Apply renders all fixes and routes the result through ed. AST fixes
+// (assertnorm/assertlint/redundantcast) also emit an analyzer diagnostic, so on
+// CI the diagnostic is what fails the build; ed.Apply writes locally and is a
+// no-op on CI (no duplicate violation). Returns whether it wrote.
+func (f *ASTFixes) Apply(ed Editor) (bool, error) {
 	if len(f.Fixes) == 0 {
-		return nil
+		return false, nil
 	}
 
 	filename := f.Fset.Position(f.File.Pos()).Filename
 
-	out, err := os.Create(filename)
+	var buf bytes.Buffer
+	if err := f.Fprint(&buf); err != nil {
+		return false, err
+	}
+
+	wrote, err := ed.Apply(filename, buf.Bytes())
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := f.Fprint(out); err != nil {
-		out.Close()
-		return err
-	}
-	out.Close()
-
-	// Print all fixes
-	for _, fix := range f.Fixes {
-		f.printFix(fix)
+	if wrote {
+		for _, fix := range f.Fixes {
+			f.printFix(fix)
+		}
 	}
 
-	return nil
+	return wrote, nil
 }
