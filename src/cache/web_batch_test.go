@@ -16,7 +16,7 @@ import (
 )
 
 // fakeBatchServer returns an httptest.Server that mimics the /_batch/get
-// endpoint. store maps S3 keys → compressed data. meta maps keys → metadata.
+// endpoint. store maps cache keys → compressed data. meta maps keys → metadata.
 func fakeBatchServer(t *testing.T, store map[string][]byte, meta map[string]map[string]string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28,8 +28,15 @@ func fakeBatchServer(t *testing.T, store map[string][]byte, meta map[string]map[
 			m := make(map[string]string)
 			for k, v := range r.Header {
 				lk := strings.ToLower(k)
-				if strings.HasPrefix(lk, "x-amz-meta-") {
-					m[strings.TrimPrefix(lk, "x-amz-meta-")] = v[0]
+				switch {
+				case strings.HasPrefix(lk, "x-cache-meta-"):
+					m[strings.TrimPrefix(lk, "x-cache-meta-")] = v[0]
+				case strings.HasPrefix(lk, "x-amz-meta-"):
+					// Deprecated alias; native wins if both present.
+					mk := strings.TrimPrefix(lk, "x-amz-meta-")
+					if _, ok := m[mk]; !ok {
+						m[mk] = v[0]
+					}
 				}
 			}
 			meta[key] = m
@@ -243,8 +250,15 @@ func TestGetBatch_FallbackToIndividual(t *testing.T) {
 			m := make(map[string]string)
 			for k, v := range r.Header {
 				lk := strings.ToLower(k)
-				if strings.HasPrefix(lk, "x-amz-meta-") {
-					m[strings.TrimPrefix(lk, "x-amz-meta-")] = v[0]
+				switch {
+				case strings.HasPrefix(lk, "x-cache-meta-"):
+					m[strings.TrimPrefix(lk, "x-cache-meta-")] = v[0]
+				case strings.HasPrefix(lk, "x-amz-meta-"):
+					// Deprecated alias; native wins if both present.
+					mk := strings.TrimPrefix(lk, "x-amz-meta-")
+					if _, ok := m[mk]; !ok {
+						m[mk] = v[0]
+					}
 				}
 			}
 			meta[key] = m
@@ -264,7 +278,7 @@ func TestGetBatch_FallbackToIndividual(t *testing.T) {
 			}
 			if m, ok := meta[key]; ok {
 				for k, v := range m {
-					w.Header().Set("X-Amz-Meta-"+k, v)
+					w.Header().Set("X-Cache-Meta-"+k, v)
 				}
 			}
 			w.WriteHeader(200)

@@ -100,7 +100,7 @@ func TestWebBackend_RetriesTransientThenRecovers(t *testing.T) {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
 		w.WriteHeader(http.StatusOK)
 		c, _ := compressData([]byte(good))
 		w.Write(c)

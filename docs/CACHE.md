@@ -98,10 +98,15 @@ The two tiers:
   process-local, backed by pack files and exposed via FUSE. First port of call
   for every `get`; every `put` is written here synchronously.
 - **Remote tier — `WebBackend`** (`src/cache/web.go`): the shared
-  [go-s3-server](https://github.com/wow-look-at-my/go-s3-server). Consulted on a
-  local miss; populated asynchronously on `put`. A miss also triggers a
-  **batch GET** that returns temporally-related entries (same build) and
-  pre-populates the local pack — see [`src/cache/batch.go`](../src/cache/batch.go).
+  [go-s3-server](https://github.com/wow-look-at-my/go-s3-server) (being renamed
+  go-toolchain-cache). Consulted on a local miss; populated asynchronously on
+  `put`. A miss also triggers a **batch GET** that returns temporally-related
+  entries (same build) and pre-populates the local pack — see
+  [`src/cache/batch.go`](../src/cache/batch.go). The wire protocol is **not
+  S3**: object metadata travels in native `X-Cache-Meta-*` headers and errors
+  are native plain text. The client still reads the deprecated `X-Amz-Meta-*`
+  response header as a fallback so it interoperates with a not-yet-upgraded
+  server during a rollout.
 
 <a name="the-local-tier-is-a-virtual-filesystem"></a>
 ## The local tier is a virtual filesystem
