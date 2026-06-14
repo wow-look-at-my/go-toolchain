@@ -1,6 +1,7 @@
 package vet
 
 import (
+	"fmt"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -21,13 +22,25 @@ const (
 	upstreamTestify = "github.com/stretchr/testify/"
 )
 
-// FixTestifyImports scans all Go files and replaces the in-house
-// wow-look-at-my/testify fork imports with upstream stretchr/testify. After
-// rewriting it syncs the module graph (go mod tidy, plus go mod vendor when the
-// repo vendors its dependencies) so go.mod, go.sum and vendor/modules.txt all
-// agree. Returns true if any files were modified.
-func FixTestifyImports() (bool, error) {
+// FixTestifyImports scans all Go files for imports of the in-house
+// wow-look-at-my/testify fork.
+//
+// In fix mode (fix == true, the local default) it replaces every fork import
+// with upstream stretchr/testify, then syncs the module graph (go mod tidy,
+// plus go mod vendor when the repo vendors its dependencies) so go.mod, go.sum
+// and vendor/modules.txt all agree.
+//
+// In check mode (fix == false, the CI path) it writes nothing and instead
+// returns a hard error listing every file that still imports the fork —
+// mirroring RunGofmt's check mode — so a non-canonical tree fails CI instead of
+// passing green on the fork. This is the enforcement that was missing: the fork
+// is being removed, so an unmigrated import is a latent unresolvable-module
+// break, and CI must reject it rather than silently accept it.
+//
+// Returns true if any files were modified (only possible in fix mode).
+func FixTestifyImports(fix bool) (bool, error) {
 	var anyFixed bool
+	var offending []string
 
 	err := filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -36,7 +49,10 @@ func FixTestifyImports() (bool, error) {
 		if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git" || d.Name() == "testdata") {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && strings.HasSuffix(p, ".go") {
+		if d.IsDir() || !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		if fix {
 			fixed, err := fixFileTestifyImports(p)
 			if err != nil {
 				return err
@@ -44,12 +60,28 @@ func FixTestifyImports() (bool, error) {
 			if fixed {
 				anyFixed = true
 			}
+			return nil
+		}
+		// Check mode: detect only, never write.
+		hasFork, err := fileImportsTestifyFork(p)
+		if err != nil {
+			return err
+		}
+		if hasFork {
+			offending = append(offending, p)
 		}
 		return nil
 	})
 
 	if err != nil {
 		return false, err
+	}
+
+	if !fix {
+		if len(offending) > 0 {
+			return false, forkImportError(offending)
+		}
+		return false, nil
 	}
 
 	// Sync the module graph after import changes so upstream testify is the
@@ -61,6 +93,36 @@ func FixTestifyImports() (bool, error) {
 	}
 
 	return anyFixed, nil
+}
+
+// fileImportsTestifyFork reports whether filename imports the in-house
+// wow-look-at-my/testify fork. It parses imports only — no rewrite, no write —
+// so it is safe to run on CI in check mode.
+func fileImportsTestifyFork(filename string) (bool, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, nil, parser.ImportsOnly)
+	if err != nil {
+		return false, err
+	}
+	for _, imp := range f.Imports {
+		if strings.HasPrefix(strings.Trim(imp.Path.Value, `"`), forkTestify) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// forkImportError builds the check-mode failure listing every file that still
+// imports the fork, with the exact local remedy.
+func forkImportError(files []string) error {
+	var sb strings.Builder
+	sb.WriteString("testify: the following files import the removed " +
+		"github.com/wow-look-at-my/testify fork (run `go-toolchain` locally to " +
+		"migrate to github.com/stretchr/testify):\n")
+	for _, f := range files {
+		sb.WriteString("  " + f + "\n")
+	}
+	return fmt.Errorf("%s", strings.TrimRight(sb.String(), "\n"))
 }
 
 // fixFileTestifyImports fixes testify imports in a single file.

@@ -450,7 +450,12 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 		vetPhaseStep = logSubStep("vet: "+phase, "main")
 	}
-	fix := os.Getenv("CI") == "" // disable auto-fix on CI
+	// On CI (CI=true) run the fixers in check-only mode: vet never writes, and
+	// any change it would make — gofmt, a wow-look-at-my/testify fork or
+	// gotest.tools import migration, or a testify cross-type cast — becomes a
+	// hard error, so a non-canonical tree fails CI instead of passing green.
+	// Locally (CI unset) the fixers rewrite the tree as before.
+	fix := os.Getenv("CI") == ""
 	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
 		// If in-process vet fails due to Go version mismatch (e.g. binary built

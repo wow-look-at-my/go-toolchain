@@ -96,6 +96,72 @@ func TestFoo(t *testing.T) {
 	assert.False(t, fixed)
 }
 
+// TestFixTestifyImports_CheckModeRejectsFork is the CI-enforcement regression
+// guard: in check mode (fix=false, the CI path) a file importing the fork must
+// be reported as a hard error and must NOT be rewritten. This is the behavior
+// that was missing — CI used to skip the migration entirely and pass green on
+// the fork.
+func TestFixTestifyImports_CheckModeRejectsFork(t *testing.T) {
+	dir := t.TempDir()
+	content := `package example
+
+import (
+	"testing"
+
+	"github.com/wow-look-at-my/testify/assert"
+)
+
+func TestFoo(t *testing.T) {
+	assert.True(t, true)
+}
+`
+	filePath := filepath.Join(dir, "example_test.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(oldWd)
+
+	fixed, err := FixTestifyImports(false)
+	require.Error(t, err)
+	assert.False(t, fixed)
+	assert.Contains(t, err.Error(), "example_test.go")
+	assert.Contains(t, err.Error(), "wow-look-at-my/testify")
+
+	// Check mode must not write: the fork import is still present, untouched.
+	got, readErr := os.ReadFile(filePath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(got), "github.com/wow-look-at-my/testify/assert")
+	assert.NotContains(t, string(got), "github.com/stretchr/testify/assert")
+}
+
+// TestFixTestifyImports_CheckModeCleanPasses verifies check mode is a quiet
+// no-op (no error, nothing changed) when no file imports the fork.
+func TestFixTestifyImports_CheckModeCleanPasses(t *testing.T) {
+	dir := t.TempDir()
+	content := `package example
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestFoo(t *testing.T) {
+	assert.True(t, true)
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
+
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(oldWd)
+
+	fixed, err := FixTestifyImports(false)
+	require.NoError(t, err)
+	assert.False(t, fixed)
+}
+
 // TestFixTestifyImports_Orchestration exercises the full walk + module sync on a
 // temp module: a fork import becomes upstream and go.mod ends up requiring
 // stretchr/testify. The rewrite runs before any go mod tidy, so upstream
@@ -126,7 +192,7 @@ func TestFoo(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(oldWd)
 
-	fixed, err := FixTestifyImports()
+	fixed, err := FixTestifyImports(true)
 	require.NoError(t, err)
 	assert.True(t, fixed)
 
@@ -201,7 +267,7 @@ func TestFoo(t *testing.T) {
 	require.Contains(t, string(pre), "github.com/wow-look-at-my/testify/assert", "fixture should start with the fork vendored")
 
 	// Run the rewriter: flip imports to upstream and resync the vendor tree.
-	fixed, err := FixTestifyImports()
+	fixed, err := FixTestifyImports(true)
 	require.NoError(t, err)
 	assert.True(t, fixed)
 

@@ -46,6 +46,63 @@ func TestFoo(t *testing.T) {
 	assert.NotContains(t, s, "assert.NilError")
 }
 
+// TestMigrateGotestTools_CheckModeRejects verifies that in check mode
+// (fix=false, the CI path) a file importing gotest.tools/v3/assert is reported
+// as a hard error and is NOT rewritten.
+func TestMigrateGotestTools_CheckModeRejects(t *testing.T) {
+	dir := t.TempDir()
+	content := `package example
+
+import (
+	"testing"
+
+	"gotest.tools/v3/assert"
+)
+
+func TestFoo(t *testing.T) {
+	assert.NilError(t, nil)
+}
+`
+	filePath := filepath.Join(dir, "example_test.go")
+	assert.Nil(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	fixed, err := MigrateGotestTools(false)
+	assert.NotNil(t, err)
+	assert.False(t, fixed)
+	assert.Contains(t, err.Error(), "example_test.go")
+	assert.Contains(t, err.Error(), "gotest.tools")
+
+	// Check mode must not write: the import is still present.
+	got, readErr := os.ReadFile(filePath)
+	assert.Nil(t, readErr)
+	assert.Contains(t, string(got), "gotest.tools/v3/assert")
+}
+
+// TestMigrateGotestTools_CheckModeClean verifies check mode is a no-op when no
+// file imports gotest.tools.
+func TestMigrateGotestTools_CheckModeClean(t *testing.T) {
+	dir := t.TempDir()
+	content := `package example
+
+import "testing"
+
+func TestFoo(t *testing.T) {}
+`
+	assert.Nil(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	fixed, err := MigrateGotestTools(false)
+	assert.Nil(t, err)
+	assert.False(t, fixed)
+}
+
 func TestMigrateGotestTools_FuncRenames(t *testing.T) {
 	dir := t.TempDir()
 

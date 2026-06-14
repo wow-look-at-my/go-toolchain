@@ -1,6 +1,7 @@
 package vet
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/printer"
@@ -66,11 +67,22 @@ func extractCmpCall(expr ast.Expr) (*ast.CallExpr, *ast.SelectorExpr, bool) {
 	return call, sel, true
 }
 
-// MigrateGotestTools scans all Go files and migrates gotest.tools/v3/assert
-// imports to github.com/stretchr/testify/require. Returns true if any
-// files were modified.
-func MigrateGotestTools() (bool, error) {
+// MigrateGotestTools scans all Go files for gotest.tools/v3/assert imports.
+//
+// In fix mode (fix == true, the local default) it migrates them to
+// github.com/stretchr/testify/require and syncs the module graph (go mod tidy,
+// plus go mod vendor when vendored) so a vendored repo doesn't end up with
+// updated imports/go.mod but stale vendor metadata.
+//
+// In check mode (fix == false, the CI path) it writes nothing and returns a
+// hard error listing every file that still imports gotest.tools, so a
+// non-canonical tree fails CI instead of passing green — the same enforcement
+// gap FixTestifyImports closes for the testify fork.
+//
+// Returns true if any files were modified (only possible in fix mode).
+func MigrateGotestTools(fix bool) (bool, error) {
 	var anyFixed bool
+	var offending []string
 
 	err := filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -79,7 +91,10 @@ func MigrateGotestTools() (bool, error) {
 		if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git" || d.Name() == "testdata") {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && strings.HasSuffix(p, ".go") {
+		if d.IsDir() || !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		if fix {
 			fixed, err := migrateFileGotestTools(p)
 			if err != nil {
 				return err
@@ -87,6 +102,15 @@ func MigrateGotestTools() (bool, error) {
 			if fixed {
 				anyFixed = true
 			}
+			return nil
+		}
+		// Check mode: detect only, never write.
+		has, err := fileImportsGotestTools(p)
+		if err != nil {
+			return err
+		}
+		if has {
+			offending = append(offending, p)
 		}
 		return nil
 	})
@@ -95,9 +119,13 @@ func MigrateGotestTools() (bool, error) {
 		return false, err
 	}
 
-	// Sync the module graph (go mod tidy, plus go mod vendor when vendored) so a
-	// vendored repo that only needs gotest.tools migration doesn't end up with
-	// updated imports/go.mod but stale vendor metadata.
+	if !fix {
+		if len(offending) > 0 {
+			return false, gotestToolsImportError(offending)
+		}
+		return false, nil
+	}
+
 	if anyFixed {
 		if err := syncModuleGraph(); err != nil {
 			return anyFixed, err
@@ -105,6 +133,34 @@ func MigrateGotestTools() (bool, error) {
 	}
 
 	return anyFixed, nil
+}
+
+// fileImportsGotestTools reports whether filename imports gotest.tools/v3/assert,
+// the import migrateFileGotestTools rewrites. Imports-only parse, no write.
+func fileImportsGotestTools(filename string) (bool, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, nil, parser.ImportsOnly)
+	if err != nil {
+		return false, err
+	}
+	for _, imp := range f.Imports {
+		if strings.Trim(imp.Path.Value, `"`) == gotestAssert {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// gotestToolsImportError builds the check-mode failure listing every file that
+// still imports gotest.tools, with the exact local remedy.
+func gotestToolsImportError(files []string) error {
+	var sb strings.Builder
+	sb.WriteString("gotest.tools: the following files import gotest.tools/v3/assert " +
+		"(run `go-toolchain` locally to migrate to github.com/stretchr/testify):\n")
+	for _, f := range files {
+		sb.WriteString("  " + f + "\n")
+	}
+	return fmt.Errorf("%s", strings.TrimRight(sb.String(), "\n"))
 }
 
 // migrateFileGotestTools migrates gotest.tools imports in a single file.

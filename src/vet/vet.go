@@ -82,24 +82,27 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 		}
 	}
 
-	// Fix broken testify imports before loading packages
-	if fix {
-		report("fix imports")
-		fixed, err := FixTestifyImports()
-		if err != nil {
-			return false, fmt.Errorf("fixing testify imports: %w", err)
-		}
-		if fixed {
-			filesChanged = true
-		}
+	// Migrate testify / gotest.tools imports before loading packages. This runs
+	// in EVERY mode: in fix mode it rewrites the tree; in check mode (CI) it
+	// writes nothing and returns a hard error if any file still imports the
+	// removed wow-look-at-my/testify fork or gotest.tools, so a non-canonical
+	// tree fails CI instead of passing green. (Previously gated behind `if fix`,
+	// which silently skipped this enforcement on CI — the bug being fixed here.)
+	report("fix imports")
+	fixed, err := FixTestifyImports(fix)
+	if err != nil {
+		return false, fmt.Errorf("fixing testify imports: %w", err)
+	}
+	if fixed {
+		filesChanged = true
+	}
 
-		gtFixed, err := MigrateGotestTools()
-		if err != nil {
-			return false, fmt.Errorf("migrating gotest.tools imports: %w", err)
-		}
-		if gtFixed {
-			filesChanged = true
-		}
+	gtFixed, err := MigrateGotestTools(fix)
+	if err != nil {
+		return false, fmt.Errorf("migrating gotest.tools imports: %w", err)
+	}
+	if gtFixed {
+		filesChanged = true
 	}
 
 	// Load packages for analysis.
@@ -208,6 +211,28 @@ func vetSemantic(pattern string, fix bool, progress ProgressFunc) (bool, error) 
 						return false, fmt.Errorf("failed to apply cast edits: %w", err)
 					}
 					filesChanged = true
+				}
+			}
+		} else {
+			// Check mode (CI): testifycast emits no diagnostics of its own — it
+			// only produces edits, applied above in fix mode. Surface any pending
+			// conversion as a finding so a tree that still needs casts fails CI
+			// instead of passing green. (The AST-fix analyzers Report their own
+			// diagnostics, so they need no equivalent bridge here.)
+			if results, ok := action.Result.([]*CastEdits); ok {
+				for _, result := range results {
+					if result == nil {
+						continue
+					}
+					for _, e := range result.Edits {
+						pos := result.Fset.Position(e.Start)
+						diagnostics = append(diagnostics, Diagnostic{
+							File:    pos.Filename,
+							Line:    pos.Line,
+							Column:  pos.Column,
+							Message: fmt.Sprintf("testify Equal/NotEqual operand needs an explicit %s(...) conversion for upstream testify; run `go-toolchain` locally to apply", e.TypeName),
+						})
+					}
 				}
 			}
 		}
