@@ -334,7 +334,7 @@ func main() {
 	require.NotNil(t, call)
 
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}}}
-	err = fixes.Apply()
+	_, err = fixes.Apply(NewEditor(true))
 	assert.Nil(t, err)
 
 	content, _ := os.ReadFile(testFile)
@@ -343,7 +343,7 @@ func main() {
 
 func TestASTFixesApplyEmpty(t *testing.T) {
 	fixes := &ASTFixes{Fixes: nil}
-	err := fixes.Apply()
+	_, err := fixes.Apply(NewEditor(true))
 	assert.Nil(t, err)
 }
 
