@@ -326,6 +326,18 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			r.resp <- batchResp{miss: true}
 			continue
 		}
+		// Module-index guard (see isGoModuleIndex): an index blob cannot be proven
+		// to belong under this key, and a wrong one is fatal at package load.
+		// Refuse it and let cmd/go recompute the index locally.
+		if isGoModuleIndex(decompressed) {
+			b.MissModuleIndex.Increment()
+			markSpanMiss(itemSpan, "module_index")
+			itemSpan.End()
+			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss\n",
+				shortID(r.actionID), len(decompressed))
+			r.resp <- batchResp{miss: true}
+			continue
+		}
 		b.Stats.Hits.Increment()
 		itemSpan.SetAttributes(
 			attribute.Bool("cacheprog.hit", true),

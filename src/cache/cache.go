@@ -162,6 +162,14 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if _, ok := buildIDMatchesAction(actionID, decompressed); !ok {
 				continue
 			}
+			// Never prefetch a Go module index into the local pack: it cannot be
+			// verified to belong under this key (see isGoModuleIndex), and a
+			// mis-keyed one seeded as a local hit breaks package loading
+			// ("package runtime is not in std" / "corrupt index"). cmd/go
+			// recomputes the index locally, so skipping the prefetch is free.
+			if isGoModuleIndex(decompressed) {
+				continue
+			}
 			local.Put(actionID, e.OutputID, bytes.NewReader(decompressed))
 			populated++
 		}
