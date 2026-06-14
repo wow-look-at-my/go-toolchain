@@ -163,14 +163,18 @@ allocate until the kernel OOM-kills it.
 
 The guard is a **transient build artifact**: go-toolchain writes it into each
 `main` package immediately before compiling and removes it again as soon as the
-build is done, so it never lingers in your working tree, never needs to be
-committed, and never shows up as an uncommitted change in CI. The filename is
-also added to `.gitignore` as a safety net, so a copy left behind by an
-interrupted build can't be committed by accident. The guard is dependency-free
-(no `go.mod`/`go.sum` changes), carries the standard
+build is done, so it never lingers in your working tree and never needs to be
+committed. The CI dirty-tree check ignores `gomemlimit_gen.go` in every git
+state — added, modified, or deleted — so neither the in-flight guard nor a copy
+left behind by an interrupted build ever fails a build. The guard is
+dependency-free (no `go.mod`/`go.sum` changes), carries the standard
 `// Code generated ... DO NOT EDIT.` marker (so it is excluded from coverage),
 is idempotent, and is a no-op when no cgroup limit is found, including on
 non-Linux systems.
+
+If a repository committed the guard under an older go-toolchain, the cleanup
+deletes those files from the working tree on the next run (without failing the
+build); commit that deletion once to drop the stale files for good.
 
 ```bash
 # Build-time: disable injection (default is on)
@@ -237,8 +241,8 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 11. Runs `go test` across non-generated packages with coverage profiling
 12. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%)
 13. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-14. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`), builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree
-15. Automatically adds `build/` (and the transient `gomemlimit_gen.go` guard) to `.gitignore` (if in a git repo)
+14. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`), builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
+15. Automatically adds `build/` to `.gitignore` (if in a git repo)
 16. Runs benchmarks and compares against previously stored results
 17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts
 18. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads

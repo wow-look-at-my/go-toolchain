@@ -38,14 +38,9 @@ func TestInjectThenCleanupLeavesTreeClean(t *testing.T) {
 	_, err := os.Stat(guard)
 	require.NoError(t, err, "guard should be injected before the build")
 
-	// ...and it was gitignored so it can never trip the dirty-tree check.
-	ignore, err := os.ReadFile(filepath.Join(mod, ".gitignore"))
-	require.NoError(t, err)
-	assert.Contains(t, string(ignore), memlimit.GuardFileName)
-
 	cleanupMemLimitGuards()
 
-	// The transient guard is gone afterward: nothing left behind.
+	// ...and it is gone afterward: nothing left behind in the working tree.
 	_, err = os.Stat(guard)
 	assert.True(t, os.IsNotExist(err), "guard should be removed after the build")
 }

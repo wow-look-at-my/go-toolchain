@@ -39,6 +39,43 @@ func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 	assert.NoError(t, checkDirtyInCI())
 }
 
+func TestDirtyFilesExcludingGuard(t *testing.T) {
+	// Guard files are ignored in every state — including the deletions that a
+	// repo migrating off committed guards produces — while real changes remain.
+	status := " M .gitignore\n" +
+		" D gomemlimit_gen.go\n" +
+		" D cmd/tool/gomemlimit_gen.go\n" +
+		"?? gomemlimit_gen.go\n" +
+		" M src/main.go\n"
+	got := dirtyFilesExcludingGuard(status)
+	assert.Equal(t, " M .gitignore\n M src/main.go", got)
+}
+
+func TestDirtyFilesExcludingGuardOnlyGuards(t *testing.T) {
+	// A tree dirty *only* with guard files reads as clean.
+	status := " D gomemlimit_gen.go\n?? cmd/tool/gomemlimit_gen.go\n"
+	assert.Equal(t, "", dirtyFilesExcludingGuard(status))
+}
+
+func TestDirtyFilesExcludingGuardEmpty(t *testing.T) {
+	assert.Equal(t, "", dirtyFilesExcludingGuard(""))
+}
+
+func TestStatusLineIsGuard(t *testing.T) {
+	cases := map[string]bool{
+		" D gomemlimit_gen.go":           true,
+		"?? gomemlimit_gen.go":           true,
+		" M cmd/tool/gomemlimit_gen.go":  true,
+		"R  old.go -> gomemlimit_gen.go": true, // rename destination is the guard
+		" M .gitignore":                  false,
+		" M src/gomemlimit_gen.go.bak":   false,
+		"":                               false,
+	}
+	for line, want := range cases {
+		assert.Equalf(t, want, statusLineIsGuard(line), "line %q", line)
+	}
+}
+
 func TestResolvedVersionFromVCS(t *testing.T) {
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
