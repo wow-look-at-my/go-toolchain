@@ -74,7 +74,13 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: false
+      # Exercise the composite action end-to-end, but do NOT publish from here.
+      # The action defaults autorelease: true (for consumer repos); leaving it on
+      # would publish a second, duplicate release every CI run, on top of the
+      # dedicated publish-buildhost job below. That job is the single publisher.
       - uses: ./
+        with:
+          autorelease: 'false'
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
