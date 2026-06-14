@@ -35,6 +35,11 @@ jobs:
         env:
           OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
           OTEL_SERVICE_NAME: ${{ github.repository }}
+          # Dependency-graph submission needs a token with contents: write
+          # (granted at the workflow level above). A bare `go run ./src` does
+          # not inherit one, so pass it explicitly -- otherwise submission is
+          # skipped instead of populating the dependency graph.
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Cache validation (second build)
         run: |
