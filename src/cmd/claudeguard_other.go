@@ -6,6 +6,6 @@ package cmd
 // there falls back to the CLAUDECODE environment marker in runningUnderClaude.
 func claudeProcessAncestor() bool { return false }
 
-// stdoutPipePeerName cannot identify a pipe's consumer without /proc, so the
-// pipe-filter guard never fires on non-Linux platforms.
-func stdoutPipePeerName() (string, bool) { return "", false }
+// inspectStdout cannot classify the stdout descriptor without /proc, so the
+// output guard never fires on non-Linux platforms.
+func inspectStdout() outputSink { return outputSink{kind: sinkVisible} }

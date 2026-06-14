@@ -6,41 +6,27 @@ import (
 	"strings"
 )
 
-// allowPipeFilterEnv, when set to a non-empty value, disables the Claude
-// pipe-filter guard below. It exists as an operator/CI escape hatch and to make
-// the guard testable. It is deliberately NOT mentioned in the abort message:
-// the guard's whole purpose is to push the agent toward reading the full output
-// rather than quietly working around the check.
-const allowPipeFilterEnv = "GO_TOOLCHAIN_ALLOW_PIPE_FILTER"
+// allowGuardEnv, when set to a non-empty value, disables the Claude output
+// guard below. It is an operator/CI escape hatch and a test seam; it is
+// deliberately NOT mentioned in the abort message, so the guard's default
+// behavior is to force the full output into view rather than offer a bypass.
+const allowGuardEnv = "GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE"
 
-// filterCommands are output-mangling "filter" programs. When go-toolchain runs
-// under the Claude agent and its stdout is piped straight into one of these,
-// the agent is truncating or hiding the build output — the "Coverage targets"
-// list, the total-coverage line, and any test/build failures, i.e. the exact
-// information it needs to act on. go-toolchain refuses to run in that case.
-//
-// Keys are process comm values (the executable's base name as reported by
-// /proc/<pid>/comm, truncated by the kernel to 15 bytes). Pagers (less/more)
-// are included because piping into them under Claude hangs forever, which is no
-// better than truncation; the guard turns that hang into an actionable error.
-var filterCommands = map[string]bool{
-	"head":  true,
-	"tail":  true,
-	"grep":  true,
-	"egrep": true,
-	"fgrep": true,
-	"rg":    true, // ripgrep
-	"ag":    true, // the silver searcher
-	"sed":   true,
-	"awk":   true,
-	"gawk":  true,
-	"mawk":  true,
-	"cut":   true,
-	"wc":    true,
-	"tac":   true,
-	"uniq":  true,
-	"less":  true,
-	"more":  true,
+// sinkKind classifies where go-toolchain's stdout is going.
+type sinkKind int
+
+const (
+	sinkVisible sinkKind = iota // terminal or the harness's own capture — full output is shown
+	sinkPipe                    // piped into another process (| head, | cat, $(...), ...)
+	sinkFile                    // redirected to a non-capture file (> out.log)
+	sinkDiscard                 // sent to /dev/null or a non-terminal device
+	sinkHidden                  // socket/anon-inode/other: not visible
+)
+
+// outputSink describes go-toolchain's stdout after inspection.
+type outputSink struct {
+	kind   sinkKind
+	detail string // peer command name (pipe) or path (file/discard)
 }
 
 // runningUnderClaude reports whether go-toolchain is executing underneath the
@@ -60,54 +46,82 @@ func runningUnderClaude() bool {
 	return false
 }
 
-// stdoutFilterConsumer returns the name of the filter program reading
-// go-toolchain's stdout, and true, when stdout is piped directly into one of
-// filterCommands. It returns ("", false) otherwise — including when stdout is a
-// terminal, a regular file (e.g. `go-toolchain > out.log`), or a pipe whose
-// consumer is not a recognized filter.
-func stdoutFilterConsumer() (string, bool) {
-	peer, ok := stdoutPipePeerName()
-	if !ok || !filterCommands[peer] {
-		return "", false
+// isHarnessCapturePath reports whether path is the Claude Code harness's own
+// per-task stdout capture file — the file the Bash tool redirects a command's
+// stdout to and streams verbatim into the transcript. That is the ONE redirect
+// that does not hide output (it IS how the agent sees it), so it must be
+// allowed. Every agent-introduced redirect (`> out.log`, `> /dev/null`, …)
+// targets something else and is refused.
+//
+// The capture path embeds this session's id (a UUID) and ends in ".output"
+// under a ".../tasks/" directory, e.g.
+// /tmp/claude-0/-home-user/<CLAUDE_CODE_SESSION_ID>/tasks/<id>.output. Matching
+// the session id is the strong signal; the ".output"+"claude" structural match
+// is a fallback so a minor change to the harness path scheme cannot wedge the
+// guard into blocking every normal run.
+func isHarnessCapturePath(path string) bool {
+	if sid := os.Getenv("CLAUDE_CODE_SESSION_ID"); sid != "" && strings.Contains(path, sid) {
+		return true
 	}
-	return peer, true
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".output") && strings.Contains(lower, "claude")
 }
 
-// claudePipeFilterViolation reports the offending filter command and true when
-// all of the following hold: the guard is not disabled, go-toolchain is running
-// under Claude, and stdout is piped into a recognized filter.
-func claudePipeFilterViolation() (string, bool) {
-	if os.Getenv(allowPipeFilterEnv) != "" {
-		return "", false
+// claudeOutputViolation reports the offending sink and true when go-toolchain is
+// running under Claude with its output captured, redirected, or discarded
+// instead of printed where the agent will read it. It is a no-op (returns
+// false) when the guard is disabled or go-toolchain is not running under Claude.
+func claudeOutputViolation() (outputSink, bool) {
+	if os.Getenv(allowGuardEnv) != "" {
+		return outputSink{}, false
 	}
 	if !runningUnderClaude() {
-		return "", false
+		return outputSink{}, false
 	}
-	return stdoutFilterConsumer()
+	s := inspectStdout()
+	if s.kind == sinkVisible {
+		return s, false
+	}
+	return s, true
 }
 
-// guardAgainstClaudePipeFilter aborts the process immediately (exit 1) when
-// go-toolchain is running under Claude with its output piped into a filter such
-// as head/tail/grep/sed/awk. It is a no-op in every other situation.
-func guardAgainstClaudePipeFilter() {
-	if peer, bad := claudePipeFilterViolation(); bad {
-		fmt.Fprint(os.Stderr, claudePipeFilterMessage(peer))
+// guardAgainstClaudeOutputCapture aborts the process immediately (exit 1) when
+// go-toolchain is running under Claude and its output is being hidden — piped,
+// redirected to a file, or discarded — instead of shown in the transcript. It
+// is a no-op in every other situation.
+func guardAgainstClaudeOutputCapture() {
+	if s, bad := claudeOutputViolation(); bad {
+		fmt.Fprint(os.Stderr, claudeOutputMessage(s))
 		os.Exit(1)
 	}
 }
 
-// claudePipeFilterMessage renders the abort message for a stdout pipe into the
-// named filter program.
-func claudePipeFilterMessage(peer string) string {
+// claudeOutputMessage renders the abort message for the given sink.
+func claudeOutputMessage(s outputSink) string {
+	var what string
+	switch s.kind {
+	case sinkPipe:
+		if s.detail != "" {
+			what = fmt.Sprintf("piped into `%s`", s.detail)
+		} else {
+			what = "piped into another command"
+		}
+	case sinkFile:
+		what = fmt.Sprintf("redirected to the file `%s`", s.detail)
+	case sinkDiscard:
+		what = fmt.Sprintf("discarded to `%s`", s.detail)
+	default:
+		what = "captured instead of printed to the terminal"
+	}
+
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n%s✗ go-toolchain refused to run: its output is being piped into `%s`.%s\n\n", colorBoldRed, peer, colorReset)
-	b.WriteString("You are running under Claude and filtering go-toolchain's output. Filters like\n")
-	b.WriteString("head/tail/grep/sed/awk truncate or hide the parts that matter most — the\n")
-	b.WriteString("\"Coverage targets\" list, the total-coverage line, and any test/build failures.\n\n")
-	b.WriteString("Re-run go-toolchain with NO pipe and read the ENTIRE output:\n")
-	b.WriteString("    go-toolchain\n\n")
-	b.WriteString("If you must search it, write the full output to a file first, then read the file:\n")
-	b.WriteString("    go-toolchain > /tmp/go-toolchain.log 2>&1\n")
-	b.WriteString("    # then open /tmp/go-toolchain.log and read all of it\n")
+	fmt.Fprintf(&b, "\n%s✗ go-toolchain refused to run: its output is being %s.%s\n\n", colorBoldRed, what, colorReset)
+	b.WriteString("You are running under Claude, where go-toolchain's FULL output must land in\n")
+	b.WriteString("your transcript so you actually read it — the \"Coverage targets\" list, the\n")
+	b.WriteString("total-coverage line, and any test or build failures. Capturing it instead —\n")
+	b.WriteString("a pipe (head/tail/grep/sed/awk/cat/tee/…), a `> file` or `>> file` redirect,\n")
+	b.WriteString("a `$(...)` capture, or `/dev/null` — truncates or hides exactly what matters.\n\n")
+	b.WriteString("Run go-toolchain on its own, with nothing after it, and read the whole thing:\n")
+	b.WriteString("    go-toolchain\n")
 	return b.String()
 }

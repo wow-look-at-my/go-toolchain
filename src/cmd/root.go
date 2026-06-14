@@ -64,10 +64,11 @@ var rootCmd = &cobra.Command{
 		if skipCache(cmd) {
 			return nil
 		}
-		// Abort before doing any work if Claude is piping our output into a
-		// filter (head/tail/grep/sed/awk/...), which would hide the coverage
-		// report and build/test failures it needs to read.
-		guardAgainstClaudePipeFilter()
+		// Abort before doing any work if Claude is hiding our output — piping
+		// it, redirecting it to a file, or discarding it — instead of letting
+		// the coverage report and build/test failures print where it can read
+		// them.
+		guardAgainstClaudeOutputCapture()
 		if cmd.Parent() == nil && isUpToDate() {
 			fmt.Println("⇒ Up to date, nothing to do")
 			os.Exit(0)

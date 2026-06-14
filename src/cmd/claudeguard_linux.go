@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // claudeProcessAncestor reports whether any ancestor process is the Claude
@@ -25,6 +27,23 @@ func claudeProcessAncestor() bool {
 		pid = ppid
 	}
 	return false
+}
+
+// isAncestorPID reports whether target is somewhere in this process's
+// parent-PID chain.
+func isAncestorPID(target int) bool {
+	pid := os.Getppid()
+	for hops := 0; pid > 1 && hops < 64; hops++ {
+		if pid == target {
+			return true
+		}
+		_, ppid, ok := procCommPPID(pid)
+		if !ok {
+			return false
+		}
+		pid = ppid
+	}
+	return pid == target
 }
 
 // procCommPPID reads /proc/<pid>/stat and returns the process's comm (the
@@ -56,49 +75,100 @@ func procCommPPID(pid int) (comm string, ppid int, ok bool) {
 	return comm, ppid, true
 }
 
-// stdoutPipePeerName returns the process name on the read end of go-toolchain's
-// stdout pipe, and true, when stdout is a pipe with an identifiable consumer.
-func stdoutPipePeerName() (string, bool) {
-	return pipePeer(os.Stdout.Fd())
+// inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
+// guard can refuse to run when Claude is hiding the output. It runs before the
+// output watchdog rewires fd 1, so it sees the real descriptor the shell set up.
+func inspectStdout() outputSink {
+	return inspectFD(os.Stdout.Fd())
 }
 
-// pipePeer resolves the pipe behind the given file descriptor and returns the
-// comm of another process holding the same pipe inode (the reader on the far
-// end). ok is false when fd is not a pipe or no peer process can be found.
-//
-// Both ends of an anonymous pipe share one inode, so scanning every process's
-// fds for a symlink to the same "pipe:[inode]" target finds the consumer. We
-// exclude our own PID; any remaining holder is the process reading our output.
-func pipePeer(fd uintptr) (string, bool) {
+// inspectFD is inspectStdout's logic, parameterized on the descriptor so it can
+// be tested against controlled pipes/files/devices.
+func inspectFD(fd uintptr) outputSink {
 	target, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(fd), 10))
-	if err != nil || !strings.HasPrefix(target, "pipe:") {
-		return "", false
+	if err != nil {
+		return outputSink{kind: sinkVisible} // can't tell — never block on uncertainty
 	}
+
+	switch {
+	case strings.HasPrefix(target, "pipe:"):
+		// A pipe is the agent hiding output (| head, | cat, $(...)) — UNLESS the
+		// reader is the harness itself capturing our stdout, i.e. an ancestor
+		// process named "claude". A filter in a shell pipeline is a sibling, and
+		// a `$(...)` reader is a shell, so neither is an ancestor named claude.
+		if name, pid, ok := pipePeerName(target); ok {
+			if strings.HasPrefix(name, "claude") && isAncestorPID(pid) {
+				return outputSink{kind: sinkVisible}
+			}
+			return outputSink{kind: sinkPipe, detail: name}
+		}
+		return outputSink{kind: sinkPipe}
+	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
+		return outputSink{kind: sinkHidden, detail: target}
+	}
+
+	// A path: classify by file type.
+	fi, statErr := os.Stat(target)
+	if statErr != nil {
+		if isHarnessCapturePath(target) {
+			return outputSink{kind: sinkVisible}
+		}
+		return outputSink{kind: sinkFile, detail: target}
+	}
+	mode := fi.Mode()
+	switch {
+	case mode&os.ModeCharDevice != 0:
+		if isTerminal(fd) {
+			return outputSink{kind: sinkVisible} // a real terminal — output is seen
+		}
+		return outputSink{kind: sinkDiscard, detail: target} // /dev/null and friends
+	case mode&os.ModeNamedPipe != 0:
+		return outputSink{kind: sinkPipe}
+	case mode.IsRegular():
+		if isHarnessCapturePath(target) {
+			return outputSink{kind: sinkVisible} // the harness's own transcript capture
+		}
+		return outputSink{kind: sinkFile, detail: target}
+	}
+	return outputSink{kind: sinkVisible} // unknown disposition — don't block
+}
+
+// pipePeerName returns the comm and pid of another process holding the same
+// pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends of
+// an anonymous pipe share one inode, so a process (other than us) whose fd
+// symlinks to the same target is the consumer.
+func pipePeerName(target string) (comm string, pid int, ok bool) {
 	self := os.Getpid()
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return "", false
+		return "", 0, false
 	}
 	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil || pid == self {
-			continue // non-numeric /proc entry, or ourselves
+		p, err := strconv.Atoi(e.Name())
+		if err != nil || p == self {
+			continue
 		}
 		fddir := "/proc/" + e.Name() + "/fd"
 		fds, err := os.ReadDir(fddir)
 		if err != nil {
-			continue // process exited or fd dir not readable
+			continue
 		}
 		for _, f := range fds {
 			link, err := os.Readlink(fddir + "/" + f.Name())
 			if err != nil || link != target {
 				continue
 			}
-			if comm, _, ok := procCommPPID(pid); ok {
-				return comm, true
+			if c, _, ok := procCommPPID(p); ok {
+				return c, p, true
 			}
-			return "", false
+			return "", p, true
 		}
 	}
-	return "", false
+	return "", 0, false
+}
+
+// isTerminal reports whether fd refers to a terminal.
+func isTerminal(fd uintptr) bool {
+	_, err := unix.IoctlGetTermios(int(fd), unix.TCGETS)
+	return err == nil
 }

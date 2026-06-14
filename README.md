@@ -28,7 +28,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Generated code exclusion** — automatically detects files with the standard `// Code generated ... DO NOT EDIT.` marker and excludes them from both test execution and coverage calculations (e.g. sqlc, protobuf, mockgen output)
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
 - **Buildhost publishing** — CI automatically publishes cross-compiled binaries to [buildhost](https://pazer.build) via OIDC, making them available for download in multiple formats (raw binary, tar.gz, deb, Homebrew, npm, OCI)
-- **Claude pipe-filter guard** — when go-toolchain runs under the Claude agent (detected via the `CLAUDECODE` environment marker and process ancestry) **and** its stdout is piped straight into an output-mangling filter such as `head`/`tail`/`grep`/`sed`/`awk`, it aborts immediately with an error instead of running. Filtering truncates or hides the coverage report and any build/test failures — the exact output an agent needs to read — so the guard steers it toward the full output (or a redirect to a file). It fires only on a real pipe into a recognized filter: redirecting to a file (`go-toolchain > out.log`), writing to a terminal, or piping into a non-filter (e.g. `tee`) is unaffected, and it is a no-op when not running under Claude. Disable with `GO_TOOLCHAIN_ALLOW_PIPE_FILTER=1`. Linux only (peer detection uses `/proc`)
+- **Claude output guard** — when go-toolchain runs under the Claude agent (detected via the `CLAUDECODE` environment marker and process ancestry), it refuses to run unless its full output is visible in the agent's transcript. Every way of hiding or truncating that output aborts immediately with an error pointing back to a plain run: piping into another command (`head`/`tail`/`grep`/`sed`/`awk`/`cat`/`tee`/…), redirecting to a file (`> out.log`, `>> out.log`), discarding to `/dev/null`, or capturing via `$(...)`. The only allowed "redirect" is the harness's own transcript-capture file (recognized by the `CLAUDE_CODE_SESSION_ID` embedded in its path) — that *is* how the agent reads the output — and a real terminal. It is a no-op when not running under Claude, so CI and human shells are unaffected. Disable with `GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE=1`. Linux only (stdout classification uses `/proc`)
 
 ## GitHub Action Usage
 
@@ -222,7 +222,7 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 
 ## How It Works
 
-Before the pipeline begins, go-toolchain runs a pre-flight check: if it is running under the Claude agent with its output piped into a filter (`head`/`tail`/`grep`/`sed`/`awk`/…), it aborts immediately with an error (see the Claude pipe-filter guard above; disable with `GO_TOOLCHAIN_ALLOW_PIPE_FILTER=1`). Otherwise the default workflow is:
+Before the pipeline begins, go-toolchain runs a pre-flight check: if it is running under the Claude agent and its output is being hidden — piped into another command, redirected to a file, discarded to `/dev/null`, or captured via `$(...)` — it aborts immediately with an error (see the Claude output guard above; disable with `GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE=1`). Otherwise the default workflow is:
 
 1. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
 2. Checks for outdated dependencies (auto-updates same-org deps)
