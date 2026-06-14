@@ -192,15 +192,22 @@ Design properties:
   served; a mismatch evicts the entry and reports a **miss**, so the toolchain
   recomputes rather than being handed a corrupt object. Serving corrupt bytes is
   never an option — e.g. a corrupt Go module index fails the build with `corrupt
-  index`, which the `go` process cannot recover from. Crucially the check runs on
-  **both** read paths, because they are decoupled by the protocol: a GET *RPC*
-  returns a `DiskPath`, and the compiler then opens that path and reads the body
-  itself through the mount — a read that never re-enters the GET RPC. So the CRC
-  is verified (1) on the GET RPC, by `GetVerified`, which lets the server miss
-  and recompute in-band; **and** (2) on the mount's serve path, by
-  `GetByOutputVerified` when `Lookup` resolves `mnt/outputID` to an inode, which
-  is the gate on the bytes the compiler actually consumes. Verifying only the RPC
-  would leave the compiler-facing read unguarded. Large bodies are verified over
+  index` / `package ... is not in std`, which the `go` process cannot recover
+  from. Crucially the check runs on **both** read paths, because they are
+  decoupled by the protocol: a GET *RPC* returns a `DiskPath`, and the compiler
+  then opens that path and reads the body itself through the mount — a read that
+  never re-enters the GET RPC. So the body is verified (1) on the GET RPC, by
+  `GetVerified` — a CRC over the body, which lets the server miss and recompute
+  in-band; **and** (2) on the mount's serve path, by `GetByOutputVerified` when
+  `Lookup` resolves `mnt/outputID` to an inode, which is the gate on the bytes the
+  compiler actually consumes. The serve-path gate verifies the body's **SHA-256
+  against the requested `outputID`** (the content address) rather than the CRC:
+  this strictly subsumes the CRC — it catches rot *and* a torn or mis-mapped
+  record whose bytes are self-consistent with their own recorded CRC yet are not
+  the content the compiler asked for (which would otherwise surface as `corrupt
+  index` / `package ... is not in std`, e.g. a poisoned module index when the
+  shared web cache is unavailable). Verifying only the RPC would leave the
+  compiler-facing read unguarded. Large bodies are verified over
   an **mmap** of the pack region (via
   [go-mmap](https://github.com/wow-look-at-my/go-mmap)) so a multi-MB archive is
   never copied onto the heap on every hit; tiny entries (the common case) take a
@@ -242,7 +249,7 @@ sequenceDiagram
         S-->>Go: DiskPath, size, outputID
         Go->>K: open(DiskPath) then read
         K->>L: FUSE Lookup(outputID)
-        Note over L: GetByOutputVerified: CRC-check body<br/>mismatch → evict + ENOENT
+        Note over L: GetByOutputVerified: SHA-256 vs outputID<br/>mismatch → evict + ENOENT
         K->>L: FUSE read (zero-copy from pack)
         L-->>Go: body bytes (served virtually)
     else local miss
