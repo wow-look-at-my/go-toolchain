@@ -71,6 +71,7 @@ var rootCmd = &cobra.Command{
 		guardAgainstClaudeOutputCapture()
 		if cmd.Parent() == nil && isUpToDate() {
 			fmt.Println("⇒ Up to date, nothing to do")
+			ReportUpdateCheck()
 			os.Exit(0)
 		}
 		return enableCacheProg()
