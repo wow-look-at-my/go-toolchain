@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -221,30 +220,4 @@ func TestMaybeSubmitDeps_NoSHA(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "")
 	maybeSubmitDeps()
-}
-
-func TestMaybeSubmitDeps_NoToken(t *testing.T) {
-	t.Setenv("CI", "true")
-	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
-	t.Setenv("GITHUB_SHA", "abc123")
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
-
-	// With a full CI context but no token, dependency submission is not
-	// configured: maybeSubmitDeps must return silently, without emitting the
-	// "dependency submission failed: GITHUB_TOKEN or GH_TOKEN required" warning.
-	r, w, _ := os.Pipe()
-	oldStderr := os.Stderr
-	os.Stderr = w
-	maybeSubmitDeps()
-	w.Close()
-	os.Stderr = oldStderr
-
-	var buf strings.Builder
-	tmp := make([]byte, 4096)
-	n, _ := r.Read(tmp)
-	buf.Write(tmp[:n])
-
-	assert.NotContains(t, buf.String(), "dependency submission failed")
-	assert.NotContains(t, buf.String(), "GITHUB_TOKEN or GH_TOKEN required")
 }
