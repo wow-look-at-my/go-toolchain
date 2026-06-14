@@ -29,8 +29,8 @@ func newFuseCacheForTest(t *testing.T) *FuseCache {
 
 func TestFuseCache_PutReadThroughMount(t *testing.T) {
 	c := newFuseCacheForTest(t)
-	aid, oid := hexID(1), hexID(100)
 	body := []byte("served virtually by fuse")
+	aid, oid := hexID(1), casID(body)
 
 	diskPath, err := c.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
@@ -49,8 +49,8 @@ func TestFuseCache_PutReadThroughMount(t *testing.T) {
 
 func TestFuseCache_GetReturnsReadableDiskPath(t *testing.T) {
 	c := newFuseCacheForTest(t)
-	aid, oid := hexID(2), hexID(200)
 	body := bytes.Repeat([]byte("payload"), 500) // larger than one read buffer
+	aid, oid := hexID(2), casID(body)
 	_, err := c.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
 
@@ -75,8 +75,8 @@ func TestFuseCache_GetReturnsReadableDiskPath(t *testing.T) {
 // it surfaces in the go command as "unexpected EOF" / "corrupt index".
 func TestFuseCache_CorruptBodyNotServedThroughMount(t *testing.T) {
 	c := newFuseCacheForTest(t)
-	aid, oid := hexID(5), hexID(50)
 	body := []byte("export data the compiler must never read corrupted")
+	aid, oid := hexID(5), casID(body)
 	diskPath, err := c.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
 
@@ -116,8 +116,8 @@ func TestFuseCache_PersistsAcrossRemount(t *testing.T) {
 		t.Skipf("FUSE unavailable: %v", err)
 	}
 	c := fc.(*FuseCache)
-	aid, oid := hexID(3), hexID(30)
 	body := []byte("persist me across an unmount/remount")
+	aid, oid := hexID(3), casID(body)
 	_, err = c.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
 	require.Nil(t, c.Close()) // unmount
@@ -136,12 +136,14 @@ func TestFuseCache_PersistsAcrossRemount(t *testing.T) {
 
 func TestFuseCache_WriteRejected(t *testing.T) {
 	c := newFuseCacheForTest(t)
-	_, err := c.Put(hexID(4), hexID(40), bytes.NewReader([]byte("read only")))
+	body := []byte("read only")
+	oid := casID(body)
+	_, err := c.Put(hexID(4), oid, bytes.NewReader(body))
 	require.Nil(t, err)
 
 	// The mount is read-only: opening a body for writing must fail (EROFS as
 	// root, EACCES for an unprivileged user — either way, an error).
-	f, err := os.OpenFile(filepath.Join(c.mnt, hexID(40)), os.O_WRONLY, 0)
+	f, err := os.OpenFile(filepath.Join(c.mnt, oid), os.O_WRONLY, 0)
 	if err == nil {
 		f.Close()
 	}
@@ -153,7 +155,7 @@ func TestFuseCache_WriteRejected(t *testing.T) {
 func TestFuseCache_SubprocessRead(t *testing.T) {
 	c := newFuseCacheForTest(t)
 	body := []byte("a subprocess must be able to read this")
-	dp, err := c.Put(hexID(1), hexID(100), bytes.NewReader(body))
+	dp, err := c.Put(hexID(1), casID(body), bytes.NewReader(body))
 	require.Nil(t, err)
 	out, err := exec.Command("cat", dp).CombinedOutput()
 	require.Nil(t, err, "cat output: %s", out)
@@ -166,7 +168,8 @@ func TestFuseCache_ConcurrentPutRead(t *testing.T) {
 	c := newFuseCacheForTest(t)
 	const n = 200
 	for i := 0; i < n; i++ {
-		_, err := c.Put(hexID(byte(i)), hexID(byte(i)), bytes.NewReader([]byte{byte(i), byte(i)}))
+		body := []byte{byte(i), byte(i)}
+		_, err := c.Put(hexID(byte(i)), casID(body), bytes.NewReader(body))
 		require.Nil(t, err)
 	}
 	var wg sync.WaitGroup
@@ -203,7 +206,8 @@ func TestFuseCache_SecondOwnerRejected(t *testing.T) {
 	c := fc.(*FuseCache)
 	defer c.Close()
 
-	_, err = c.Put(hexID(1), hexID(100), bytes.NewReader([]byte("owned by first")))
+	ownerBody := []byte("owned by first")
+	_, err = c.Put(hexID(1), casID(ownerBody), bytes.NewReader(ownerBody))
 	require.Nil(t, err)
 
 	// A second newFuseCache on the same dir must be rejected, not clobber.
@@ -236,11 +240,12 @@ func TestNewLocalStore_FallsBackWhenBusy(t *testing.T) {
 	require.True(t, isLoose, "expected loose-file fallback when the FUSE dir is busy")
 
 	// The live FUSE mount must be unaffected.
-	_, err = c.Put(hexID(2), hexID(2), bytes.NewReader([]byte("still here")))
+	stillBody := []byte("still here")
+	_, err = c.Put(hexID(2), casID(stillBody), bytes.NewReader(stillBody))
 	require.Nil(t, err)
 	m, miss := c.Get(hexID(2))
 	require.False(t, miss)
 	data, err := os.ReadFile(m.DiskPath)
 	require.Nil(t, err)
-	require.Equal(t, []byte("still here"), data)
+	require.Equal(t, stillBody, data)
 }
