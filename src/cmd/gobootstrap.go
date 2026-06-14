@@ -33,6 +33,32 @@ var (
 // non-standard version strings).
 var resolvedGoMinor int
 
+// poisonedGoVersions maps an exact Go version that is known to corrupt builds
+// to the known-good version go-toolchain must use instead. Go 1.24.13
+// intermittently cross-contaminates GOCACHEPROG cache entries -- it serves one
+// package's compiled object under another package's action key -- so a build
+// dies at package load with `"<pkg>" imported as <other>` (e.g. runtime
+// imported as reflectlite) or `package runtime is not in std`. The corruption
+// is specific to that patch release (1.24.7 and 1.25.0 are clean) and the
+// `go list runtime` integrity probe does NOT surface it (that probe runs
+// without the cacheprog), so the version must be blocklisted explicitly:
+// go-toolchain treats it as unusable and silently substitutes the replacement,
+// whether it is the runner's preinstalled Go or a go.mod requirement.
+var poisonedGoVersions = map[string]string{
+	"1.24.13": "1.25.0",
+}
+
+// unpoisonGoVersion returns the Go version go-toolchain should actually use for
+// the given requested/installed version: the version itself when clean, or its
+// known-good replacement when poisoned. The bool reports whether a substitution
+// was made.
+func unpoisonGoVersion(version string) (string, bool) {
+	if replacement, ok := poisonedGoVersions[version]; ok {
+		return replacement, true
+	}
+	return version, false
+}
+
 // EnsureGoVersion checks whether Go is available in PATH and whether its
 // version satisfies the project's go.mod requirement. If Go is missing or too
 // old, it downloads the required version to a cache directory and updates
@@ -76,6 +102,13 @@ func EnsureGoVersion() error {
 	}
 
 	if !installedVer.LessThan(requiredVer) {
+		// Refuse a known-poisoned toolchain even though its version satisfies the
+		// requirement: it corrupts the build cache (see poisonedGoVersions).
+		// Re-bootstrap a known-good toolchain instead.
+		if replacement, poisoned := unpoisonGoVersion(installed); poisoned {
+			fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is poisoned (corrupts the build cache); replacing with a known-good toolchain (>= %s)\n", installed, replacement)
+			return bootstrapGo(fmt.Sprintf("installed %s is poisoned", installed))
+		}
 		// Version is fine, but a fraction of GitHub-hosted runners ship a
 		// half-extracted Go whose binary runs and reports its version yet whose
 		// GOROOT std library is incomplete. Probe the toolchain before trusting
@@ -127,6 +160,12 @@ func bootstrapGo(reason string) error {
 	required, err := requiredGoVersion()
 	if err != nil || required == "" {
 		return fmt.Errorf("%s and cannot determine version from go.mod: %v", reason, err)
+	}
+
+	// Never download a poisoned version, even if go.mod asks for it directly.
+	if replacement, poisoned := unpoisonGoVersion(required); poisoned {
+		fmt.Fprintf(os.Stderr, "go-bootstrap: required Go %s is poisoned; using known-good %s instead\n", required, replacement)
+		required = replacement
 	}
 
 	fmt.Fprintf(os.Stderr, "go-bootstrap: bootstrapping Go %s...\n", required)
