@@ -6,12 +6,6 @@ import (
 	"strings"
 )
 
-// allowGuardEnv, when set to a non-empty value, disables the Claude output
-// guard below. It is an operator/CI escape hatch and a test seam; it is
-// deliberately NOT mentioned in the abort message, so the guard's default
-// behavior is to force the full output into view rather than offer a bypass.
-const allowGuardEnv = "GO_TOOLCHAIN_ALLOW_OUTPUT_CAPTURE"
-
 // sinkKind classifies where go-toolchain's stdout is going.
 type sinkKind int
 
@@ -67,18 +61,27 @@ func isHarnessCapturePath(path string) bool {
 	return strings.HasSuffix(lower, ".output") && strings.Contains(lower, "claude")
 }
 
+// Indirection seams: claudeOutputViolation calls these rather than the
+// detectors directly, so a test can drive every branch deterministically
+// without a real Claude ancestor process or a captured stdout descriptor. They
+// are unexported, default to the real implementations, and are reassigned only
+// from tests in this package. They are NOT a bypass: there is no environment
+// variable, flag, or any other runtime knob that disables the guard.
+var (
+	runningUnderClaudeFn = runningUnderClaude
+	inspectStdoutFn      = inspectStdout
+)
+
 // claudeOutputViolation reports the offending sink and true when go-toolchain is
 // running under Claude with its output captured, redirected, or discarded
 // instead of printed where the agent will read it. It is a no-op (returns
-// false) when the guard is disabled or go-toolchain is not running under Claude.
+// false) only when go-toolchain is not running under Claude. The guard is
+// unconditional: there is deliberately no way to opt out of it.
 func claudeOutputViolation() (outputSink, bool) {
-	if os.Getenv(allowGuardEnv) != "" {
+	if !runningUnderClaudeFn() {
 		return outputSink{}, false
 	}
-	if !runningUnderClaude() {
-		return outputSink{}, false
-	}
-	s := inspectStdout()
+	s := inspectStdoutFn()
 	if s.kind == sinkVisible {
 		return s, false
 	}
