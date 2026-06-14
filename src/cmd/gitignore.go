@@ -13,14 +13,20 @@ import (
 // directory isn't already ignored. It's a best-effort operation: errors
 // are silently ignored so they never block the build.
 func ensureBuildDirInGitignore() {
+	ensureGitignored("/" + outputDir + "/")
+}
+
+// ensureGitignored appends entry to the repository's .gitignore when the
+// current directory is inside a git repo and the entry isn't already present.
+// It's a best-effort operation: any error is silently ignored so it never
+// blocks the build.
+func ensureGitignored(entry string) {
 	gitRoot := findGitRoot()
 	if gitRoot == "" {
 		return
 	}
 
-	entry := "/" + outputDir + "/"
 	gitignorePath := filepath.Join(gitRoot, ".gitignore")
-
 	if gitignoreContains(gitignorePath, entry) {
 		return
 	}

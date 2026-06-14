@@ -286,6 +286,9 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	if err := injectMemLimitGuard(quiet); err != nil {
 		return nil, err
 	}
+	// The guard is a build-time-only artifact; remove it once the build below
+	// has compiled it in, so it never lingers in the working tree.
+	defer cleanupMemLimitGuards()
 
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {

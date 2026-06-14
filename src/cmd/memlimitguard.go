@@ -28,13 +28,18 @@ func envTruthy(v string) bool {
 // injectMemLimitGuard writes the GOMEMLIMIT startup guard into every main
 // package before the build compiles them, so each binary caps the Go heap at
 // the container's cgroup memory limit instead of allocating until it is
-// OOM-killed. Injection is idempotent; in CI a missing or stale guard surfaces
-// as a dirty tree through checkDirtyInCI, which tells the developer to run
-// go-toolchain locally and commit the generated files.
+// OOM-killed. The guard is a transient build artifact: it is gitignored so a
+// copy that outlives the build can never be committed or fail checkDirtyInCI,
+// and cleanupMemLimitGuards deletes it once the build has consumed it.
+// Injection is idempotent.
 func injectMemLimitGuard(quiet bool) error {
 	if v, ok := os.LookupEnv(memLimitEnvVar); ok && !envTruthy(v) {
 		return nil
 	}
+	// Ignore the generated guard before writing it: the build consumes it and
+	// cleanupMemLimitGuards removes it, but a run killed before cleanup must not
+	// leave a file that gets committed or fails the dirty-tree check.
+	ensureGitignored(memlimit.GuardFileName)
 	changed, err := memlimit.InjectAll()
 	if err != nil {
 		return fmt.Errorf("injecting GOMEMLIMIT guard: %w", err)
@@ -44,4 +49,19 @@ func injectMemLimitGuard(quiet bool) error {
 			len(changed), strings.Join(changed, ", "))
 	}
 	return nil
+}
+
+// cleanupMemLimitGuards removes the transient GOMEMLIMIT guards that
+// injectMemLimitGuard wrote, once the build has compiled them in. This is what
+// keeps the generated files from littering the working tree (and from failing
+// the dirty-tree check). It is best-effort: a failed removal is reported but
+// never fails the build. It honors the same kill switch as injection, so
+// disabling the feature leaves the working tree untouched.
+func cleanupMemLimitGuards() {
+	if v, ok := os.LookupEnv(memLimitEnvVar); ok && !envTruthy(v) {
+		return
+	}
+	if _, err := memlimit.CleanupAll(); err != nil {
+		fmt.Printf("  warning: failed to remove GOMEMLIMIT guard: %v\n", err)
+	}
 }

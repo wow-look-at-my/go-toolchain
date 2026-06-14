@@ -108,6 +108,14 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		ex.done()
 	}
 
+	// Inject the GOMEMLIMIT guard into each main package so the cross-compiled
+	// binaries cap the Go heap at the cgroup limit too, then remove the transient
+	// guards once every platform has been built.
+	if err := injectMemLimitGuard(false); err != nil {
+		return err
+	}
+	defer cleanupMemLimitGuards()
+
 	// Resolve what to build
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {

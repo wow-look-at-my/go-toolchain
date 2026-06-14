@@ -5,6 +5,10 @@ go-toolchain
 go-safe-build
 src/src
 
+# Transient GOMEMLIMIT guard: injected into each main package just before the
+# build and removed right after, so it is never committed.
+gomemlimit_gen.go
+
 # Test coverage
 coverage.out
 src/coverage.out
