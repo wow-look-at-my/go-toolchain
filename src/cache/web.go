@@ -251,7 +251,7 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	return b.getBatch(actionID, key)
 }
 
-// getIndividual fetches a single object stored as an individual S3 key.
+// getIndividual fetches a single object stored under an individual cache key.
 // parentCtx, when non-nil and carrying a valid span, becomes the parent
 // of the emitted cacheprog.web.get span — used by sendBatch's 404/405
 // fallback path so individual GETs nest under the batch span instead of
@@ -303,7 +303,13 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 	}
 	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
-	outputID := resp.Header.Get("X-Amz-Meta-Outputid")
+	// Native metadata header, with a fallback to the deprecated S3-style header
+	// so a new client still reads the outputid from an older (not-yet-upgraded)
+	// cache server that only emits X-Amz-Meta-*.
+	outputID := resp.Header.Get("X-Cache-Meta-Outputid")
+	if outputID == "" {
+		outputID = resp.Header.Get("X-Amz-Meta-Outputid")
+	}
 	if outputID == "" {
 		resp.Body.Close()
 		b.Pool.Release()
@@ -342,7 +348,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 
 	// End-to-end integrity check: the body must hash to its advertised
 	// outputID (the go content hash). A mismatch means the remote object is
-	// corrupt — truncated, badly decoded, or poisoned/rotted in S3 — and
+	// corrupt — truncated, badly decoded, or poisoned/rotted in the remote cache — and
 	// serving it would feed the go command a damaged object (e.g. a module
 	// index -> "corrupt index"). Refuse to serve, and drop the key from the
 	// index so the next recompute re-uploads (overwrites) it clean instead of
@@ -500,23 +506,23 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		return fmt.Errorf("web put request: %w", err)
 	}
 	req.ContentLength = int64(len(compressed))
-	req.Header.Set("X-Amz-Meta-Outputid", outputID)
-	req.Header.Set("X-Amz-Meta-Object-Type", detectObjectType(raw))
-	req.Header.Set("X-Amz-Meta-Body-Size", strconv.FormatInt(bodySize, 10))
-	req.Header.Set("X-Amz-Meta-Compression", "lz4")
-	req.Header.Set("X-Amz-Meta-Created", time.Now().UTC().Format(time.RFC3339))
+	req.Header.Set("X-Cache-Meta-Outputid", outputID)
+	req.Header.Set("X-Cache-Meta-Object-Type", detectObjectType(raw))
+	req.Header.Set("X-Cache-Meta-Body-Size", strconv.FormatInt(bodySize, 10))
+	req.Header.Set("X-Cache-Meta-Compression", "lz4")
+	req.Header.Set("X-Cache-Meta-Created", time.Now().UTC().Format(time.RFC3339))
 	if b.version != "" {
-		req.Header.Set("X-Amz-Meta-Toolchain-Version", b.version)
+		req.Header.Set("X-Cache-Meta-Toolchain-Version", b.version)
 	}
 	if goVer, target := parseArchiveHeader(raw); goVer != "" {
-		req.Header.Set("X-Amz-Meta-Go-Version", goVer)
-		req.Header.Set("X-Amz-Meta-Target", target)
+		req.Header.Set("X-Cache-Meta-Go-Version", goVer)
+		req.Header.Set("X-Cache-Meta-Target", target)
 	}
 	if pkg := parseImportPath(raw); pkg != "" {
-		req.Header.Set("X-Amz-Meta-Pkg", pkg)
+		req.Header.Set("X-Cache-Meta-Pkg", pkg)
 	}
 	if files := parseSourceFiles(raw); len(files) > 0 {
-		req.Header.Set("X-Amz-Meta-Src", strings.Join(files, " "))
+		req.Header.Set("X-Cache-Meta-Src", strings.Join(files, " "))
 	}
 	b.signRequest(req)
 
