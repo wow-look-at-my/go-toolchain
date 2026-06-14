@@ -414,6 +414,24 @@ invariants enforce this:
    (transient GET retries; `0` disables). Circuit-open misses are reported in the
    `cacheprog: web summary:` line as `circuit-open=N`.
 
+3. **Self-recovery from a poisoned cache** (`src/cmd/cacherecovery.go`): the
+   per-object integrity guards (point 1) are best-effort — they refuse the
+   poison shapes they recognize, but a mis-keyed object they do *not* recognize
+   could still reach the compiler and hard-fail the build (e.g. cross-
+   contaminated export data surfacing as `"runtime" imported as reflectlite`, or
+   a mis-keyed module index as `package ... is not in std` / `corrupt index`).
+   As a backstop, when a build fails with one of these unmistakable
+   cache-poison signatures, go-toolchain **re-runs itself once** with the remote
+   cache disabled and a *separate, fresh* local cache directory
+   (`buildcache-recovery`), recomputing everything from source. A poisoned
+   shared cache therefore degrades to one slower build, never a red build. The
+   retry is gated by `GO_TOOLCHAIN_CACHE_RECOVERY=1` (set on the child) so it
+   happens at most once, and the signature match deliberately requires both
+   `imported as` *and* `undefined:` so a legitimate unused-aliased-import vet
+   finding is not mistaken for poison. (Fixing the *shared* cache so other
+   consumers stop hitting the poison is still the server's job — its
+   module-index refusal and cache-version purge.)
+
 <a name="fallback-and-portability"></a>
 ## Fallback and portability
 

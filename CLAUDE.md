@@ -36,7 +36,7 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
 ## Project Structure
 
 - `src/main.go` — entry point
-- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore, cacheprog) using Cobra; also includes dependabot (automatic dependency graph submission to GitHub in CI). The binary does not self-update: it is installed/updated from buildhost (the GitHub Action downloads it with `curl`; end users use a package manager such as Homebrew/npm/APT)
+- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore, cacheprog) using Cobra; also includes dependabot (automatic dependency graph submission to GitHub in CI). The binary does not self-update: it is installed/updated from buildhost (the GitHub Action downloads it with `curl`; end users use a package manager such as Homebrew/npm/APT). `cacherecovery.go` is the **poisoned-cache self-recovery backstop**: if a build fails with an unmistakable cache-poison signature the per-object guards missed (`imported as`+`undefined:` export-data cross-contamination, or `is not in std`/`corrupt index` module-index poison), `main` re-runs go-toolchain once with `GO_TOOLCHAIN_CACHE_RECOVERY=1`, which makes `parseBuildCacheConfig` disable the remote tier and `buildCacheDir` use a fresh `buildcache-recovery` dir, so the retry recomputes from source instead of hard-failing (gated to run at most once). See `docs/CACHE.md` → Remote-cache resilience
 - `src/test/` — test runner, coverage parsing, watermark logic
 - `src/build/` — build target resolution via filesystem walking
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery)
