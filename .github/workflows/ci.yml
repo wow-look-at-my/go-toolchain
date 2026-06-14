@@ -75,7 +75,9 @@ jobs:
           path: /tmp/go-toolchain-profile/
           if-no-files-found: ignore
 
-  # Test the composite action end-to-end using the binary we just built
+  # Build + test via the composite action, which also autoreleases to buildhost
+  # (autorelease defaults to true) -- this is the single publish path. There is
+  # intentionally no separate publish job; a second one duplicated every release.
   action-test:
     needs: build
     runs-on: ubuntu-latest
@@ -92,13 +94,3 @@ jobs:
         with:
           name: build-output
           path: build/
-
-  publish-buildhost:
-    if: github.ref_type == 'branch'
-    needs: [build, action-test]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      actions: read
-    steps:
-      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
