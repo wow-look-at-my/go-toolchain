@@ -15,11 +15,11 @@ import (
 var generatedCodeRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 // RunGofmt checks that all Go source files in the current directory tree are
-// formatted. If fix is true, unformatted files are rewritten in place and
-// filesChanged=true is returned. If fix is false and unformatted files exist,
-// an error listing them is returned.
-func RunGofmt(fix bool) (bool, error) {
-	var unformatted []string
+// formatted, routing every unformatted file through ed: a fix-mode editor
+// rewrites it in place, a check-mode (CI) editor records it as a violation.
+// Returns whether any file was written.
+func RunGofmt(ed Editor) (bool, error) {
+	var anyWrote bool
 
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -48,12 +48,13 @@ func RunGofmt(fix bool) (bool, error) {
 			return nil
 		}
 		if !bytes.Equal(src, formatted) {
-			if fix {
-				if err := os.WriteFile(path, formatted, 0o644); err != nil {
-					return err
-				}
+			wrote, err := ed.Require(path, formatted, "not gofmt-formatted")
+			if err != nil {
+				return err
 			}
-			unformatted = append(unformatted, path)
+			if wrote {
+				anyWrote = true
+			}
 		}
 		return nil
 	})
@@ -61,19 +62,7 @@ func RunGofmt(fix bool) (bool, error) {
 		return false, fmt.Errorf("gofmt: %w", err)
 	}
 
-	if len(unformatted) == 0 {
-		return false, nil
-	}
-	if fix {
-		return true, nil
-	}
-
-	var sb strings.Builder
-	sb.WriteString("gofmt: unformatted files (run `go-toolchain` locally to fix):\n")
-	for _, f := range unformatted {
-		sb.WriteString("  " + f + "\n")
-	}
-	return false, fmt.Errorf("%s", strings.TrimRight(sb.String(), "\n"))
+	return anyWrote, nil
 }
 
 func isGeneratedGoSource(src []byte) bool {
