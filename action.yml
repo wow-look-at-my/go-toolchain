@@ -105,8 +105,16 @@ runs:
         # decompression cost. If curl lacks zstd it just gets the plain binary.
         # buildhost normalizes platform aliases natively (RUNNER_OS Linux/macOS/
         # Windows, RUNNER_ARCH X64/ARM64, ...), so pass them through verbatim, and
-        # it serves the "latest" redirect no-store, so no cache-buster is needed.
-        URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
+        # it serves the branch tip no-store, so no cache-buster is needed.
+        #
+        # TEMPORARY: pinned to ?branch=v1 instead of the apex "latest". buildhost's
+        # "latest" resolves against a project's default branch; until buildhost has
+        # learned go-toolchain's default branch is "v1" it defaults to "master"
+        # (which go-toolchain never publishes to), so the unqualified latest
+        # download 404s and hard-fails every consumer's build. Revert to the
+        # unqualified URL once buildhost has resolved go-toolchain's default branch
+        # to v1 (buildhost deploy + the next go-toolchain publish).
+        URL="https://dl.pazer.build/go-toolchain?branch=v1&os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
         # Install only on a successful download. A failure is reported (not hidden
         # behind `|| true`) but is non-fatal here: gating with `if` keeps `set -e`
         # from skipping the probe + source-build fallback below, which surface the
