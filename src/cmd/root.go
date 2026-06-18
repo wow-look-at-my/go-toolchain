@@ -69,7 +69,7 @@ var rootCmd = &cobra.Command{
 		// the coverage report and build/test failures print where it can read
 		// them.
 		guardAgainstClaudeOutputCapture()
-		if cmd.Parent() == nil && isUpToDate() {
+		if cmd.Parent() == nil && isUpToDate(runner.New()) {
 			fmt.Println("⇒ Up to date, nothing to do")
 			ReportUpdateCheck()
 			os.Exit(0)
@@ -199,7 +199,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	os.Chdir(startDir)
-	saveFingerprint()
+	saveFingerprint(r)
 	return nil
 }
 
