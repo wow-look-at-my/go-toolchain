@@ -163,7 +163,12 @@ func (f *ASTFixes) Apply(ed Editor) (bool, error) {
 		return false, err
 	}
 
-	wrote, err := ed.Apply(filename, buf.Bytes())
+	// f.Fprint uses go/printer directly, which tab-aligns and applies gofmt's
+	// doc-comment smart-quote substitution. Canonicalize to gofmt style and undo
+	// the quote rewrite (using the on-disk pre-edit bytes as the guard) so the
+	// written file is exactly what RunGofmt would accept.
+	orig, _ := os.ReadFile(filename)
+	wrote, err := ed.Apply(filename, canonicalizeGoSource(buf.Bytes(), orig))
 	if err != nil {
 		return false, err
 	}

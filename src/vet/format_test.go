@@ -134,7 +134,217 @@ func TestRunGofmtEmptyDir(t *testing.T) {
 	require.NoError(t, ed.Err())
 }
 
+// smartLeft and smartRight are the Unicode "smart" double quotes gofmt's
+// doc-comment formatter synthesizes from a doubled backtick / doubled apostrophe.
+// Spelled with \u escapes so this test file stays printable ASCII.
+const (
+	smartLeft  = "\u201c"
+	smartRight = "\u201d"
+)
+
+func TestRevertDocCommentSmartQuotes(t *testing.T) {
+	tests := []struct {
+		name           string
+		src, formatted string
+		want           string
+	}{
+		{
+			name:      "reverts apostrophe pair gofmt synthesized",
+			src:       `x 'foo'\''bar'`,
+			formatted: `x 'foo'\` + smartRight + `bar'`,
+			want:      `x 'foo'\''bar'`,
+		},
+		{
+			name:      "reverts backtick pair gofmt synthesized",
+			src:       "x ``lit``",
+			formatted: "x " + smartLeft + "lit" + smartLeft,
+			want:      "x ``lit``",
+		},
+		{
+			name:      "keeps author-typed curly quotes",
+			src:       "say " + smartLeft + "hi" + smartRight,
+			formatted: "say " + smartLeft + "hi" + smartRight,
+			want:      "say " + smartLeft + "hi" + smartRight,
+		},
+		{
+			name:      "no smart quotes is a no-op",
+			src:       "plain",
+			formatted: "plain reflowed",
+			want:      "plain reflowed",
+		},
+		{
+			name:      "guards each rune independently",
+			src:       "authored " + smartLeft, // src has the left quote, not the right
+			formatted: smartLeft + " and " + smartRight,
+			want:      smartLeft + " and ''",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := string(revertDocCommentSmartQuotes([]byte(tt.src), []byte(tt.formatted)))
+			assert.Equal(t, tt.want, got)
+			// Idempotent: reverting an already-reverted result changes nothing.
+			again := string(revertDocCommentSmartQuotes([]byte(tt.want), []byte(got)))
+			assert.Equal(t, tt.want, again)
+		})
+	}
+}
+
+func TestCanonicalizeGoSource(t *testing.T) {
+	// Raw go/printer output: tab-aligned fields and a doc comment in which gofmt
+	// already turned the doubled apostrophe into U+201D.
+	printed := "package p\n\n" +
+		"type T struct {\n\tA\tint\n\tBBB\tstring\n}\n\n" +
+		"// q renders 'foo'\\" + smartRight + "bar'.\n" +
+		"func q() {}\n"
+	// The original file the rewriter started from: space-aligned, ASCII digraph.
+	orig := "package p\n\n" +
+		"type T struct {\n\tA   int\n\tBBB string\n}\n\n" +
+		"// q renders 'foo'\\''bar'.\n" +
+		"func q() {}\n"
+
+	got := string(canonicalizeGoSource([]byte(printed), []byte(orig)))
+
+	// Indentation is tabs, alignment is spaces (gofmt style, not printer's tabs).
+	assert.Contains(t, got, "\tA   int\n")
+	assert.Contains(t, got, "\tBBB string\n")
+	assert.NotContains(t, got, "\tA\tint")
+	// The smart quote was reverted to the literal ASCII the author typed.
+	assert.Contains(t, got, `'foo'\''bar'`)
+	assert.NotContains(t, got, smartRight)
+	assertPrintableASCII(t, got)
+}
+
+func TestRunGofmtPreservesShellQuotesInDocComment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "shell.go")
+	// ASCII-only, otherwise gofmt-clean file whose doc comment contains the POSIX
+	// single-quote escape 'foo'\''bar' (a doubled apostrophe). gofmt's doc-comment
+	// formatter turns the '' into U+201D; RunGofmt must leave it untouched.
+	src := "package main\n\n" +
+		"// shellQuote quotes s for a POSIX shell.\n" +
+		"// Embedded single quotes use the one-quote-per-quote dance:\n" +
+		"// foo'bar becomes 'foo'\\''bar'.\n" +
+		"func shellQuote(s string) string { return s }\n"
+	writeFile(t, path, src)
+	chdir(t, dir)
+
+	changed, err := RunGofmt(NewEditor(true))
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	gotStr := string(got)
+
+	// The exact ASCII the author typed survives; no smart quote was introduced;
+	// the file is still pure ASCII.
+	assert.Contains(t, gotStr, "// foo'bar becomes 'foo'\\''bar'.")
+	assert.NotContains(t, gotStr, smartLeft)
+	assert.NotContains(t, gotStr, smartRight)
+	assertPrintableASCII(t, gotStr)
+	// The file was already canonical, so RunGofmt must make no change at all.
+	assert.False(t, changed)
+	assert.Equal(t, src, gotStr)
+
+	// And the result is accepted by the CI check editor (idempotent).
+	check := NewEditor(false)
+	changed2, err := RunGofmt(check)
+	require.NoError(t, err)
+	assert.False(t, changed2)
+	require.NoError(t, check.Err())
+}
+
+func TestRunGofmtPreservesBacktickPairInDocComment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tick.go")
+	// A doc comment with a doubled backtick, which gofmt would turn into U+201C.
+	src := "package main\n\n" +
+		"// render emits a ``quoted`` token verbatim.\n" +
+		"func render() {}\n"
+	writeFile(t, path, src)
+	chdir(t, dir)
+
+	changed, err := RunGofmt(NewEditor(true))
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	gotStr := string(got)
+
+	assert.Contains(t, gotStr, "a ``quoted`` token")
+	assert.NotContains(t, gotStr, smartLeft)
+	assertPrintableASCII(t, gotStr)
+	assert.False(t, changed)
+	assert.Equal(t, src, gotStr)
+}
+
+func TestRunGofmtPreservesAuthoredSmartQuotes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "curly.go")
+	// The author deliberately typed Unicode curly quotes. RunGofmt must NOT
+	// rewrite them back into ASCII digraphs.
+	src := "package main\n\n" +
+		"// quote wraps s in " + smartLeft + "smart" + smartRight + " quotes.\n" +
+		"func quote(s string) string { return s }\n"
+	writeFile(t, path, src)
+	chdir(t, dir)
+
+	changed, err := RunGofmt(NewEditor(true))
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	gotStr := string(got)
+
+	// Authored curly quotes survive; they are NOT corrupted into `` or ''.
+	assert.Contains(t, gotStr, smartLeft+"smart"+smartRight)
+	assert.NotContains(t, gotStr, "``")
+	assert.NotContains(t, gotStr, "''")
+	assert.False(t, changed)
+	assert.Equal(t, src, gotStr)
+}
+
+func TestRunGofmtUsesTabsToIndentSpacesToAlign(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "align.go")
+	// Unformatted: no indentation, single-space field gaps.
+	src := "package main\n\n" +
+		"type T struct {\n" +
+		"A int\n" +
+		"BBB string\n" +
+		"C bool\n" +
+		"}\n"
+	writeFile(t, path, src)
+	chdir(t, dir)
+
+	changed, err := RunGofmt(NewEditor(true))
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	gotStr := string(got)
+
+	// Indentation is a literal tab; column alignment is spaces, never tabs.
+	assert.Contains(t, gotStr, "\tA   int\n")
+	assert.Contains(t, gotStr, "\tBBB string\n")
+	assert.Contains(t, gotStr, "\tC   bool\n")
+	assert.NotContains(t, gotStr, "A\tint")
+	assert.NotContains(t, gotStr, "C\tbool")
+	assertPrintableASCII(t, gotStr)
+}
+
 // helpers
+
+// assertPrintableASCII fails the test if s contains any byte outside the
+// printable-ASCII / whitespace range -- the regression guard for the formatter
+// turning an ASCII file into multi-byte UTF-8.
+func assertPrintableASCII(t *testing.T, s string) {
+	t.Helper()
+	for i := 0; i < len(s); i++ {
+		require.Lessf(t, s[i], byte(0x80), "non-ASCII byte 0x%02x at offset %d", s[i], i)
+	}
+}
 
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
