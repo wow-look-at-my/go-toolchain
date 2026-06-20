@@ -116,7 +116,7 @@ func TestRunGofmtSkipsUnparseable(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "broken.go"), "package main\nfunc ({\n")
 	chdir(t, dir)
 
-	// Should not return an error for parse failures — go vet covers those.
+	// Should not return an error for parse failures -- go vet covers those.
 	ed := NewEditor(false)
 	_, err := RunGofmt(ed)
 	require.NoError(t, err)
@@ -143,49 +143,61 @@ const (
 )
 
 func TestRevertDocCommentSmartQuotes(t *testing.T) {
+	// Inputs are whole Go files: the revert is scoped to comment spans found by
+	// parsing, so it heals curly quotes in comments (curative) but never touches
+	// string or rune literals.
 	tests := []struct {
-		name           string
-		src, formatted string
-		want           string
+		name string
+		in   string
+		want string
 	}{
 		{
-			name:      "reverts apostrophe pair gofmt synthesized",
-			src:       `x 'foo'\''bar'`,
-			formatted: `x 'foo'\` + smartRight + `bar'`,
-			want:      `x 'foo'\''bar'`,
+			name: "heals right quote in a doc comment",
+			in:   "package p\n\n// dance: 'foo'\\" + smartRight + "bar'\nvar _ = 0\n",
+			want: "package p\n\n// dance: 'foo'\\''bar'\nvar _ = 0\n",
 		},
 		{
-			name:      "reverts backtick pair gofmt synthesized",
-			src:       "x ``lit``",
-			formatted: "x " + smartLeft + "lit" + smartLeft,
-			want:      "x ``lit``",
+			name: "heals left quote in a doc comment",
+			in:   "package p\n\n// emits " + smartLeft + "x" + smartLeft + " token\nvar _ = 0\n",
+			want: "package p\n\n// emits ``x`` token\nvar _ = 0\n",
 		},
 		{
-			name:      "keeps author-typed curly quotes",
-			src:       "say " + smartLeft + "hi" + smartRight,
-			formatted: "say " + smartLeft + "hi" + smartRight,
-			want:      "say " + smartLeft + "hi" + smartRight,
+			name: "heals curly quotes in a line comment (curative, not author-typed)",
+			in:   "package p\n\nvar _ = 0 // see " + smartLeft + "q" + smartRight + "\n",
+			want: "package p\n\nvar _ = 0 // see ``q''\n",
 		},
 		{
-			name:      "no smart quotes is a no-op",
-			src:       "plain",
-			formatted: "plain reflowed",
-			want:      "plain reflowed",
+			name: "heals curly quotes in a block comment",
+			in:   "package p\n\n/* a " + smartLeft + "b" + smartRight + " c */\nvar _ = 0\n",
+			want: "package p\n\n/* a ``b'' c */\nvar _ = 0\n",
 		},
 		{
-			name:      "guards each rune independently",
-			src:       "authored " + smartLeft, // src has the left quote, not the right
-			formatted: smartLeft + " and " + smartRight,
-			want:      smartLeft + " and ''",
+			name: "preserves curly quotes in a string literal",
+			in:   "package p\n\nvar s = \"" + smartLeft + "hi" + smartRight + "\"\n",
+			want: "package p\n\nvar s = \"" + smartLeft + "hi" + smartRight + "\"\n",
+		},
+		{
+			name: "preserves a curly quote in a rune literal",
+			in:   "package p\n\nvar r = '" + smartRight + "'\n",
+			want: "package p\n\nvar r = '" + smartRight + "'\n",
+		},
+		{
+			name: "no smart quotes anywhere is unchanged",
+			in:   "package p\n\n// plain comment\nvar _ = 0\n",
+			want: "package p\n\n// plain comment\nvar _ = 0\n",
+		},
+		{
+			name: "unparseable input is returned unchanged",
+			in:   "package p\n\n// " + smartRight + "\nfunc (\n",
+			want: "package p\n\n// " + smartRight + "\nfunc (\n",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := string(revertDocCommentSmartQuotes([]byte(tt.src), []byte(tt.formatted)))
+			got := string(revertDocCommentSmartQuotes([]byte(tt.in)))
 			assert.Equal(t, tt.want, got)
 			// Idempotent: reverting an already-reverted result changes nothing.
-			again := string(revertDocCommentSmartQuotes([]byte(tt.want), []byte(got)))
-			assert.Equal(t, tt.want, again)
+			assert.Equal(t, tt.want, string(revertDocCommentSmartQuotes([]byte(got))))
 		})
 	}
 }
@@ -197,19 +209,14 @@ func TestCanonicalizeGoSource(t *testing.T) {
 		"type T struct {\n\tA\tint\n\tBBB\tstring\n}\n\n" +
 		"// q renders 'foo'\\" + smartRight + "bar'.\n" +
 		"func q() {}\n"
-	// The original file the rewriter started from: space-aligned, ASCII digraph.
-	orig := "package p\n\n" +
-		"type T struct {\n\tA   int\n\tBBB string\n}\n\n" +
-		"// q renders 'foo'\\''bar'.\n" +
-		"func q() {}\n"
 
-	got := string(canonicalizeGoSource([]byte(printed), []byte(orig)))
+	got := string(canonicalizeGoSource([]byte(printed)))
 
 	// Indentation is tabs, alignment is spaces (gofmt style, not printer's tabs).
 	assert.Contains(t, got, "\tA   int\n")
 	assert.Contains(t, got, "\tBBB string\n")
 	assert.NotContains(t, got, "\tA\tint")
-	// The smart quote was reverted to the literal ASCII the author typed.
+	// The smart quote in the doc comment was reverted to the ASCII digraph.
 	assert.Contains(t, got, `'foo'\''bar'`)
 	assert.NotContains(t, got, smartRight)
 	assertPrintableASCII(t, got)
@@ -278,14 +285,48 @@ func TestRunGofmtPreservesBacktickPairInDocComment(t *testing.T) {
 	assert.Equal(t, src, gotStr)
 }
 
-func TestRunGofmtPreservesAuthoredSmartQuotes(t *testing.T) {
+func TestRunGofmtHealsExistingSmartQuotesInDocComment(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "curly.go")
-	// The author deliberately typed Unicode curly quotes. RunGofmt must NOT
-	// rewrite them back into ASCII digraphs.
+	path := filepath.Join(dir, "broken.go")
+	// A doc comment already corrupted by an earlier (unfixed) run: it contains the
+	// curly quotes gofmt produces. The fix is curative -- RunGofmt must heal them
+	// back to ASCII digraphs even though this run did not introduce them.
 	src := "package main\n\n" +
 		"// quote wraps s in " + smartLeft + "smart" + smartRight + " quotes.\n" +
 		"func quote(s string) string { return s }\n"
+	writeFile(t, path, src)
+	chdir(t, dir)
+
+	changed, err := RunGofmt(NewEditor(true))
+	require.NoError(t, err)
+	assert.True(t, changed) // the corrupted file was rewritten
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	gotStr := string(got)
+
+	// The curly quotes were healed back to ASCII; the file is pure ASCII again.
+	assert.Contains(t, gotStr, "in ``smart'' quotes.")
+	assert.NotContains(t, gotStr, smartLeft)
+	assert.NotContains(t, gotStr, smartRight)
+	assertPrintableASCII(t, gotStr)
+
+	// Stable afterward: a second run finds nothing to change.
+	check := NewEditor(false)
+	changed2, err := RunGofmt(check)
+	require.NoError(t, err)
+	assert.False(t, changed2)
+	require.NoError(t, check.Err())
+}
+
+func TestRunGofmtPreservesSmartQuotesInStringLiteral(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lit.go")
+	// Curly quotes inside a string literal are real program data (here, a
+	// typographic-quote constant). They must NEVER be reverted -- only comments are.
+	src := "package main\n\n" +
+		"// Quotes holds the smart double quotes.\n" +
+		"var Quotes = \"" + smartLeft + smartRight + "\"\n"
 	writeFile(t, path, src)
 	chdir(t, dir)
 
@@ -296,10 +337,8 @@ func TestRunGofmtPreservesAuthoredSmartQuotes(t *testing.T) {
 	require.NoError(t, err)
 	gotStr := string(got)
 
-	// Authored curly quotes survive; they are NOT corrupted into `` or ''.
-	assert.Contains(t, gotStr, smartLeft+"smart"+smartRight)
-	assert.NotContains(t, gotStr, "``")
-	assert.NotContains(t, gotStr, "''")
+	// The string literal's curly quotes survive intact, and nothing changed.
+	assert.Contains(t, gotStr, "\""+smartLeft+smartRight+"\"")
 	assert.False(t, changed)
 	assert.Equal(t, src, gotStr)
 }

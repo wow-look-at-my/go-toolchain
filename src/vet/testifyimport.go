@@ -115,9 +115,8 @@ func renderTestifyImports(filename string) ([]byte, []importRewrite, error) {
 	}
 	// go/printer tab-aligns and rewrites doc-comment quotes; canonicalize to
 	// gofmt style and restore literal quotes so the rewritten file is what
-	// RunGofmt expects (orig = the unmodified file on disk).
-	orig, _ := os.ReadFile(filename)
-	return canonicalizeGoSource(buf.Bytes(), orig), changes, nil
+	// RunGofmt expects.
+	return canonicalizeGoSource(buf.Bytes()), changes, nil
 }
 
 // syncModuleGraph runs go mod tidy and, when the repo vendors its dependencies,

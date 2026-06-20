@@ -185,9 +185,8 @@ func fixFileUnusedRangeVars(filename string) (bool, error) {
 	}
 	// go/printer tab-aligns and rewrites doc-comment quotes; canonicalize to
 	// gofmt style and restore literal quotes so the rewritten file is what
-	// RunGofmt expects (orig = the unmodified file on disk, read before write).
-	orig, _ := os.ReadFile(filename)
-	if err := os.WriteFile(filename, canonicalizeGoSource(buf.Bytes(), orig), 0o644); err != nil {
+	// RunGofmt expects.
+	if err := os.WriteFile(filename, canonicalizeGoSource(buf.Bytes()), 0o644); err != nil {
 		return false, err
 	}
 
