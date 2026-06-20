@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -47,6 +49,7 @@ func RunGofmt(ed Editor) (bool, error) {
 			// Parse errors are caught by go vet; skip unparse-able files here.
 			return nil
 		}
+		formatted = revertDocCommentSmartQuotes(formatted)
 		if !bytes.Equal(src, formatted) {
 			wrote, err := ed.Require(path, formatted, "not gofmt-formatted")
 			if err != nil {
@@ -63,6 +66,84 @@ func RunGofmt(ed Editor) (bool, error) {
 	}
 
 	return anyWrote, nil
+}
+
+// gofmt's doc-comment formatter (go/doc/comment, run since Go 1.19 whenever
+// go/printer reformats a top-level doc comment) rewrites TeX-style quote
+// digraphs into Unicode "smart" quotes: a doubled backtick becomes U+201C
+// (left double quote) and a doubled apostrophe becomes U+201D (right double
+// quote). That silently rewrites literal ASCII an author typed -- e.g. a POSIX
+// shell single-quote escape sequence has its doubled apostrophe turned into one
+// U+201D, which is wrong -- and turns an ASCII-only file into multi-byte UTF-8.
+// The values use \u escapes so this file itself stays printable ASCII.
+const (
+	docQuoteLeft  = "\u201c" // gofmt synthesizes this from a doubled backtick
+	docQuoteRight = "\u201d" // gofmt synthesizes this from a doubled apostrophe
+)
+
+// revertDocCommentSmartQuotes reverts gofmt's smart-quote substitution back to
+// the ASCII digraphs, restoring U+201C to a doubled backtick and U+201D to a
+// doubled apostrophe wherever they appear inside a Go comment. This is curative,
+// not merely preventive: gofmt's doc-comment formatter is the ONLY thing that
+// produces these runes in Go source, and only inside comments, so a curly quote
+// in a comment is always a gofmt artifact -- no author types one there by hand.
+// It therefore also heals comments that an earlier, unfixed run already
+// corrupted, not just the file currently being formatted.
+//
+// The revert is scoped to comment spans via a parse of the (gofmt-valid) source,
+// so curly quotes inside string or rune literals -- where they are real program
+// data, not prose -- are left untouched. A fast path skips the parse entirely for
+// the overwhelming majority of files, which contain no curly quotes at all; an
+// unparseable input is returned unchanged rather than risk a blind global
+// replace that could reach a literal.
+func revertDocCommentSmartQuotes(formatted []byte) []byte {
+	left, right := []byte(docQuoteLeft), []byte(docQuoteRight)
+	if !bytes.Contains(formatted, left) && !bytes.Contains(formatted, right) {
+		return formatted // no smart quotes anywhere: nothing to revert
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", formatted, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return formatted // unparseable: never revert outside a known comment span
+	}
+
+	var b bytes.Buffer
+	b.Grow(len(formatted))
+	prev := 0
+	for _, group := range file.Comments {
+		for _, c := range group.List {
+			start := fset.Position(c.Pos()).Offset
+			end := fset.Position(c.End()).Offset
+			if start < prev || end > len(formatted) {
+				continue // defensive: only rewrite cleanly-mapped, in-order spans
+			}
+			b.Write(formatted[prev:start]) // code and literals, verbatim
+			seg := bytes.ReplaceAll(formatted[start:end], left, []byte("``"))
+			seg = bytes.ReplaceAll(seg, right, []byte("''"))
+			b.Write(seg)
+			prev = end
+		}
+	}
+	b.Write(formatted[prev:])
+	return b.Bytes()
+}
+
+// canonicalizeGoSource turns printed -- the raw output of go/printer for a
+// rewritten AST -- into gofmt-canonical bytes. go/printer's default mode uses
+// tabs for both indentation AND alignment, so this reruns go/format to restore
+// the canonical "tabs to indent, spaces to align" style (plus import sorting and
+// number normalization), then reverts gofmt's doc-comment smart-quote
+// substitution. Every vet rewriter routes its output through this so they all
+// emit identical canonical formatting and never corrupt literal quotes in
+// comments. If printed does not parse (an unexpected, transient bad render) the
+// revert is a no-op and printed is returned, leaving the unparseable file for go
+// vet to report rather than making it worse.
+func canonicalizeGoSource(printed []byte) []byte {
+	formatted, err := format.Source(printed)
+	if err != nil {
+		return revertDocCommentSmartQuotes(printed)
+	}
+	return revertDocCommentSmartQuotes(formatted)
 }
 
 func isGeneratedGoSource(src []byte) bool {

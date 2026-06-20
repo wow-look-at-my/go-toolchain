@@ -275,7 +275,11 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	if err := printer.Fprint(&buf, fset, f); err != nil {
 		return false, err
 	}
-	wrote, err := ed.Require(filename, buf.Bytes(), "imports gotest.tools/v3/assert; migrate to github.com/stretchr/testify")
+	// go/printer tab-aligns, leaves the new imports unsorted, and rewrites
+	// doc-comment quotes; canonicalize to gofmt style and restore literal quotes
+	// so the rewritten file is what RunGofmt expects.
+	out := canonicalizeGoSource(buf.Bytes())
+	wrote, err := ed.Require(filename, out, "imports gotest.tools/v3/assert; migrate to github.com/stretchr/testify")
 	if err != nil {
 		return false, err
 	}
