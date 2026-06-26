@@ -4,11 +4,12 @@
 
 **Important:** `go build`, `go test`, etc. are often blocked in this environment because the Go toolchain version in go.mod may be newer than what's locally installed. The go-toolchain binary handles bootstrapping the correct Go version automatically.
 
-**Always use the released `go-toolchain` binary** to build and test. If it's not already installed, download it from GitHub releases:
+**Always use the released `go-toolchain` binary** to build and test. If it's not already installed, download it from buildhost. Do NOT use GitHub Releases: that path is deprecated and frozen (CI no longer publishes there), so it serves stale binaries. CI and `action.yml` both install from buildhost, which always has the current build:
 
 ```bash
-# Download and install go-toolchain (do this first if not installed)
-curl -sL "https://github.com/wow-look-at-my/go-toolchain/releases/latest/download/go-toolchain_linux_amd64" -o /tmp/go-toolchain
+# Download and install go-toolchain (do this first if not installed).
+# Source: buildhost (pazer.build). The ?branch=v1 pin matches action.yml.
+curl -fL --compressed "https://dl.pazer.build/go-toolchain?branch=v1&os=linux&arch=amd64" -o /tmp/go-toolchain
 chmod +x /tmp/go-toolchain
 cp /tmp/go-toolchain /usr/local/bin/go-toolchain
 
