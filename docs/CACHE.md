@@ -414,23 +414,25 @@ invariants enforce this:
    (transient GET retries; `0` disables). Circuit-open misses are reported in the
    `cacheprog: web summary:` line as `circuit-open=N`.
 
-3. **Self-recovery from a poisoned cache** (`src/cmd/cacherecovery.go`): the
-   per-object integrity guards (point 1) are best-effort — they refuse the
-   poison shapes they recognize, but a mis-keyed object they do *not* recognize
-   could still reach the compiler and hard-fail the build (e.g. cross-
-   contaminated export data surfacing as `"runtime" imported as reflectlite`, or
-   a mis-keyed module index as `package ... is not in std` / `corrupt index`).
-   As a backstop, when a build fails with one of these unmistakable
-   cache-poison signatures, go-toolchain **re-runs itself once** with the remote
-   cache disabled and a *separate, fresh* local cache directory
-   (`buildcache-recovery`), recomputing everything from source. A poisoned
-   shared cache therefore degrades to one slower build, never a red build. The
-   retry is gated by `GO_TOOLCHAIN_CACHE_RECOVERY=1` (set on the child) so it
-   happens at most once, and the signature match deliberately requires both
-   `imported as` *and* `undefined:` so a legitimate unused-aliased-import vet
-   finding is not mistaken for poison. (Fixing the *shared* cache so other
-   consumers stop hitting the poison is still the server's job — its
-   module-index refusal and cache-version purge.)
+3. **Uniform serve-path integrity — self-healing local tier**
+   (`src/cache/pack.go`'s `bodyServableForAction`): the checks the web tier runs
+   on ingestion also run on the **local** serve path, so the cache never serves
+   an object it cannot tie to the requested key — on either tier. The GET-RPC
+   gate behind every FUSE hit (`PackStore.GetVerified`) verifies, in the one body
+   read it already does for the CRC, that the object (a) matches its recorded
+   CRC, (b) carries a build id whose action field matches the requested key — not
+   a cross-contaminated package mapped under the wrong key, the
+   `"runtime" imported as reflectlite` poison — and (c) is not a Go module index
+   (unverifiable under any key; a mis-keyed one breaks package load as
+   `package ... is not in std` / `corrupt index`, and cmd/go recomputes it
+   locally for free). Any failure evicts the entry and reports a miss, so the
+   toolchain recomputes from source and re-Puts clean data. This closes the gap
+   where a poison that entered the local pack before the guards existed (a stale
+   cache, or ingestion by an older binary) would be served unchecked: a poisoned
+   cache **self-heals structurally** — by refusing to serve what it cannot
+   verify, never by inspecting build output. (Fixing the *shared* cache so other
+   consumers stop hitting the poison is still the server's job — its module-index
+   refusal and cache-version purge.)
 
 <a name="fallback-and-portability"></a>
 ## Fallback and portability

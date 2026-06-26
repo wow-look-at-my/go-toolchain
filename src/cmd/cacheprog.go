@@ -51,12 +51,6 @@ type buildCacheConfig struct {
 // parseBuildCacheConfig reads web cache configuration from GO_BUILDCACHE_CONFIG
 // (base64-encoded JSON) or falls back to individual env vars.
 func parseBuildCacheConfig() cache.WebConfig {
-	// During cache recovery the remote tier is disabled unconditionally so a
-	// poisoned shared cache cannot re-break the retry; the build recomputes from
-	// source (see RetryWithoutCache).
-	if inCacheRecovery() {
-		return cache.WebConfig{}
-	}
 	raw := os.Getenv("GO_BUILDCACHE_CONFIG")
 	if raw == "" {
 		return cache.WebConfig{}
@@ -129,7 +123,7 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 		// Daemon unavailable — fall through to standalone mode.
 	}
 
-	cacheDir := buildCacheDir()
+	cacheDir := filepath.Join(cacheHome(), "buildcache")
 
 	// Standalone mode (no daemon) uses the loose-file cache, not the FUSE store:
 	// the virtual filesystem is owned by the single daemon process so that
@@ -261,7 +255,7 @@ func enableCacheProg() error {
 // startCacheDaemon creates a cache daemon with local + web backends.
 // Returns the daemon, the remote endpoint (empty if no remote), and any error.
 func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
-	cacheDir := buildCacheDir()
+	cacheDir := filepath.Join(cacheHome(), "buildcache")
 	// The daemon is the single, shared cache process for the whole build, so it
 	// owns the FUSE mount: NewLocalStore prefers the FUSE-backed packed cache
 	// (the "virtual filesystem"), falling back to the loose-file cache when

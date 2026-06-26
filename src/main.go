@@ -72,13 +72,6 @@ func main() {
 	err := cmd.Execute()
 	cmd.ReportUpdateCheck()
 	if err != nil {
-		// Self-recover from a poisoned shared build cache: if the failure looks
-		// like the cache served a mis-keyed object the in-line guards missed,
-		// retry once with the remote cache disabled and a fresh local cache so
-		// the build recomputes from source instead of hard-failing.
-		if cmd.ShouldRetryForCachePoison(err) {
-			os.Exit(cmd.RetryWithoutCache())
-		}
 		os.Exit(1)
 	}
 }
