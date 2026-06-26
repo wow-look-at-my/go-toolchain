@@ -145,6 +145,63 @@ func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
 	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
 }
 
+// TestPackStore_GetVerifiedRefusesCrossContaminatedPackage is the local
+// serve-path counterpart of the web build-id guard: a compiled package whose
+// build id belongs to a DIFFERENT action than the key it is stored under (the
+// "runtime imported as reflectlite" poison) must be refused, even though its
+// bytes are self-consistent (clean CRC). This is what lets a poisoned local pack
+// self-heal — the entry is evicted and the GET misses, so the toolchain
+// recomputes instead of being handed the wrong package's export data.
+func TestPackStore_GetVerifiedRefusesCrossContaminatedPackage(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s.Close()
+
+	actionA, actionB := hexID(20), hexID(99)
+	oid := hexID(120)
+	poison := archiveWithBuildID(expectedBuildIDAction(actionB)) // stamped for B
+	_, err = s.Put(actionA, oid, bytes.NewReader(poison))        // stored under A
+	require.Nil(t, err)
+
+	_, ok := s.GetVerified(actionA)
+	require.False(t, ok, "a package whose build id belongs to another action must not be served")
+	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
+	_, ok = s.GetByOutput(oid)
+	require.False(t, ok, "cross-contaminated body evicted from the output index too")
+
+	// A correctly build-id-stamped package for the SAME action IS served — the
+	// guard refuses only mis-keyed objects, never legitimate cache hits.
+	good := archiveWithBuildID(expectedBuildIDAction(actionA))
+	goodOID := hexID(121)
+	_, err = s.Put(actionA, goodOID, bytes.NewReader(good))
+	require.Nil(t, err)
+	_, ok = s.GetVerified(actionA)
+	require.True(t, ok, "a correctly-keyed package must still be served")
+}
+
+// TestPackStore_GetVerifiedRefusesModuleIndex verifies the local serve path
+// never hands back a Go module index. An index is unverifiable under any key and
+// a mis-keyed one breaks package load ("package ... is not in std" / "corrupt
+// index"); cmd/go recomputes it locally, so refusing it from cache is free of
+// correctness risk and closes the gap the CRC/content-address checks cannot
+// (a mis-keyed index is self-consistent with its own bytes).
+func TestPackStore_GetVerifiedRefusesModuleIndex(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s.Close()
+
+	aid, oid := hexID(40), hexID(140)
+	index := []byte("go index v2\n\x00\x00module-index payload that must never be served")
+	_, err = s.Put(aid, oid, bytes.NewReader(index))
+	require.Nil(t, err)
+
+	_, ok := s.GetVerified(aid)
+	require.False(t, ok, "a module index must not be served from the local pack")
+	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
+}
+
 func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)

@@ -491,7 +491,11 @@ func (s *PackStore) GetVerified(actionID string) (packLoc, bool) {
 	if !ok {
 		return packLoc{}, false
 	}
-	if !s.bodyMatchesCRC(loc) {
+	// One body read enforces rot (CRC), cross-contamination (build-id action),
+	// and module-index refusal. Any failure evicts the entry and reports a miss,
+	// so the toolchain recomputes clean data instead of being handed poison —
+	// the local-tier counterpart of the web ingestion guards.
+	if !s.bodyServableForAction(actionID, loc) {
 		s.evictCorrupt(actionID, loc)
 		s.Stats.Corrupt.Increment()
 		return packLoc{}, false
@@ -535,6 +539,39 @@ func (s *PackStore) verifyBody(loc packLoc, check func(body []byte) bool) bool {
 func (s *PackStore) bodyMatchesCRC(loc packLoc) bool {
 	return s.verifyBody(loc, func(body []byte) bool {
 		return crc32.Checksum(body, packCRC) == loc.crc
+	})
+}
+
+// bodyServableForAction reports whether loc's body is safe to serve for actionID.
+// In a single body read it runs all three gates the local serve path needs:
+//
+//   - CRC: the body still matches its recorded checksum (disk/overlay rot).
+//   - build-id action: a compiled package carries a build id whose action field
+//     must match actionID; one that belongs to a DIFFERENT action is a
+//     cross-contaminated object mapped under the wrong key (the
+//     "runtime imported as reflectlite" poison) that the CRC and the
+//     content-address hash cannot catch (see buildIDMatchesAction).
+//   - module index: a Go module index blob is unverifiable under any key and
+//     catastrophic if mis-keyed ("package ... is not in std" / "corrupt index"),
+//     so it is never served from cache — cmd/go recomputes it locally (see
+//     isGoModuleIndex).
+//
+// This mirrors the guards the web ingestion path already enforces (web.go), so
+// the local tier honours the same invariant: the cache never hands the compiler
+// an object it cannot tie to the requested action key. A failure is treated like
+// any other integrity failure — the entry is evicted and the GET misses, so the
+// toolchain recomputes from source instead of consuming poison. This is what
+// lets a poisoned cache self-heal structurally, with no inspection of build
+// output.
+func (s *PackStore) bodyServableForAction(actionID string, loc packLoc) bool {
+	return s.verifyBody(loc, func(body []byte) bool {
+		if crc32.Checksum(body, packCRC) != loc.crc {
+			return false
+		}
+		if _, ok := buildIDMatchesAction(actionID, body); !ok {
+			return false
+		}
+		return !isGoModuleIndex(body)
 	})
 }
 
