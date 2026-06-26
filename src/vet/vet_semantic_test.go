@@ -187,7 +187,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Run to exercise the path
-	_, err := vetSemantic("./...", false, nil)
+	_, err := vetSemantic("./...", NewEditor(false), nil)
 	assert.NotNil(t, err)
 }
 
@@ -394,7 +394,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Should find issues and return error with diagnostics
-	_, err := vetSemantic("./...", false, nil)
+	_, err := vetSemantic("./...", NewEditor(false), nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "vet found issues")
 }
@@ -442,7 +442,7 @@ func TestFoo(t *testing.T) {
 	initGitRepo(t, dir)
 
 	// With fix=true, it should apply fixes, run go mod tidy, and re-run vetSemantic
-	changed, err := vetSemantic("./...", true, nil)
+	changed, err := vetSemantic("./...", NewEditor(true), nil)
 	assert.Nil(t, err)
 	assert.True(t, changed)
 

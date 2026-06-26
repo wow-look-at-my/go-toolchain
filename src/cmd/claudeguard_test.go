@@ -47,12 +47,32 @@ func TestClaudeOutputMessageVariants(t *testing.T) {
 	}
 }
 
-func TestClaudeOutputViolationDisabledByEnv(t *testing.T) {
-	t.Setenv(allowGuardEnv, "1")
+func TestClaudeOutputViolation(t *testing.T) {
+	origUnder, origSink := runningUnderClaudeFn, inspectStdoutFn
+	t.Cleanup(func() { runningUnderClaudeFn, inspectStdoutFn = origUnder, origSink })
+
+	// Not running under Claude: never a violation, whatever the sink.
+	runningUnderClaudeFn = func() bool { return false }
+	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkPipe, detail: "head"} }
 	_, bad := claudeOutputViolation()
-	assert.False(t, bad, "guard must be disabled when %s is set", allowGuardEnv)
-	// The exiting wrapper must be a no-op too (it would os.Exit otherwise).
+	assert.False(t, bad, "no violation when not running under Claude")
+
+	// Under Claude with visible output (a terminal or the harness capture):
+	// allowed. The exiting wrapper must be a no-op on this path — it would
+	// os.Exit the test process otherwise.
+	runningUnderClaudeFn = func() bool { return true }
+	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkVisible} }
+	_, bad = claudeOutputViolation()
+	assert.False(t, bad, "visible output is not a violation")
 	guardAgainstClaudeOutputCapture()
+
+	// Under Claude with hidden output: a violation, reported with its sink.
+	// There is no env var or flag that can turn this off.
+	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkPipe, detail: "head"} }
+	s, bad := claudeOutputViolation()
+	assert.True(t, bad, "captured output under Claude is a violation")
+	assert.Equal(t, sinkPipe, s.kind)
+	assert.Equal(t, "head", s.detail)
 }
 
 func TestProcCommPPIDSelf(t *testing.T) {

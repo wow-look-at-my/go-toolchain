@@ -1,6 +1,7 @@
 package vet
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -178,13 +179,14 @@ func fixFileUnusedRangeVars(filename string) (bool, error) {
 		return false, nil
 	}
 
-	out, err := os.Create(filename)
-	if err != nil {
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, f); err != nil {
 		return false, err
 	}
-	defer out.Close()
-
-	if err := printer.Fprint(out, fset, f); err != nil {
+	// go/printer tab-aligns and rewrites doc-comment quotes; canonicalize to
+	// gofmt style and restore literal quotes so the rewritten file is what
+	// RunGofmt expects.
+	if err := os.WriteFile(filename, canonicalizeGoSource(buf.Bytes()), 0o644); err != nil {
 		return false, err
 	}
 
