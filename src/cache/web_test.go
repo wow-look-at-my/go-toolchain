@@ -164,6 +164,10 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 		Version:   "v1.2.3",
 	})
 	require.NoError(t, err)
+	// Exercise the synchronous single-PUT path (the batch-unsupported fallback),
+	// which sends one HTTP PUT per object with the X-Cache-Meta-* headers this
+	// test asserts. (The coalesced batch path is covered in batchput_test.go.)
+	b.batchPutUnsupported.Store(true)
 
 	// Use a payload >= batchSizeThreshold so it's uploaded individually.
 	payload := largePayload(1024)
@@ -214,6 +218,7 @@ func TestWebBackend_PutArchiveMetadata(t *testing.T) {
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
 	require.NoError(t, err)
+	b.batchPutUnsupported.Store(true) // assert single-PUT headers synchronously
 
 	// Simulate a Go archive body with __.PKGDEF containing a go object header.
 	// Pad to >= batchSizeThreshold so it's uploaded individually.
@@ -245,6 +250,7 @@ func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
 		// Version intentionally empty.
 	})
 	require.NoError(t, err)
+	b.batchPutUnsupported.Store(true) // assert single-PUT headers synchronously
 
 	payload := largePayload(1024)
 	err = b.Put("aaaa000011112222", "bbbb333344445555", nopReader(payload), int64(len(payload)))
@@ -486,6 +492,9 @@ func TestWebBackend_PutServerError(t *testing.T) {
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
 	require.NoError(t, err)
+	// Force the synchronous single-PUT path so the HTTP-error result (and its
+	// errLogged wrapping) is returned from Put directly, as this test asserts.
+	b.batchPutUnsupported.Store(true)
 
 	payload := largePayload(1024)
 	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
@@ -506,6 +515,9 @@ func TestWebBackend_PutServerError_Coalesced(t *testing.T) {
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
 	require.NoError(t, err)
+	// This test exercises per-object PUT error coalescing in the error logger,
+	// so drive the synchronous single-PUT path (one "web put" record per object).
+	b.batchPutUnsupported.Store(true)
 
 	// Swap the auto-initialized 30s logger for one bound to a buffer with
 	// a long interval, so all flushing happens on Close.
@@ -687,6 +699,7 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 				AccessKey: "testkey", SecretKey: "testsecret",
 			})
 			require.NoError(t, err)
+			b.batchPutUnsupported.Store(true) // single PUT to the object path under test
 
 			payload := largePayload(1024)
 			err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))

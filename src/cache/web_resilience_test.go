@@ -214,6 +214,10 @@ func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer b.Close()
+	// Drive the synchronous single-PUT retry path (the batch-unsupported
+	// fallback) so the 503-retry-then-store outcome is observable from the Put
+	// call directly. (The whole-batch 503 retry is covered in batchput_test.go.)
+	b.batchPutUnsupported.Store(true)
 
 	payload := largePayload(1024)
 	outputID := testOutputID(payload)
@@ -262,7 +266,10 @@ func TestWebBackend_Burst503DoesNotTripBreaker(t *testing.T) {
 	require.False(t, b.remoteDisabled(), "a burst of 503 sheds must NOT trip the breaker (it is backpressure, not a fault)")
 	require.Equal(t, uint32(0), b.MissCircuitOpen.Load(), "no GET should be short-circuited as a circuit-open miss")
 
-	// PUTs that all get 503 likewise must not trip the breaker.
+	// PUTs that all get 503 likewise must not trip the breaker. Drive the
+	// synchronous single-PUT path so each Put's 503 outcome is applied before the
+	// next iteration (the batch path would coalesce these into one request).
+	b.batchPutUnsupported.Store(true)
 	for i := 0; i < 12; i++ {
 		// PUT errors (it ran out of retry budget) but the breaker stays closed.
 		_ = b.Put(actionID, testOutputID(largePayload(64)), strings.NewReader(largePayload(64)), 64)

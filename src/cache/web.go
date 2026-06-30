@@ -40,8 +40,10 @@ type WebConfig struct {
 
 // WebBackend stores cache objects in a remote web server with LZ4 compression.
 // GETs use the server's batch endpoint to fetch entries with prefetch support,
-// proactively populating the local cache with related entries. PUTs upload
-// entries individually.
+// proactively populating the local cache with related entries. PUTs are
+// coalesced onto the server's /_batch/put endpoint (mirroring the batch GET
+// coalescer), falling back to individual PUTs against a server that does not
+// support it.
 type WebBackend struct {
 	client    *http.Client
 	bucket    string
@@ -100,6 +102,31 @@ type WebBackend struct {
 	batchStop   chan struct{}
 	batchDone   chan struct{}
 	batchHTTPWG sync.WaitGroup
+
+	// Client-side PUT coalescer: each Put preps its object (claim, read,
+	// build-id/module-index guard, lz4) then funnels a putReq through
+	// putBatchReqCh; the worker collects them on a short time window and
+	// ships them as one /_batch/put tar (manifest.json + data/<key>),
+	// mirroring the GET coalescer. batchPutUnsupported is set sticky once a
+	// server answers /_batch/put with 404/405, after which Put falls back to
+	// the per-object doRetryPUT path for the rest of the process.
+	putBatchReqCh       chan putReq
+	putBatchStop        chan struct{}
+	putBatchDone        chan struct{}
+	putBatchHTTPWG      sync.WaitGroup
+	batchPutUnsupported atomic.Bool
+}
+
+// putReq is one prepped object queued for the PUT coalescer. The per-object
+// preparation (optimistic index claim, build-id/module-index guard, lz4) has
+// already run in Put; the coalescer only frames and ships these.
+type putReq struct {
+	actionID   string
+	key        string
+	outputID   string
+	raw        []byte            // uncompressed body, kept for the single-PUT fallback / label
+	compressed []byte            // lz4-compressed body, the data/<key> member bytes
+	metadata   map[string]string // manifest metadata: lowercased meta names sans X-Cache-Meta-
 }
 
 type batchReq struct {
@@ -203,6 +230,10 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	b.batchStop = make(chan struct{})
 	b.batchDone = make(chan struct{})
 	go b.batchCoalescer()
+	b.putBatchReqCh = make(chan putReq, batchReqChBuf)
+	b.putBatchStop = make(chan struct{})
+	b.putBatchDone = make(chan struct{})
+	go b.batchPutCoalescer()
 	b.keys = b.loadOrFetchIndex()
 	b.knownMiss = set.New[string]()
 	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
@@ -426,8 +457,19 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 	return r.outputID, r.body, r.size, r.t, r.miss, nil
 }
 
-// Put stores a cached object with LZ4 compression.
-// Skips upload if the key is already in the index.
+// Put stores a cached object with LZ4 compression. The per-object preparation
+// (optimistic index claim, read, build-id/module-index write guards, lz4, and
+// the metadata map) runs synchronously here; the upload itself is COALESCED:
+// the prepped object is enqueued onto the PUT coalescer (batchPutCoalescer),
+// which ships many objects as one /_batch/put tar instead of one HTTP PUT per
+// object — a CI build stores thousands of objects and the per-object PUT storm
+// saturated the cache server's admission control. Put returns nil immediately
+// (fire-and-forget, matching the prior async model); the coalescer reports
+// per-object outcomes (rolling back a claim on a server-side error) and the
+// whole batch is retried as one tar on a 503 shed. If the server does not
+// support the batch endpoint (sticky batchPutUnsupported, set on a 404/405),
+// Put falls back to the per-object doRetryPUT path — the #272 single-PUT retry
+// is the floor.
 func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
 	// Circuit breaker tripped: drop the upload silently. PUTs are best-effort —
 	// a dropped upload only costs a future cache miss, never build correctness —
@@ -452,9 +494,14 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		attribute.Int64("cacheprog.bytes_uncompressed", bodySize))
 	defer span.End()
 
-	var uploaded bool
+	// Release the optimistic claim unless the object is successfully queued for
+	// upload (enqueued onto the coalescer or, in fallback mode, dispatched on the
+	// single-PUT path). Each path sets queued=true once it has taken ownership of
+	// the claim; the coalescer/single-PUT path is then responsible for any later
+	// rollback (a per-object server error or a whole-batch final failure).
+	var queued bool
 	defer func() {
-		if !uploaded {
+		if !queued {
 			b.removeClaimed(key)
 		}
 	}()
@@ -498,72 +545,74 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		markSpanErr(span, "compress", err)
 		return fmt.Errorf("web put compress: %w", err)
 	}
-	span.SetAttributes(attribute.Int("cacheprog.bytes_compressed", len(compressed)))
+	span.SetAttributes(attribute.Int("cacheprog.bytes_compressed", len(compressed)),
+		attribute.String("cacheprog.label", describeData(raw)))
 
-	req, err := http.NewRequest("PUT", b.url(key), bytes.NewReader(compressed))
-	if err != nil {
-		span.SetStatus(codes.Error, "build request")
-		return fmt.Errorf("web put request: %w", err)
+	// Assemble the manifest metadata map: lowercased meta names WITHOUT the
+	// X-Cache-Meta- prefix, the SAME values a single PUT sends as headers. The
+	// single-PUT fallback re-derives these as headers from this map (see
+	// metadataHeaders), so this map is the single source of truth for both paths.
+	meta := map[string]string{
+		"outputid":    outputID,
+		"object-type": detectObjectType(raw),
+		"body-size":   strconv.FormatInt(bodySize, 10),
+		"compression": "lz4",
+		"created":     time.Now().UTC().Format(time.RFC3339),
 	}
-	req.ContentLength = int64(len(compressed))
-	req.Header.Set("X-Cache-Meta-Outputid", outputID)
-	req.Header.Set("X-Cache-Meta-Object-Type", detectObjectType(raw))
-	req.Header.Set("X-Cache-Meta-Body-Size", strconv.FormatInt(bodySize, 10))
-	req.Header.Set("X-Cache-Meta-Compression", "lz4")
-	req.Header.Set("X-Cache-Meta-Created", time.Now().UTC().Format(time.RFC3339))
 	if b.version != "" {
-		req.Header.Set("X-Cache-Meta-Toolchain-Version", b.version)
+		meta["toolchain-version"] = b.version
 	}
 	if goVer, target := parseArchiveHeader(raw); goVer != "" {
-		req.Header.Set("X-Cache-Meta-Go-Version", goVer)
-		req.Header.Set("X-Cache-Meta-Target", target)
+		meta["go-version"] = goVer
+		meta["target"] = target
 	}
 	if pkg := parseImportPath(raw); pkg != "" {
-		req.Header.Set("X-Cache-Meta-Pkg", pkg)
+		meta["pkg"] = pkg
 	}
 	if files := parseSourceFiles(raw); len(files) > 0 {
-		req.Header.Set("X-Cache-Meta-Src", strings.Join(files, " "))
+		meta["src"] = strings.Join(files, " ")
 	}
-	b.signRequest(req)
 
-	b.Pool.Acquire()
-	httpStart := time.Now()
-	// Retry a transient upload failure with backoff, honoring Retry-After. The
-	// cache server sheds excess concurrent requests under a CI burst with a
-	// 503 + Retry-After (admission control); a bare Do would silently drop the
-	// object on that shed and it would never be stored. doRetryPUT rebuilds the
-	// body reader (from the in-memory compressed bytes) on each attempt.
-	resp, err := b.doRetryPUT(req, compressed)
-	b.Pool.Release()
-	if b.Latency != nil && err == nil {
-		b.Latency.HTTPPut.Record(time.Since(httpStart))
+	pr := putReq{
+		actionID:   actionID,
+		key:        key,
+		outputID:   outputID,
+		raw:        raw,
+		compressed: compressed,
+		metadata:   meta,
 	}
-	if err != nil {
-		b.noteRemoteResult(true)
-		markSpanErr(span, "network", err)
-		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", shortID(actionID), err)
-		return err
-	}
-	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
-	// Drain and close body so the connection is returned to the pool.
-	defer func() {
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
 
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		b.noteRemoteStatus(resp.StatusCode)
-		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
-		b.errLog.Record("web put", resp.StatusCode, actionID, string(respBody))
-		return fmt.Errorf("web put: HTTP %d: %w", resp.StatusCode, errLogged)
+	// Server has no batch endpoint (learned from an earlier 404/405): fall back
+	// to the per-object single-PUT path. This keeps the client working against an
+	// un-upgraded server; the #272 retry is the floor.
+	if b.batchPutUnsupported.Load() {
+		queued = true // putSingle owns the claim from here on.
+		return b.putSingle(pr)
 	}
-	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
-	uploaded = true
-	b.Stats.Puts.Increment()
-	span.SetAttributes(attribute.String("cacheprog.label", describeData(raw)))
+	// Enqueue onto the coalescer and return immediately. The coalescer owns the
+	// claim from here: it keeps it on stored/conflict/dropped and rolls it back
+	// on a per-object error or a whole-batch final failure.
+	select {
+	case b.putBatchReqCh <- pr:
+		queued = true
+	case <-b.putBatchStop:
+		// Backend is closing — drop the claim so a later run re-uploads.
+	}
 	return nil
+}
+
+// metadataHeaders renders a manifest metadata map back into the X-Cache-Meta-*
+// request headers a single PUT uses. The map keys are the lowercased meta names
+// without the prefix; this is the inverse of the map assembled in Put, so the
+// single-PUT fallback sends byte-identical metadata to what the batch manifest
+// carries. Header keys are canonicalized by net/http on Set.
+func metadataHeaders(meta map[string]string) http.Header {
+	h := http.Header{}
+	for name, val := range meta {
+		h.Set("X-Cache-Meta-"+name, val)
+	}
+	return h
 }
 
 // removeClaimed removes a key that was optimistically added to the index
@@ -580,6 +629,16 @@ func (b *WebBackend) removeClaimed(key string) {
 // components (timeline exporter, cacheprog) share the same provider so
 // all spans land in a single OTLP batch.
 func (b *WebBackend) Close() error {
+	// Flush the PUT coalescer FIRST so every buffered upload is shipped before
+	// the backend tears down. A build that ends with objects still in the
+	// coalescer would otherwise lose them (they were claimed in the index but
+	// never stored remotely). The daemon drains the shared backend exactly here
+	// (Daemon.Close → remote.Close, the real WebBackend.Close — the per-connection
+	// noCloseBackend suppresses Close), so daemon teardown flushes pending PUTs.
+	if b.putBatchStop != nil {
+		close(b.putBatchStop)
+		<-b.putBatchDone
+	}
 	if b.batchStop != nil {
 		close(b.batchStop)
 		<-b.batchDone
