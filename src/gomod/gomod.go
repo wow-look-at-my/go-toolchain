@@ -84,17 +84,27 @@ func hasMainPackage(dir string) bool {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		// Honor build constraints: a file excluded from the build for the
-		// current context (notably "//go:build ignore", but also a GOOS/GOARCH
-		// mismatch) must not contribute a "package main". This stops generator
-		// idioms such as "//go:build ignore" + "package main" (run via
-		// `go run`) from being misidentified as the directory's main package.
+		// Read the cheap "package" clause FIRST. The vast majority of files in
+		// a module are not "package main", and for those the constraint check
+		// is irrelevant: a build-excluded non-main file was never going to be
+		// counted as a main package anyway. Doing this first avoids a full
+		// file read + build-constraint parse (build.Default.MatchFile) on
+		// every .go file in the module tree on every build invocation.
+		if packageNameFromFile(filepath.Join(dir, name)) != "main" {
+			continue
+		}
+		// This file declares "package main". Only now pay for the constraint
+		// check: honor build constraints so a file excluded from the build for
+		// the current context (notably "//go:build ignore", but also a
+		// GOOS/GOARCH mismatch) does not contribute a "package main". This
+		// stops generator idioms such as "//go:build ignore" + "package main"
+		// (run via `go run`) from being misidentified as the directory's main
+		// package, while a legitimately-constrained main (e.g. "//go:build
+		// linux") is still discovered under the matching context.
 		if !fileMatchesBuild(dir, name) {
 			continue
 		}
-		if packageNameFromFile(filepath.Join(dir, name)) == "main" {
-			return true
-		}
+		return true
 	}
 	return false
 }
@@ -107,12 +117,18 @@ func hasMainPackage(dir string) bool {
 // go/build cannot classify is treated as included, preserving the previous
 // build-tag-blind behavior for anything MatchFile can't decide.
 func fileMatchesBuild(dir, name string) bool {
-	matched, err := build.Default.MatchFile(dir, name)
+	matched, err := matchFile(dir, name)
 	if err != nil {
 		return true
 	}
 	return matched
 }
+
+// matchFile is the build-constraint matcher used by fileMatchesBuild. It is a
+// package-level variable (defaulting to go/build's own matcher) so tests can
+// observe exactly which files the constraint check is consulted for — it must
+// only ever run on "package main" candidates, never on every .go file.
+var matchFile = build.Default.MatchFile
 
 // packageNameFromFile reads the package declaration from a Go source file.
 // It scans only until the package line is found, avoiding parsing the whole file.
