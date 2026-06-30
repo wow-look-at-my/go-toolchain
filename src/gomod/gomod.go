@@ -4,6 +4,7 @@ package gomod
 
 import (
 	"bufio"
+	"go/build"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,11 +84,34 @@ func hasMainPackage(dir string) bool {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
+		// Honor build constraints: a file excluded from the build for the
+		// current context (notably "//go:build ignore", but also a GOOS/GOARCH
+		// mismatch) must not contribute a "package main". This stops generator
+		// idioms such as "//go:build ignore" + "package main" (run via
+		// `go run`) from being misidentified as the directory's main package.
+		if !fileMatchesBuild(dir, name) {
+			continue
+		}
 		if packageNameFromFile(filepath.Join(dir, name)) == "main" {
 			return true
 		}
 	}
 	return false
+}
+
+// fileMatchesBuild reports whether the named .go file in dir is part of the
+// build for the current build context, honoring "//go:build" / "// +build"
+// constraints (including the never-satisfied "ignore" tag) and the
+// GOOS/GOARCH-encoding filename convention. It uses go/build's own matcher so
+// the result matches what `go build` would actually compile. A file that
+// go/build cannot classify is treated as included, preserving the previous
+// build-tag-blind behavior for anything MatchFile can't decide.
+func fileMatchesBuild(dir, name string) bool {
+	matched, err := build.Default.MatchFile(dir, name)
+	if err != nil {
+		return true
+	}
+	return matched
 }
 
 // packageNameFromFile reads the package declaration from a Go source file.
