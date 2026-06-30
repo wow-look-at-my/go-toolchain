@@ -99,6 +99,28 @@ func TestFindMainPackages_HonorsBuildConstraints(t *testing.T) {
 		"only the real main package must be discovered; ignored generators in bench/e2e must be excluded")
 }
 
+func TestHasMainPackage_OnlyConstraintChecksMainCandidates(t *testing.T) {
+	root := t.TempDir()
+	// A directory full of non-main files plus a single real package main.
+	writeFile(t, root, "a.go", "package lib\n")
+	writeFile(t, root, "b.go", "package lib\n")
+	writeFile(t, root, "c.go", "package lib\n")
+	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
+	// A non-test file that is NOT package main must never reach the
+	// (expensive) build-constraint check; only the package-main file may.
+	var checked []string
+	orig := matchFile
+	matchFile = func(dir, name string) (bool, error) {
+		checked = append(checked, name)
+		return orig(dir, name)
+	}
+	t.Cleanup(func() { matchFile = orig })
+
+	assert.True(t, hasMainPackage(root))
+	assert.Equal(t, []string{"main.go"}, checked,
+		"the build-constraint check must run only on package-main candidates, not every .go file")
+}
+
 func TestFindMainPackages_RootMain(t *testing.T) {
 	modPath := "example.com/rootmain"
 	newModule(t, modPath)
