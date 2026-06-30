@@ -2,6 +2,7 @@ package cache
 
 import (
 	"archive/tar"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // fakeBatchServer returns an httptest.Server that mimics the /_batch/get
@@ -344,6 +346,12 @@ func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The fake server 404s on /_index, so the remote index loads empty; force a
+	// non-empty index (production: a remote with content advertises a non-empty
+	// index) so the requested-but-unindexed key still takes the batch path
+	// instead of the empty-index fast-miss.
+	b.indexEmpty = false
+
 	// Key is NOT in b.keys index (simulating a fresh cache).
 	compressed, _ := compressData([]byte("batch hit"))
 	store["go-buildcache/v1aabbccdd11223344"] = compressed
@@ -417,6 +425,11 @@ func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The server 404s on /_index, so the remote index loads empty; force a
+	// non-empty index so unindexed keys take the batch path this test exercises
+	// (the empty-index fast-miss is covered by TestWebBackend_EmptyIndexSkipsBatch).
+	b.indexEmpty = false
+
 	// Fire N parallel Get calls for unknown keys.
 	var wg sync.WaitGroup
 	for i := 0; i < N; i++ {
@@ -437,4 +450,253 @@ func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 		"expected ≤3 HTTP requests for %d parallel Gets, got %d (no client-side batching)", N, calls)
 	require.Greater(t, atomic.LoadInt32(&maxKeysInOneRequest), int32(1),
 		"expected at least one HTTP request to carry multiple keys; max was %d", atomic.LoadInt32(&maxKeysInOneRequest))
+}
+
+// emptyIndexServer mimics a reachable but empty shared cache: GET /_index
+// serves either a 404 (no blob yet) or, when indexBlob is non-nil, a real GBCI
+// blob. It counts /_batch/get and PUT requests so tests can assert that cold
+// Gets do (or do not) issue a batch round-trip. PUTs are accepted (200).
+func emptyIndexServer(t *testing.T, batchGets, puts *atomic.Int64, indexBlob []byte) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/testbucket/_index" && r.Method == http.MethodGet:
+			if indexBlob == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			etag := indexETag(indexBlob)
+			if r.Header.Get("If-None-Match") == etag {
+				w.Header().Set("ETag", etag)
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			w.Header().Set("ETag", etag)
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.WriteHeader(http.StatusOK)
+			w.Write(indexBlob)
+		case r.URL.Path == "/testbucket/_batch/get" && r.Method == http.MethodGet:
+			batchGets.Add(1)
+			// Empty remote: return an empty manifest (0 entries).
+			manifest := batchGetManifest{}
+			w.Header().Set("Content-Type", "application/x-tar")
+			w.WriteHeader(200)
+			tw := tar.NewWriter(w)
+			mdata, _ := json.Marshal(manifest)
+			tw.WriteHeader(&tar.Header{Name: "manifest.json", Size: int64(len(mdata)), Mode: 0644})
+			tw.Write(mdata)
+			tw.Close()
+		case r.Method == http.MethodPut:
+			puts.Add(1)
+			io.Copy(io.Discard, r.Body)
+			w.WriteHeader(200)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+// TestWebBackend_EmptyIndexSkipsBatch is the regression for the cold-build
+// waste: when the remote's authoritative key index is empty, a /_batch/get can
+// only ever return zero entries, so the backend must skip the network entirely
+// and miss cleanly. Before the fix, every cold key paid a round-trip per key
+// (thousands of empty batches, ~27s) that the breaker never backed off (a
+// 200-with-0-entries resets the failure streak).
+func TestWebBackend_EmptyIndexSkipsBatch(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	var batchGets, puts atomic.Int64
+	srv := emptyIndexServer(t, &batchGets, &puts, nil) // nil => 404 index => empty
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	require.True(t, b.indexEmpty, "404 index must mark the remote index empty")
+
+	// Several distinct cold keys must all miss with zero batch round-trips.
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("%016x", 0xc01d0000+i)
+		_, _, _, _, miss, err := b.Get(id)
+		require.NoError(t, err)
+		require.True(t, miss, "a cold key against an empty remote must be a clean miss")
+	}
+
+	require.Equal(t, uint32(5), b.SkippedEmptyIndex.Load(),
+		"every cold Get against an empty index must record an empty-index skip")
+	require.Equal(t, int64(0), batchGets.Load(),
+		"an empty remote index must issue ZERO /_batch/get round-trips")
+}
+
+// TestWebBackend_NonEmptyIndexStillBatches guards against over-broad skipping:
+// when the index is non-empty (it holds at least one key), a cold key NOT in
+// the index must still take the normal batch path — the remote may legitimately
+// hold entries the partial index didn't list.
+func TestWebBackend_NonEmptyIndexStillBatches(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	var batchGets, puts atomic.Int64
+
+	indexed := set.New[string]()
+	indexed.Add("go-buildcache/v1" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	blob := marshalIndex(indexed)
+
+	srv := emptyIndexServer(t, &batchGets, &puts, blob)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	require.False(t, b.indexEmpty, "a one-key index must NOT be treated as empty")
+
+	// A DIFFERENT cold key (not in the index) must still issue a batch GET.
+	_, _, _, _, miss, err := b.Get("bbbbbbbbbbbbbbbb")
+	require.NoError(t, err)
+	require.True(t, miss, "the cold key is absent, so it misses")
+	require.Equal(t, uint32(0), b.SkippedEmptyIndex.Load(),
+		"a non-empty index must never skip the batch path")
+	require.Equal(t, int64(1), batchGets.Load(),
+		"a cold key against a non-empty index must still issue a /_batch/get")
+}
+
+// TestWebBackend_EmptyIndexStillPuts verifies the skip is GET-only: a Put on a
+// cold/empty-index run must still upload, so the remote gets populated for the
+// next build (which then sees a non-empty index and uses the normal path).
+func TestWebBackend_EmptyIndexStillPuts(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	var batchGets, puts atomic.Int64
+	srv := emptyIndexServer(t, &batchGets, &puts, nil)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	require.True(t, b.indexEmpty)
+
+	body := []byte("a freshly compiled object")
+	err = b.Put("deadbeefdeadbeef", testOutputID(string(body)), bytes.NewReader(body), int64(len(body)))
+	require.NoError(t, err)
+
+	require.Equal(t, int64(1), puts.Load(),
+		"an empty-index run must still upload PUTs to populate the remote")
+}
+
+// TestWebBackend_EmptyBatchBackoffStopsProbing covers the real CI case: the
+// remote index is NON-empty (so the empty-index fast-miss never engages), but it
+// holds none of THIS build's keys, so every /_batch/get returns zero entries. The
+// consecutive-empty-batch backoff must trip after the threshold and stop probing,
+// bounding the wasted round-trips instead of paying one batch per cold key.
+func TestWebBackend_EmptyBatchBackoffStopsProbing(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	// Low threshold so the test trips quickly and deterministically.
+	t.Setenv("GO_TOOLCHAIN_CACHE_EMPTY_BATCH_BACKOFF", "4")
+	var batchGets, puts atomic.Int64
+
+	// Non-empty index that does NOT contain any key this build requests, so the
+	// index check passes (indexEmpty=false) but every batch comes back empty.
+	indexed := set.New[string]()
+	indexed.Add("go-buildcache/v1" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	blob := marshalIndex(indexed)
+
+	srv := emptyIndexServer(t, &batchGets, &puts, blob)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	require.False(t, b.indexEmpty, "a one-key index must NOT be treated as empty")
+	require.Equal(t, 4, b.emptyBatchBackoffThreshold)
+
+	// Issue many distinct cold keys. The coalescer ships one key per batch here
+	// (each Get blocks on its own reply before the next is issued), so each Get
+	// that reaches the network is exactly one empty /_batch/get. After the
+	// threshold the backoff trips and the remaining Gets skip the network.
+	const nKeys = 40
+	for i := 0; i < nKeys; i++ {
+		id := fmt.Sprintf("%016x", 0xb0110000+i)
+		_, _, _, _, miss, err := b.Get(id)
+		require.NoError(t, err)
+		require.True(t, miss, "a cold key the remote does not have must be a clean miss")
+	}
+
+	require.True(t, b.batchProbingDisabled.Load(),
+		"consecutive empty batches must trip the backoff")
+	require.Greater(t, b.SkippedBatchBackoff.Load(), uint32(0),
+		"once tripped, cold Gets must record a batch-backoff skip")
+	// Batch round-trips must be bounded by the threshold, NOT one-per-key. Allow a
+	// little slack for the trip boundary, but it must be far below nKeys.
+	require.LessOrEqual(t, batchGets.Load(), int64(b.emptyBatchBackoffThreshold+2),
+		"batch GETs must be bounded by the backoff threshold, not one per cold key")
+	require.Less(t, batchGets.Load(), int64(nKeys),
+		"the backoff must prevent a round-trip per cold key")
+	// Skips + actual batch round-trips must account for every cold key.
+	require.Equal(t, uint32(nKeys), b.MissNotInIndex.Load(),
+		"every cold key counts as not-in-index regardless of skip vs round-trip")
+}
+
+// TestWebBackend_BackoffResetsOnNonEmptyBatch verifies the backoff does NOT trip
+// when the remote IS serving: a non-empty batch resets the consecutive-empty
+// streak, so an interleaving of hits keeps batch probing enabled.
+func TestWebBackend_BackoffResetsOnNonEmptyBatch(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("GO_TOOLCHAIN_CACHE_EMPTY_BATCH_BACKOFF", "4")
+
+	store := make(map[string][]byte)
+	meta := make(map[string]map[string]string)
+
+	// Seed one served key so a batch requesting it comes back non-empty.
+	hotID := "00000000000000ff"
+	hotKey := "go-buildcache/v1" + hotID
+	hotBody := []byte("served object that resets the streak")
+	hotComp, err := compressData(hotBody)
+	require.NoError(t, err)
+	store[hotKey] = hotComp
+	meta[hotKey] = map[string]string{"outputid": testOutputID(string(hotBody))}
+
+	srv := fakeBatchServer(t, store, meta)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	// fakeBatchServer 404s on /_index, so force a non-empty index to take the
+	// batch path (the empty-index fast-miss is orthogonal to this test).
+	b.indexEmpty = false
+
+	// Interleave: a few cold (empty-batch) keys, then a hot key that resets the
+	// streak, repeated. The streak never reaches the threshold, so probing stays on.
+	for round := 0; round < 6; round++ {
+		for j := 0; j < 3; j++ {
+			cold := fmt.Sprintf("%016x", 0xc01d0000+round*10+j)
+			_, _, _, _, miss, err := b.Get(cold)
+			require.NoError(t, err)
+			require.True(t, miss)
+		}
+		// Hot key: served, non-empty batch → resets the empty streak.
+		_, body, _, _, miss, err := b.Get(hotID)
+		require.NoError(t, err)
+		require.False(t, miss, "the seeded hot key must hit")
+		if body != nil {
+			io.Copy(io.Discard, body)
+			body.Close()
+		}
+	}
+
+	require.False(t, b.batchProbingDisabled.Load(),
+		"a non-empty batch every few requests must keep the streak below threshold")
+	require.Equal(t, uint32(0), b.SkippedBatchBackoff.Load(),
+		"batch probing must stay enabled, so no backoff skips")
 }

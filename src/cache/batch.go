@@ -238,6 +238,13 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		return
 	}
 
+	// Feed the entry count to the consecutive-empty-batch backoff (separate from
+	// the circuit breaker, which a 200 already reset above). A run of zero-entry
+	// batches means the remote — though healthy — holds nothing useful for this
+	// build, so after a threshold we stop probing for the rest of the run; any
+	// non-empty batch resets the streak.
+	b.noteBatchEntries(len(entries))
+
 	var nPrefetch int
 	for _, e := range entries {
 		if e.Prefetch {
