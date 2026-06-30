@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -173,6 +174,158 @@ func TestServer_RemoteOutageServesLocalCorrectly(t *testing.T) {
 	require.Equal(t, stored, gotBytes, "the locally-served body must be exactly what was stored — never corrupt/empty")
 
 	require.True(t, resps[3].Miss, "a never-stored key must miss cleanly under a remote outage, not spuriously hit")
+}
+
+// TestWebBackend_PutRetriesTransient503ThenSucceeds is the regression for the
+// dropped-upload half of the CI-burst bug. The cache server's admission control
+// sheds excess concurrent requests with 503 + Retry-After. Before this fix,
+// WebBackend.Put issued a bare client.Do with NO retry, so a shed 503 silently
+// dropped the object — it was never stored, and the shared /_index never filled
+// under load. Put must now retry the 503 (honoring Retry-After) and store the
+// object once the server admits it.
+func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
+	hermeticOTel(t)
+	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "3")
+
+	const actionID = "aabbccdd11223344"
+	objectPath := "/testbucket/go-buildcache/v1" + actionID
+
+	var putAttempts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PUT" || r.URL.Path != objectPath {
+			w.WriteHeader(http.StatusNotFound) // index etc.
+			return
+		}
+		// Shed the first two PUT attempts the way admission control does:
+		// 503 + Retry-After (0 keeps the test fast — the jittered base backoff
+		// still applies, so this exercises the retry path without a real wait).
+		if putAttempts.Add(1) < 3 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+
+	payload := largePayload(1024)
+	outputID := testOutputID(payload)
+	err = b.Put(actionID, outputID, strings.NewReader(payload), int64(len(payload)))
+	require.NoError(t, err, "a 503-shed PUT must be retried and ultimately succeed, not silently dropped")
+	require.Equal(t, int64(3), putAttempts.Load(), "should have retried twice before the 3rd PUT attempt was admitted")
+	require.Equal(t, uint32(1), b.Stats.Puts.Load(), "the object must be recorded as stored")
+	// A 503 shed is backpressure, not a backend fault — the breaker stays closed.
+	require.False(t, b.remoteDisabled(), "503 admission sheds must not trip the breaker")
+}
+
+// TestWebBackend_Burst503DoesNotTripBreaker proves the breaker-classification
+// half of the fix: a burst of 503 admission sheds (the CI-burst backpressure)
+// must NOT trip the circuit breaker, so GETs keep attempting the remote and are
+// never short-circuited to MissCircuitOpen. Before the fix, each 503 counted
+// toward the shared breaker (breakerThreshold) and a burst disabled the remote
+// cache for the rest of the run — "no hits ever".
+func TestWebBackend_Burst503DoesNotTripBreaker(t *testing.T) {
+	hermeticOTel(t)
+	t.Setenv("GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD", "3")
+	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "0") // 1 request per op
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusServiceUnavailable) // 503 for everything
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+
+	const actionID = "deadbeef00000000"
+	primeIndex(b, actionID)
+
+	// A burst of GETs that all get 503 — well past breakerThreshold.
+	for i := 0; i < 12; i++ {
+		_, _, _, _, miss, err := b.Get(actionID)
+		require.NoError(t, err)
+		require.True(t, miss, "a 503 still degrades a single GET to a clean miss")
+	}
+
+	require.False(t, b.remoteDisabled(), "a burst of 503 sheds must NOT trip the breaker (it is backpressure, not a fault)")
+	require.Equal(t, uint32(0), b.MissCircuitOpen.Load(), "no GET should be short-circuited as a circuit-open miss")
+
+	// PUTs that all get 503 likewise must not trip the breaker.
+	for i := 0; i < 12; i++ {
+		// PUT errors (it ran out of retry budget) but the breaker stays closed.
+		_ = b.Put(actionID, testOutputID(largePayload(64)), strings.NewReader(largePayload(64)), 64)
+		// Re-claim slot: removeClaimed already ran on the failed Put, so the next
+		// Put for the same key is attempted again.
+	}
+	require.False(t, b.remoteDisabled(), "a burst of 503 PUT sheds must NOT trip the breaker either")
+}
+
+// TestWebBackend_Burst502TripsBreaker is the contrast control: a burst of 502
+// (a genuine backend fault, not backpressure) DOES still trip the breaker. This
+// proves the 503 carve-out in breakerFault is surgical — only 503 is exempt,
+// every other transient status still protects the build from hammering a truly
+// unhealthy backend.
+func TestWebBackend_Burst502TripsBreaker(t *testing.T) {
+	hermeticOTel(t)
+	t.Setenv("GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD", "3")
+	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "0")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway) // 502 for everything
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	var logBuf bytes.Buffer
+	b.breakerLog = &logBuf
+
+	const actionID = "deadbeef00000000"
+	primeIndex(b, actionID)
+
+	// Construction's index fetch 502'd once (streak=1); two more GET failures
+	// reach the threshold of 3 and trip the breaker.
+	for i := 0; i < 8; i++ {
+		_, _, _, _, miss, err := b.Get(actionID)
+		require.NoError(t, err)
+		require.True(t, miss)
+	}
+	require.True(t, b.remoteDisabled(), "a burst of 502 (a real fault) must still trip the breaker")
+	require.Contains(t, logBuf.String(), "falling back to local-only")
+}
+
+// TestParseRetryAfter covers the Retry-After header parsing helper.
+func TestParseRetryAfter(t *testing.T) {
+	mk := func(v string) *http.Response {
+		r := &http.Response{Header: http.Header{}}
+		if v != "" {
+			r.Header.Set("Retry-After", v)
+		}
+		return r
+	}
+	require.Equal(t, time.Duration(0), parseRetryAfter(nil), "nil response")
+	require.Equal(t, time.Duration(0), parseRetryAfter(mk("")), "absent header")
+	require.Equal(t, time.Duration(0), parseRetryAfter(mk("garbage")), "unparseable")
+	require.Equal(t, time.Duration(0), parseRetryAfter(mk("0")), "zero seconds")
+	require.Equal(t, 1*time.Second, parseRetryAfter(mk("1")), "delta-seconds")
+	// Capped at retryMaxDelay.
+	require.Equal(t, retryMaxDelay, parseRetryAfter(mk("3600")), "large delta capped at retryMaxDelay")
 }
 
 // sanity: the batch request shape is unchanged by the resilience wrapper.

@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -61,6 +62,62 @@ func transientStatus(code int) bool {
 	return code >= 500 || code == http.StatusTooManyRequests
 }
 
+// breakerFault reports whether an HTTP status should count toward the circuit
+// breaker. It is intentionally NARROWER than transientStatus: a 503 is the
+// cache server's admission-control backpressure (it sheds excess concurrent
+// requests with 503 + Retry-After), which is healthy load-shedding, not a
+// backend fault. Counting a burst of 503 sheds toward the breaker would
+// wrongly disable the remote cache for the rest of the run (GETs short-circuit
+// to clean misses) just because the build briefly pushed harder than the
+// server's concurrency limit. So a 503 is still RETRIED (transientStatus stays
+// true) and harmlessly resets the streak via noteRemoteResult, but it does not
+// increment it; every other transient status (500/502/504/429) and every
+// network error still counts as a genuine fault.
+func breakerFault(code int) bool {
+	return transientStatus(code) && code != http.StatusServiceUnavailable
+}
+
+// parseRetryAfter extracts a backoff hint from a response's Retry-After header.
+// It handles the delta-seconds form (an integer number of seconds) and the
+// HTTP-date form, returning 0 when the header is absent or unparseable. The
+// result is capped at retryMaxDelay so a server cannot pin a retry far into the
+// future.
+func parseRetryAfter(resp *http.Response) time.Duration {
+	if resp == nil {
+		return 0
+	}
+	v := resp.Header.Get("Retry-After")
+	if v == "" {
+		return 0
+	}
+	var d time.Duration
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		d = time.Duration(secs) * time.Second
+	} else if t, err := http.ParseTime(v); err == nil {
+		d = time.Until(t)
+		if d <= 0 {
+			return 0
+		}
+	} else {
+		return 0
+	}
+	if d > retryMaxDelay {
+		d = retryMaxDelay
+	}
+	return d
+}
+
+// noteRemoteStatus records an HTTP response status against the circuit breaker.
+// It applies breakerFault, so a 503 admission-shed (healthy backpressure) is
+// never counted as a fault while 500/502/504/429 still are. A transport error
+// with no response must call noteRemoteResult(true) directly.
+func (b *WebBackend) noteRemoteStatus(code int) {
+	b.noteRemoteResult(breakerFault(code))
+}
+
 // remoteDisabled reports whether the circuit breaker has tripped, meaning the
 // remote backend is being skipped entirely for the rest of this process.
 func (b *WebBackend) remoteDisabled() bool {
@@ -68,10 +125,12 @@ func (b *WebBackend) remoteDisabled() bool {
 }
 
 // noteRemoteResult feeds the outcome of one logical remote operation to the
-// circuit breaker. transientFailure is true for a 5xx/429/timeout/network
-// error; false for a success or any definitive non-failure (e.g. a 404 miss).
-// A non-failure resets the consecutive-failure streak; reaching the threshold
-// trips the breaker to local-only for the rest of the run.
+// circuit breaker. transientFailure is true for a genuine backend fault (a
+// 500/502/504/429 or a timeout/network error — see breakerFault); false for a
+// success, a definitive non-failure (e.g. a 404 miss), OR a 503 admission shed
+// (healthy backpressure, retried but not counted). A non-failure resets the
+// consecutive-failure streak; reaching the threshold trips the breaker to
+// local-only for the rest of the run.
 func (b *WebBackend) noteRemoteResult(transientFailure bool) {
 	if b.breakerThreshold <= 0 || b.breakerTripped.Load() {
 		return
@@ -110,12 +169,41 @@ func (b *WebBackend) tripBreaker() {
 // a definitive (<500, non-429) response. Circuit-breaker accounting is the
 // caller's job (one note per logical op), so retries here are not double-counted.
 func (b *WebBackend) doRetryGET(req *http.Request) (*http.Response, error) {
+	return b.doRetry(req)
+}
+
+// doRetryPUT issues an upload with the same bounded-retry/backoff policy as
+// doRetryGET. PUT is idempotent for this cache (the key is the content address,
+// so re-storing the same object is a no-op), which makes retrying a shed
+// request safe. The body is supplied as an in-memory []byte so each attempt can
+// rebuild a fresh reader via req.GetBody — without this a 503 admission shed
+// (the cache server's backpressure under a CI burst) silently dropped the
+// upload and the object was never stored.
+func (b *WebBackend) doRetryPUT(req *http.Request, body []byte) (*http.Response, error) {
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+	return b.doRetry(req)
+}
+
+// doRetry is the shared retry loop behind doRetryGET and doRetryPUT. It retries
+// a transient response (transientStatus) up to maxRetries times, sleeping
+// max(exponential-jittered backoff, server Retry-After) capped at retryMaxDelay
+// between attempts, and rewinds the request body from req.GetBody on each retry.
+// It returns the final (resp, err) exactly as http.Client.Do would. Note a 503
+// IS retried here (it is transient) even though it does NOT count toward the
+// circuit breaker (see breakerFault) — backpressure should be backed off and
+// retried, not treated as an outage.
+func (b *WebBackend) doRetry(req *http.Request) (*http.Response, error) {
 	var (
 		resp *http.Response
 		err  error
 	)
 	for attempt := 0; ; attempt++ {
-		// Rewind the body for a retry (batch get carries a small JSON body).
+		// Rewind the body for a retry (batch get carries a small JSON body; a
+		// PUT carries the compressed object).
 		if attempt > 0 && req.GetBody != nil {
 			if body, gerr := req.GetBody(); gerr == nil {
 				req.Body = body
@@ -128,26 +216,40 @@ func (b *WebBackend) doRetryGET(req *http.Request) (*http.Response, error) {
 		if attempt >= b.maxRetries {
 			return resp, err
 		}
-		// Drain and close a transient response before retrying so the
-		// connection returns to the pool.
+		// Honor a server-supplied Retry-After (e.g. the admission-control 503
+		// shed), but never sleep less than the jittered backoff.
+		var retryAfter time.Duration
 		if err == nil {
+			retryAfter = parseRetryAfter(resp)
+			// Drain and close a transient response before retrying so the
+			// connection returns to the pool.
 			io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
 			resp.Body.Close()
 		}
-		b.sleepBackoff(attempt)
+		b.sleepBackoff(attempt, retryAfter)
 	}
 }
 
-// sleepBackoff waits an exponentially increasing, fully jittered delay before a
-// retry, returning early if the backend is shutting down. Full jitter (a random
-// duration in [0, cap]) spreads concurrent retries so a parallel build does not
-// synchronize into a thundering herd against a recovering backend.
-func (b *WebBackend) sleepBackoff(attempt int) {
+// sleepBackoff waits before a retry, returning early if the backend is shutting
+// down. The base wait is an exponentially increasing, fully jittered delay
+// (full jitter — a random duration in [0, cap]) so a parallel build does not
+// synchronize into a thundering herd against a recovering backend. A non-zero
+// atLeast (a server Retry-After hint) raises the floor: the actual sleep is
+// max(jittered backoff, atLeast), still capped at retryMaxDelay.
+func (b *WebBackend) sleepBackoff(attempt int, atLeast time.Duration) {
 	d := retryBaseDelay << attempt
 	if d > retryMaxDelay || d <= 0 {
 		d = retryMaxDelay
 	}
 	d = time.Duration(rand.Int64N(int64(d) + 1))
+	if atLeast > 0 {
+		if atLeast > retryMaxDelay {
+			atLeast = retryMaxDelay
+		}
+		if atLeast > d {
+			d = atLeast
+		}
+	}
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {

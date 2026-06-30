@@ -296,7 +296,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTPError.Increment()
-		b.noteRemoteResult(transientStatus(resp.StatusCode))
+		b.noteRemoteStatus(resp.StatusCode)
 		markSpanMiss(span, fmt.Sprintf("http_%d", resp.StatusCode))
 		b.errLog.Record("web get", resp.StatusCode, actionID, string(respBody))
 		return "", nil, 0, time.Time{}, true, nil
@@ -528,7 +528,12 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	b.Pool.Acquire()
 	httpStart := time.Now()
-	resp, err := b.client.Do(req)
+	// Retry a transient upload failure with backoff, honoring Retry-After. The
+	// cache server sheds excess concurrent requests under a CI burst with a
+	// 503 + Retry-After (admission control); a bare Do would silently drop the
+	// object on that shed and it would never be stored. doRetryPUT rebuilds the
+	// body reader (from the in-memory compressed bytes) on each attempt.
+	resp, err := b.doRetryPUT(req, compressed)
 	b.Pool.Release()
 	if b.Latency != nil && err == nil {
 		b.Latency.HTTPPut.Record(time.Since(httpStart))
@@ -548,7 +553,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		b.noteRemoteResult(transientStatus(resp.StatusCode))
+		b.noteRemoteStatus(resp.StatusCode)
 		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		b.errLog.Record("web put", resp.StatusCode, actionID, string(respBody))
 		return fmt.Errorf("web put: HTTP %d: %w", resp.StatusCode, errLogged)

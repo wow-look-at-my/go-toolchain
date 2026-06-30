@@ -218,7 +218,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		// 5xx etc. — coalesced via errLog. Use the first actionID as the
 		// representative; the count of affected requests is captured by the
 		// errLog group's total.
-		b.noteRemoteResult(transientStatus(resp.StatusCode))
+		b.noteRemoteStatus(resp.StatusCode)
 		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		for _, r := range reqs {
 			b.errLog.Record("web batch get", resp.StatusCode, r.actionID, "")
