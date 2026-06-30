@@ -53,10 +53,11 @@ type WebBackend struct {
 	Stats     CacheStats
 	Pool      ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
 	Latency   *LatencyStats      // optional; set by Server for sub-operation tracking
-	keysMu    sync.RWMutex
-	keys      set.Set[string] // known keys, built from ListObjects on startup
-	missesMu  sync.RWMutex
-	knownMiss set.Set[string] // keys confirmed absent from remote this session
+	keysMu     sync.RWMutex
+	keys       set.Set[string] // known keys, built from ListObjects on startup
+	indexEmpty bool            // remote index was empty at startup: nothing to batch-probe for
+	missesMu   sync.RWMutex
+	knownMiss  set.Set[string] // keys confirmed absent from remote this session
 
 	// OnBatchEntries is called when a batch GET returns prefetch entries.
 	// The caller (Server/Daemon) uses this to populate the local cache,
@@ -75,6 +76,11 @@ type WebBackend struct {
 	MissModuleIndex AtomicCounter // module-index blobs refused: unverifiable under a key
 	MissNetwork     AtomicCounter
 	MissCircuitOpen AtomicCounter // gets served as misses because the breaker tripped
+
+	// SkippedEmptyIndex counts cold-key Gets that returned a clean miss without
+	// a /_batch/get round-trip because the remote's authoritative key index was
+	// empty at startup: an empty remote provably holds nothing to fetch.
+	SkippedEmptyIndex AtomicCounter
 
 	// Failure-handling resilience. A backend outage (5xx, timeout, reset) must
 	// never stall or corrupt a build: every remote op degrades to a clean miss
@@ -204,6 +210,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	b.batchDone = make(chan struct{})
 	go b.batchCoalescer()
 	b.keys = b.loadOrFetchIndex()
+	b.indexEmpty = b.keys.Len() == 0
 	b.knownMiss = set.New[string]()
 	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
 	return b, nil
@@ -248,6 +255,14 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	}
 
 	b.MissNotInIndex.Increment()
+	if b.indexEmpty {
+		// The remote published an empty key index this run: it definitively holds
+		// nothing, so a /_batch/get can only return zero entries. Skip the network
+		// and miss cleanly instead of paying a round-trip per cold key (which, on a
+		// cold CI build, is thousands of empty batches and tens of seconds wasted).
+		b.SkippedEmptyIndex.Increment()
+		return "", nil, 0, time.Time{}, true, nil
+	}
 	return b.getBatch(actionID, key)
 }
 

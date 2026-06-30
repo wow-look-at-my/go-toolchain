@@ -2,6 +2,7 @@ package cache
 
 import (
 	"archive/tar"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // fakeBatchServer returns an httptest.Server that mimics the /_batch/get
@@ -344,6 +346,12 @@ func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The fake server 404s on /_index, so the remote index loads empty; force a
+	// non-empty index (production: a remote with content advertises a non-empty
+	// index) so the requested-but-unindexed key still takes the batch path
+	// instead of the empty-index fast-miss.
+	b.indexEmpty = false
+
 	// Key is NOT in b.keys index (simulating a fresh cache).
 	compressed, _ := compressData([]byte("batch hit"))
 	store["go-buildcache/v1aabbccdd11223344"] = compressed
@@ -417,6 +425,11 @@ func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The server 404s on /_index, so the remote index loads empty; force a
+	// non-empty index so unindexed keys take the batch path this test exercises
+	// (the empty-index fast-miss is covered by TestWebBackend_EmptyIndexSkipsBatch).
+	b.indexEmpty = false
+
 	// Fire N parallel Get calls for unknown keys.
 	var wg sync.WaitGroup
 	for i := 0; i < N; i++ {
@@ -437,4 +450,140 @@ func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 		"expected ≤3 HTTP requests for %d parallel Gets, got %d (no client-side batching)", N, calls)
 	require.Greater(t, atomic.LoadInt32(&maxKeysInOneRequest), int32(1),
 		"expected at least one HTTP request to carry multiple keys; max was %d", atomic.LoadInt32(&maxKeysInOneRequest))
+}
+
+// emptyIndexServer mimics a reachable but empty shared cache: GET /_index
+// serves either a 404 (no blob yet) or, when indexBlob is non-nil, a real GBCI
+// blob. It counts /_batch/get and PUT requests so tests can assert that cold
+// Gets do (or do not) issue a batch round-trip. PUTs are accepted (200).
+func emptyIndexServer(t *testing.T, batchGets, puts *atomic.Int64, indexBlob []byte) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/testbucket/_index" && r.Method == http.MethodGet:
+			if indexBlob == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			etag := indexETag(indexBlob)
+			if r.Header.Get("If-None-Match") == etag {
+				w.Header().Set("ETag", etag)
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			w.Header().Set("ETag", etag)
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.WriteHeader(http.StatusOK)
+			w.Write(indexBlob)
+		case r.URL.Path == "/testbucket/_batch/get" && r.Method == http.MethodGet:
+			batchGets.Add(1)
+			// Empty remote: return an empty manifest (0 entries).
+			manifest := batchGetManifest{}
+			w.Header().Set("Content-Type", "application/x-tar")
+			w.WriteHeader(200)
+			tw := tar.NewWriter(w)
+			mdata, _ := json.Marshal(manifest)
+			tw.WriteHeader(&tar.Header{Name: "manifest.json", Size: int64(len(mdata)), Mode: 0644})
+			tw.Write(mdata)
+			tw.Close()
+		case r.Method == http.MethodPut:
+			puts.Add(1)
+			io.Copy(io.Discard, r.Body)
+			w.WriteHeader(200)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+// TestWebBackend_EmptyIndexSkipsBatch is the regression for the cold-build
+// waste: when the remote's authoritative key index is empty, a /_batch/get can
+// only ever return zero entries, so the backend must skip the network entirely
+// and miss cleanly. Before the fix, every cold key paid a round-trip per key
+// (thousands of empty batches, ~27s) that the breaker never backed off (a
+// 200-with-0-entries resets the failure streak).
+func TestWebBackend_EmptyIndexSkipsBatch(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	var batchGets, puts atomic.Int64
+	srv := emptyIndexServer(t, &batchGets, &puts, nil) // nil => 404 index => empty
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	require.True(t, b.indexEmpty, "404 index must mark the remote index empty")
+
+	// Several distinct cold keys must all miss with zero batch round-trips.
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("%016x", 0xc01d0000+i)
+		_, _, _, _, miss, err := b.Get(id)
+		require.NoError(t, err)
+		require.True(t, miss, "a cold key against an empty remote must be a clean miss")
+	}
+
+	require.Equal(t, uint32(5), b.SkippedEmptyIndex.Load(),
+		"every cold Get against an empty index must record an empty-index skip")
+	require.Equal(t, int64(0), batchGets.Load(),
+		"an empty remote index must issue ZERO /_batch/get round-trips")
+}
+
+// TestWebBackend_NonEmptyIndexStillBatches guards against over-broad skipping:
+// when the index is non-empty (it holds at least one key), a cold key NOT in
+// the index must still take the normal batch path — the remote may legitimately
+// hold entries the partial index didn't list.
+func TestWebBackend_NonEmptyIndexStillBatches(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	var batchGets, puts atomic.Int64
+
+	indexed := set.New[string]()
+	indexed.Add("go-buildcache/v1" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	blob := marshalIndex(indexed)
+
+	srv := emptyIndexServer(t, &batchGets, &puts, blob)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	require.False(t, b.indexEmpty, "a one-key index must NOT be treated as empty")
+
+	// A DIFFERENT cold key (not in the index) must still issue a batch GET.
+	_, _, _, _, miss, err := b.Get("bbbbbbbbbbbbbbbb")
+	require.NoError(t, err)
+	require.True(t, miss, "the cold key is absent, so it misses")
+	require.Equal(t, uint32(0), b.SkippedEmptyIndex.Load(),
+		"a non-empty index must never skip the batch path")
+	require.Equal(t, int64(1), batchGets.Load(),
+		"a cold key against a non-empty index must still issue a /_batch/get")
+}
+
+// TestWebBackend_EmptyIndexStillPuts verifies the skip is GET-only: a Put on a
+// cold/empty-index run must still upload, so the remote gets populated for the
+// next build (which then sees a non-empty index and uses the normal path).
+func TestWebBackend_EmptyIndexStillPuts(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	var batchGets, puts atomic.Int64
+	srv := emptyIndexServer(t, &batchGets, &puts, nil)
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "key", SecretKey: "secret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	require.True(t, b.indexEmpty)
+
+	body := []byte("a freshly compiled object")
+	err = b.Put("deadbeefdeadbeef", testOutputID(string(body)), bytes.NewReader(body), int64(len(body)))
+	require.NoError(t, err)
+
+	require.Equal(t, int64(1), puts.Load(),
+		"an empty-index run must still upload PUTs to populate the remote")
 }
