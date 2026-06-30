@@ -3,8 +3,10 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -13,10 +15,80 @@ const (
 	fileLengthError = 750
 )
 
-// checkFileLength walks all .go files under root (excluding generated files)
-// and warns at 500 lines, errors at 750 lines.
+// generatedFileRe matches the canonical "generated file" marker line. This is
+// the same rule used by `go help generate`, gofmt, and golang.org/x/tools: a
+// file is generated iff a line matching `^// Code generated .* DO NOT EDIT\.$`
+// appears in the file header (before the package clause).
+var generatedFileRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
+// isGeneratedFile reports whether r is a generated Go source file per the
+// canonical convention. It scans only the file header: leading `//go:build` /
+// `// +build` constraints, ordinary `//` line comments, `/* ... */` block
+// comments, and blank lines may precede the marker. Scanning stops at the first
+// line that is non-blank, not a comment, and not a build constraint (normally
+// the `package` clause), so a marker appearing after that point does not count.
+func isGeneratedFile(r io.Reader) bool {
+	scanner := bufio.NewScanner(r)
+	// Allow long lines (generated files can have very long header lines).
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	inBlockComment := false
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		trimmed := strings.TrimSpace(line)
+
+		// Inside a /* ... */ block comment: keep consuming until it closes.
+		if inBlockComment {
+			if idx := strings.Index(trimmed, "*/"); idx >= 0 {
+				inBlockComment = false
+			}
+			continue
+		}
+
+		// Blank lines are part of the header.
+		if trimmed == "" {
+			continue
+		}
+
+		// The canonical marker, on a line by itself.
+		if generatedFileRe.MatchString(trimmed) {
+			return true
+		}
+
+		// Line comments and build constraints are header lines.
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+
+		// Start of a block comment that may span multiple lines.
+		if strings.HasPrefix(trimmed, "/*") {
+			// A single-line /* ... */ closes on the same line.
+			if !strings.Contains(trimmed[2:], "*/") {
+				inBlockComment = true
+			}
+			continue
+		}
+
+		// First real (non-comment, non-blank) line — the header is over.
+		return false
+	}
+	return false
+}
+
+// isGeneratedPath opens path and reports whether it is a generated file.
+func isGeneratedPath(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return isGeneratedFile(f)
+}
+
+// checkFileLength walks all .go files under root and warns at 500 lines, errors
+// at 750 lines. Generated files (per isGeneratedFile) are skipped unless the
+// --count-generated flag is set.
 func checkFileLength(root string) error {
-	var nWarn, nErr int
+	var nWarn, nErr, nSkipped int
 
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -33,6 +105,14 @@ func checkFileLength(root string) error {
 			return nil
 		}
 
+		// Skip generated files unless asked to count them. Detection reopens
+		// the file; line counting uses a second open below — simplest and
+		// keeps each pass straightforward.
+		if !countGenerated && isGeneratedPath(path) {
+			nSkipped++
+			return nil
+		}
+
 		f, err := os.Open(path)
 		if err != nil {
 			return nil
@@ -41,19 +121,8 @@ func checkFileLength(root string) error {
 
 		scanner := bufio.NewScanner(f)
 		lineNum := 0
-		headerDone := false
 		for scanner.Scan() {
 			lineNum++
-			// Check file header for generated marker before package clause
-			if !headerDone {
-				text := scanner.Text()
-				if strings.Contains(text, "Code generated") {
-					return nil
-				}
-				if strings.HasPrefix(text, "package ") {
-					headerDone = true
-				}
-			}
 		}
 
 		if lineNum >= fileLengthError {
@@ -68,6 +137,10 @@ func checkFileLength(root string) error {
 
 	if nWarn > 0 || nErr > 0 {
 		fmt.Println()
+	}
+
+	if nSkipped > 0 {
+		fmt.Printf("  File length check: skipped %d generated file(s)\n", nSkipped)
 	}
 
 	if nErr > 0 {
