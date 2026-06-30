@@ -157,7 +157,11 @@ go-toolchain release --tag v1.0.0
 ### Automatic GOMEMLIMIT (cgroup-aware memory limit)
 
 By default, go-toolchain injects a small, stdlib-only startup guard
-(`gomemlimit_gen.go`) into every `main` package it builds. When the resulting
+(`gomemlimit_gen.go`) into every `main` package it builds. Main-package
+discovery honors build constraints, so a `//go:build ignore` `package main`
+generator file (the common `go run gen.go` idiom) sitting next to a real
+non-main package is correctly skipped — it is not mistaken for the directory's
+main package, so the guard is never injected into a non-main directory. When the resulting
 binary starts, the guard reads the container's cgroup memory limit (cgroup v2 or
 v1) and calls `runtime/debug.SetMemoryLimit` with 90% of it. This keeps the Go
 garbage collector under the cgroup ceiling — as the heap approaches the limit
