@@ -229,11 +229,17 @@ func TestLoadOrFetchIndex_SlowServerBounded(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 
 	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-release // hang until the test ends: slower than any sane budget
+		// Hang until released (slower than any sane budget), but also honor
+		// the client abandoning the request so the handler can exit.
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
 	}))
+	// LIFO defers: release the handler BEFORE srv.Close waits on it.
 	defer srv.Close()
+	defer close(release)
 
 	orig := indexFetchBudget
 	indexFetchBudget = 150 * time.Millisecond
