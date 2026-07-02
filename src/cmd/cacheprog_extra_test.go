@@ -36,3 +36,15 @@ func TestIsVanityHostReachableWithChecker(t *testing.T) {
 	assert.True(t, isVanityHostReachable("reachable.example.com"))
 	assert.False(t, isVanityHostReachable("unreachable.example.com"))
 }
+
+func TestQuoteExeForGOCACHEPROG(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/usr/local/bin/go-toolchain", "/usr/local/bin/go-toolchain"},
+		{"/home/build agent/go-toolchain", `"/home/build agent/go-toolchain"`},
+		{`/tmp/has"quote/exe name`, `'/tmp/has"quote/exe name'`},
+		{"/tmp/it's here/exe", `"/tmp/it's here/exe"`},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, quoteExeForGOCACHEPROG(c.in))
+	}
+}

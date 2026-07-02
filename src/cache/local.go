@@ -58,6 +58,15 @@ type CacheMeta struct {
 // Verification results are memoized per process (see looseVerified), so the
 // PUT dedup check and warm-build re-Gets don't re-read and re-hash bodies.
 func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
+	return c.get(actionID, true)
+}
+
+// Peek is Get without counting a hit — see LocalStore.Peek.
+func (c *LocalCache) Peek(actionID string) (meta CacheMeta, miss bool) {
+	return c.get(actionID, false)
+}
+
+func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss bool) {
 	dataPath := c.dataPath(actionID)
 	metaPath := dataPath + ".meta"
 
@@ -85,7 +94,9 @@ func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
 	c.vmu.RUnlock()
 	if vok && v.outputID == m.OutputID && v.size == info.Size() {
 		m.Size = v.size
-		c.Stats.Hits.Increment()
+		if countHit {
+			c.Stats.Hits.Increment()
+		}
 		return m, false
 	}
 
@@ -111,7 +122,9 @@ func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
 	c.vmu.Lock()
 	c.verified[actionID] = looseVerified{outputID: m.OutputID, size: m.Size}
 	c.vmu.Unlock()
-	c.Stats.Hits.Increment()
+	if countHit {
+		c.Stats.Hits.Increment()
+	}
 	return m, false
 }
 

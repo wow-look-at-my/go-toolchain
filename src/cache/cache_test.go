@@ -305,10 +305,16 @@ func TestServer_Lock(t *testing.T) {
 	srv := NewServer(nil, nil)
 	mu1 := srv.lock("key1")
 	mu2 := srv.lock("key1")
-	require.True(t, mu1 == mu2, "same key should return same mutex")
+	require.True(t, mu1 == mu2, "same key must map to the same shard mutex")
 
-	mu3 := srv.lock("key2")
-	require.True(t, mu1 != mu3, "different keys should return different mutexes")
+	// Distinct keys MAY share a shard (a collision only coarsens
+	// serialization, never correctness), but across many keys the fixed
+	// table must actually spread load over multiple shards.
+	shards := map[*sync.Mutex]bool{}
+	for i := 0; i < 4 * lockShards; i++ {
+		shards[srv.lock(fmt.Sprintf("key-%d", i))] = true
+	}
+	require.Greater(t, len(shards), lockShards/2, "keys must spread across the shard table")
 }
 
 func TestFileSize(t *testing.T) {
@@ -464,6 +470,72 @@ func TestServer_Stats(t *testing.T) {
 	require.Equal(t, uint32(1), stats.Local.Hits.Load())
 	require.Equal(t, uint32(1), stats.Misses.Load())
 	require.NotNil(t, stats.Remote)
+}
+
+// TestServer_PutDedupDoesNotCountLocalHit: the dedup lookup inside handlePut
+// serves an entry the caller just recomputed — counting it as a cache hit
+// inflated the hit rate on warm rebuilds.
+func TestServer_PutDedupDoesNotCountLocalHit(t *testing.T) {
+	dir := t.TempDir()
+	lc, err := NewLocalCache(dir)
+	require.NoError(t, err)
+	srv := NewServer(lc, nil)
+
+	actionID := bytes.Repeat([]byte{0xd0}, 32)
+	body := "dedup body"
+	sum := sha256.Sum256([]byte(body))
+
+	var input strings.Builder
+	input.WriteString(makePutRequest(Request{
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: sum[:], BodySize: int64(len(body)),
+	}, body))
+	input.WriteString(makePutRequest(Request{ // dedup: local already has it
+		ID: 2, Command: CmdPut, ActionID: actionID, OutputID: sum[:], BodySize: int64(len(body)),
+	}, body))
+	input.WriteString(makeRequest(Request{ID: 3, Command: CmdClose}))
+
+	var out bytes.Buffer
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	require.Equal(t, uint32(0), lc.Stats.Hits.Load(),
+		"PUT dedup lookups must not count as local cache hits")
+	require.Equal(t, uint32(1), lc.Stats.Puts.Load())
+}
+
+// TestGetBatch_ShutdownDoesNotHangQueuedWaiters: a getBatch waiter whose
+// request was still buffered in batchReqCh when the coalescer shut down must
+// degrade to a miss, never block forever on a reply that will never come.
+func TestGetBatch_ShutdownDoesNotHangQueuedWaiters(t *testing.T) {
+	// Bare backend with NO coalescer goroutine: simulates the request
+	// sitting in the buffered channel when shutdown lands.
+	b := &WebBackend{
+		batchReqCh: make(chan batchReq, 4),
+		batchStop:  make(chan struct{}),
+		batchDone:  make(chan struct{}),
+	}
+
+	type result struct {
+		miss bool
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		_, _, _, _, miss, err := b.getBatch("aabbccdd", "go-buildcache/v1aabbccdd")
+		done <- result{miss: miss, err: err}
+	}()
+
+	// Wait until the request is enqueued, then shut down without draining.
+	require.Eventually(t, func() bool { return len(b.batchReqCh) == 1 }, time.Second, time.Millisecond)
+	close(b.batchStop)
+	close(b.batchDone)
+
+	select {
+	case r := <-done:
+		require.NoError(t, r.err)
+		require.True(t, r.miss, "an undrained queued request must miss cleanly on shutdown")
+	case <-time.After(2 * time.Second):
+		t.Fatal("getBatch waiter hung after coalescer shutdown")
+	}
 }
 
 func TestSetHasRemote(t *testing.T) {

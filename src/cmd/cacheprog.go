@@ -248,8 +248,28 @@ func enableCacheProg() error {
 		fmt.Fprintf(os.Stderr, "cacheprog: local only\n")
 	}
 
-	os.Setenv("GOCACHEPROG", exe+" cacheprog")
+	os.Setenv("GOCACHEPROG", quoteExeForGOCACHEPROG(exe)+" cacheprog")
 	return nil
+}
+
+// quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
+// parser (internal/quoted.Split: space-separated words, single or double
+// quotes, NO escape sequences). An unquoted path containing a space would be
+// split into two argv words and the cacheprog launch would fail fatally.
+// A path with no spaces or quotes is returned unchanged.
+func quoteExeForGOCACHEPROG(exe string) string {
+	if !strings.ContainsAny(exe, " \t'\"") {
+		return exe
+	}
+	if !strings.Contains(exe, `"`) {
+		return `"` + exe + `"`
+	}
+	if !strings.Contains(exe, "'") {
+		return "'" + exe + "'"
+	}
+	// Contains BOTH quote kinds: not representable for quoted.Split. Return
+	// as-is — the launch fails loudly rather than silently misparsing.
+	return exe
 }
 
 // startCacheDaemon creates a cache daemon with local + web backends.

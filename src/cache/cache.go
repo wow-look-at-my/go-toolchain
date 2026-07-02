@@ -3,6 +3,7 @@ package cache
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,12 +71,19 @@ type StatEvent struct {
 // Matches the HTTP transport's MaxConnsPerHost to avoid connection churn.
 const maxConcurrentPuts = 64
 
+// lockShards is the size of the fixed per-action mutex table. The old
+// map[string]*sync.Mutex grew one entry per unique actionID for the
+// connection's lifetime (tens of MB across daemon connections on 100k-action
+// builds) and was never pruned. A fixed sharded table caps that at a constant:
+// hash collisions merely serialize two unrelated actions occasionally, which
+// is always safe.
+const lockShards = 256
+
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
 	local     LocalStore
 	remote    IBackend // nil if no remote backend configured
-	mu        sync.Mutex
-	locks     map[string]*sync.Mutex
+	locks     [lockShards]sync.Mutex
 	wg        sync.WaitGroup // tracks in-flight async remote puts
 	putSem    chan struct{}  // semaphore bounding concurrent remote puts
 	Misses    AtomicCounter
@@ -96,7 +104,6 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 	s := &Server{
 		local:  local,
 		remote: remote,
-		locks:  make(map[string]*sync.Mutex),
 		putSem: make(chan struct{}, maxConcurrentPuts),
 		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
 	}
@@ -499,15 +506,16 @@ loop:
 	return readErr
 }
 
+// lock returns the shard mutex for key. Distinct keys may share a shard
+// (coarser serialization on a collision — always safe); the same key always
+// maps to the same mutex. Allocation-free inline FNV-1a.
 func (s *Server) lock(key string) *sync.Mutex {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m, ok := s.locks[key]
-	if !ok {
-		m = &sync.Mutex{}
-		s.locks[key] = m
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
 	}
-	return m
+	return &s.locks[h%lockShards]
 }
 
 // flushLatency sends a final latency snapshot over the stats socket. It
@@ -614,9 +622,11 @@ func (s *Server) handlePut(req Request) Response {
 	s.Latency.LockWait.Record(time.Since(lockStart))
 	defer mu.Unlock()
 
-	// Check if already cached locally.
+	// Dedup check: already cached locally? Peek, not Get — serving the entry
+	// the caller just recomputed is not a cache hit, and counting it inflated
+	// the hit rate on warm rebuilds.
 	localStart := time.Now()
-	meta, miss := s.local.Get(actionID)
+	meta, miss := s.local.Peek(actionID)
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
 	if !miss {
@@ -642,9 +652,14 @@ func (s *Server) handlePut(req Request) Response {
 	// Async write to remote. The semaphore bounds concurrency to avoid
 	// connection churn — each goroutine reuses a pooled HTTP connection
 	// instead of creating (and discarding) a new TCP+TLS connection.
+	//
+	// req.Body is handed to the goroutine WITHOUT copying: it is a
+	// per-request buffer allocated by the body decoder (readPutBody), the
+	// read loop never reuses it, and the local.Put above consumed it through
+	// a fresh bytes.Reader — nothing mutates or aliases it after this point.
+	// The old defensive copy doubled transient memory during PUT bursts.
 	if s.remote != nil {
-		data := make([]byte, len(req.Body))
-		copy(data, req.Body)
+		data := req.Body
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -671,11 +686,11 @@ func (s *Server) handlePut(req Request) Response {
 	}
 }
 
-func hexToBytes(hex string) []byte {
-	b := make([]byte, len(hex)/2)
-	for i := 0; i < len(b); i++ {
-		fmt.Sscanf(hex[i*2:i*2+2], "%02x", &b[i])
-	}
+func hexToBytes(h string) []byte {
+	// hex.DecodeString, not 32 reflective fmt.Sscanf calls per GET-hit
+	// response. On malformed input it returns the bytes decoded so far,
+	// matching the old best-effort behavior.
+	b, _ := hex.DecodeString(h)
 	return b
 }
 

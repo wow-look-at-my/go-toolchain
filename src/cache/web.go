@@ -241,9 +241,20 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 				// Preserve original method — Go changes PUT/POST to GET on 301/302.
 				orig := via[0]
 				req.Method = orig.Method
-				req.Body = orig.Body
-				req.GetBody = orig.GetBody
-				req.ContentLength = orig.ContentLength
+				// Rebuild the body via GetBody: orig.Body was consumed by the
+				// previous attempt, so re-sending it would transmit an empty
+				// body and fail on the ContentLength mismatch. (Every request
+				// with a body here is built from a *bytes.Reader, so GetBody
+				// is always populated by http.NewRequest.)
+				if orig.GetBody != nil {
+					body, err := orig.GetBody()
+					if err != nil {
+						return err
+					}
+					req.Body = body
+					req.GetBody = orig.GetBody
+					req.ContentLength = orig.ContentLength
+				}
 				for key, vals := range orig.Header {
 					req.Header[key] = vals
 				}
@@ -550,8 +561,22 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 		// Backend is closing — return miss so the caller can fall back.
 		return "", nil, 0, time.Time{}, true, nil
 	}
-	r := <-respCh
-	return r.outputID, r.body, r.size, r.t, r.miss, nil
+	select {
+	case r := <-respCh:
+		return r.outputID, r.body, r.size, r.t, r.miss, nil
+	case <-b.batchDone:
+		// Shutdown raced our enqueue: the coalescer exited and may never
+		// drain batchReqCh. If it DID process our request, the reply is
+		// already buffered in respCh (batchDone closes only after all
+		// sendBatch goroutines finish); otherwise degrade to a clean miss
+		// instead of blocking forever on a reply that will never come.
+		select {
+		case r := <-respCh:
+			return r.outputID, r.body, r.size, r.t, r.miss, nil
+		default:
+			return "", nil, 0, time.Time{}, true, nil
+		}
+	}
 }
 
 // Put stores a cached object with LZ4 compression.
