@@ -160,20 +160,28 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		attribute.Int("cacheprog.batch.requests", len(reqs)))
 	defer span.End()
 
-	respondAllMiss := func() {
-		b.missesMu.Lock()
+	// respondAllMiss replies miss to every caller after a TRANSIENT failure
+	// (network error, 5xx, breaker-open, marshal/parse failure). It must NOT
+	// mark keys as knownMiss: only an authoritative in-protocol "not present"
+	// (a 200 response lacking the key) proves absence. Marking transients
+	// froze those keys for the rest of the run — one blip and they were never
+	// re-probed even after the backend recovered. reason, when non-nil, is
+	// bumped once per INDEXED key so the web summary's miss breakdown stays
+	// coherent (cold keys already counted MissNotInIndex in Get).
+	respondAllMiss := func(reason *AtomicCounter) {
 		for _, r := range reqs {
-			b.knownMiss.Add(r.key)
+			if reason != nil && b.keyKnown(r.key) {
+				reason.Increment()
+			}
 			r.resp <- batchResp{miss: true}
 		}
-		b.missesMu.Unlock()
 	}
 
 	// Circuit breaker tripped between enqueue and dispatch: skip the network and
 	// miss the whole batch so the build recomputes from source.
 	if b.remoteDisabled() {
 		span.SetAttributes(attribute.Bool("cacheprog.batch.circuit_open", true))
-		respondAllMiss()
+		respondAllMiss(&b.MissCircuitOpen)
 		return
 	}
 
@@ -182,7 +190,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	httpReq, err := http.NewRequest("GET", batchURL, bytes.NewReader(reqBody))
 	if err != nil {
 		span.SetStatus(codes.Error, "build request")
-		respondAllMiss()
+		respondAllMiss(nil)
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -195,7 +203,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		b.noteRemoteResult(true)
 		markSpanErr(span, "network", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: %v\n", err)
-		respondAllMiss()
+		respondAllMiss(&b.MissNetwork)
 		return
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
@@ -223,7 +231,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		for _, r := range reqs {
 			b.errLog.Record("web batch get", resp.StatusCode, r.actionID, "")
 		}
-		respondAllMiss()
+		respondAllMiss(&b.MissHTTPError)
 		return
 	}
 	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
@@ -234,7 +242,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	if err != nil {
 		markSpanErr(span, "parse response", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: parse: %v\n", err)
-		respondAllMiss()
+		respondAllMiss(&b.MissReadBody)
 		return
 	}
 
@@ -275,9 +283,14 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			attribute.String("cacheprog.action_id", shortID(r.actionID)))
 		e, ok := entryByKey[r.key]
 		if !ok {
-			b.missesMu.Lock()
-			b.knownMiss.Add(r.key)
-			b.missesMu.Unlock()
+			// Authoritative absence: a healthy 200 response did not include
+			// this key. If our index claimed it, drop the stale claim so the
+			// PUT path re-uploads it (see reclaimAbsent) — that case counts as
+			// an http-404-class miss, since Get() recorded no miss reason for
+			// indexed keys. Cold probed keys already counted MissNotInIndex.
+			if b.reclaimAbsent(r.key) {
+				b.MissHTTP404.Increment()
+			}
 			markSpanMiss(itemSpan, "not_in_batch_response")
 			itemSpan.End()
 			r.resp <- batchResp{miss: true}

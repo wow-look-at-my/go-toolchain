@@ -42,13 +42,17 @@ func (b *WebBackend) indexCachePath() string {
 	return filepath.Join(os.TempDir(), name)
 }
 
-// loadOrFetchIndex returns the set of known cache keys for this backend.
+// loadOrFetchIndex returns the set of known cache keys for this backend and
+// whether that set is AUTHORITATIVE — i.e. server-confirmed fresh this run
+// (a parsed 200 blob, or a 304 validating our disk copy).
+//
 // It reads any previously cached blob from disk, then issues a conditional
 // GET /<bucket>/_index against the server. On 304 we keep the disk blob;
-// on 200 we adopt the new one and persist it. Any failure produces an
-// empty set — Get/Put still work, they just always miss b.keys until the
-// next refresh.
-func (b *WebBackend) loadOrFetchIndex() set.Set[string] {
+// on 200 we adopt the new one and persist it. Any failure produces a
+// NON-authoritative set (the stale disk copy, or empty): Get/Put still work,
+// and because absences from a non-authoritative set prove nothing, cold keys
+// are batch-probed instead of fast-missed (see WebBackend.Get).
+func (b *WebBackend) loadOrFetchIndex() (set.Set[string], bool) {
 	path := b.indexCachePath()
 	diskBlob, diskKeys, diskETag := b.readDiskIndex(path)
 
@@ -57,33 +61,33 @@ func (b *WebBackend) loadOrFetchIndex() set.Set[string] {
 		b.noteRemoteResult(true)
 		fmt.Fprintf(os.Stderr, "cacheprog: web index fetch: %v\n", err)
 		if diskBlob != nil {
-			return diskKeys
+			return diskKeys, false
 		}
-		return set.New[string]()
+		return set.New[string](), false
 	}
 	b.noteRemoteResult(false)
 	if status == http.StatusNotModified {
 		if diskBlob != nil {
-			return diskKeys
+			return diskKeys, true // server confirmed our disk copy is current
 		}
 		// Server claimed not-modified but we have no disk copy (likely a
 		// cleared /tmp between the ETag fetch and now). Refetch unconditionally.
 		blob, _, err = b.fetchIndexBlob("")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cacheprog: web index refetch: %v\n", err)
-			return set.New[string]()
+			return set.New[string](), false
 		}
 	}
 	keys, _, err := parseIndexBlob(blob)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web index parse: %v\n", err)
 		if diskBlob != nil {
-			return diskKeys
+			return diskKeys, false
 		}
-		return set.New[string]()
+		return set.New[string](), false
 	}
 	b.writeIndexBlob(path, blob)
-	return keys
+	return keys, true
 }
 
 // readDiskIndex returns (raw, parsed, etag) or (nil, empty, "") if the file
