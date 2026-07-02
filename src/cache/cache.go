@@ -100,17 +100,14 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 		putSem: make(chan struct{}, maxConcurrentPuts),
 		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
 	}
-	// Wire sub-operation latency tracking into the web backend.
-	// Also wire batch callbacks for standalone mode (direct WebBackend).
-	// In daemon mode the remote is wrapped in noCloseBackend, so the
-	// batch callback type assertion fails — the Daemon wires those instead.
+	// Wire sub-operation latency tracking and batch callbacks for standalone
+	// mode (direct WebBackend) only. In daemon mode the remote is wrapped in
+	// noCloseBackend and the Daemon wires BOTH once on the shared WebBackend:
+	// re-pointing wb.Latency here per connection was an unsynchronized write
+	// to shared state that raced every other connection's in-flight web ops.
 	if wb, ok := remote.(*WebBackend); ok {
 		wb.Latency = &s.Latency
 		wireBatchCallbacks(wb, local, s)
-	} else if nc, ok := remote.(*noCloseBackend); ok {
-		if wb, ok := nc.IBackend.(*WebBackend); ok {
-			wb.Latency = &s.Latency
-		}
 	}
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
@@ -513,32 +510,18 @@ func (s *Server) lock(key string) *sync.Mutex {
 	return m
 }
 
-// flushLatency sends a final latency snapshot over the stats socket.
-// Pool usage is read from the WebBackend directly (it's shared across
-// all daemon Servers, so only the cumulative snapshot matters).
+// flushLatency sends a final latency snapshot over the stats socket. It
+// covers only this Server's own trackers; in standalone mode (direct
+// WebBackend) the shared HTTP-pool usage is attached too. In daemon mode the
+// Daemon reports the shared pool and web-op latencies exactly once at Close —
+// each connection flushing the shared CUMULATIVE pool snapshot made the
+// listener, which merges snapshots additively, overcount it N-fold.
 func (s *Server) flushLatency() {
 	snap := s.Latency.Snapshot()
-	if wb := s.webBackend(); wb != nil {
+	if wb, ok := s.remote.(*WebBackend); ok {
 		snap.Pool = wb.Pool.Snapshot()
 	}
 	s.sendStat(StatEvent{Latency: &snap})
-}
-
-// webBackend extracts the *WebBackend from the remote, unwrapping
-// the noCloseBackend wrapper if present.
-func (s *Server) webBackend() *WebBackend {
-	if s.remote == nil {
-		return nil
-	}
-	if wb, ok := s.remote.(*WebBackend); ok {
-		return wb
-	}
-	if nc, ok := s.remote.(*noCloseBackend); ok {
-		if wb, ok := nc.IBackend.(*WebBackend); ok {
-			return wb
-		}
-	}
-	return nil
 }
 
 func (s *Server) handleGet(req Request) Response {

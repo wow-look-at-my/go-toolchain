@@ -28,7 +28,8 @@ type Daemon struct {
 	listener  net.Listener
 	path      string
 	wg        sync.WaitGroup
-	batch     BatchStats // shared batch stats, reported to parent
+	batch     BatchStats   // shared batch stats, reported to parent
+	latency   LatencyStats // web-op latencies of the shared WebBackend (wired once)
 	statsMu   sync.Mutex
 	statsConn net.Conn // persistent connection to parent's stats socket
 }
@@ -67,9 +68,13 @@ func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, err
 			}
 		}
 	}
-	// Wire batch callbacks on the shared WebBackend once, using the
-	// daemon's long-lived stats connection instead of per-connection ones.
+	// Wire batch callbacks AND web-op latency tracking on the shared
+	// WebBackend exactly once, for the daemon's lifetime. Per-connection
+	// Servers must never touch these: each NewServer re-pointing wb.Latency
+	// at its own tracker was an unsynchronized shared write racing every
+	// other connection's in-flight web operations.
 	if wb, ok := remote.(*WebBackend); ok {
+		wb.Latency = &d.latency
 		wireBatchCallbacks(wb, local, d)
 	}
 	go d.accept()
@@ -154,6 +159,16 @@ func (d *Daemon) Close() {
 			}
 		}
 		d.remote.Close()
+		// Report the shared web-op latencies and the cumulative HTTP-pool
+		// usage exactly once, after the backend has fully drained. Doing this
+		// per connection (the old flushLatency behavior) merged the shared
+		// cumulative pool snapshot additively per connection at the listener,
+		// overcounting samples and sums N-fold for N connections.
+		if wb, ok := d.remote.(*WebBackend); ok {
+			snap := d.latency.Snapshot()
+			snap.Pool = wb.Pool.Snapshot()
+			d.sendStat(StatEvent{Latency: &snap})
+		}
 	}
 	// Unmount/close the local store after all connections have drained (so no
 	// in-flight compiler read can hit a closed FUSE mount or pack handle).
