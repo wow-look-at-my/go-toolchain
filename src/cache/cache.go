@@ -116,7 +116,18 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
 		if err == nil {
-			s.statsConn = conn
+			// Wait for the listener's accept-ack. A unix dial succeeds as
+			// soon as the kernel queues the connection — reading the ack
+			// guarantees the listener has accepted it and registered its
+			// reader, so stat events cannot be dropped in the accept queue.
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var ack [1]byte
+			if _, err := conn.Read(ack[:]); err == nil {
+				conn.SetReadDeadline(time.Time{})
+				s.statsConn = conn
+			} else {
+				conn.Close()
+			}
 		}
 	}
 	return s
@@ -296,6 +307,10 @@ func (sl *StatsListener) accept() {
 			return
 		}
 		sl.wg.Add(1)
+		// Ack the connection so the dialer knows it has been picked up.
+		// Once the dialer has read this byte, this connection is registered
+		// in sl.wg, so Close()'s wg.Wait deterministically covers it.
+		conn.Write([]byte{0})
 		go sl.handleConn(conn)
 	}
 }
@@ -338,10 +353,14 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 }
 
 // Close stops the listener, waits for all connections to drain, and cleans up.
-// Uses SetDeadline instead of immediately closing the listener so that connections
-// already in the accept queue are drained before the socket is closed.
-// listener.Close() drops queued-but-not-yet-accepted connections, causing a race
-// where stats sent just before Close arrives are silently lost.
+//
+// Delivery is guaranteed by the accept-ack handshake: a dialer only keeps its
+// stats connection after reading the listener's 1-byte ack, which the accept
+// loop writes AFTER registering the connection in sl.wg — so wg.Wait() below
+// deterministically covers every connection whose dialer ever sent an event.
+// The 10ms accept-deadline drain is belt-and-suspenders for a dialer racing
+// Close itself: such a dialer degrades to stats-off via its ack timeout
+// instead of silently losing data.
 func (sl *StatsListener) Close() {
 	// Give the accept loop a short window to drain any connections that are
 	// already in the kernel accept queue. listener.Close() would drop them.

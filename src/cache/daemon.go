@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 )
 
 // noCloseBackend wraps an IBackend and suppresses Close calls.
@@ -55,7 +56,15 @@ func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, err
 	// Connect to the stats socket once for the daemon's lifetime.
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		if conn, err := net.Dial("unix", sock); err == nil {
-			d.statsConn = conn
+			// Wait for the listener's accept-ack (see NewServer).
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var ack [1]byte
+			if _, err := conn.Read(ack[:]); err == nil {
+				conn.SetReadDeadline(time.Time{})
+				d.statsConn = conn
+			} else {
+				conn.Close()
+			}
 		}
 	}
 	// Wire batch callbacks on the shared WebBackend once, using the
