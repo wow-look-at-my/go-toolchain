@@ -583,15 +583,69 @@ func TestPackStore_Rotation(t *testing.T) {
 	}
 }
 
-func TestPackStore_ResetWhenTooLarge(t *testing.T) {
+// TestPackStore_EvictsOldestPacksWhenOverBudget replaces the old wholesale
+// reset (which nuked EVERY pack the moment the total crossed the budget, so
+// a working set >= budget cold-cycled forever): the oldest packs are evicted
+// until the total is back under ~80% of the budget, and the newest records
+// survive.
+func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
+	origMax, origReset := maxPackBytes, packResetBytes
+	maxPackBytes = int64(packHeaderLen + 512) // rotate after every record
+	defer func() { maxPackBytes = origMax; packResetBytes = origReset }()
+
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
-	_, err = s.Put(hexID(1), hexID(10), bytes.NewReader(bytes.Repeat([]byte("z"), 4096)))
+
+	// 10 records with DISTINCT content (dedup would alias them), one pack each.
+	const n = 10
+	recBytes := int64(packHeaderLen + 512)
+	for i := 0; i < n; i++ {
+		body := bytes.Repeat([]byte{byte('a' + i)}, 512)
+		_, err := s.Put(hexID(byte(i+1)), casID(body), bytes.NewReader(body))
+		require.Nil(t, err)
+	}
+	require.Nil(t, s.Close())
+
+	// Total is n*recBytes = 6000; budget 3000 → target 2400 → the 6 oldest
+	// packs must go, the 4 newest records must survive.
+	packResetBytes = 3000
+
+	s2, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s2.Close()
+
+	for i := 0; i < 6; i++ {
+		_, ok := s2.Get(hexID(byte(i + 1)))
+		require.False(t, ok, "oldest record %d must have been evicted", i+1)
+	}
+	for i := 6; i < n; i++ {
+		loc, ok := s2.Get(hexID(byte(i + 1)))
+		require.True(t, ok, "newest record %d must survive eviction", i+1)
+		data, err := s2.ReadAll(loc)
+		require.Nil(t, err)
+		require.Equal(t, bytes.Repeat([]byte{byte('a' + i)}, 512), data)
+	}
+
+	_, total, err := s2.discoverPacks()
+	require.Nil(t, err)
+	require.LessOrEqual(t, total, packResetBytes/10*8+recBytes,
+		"surviving packs must be back around the eviction target")
+}
+
+// TestPackStore_EvictionNeverDeletesNewestPack: even when a single pack alone
+// exceeds the whole budget, the newest pack (the append target, holding the
+// hottest records) is never deleted — the store runs over budget instead of
+// cold-cycling.
+func TestPackStore_EvictionNeverDeletesNewestPack(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	body := bytes.Repeat([]byte("z"), 4096)
+	_, err = s.Put(hexID(1), casID(body), bytes.NewReader(body))
 	require.Nil(t, err)
 	require.Nil(t, s.Close())
 
-	// Simulate a startup where the total pack size exceeds the reset bound.
 	orig := packResetBytes
 	packResetBytes = 100
 	defer func() { packResetBytes = orig }()
@@ -599,9 +653,12 @@ func TestPackStore_ResetWhenTooLarge(t *testing.T) {
 	s2, err := OpenPackStore(dir)
 	require.Nil(t, err)
 	defer s2.Close()
-	require.Equal(t, 0, s2.Len()) // store was reset to a cold cache
-	_, ok := s2.Get(hexID(1))
-	require.False(t, ok)
+	require.Equal(t, 1, s2.Len(), "the newest pack must never be evicted")
+	loc, ok := s2.Get(hexID(1))
+	require.True(t, ok)
+	data, err := s2.ReadAll(loc)
+	require.Nil(t, err)
+	require.Equal(t, body, data)
 }
 
 func TestParsePackName(t *testing.T) {

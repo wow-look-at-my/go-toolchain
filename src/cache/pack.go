@@ -105,8 +105,9 @@ var (
 	// keeping individual files manageable for the OS and for backups.
 	maxPackBytes int64 = 1 << 30 // 1 GiB
 	// packResetBytes bounds unbounded cross-build growth: if the packs total
-	// more than this at startup, the store is reset (a cold cache, not a
-	// correctness problem). Mirrors how the server purges on a version bump.
+	// more than this at startup, whole packs are evicted OLDEST-FIRST down to
+	// ~80% of this budget (the newest pack is never evicted) — see
+	// evictPacksToBudget. Evicted records are recomputed on demand.
 	packResetBytes int64 = 8 << 30 // 8 GiB
 )
 
@@ -141,14 +142,10 @@ func OpenPackStore(dir string) (*PackStore, error) {
 		return nil, err
 	}
 
-	// Bound cross-build growth: a too-large store is reset rather than carried
-	// forever. A reset just means a cold cache on the next build.
-	if total > packResetBytes {
-		for _, id := range ids {
-			os.Remove(s.packPath(id))
-		}
-		ids = nil
-	}
+	// Bound cross-build growth: evict oldest packs (never the newest) until
+	// back under budget — see evictPacksToBudget. Evicted records are simply
+	// recomputed; the hot tail of the cache survives.
+	ids = s.evictPacksToBudget(ids, total)
 
 	for _, id := range ids {
 		f, err := os.OpenFile(s.packPath(id), os.O_RDWR, 0o644)
@@ -421,7 +418,12 @@ func (s *PackStore) appendRaw(hdr, body []byte) (id int, off int64, err error) {
 	if rotate {
 		s.wmu.Lock()
 		if s.activeID == id { // not already rotated by another goroutine
-			_ = s.openActive(id + 1)
+			if err := s.openActive(id + 1); err != nil {
+				// The active pack keeps growing past maxPackBytes until a
+				// later rotation succeeds — functional, but silent failure
+				// here previously let it grow unbounded with no trace.
+				fmt.Fprintf(os.Stderr, "cacheprog: pack rotation to %d failed: %v (active pack keeps growing)\n", id+1, err)
+			}
 		}
 		s.wmu.Unlock()
 	}
@@ -503,6 +505,15 @@ func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
 // mismatch evicts the entry and reports a miss, letting the toolchain recompute
 // and re-Put clean data instead of consuming garbage.
 func (s *PackStore) GetVerified(actionID string) (packLoc, bool) {
+	return s.getVerifiedCounted(actionID, true)
+}
+
+// PeekVerified is GetVerified without counting a hit — the PUT dedup lookup.
+func (s *PackStore) PeekVerified(actionID string) (packLoc, bool) {
+	return s.getVerifiedCounted(actionID, false)
+}
+
+func (s *PackStore) getVerifiedCounted(actionID string, countHit bool) (packLoc, bool) {
 	s.mu.RLock()
 	loc, ok := s.byAction[actionID]
 	s.mu.RUnlock()
@@ -524,7 +535,9 @@ func (s *PackStore) GetVerified(actionID string) (packLoc, bool) {
 		s.Stats.Corrupt.Increment()
 		return packLoc{}, false
 	}
-	s.Stats.Hits.Increment()
+	if countHit {
+		s.Stats.Hits.Increment()
+	}
 	return loc, true
 }
 
