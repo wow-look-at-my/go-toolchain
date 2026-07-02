@@ -91,8 +91,8 @@ func TestServer_PutAndGet(t *testing.T) {
 	require.Nil(t, err)
 
 	actionID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
 	body := "test cache body data"
+	sum := sha256.Sum256([]byte(body)) // the protocol invariant: outputID == sha256(body)
 
 	// Build input: PUT, GET, CLOSE.
 	var input strings.Builder
@@ -100,7 +100,7 @@ func TestServer_PutAndGet(t *testing.T) {
 		ID:       1,
 		Command:  CmdPut,
 		ActionID: actionID,
-		OutputID: outputID,
+		OutputID: sum[:],
 		BodySize: int64(len(body)),
 	}, body))
 	input.WriteString(makeRequest(Request{
@@ -142,16 +142,16 @@ func TestServer_PutRawBase64(t *testing.T) {
 	require.Nil(t, err)
 
 	actionID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
-	outputID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99}
 	body := "raw base64 test body"
+	sum := sha256.Sum256([]byte(body))
 
-	// Build input using raw base64 format (Go >=1.25): PUT, GET, CLOSE.
+	// Build input using the raw (unquoted) base64 body form: PUT, GET, CLOSE.
 	var input strings.Builder
 	input.WriteString(makePutRequestRawBase64(Request{
 		ID:       1,
 		Command:  CmdPut,
 		ActionID: actionID,
-		OutputID: outputID,
+		OutputID: sum[:],
 		BodySize: int64(len(body)),
 	}, body))
 	input.WriteString(makeRequest(Request{
@@ -366,17 +366,17 @@ func TestServer_PutDuplicate(t *testing.T) {
 	require.NoError(t, err)
 
 	actionID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
 	body := "duplicate data"
+	sum := sha256.Sum256([]byte(body))
 
 	// PUT same action twice, then CLOSE.
 	var input strings.Builder
 	input.WriteString(makePutRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID,
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: sum[:],
 		BodySize: int64(len(body)),
 	}, body))
 	input.WriteString(makePutRequest(Request{
-		ID: 2, Command: CmdPut, ActionID: actionID, OutputID: outputID,
+		ID: 2, Command: CmdPut, ActionID: actionID, OutputID: sum[:],
 		BodySize: int64(len(body)),
 	}, body))
 	input.WriteString(makeRequest(Request{ID: 3, Command: CmdClose}))
@@ -440,13 +440,13 @@ func TestServer_Stats(t *testing.T) {
 	srv := NewServer(lc, backend)
 
 	actionID := []byte{0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
+	sum := sha256.Sum256([]byte("hello"))
 	missID := []byte{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00}
 
 	var input strings.Builder
 	// PUT
 	input.WriteString(makePutRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 5,
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: sum[:], BodySize: 5,
 	}, "hello"))
 	// GET (local hit)
 	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: actionID}))
@@ -495,16 +495,17 @@ func TestServer_Latency(t *testing.T) {
 	srv := NewServer(lc, backend)
 
 	actionID := []byte{0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
+	sum := sha256.Sum256([]byte("hello"))
 	missID := []byte{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00}
 
 	// Pre-populate remote so we exercise the remote get path.
-	backend.Put(fmt.Sprintf("%x", missID), fmt.Sprintf("%x", outputID), strings.NewReader("remote data"), 11)
+	remoteSum := sha256.Sum256([]byte("remote data"))
+	backend.Put(fmt.Sprintf("%x", missID), fmt.Sprintf("%x", remoteSum[:]), strings.NewReader("remote data"), 11)
 
 	var input strings.Builder
 	// PUT (exercises: lock wait, local get for dedup check, local put)
 	input.WriteString(makePutRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 5,
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: sum[:], BodySize: 5,
 	}, "hello"))
 	// GET local hit (exercises: lock wait, local get)
 	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: actionID}))
@@ -547,7 +548,7 @@ func TestStatsStreaming(t *testing.T) {
 	t.Setenv("GOCACHE_STATS_SOCK", sockPath)
 
 	actionID := []byte{0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
+	sum := sha256.Sum256([]byte("hello"))
 	missID := []byte{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00}
 
 	// Run a server with PUT, GET (hit), GET (miss), CLOSE.
@@ -556,7 +557,7 @@ func TestStatsStreaming(t *testing.T) {
 
 	var input strings.Builder
 	input.WriteString(makePutRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 5,
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: sum[:], BodySize: 5,
 	}, "hello"))
 	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: actionID}))
 	input.WriteString(makeRequest(Request{ID: 3, Command: CmdGet, ActionID: missID}))
@@ -583,14 +584,14 @@ func TestStatsStreamingLatency(t *testing.T) {
 	t.Setenv("GOCACHE_STATS_SOCK", sockPath)
 
 	actionID := []byte{0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
+	sum := sha256.Sum256([]byte("hello"))
 
 	lc, err := NewLocalCache(filepath.Join(dir, "cache"))
 	require.NoError(t, err)
 
 	var input strings.Builder
 	input.WriteString(makePutRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 5,
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: sum[:], BodySize: 5,
 	}, "hello"))
 	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: actionID}))
 	input.WriteString(makeRequest(Request{ID: 3, Command: CmdClose}))
