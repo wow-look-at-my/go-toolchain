@@ -60,6 +60,10 @@ type PackStore struct {
 
 	pmu   sync.RWMutex
 	packs map[int]*os.File // packID -> open RW handle (used for ReadAt and append)
+
+	// verified memoizes per-record serve-gate facts so warm GETs and FUSE
+	// lookups don't re-read + re-hash bodies on every access (see verify.go).
+	verified verifiedSet
 }
 
 // packLoc records where a body lives: which pack file, the byte offset of the
@@ -339,6 +343,10 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 	if err != nil {
 		return packLoc{}, err
 	}
+	// Pre-memoize the serve-gate facts from the exact bytes just written, so
+	// the compiler's open of the DiskPath this Put returns (and every later
+	// GET this process) doesn't pay a full body re-read + hash.
+	s.verified.put(verifyKey{packID: loc.packID, dataOff: loc.dataOff}, verifyInfoForPut(outputID, data))
 	s.mu.Lock()
 	s.byAction[actionID] = loc
 	s.byOutput[outputID] = loc
@@ -468,9 +476,19 @@ func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
 	if !ok {
 		return packLoc{}, false
 	}
-	if !s.bodyMatchesOutputID(outputID, loc) {
+	// One memoized fact set serves both gates; this path requires the
+	// content-address proof (shaOK), exactly as bodyMatchesOutputID did.
+	// (byOutput's invariant guarantees loc.outputID == outputID, so the memo's
+	// sha result is against the id being served.)
+	vi, ok := s.verifiedInfo(loc)
+	if !ok || !vi.shaOK {
 		s.evictCorruptByOutput(outputID, loc)
 		s.Stats.Corrupt.Increment()
+		// This is the FUSE serve path: a GET response already promised this
+		// DiskPath to the toolchain, and the eviction turns its next open
+		// into ENOENT. Deliberate poison-refusal trade-off; make it visible.
+		fmt.Fprintf(os.Stderr, "cacheprog: local pack: refusing corrupt body for output %s; evicted (a previously promised DiskPath for it will now open as ENOENT)\n",
+			shortID(outputID))
 		return packLoc{}, false
 	}
 	return loc, true
@@ -491,11 +509,17 @@ func (s *PackStore) GetVerified(actionID string) (packLoc, bool) {
 	if !ok {
 		return packLoc{}, false
 	}
-	// One body read enforces rot (CRC), cross-contamination (build-id action),
-	// and module-index refusal. Any failure evicts the entry and reports a miss,
-	// so the toolchain recomputes clean data instead of being handed poison —
-	// the local-tier counterpart of the web ingestion guards.
-	if !s.bodyServableForAction(actionID, loc) {
+	// The serve-gate facts — rot (CRC/content address), build-id action, and
+	// module-index — come from one memoized body read (first access this
+	// process, or free at Put time; see verify.go). The per-ACTION gate is
+	// still applied on every call: facts are content properties, but whether
+	// a stamped archive belongs under THIS action depends on the key, so an
+	// aliased archive stamped for a different action is refused even on a
+	// memo hit. Any failure evicts the entry and reports a miss, so the
+	// toolchain recomputes clean data instead of being handed poison — the
+	// local-tier counterpart of the web ingestion guards.
+	vi, ok := s.verifiedInfo(loc)
+	if !ok || !vi.servableForAction(actionID) {
 		s.evictCorrupt(actionID, loc)
 		s.Stats.Corrupt.Increment()
 		return packLoc{}, false
@@ -534,59 +558,13 @@ func (s *PackStore) verifyBody(loc packLoc, check func(body []byte) bool) bool {
 	return check(body)
 }
 
-// bodyMatchesCRC reports whether loc's body still hashes to the CRC recorded in
-// its record header — the rot guard used on the GET RPC path (GetVerified).
+// bodyMatchesCRC reports whether loc's body still hashes to the CRC recorded
+// in its record header. The serve paths consume this fact via the memoized
+// verifyInfo (verify.go); this direct form remains for tests that need to
+// interrogate a record's raw CRC state.
 func (s *PackStore) bodyMatchesCRC(loc packLoc) bool {
 	return s.verifyBody(loc, func(body []byte) bool {
 		return crc32.Checksum(body, packCRC) == loc.crc
-	})
-}
-
-// bodyServableForAction reports whether loc's body is safe to serve for actionID.
-// In a single body read it runs all three gates the local serve path needs:
-//
-//   - CRC: the body still matches its recorded checksum (disk/overlay rot).
-//   - build-id action: a compiled package carries a build id whose action field
-//     must match actionID; one that belongs to a DIFFERENT action is a
-//     cross-contaminated object mapped under the wrong key (the
-//     "runtime imported as reflectlite" poison) that the CRC and the
-//     content-address hash cannot catch (see buildIDMatchesAction).
-//   - module index: a Go module index blob is unverifiable under any key and
-//     catastrophic if mis-keyed ("package ... is not in std" / "corrupt index"),
-//     so it is never served from cache — cmd/go recomputes it locally (see
-//     isGoModuleIndex).
-//
-// This mirrors the guards the web ingestion path already enforces (web.go), so
-// the local tier honours the same invariant: the cache never hands the compiler
-// an object it cannot tie to the requested action key. A failure is treated like
-// any other integrity failure — the entry is evicted and the GET misses, so the
-// toolchain recomputes from source instead of consuming poison. This is what
-// lets a poisoned cache self-heal structurally, with no inspection of build
-// output.
-func (s *PackStore) bodyServableForAction(actionID string, loc packLoc) bool {
-	return s.verifyBody(loc, func(body []byte) bool {
-		if crc32.Checksum(body, packCRC) != loc.crc {
-			return false
-		}
-		if _, ok := buildIDMatchesAction(actionID, body); !ok {
-			return false
-		}
-		return !isGoModuleIndex(body)
-	})
-}
-
-// bodyMatchesOutputID reports whether loc's body hashes (SHA-256) to wantOutputID,
-// the content address under which it is being served. This is the integrity gate
-// the pack CRC cannot provide: a torn or mis-mapped record is self-consistent with
-// its own recorded CRC, yet its bytes need not be the content the toolchain asked
-// for by outputID (outputID == sha256(body) is the GOCACHEPROG invariant). It is
-// the local serve-path counterpart of the end-to-end hash the web ingestion path
-// already enforces (integrity.go's outputIDMatches), so a body that does not match
-// its content address is refused and recomputed rather than handed to the compiler.
-func (s *PackStore) bodyMatchesOutputID(wantOutputID string, loc packLoc) bool {
-	return s.verifyBody(loc, func(body []byte) bool {
-		_, ok := outputIDMatches(wantOutputID, body)
-		return ok
 	})
 }
 
