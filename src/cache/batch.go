@@ -263,21 +263,20 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		attribute.Int("cacheprog.batch.prefetched", nPrefetch))
 	b.errLog.RecordBatchHTTP(len(reqs), len(entries), nPrefetch, time.Since(start))
 
-	// Hand prefetched (and non-requested) entries to the local-cache populator.
-	if b.OnBatchEntries != nil && len(entries) > 0 {
-		b.OnBatchEntries(entries)
-	}
-
 	// Index returned entries by key for O(1) lookup.
 	entryByKey := make(map[string]*BatchEntry, len(entries))
 	for i := range entries {
 		entryByKey[entries[i].Key] = &entries[i]
 	}
 
-	// Distribute responses to each caller. Each request gets its own
-	// cacheprog.web.get child span so the batch span has one child per
-	// individual cache request it served — making the parent/child
-	// hierarchy in OTel match the build's logical request structure.
+	// Distribute responses to the waiting compiler goroutines FIRST; prefetch
+	// ingestion is housekeeping and runs asynchronously below. (It used to run
+	// inline before the reply loop, so every caller blocked on decompress +
+	// hash + pack-append work for entries nobody was waiting on.)
+	//
+	// Each request gets its own cacheprog.web.get child span so the batch
+	// span has one child per individual cache request it served — making the
+	// parent/child hierarchy in OTel match the build's logical structure.
 	for _, r := range reqs {
 		_, itemSpan := b.tracer.StartFromCtx(ctx, "cacheprog.web.get",
 			attribute.String("cacheprog.action_id", shortID(r.actionID)))
@@ -370,6 +369,34 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			body:     io.NopCloser(bytes.NewReader(decompressed)),
 			size:     int64(len(decompressed)),
 			t:        time.Now(),
+		}
+	}
+
+	// Hand NON-requested (prefetch) entries to the local-cache populator, in
+	// a goroutine so no caller waits on it. Requested entries are excluded:
+	// they are already verified once in the reply loop above and written to
+	// the local tier by handleGet — feeding them to the callback too meant
+	// every requested entry was decompressed, hash-verified, and build-id
+	// parsed TWICE. The goroutine joins batchHTTPWG, so the coalescer's
+	// shutdown (and therefore WebBackend.Close and the daemon's close order:
+	// remote before local) still waits for in-flight ingestion.
+	if b.OnBatchEntries != nil {
+		requested := make(map[string]bool, len(reqs))
+		for _, r := range reqs {
+			requested[r.key] = true
+		}
+		var extra []BatchEntry
+		for _, e := range entries {
+			if !requested[e.Key] {
+				extra = append(extra, e)
+			}
+		}
+		if len(extra) > 0 {
+			b.batchHTTPWG.Add(1)
+			go func() {
+				defer b.batchHTTPWG.Done()
+				b.OnBatchEntries(extra)
+			}()
 		}
 	}
 }

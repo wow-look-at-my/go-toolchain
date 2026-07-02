@@ -230,14 +230,16 @@ func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
 	data, _ := io.ReadAll(body)
 	require.Equal(t, "entry one", string(data))
 
-	// The callback should have been invoked with both entries.
-	require.Len(t, callbackEntries, 2)
-	keys := map[string]bool{}
-	for _, e := range callbackEntries {
-		keys[e.Key] = true
-	}
-	require.True(t, keys["go-buildcache/v1aaaa000000000001"])
-	require.True(t, keys["go-buildcache/v1aaaa000000000002"])
+	// The callback runs asynchronously (replies are distributed first) and
+	// receives ONLY the non-requested prefetch entry: the requested one is
+	// verified in the reply loop and written to the local tier by handleGet,
+	// so feeding it to the callback too would verify and store it twice.
+	// Close drains the coalescer (and the ingestion goroutine), making the
+	// read below race-free.
+	require.NoError(t, b.Close())
+	require.Len(t, callbackEntries, 1)
+	require.Equal(t, "go-buildcache/v1aaaa000000000002", callbackEntries[0].Key)
+	require.True(t, callbackEntries[0].Prefetch)
 }
 
 func TestGetBatch_FallbackToIndividual(t *testing.T) {
