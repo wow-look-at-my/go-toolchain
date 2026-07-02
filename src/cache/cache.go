@@ -3,7 +3,6 @@ package cache
 import (
 	"bufio"
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -409,8 +408,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 		return fmt.Errorf("handshake: %w", err)
 	}
 
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+	br := bufio.NewReaderSize(r, 64*1024)
 
 	// Thread-safe response writer — multiple goroutines may respond
 	// concurrently for parallel GETs.
@@ -424,8 +422,16 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 	// Track in-flight GET goroutines so we can drain them on close.
 	var getWg sync.WaitGroup
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
+	var readErr error
+loop:
+	for {
+		line, err := readProtoLine(br, 0)
+		if err != nil {
+			if err != io.EOF {
+				readErr = err
+			}
+			break
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -448,30 +454,31 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 			return nil
 
 		case CmdPut:
-			// PUT body follows on the next non-empty line as base64.
-			// Body must be read synchronously before the next request.
-			// Go <=1.24: JSON string literal (quoted base64)
-			// Go >=1.25: raw base64 (unquoted)
+			// PUT body follows on the next non-empty line as base64 (cmd/go
+			// writes the JSON line, a blank line, then '"'+base64+'"'; raw
+			// unquoted base64 is also accepted — see readloop.go). The body
+			// must be read synchronously before the next request. The line
+			// is read in full whatever its length, so bodies past the old
+			// 64 MiB scanner cap no longer kill the protocol loop.
 			if req.BodySize > 0 {
-				for scanner.Scan() {
-					bodyLine := scanner.Bytes()
-					if len(bodyLine) == 0 {
+				body, err := readPutBody(br, req.BodySize)
+				if err != nil {
+					if bad := (*badPutBodyError)(nil); errors.As(err, &bad) {
+						// The stream is still line-aligned: fail only this
+						// PUT and store NOTHING — an empty or truncated body
+						// committed under the real actionID/outputID would be
+						// served as a "valid" hit forever — then keep serving.
+						writeResp(Response{ID: req.ID, Err: "cacheprog: put body: " + bad.Error()})
 						continue
 					}
-					// Body line is base64, optionally wrapped in JSON quotes.
-					raw := string(bodyLine)
-					if bodyLine[0] == '"' {
-						// JSON string: unquote first, then decode base64.
-						var unquoted string
-						if err := json.Unmarshal(bodyLine, &unquoted); err == nil {
-							raw = unquoted
-						}
+					// Stream-level failure (EOF mid-request or a read error):
+					// stop serving. Nothing was stored for this PUT.
+					if err != io.EOF {
+						readErr = err
 					}
-					if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
-						req.Body = decoded
-					}
-					break
+					break loop
 				}
+				req.Body = body
 			}
 			writeResp(s.handlePut(req))
 
@@ -492,7 +499,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 	}
 	s.flushLatency()
 	s.closeStats()
-	return scanner.Err()
+	return readErr
 }
 
 func (s *Server) lock(key string) *sync.Mutex {
