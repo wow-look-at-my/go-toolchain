@@ -147,13 +147,20 @@ func (b *WebBackend) tripBreaker() {
 	}
 }
 
-// doRetryGET issues an idempotent GET (index fetch, individual get, batch get)
-// with bounded retries on transient failures, using exponential backoff with
-// full jitter. It returns the final (resp, err) exactly as http.Client.Do
-// would, so callers handle status codes and bodies unchanged; it never retries
-// a definitive (<500, non-429) response. Circuit-breaker accounting is the
-// caller's job (one note per logical op), so retries here are not double-counted.
+// doRetryGET issues an idempotent GET (individual get, batch get) with the
+// configured number of bounded retries on transient failures. The index fetch
+// uses doRetryGETN directly with its own tighter budget.
 func (b *WebBackend) doRetryGET(req *http.Request) (*http.Response, error) {
+	return b.doRetryGETN(req, b.maxRetries)
+}
+
+// doRetryGETN issues an idempotent GET with up to maxRetries retries on
+// transient failures, using exponential backoff with full jitter. It returns
+// the final (resp, err) exactly as http.Client.Do would, so callers handle
+// status codes and bodies unchanged; it never retries a definitive (<500,
+// non-429) response. Circuit-breaker accounting is the caller's job (one note
+// per logical op), so retries here are not double-counted.
+func (b *WebBackend) doRetryGETN(req *http.Request, maxRetries int) (*http.Response, error) {
 	var (
 		resp *http.Response
 		err  error
@@ -169,7 +176,7 @@ func (b *WebBackend) doRetryGET(req *http.Request) (*http.Response, error) {
 		if err == nil && !transientStatus(resp.StatusCode) {
 			return resp, nil
 		}
-		if attempt >= b.maxRetries {
+		if attempt >= maxRetries {
 			return resp, err
 		}
 		// Drain and close a transient response before retrying so the
