@@ -82,7 +82,7 @@ func NewS3Backend(cfg S3Config) (*S3Backend, error) {
 		secretKey: secretKey,
 	}
 	b.keys = b.listAllKeys()
-	fmt.Fprintf(os.Stderr, "cacheprog: s3 index: %d keys\n", b.keys.Len())
+	fmt.Fprintf(os.Stderr, "cacheprog: s3 indexed %d keys\n", b.keys.Len())
 	return b, nil
 }
 
