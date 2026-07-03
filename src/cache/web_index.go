@@ -54,14 +54,12 @@ func (b *WebBackend) loadOrFetchIndex() set.Set[string] {
 
 	blob, status, err := b.fetchIndexBlob(diskETag)
 	if err != nil {
-		b.noteRemoteResult(true)
 		fmt.Fprintf(os.Stderr, "cacheprog: web index fetch: %v\n", err)
 		if diskBlob != nil {
 			return diskKeys
 		}
 		return set.New[string]()
 	}
-	b.noteRemoteResult(false)
 	if status == http.StatusNotModified {
 		if diskBlob != nil {
 			return diskKeys
@@ -104,7 +102,9 @@ func (b *WebBackend) readDiskIndex(path string) ([]byte, set.Set[string], string
 //
 //	body, http.StatusOK, nil          for a 200 response
 //	nil,  http.StatusNotModified, nil for a 304 response
-//	nil,  0, err                      for any transport failure or bad status
+//	nil,  <statusCode>, err           for a bad HTTP status (status preserved
+//	                                  so the caller can classify it)
+//	nil,  0, err                      for any transport failure
 func (b *WebBackend) fetchIndexBlob(ifNoneMatch string) ([]byte, int, error) {
 	req, err := http.NewRequest("GET", b.endpoint+"/"+b.bucket+"/_index", nil)
 	if err != nil {
@@ -130,7 +130,7 @@ func (b *WebBackend) fetchIndexBlob(ifNoneMatch string) ([]byte, int, error) {
 		return nil, http.StatusNotModified, nil
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(body))
+		return nil, resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(body))
 	}
 }
 

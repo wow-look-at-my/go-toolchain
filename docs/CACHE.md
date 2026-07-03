@@ -394,25 +394,25 @@ invariants enforce this:
 
    - **GET** on any non-200 / timeout / network error returns a clean miss. The
      toolchain recompiles from source.
-   - **PUT** is fire-and-forget: a failure is dropped silently (a missed upload
-     only costs a future cache miss). PUTs are never retried — retrying writes at
-     a struggling backend only deepens its overload.
+   - **PUT** is fire-and-forget: a failure (after the bounded retry below) is
+     dropped silently for that one object — a missed upload only costs a future
+     cache miss, never build correctness.
    - **Bounded retries** with exponential backoff + full jitter cover transient
-     GET-class blips (a single 502 among many 200s), so an isolated hiccup
-     becomes a hit rather than a wasteful recompute.
-   - **Circuit breaker**: after `GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD` (default
-     24) *consecutive* failures, the backend is tripped to **local-only** for the
-     rest of the process and a single warning is logged. This is the key
-     protection: without it, every one of a build's thousands of cache ops would
-     independently hammer a failing backend — adding latency to the build and
-     piling load onto the very server that is already struggling (the feedback
-     loop behind a cache-server 502 storm). Once tripped, GETs are instant local
-     misses and PUTs are instant drops, with zero further network traffic.
+     blips (a single 5xx/429 among many 200s), so an isolated hiccup becomes a
+     hit rather than a wasteful recompute. Retries honor the server's
+     `Retry-After` header (the admission-control 503 shed's "wait," not "give
+     up") as a floor on the backoff, and apply to GETs, the batch GET, and PUTs
+     (single and whole-batch tar — the key is a content address so re-storing is
+     a no-op). This is the **only** backpressure handling: there is no circuit
+     breaker. A remote GET/PUT is *always* attempted; a failure that outlasts the
+     retry budget falls back to a local miss for that single operation and the
+     remote tier is never disabled for the rest of the run. (An earlier circuit
+     breaker was removed: once PUTs are batched into one `/_batch/put` request per
+     ~128 objects holding one server admission slot, the server does not collapse
+     under CI load, and the breaker's failure mode — a transient 503 tripping it
+     and disabling *GETs* too, i.e. "no cache hits at all" — was pure downside.)
 
-   Tunable via `GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD` (consecutive failures before
-   tripping; `0` disables the breaker) and `GO_TOOLCHAIN_CACHE_MAX_RETRIES`
-   (transient GET retries; `0` disables). Circuit-open misses are reported in the
-   `cacheprog: web summary:` line as `circuit-open=N`.
+   Tunable via `GO_TOOLCHAIN_CACHE_MAX_RETRIES` (transient retries; `0` disables).
 
 3. **Uniform serve-path integrity — self-healing local tier**
    (`src/cache/pack.go`'s `bodyServableForAction`): the checks the web tier runs
