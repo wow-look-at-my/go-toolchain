@@ -76,20 +76,15 @@ type WebBackend struct {
 	MissBuildID     AtomicCounter
 	MissModuleIndex AtomicCounter // module-index blobs refused: unverifiable under a key
 	MissNetwork     AtomicCounter
-	MissCircuitOpen AtomicCounter // gets served as misses because the breaker tripped
 
 	// Failure-handling resilience. A backend outage (5xx, timeout, reset) must
 	// never stall or corrupt a build: every remote op degrades to a clean miss
-	// (GET) or a silent drop (PUT). To stop a build's thousands of cache ops
-	// from each independently hammering a failing backend — amplifying the very
-	// load that caused the outage — a circuit breaker trips to local-only mode
-	// after breakerThreshold consecutive failures, logged exactly once.
-	maxRetries       int          // bounded retries for transient GET failures
-	breakerThreshold int          // consecutive failures before tripping (0 disables)
-	breakerFailures  atomic.Int64 // current consecutive-failure streak
-	breakerTripped   atomic.Bool  // true once the breaker has tripped
-	breakerLogOnce   sync.Once    // ensures the fallback warning is logged once
-	breakerLog       io.Writer    // where the fallback warning goes (nil => os.Stderr)
+	// (GET) or a silent drop (PUT). Remote GETs and PUTs are always attempted;
+	// the only backpressure handling is the bounded retry that honors the
+	// server's Retry-After (see web_resilience.go). A failure that outlasts the
+	// retry budget falls back to a local miss for that one operation — the remote
+	// tier is never disabled for the rest of the run.
+	maxRetries int // bounded retries for transient failures
 
 	tracer *cacheTracer // nil when OTel is not configured
 	errLog *httpErrLogger
@@ -196,8 +191,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	}
 
 	b := &WebBackend{
-		maxRetries:       envInt("GO_TOOLCHAIN_CACHE_MAX_RETRIES", defaultMaxRetries),
-		breakerThreshold: envInt("GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD", defaultBreakerThreshold),
+		maxRetries: envInt("GO_TOOLCHAIN_CACHE_MAX_RETRIES", defaultMaxRetries),
 		client: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
@@ -254,13 +248,6 @@ func (b *WebBackend) url(key string) string {
 // related entries from the same build, which are passed to OnBatchEntries
 // for local cache population.
 func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
-	// Circuit breaker tripped: the remote is known-unhealthy this run, so skip
-	// the network entirely and report a clean miss. The build recomputes from
-	// source — slower, always correct — instead of waiting on a failing backend.
-	if b.remoteDisabled() {
-		b.MissCircuitOpen.Increment()
-		return "", nil, 0, time.Time{}, true, nil
-	}
 	key := b.key(actionID)
 	b.keysMu.RLock()
 	known := b.keys.Contains(key)
@@ -306,7 +293,6 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 	if err != nil {
 		b.Pool.Release()
 		b.MissNetwork.Increment()
-		b.noteRemoteResult(true)
 		markSpanErr(span, "network", err)
 		markSpanMiss(span, "network")
 		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", shortID(actionID), err)
@@ -318,7 +304,6 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTP404.Increment()
-		b.noteRemoteResult(false) // a definitive miss from a healthy backend
 		markSpanMiss(span, "http_404")
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -327,12 +312,10 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTPError.Increment()
-		b.noteRemoteStatus(resp.StatusCode)
 		markSpanMiss(span, fmt.Sprintf("http_%d", resp.StatusCode))
 		b.errLog.Record("web get", resp.StatusCode, actionID, string(respBody))
 		return "", nil, 0, time.Time{}, true, nil
 	}
-	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
 	// Native metadata header, with a fallback to the deprecated S3-style header
 	// so a new client still reads the outputid from an older (not-yet-upgraded)
@@ -471,12 +454,6 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 // Put falls back to the per-object doRetryPUT path — the #272 single-PUT retry
 // is the floor.
 func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
-	// Circuit breaker tripped: drop the upload silently. PUTs are best-effort —
-	// a dropped upload only costs a future cache miss, never build correctness —
-	// and continuing to push at a failing backend would amplify its overload.
-	if b.remoteDisabled() {
-		return nil
-	}
 	key := b.key(actionID)
 
 	// Atomically check-and-claim: if the key is already known (or being

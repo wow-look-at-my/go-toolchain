@@ -54,21 +54,12 @@ func (b *WebBackend) loadOrFetchIndex() set.Set[string] {
 
 	blob, status, err := b.fetchIndexBlob(diskETag)
 	if err != nil {
-		// A bad HTTP status surfaces here as an error carrying its status code
-		// (network errors carry status 0). Classify it the same way the GET/PUT
-		// paths do: a 503 admission shed is backpressure, not a breaker fault.
-		if status == 0 {
-			b.noteRemoteResult(true) // network/transport error: a genuine fault
-		} else {
-			b.noteRemoteStatus(status)
-		}
 		fmt.Fprintf(os.Stderr, "cacheprog: web index fetch: %v\n", err)
 		if diskBlob != nil {
 			return diskKeys
 		}
 		return set.New[string]()
 	}
-	b.noteRemoteResult(false)
 	if status == http.StatusNotModified {
 		if diskBlob != nil {
 			return diskKeys
@@ -139,8 +130,6 @@ func (b *WebBackend) fetchIndexBlob(ifNoneMatch string) ([]byte, int, error) {
 		return nil, http.StatusNotModified, nil
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		// Return the status code (not 0) so loadOrFetchIndex can classify it for
-		// the circuit breaker: a 503 admission shed must not count as a fault.
 		return nil, resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(body))
 	}
 }

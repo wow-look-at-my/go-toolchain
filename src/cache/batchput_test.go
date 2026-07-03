@@ -364,7 +364,6 @@ func TestBatchPut_WholeBatch503ThenSucceeds(t *testing.T) {
 
 	require.Equal(t, int64(3), attempts.Load(), "the whole tar should be retried twice before the 3rd attempt is admitted")
 	require.Equal(t, uint32(2), b.Stats.Puts.Load(), "both objects must be stored once the batch is admitted")
-	require.False(t, b.remoteDisabled(), "a 503 shed must not trip the breaker")
 	for _, a := range actions {
 		require.True(t, claimed(b, a))
 	}

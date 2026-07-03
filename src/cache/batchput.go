@@ -175,7 +175,7 @@ func buildPutTar(reqs []putReq) ([]byte, error) {
 //   - 404/405: server has no batch endpoint — set the sticky batchPutUnsupported
 //     flag and re-issue every object in this batch on the single-PUT fallback path.
 //   - whole-request final failure (network / non-2xx after retries): roll back ALL
-//     claims in the batch and count the breaker via noteRemoteStatus / noteRemoteResult.
+//     claims in the batch so a later healthy run re-uploads them.
 func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	if len(reqs) == 0 {
 		return
@@ -185,16 +185,6 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	_, span := b.tracer.Start("cacheprog.web.batch_put",
 		attribute.Int("cacheprog.batch.requests", len(reqs)))
 	defer span.End()
-
-	// Breaker tripped between enqueue and dispatch: drop every claim so a later
-	// healthy run re-uploads. PUTs are best-effort, so this is a silent skip.
-	if b.remoteDisabled() {
-		span.SetAttributes(attribute.Bool("cacheprog.batch.circuit_open", true))
-		for _, r := range reqs {
-			b.removeClaimed(r.key)
-		}
-		return
-	}
 
 	tarBytes, err := buildPutTar(reqs)
 	if err != nil {
@@ -224,7 +214,6 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	resp, err := b.doRetryPUT(httpReq, tarBytes)
 	if err != nil {
 		b.Pool.Release()
-		b.noteRemoteResult(true)
 		markSpanErr(span, "network", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch put: %v\n", err)
 		for _, r := range reqs {
@@ -236,13 +225,11 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 
 	// 404/405 → server does not support the batch endpoint. Set the sticky flag
 	// so all subsequent PUTs this process take the single-PUT path, and re-issue
-	// every object in THIS batch on that path now. A healthy backend answered, so
-	// this is not a breaker fault.
+	// every object in THIS batch on that path now.
 	if resp.StatusCode == 404 || resp.StatusCode == 405 {
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		b.Pool.Release()
-		b.noteRemoteResult(false)
 		b.batchPutUnsupported.Store(true)
 		span.SetAttributes(attribute.Bool("cacheprog.batch.fallback_single", true))
 		for _, r := range reqs {
@@ -257,7 +244,6 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		b.Pool.Release()
-		b.noteRemoteStatus(resp.StatusCode)
 		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		b.errLog.Record("web batch put", resp.StatusCode, reqs[0].actionID, string(respBody))
 		for _, r := range reqs {
@@ -265,7 +251,6 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 		}
 		return
 	}
-	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
 	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -349,7 +334,6 @@ func (b *WebBackend) putSingle(pr putReq) error {
 		b.Latency.HTTPPut.Record(time.Since(httpStart))
 	}
 	if err != nil {
-		b.noteRemoteResult(true)
 		b.removeClaimed(pr.key)
 		return fmt.Errorf("web put %s: %w", shortID(pr.actionID), err)
 	}
@@ -360,12 +344,10 @@ func (b *WebBackend) putSingle(pr putReq) error {
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		b.noteRemoteStatus(resp.StatusCode)
 		b.removeClaimed(pr.key)
 		b.errLog.Record("web put", resp.StatusCode, pr.actionID, string(respBody))
 		return fmt.Errorf("web put: HTTP %d: %w", resp.StatusCode, errLogged)
 	}
-	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
 	b.Stats.Puts.Increment()
 	return nil
