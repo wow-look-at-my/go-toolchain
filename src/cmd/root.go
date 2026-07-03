@@ -404,7 +404,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
 	os.MkdirAll(coverDir, 0o755)
 	coverFile := filepath.Join(coverDir, "coverage.out")
-	defer os.Remove(coverFile)
+	// Don't delete — cached test runs reuse previous coverage data.
 
 	var onTestOutput func()
 	if testStep != nil {
