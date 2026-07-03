@@ -45,20 +45,34 @@ type WebConfig struct {
 // coalescer), falling back to individual PUTs against a server that does not
 // support it.
 type WebBackend struct {
-	client    *http.Client
-	bucket    string
-	prefix    string
-	endpoint  string
-	accessKey string
-	secretKey string
-	version   string // go-toolchain version for object metadata
-	Stats     CacheStats
-	Pool      ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
-	Latency   *LatencyStats      // optional; set by Server for sub-operation tracking
-	keysMu    sync.RWMutex
-	keys      set.Set[string] // known keys, built from ListObjects on startup
-	missesMu  sync.RWMutex
-	knownMiss set.Set[string] // keys confirmed absent from remote this session
+	client     *http.Client
+	bucket     string
+	prefix     string
+	endpoint   string
+	accessKey  string
+	secretKey  string
+	version    string // go-toolchain version for object metadata
+	Stats      CacheStats
+	Pool       ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
+	Latency    *LatencyStats      // optional; set by Server for sub-operation tracking
+	keysMu     sync.RWMutex
+	keys       set.Set[string] // known keys, built from ListObjects on startup
+	indexEmpty bool            // remote index was empty at startup: nothing to batch-probe for
+	missesMu   sync.RWMutex
+	knownMiss  set.Set[string] // keys confirmed absent from remote this session
+
+	// Consecutive-empty-batch backoff. An empty-but-200 /_batch/get is a HEALTHY
+	// backend that simply has none of this build's keys (a large remote index
+	// that does not overlap this build, or a stale/useless one). Without this, a
+	// populated-but-non-overlapping index still pays a batch round-trip per cold
+	// key. After
+	// emptyBatchBackoffThreshold consecutive zero-entry batches we conclude the
+	// remote holds nothing useful for this build and stop probing for the rest of
+	// the run; any non-empty batch resets the streak (the remote IS serving).
+	emptyBatchBackoffThreshold int          // 0 disables the backoff
+	consecutiveEmptyBatches    atomic.Int64 // current run of zero-entry batches
+	batchProbingDisabled       atomic.Bool  // true once backoff has tripped
+	batchBackoffLogOnce        sync.Once    // logs the disable notice exactly once
 
 	// OnBatchEntries is called when a batch GET returns prefetch entries.
 	// The caller (Server/Daemon) uses this to populate the local cache,
@@ -76,6 +90,17 @@ type WebBackend struct {
 	MissBuildID     AtomicCounter
 	MissModuleIndex AtomicCounter // module-index blobs refused: unverifiable under a key
 	MissNetwork     AtomicCounter
+
+	// SkippedEmptyIndex counts cold-key Gets that returned a clean miss without
+	// a /_batch/get round-trip because the remote's authoritative key index was
+	// empty at startup: an empty remote provably holds nothing to fetch.
+	SkippedEmptyIndex AtomicCounter
+
+	// SkippedBatchBackoff counts cold-key Gets that returned a clean miss without
+	// a /_batch/get round-trip because the consecutive-empty-batch backoff had
+	// tripped: the remote repeatedly returned zero-entry batches this run, so it
+	// provably holds nothing useful for this build.
+	SkippedBatchBackoff AtomicCounter
 
 	// Failure-handling resilience. A backend outage (5xx, timeout, reset) must
 	// never stall or corrupt a build: every remote op degrades to a clean miss
@@ -191,7 +216,8 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	}
 
 	b := &WebBackend{
-		maxRetries: envInt("GO_TOOLCHAIN_CACHE_MAX_RETRIES", defaultMaxRetries),
+		maxRetries:                 envInt("GO_TOOLCHAIN_CACHE_MAX_RETRIES", defaultMaxRetries),
+		emptyBatchBackoffThreshold: envInt("GO_TOOLCHAIN_CACHE_EMPTY_BATCH_BACKOFF", defaultEmptyBatchBackoff),
 		client: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
@@ -229,6 +255,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	b.putBatchDone = make(chan struct{})
 	go b.batchPutCoalescer()
 	b.keys = b.loadOrFetchIndex()
+	b.indexEmpty = b.keys.Len() == 0
 	b.knownMiss = set.New[string]()
 	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
 	return b, nil
@@ -266,6 +293,22 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	}
 
 	b.MissNotInIndex.Increment()
+	if b.indexEmpty {
+		// The remote published an empty key index this run: it definitively holds
+		// nothing, so a /_batch/get can only return zero entries. Skip the network
+		// and miss cleanly instead of paying a round-trip per cold key (which, on a
+		// cold CI build, is thousands of empty batches and tens of seconds wasted).
+		b.SkippedEmptyIndex.Increment()
+		return "", nil, 0, time.Time{}, true, nil
+	}
+	if b.batchProbingOff() {
+		// The remote's index is non-empty, but it has returned enough consecutive
+		// zero-entry batches that the empty-batch backoff tripped: it provably holds
+		// nothing useful for this build (a large but non-overlapping or stale index).
+		// Miss cleanly without the round-trip, same as the empty-index case.
+		b.SkippedBatchBackoff.Increment()
+		return "", nil, 0, time.Time{}, true, nil
+	}
 	return b.getBatch(actionID, key)
 }
 

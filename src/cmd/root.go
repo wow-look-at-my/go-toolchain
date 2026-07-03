@@ -31,15 +31,16 @@ import (
 var activeTrace *gotrace.Trace
 
 var (
-	outputDir     = "build"
-	jsonOutput    bool
-	verbose       bool
-	cacheMisses   bool
-	generateHash  string
-	dupcode       bool
-	lintThreshold float64
-	lintMinNodes  int
-	cgoEnabled    bool
+	outputDir      = "build"
+	jsonOutput     bool
+	verbose        bool
+	cacheMisses    bool
+	generateHash   string
+	dupcode        bool
+	lintThreshold  float64
+	lintMinNodes   int
+	cgoEnabled     bool
+	countGenerated bool
 )
 
 // skipCache reports whether cmd or any of its ancestors is a command tree
@@ -90,6 +91,7 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
 	rootCmd.PersistentFlags().BoolVar(&cacheMisses, "cache-misses", false, "Show packages that missed the build cache")
+	rootCmd.PersistentFlags().BoolVar(&countGenerated, "count-generated", false, "Count generated files (Code generated ... DO NOT EDIT.) in the file length check instead of skipping them")
 
 	// Silent no-op flags — accepted without error for tool compatibility
 	rootCmd.Flags().Bool("build", false, "")

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"math/rand/v2"
 	"net/http"
@@ -23,11 +24,53 @@ const (
 	// miss for that one operation, without disabling the remote tier.
 	defaultMaxRetries = 2
 
+	// defaultEmptyBatchBackoff is the number of consecutive zero-entry /_batch/get
+	// responses that disables further batch probing for the rest of the process.
+	// An empty-but-200 batch is a HEALTHY backend that simply has none of this
+	// build's keys. CI batches were ~1.6 keys / ~45ms each, so backing off after
+	// ~24 consecutive empties bounds the wasted probing to ~1s; the daemon is one
+	// process for the whole build, so one trip covers every later phase. 0
+	// disables the backoff (override via GO_TOOLCHAIN_CACHE_EMPTY_BATCH_BACKOFF).
+	defaultEmptyBatchBackoff = 24
+
 	// retryBaseDelay / retryMaxDelay bound the exponential backoff between
 	// retries. Full jitter is applied on top (see sleepBackoff).
 	retryBaseDelay = 100 * time.Millisecond
 	retryMaxDelay  = 2 * time.Second
 )
+
+// noteBatchEntries feeds the entry count of one /_batch/get 200 response to the
+// consecutive-empty-batch backoff. A zero-entry batch is a healthy remote that
+// holds none of this build's keys; once enough of them stack up, the remote has
+// demonstrably nothing useful for this run, so we disable further batch probing
+// (logged once). Any non-empty batch resets the streak — the remote IS serving.
+// An empty-but-200 response is not a backend failure: the backoff is purely a
+// "nothing here to fetch" optimization, orthogonal to the per-op retry path.
+func (b *WebBackend) noteBatchEntries(n int) {
+	if b.emptyBatchBackoffThreshold <= 0 || b.batchProbingDisabled.Load() {
+		return
+	}
+	if n > 0 {
+		b.consecutiveEmptyBatches.Store(0)
+		return
+	}
+	if b.consecutiveEmptyBatches.Add(1) >= int64(b.emptyBatchBackoffThreshold) {
+		if b.batchProbingDisabled.CompareAndSwap(false, true) {
+			b.batchBackoffLogOnce.Do(func() {
+				fmt.Fprintf(os.Stderr, "cacheprog: remote returned %d empty batches; "+
+					"disabling further batch probes for this run (endpoint=%s)\n",
+					b.emptyBatchBackoffThreshold, b.endpoint)
+			})
+		}
+	}
+}
+
+// batchProbingOff reports whether the consecutive-empty-batch backoff has
+// tripped, meaning cold not-in-index keys should miss cleanly without a
+// /_batch/get round-trip for the rest of this run.
+func (b *WebBackend) batchProbingOff() bool {
+	return b.batchProbingDisabled.Load()
+}
 
 // envInt reads an integer environment variable, falling back to def when unset
 // or unparseable. A negative value is clamped to 0 (feature disabled).

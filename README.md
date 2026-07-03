@@ -9,7 +9,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
 - **Benchmarks** — benchmarks run automatically after builds; compare against previous results stored in git notes
 - **Near-duplicate detection** — scans Go source for structurally similar functions using AST comparison
-- **File length checks** — warns at 500 lines, errors at 750 lines (with exemption support)
+- **File length checks** — warns at 500 lines, errors at 750 lines; generated files (canonical `// Code generated ... DO NOT EDIT.` header marker) are auto-exempted unless `--count-generated` is passed
 - **Auto-fix / CI check** — locally (`CI` unset) it fixes linter violations and the migrations below in place; on CI (`CI` set) the very same checks run read-only and a tree that isn't already canonical is a hard build failure (listing the offending files and the local remedy), so CI can never pass green on something the local autofixer would have rewritten
 - **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` operands so cross-type numeric comparisons that the fork's loose `ObjectsAreEqual` accepted keep compiling and passing against upstream — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`. The conversion is type-aware (only inserted when sound) and idempotent, and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
@@ -128,6 +128,7 @@ go-toolchain release --tag v1.0.0
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
 | `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |
+| `--count-generated` | `false`  | Count generated files in the file length check instead of skipping them |
 
 #### Root command flags
 
@@ -236,7 +237,7 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 5. Detects and runs `//go:generate` directives (if present)
 6. Runs `go vet`: custom analyzers normalize assertions, migrate `gotest.tools`/fork-testify imports to upstream `stretchr/testify`, and insert explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` operands (resyncing the vendor tree afterward). Locally these fixes are applied in place; on CI (`CI` set) they run read-only and any change they would make is a hard failure instead — so importing the removed `wow-look-at-my/testify` fork fails CI rather than passing green
 7. Checks for near-duplicate code blocks (warnings only)
-8. Checks file lengths (warns at 500 lines, errors at 750)
+8. Checks file lengths (warns at 500 lines, errors at 750). Generated files — detected by the canonical `^// Code generated .* DO NOT EDIT\.$` header marker (the same rule used by `go help generate`/gofmt/x/tools) — are auto-exempted from both the warning and the hard fail, and a single `File length check: skipped N generated file(s)` notice is printed for transparency. Pass `--count-generated` to subject generated files to the check like any other file
 9. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). The local tier is a FUSE virtual filesystem backed by append-only pack files (see [docs/CACHE.md](docs/CACHE.md)); a cache hit returns a `DiskPath` into the mount and the kernel serves the body on demand from a pack, so no per-entry loose files or sidecars are written. Cache misses use the server's batch GET endpoint with prefetch — the server returns the requested entry plus temporally related entries from the same build, proactively populating the local cache. PUTs are LZ4-compressed and coalesced: instead of one HTTP PUT per object (a storm of thousands that saturates the cache server's admission control on a large build), buffered uploads are shipped as a single `/_batch/put` tar request — mirroring the batch GET coalescer — so a whole batch takes one server slot. The batch is retried as a whole on a `503` admission shed (honoring `Retry-After`), a per-object server error rolls back only that object's optimistic index claim, and the client falls back to individual PUTs against a cache server that does not support the batch endpoint. Each object is tagged with metadata describing what it is (sent as `X-Cache-Meta-*` headers on an individual PUT, or as per-entry manifest metadata in a batch):
    - `Object-Type` — file type detected from magic bytes (`go-archive`, `elf-binary`, `macho-binary`, `pe-binary`, `go-object`, or `unknown`)
    - `Go-Version` — the Go compiler version that produced the artifact (e.g. `go1.24.7`), extracted from Go archive headers
