@@ -500,8 +500,8 @@ func emptyIndexServer(t *testing.T, batchGets, puts *atomic.Int64, indexBlob []b
 // waste: when the remote's authoritative key index is empty, a /_batch/get can
 // only ever return zero entries, so the backend must skip the network entirely
 // and miss cleanly. Before the fix, every cold key paid a round-trip per key
-// (thousands of empty batches, ~27s) that the breaker never backed off (a
-// 200-with-0-entries resets the failure streak).
+// (thousands of empty batches, ~27s), since a 200-with-0-entries is a healthy
+// response the per-op retry path never backs off from.
 func TestWebBackend_EmptyIndexSkipsBatch(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	var batchGets, puts atomic.Int64
@@ -577,12 +577,16 @@ func TestWebBackend_EmptyIndexStillPuts(t *testing.T) {
 		AccessKey: "key", SecretKey: "secret",
 	})
 	require.NoError(t, err)
-	defer b.Close()
 	require.True(t, b.indexEmpty)
 
 	body := []byte("a freshly compiled object")
 	err = b.Put("deadbeefdeadbeef", testOutputID(string(body)), bytes.NewReader(body), int64(len(body)))
 	require.NoError(t, err)
+
+	// Put is async: it enqueues onto the PUT coalescer and returns. Close drains
+	// the buffered upload (as one /_batch/put, which the server counts as a PUT)
+	// before we assert the remote actually received it.
+	require.NoError(t, b.Close())
 
 	require.Equal(t, int64(1), puts.Load(),
 		"an empty-index run must still upload PUTs to populate the remote")
