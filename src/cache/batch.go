@@ -179,7 +179,12 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 
 	reqBody, _ := json.Marshal(batchGetRequest{Keys: keys, Prefetch: true})
 	batchURL := b.endpoint + "/" + b.bucket + "/_batch/get"
-	httpReq, err := http.NewRequest("GET", batchURL, bytes.NewReader(reqBody))
+	// POST, not GET-with-body: a body-carrying GET is proxy-hostile, and the
+	// cache server accepts both methods on /_batch/get (GET remains
+	// server-side for older clients). A server without the endpoint at all
+	// still answers 404/405 and takes the individual-GET fallback below. The
+	// retry loop rewinds the JSON body via GetBody, method-agnostically.
+	httpReq, err := http.NewRequest("POST", batchURL, bytes.NewReader(reqBody))
 	if err != nil {
 		span.SetStatus(codes.Error, "build request")
 		respondAllMiss(nil)

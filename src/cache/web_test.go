@@ -130,6 +130,12 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	headers := map[string]http.Header{} // capture all headers per path
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// No batch endpoint on this fake (any method): the client falls back
+		// to individual GETs, the path this test exercises.
+		if r.URL.Path == "/testbucket/_batch/get" {
+			w.WriteHeader(404)
+			return
+		}
 		switch r.Method {
 		case "PUT":
 			body, _ := io.ReadAll(r.Body)

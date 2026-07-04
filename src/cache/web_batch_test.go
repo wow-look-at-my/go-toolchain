@@ -44,8 +44,9 @@ func fakeBatchServer(t *testing.T, store map[string][]byte, meta map[string]map[
 			return
 		}
 
-		// Batch GET endpoint.
-		if r.Method == "GET" && r.URL.Path == "/testbucket/_batch/get" {
+		// Batch GET endpoint (the real server accepts GET and POST; the
+		// client sends POST).
+		if (r.Method == "GET" || r.Method == "POST") && r.URL.Path == "/testbucket/_batch/get" {
 			var req batchGetRequest
 			json.NewDecoder(r.Body).Decode(&req)
 
@@ -267,12 +268,12 @@ func TestGetBatch_FallbackToIndividual(t *testing.T) {
 			w.WriteHeader(200)
 			return
 		}
+		if r.URL.Path == "/testbucket/_batch/get" {
+			w.WriteHeader(404) // batch not supported (any method)
+			return
+		}
 		if r.Method == "GET" {
 			key := r.URL.Path[len("/testbucket/"):]
-			if key == "_batch/get" {
-				w.WriteHeader(404) // batch not supported
-				return
-			}
 			d, ok := store[key]
 			if !ok {
 				w.WriteHeader(404)
@@ -377,7 +378,7 @@ func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 	var maxKeysInOneRequest int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" || r.URL.Path != "/testbucket/_batch/get" {
+		if (r.Method != "GET" && r.Method != "POST") || r.URL.Path != "/testbucket/_batch/get" {
 			w.WriteHeader(404)
 			return
 		}
@@ -474,7 +475,7 @@ func emptyIndexServer(t *testing.T, batchGets, puts *atomic.Int64, indexBlob []b
 			w.Header().Set("Content-Type", "application/octet-stream")
 			w.WriteHeader(http.StatusOK)
 			w.Write(indexBlob)
-		case r.URL.Path == "/testbucket/_batch/get" && r.Method == http.MethodGet:
+		case r.URL.Path == "/testbucket/_batch/get" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 			batchGets.Add(1)
 			// Empty remote: return an empty manifest (0 entries).
 			manifest := batchGetManifest{}
