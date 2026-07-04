@@ -12,7 +12,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -65,6 +64,16 @@ type StatEvent struct {
 	BatchPop  uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch GET
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
+
+	// Per-action outcome, piggybacked on the counter events handleGet and
+	// handlePut already emit (no extra socket writes). All optional: an old
+	// listener ignores them and an old sender simply never sets them, so the
+	// wire format stays compatible in both directions.
+	Action  string `json:"a,omitempty"`  // 20-char truncated actionID (base64.RawURLEncoding(id[:15]))
+	Op      string `json:"op,omitempty"` // "get" | "put"
+	Outcome string `json:"o,omitempty"`  // "hit-local" | "hit-remote" | "miss" | "put"
+	Bytes   int64  `json:"b,omitempty"`  // object size in bytes
+	DurUS   int64  `json:"d,omitempty"`  // operation duration, microseconds
 }
 
 // maxConcurrentPuts is the maximum number of concurrent remote put operations.
@@ -263,138 +272,6 @@ func (s *Server) GetStats() *ServerStats {
 	return ss
 }
 
-// StatsListener listens on a unix domain socket and aggregates streaming
-// stat events from all cacheprog subprocesses in real-time.
-type StatsListener struct {
-	listener  net.Listener
-	path      string
-	local     CacheStats
-	remote    CacheStats
-	batch     BatchStats
-	misses    AtomicCounter
-	latency   LatencyStats
-	pool      ConcurrencyTracker
-	hasRemote atomic.Bool // true if a remote backend was configured (set by caller)
-	hasBatch  atomic.Bool
-	wg        sync.WaitGroup // tracks active handleConn goroutines
-	acceptWg  sync.WaitGroup // tracks the accept loop goroutine
-}
-
-// SetHasRemote marks the listener as having a remote backend configured.
-// This controls whether Stats() includes the Remote field, regardless of
-// whether any remote events have actually been received yet.
-func (sl *StatsListener) SetHasRemote() {
-	sl.hasRemote.Store(true)
-}
-
-// NewStatsListener creates a unix socket and starts accepting connections.
-func NewStatsListener(path string) (*StatsListener, error) {
-	os.Remove(path)
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, err
-	}
-	sl := &StatsListener{listener: ln, path: path}
-	sl.acceptWg.Add(1)
-	go func() {
-		defer sl.acceptWg.Done()
-		sl.accept()
-	}()
-	return sl, nil
-}
-
-func (sl *StatsListener) accept() {
-	for {
-		conn, err := sl.listener.Accept()
-		if err != nil {
-			return
-		}
-		sl.wg.Add(1)
-		// Ack the connection so the dialer knows it has been picked up.
-		// Once the dialer has read this byte, this connection is registered
-		// in sl.wg, so Close()'s wg.Wait deterministically covers it.
-		conn.Write([]byte{0})
-		go sl.handleConn(conn)
-	}
-}
-
-func (sl *StatsListener) handleConn(conn net.Conn) {
-	defer sl.wg.Done()
-	defer conn.Close()
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		var ev StatEvent
-		if json.Unmarshal(scanner.Bytes(), &ev) != nil {
-			continue
-		}
-		if ev.LocalHit > 0 {
-			sl.local.Hits.Add(ev.LocalHit)
-		}
-		if ev.LocalPut > 0 {
-			sl.local.Puts.Add(ev.LocalPut)
-		}
-		if ev.RemoteHit > 0 {
-			sl.hasRemote.Store(true)
-			sl.remote.Hits.Add(ev.RemoteHit)
-		}
-		if ev.RemotePut > 0 {
-			sl.hasRemote.Store(true)
-			sl.remote.Puts.Add(ev.RemotePut)
-		}
-		if ev.Miss > 0 {
-			sl.misses.Add(ev.Miss)
-		}
-		if ev.BatchPop > 0 {
-			sl.hasBatch.Store(true)
-			sl.batch.Populated.Add(ev.BatchPop)
-		}
-		if ev.Latency != nil {
-			sl.latency.Merge(*ev.Latency)
-			sl.pool.Merge(ev.Latency.Pool)
-		}
-	}
-}
-
-// Close stops the listener, waits for all connections to drain, and cleans up.
-//
-// Delivery is guaranteed by the accept-ack handshake: a dialer only keeps its
-// stats connection after reading the listener's 1-byte ack, which the accept
-// loop writes AFTER registering the connection in sl.wg — so wg.Wait() below
-// deterministically covers every connection whose dialer ever sent an event.
-// The 10ms accept-deadline drain is belt-and-suspenders for a dialer racing
-// Close itself: such a dialer degrades to stats-off via its ack timeout
-// instead of silently losing data.
-func (sl *StatsListener) Close() {
-	// Give the accept loop a short window to drain any connections that are
-	// already in the kernel accept queue. listener.Close() would drop them.
-	if ul, ok := sl.listener.(*net.UnixListener); ok {
-		ul.SetDeadline(time.Now().Add(10 * time.Millisecond))
-	} else {
-		sl.listener.Close()
-	}
-	sl.acceptWg.Wait() // wait for accept loop to exit after draining queue
-	sl.wg.Wait()       // wait for all handleConn goroutines to finish
-	sl.listener.Close()
-	os.Remove(sl.path)
-}
-
-// Stats returns the aggregated stats.
-func (sl *StatsListener) Stats() *ServerStats {
-	ss := &ServerStats{
-		Local:   &sl.local,
-		Misses:  &sl.misses,
-		Latency: &sl.latency,
-		Pool:    &sl.pool,
-	}
-	if sl.hasRemote.Load() {
-		ss.Remote = &sl.remote
-	}
-	if sl.hasBatch.Load() {
-		ss.Batch = &sl.batch
-	}
-	return ss
-}
-
 // Run starts the protocol loop, reading requests from r and writing
 // responses to w. It blocks until the input stream closes or a close
 // command is received.
@@ -533,6 +410,7 @@ func (s *Server) flushLatency() {
 }
 
 func (s *Server) handleGet(req Request) Response {
+	start := time.Now()
 	actionID := fmt.Sprintf("%x", req.ActionID)
 	mu := s.lock(actionID)
 
@@ -547,7 +425,7 @@ func (s *Server) handleGet(req Request) Response {
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
 	if !miss {
-		s.sendStat(StatEvent{LocalHit: 1})
+		s.sendStat(withAction(StatEvent{LocalHit: 1}, req.ActionID, "get", "hit-local", meta.Size, time.Since(start)))
 		if s.debug {
 			fmt.Fprintf(os.Stderr, "cache: HIT local  %s output=%s size=%d\n", actionID, shortID(meta.OutputID), meta.Size)
 		}
@@ -564,7 +442,7 @@ func (s *Server) handleGet(req Request) Response {
 	// Try remote backend.
 	if s.remote == nil {
 		s.Misses.Increment()
-		s.sendStat(StatEvent{Miss: 1})
+		s.sendStat(withAction(StatEvent{Miss: 1}, req.ActionID, "get", "miss", 0, time.Since(start)))
 		if s.debug {
 			fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
 		}
@@ -572,11 +450,11 @@ func (s *Server) handleGet(req Request) Response {
 	}
 
 	remoteStart := time.Now()
-	outputID, body, _, t, remoteMiss, err := s.remote.Get(actionID)
+	outputID, body, size, t, remoteMiss, err := s.remote.Get(actionID)
 
 	if err != nil || remoteMiss {
 		s.Misses.Increment()
-		s.sendStat(StatEvent{Miss: 1})
+		s.sendStat(withAction(StatEvent{Miss: 1}, req.ActionID, "get", "miss", 0, time.Since(start)))
 		if s.debug {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "cache: MISS       %s (remote error: %v)\n", actionID, err)
@@ -587,7 +465,7 @@ func (s *Server) handleGet(req Request) Response {
 		return Response{ID: req.ID, Miss: true}
 	}
 	s.Latency.RemoteGet.Record(time.Since(remoteStart))
-	s.sendStat(StatEvent{RemoteHit: 1})
+	s.sendStat(withAction(StatEvent{RemoteHit: 1}, req.ActionID, "get", "hit-remote", size, time.Since(start)))
 	defer body.Close()
 
 	// Write to local cache for future hits.
@@ -613,6 +491,7 @@ func (s *Server) handleGet(req Request) Response {
 }
 
 func (s *Server) handlePut(req Request) Response {
+	start := time.Now()
 	actionID := fmt.Sprintf("%x", req.ActionID)
 	outputID := fmt.Sprintf("%x", req.OutputID)
 	mu := s.lock(actionID)
@@ -645,7 +524,7 @@ func (s *Server) handlePut(req Request) Response {
 	if err != nil {
 		return Response{ID: req.ID, Err: err.Error()}
 	}
-	s.sendStat(StatEvent{LocalPut: 1})
+	s.sendStat(withAction(StatEvent{LocalPut: 1}, req.ActionID, "put", "put", int64(len(req.Body)), time.Since(start)))
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s [%s] size=%d\n", actionID, describeData(req.Body), len(req.Body))
 	}

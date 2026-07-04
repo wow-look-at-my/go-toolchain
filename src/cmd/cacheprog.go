@@ -346,6 +346,16 @@ func printCacheStats(close bool) {
 		defer cancel()
 		_ = gotrace.Shutdown(ctx)
 	}
+	if close && statsListener != nil {
+		statsListener.Close()
+	}
+	// Emit the per-action build profile once everything has drained: the
+	// daemon Close above flushed the remote tier (final web counters) and the
+	// listener Close delivered every per-action outcome event. Emitting here
+	// rather than in run() is what makes build/profile.json's counters final.
+	if close {
+		emitBuildProfile()
+	}
 	if statsListener == nil {
 		switch {
 		case !cacheEnabled:
@@ -358,9 +368,6 @@ func printCacheStats(close bool) {
 			fmt.Printf("⇒ Cache: disabled\n")
 		}
 		return
-	}
-	if close {
-		statsListener.Close()
 	}
 
 	stats := statsListener.Stats()

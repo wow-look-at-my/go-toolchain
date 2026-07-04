@@ -67,8 +67,12 @@ type WebBackend struct {
 	// empty set), absences prove nothing and cold keys are batch-probed — the
 	// recovery path for a client that doesn't know what the server holds.
 	indexAuthoritative bool
-	missesMu           sync.RWMutex
-	knownMiss          set.Set[string] // keys confirmed absent from remote this session
+	// indexKeysAtStart is the advertised key count from the startup index
+	// fetch, before any Put claims. Reported in WebSummary so the build
+	// profile can flag a dead remote (many advertised keys, zero hits).
+	indexKeysAtStart int
+	missesMu         sync.RWMutex
+	knownMiss        set.Set[string] // keys confirmed absent from remote this session
 
 	// Consecutive-empty-batch backoff. An empty-but-200 /_batch/get is a HEALTHY
 	// backend that simply has none of this build's keys (a large remote index
@@ -290,6 +294,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	go b.batchPutCoalescer()
 	b.keys, b.indexAuthoritative = b.loadOrFetchIndex()
 	b.indexEmpty = b.keys.Len() == 0
+	b.indexKeysAtStart = b.keys.Len()
 	b.knownMiss = set.New[string]()
 	if b.indexAuthoritative {
 		fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())

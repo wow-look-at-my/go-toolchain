@@ -17,6 +17,13 @@ import (
 	"gotest.tools/gotestsum/testjson"
 )
 
+// GraphArgFunc, when non-nil, returns an extra flag for the go test argv —
+// the build profiler's "-debug-actiongraph=<file>" dump (or "" for none).
+// Set by cmd when profiling is enabled; a function hook rather than a direct
+// profile import because src/profile depends on src/trace, which reaches
+// this package back through src/summary (an import cycle otherwise).
+var GraphArgFunc func() string
+
 const (
 	clrGreen  = "\033[38;2;0;255;0m"
 	clrFail   = "\033[38;2;255;128;128m"
@@ -283,6 +290,13 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// covdata" error on main packages without tests. Also excludes packages
 	// where all non-test .go files are generated code (e.g. sqlc output).
 	args := []string{"test", "-json", "-timeout=" + testTimeout.String()}
+	// Dump the action graph for the build profile. No-op when profiling is
+	// off (hook unset — e.g. --no-profile or unit tests).
+	if GraphArgFunc != nil {
+		if garg := GraphArgFunc(); garg != "" {
+			args = append(args, garg)
+		}
+	}
 	if coverFile != "" {
 		// -count=1 disables Go's test-result cache for this invocation.
 		// Go#74873: when -coverpkg=./... is in play, cached coverprofile

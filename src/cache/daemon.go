@@ -129,32 +129,14 @@ func (d *Daemon) Close() {
 		// hits and puts numbers make it obvious whether the cache is
 		// actually working or whether everything is missing.
 		if wb, ok := d.remote.(*WebBackend); ok {
-			hits := wb.Stats.Hits.Load()
-			puts := wb.Stats.Puts.Load()
-			notInIndex := wb.MissNotInIndex.Load()
-			http404 := wb.MissHTTP404.Load()
-			httpErr := wb.MissHTTPError.Load()
-			noOutputID := wb.MissNoOutputID.Load()
-			readBody := wb.MissReadBody.Load()
-			decompress := wb.MissDecompress.Load()
-			checksum := wb.MissChecksum.Load()
-			buildID := wb.MissBuildID.Load()
-			moduleIndex := wb.MissModuleIndex.Load()
-			network := wb.MissNetwork.Load()
-			skippedEmptyIndex := wb.SkippedEmptyIndex.Load()
-			skippedNotInIndex := wb.SkippedNotInIndex.Load()
-			skippedBatchBackoff := wb.SkippedBatchBackoff.Load()
-			reclaimed404 := wb.Reclaimed404.Load()
-			putSkippedKnown := wb.PutSkippedKnown.Load()
-			putRefusedModIndex := wb.PutRefusedModIndex.Load()
-			putRefusedBuildID := wb.PutRefusedBuildID.Load()
-			// The skipped-* counters are breakdowns of not-in-index (each such
-			// Get already incremented MissNotInIndex before the skip), so they
-			// are NOT added to missTotal — doing so would double-count.
-			missTotal := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + checksum + buildID + moduleIndex + network
-			if hits > 0 || puts > 0 || missTotal > 0 {
+			ws := wb.SummarySnapshot()
+			// MissTotal excludes the skipped-* counters: they are breakdowns
+			// of not-in-index (each such Get already incremented
+			// MissNotInIndex before the skip) — adding them would double-count.
+			missTotal := ws.MissTotal()
+			if ws.Hits > 0 || ws.Puts > 0 || missTotal > 0 {
 				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d modindex=%d network=%d skipped-empty-index=%d skipped-not-in-index=%d skipped-batch-backoff=%d reclaimed-404=%d) put-skipped: known=%d modindex=%d buildid=%d\n",
-					hits, puts, missTotal, notInIndex, http404, httpErr, noOutputID, readBody, decompress, checksum, buildID, moduleIndex, network, skippedEmptyIndex, skippedNotInIndex, skippedBatchBackoff, reclaimed404, putSkippedKnown, putRefusedModIndex, putRefusedBuildID)
+					ws.Hits, ws.Puts, missTotal, ws.MissNotInIndex, ws.MissHTTP404, ws.MissHTTPError, ws.MissNoOutputID, ws.MissReadBody, ws.MissDecompress, ws.MissChecksum, ws.MissBuildID, ws.MissModuleIndex, ws.MissNetwork, ws.SkippedEmptyIndex, ws.SkippedNotInIndex, ws.SkippedBatchBackoff, ws.Reclaimed404, ws.PutSkippedKnown, ws.PutRefusedModIndex, ws.PutRefusedBuildID)
 			}
 		}
 		d.remote.Close()
