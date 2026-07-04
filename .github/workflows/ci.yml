@@ -41,6 +41,47 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: go run ./src
 
+      - name: Check build profile
+        uses: wow-look-at-my/actions@typescript#latest
+        with:
+          script: |
+            // Assert on the first build's per-action profile. Two classes of
+            // failure are gated here:
+            //   1. Poison tripwires: the remote SERVED an object a client-side
+            //      integrity guard had to refuse (checksum / build-id action /
+            //      module-index). Any nonzero value means the shared cache is
+            //      carrying poison and needs inspection. (put_refused_modindex
+            //      is NOT gated — refusing to UPLOAD module indexes is normal
+            //      and large on every cold run.)
+            //   2. Dead-remote signature: a populated advertised index
+            //      (>1000 keys) yielding ZERO web hits on a fresh runner's
+            //      first build — the remote tier is serving nothing.
+            const path = 'build/profile.json';
+            if (!fs.existsSync(path)) {
+              core.setFailed(`${path} missing — the build profile did not run`);
+            } else {
+              const p = JSON.parse(fs.readFileSync(path, 'utf-8'));
+              core.info(`profile: ${p.total_actions} actions (${p.executed_actions} executed), ` +
+                `${Number(p.cache_satisfied_pct).toFixed(0)}% cache-satisfied, ` +
+                `outcomes=${JSON.stringify(p.cache_outcomes)}`);
+              const web = p.web;
+              if (!web) {
+                core.info('no web tier configured; skipping web-cache assertions');
+              } else {
+                core.info(`web: hits=${web.hits} puts=${web.puts} index_keys=${web.index_keys} ` +
+                  `authoritative=${web.index_authoritative} put_refused_modindex=${web.put_refused_modindex}`);
+                core.info(`tripwires: checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}`);
+                if (web.miss_checksum > 0 || web.miss_buildid > 0 || web.miss_modindex > 0) {
+                  core.setFailed(`cache poison tripwire: the remote served objects that failed integrity gates ` +
+                    `(checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}) — inspect the cache server`);
+                }
+                if (web.index_keys > 1000 && web.hits === 0) {
+                  core.setFailed(`dead-remote signature: ${web.index_keys} advertised index keys but zero web hits ` +
+                    `on the first build — the remote cache tier is serving nothing`);
+                }
+              }
+            }
+
       - name: Cache validation (second build)
         env:
           # The second build re-invokes go-toolchain, which also submits the
