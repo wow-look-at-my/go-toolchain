@@ -5,6 +5,8 @@ package gomod
 import (
 	"bufio"
 	"go/build"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,9 +89,9 @@ func hasMainPackage(dir string) bool {
 		// Read the cheap "package" clause FIRST. The vast majority of files in
 		// a module are not "package main", and for those the constraint check
 		// is irrelevant: a build-excluded non-main file was never going to be
-		// counted as a main package anyway. Doing this first avoids a full
-		// file read + build-constraint parse (build.Default.MatchFile) on
-		// every .go file in the module tree on every build invocation.
+		// counted as a main package anyway. Doing this first avoids a
+		// build-constraint parse (build.Default.MatchFile) on every .go file
+		// in the module tree on every build invocation.
 		if packageNameFromFile(filepath.Join(dir, name)) != "main" {
 			continue
 		}
@@ -130,35 +132,20 @@ func fileMatchesBuild(dir, name string) bool {
 // only ever run on "package main" candidates, never on every .go file.
 var matchFile = build.Default.MatchFile
 
-// packageNameFromFile reads the package declaration from a Go source file.
-// It scans only until the package line is found, avoiding parsing the whole file.
+// packageNameFromFile reads the package declaration from a Go source file
+// using go/parser in PackageClauseOnly mode, which stops after the package
+// clause instead of parsing the whole file. The real parser handles every
+// comment form the old hand-rolled line scanner tripped over — most notably a
+// multi-line /* */ license header (the k8s-style boilerplate), whose
+// continuation lines matched none of the scanner's prefixes and made it bail
+// before ever reaching the package clause, silently hiding a main package
+// from the build. Returns "" when the file has no parseable package clause.
 func packageNameFromFile(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
+	// A partial AST may still carry the package name even when ParseFile
+	// reports an error (e.g. junk after the clause); use it if present.
+	f, _ := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly)
+	if f == nil || f.Name == nil {
 		return ""
 	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip blank lines, comments, and build constraints
-		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
-			continue
-		}
-		if strings.HasPrefix(line, "package ") {
-			// Extract the package name (first token after "package")
-			name := strings.TrimPrefix(line, "package ")
-			// Handle "package main // comment" or "package main;"
-			if idx := strings.IndexAny(name, " \t;/"); idx != -1 {
-				name = name[:idx]
-			}
-			return strings.TrimSpace(name)
-		}
-		// If we hit a non-comment, non-blank, non-package line, the file
-		// is malformed or we've gone past the package declaration area.
-		// In practice this shouldn't happen for valid Go files.
-		break
-	}
-	return ""
+	return f.Name.Name
 }
