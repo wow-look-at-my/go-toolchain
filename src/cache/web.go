@@ -35,6 +35,7 @@ type WebConfig struct {
 	AccessKey string // Basic Auth username
 	SecretKey string // Basic Auth password
 	Version   string // go-toolchain version, stored as object metadata
+	Module    string // main module path, stored as object metadata (provenance)
 }
 
 // WebBackend stores cache objects in a remote web server with LZ4 compression.
@@ -51,6 +52,7 @@ type WebBackend struct {
 	accessKey  string
 	secretKey  string
 	version    string // go-toolchain version for object metadata
+	module     string // main module path for object metadata (provenance)
 	Stats      CacheStats
 	Pool       ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
 	Latency    *LatencyStats      // optional; set by Server for sub-operation tracking
@@ -274,6 +276,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		accessKey: accessKey,
 		secretKey: secretKey,
 		version:   cfg.Version,
+		module:    cfg.Module,
 	}
 	b.tracer = newCacheTracer(os.Stderr)
 	b.errLog = newHTTPErrLogger(os.Stderr, httpErrFlushInterval, b.tracer)

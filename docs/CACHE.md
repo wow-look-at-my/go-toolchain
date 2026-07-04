@@ -120,7 +120,17 @@ The two tiers:
   S3**: object metadata travels in native `X-Cache-Meta-*` headers and errors
   are native plain text. The client still reads the deprecated `X-Amz-Meta-*`
   response header as a fallback so it interoperates with a not-yet-upgraded
-  server during a rollout.
+  server during a rollout. Every PUT (batch manifest entry or single-PUT
+  headers — both render the same map, assembled once in
+  [`src/cache/webput.go`](../src/cache/webput.go)) carries **provenance
+  metadata** alongside the protocol fields: `Pkg` (the archive's import
+  path), `Src` (source-file basenames, capped at 8 names / 256 bytes with a
+  `+N more` suffix so the value always fits the server's xattr budget),
+  `Module` (the producing repo's main module path), `Go-Version`/`Target`,
+  `Toolchain-Version`, and `Created`. The server stores them as xattrs and
+  returns them on GET/HEAD, so `curl -I` on any stored key answers "what
+  file/package/repo did this cache item come from?" — the full key list and
+  an example live in the README's "How It Works" section.
 
 <a name="the-local-tier-is-a-virtual-filesystem"></a>
 ## The local tier is a virtual filesystem

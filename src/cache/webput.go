@@ -126,6 +126,9 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	if b.version != "" {
 		meta["toolchain-version"] = b.version
 	}
+	if b.module != "" {
+		meta["module"] = b.module
+	}
 	if goVer, target := parseArchiveHeader(raw); goVer != "" {
 		meta["go-version"] = goVer
 		meta["target"] = target
@@ -134,7 +137,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		meta["pkg"] = pkg
 	}
 	if files := parseSourceFiles(raw); len(files) > 0 {
-		meta["src"] = strings.Join(files, " ")
+		meta["src"] = capSrcList(files)
 	}
 
 	pr := putReq{
@@ -177,4 +180,40 @@ func metadataHeaders(meta map[string]string) http.Header {
 		h.Set("X-Cache-Meta-"+name, val)
 	}
 	return h
+}
+
+// srcMetaMaxFiles / srcMetaMaxBytes bound the X-Cache-Meta-Src metadata value.
+// The uncapped list (every .go basename compiled into the archive) could run to
+// kilobytes for large packages and blow the cache server's ~4 KiB shared ext4
+// xattr block — the server now degrades gracefully by dropping the oversized
+// key, but then the provenance data is simply lost. A capped list keeps the
+// most useful prefix and always fits.
+const (
+	srcMetaMaxFiles = 8
+	srcMetaMaxBytes = 256
+)
+
+// capSrcList renders a source-file basename list as the Src metadata value,
+// bounded to at most srcMetaMaxFiles names and srcMetaMaxBytes bytes in total;
+// names past the cap are summarized as a trailing "+N more".
+func capSrcList(files []string) string {
+	total := len(files)
+	if len(files) > srcMetaMaxFiles {
+		files = files[:srcMetaMaxFiles]
+	}
+	for {
+		s := strings.Join(files, " ")
+		if dropped := total - len(files); dropped > 0 {
+			suffix := "+" + strconv.Itoa(dropped) + " more"
+			if s == "" {
+				s = suffix
+			} else {
+				s += " " + suffix
+			}
+		}
+		if len(s) <= srcMetaMaxBytes || len(files) == 0 {
+			return s
+		}
+		files = files[:len(files)-1]
+	}
 }

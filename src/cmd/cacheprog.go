@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -110,6 +111,12 @@ func parseBuildCacheConfig() cache.WebConfig {
 		AccessKey: username,
 		SecretKey: password,
 		Version:   buildVersion,
+		// Provenance: stamp every uploaded object with the main module path
+		// (X-Cache-Meta-Module) so a server-side HEAD shows which repo
+		// produced it. Read from go.mod in the CWD — the repo root for the
+		// daemon, the module dir for a standalone cacheprog; empty (omitted)
+		// when there is no go.mod here, e.g. a multi-module workspace root.
+		Module: gomod.ReadModulePath(),
 	}
 }
 

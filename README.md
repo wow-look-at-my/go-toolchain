@@ -239,13 +239,29 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 7. Checks for near-duplicate code blocks (warnings only)
 8. Checks file lengths (warns at 500 lines, errors at 750). Generated files — detected by the canonical `^// Code generated .* DO NOT EDIT\.$` header marker (the same rule used by `go help generate`/gofmt/x/tools) — are auto-exempted from both the warning and the hard fail, and a single `File length check: skipped N generated file(s)` notice is printed for transparency. Pass `--count-generated` to subject generated files to the check like any other file
 9. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). The local tier is a FUSE virtual filesystem backed by append-only pack files (see [docs/CACHE.md](docs/CACHE.md)); a cache hit returns a `DiskPath` into the mount and the kernel serves the body on demand from a pack, so no per-entry loose files or sidecars are written. Remote fetches route through the server's batch GET endpoint with prefetch — one coalesced round-trip serves many concurrent requests and the server also returns temporally related entries from the same build, proactively populating the local cache; keys the server's fresh index reports absent miss instantly with no round-trip (a failed index fetch keeps probing enabled as the recovery path). PUTs are LZ4-compressed and coalesced: instead of one HTTP PUT per object (a storm of thousands that saturates the cache server's admission control on a large build), buffered uploads are shipped as a single `/_batch/put` tar request — mirroring the batch GET coalescer — so a whole batch takes one server slot. The batch is retried as a whole on a `503` admission shed (honoring `Retry-After`), a per-object server error rolls back only that object's optimistic index claim, and the client falls back to individual PUTs against a cache server that does not support the batch endpoint. A key the server 404s despite being index-listed is re-uploaded on the next PUT instead of being skipped as already-present. Each object is tagged with metadata describing what it is (sent as `X-Cache-Meta-*` headers on an individual PUT, or as per-entry manifest metadata in a batch):
+   - `Outputid` — the body's content address (lowercase-hex SHA-256), the id the GOCACHEPROG protocol verifies downloads against
    - `Object-Type` — file type detected from magic bytes (`go-archive`, `elf-binary`, `macho-binary`, `pe-binary`, `go-object`, or `unknown`)
    - `Go-Version` — the Go compiler version that produced the artifact (e.g. `go1.24.7`), extracted from Go archive headers
    - `Target` — the target platform (e.g. `linux/amd64`), extracted from Go archive headers
+   - `Pkg` — the Go import path compiled into the archive (from its export data), e.g. `github.com/foo/bar`
+   - `Src` — the `.go` source-file basenames compiled into the archive, capped at 8 names / 256 bytes with a `+N more` suffix (an uncapped list could blow the server's ~4 KiB xattr budget and lose the whole value)
+   - `Module` — the main module path of the repo that produced the object (from `go.mod`)
    - `Body-Size` — original uncompressed size in bytes
    - `Compression` — compression algorithm (`lz4`)
    - `Toolchain-Version` — the go-toolchain version that cached the entry
    - `Created` — RFC 3339 timestamp of when the entry was first cached
+
+   The server stores these as xattrs and returns them on GET, in batch manifests, and on HEAD — so the provenance of any cache object ("what file/package/repo did this come from?") is one `curl -I` away:
+
+   ```console
+   $ curl -sI -u "$USER:$PASS" https://cache.example.com/gobuildcache/go-buildcache/v1<64-hex-action-id> | grep -i x-cache-meta
+   X-Cache-Meta-Pkg: github.com/wow-look-at-my/go-toolchain/src/cache
+   X-Cache-Meta-Src: archive.go batch.go batchput.go buildid.go cache.go compress.go counter.go daemon.go +19 more
+   X-Cache-Meta-Module: github.com/wow-look-at-my/go-toolchain
+   X-Cache-Meta-Go-Version: go1.25.0
+   X-Cache-Meta-Target: linux/amd64
+   X-Cache-Meta-Outputid: 6a1f…
+   ```
 10. Discovers packages with test files, excluding those where all non-test `.go` files are generated code
 11. Runs `go test` across non-generated packages with coverage profiling
 12. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%)
