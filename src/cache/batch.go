@@ -161,10 +161,10 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	defer span.End()
 
 	// respondAllMiss replies miss to every caller after a TRANSIENT failure
-	// (network error, 5xx, breaker-open, marshal/parse failure). It must NOT
-	// mark keys as knownMiss: only an authoritative in-protocol "not present"
-	// (a 200 response lacking the key) proves absence. Marking transients
-	// froze those keys for the rest of the run — one blip and they were never
+	// (network error, 5xx, marshal/parse failure). It must NOT mark keys as
+	// knownMiss: only an authoritative in-protocol "not present" (a 200
+	// response lacking the key) proves absence. Marking transients froze
+	// those keys for the rest of the run — one blip and they were never
 	// re-probed even after the backend recovered. reason, when non-nil, is
 	// bumped once per INDEXED key so the web summary's miss breakdown stays
 	// coherent (cold keys already counted MissNotInIndex in Get).
@@ -175,14 +175,6 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			}
 			r.resp <- batchResp{miss: true}
 		}
-	}
-
-	// Circuit breaker tripped between enqueue and dispatch: skip the network and
-	// miss the whole batch so the build recomputes from source.
-	if b.remoteDisabled() {
-		span.SetAttributes(attribute.Bool("cacheprog.batch.circuit_open", true))
-		respondAllMiss(&b.MissCircuitOpen)
-		return
 	}
 
 	reqBody, _ := json.Marshal(batchGetRequest{Keys: keys, Prefetch: true})
@@ -200,7 +192,6 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	resp, err := b.doRetryGET(httpReq)
 	if err != nil {
 		b.Pool.Release()
-		b.noteRemoteResult(true)
 		markSpanErr(span, "network", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: %v\n", err)
 		respondAllMiss(&b.MissNetwork)
@@ -212,10 +203,8 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		resp.Body.Close()
 		b.Pool.Release()
 		// 404/405 → server has no batch endpoint; fall back to individual
-		// GETs for every caller in this batch. A healthy backend answered, so
-		// this is not a breaker failure.
+		// GETs for every caller in this batch.
 		if resp.StatusCode == 404 || resp.StatusCode == 405 {
-			b.noteRemoteResult(false)
 			span.SetAttributes(attribute.Bool("cacheprog.batch.fallback_individual", true))
 			for _, r := range reqs {
 				outputID, body, size, t, miss, _ := b.getIndividual(ctx, r.actionID, r.key)
@@ -226,7 +215,6 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		// 5xx etc. — coalesced via errLog. Use the first actionID as the
 		// representative; the count of affected requests is captured by the
 		// errLog group's total.
-		b.noteRemoteResult(transientStatus(resp.StatusCode))
 		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		for _, r := range reqs {
 			b.errLog.Record("web batch get", resp.StatusCode, r.actionID, "")
@@ -234,7 +222,6 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		respondAllMiss(&b.MissHTTPError)
 		return
 	}
-	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
 
 	entries, err := parseBatchResponse(resp.Body)
 	resp.Body.Close()
@@ -246,11 +233,10 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		return
 	}
 
-	// Feed the entry count to the consecutive-empty-batch backoff (separate from
-	// the circuit breaker, which a 200 already reset above). A run of zero-entry
-	// batches means the remote — though healthy — holds nothing useful for this
-	// build, so after a threshold we stop probing for the rest of the run; any
-	// non-empty batch resets the streak.
+	// Feed the entry count to the consecutive-empty-batch backoff. A run of
+	// zero-entry batches means the remote — though healthy — holds nothing useful
+	// for this build, so after a threshold we stop probing for the rest of the
+	// run; any non-empty batch resets the streak.
 	b.noteBatchEntries(len(entries))
 
 	var nPrefetch int

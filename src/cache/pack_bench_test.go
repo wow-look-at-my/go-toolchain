@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
@@ -14,18 +15,17 @@ import (
 func benchPackStore(b *testing.B, size int) (s *PackStore, aid, oid string) {
 	b.Helper()
 	s, err := OpenPackStore(b.TempDir())
-	if err != nil {
-		b.Fatal(err)
-	}
+	require.Nil(b, err)
+
 	b.Cleanup(func() { _ = s.Close() })
 	body := make([]byte, size)
 	for i := range body {
 		body[i] = byte(i*131 + 17)
 	}
 	aid, oid = hexID(1), casID(body)
-	if _, err := s.Put(aid, oid, bytes.NewReader(body)); err != nil {
-		b.Fatal(err)
-	}
+	_, err = s.Put(aid, oid, bytes.NewReader(body))
+	require.Nil(b, err)
+
 	return s, aid, oid
 }
 
@@ -34,9 +34,9 @@ func BenchmarkPackGetVerifiedWarm64KiB(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, ok := s.GetVerified(aid); !ok {
-			b.Fatal("unexpected miss")
-		}
+		_, ok := s.GetVerified(aid)
+		require.True(b, ok)
+
 	}
 }
 
@@ -45,8 +45,8 @@ func BenchmarkPackGetByOutputVerifiedWarm1MiB(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, ok := s.GetByOutputVerified(oid); !ok {
-			b.Fatal("unexpected miss")
-		}
+		_, ok := s.GetByOutputVerified(oid)
+		require.True(b, ok)
+
 	}
 }

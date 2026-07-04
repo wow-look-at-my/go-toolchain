@@ -141,7 +141,6 @@ func (d *Daemon) Close() {
 			buildID := wb.MissBuildID.Load()
 			moduleIndex := wb.MissModuleIndex.Load()
 			network := wb.MissNetwork.Load()
-			circuitOpen := wb.MissCircuitOpen.Load()
 			skippedEmptyIndex := wb.SkippedEmptyIndex.Load()
 			skippedNotInIndex := wb.SkippedNotInIndex.Load()
 			skippedBatchBackoff := wb.SkippedBatchBackoff.Load()
@@ -152,10 +151,10 @@ func (d *Daemon) Close() {
 			// The skipped-* counters are breakdowns of not-in-index (each such
 			// Get already incremented MissNotInIndex before the skip), so they
 			// are NOT added to missTotal — doing so would double-count.
-			missTotal := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + checksum + buildID + moduleIndex + network + circuitOpen
+			missTotal := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + checksum + buildID + moduleIndex + network
 			if hits > 0 || puts > 0 || missTotal > 0 {
-				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d modindex=%d network=%d circuit-open=%d skipped-empty-index=%d skipped-not-in-index=%d skipped-batch-backoff=%d reclaimed-404=%d) put-skipped: known=%d modindex=%d buildid=%d\n",
-					hits, puts, missTotal, notInIndex, http404, httpErr, noOutputID, readBody, decompress, checksum, buildID, moduleIndex, network, circuitOpen, skippedEmptyIndex, skippedNotInIndex, skippedBatchBackoff, reclaimed404, putSkippedKnown, putRefusedModIndex, putRefusedBuildID)
+				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d modindex=%d network=%d skipped-empty-index=%d skipped-not-in-index=%d skipped-batch-backoff=%d reclaimed-404=%d) put-skipped: known=%d modindex=%d buildid=%d\n",
+					hits, puts, missTotal, notInIndex, http404, httpErr, noOutputID, readBody, decompress, checksum, buildID, moduleIndex, network, skippedEmptyIndex, skippedNotInIndex, skippedBatchBackoff, reclaimed404, putSkippedKnown, putRefusedModIndex, putRefusedBuildID)
 			}
 		}
 		d.remote.Close()
