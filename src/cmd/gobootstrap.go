@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 // Test seams — overridden in tests to avoid real downloads / corrupted runners.
@@ -309,7 +310,9 @@ func ensureGoCached(version string) (string, error) {
 
 	goRoot := filepath.Join(cacheDir, "go"+version)
 	goBin := filepath.Join(goRoot, "bin", "go")
-	if runtime.GOOS == "windows" {
+	// hostos, not runtime: a GOOS=cosmo fat APE reports runtime.GOOS=="cosmo"
+	// on every host, but the downloaded toolchain layout follows the HOST OS.
+	if hostos.GOOS() == "windows" {
 		goBin += ".exe"
 	}
 
@@ -345,7 +348,11 @@ func goCacheDir() (string, error) {
 }
 
 func downloadGo(version, cacheDir, goRoot string) error {
-	archiveName := fmt.Sprintf("go%s.%s-%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
+	// hostos, not runtime: go.dev has no "cosmo" archives — a cosmo fat APE
+	// must download the toolchain for the host it is running on (e.g.
+	// go1.x.linux-amd64.tar.gz). runtime.GOARCH is correct as-is: the running
+	// payload of a fat APE always matches the host architecture.
+	archiveName := fmt.Sprintf("go%s.%s-%s.tar.gz", version, hostos.GOOS(), runtime.GOARCH)
 	urls := goDownloadURLsFunc(archiveName)
 
 	var resp *http.Response

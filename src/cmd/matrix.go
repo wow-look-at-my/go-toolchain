@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/profile"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
@@ -251,7 +252,10 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 }
 
 func createHostSymlinks(targets []build.Target, outDir string) error {
-	hostOS := runtime.GOOS
+	// hostos, not runtime: the symlink must point at the matrix binary built
+	// for the OS this process is running on, and a cosmo fat APE reports
+	// runtime.GOOS=="cosmo" everywhere. runtime.GOARCH matches the host.
+	hostOS := hostos.GOOS()
 	hostArch := runtime.GOARCH
 
 	for _, target := range targets {

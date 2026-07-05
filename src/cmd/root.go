@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
@@ -330,7 +331,9 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	for _, t := range targets {
 		outputName := t.OutputName
 		if inDocker {
-			outputName = build.BinaryName(outputName, runtime.GOOS, runtime.GOARCH)
+			// hostos: in-docker names carry the HOST platform, and a cosmo
+			// fat APE reports runtime.GOOS=="cosmo" on every host.
+			outputName = build.BinaryName(outputName, hostos.GOOS(), runtime.GOARCH)
 		}
 		outPath := filepath.Join(outputDir, outputName)
 		var buildStep *step
