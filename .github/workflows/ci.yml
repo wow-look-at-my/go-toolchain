@@ -83,6 +83,11 @@ jobs:
             }
 
       - name: Cache validation (second build)
+        # build/ in THIS job is the host-built native linux/amd64 binary from
+        # `go run ./src` above -- never the cosmo APE -- so executing it here is
+        # safe (APEs self-assimilate on exec; the APE artifacts are built in
+        # action-test and only ever executed as throwaway copies in the smoke
+        # jobs below).
         env:
           # The second build re-invokes go-toolchain, which also submits the
           # dependency snapshot; give it the same token so it succeeds rather
@@ -116,12 +121,26 @@ jobs:
           path: /tmp/go-toolchain-profile/
           if-no-files-found: ignore
 
-  # Build + test via the composite action, which also autoreleases to buildhost
-  # (autorelease defaults to true) -- this is the single publish path. There is
-  # intentionally no separate publish job; a second one duplicated every release.
+  # Build + test via the composite action, exercising the cosmo fat-APE target
+  # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
+  # (go-toolchain_cosmo_fat) and copies it onto the linux/amd64, linux/arm64,
+  # darwin/arm64 and windows/amd64 slot names; darwin/amd64 and windows/arm64
+  # stay native cross-compiles (deliberate carve-outs: the Intel-mac cosmo
+  # runtime is unverified and the APE's PE payload is amd64-only).
+  #
+  # Publishing is NOT done here (autorelease: false): the dedicated `publish`
+  # job below is the single publish path, gated on the three smoke jobs that
+  # actually EXECUTE the APE artifacts on linux, macOS and Windows runners --
+  # a broken APE can fail loudly but can never be released.
   action-test:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      # TEMPORARY until wow-look-at-my/gosmopolitan#26 merges and gosmopolitan's
+      # master CI publishes the toolchain tarball once -- then DELETE this env
+      # line (the cosmo bootstrap's default is ?branch=master). Composite-action
+      # run steps inherit the job env, so `matrix --targets cosmo` sees it.
+      GO_TOOLCHAIN_COSMO_BRANCH: claude/laughing-heisenberg-87lkft
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
@@ -129,9 +148,191 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
       - uses: ./
+        with:
+          targets: 'cosmo,darwin/amd64,windows/arm64'
+          autorelease: 'false'
+          # The cosmo target additionally downloads + extracts the gosmopolitan
+          # toolchain and cold-compiles its stdlib; the default 10 minutes is
+          # too tight for a cold runner.
+          timeout: '15'
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: build-output
           path: build/
+
+  # Cross-OS smoke of the actual release artifacts: download the `go-build`
+  # artifact (what `publish` will ship) and RUN the APE on each host OS. APEs
+  # self-assimilate on first exec -- they rewrite their own header in place to
+  # the host's native format -- so every job runs a throwaway copy, never the
+  # artifact file itself.
+  smoke-linux:
+    needs: action-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: go-build
+          path: dist
+
+      - name: Run the APE (linux/amd64 slot)
+        run: |
+          set -euo pipefail
+          # The linux/amd64 slot must BE the fat APE (magic MZqFpD), not a
+          # native ELF -- this is the consumer-visible contract of the migration.
+          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          chmod +x "$RUNNER_TEMP/gt-ape"
+          "$RUNNER_TEMP/gt-ape" version
+          "$RUNNER_TEMP/gt-ape" --help
+
+      - name: Full pipeline in a tiny module
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/smokemod"
+          cd "$RUNNER_TEMP/smokemod"
+          cat > go.mod <<'EOF'
+          module example.com/apesmoke
+
+          go 1.24
+
+          require github.com/stretchr/testify v1.11.1
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used to smoke-test the published APE:
+          // the full go-toolchain pipeline (tidy/vet/test/build) must work when
+          // driven by the fat APE on this runner's OS.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("cosmo"))
+          }
+          EOF
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("cosmo")
+          	require.Equal(t, "hello, cosmo", got)
+          }
+          EOF
+          # Full default pipeline: bootstraps an official Go toolchain if the
+          # runner's is too old, then tidy/vet/test/coverage/build.
+          "$RUNNER_TEMP/gt-ape"
+
+  # macos-latest is arm64: this exercises the fork's darwin/arm64 APE loader
+  # and syscall translation layer -- the riskiest surface of the migration.
+  smoke-macos:
+    needs: action-test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: go-build
+          path: dist
+
+      - name: Run the APE (darwin/arm64 slot)
+        run: |
+          set -euo pipefail
+          [ "$(head -c 6 dist/go-toolchain_darwin_arm64)" = "MZqFpD" ]
+          cp dist/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-ape"
+          chmod +x "$RUNNER_TEMP/gt-ape"
+          "$RUNNER_TEMP/gt-ape" version
+          "$RUNNER_TEMP/gt-ape" --help
+
+      - name: Full pipeline in a tiny module
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/smokemod"
+          cd "$RUNNER_TEMP/smokemod"
+          cat > go.mod <<'EOF'
+          module example.com/apesmoke
+
+          go 1.24
+
+          require github.com/stretchr/testify v1.11.1
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used to smoke-test the published APE:
+          // the full go-toolchain pipeline (tidy/vet/test/build) must work when
+          // driven by the fat APE on this runner's OS.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("cosmo"))
+          }
+          EOF
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("cosmo")
+          	require.Equal(t, "hello, cosmo", got)
+          }
+          EOF
+          "$RUNNER_TEMP/gt-ape"
+
+  smoke-windows:
+    needs: action-test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: go-build
+          path: dist
+
+      - name: Run the APE PE payload (windows/amd64 slot)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The windows/amd64 slot IS the fat APE: an APE is simultaneously a
+          # valid PE, whose embedded payload is a native windows/amd64 build.
+          [ "$(head -c 6 dist/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
+          mkdir -p smoke
+          cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
+          ./smoke/gt-ape.exe version
+          ./smoke/gt-ape.exe --help
+          # The full pipeline is deliberately NOT run on Windows: gobootstrap
+          # downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
+          # serve for windows (windows archives are .zip) -- a pre-existing
+          # bootstrap gap independent of the APE migration.
+
+  # The single publish path. Gated on the cross-OS smoke jobs above so a build
+  # whose APE cannot actually run on linux/macOS/Windows is never released.
+  # buildhost-publish self-serves the `go-build` artifact of the current run
+  # (hence actions: read) and authenticates to buildhost with a GHA OIDC token
+  # (hence id-token: write).
+  publish:
+    needs: [smoke-linux, smoke-macos, smoke-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
