@@ -209,13 +209,15 @@ native collision) the real fat file is kept; note such a layout cannot be
 published to buildhost until the server accepts `os=cosmo`.
 
 **Native carve-outs.** `darwin/arm64`, `darwin/amd64` and `windows/arm64` are
-deliberately NOT default slots. `darwin/arm64`: the fat APE boots fine on
-ARM64 macs, but the full go-toolchain build pipeline currently *wedges* under
-it there (silent >28-minute hangs observed twice on macos-latest CI — runs
-28739021382 and 28739520377 — in a step that takes ~26s on Linux), so macs
-keep getting a native binary until that is root-caused and fixed.
-`darwin/amd64`: the cosmo runtime for Intel macs is not yet verified end to
-end. `windows/arm64`: the APE's embedded Windows payload is amd64-only. Build
+deliberately NOT default slots. `darwin/arm64`: the fat APE boots and even
+builds fine on ARM64 macs, but the pipeline *wedges at exit* there — the
+gosmopolitan runtime runs unix-socket fds in blocking mode with no netpoller
+on darwin hosts, so closing the cache daemon's listener deadlocks against its
+own blocked `Accept` (root-caused via SIGQUIT goroutine dumps; tracked in
+[#276](https://github.com/wow-look-at-my/go-toolchain/issues/276)) — so macs
+keep getting a native binary until that runtime bug is fixed. `darwin/amd64`:
+the cosmo runtime for Intel macs is not yet verified end to end.
+`windows/arm64`: the APE's embedded Windows payload is amd64-only. Build
 those three as native targets alongside `cosmo` (as in the example above) for
 full coverage.
 

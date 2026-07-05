@@ -21,12 +21,13 @@ const (
 
 // DefaultCosmoSlots are the per-platform artifact names that receive a copy
 // of the cosmo fat APE (see copyCosmoSlots). darwin/arm64 is deliberately
-// absent even though the fat APE contains a cosmo arm64 payload that boots on
-// ARM64 macs: the full go-toolchain pipeline WEDGES under the APE on
-// macos-latest (CI runs 28739021382 and 28739520377 — the same pipeline step
-// that takes 26s on ubuntu sat >28-35 minutes with no output; `version`,
-// `--help` and the official-Go bootstrap under the APE are all fine), so macs
-// keep getting a native binary by default until that wedge is root-caused and
+// absent even though the fat APE boots and builds fine on ARM64 macs: the
+// pipeline WEDGES at exit there (CI runs 28739021382/28739520377; SIGQUIT
+// dumps in run 28742069477), root-caused to the gosmopolitan runtime running
+// unix-socket fds in blocking mode with no netpoller on darwin hosts, so the
+// cache daemon's net.Listener.Close deadlocks against its own blocked Accept
+// — tracked in https://github.com/wow-look-at-my/go-toolchain/issues/276.
+// Macs keep getting a native binary by default until that runtime bug is
 // fixed. Also absent: darwin/amd64 (the cosmo darwin-Intel runtime is not
 // verified yet) and windows/arm64 (the APE's embedded PE payload is
 // amd64-only).
