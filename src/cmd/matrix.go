@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 var (
 	matrixOS        []string
 	matrixArch      []string
+	matrixTargets   []string
+	cosmoSlots      []string
 	releaseParallel int
 )
 
@@ -33,14 +36,22 @@ var (
 
 func init() {
 	matrixCmd := &cobra.Command{
-		Use:          "matrix",
-		Short:        "Cross-compile for multiple platforms",
-		Long:         "Builds binaries for multiple GOOS/GOARCH combinations in parallel.",
+		Use:   "matrix",
+		Short: "Cross-compile for multiple platforms",
+		Long: `Builds binaries for multiple GOOS/GOARCH combinations in parallel.
+
+Targets are the cartesian product of --os and --arch, unless --targets is set,
+in which case exactly the listed targets are built. Each --targets entry is an
+os/arch pair (e.g. darwin/amd64) or the special value "cosmo": one fat
+Actually Portable Executable built with the gosmopolitan Go fork, covering
+Linux, macOS and Windows in a single binary (artifact <name>_cosmo_fat). After
+a cosmo build the fat APE is also copied to the per-platform artifact names
+listed in --cosmo-slots, so per-platform consumers keep working; an explicit
+native target in --targets wins over a slot copy of the same name.`,
 		SilenceUsage: true,
 		RunE:         runRelease,
 	}
-	matrixCmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
-	matrixCmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
+	addMatrixTargetFlags(matrixCmd)
 	matrixCmd.Flags().IntVarP(&releaseParallel, "parallel", "p", runtime.NumCPU(), "Number of parallel builds")
 	matrixCmd.Flags().BoolVar(&noBenchmark, "no-benchmark", false, "Skip benchmarks after build")
 	matrixCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
@@ -49,12 +60,24 @@ func init() {
 	rootCmd.AddCommand(matrixCmd)
 }
 
+// addMatrixTargetFlags registers the target-selection flags shared by the
+// matrix command and release --build.
+func addMatrixTargetFlags(cmd *cobra.Command) {
+	cmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
+	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
+	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
+	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
+}
+
 type buildJob struct {
 	goos       string
 	goarch     string
 	srcPath    string
 	outputPath string
 	ldflags    string
+	// cosmoGoroot is the gosmopolitan toolchain GOROOT for GOOS=cosmo fat-APE
+	// jobs; empty for normal jobs, which build with the go on PATH.
+	cosmoGoroot string
 }
 
 type buildResult struct {
@@ -97,8 +120,26 @@ func runRelease(cmd *cobra.Command, args []string) error {
 
 func runReleaseWithRunner(r runner.CommandRunner) error {
 	setupCGOEnvironment()
-	if len(matrixOS) == 0 || len(matrixArch) == 0 {
-		return fmt.Errorf("no platforms specified (need at least one --os and one --arch)")
+	platforms, err := resolveMatrixPlatforms()
+	if err != nil {
+		return err
+	}
+
+	// Resolve the cosmo prerequisites up front so a missing gosmopolitan
+	// toolchain or a bad --cosmo-slots value fails fast, before the test phase.
+	var cosmoGoroot string
+	var slotPlatforms []buildPlatform
+	if slices.ContainsFunc(platforms, buildPlatform.IsCosmo) {
+		slotPlatforms, err = parseCosmoSlots(cosmoSlots)
+		if err != nil {
+			return err
+		}
+		if cgoEnabled {
+			fmt.Fprintf(os.Stderr, "⇒ Warning: --cgo has no effect on the cosmo target (cosmopolitan has no cgo; CGO_ENABLED=0 is forced)\n")
+		}
+		if cosmoGoroot, err = ensureCosmoToolchainFunc(); err != nil {
+			return err
+		}
 	}
 
 	// Run tests with coverage first (same as default command)
@@ -145,23 +186,29 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 	ensureBuildDirInGitignore()
 
-	// Build job queue - cartesian product of OS x Arch x Targets
+	// Build job queue - one job per platform per main package
 	var jobs []buildJob
-	for _, goos := range matrixOS {
-		for _, goarch := range matrixArch {
-			for _, target := range targets {
-				outputName := build.BinaryName(target.OutputName, goos, goarch)
-				jobs = append(jobs, buildJob{
-					goos:       goos,
-					goarch:     goarch,
-					srcPath:    target.ImportPath,
-					outputPath: filepath.Join(outputDir, outputName),
-				})
+	for _, p := range platforms {
+		for _, target := range targets {
+			outputName := build.BinaryName(target.OutputName, p.OS, p.Arch)
+			job := buildJob{
+				goos:       p.OS,
+				goarch:     p.Arch,
+				srcPath:    target.ImportPath,
+				outputPath: filepath.Join(outputDir, outputName),
 			}
+			if p.IsCosmo() {
+				job.cosmoGoroot = cosmoGoroot
+			}
+			jobs = append(jobs, job)
 		}
 	}
 
-	fmt.Printf("⇒ Building %d binaries (%d OS x %d arch)\n", len(jobs), len(matrixOS), len(matrixArch))
+	if len(matrixTargets) > 0 {
+		fmt.Printf("⇒ Building %d binaries (%d targets)\n", len(jobs), len(platforms))
+	} else {
+		fmt.Printf("⇒ Building %d binaries (%d OS x %d arch)\n", len(jobs), len(matrixOS), len(matrixArch))
+	}
 	buildStart := time.Now()
 
 	// Run builds in parallel
@@ -221,6 +268,23 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 
 	if len(failed) > 0 {
 		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
+	}
+
+	// Copy the cosmo fat APE onto its conventional per-platform artifact
+	// names so per-platform consumers (buildhost slots) keep resolving. Runs
+	// before checksum generation so the copies are covered too.
+	if cosmoGoroot != "" && len(slotPlatforms) > 0 {
+		nativeBuilt := make(map[string]bool)
+		for _, job := range jobs {
+			if job.cosmoGoroot == "" {
+				nativeBuilt[filepath.Base(job.outputPath)] = true
+			}
+		}
+		copied, err := copyCosmoSlots(targets, outputDir, slotPlatforms, nativeBuilt)
+		if err != nil {
+			return err
+		}
+		builtFiles = append(builtFiles, copied...)
 	}
 
 	// Generate SHA-256 checksums for release artifacts
@@ -303,12 +367,32 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		args = append(args, "-ldflags", job.ldflags)
 	}
 	args = append(args, "-o", job.outputPath, job.srcPath)
-	cmd := runner.Cmd("go", args...)
-	if job.goos != "" {
-		cmd = cmd.WithEnv("GOOS", job.goos)
+	goCmd := "go"
+	if job.cosmoGoroot != "" {
+		goCmd = filepath.Join(job.cosmoGoroot, "bin", "go")
 	}
-	if job.goarch != "" {
-		cmd = cmd.WithEnv("GOARCH", job.goarch)
+	cmd := runner.Cmd(goCmd, args...)
+	if job.cosmoGoroot != "" {
+		// GOOS=cosmo fat-APE build via the gosmopolitan toolchain. GOARCH is
+		// cleared: fat (amd64+arm64+windows payloads in one output) is the
+		// fork's default and the job's pseudo-arch "fat" is a naming artifact,
+		// not a GOARCH. GOCOSMOFAT is cleared too so an inherited =0 cannot
+		// silently produce a thin binary that the slot copies would mislabel.
+		// CGO_ENABLED=0 always: cosmopolitan has no cgo.
+		cmd = cmd.WithEnv("GOOS", cosmoOS).
+			WithEnv("GOARCH", "").
+			WithEnv("GOCOSMOFAT", "").
+			WithEnv("GOTOOLCHAIN", "local").
+			WithEnv("GOROOT", job.cosmoGoroot).
+			WithEnv("PATH", filepath.Join(job.cosmoGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
+			WithEnv("CGO_ENABLED", "0")
+	} else {
+		if job.goos != "" {
+			cmd = cmd.WithEnv("GOOS", job.goos)
+		}
+		if job.goarch != "" {
+			cmd = cmd.WithEnv("GOARCH", job.goarch)
+		}
 	}
 	if onFirstOutput != nil {
 		cmd = cmd.WithOnFirstOutput(onFirstOutput)

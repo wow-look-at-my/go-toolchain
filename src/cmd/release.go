@@ -31,6 +31,9 @@ func init() {
 	cmd.Flags().StringVar(&releaseTag, "tag", "", "Tag name for this release (required in CI, default: auto-generated)")
 	cmd.Flags().StringVar(&releaseFrom, "from", "", "Start ref for changelog (default: previous tag)")
 	cmd.Flags().BoolVar(&releaseBuild, "build", false, "Run matrix cross-compilation before releasing")
+	// The --build path reuses the matrix build, so it honors the same
+	// target-selection flags (--os/--arch/--targets/--cosmo-slots).
+	addMatrixTargetFlags(cmd)
 	cmd.Flags().BoolVar(&releaseCosign, "cosign", false, "Include cosign signature files and verification section (default: auto, enabled on github.com)")
 	cmd.Flags().BoolVar(&releaseNoCosign, "no-cosign", false, "Skip cosign signature files and verification section in release notes")
 	rootCmd.AddCommand(cmd)
