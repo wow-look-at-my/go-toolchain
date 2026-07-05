@@ -123,10 +123,13 @@ jobs:
 
   # Build + test via the composite action, exercising the cosmo fat-APE target
   # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
-  # (go-toolchain_cosmo_fat) and copies it onto the linux/amd64, linux/arm64,
-  # darwin/arm64 and windows/amd64 slot names; darwin/amd64 and windows/arm64
-  # stay native cross-compiles (deliberate carve-outs: the Intel-mac cosmo
-  # runtime is unverified and the APE's PE payload is amd64-only).
+  # (go-toolchain_cosmo_fat) and copies it onto the linux/amd64, linux/arm64
+  # and windows/amd64 slot names; darwin/arm64, darwin/amd64 and windows/arm64
+  # stay native cross-compiles (deliberate carve-outs: the pipeline WEDGES
+  # under the APE on macos-arm64 -- runs 28739021382/28739520377, silent
+  # >28-min hangs of a step that takes 26s on ubuntu -- so ARM64 macs keep a
+  # native binary until that is fixed; the Intel-mac cosmo runtime is
+  # unverified; the APE's PE payload is amd64-only).
   #
   # Publishing is NOT done here (autorelease: false): the dedicated `publish`
   # job below is the single publish path, gated on the three smoke jobs that
@@ -149,7 +152,7 @@ jobs:
           cache: false
       - uses: ./
         with:
-          targets: 'cosmo,darwin/amd64,windows/arm64'
+          targets: 'cosmo,darwin/amd64,darwin/arm64,windows/arm64'
           autorelease: 'false'
           # The cosmo target additionally downloads + extracts the gosmopolitan
           # toolchain and cold-compiles its stdlib; the default 10 minutes is
@@ -243,50 +246,57 @@ jobs:
           # runner's is too old, then tidy/vet/test/coverage/build.
           "$RUNNER_TEMP/gt-ape"
 
-  # macos-latest is arm64: this exercises the fork's darwin/arm64 APE loader
-  # and syscall translation layer -- the riskiest surface of the migration.
+  # macos-latest is arm64. Two things are asserted here:
   #
-  # REDUCED GATE (deliberate): the full-pipeline smoke that linux runs WEDGES
-  # on macOS -- observed twice on this branch (runs 28739021382 and
-  # 28739520377): the identical step finished in 26s on ubuntu but sat >35
-  # minutes on macos-latest with no output flushed. `version` in the previous
-  # step passes in ~3s, so the APE loader and basic fork runtime are fine; a
-  # cancelled-while-wedged job uploads no logs, so the wedging phase is not yet
-  # localized (prime suspects: the cacheprog daemon's unix-socket/kqueue
-  # surface or the test phase under the fork's darwin runtime -- tracked as a
-  # gosmopolitan follow-up). Until that is fixed, macOS asserts: APE magic,
-  # `version`, and `--help` from inside a module -- the --help path bootstraps
-  # a real official Go toolchain first (go.dev download + extract + version
-  # probe on darwin/arm64), so this job doubles as the wedge localizer: if the
-  # bootstrap is the wedge this job times out; if it is green, the wedge sits
-  # in the pipeline proper. A hung consumer CI job would be worse than this
-  # thinner gate, and timeout-minutes bounds the damage either way.
+  # 1. The NATIVE darwin/arm64 binary (what ARM64 macs are actually served --
+  #    darwin/arm64 is a native carve-out, not an APE slot) runs the FULL
+  #    default pipeline. This is the consumer-critical gate for mac users.
+  #
+  # 2. The APE still EXECUTES on darwin/arm64 (magic + `version` + `--help`
+  #    from inside a module; the --help path bootstraps a real official Go
+  #    toolchain first: go.dev download + extract + version probe under the
+  #    APE loader). This is a REDUCED gate on purpose: the full-pipeline
+  #    smoke WEDGES under the APE on macOS -- observed twice on this branch
+  #    (runs 28739021382 and 28739520377): the identical step finished in 26s
+  #    on ubuntu but sat >28-35 minutes on macos-latest with no output
+  #    flushed, while `version` passes in ~3s and the bootstrap is green (so
+  #    the APE loader and basic fork runtime are fine). That wedge is why
+  #    darwin/arm64 reverted to a native slot; the APE gate here proves the
+  #    APE keeps working for the surface it still serves, and guards the day
+  #    the wedge fix restores the darwin/arm64 APE slot.
   smoke-macos:
     needs: action-test
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v8
         with:
           name: go-build
           path: dist
 
-      - name: Run the APE (darwin/arm64 slot)
+      - name: Check slot formats + run the APE
         run: |
           set -euo pipefail
-          [ "$(head -c 6 dist/go-toolchain_darwin_arm64)" = "MZqFpD" ]
-          cp dist/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-ape"
+          # The darwin/arm64 slot must be a NATIVE Mach-O arm64 binary (the
+          # macOS carve-out), NOT the APE.
+          [ "$(head -c 4 dist/go-toolchain_darwin_arm64 | xxd -p)" = "cffaedfe" ]
+          # The linux slots still carry the fat APE (magic MZqFpD); an APE is
+          # an APE regardless of slot name -- its loader picks the arm64
+          # payload at runtime -- so the linux/amd64 copy is what we execute
+          # here as a throwaway.
+          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
 
-      - name: Bootstrap + --help in a tiny module
+      - name: 'APE reduced gate: bootstrap + --help in a tiny module'
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/smokemod"
-          cd "$RUNNER_TEMP/smokemod"
+          mkdir -p "$RUNNER_TEMP/apemod"
+          cd "$RUNNER_TEMP/apemod"
           cat > go.mod <<'EOF'
           module example.com/apesmoke
 
@@ -301,6 +311,62 @@ jobs:
           # a version, downloads the official darwin/arm64 toolchain from
           # go.dev, extracts and probes it, and only then prints help.
           "$RUNNER_TEMP/gt-ape" --help
+
+      - name: Full pipeline with the native darwin/arm64 binary
+        env:
+          # See smoke-linux: synthetic consumer without org cache credentials.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+        run: |
+          set -euo pipefail
+          # Native Mach-O binaries do not self-assimilate, but run a copy
+          # anyway for symmetry with the APE smoke steps (and because
+          # download-artifact drops the executable bit either way).
+          cp dist/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-native"
+          chmod +x "$RUNNER_TEMP/gt-native"
+          mkdir -p "$RUNNER_TEMP/nativemod"
+          cd "$RUNNER_TEMP/nativemod"
+          cat > go.mod <<'EOF'
+          module example.com/nativesmoke
+
+          go 1.24
+
+          require github.com/stretchr/testify v1.11.1
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used to smoke-test the published
+          // native darwin/arm64 binary: the full go-toolchain pipeline
+          // (tidy/vet/test/build) must work when driven by the exact binary
+          // ARM64 mac users download.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("mac"))
+          }
+          EOF
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("mac")
+          	require.Equal(t, "hello, mac", got)
+          }
+          EOF
+          # Full default pipeline: reuses the Go toolchain the APE gate above
+          # already bootstrapped (shared ~/.cache/go-toolchain), then
+          # tidy/vet/test/coverage/build.
+          "$RUNNER_TEMP/gt-native"
 
   smoke-windows:
     needs: action-test
@@ -327,6 +393,125 @@ jobs:
           # downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
           # serve for windows (windows archives are .zip) -- a pre-existing
           # bootstrap gap independent of the APE migration.
+
+  # ===========================================================================
+  # TEMP-DEBUG (REMOVE BEFORE MERGE): macOS cosmo-APE pipeline wedge diagnosis.
+  #
+  # The full go-toolchain pipeline wedges silently under the fat APE on
+  # macos-latest (runs 28739021382/28739520377: >28-35 min, zero output, in a
+  # step ubuntu finishes in 26s). This job bisects the wedge with tight
+  # per-step timeouts so a wedge costs minutes, not a cancelled 6h job whose
+  # logs are lost:
+  #   - every pipeline invocation runs under gtimeout, which sends SIGQUIT on
+  #     expiry (the Go runtime dumps ALL goroutine stacks) and SIGKILL 30s
+  #     later as a backstop;
+  #   - step A runs with GO_TOOLCHAIN_NO_WATCHDOG=1: the watchdog off keeps
+  #     the process on its REAL stdout/stderr, so partial output and the
+  #     SIGQUIT dump cannot be trapped inside the watchdog's fd-1/2 pipes;
+  #   - step B is the control with the watchdog ON (the shipped default).
+  # The expected marker sequence localizes the wedge phase from partial output:
+  #   "Warning: CI caching not configured"  -> validateCICacheConfig reached
+  #   "cacheprog: local only"               -> stats listener + cache daemon up
+  #   "=> go mod tidy"                      -> watchdog survived, pipeline began
+  # (A: markers stop before "local only" => daemon/stats-socket layer. A green
+  #  + B wedged => the watchdog fd plumbing itself. Both wedged with a SIGQUIT
+  #  dump in A => read the dump.)
+  # This job does NOT gate publish (not in its needs) and never fails the run
+  # (continue-on-error at job level).
+  debug-macos-wedge:
+    needs: action-test
+    runs-on: macos-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: go-build
+          path: dist
+
+      - name: Prep (gtimeout + throwaway APE copy + module template)
+        run: |
+          set -euo pipefail
+          command -v gtimeout || brew install coreutils
+          # Any APE slot works: all slot copies are byte-identical and the APE
+          # loader picks the arm64 payload at runtime (darwin/arm64 is a
+          # native carve-out now, so grab the linux/amd64 copy).
+          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          chmod +x "$RUNNER_TEMP/gt-ape"
+          gtimeout -v -k 30 90 "$RUNNER_TEMP/gt-ape" version
+          # One module template; each bisect step copies it fresh so the
+          # up-to-date fingerprint of a previous step never short-circuits.
+          mkdir -p "$RUNNER_TEMP/modsrc"
+          cd "$RUNNER_TEMP/modsrc"
+          cat > go.mod <<'EOF'
+          module example.com/apesmoke
+
+          go 1.24
+
+          require github.com/stretchr/testify v1.11.1
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used to smoke-test the published APE:
+          // the full go-toolchain pipeline (tidy/vet/test/build) must work when
+          // driven by the fat APE on this runner's OS.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("cosmo"))
+          }
+          EOF
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("cosmo")
+          	require.Equal(t, "hello, cosmo", got)
+          }
+          EOF
+
+      - name: A - full pipeline under the APE, watchdog OFF (SIGQUIT on timeout)
+        continue-on-error: true
+        env:
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+          GO_TOOLCHAIN_NO_WATCHDOG: '1'
+          GOTRACEBACK: 'all'
+        run: |
+          set -euo pipefail
+          cp -R "$RUNNER_TEMP/modsrc" "$RUNNER_TEMP/dbgmod-a"
+          cd "$RUNNER_TEMP/dbgmod-a"
+          gtimeout -v -k 30 420 "$RUNNER_TEMP/gt-ape"
+
+      - name: B - full pipeline under the APE, watchdog ON (control)
+        continue-on-error: true
+        env:
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+          GOTRACEBACK: 'all'
+        run: |
+          set -euo pipefail
+          cp -R "$RUNNER_TEMP/modsrc" "$RUNNER_TEMP/dbgmod-b"
+          cd "$RUNNER_TEMP/dbgmod-b"
+          gtimeout -v -k 30 420 "$RUNNER_TEMP/gt-ape"
+
+      - name: Post-mortem process table
+        if: always()
+        run: |
+          # Orphaned children of a killed wedged pipeline (go subprocesses,
+          # cacheprog, test binaries) survive gtimeout's parent-only kill and
+          # show what the parent was waiting on.
+          ps aux | grep -i -E 'go|gt-ape' | grep -v grep || true
 
   # The single publish path. Gated on the cross-OS smoke jobs above so a build
   # whose APE cannot actually run on linux/macOS/Windows is never released.
