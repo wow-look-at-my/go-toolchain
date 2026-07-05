@@ -1,65 +1,69 @@
-//go:build unix && !cosmo
+//go:build cosmo
 
 package cmd
 
 import (
 	"context"
 	"os"
+	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
+
+// GOOS=cosmo (gosmopolitan) counts as `unix`, but golang.org/x/sys/unix has
+// no cosmo port, so this file mirrors watchdog_unix.go using the fork's
+// stdlib syscall package instead: the cosmo port exposes Dup, Dup2 (via
+// Dup3), and Close directly. Keep the two implementations in sync.
 
 // startWatchdog replaces fd 1 (stdout) and fd 2 (stderr) with pipes,
 // forwarding all output to the original file descriptors while monitoring
 // for stalls. Returns nil if setup fails (non-fatal; build continues without monitoring).
 func startWatchdog(threshold time.Duration) *outputWatchdog {
 	// Save original file descriptors
-	origStdoutFd, err := unix.Dup(1)
+	origStdoutFd, err := syscall.Dup(1)
 	if err != nil {
 		return nil
 	}
-	origStderrFd, err := unix.Dup(2)
+	origStderrFd, err := syscall.Dup(2)
 	if err != nil {
-		unix.Close(origStdoutFd)
+		syscall.Close(origStdoutFd)
 		return nil
 	}
 
 	// Create pipes for stdout and stderr
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
-		unix.Close(origStdoutFd)
-		unix.Close(origStderrFd)
+		syscall.Close(origStdoutFd)
+		syscall.Close(origStderrFd)
 		return nil
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
 		stdoutR.Close()
 		stdoutW.Close()
-		unix.Close(origStdoutFd)
-		unix.Close(origStderrFd)
+		syscall.Close(origStdoutFd)
+		syscall.Close(origStderrFd)
 		return nil
 	}
 
 	// Replace fd 1 and 2 with pipe write-ends
-	if err := unix.Dup2(int(stdoutW.Fd()), 1); err != nil {
+	if err := syscall.Dup2(int(stdoutW.Fd()), 1); err != nil {
 		stdoutR.Close()
 		stdoutW.Close()
 		stderrR.Close()
 		stderrW.Close()
-		unix.Close(origStdoutFd)
-		unix.Close(origStderrFd)
+		syscall.Close(origStdoutFd)
+		syscall.Close(origStderrFd)
 		return nil
 	}
-	if err := unix.Dup2(int(stderrW.Fd()), 2); err != nil {
+	if err := syscall.Dup2(int(stderrW.Fd()), 2); err != nil {
 		// Restore stdout before bailing
-		unix.Dup2(origStdoutFd, 1)
+		syscall.Dup2(origStdoutFd, 1)
 		stdoutR.Close()
 		stdoutW.Close()
 		stderrR.Close()
 		stderrW.Close()
-		unix.Close(origStdoutFd)
-		unix.Close(origStderrFd)
+		syscall.Close(origStdoutFd)
+		syscall.Close(origStderrFd)
 		return nil
 	}
 
@@ -110,8 +114,8 @@ func (w *outputWatchdog) stop() {
 
 	// Restore original file descriptors. Dup2 drops the last writer refcount on
 	// each pipe, so forward() will drain the kernel buffer and return on EOF.
-	unix.Dup2(int(w.origStdout.Fd()), 1)
-	unix.Dup2(int(w.origStderr.Fd()), 2)
+	syscall.Dup2(int(w.origStdout.Fd()), 1)
+	syscall.Dup2(int(w.origStderr.Fd()), 2)
 	// No os.NewFile reassignment needed: os.Stdout/os.Stderr already
 	// reference fd 1/2, which now point back to the original stdio.
 	// Avoid it for the same finalizer-accumulation reason noted in
