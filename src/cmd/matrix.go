@@ -199,6 +199,14 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 			}
 			if p.IsCosmo() {
 				job.cosmoGoroot = cosmoGoroot
+				// A previous local run leaves <name>_cosmo_fat as a symlink to
+				// a slot copy (see copyCosmoSlots). Remove it before building:
+				// `go build -o` follows symlinks, so it would otherwise write
+				// the new APE THROUGH the link into the slot artifact and the
+				// slot mapping would then copy the file onto itself.
+				if err := os.Remove(job.outputPath); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("removing stale %s: %w", job.outputPath, err)
+				}
 			}
 			jobs = append(jobs, job)
 		}
@@ -272,7 +280,11 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 
 	// Copy the cosmo fat APE onto its conventional per-platform artifact
 	// names so per-platform consumers (buildhost slots) keep resolving. Runs
-	// before checksum generation so the copies are covered too.
+	// before checksum generation so the copies are covered too. In CI the fat
+	// name is then dropped (buildhost rejects os=cosmo uploads and
+	// upload-artifact dereferences symlinks); locally it becomes a symlink to
+	// the first slot copy. Replaced fat paths leave builtFiles: checksums
+	// cover real files only.
 	if cosmoGoroot != "" && len(slotPlatforms) > 0 {
 		nativeBuilt := make(map[string]bool)
 		for _, job := range jobs {
@@ -280,11 +292,14 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 				nativeBuilt[filepath.Base(job.outputPath)] = true
 			}
 		}
-		copied, err := copyCosmoSlots(targets, outputDir, slotPlatforms, nativeBuilt)
+		copied, replacedFat, err := copyCosmoSlots(targets, outputDir, slotPlatforms, nativeBuilt, os.Getenv("CI") != "")
 		if err != nil {
 			return err
 		}
 		builtFiles = append(builtFiles, copied...)
+		for _, fat := range replacedFat {
+			builtFiles = slices.DeleteFunc(builtFiles, func(p string) bool { return p == fat })
+		}
 	}
 
 	// Generate SHA-256 checksums for release artifacts

@@ -165,16 +165,34 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 // a genuine PE, so the windows slot's .exe name is correct. Copies are real
 // files, never symlinks: the publish pipeline skips symlinks. A slot whose
 // filename was already produced by an explicit native build in this run is
-// skipped with a warning — an explicit target beats a mapped copy. Returns
-// the paths of the created copies (for checksums).
-func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform, nativeBuilt map[string]bool) ([]string, error) {
-	var created []string
+// skipped with a warning — an explicit target beats a mapped copy.
+//
+// Once a target has at least one slot copy, its <name>_cosmo_fat artifact is
+// REPLACED: buildhost validates os on artifact upload and rejects os=cosmo
+// (400 "invalid os", observed on go-regex-compiler run 28738513866), and one
+// rejected artifact aborts that whole publish — so the fat name must never
+// reach the publish pipeline as a regular file. With dropFat=false (local
+// builds) it becomes a relative symlink to the target's first slot copy, so
+// the canonical name keeps working on disk while the publish action skips it.
+// With dropFat=true (CI) it is removed outright: upload-artifact DEREFERENCES
+// symlinks (see the host-symlink note in matrix.go), which would re-materialize
+// a publish-breaking regular file inside the downloaded artifact. A target
+// with no surviving slot copy (every slot lost to a native collision) keeps
+// its real fat file — it is the only APE artifact then, and such a layout
+// cannot be published to buildhost until the server accepts os=cosmo.
+//
+// Returns the created copy paths (for checksums) and the fat artifact paths
+// that were replaced — the caller must exclude those from checksums, which
+// cover real files only (every slot copy is byte-identical to the APE, so no
+// coverage is lost).
+func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform, nativeBuilt map[string]bool, dropFat bool) (created, replacedFat []string, err error) {
 	for _, target := range targets {
 		srcName := build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch)
 		srcPath := filepath.Join(outDir, srcName)
 		if _, err := os.Stat(srcPath); err != nil {
-			return nil, fmt.Errorf("cosmo slot mapping: fat APE %s not found: %w", srcPath, err)
+			return nil, nil, fmt.Errorf("cosmo slot mapping: fat APE %s not found: %w", srcPath, err)
 		}
+		var targetCopies []string
 		for _, slot := range slots {
 			dstName := build.BinaryName(target.OutputName, slot.OS, slot.Arch)
 			if nativeBuilt[dstName] {
@@ -185,14 +203,34 @@ func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform
 			// Remove any stale artifact first so a leftover symlink is
 			// replaced by a real file instead of being written through.
 			if err := os.Remove(dstPath); err != nil && !os.IsNotExist(err) {
-				return nil, fmt.Errorf("cosmo slot mapping: %w", err)
+				return nil, nil, fmt.Errorf("cosmo slot mapping: %w", err)
 			}
 			if err := copyFile(srcPath, dstPath); err != nil {
-				return nil, fmt.Errorf("cosmo slot mapping: copying %s to %s: %w", srcPath, dstPath, err)
+				return nil, nil, fmt.Errorf("cosmo slot mapping: copying %s to %s: %w", srcPath, dstPath, err)
 			}
 			fmt.Printf("  COPY %s <- %s\n", dstName, srcName)
-			created = append(created, dstPath)
+			targetCopies = append(targetCopies, dstPath)
 		}
+		created = append(created, targetCopies...)
+		if len(targetCopies) == 0 {
+			if len(slots) > 0 {
+				fmt.Printf("  KEEP %s (no slot copy survived; note buildhost rejects os=cosmo uploads)\n", srcName)
+			}
+			continue
+		}
+		if err := os.Remove(srcPath); err != nil {
+			return nil, nil, fmt.Errorf("cosmo slot mapping: replacing %s: %w", srcName, err)
+		}
+		if dropFat {
+			fmt.Printf("  DROP %s (buildhost rejects os=cosmo uploads; the slot copies carry the APE)\n", srcName)
+		} else {
+			linkTarget := filepath.Base(targetCopies[0])
+			if err := os.Symlink(linkTarget, srcPath); err != nil {
+				return nil, nil, fmt.Errorf("cosmo slot mapping: linking %s -> %s: %w", srcName, linkTarget, err)
+			}
+			fmt.Printf("  LINK %s -> %s (kept as a symlink: publish skips symlinks; buildhost rejects os=cosmo)\n", srcName, linkTarget)
+		}
+		replacedFat = append(replacedFat, srcPath)
 	}
-	return created, nil
+	return created, replacedFat, nil
 }

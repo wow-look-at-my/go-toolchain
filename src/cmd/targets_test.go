@@ -229,7 +229,7 @@ func TestCopyCosmoSlots(t *testing.T) {
 	slots, err := parseCosmoSlots(DefaultCosmoSlots)
 	require.NoError(t, err)
 
-	created, err := copyCosmoSlots(targets, tmpDir, slots, nil)
+	created, replacedFat, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
 	require.NoError(t, err)
 
 	wantNames := []string{"mytool_linux_amd64", "mytool_linux_arm64", "mytool_darwin_arm64", "mytool_windows_amd64.exe"}
@@ -248,6 +248,78 @@ func TestCopyCosmoSlots(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "FAT-APE-BYTES", string(data))
 	}
+
+	// The fat name survives locally as a SYMLINK to the first slot copy
+	// (buildhost rejects os=cosmo uploads; publish skips symlinks) and is
+	// reported as replaced so checksums cover real files only.
+	assert.Equal(t, []string{fatPath}, replacedFat)
+	info, err := os.Lstat(fatPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.ModeSymlink, info.Mode()&os.ModeSymlink, "fat name must be a symlink after slot mapping")
+	linkTarget, err := os.Readlink(fatPath)
+	require.NoError(t, err)
+	assert.Equal(t, "mytool_linux_amd64", linkTarget)
+	data, err := os.ReadFile(fatPath) // follows the link
+	require.NoError(t, err)
+	assert.Equal(t, "FAT-APE-BYTES", string(data))
+}
+
+func TestCopyCosmoSlotsDropsFatInCI(t *testing.T) {
+	tmpDir := t.TempDir()
+	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
+
+	fatPath := filepath.Join(tmpDir, "mytool_cosmo_fat")
+	require.NoError(t, os.WriteFile(fatPath, []byte("FAT-APE-BYTES"), 0755))
+
+	slots, err := parseCosmoSlots([]string{"linux/amd64"})
+	require.NoError(t, err)
+
+	var created, replacedFat []string
+	output := captureStdout(func() {
+		created, replacedFat, err = copyCosmoSlots(targets, tmpDir, slots, nil, true)
+	})
+	require.NoError(t, err)
+	require.Len(t, created, 1)
+	assert.Equal(t, []string{fatPath}, replacedFat)
+
+	// dropFat removes the fat name entirely: upload-artifact dereferences
+	// symlinks, so only removal keeps a publish-breaking os=cosmo artifact
+	// out of the uploaded build/ directory.
+	_, err = os.Lstat(fatPath)
+	assert.True(t, os.IsNotExist(err), "fat name must be removed in CI")
+	assert.Contains(t, output, "DROP mytool_cosmo_fat")
+	data, err := os.ReadFile(filepath.Join(tmpDir, "mytool_linux_amd64"))
+	require.NoError(t, err)
+	assert.Equal(t, "FAT-APE-BYTES", string(data))
+}
+
+func TestCopyCosmoSlotsAllSlotsCollidedKeepsFat(t *testing.T) {
+	tmpDir := t.TempDir()
+	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
+
+	fatPath := filepath.Join(tmpDir, "mytool_cosmo_fat")
+	require.NoError(t, os.WriteFile(fatPath, []byte("FAT"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "mytool_linux_amd64"), []byte("NATIVE"), 0755))
+
+	slots, err := parseCosmoSlots([]string{"linux/amd64"})
+	require.NoError(t, err)
+
+	nativeBuilt := map[string]bool{"mytool_linux_amd64": true}
+	var created, replacedFat []string
+	output := captureStdout(func() {
+		created, replacedFat, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt, false)
+	})
+	require.NoError(t, err)
+	assert.Empty(t, created)
+	assert.Empty(t, replacedFat)
+
+	// With no surviving slot copy there is nothing to link to: the real fat
+	// file is kept (and cannot be published to buildhost until the server
+	// accepts os=cosmo).
+	info, err := os.Lstat(fatPath)
+	require.NoError(t, err)
+	assert.True(t, info.Mode().IsRegular(), "fat must stay a real file when no slot copy exists")
+	assert.Contains(t, output, "KEEP mytool_cosmo_fat")
 }
 
 func TestCopyCosmoSlotsNativeCollisionWins(t *testing.T) {
@@ -263,7 +335,7 @@ func TestCopyCosmoSlotsNativeCollisionWins(t *testing.T) {
 	nativeBuilt := map[string]bool{"mytool_linux_amd64": true}
 	var created []string
 	output := captureStdout(func() {
-		created, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt)
+		created, _, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt, false)
 	})
 	require.NoError(t, err)
 
@@ -275,6 +347,12 @@ func TestCopyCosmoSlotsNativeCollisionWins(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "NATIVE", string(data))
 	assert.Contains(t, output, "SKIP mytool_linux_amd64")
+
+	// The fat symlink must point at the first slot copy actually CREATED
+	// (linux/arm64), not the collided first slot.
+	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool_cosmo_fat"))
+	require.NoError(t, err)
+	assert.Equal(t, "mytool_linux_arm64", linkTarget)
 }
 
 func TestCopyCosmoSlotsMissingFatAPE(t *testing.T) {
@@ -282,7 +360,7 @@ func TestCopyCosmoSlotsMissingFatAPE(t *testing.T) {
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 	slots := []buildPlatform{{OS: "linux", Arch: "amd64"}}
 
-	_, err := copyCosmoSlots(targets, tmpDir, slots, nil)
+	_, _, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mytool_cosmo_fat")
 }
@@ -299,7 +377,7 @@ func TestCopyCosmoSlotsReplacesStaleSymlink(t *testing.T) {
 	require.NoError(t, os.Symlink(other, filepath.Join(tmpDir, "mytool_linux_amd64")))
 
 	slots := []buildPlatform{{OS: "linux", Arch: "amd64"}}
-	_, err := copyCosmoSlots(targets, tmpDir, slots, nil)
+	_, _, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
 	require.NoError(t, err)
 
 	info, err := os.Lstat(filepath.Join(tmpDir, "mytool_linux_amd64"))

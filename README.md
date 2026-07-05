@@ -195,6 +195,19 @@ platform as an explicit native target (e.g. `--targets cosmo,linux/amd64`),
 the native build wins that filename and the copy is skipped with a warning —
 explicit beats mapped.
 
+**The fat name after mapping.** Once at least one slot copy exists, the
+`<name>_cosmo_fat` artifact itself is replaced: buildhost validates `os` on
+artifact upload and rejects `os=cosmo` (`400 invalid os`), and a single
+rejected artifact aborts the whole publish. Locally the fat name becomes a
+symlink to the first slot copy, so it keeps working on disk while the publish
+pipeline (which skips symlinks) never uploads it; in CI it is removed outright,
+because `upload-artifact` dereferences symlinks and would re-materialize a
+publish-breaking regular file inside the artifact. `checksums.txt` therefore
+lists real files only — every slot copy is byte-identical to the APE, so
+nothing is lost. With `--cosmo-slots=none` (or when every slot loses to a
+native collision) the real fat file is kept; note such a layout cannot be
+published to buildhost until the server accepts `os=cosmo`.
+
 **Native carve-outs.** `darwin/amd64` and `windows/arm64` are deliberately NOT
 default slots: the cosmo runtime for Intel macs is not yet verified end to
 end, and the APE's embedded Windows payload is amd64-only. Build those two as
