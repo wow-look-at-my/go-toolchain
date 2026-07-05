@@ -124,10 +124,12 @@ func TestParseCosmoSlots(t *testing.T) {
 		{
 			name:    "defaults",
 			entries: DefaultCosmoSlots,
+			// darwin/arm64 is intentionally NOT a default slot: the full
+			// pipeline wedges under the APE on macOS (see DefaultCosmoSlots),
+			// so macs get a native binary by default until that is fixed.
 			want: []buildPlatform{
 				{OS: "linux", Arch: "amd64"},
 				{OS: "linux", Arch: "arm64"},
-				{OS: "darwin", Arch: "arm64"},
 				{OS: "windows", Arch: "amd64"},
 			},
 		},
@@ -232,7 +234,7 @@ func TestCopyCosmoSlots(t *testing.T) {
 	created, replacedFat, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
 	require.NoError(t, err)
 
-	wantNames := []string{"mytool_linux_amd64", "mytool_linux_arm64", "mytool_darwin_arm64", "mytool_windows_amd64.exe"}
+	wantNames := []string{"mytool_linux_amd64", "mytool_linux_arm64", "mytool_windows_amd64.exe"}
 	require.Len(t, created, len(wantNames))
 	for i, name := range wantNames {
 		path := filepath.Join(tmpDir, name)

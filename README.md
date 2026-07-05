@@ -16,6 +16,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
 - **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot
 - **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Defers to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is a per-deploy kill switch); disable injection entirely with `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`
+- **Output stall watchdog** — the build's stdout/stderr are routed through an in-process watchdog that prints a loud `STALLED: no output for Ns` warning (with the current step name) whenever the pipeline goes silent for 5+ seconds. Disable it with `GO_TOOLCHAIN_NO_WATCHDOG=1` — the build then runs on its real stdio (useful when debugging output plumbing, since the watchdog works by dup2-redirecting fd 1/2 through pipes)
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
 - **Coverage impact metrics** — each package/file/function shows how many percentage points it costs the total, making it easy to prioritize what to test next
@@ -91,8 +92,8 @@ go-toolchain
 # Cross-compile for multiple platforms
 go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
 
-# Build an exact target list: one Cosmopolitan fat APE plus two native builds
-go-toolchain matrix --targets cosmo,darwin/amd64,windows/arm64
+# Build an exact target list: one Cosmopolitan fat APE plus three native builds
+go-toolchain matrix --targets cosmo,darwin/amd64,darwin/arm64,windows/arm64
 
 # Run benchmarks independently
 go-toolchain bench run --benchtime 5s --count 3
@@ -173,8 +174,8 @@ named `<name>_cosmo_fat` (no `.exe`, even though the file is a genuine PE
 polyglot).
 
 ```bash
-# One fat APE (with slot copies) plus native builds for the two carve-outs
-go-toolchain matrix --targets cosmo,darwin/amd64,windows/arm64
+# One fat APE (with slot copies) plus native builds for the three carve-outs
+go-toolchain matrix --targets cosmo,darwin/amd64,darwin/arm64,windows/arm64
 ```
 
 **Slot mapping.** After a successful cosmo build the fat APE is *copied* (real
@@ -186,7 +187,6 @@ buildhost's `?os=&arch=` download slots) keep resolving without changes:
 |---|---|
 | `linux/amd64`   | `<name>_linux_amd64` |
 | `linux/arm64`   | `<name>_linux_arm64` |
-| `darwin/arm64`  | `<name>_darwin_arm64` |
 | `windows/amd64` | `<name>_windows_amd64.exe` (the APE is a real PE, so `.exe` is correct) |
 
 `--cosmo-slots` accepts a custom `os/arch` list, or `none` to disable mapping.
@@ -208,10 +208,16 @@ nothing is lost. With `--cosmo-slots=none` (or when every slot loses to a
 native collision) the real fat file is kept; note such a layout cannot be
 published to buildhost until the server accepts `os=cosmo`.
 
-**Native carve-outs.** `darwin/amd64` and `windows/arm64` are deliberately NOT
-default slots: the cosmo runtime for Intel macs is not yet verified end to
-end, and the APE's embedded Windows payload is amd64-only. Build those two as
-native targets alongside `cosmo` (as in the example above) for full coverage.
+**Native carve-outs.** `darwin/arm64`, `darwin/amd64` and `windows/arm64` are
+deliberately NOT default slots. `darwin/arm64`: the fat APE boots fine on
+ARM64 macs, but the full go-toolchain build pipeline currently *wedges* under
+it there (silent >28-minute hangs observed twice on macos-latest CI — runs
+28739021382 and 28739520377 — in a step that takes ~26s on Linux), so macs
+keep getting a native binary until that is root-caused and fixed.
+`darwin/amd64`: the cosmo runtime for Intel macs is not yet verified end to
+end. `windows/arm64`: the APE's embedded Windows payload is amd64-only. Build
+those three as native targets alongside `cosmo` (as in the example above) for
+full coverage.
 
 **Toolchain resolution.** Building the cosmo target needs the gosmopolitan
 toolchain:

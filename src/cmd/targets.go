@@ -20,10 +20,17 @@ const (
 )
 
 // DefaultCosmoSlots are the per-platform artifact names that receive a copy
-// of the cosmo fat APE (see copyCosmoSlots). darwin/amd64 is deliberately
-// absent (the cosmo darwin-Intel runtime is not verified yet), as is
-// windows/arm64 (the APE's embedded PE payload is amd64-only).
-var DefaultCosmoSlots = []string{"linux/amd64", "linux/arm64", "darwin/arm64", "windows/amd64"}
+// of the cosmo fat APE (see copyCosmoSlots). darwin/arm64 is deliberately
+// absent even though the fat APE contains a cosmo arm64 payload that boots on
+// ARM64 macs: the full go-toolchain pipeline WEDGES under the APE on
+// macos-latest (CI runs 28739021382 and 28739520377 — the same pipeline step
+// that takes 26s on ubuntu sat >28-35 minutes with no output; `version`,
+// `--help` and the official-Go bootstrap under the APE are all fine), so macs
+// keep getting a native binary by default until that wedge is root-caused and
+// fixed. Also absent: darwin/amd64 (the cosmo darwin-Intel runtime is not
+// verified yet) and windows/arm64 (the APE's embedded PE payload is
+// amd64-only).
+var DefaultCosmoSlots = []string{"linux/amd64", "linux/arm64", "windows/amd64"}
 
 // validGOOS / validGOARCH mirror the target lists of the Go distribution
 // (`go tool dist list`), plus cosmo which is handled specially. Used only to

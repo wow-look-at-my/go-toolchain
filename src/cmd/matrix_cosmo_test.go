@@ -84,15 +84,19 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	require.NoError(t, err)
 
-	// The fat APE name and its four default slot copies must exist,
+	// The fat APE name and its three default slot copies must exist,
 	// byte-identical; the fat name itself is a symlink to the first copy
 	// (buildhost rejects os=cosmo uploads, so only the slots are published).
+	// darwin/arm64 is NOT a default slot (macOS pipeline wedge — see
+	// DefaultCosmoSlots).
 	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
 	require.Len(t, fatMatches, 1, "expected exactly one fat APE in %s", outDir)
 	name := strings.TrimSuffix(filepath.Base(fatMatches[0]), "_cosmo_fat")
+	assert.NoFileExists(t, filepath.Join(outDir, name+"_darwin_arm64"),
+		"darwin/arm64 must not receive an APE slot copy by default")
 	for _, slotName := range []string{
 		name + "_linux_amd64", name + "_linux_arm64",
-		name + "_darwin_arm64", name + "_windows_amd64.exe",
+		name + "_windows_amd64.exe",
 	} {
 		info, statErr := os.Lstat(filepath.Join(outDir, slotName))
 		require.NoError(t, statErr, "slot copy %s must exist", slotName)
@@ -105,12 +109,12 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	require.NoError(t, err2, "fat name must be a symlink locally")
 	assert.Equal(t, name+"_linux_amd64", linkTarget)
 
-	// checksums.txt covers the four real copies; the fat symlink is excluded
+	// checksums.txt covers the three real copies; the fat symlink is excluded
 	// (checksums cover real files only).
 	sums, err2 := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	assert.Nil(t, err2)
 	sumLines := strings.Split(strings.TrimSpace(string(sums)), "\n")
-	assert.Equal(t, 4, len(sumLines))
+	assert.Equal(t, 3, len(sumLines))
 	assert.NotContains(t, string(sums), "_cosmo_fat")
 
 	// The cosmo build must run the gosmopolitan go with the fat-APE env:
@@ -179,10 +183,10 @@ func TestRunReleaseWithRunnerCosmoTargetCIDropsFat(t *testing.T) {
 		assert.True(t, e.Type().IsRegular(), "CI build dir must hold regular files only, got %s", e.Name())
 		names = append(names, e.Name())
 	}
-	assert.Len(t, names, 5, "4 slot copies + checksums.txt, got %v", names)
+	assert.Len(t, names, 4, "3 slot copies + checksums.txt, got %v", names)
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	require.NoError(t, err)
-	assert.Equal(t, 4, len(strings.Split(strings.TrimSpace(string(sums)), "\n")))
+	assert.Equal(t, 3, len(strings.Split(strings.TrimSpace(string(sums)), "\n")))
 	assert.NotContains(t, string(sums), "_cosmo_fat")
 }
 
@@ -211,7 +215,7 @@ func TestRunReleaseWithRunnerCosmoNativeCollision(t *testing.T) {
 	require.NoError(t, runErr)
 
 	// The explicitly-built native linux/amd64 binary wins its filename; the
-	// slot copy is skipped with a warning. The other three slots are copied.
+	// slot copy is skipped with a warning. The other two slots are copied.
 	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
 	require.Len(t, fatMatches, 1)
 	name := strings.TrimSuffix(filepath.Base(fatMatches[0]), "_cosmo_fat")
@@ -231,11 +235,11 @@ func TestRunReleaseWithRunnerCosmoNativeCollision(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, name+"_linux_arm64", linkTarget)
 
-	// checksums: native linux/amd64 + 3 slot copies (the fat symlink is
+	// checksums: native linux/amd64 + 2 slot copies (the fat symlink is
 	// excluded — checksums cover real files only).
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	assert.Nil(t, err)
-	assert.Equal(t, 4, len(strings.Split(strings.TrimSpace(string(sums)), "\n")))
+	assert.Equal(t, 3, len(strings.Split(strings.TrimSpace(string(sums)), "\n")))
 	assert.NotContains(t, string(sums), "_cosmo_fat")
 }
 
