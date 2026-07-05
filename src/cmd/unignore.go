@@ -18,8 +18,9 @@ var unignoreCmd = &cobra.Command{
 }
 
 // unignorePreRun confirms the removal interactively, after chaining to the
-// root command's PersistentPreRunE (the Claude output guard). The chain must
-// go through unignoreCmd's OWN parent, not cmd.Parent(): cobra invokes the
+// root command's PersistentPreRunE (Claude output guard + cacheprog setup,
+// which defining a hook here would otherwise shadow). The chain must go
+// through unignoreCmd's OWN parent, not cmd.Parent(): cobra invokes the
 // nearest hook with cmd = the executed SUBcommand (e.g. "coverage"), whose
 // parent is unignoreCmd itself — following cmd.Parent() made this hook call
 // itself until the stack overflowed on every `unignore coverage` run.
@@ -29,6 +30,13 @@ func unignorePreRun(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	return confirmUnignore()
+}
+
+// confirmUnignore prompts for interactive confirmation on stdin. Split from
+// unignorePreRun so tests can exercise the prompt without triggering the
+// root hook's side effects (output guard, cacheprog).
+func confirmUnignore() error {
 	fmt.Print("Remove exemption — are you sure? [y/N] ")
 	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')
