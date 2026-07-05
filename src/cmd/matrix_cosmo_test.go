@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -33,9 +34,12 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 	t.Cleanup(func() { os.Chdir(oldWd) })
 
 	// A named module so ResolveBuildTargets derives a real binary name
-	// ("mytool"); without go.mod the output name degenerates to ".".
+	// ("mytool"); without go.mod the output name degenerates to ".". The
+	// go.mod also makes vet's package load real, so main.go must be
+	// gofmt-canonical: in CI vet runs in check mode and would fail the run
+	// (locally it would silently rewrite the fixture instead).
 	os.WriteFile("go.mod", []byte("module example.com/mytool\n\ngo 1.21\n"), 0644)
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n\nfunc main() {}\n"), 0644)
 
 	fakeGoroot = filepath.Join(tmpDir, "fake-cosmo-goroot")
 	outDir = filepath.Join(tmpDir, "dist")
@@ -75,11 +79,11 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	}
 
 	err := runReleaseWithRunner(mock)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	// The fat APE and its four default slot copies must exist, byte-identical.
 	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
-	assert.Equal(t, 1, len(fatMatches), "expected exactly one fat APE in %s", outDir)
+	require.Len(t, fatMatches, 1, "expected exactly one fat APE in %s", outDir)
 	name := strings.TrimSuffix(filepath.Base(fatMatches[0]), "_cosmo_fat")
 	for _, slotName := range []string{
 		name + "_linux_amd64", name + "_linux_arm64",
@@ -140,15 +144,16 @@ func TestRunReleaseWithRunnerCosmoNativeCollision(t *testing.T) {
 		return origHandler(cfg)
 	}
 
+	var runErr error
 	output := captureStdout(func() {
-		err := runReleaseWithRunner(mock)
-		assert.Nil(t, err)
+		runErr = runReleaseWithRunner(mock)
 	})
+	require.NoError(t, runErr)
 
 	// The explicitly-built native linux/amd64 binary wins its filename; the
 	// slot copy is skipped with a warning. The other three slots are copied.
 	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
-	assert.Equal(t, 1, len(fatMatches))
+	require.Len(t, fatMatches, 1)
 	name := strings.TrimSuffix(filepath.Base(fatMatches[0]), "_cosmo_fat")
 
 	data, err := os.ReadFile(filepath.Join(outDir, name+"_linux_amd64"))
@@ -182,10 +187,10 @@ func TestRunReleaseWithRunnerCosmoSlotsNone(t *testing.T) {
 	}
 
 	err := runReleaseWithRunner(mock)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	entries, err := os.ReadDir(outDir)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	var regularFiles []string
 	for _, e := range entries {
 		if e.Type().IsRegular() {
