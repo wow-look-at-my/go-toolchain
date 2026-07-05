@@ -141,12 +141,25 @@ func (c *FuseCache) Get(actionID string) (CacheMeta, bool) {
 	if !ok {
 		return CacheMeta{}, true
 	}
+	return c.metaFor(loc), false
+}
+
+// Peek is Get without counting a hit — see LocalStore.Peek.
+func (c *FuseCache) Peek(actionID string) (CacheMeta, bool) {
+	loc, ok := c.store.PeekVerified(actionID)
+	if !ok {
+		return CacheMeta{}, true
+	}
+	return c.metaFor(loc), false
+}
+
+func (c *FuseCache) metaFor(loc packLoc) CacheMeta {
 	return CacheMeta{
 		OutputID: loc.outputID,
 		Size:     loc.dataLen,
 		Time:     time.Unix(loc.created, 0),
 		DiskPath: filepath.Join(c.mnt, loc.outputID),
-	}, false
+	}
 }
 
 // Put stores body and returns a DiskPath inside the FUSE mount that the Go

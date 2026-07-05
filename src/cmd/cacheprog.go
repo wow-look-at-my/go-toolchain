@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -110,6 +111,12 @@ func parseBuildCacheConfig() cache.WebConfig {
 		AccessKey: username,
 		SecretKey: password,
 		Version:   buildVersion,
+		// Provenance: stamp every uploaded object with the main module path
+		// (X-Cache-Meta-Module) so a server-side HEAD shows which repo
+		// produced it. Read from go.mod in the CWD — the repo root for the
+		// daemon, the module dir for a standalone cacheprog; empty (omitted)
+		// when there is no go.mod here, e.g. a multi-module workspace root.
+		Module: gomod.ReadModulePath(),
 	}
 }
 
@@ -248,8 +255,28 @@ func enableCacheProg() error {
 		fmt.Fprintf(os.Stderr, "cacheprog: local only\n")
 	}
 
-	os.Setenv("GOCACHEPROG", exe+" cacheprog")
+	os.Setenv("GOCACHEPROG", quoteExeForGOCACHEPROG(exe)+" cacheprog")
 	return nil
+}
+
+// quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
+// parser (internal/quoted.Split: space-separated words, single or double
+// quotes, NO escape sequences). An unquoted path containing a space would be
+// split into two argv words and the cacheprog launch would fail fatally.
+// A path with no spaces or quotes is returned unchanged.
+func quoteExeForGOCACHEPROG(exe string) string {
+	if !strings.ContainsAny(exe, " \t'\"") {
+		return exe
+	}
+	if !strings.Contains(exe, `"`) {
+		return `"` + exe + `"`
+	}
+	if !strings.Contains(exe, "'") {
+		return "'" + exe + "'"
+	}
+	// Contains BOTH quote kinds: not representable for quoted.Split. Return
+	// as-is — the launch fails loudly rather than silently misparsing.
+	return exe
 }
 
 // startCacheDaemon creates a cache daemon with local + web backends.
@@ -319,6 +346,16 @@ func printCacheStats(close bool) {
 		defer cancel()
 		_ = gotrace.Shutdown(ctx)
 	}
+	if close && statsListener != nil {
+		statsListener.Close()
+	}
+	// Emit the per-action build profile once everything has drained: the
+	// daemon Close above flushed the remote tier (final web counters) and the
+	// listener Close delivered every per-action outcome event. Emitting here
+	// rather than in run() is what makes build/profile.json's counters final.
+	if close {
+		emitBuildProfile()
+	}
 	if statsListener == nil {
 		switch {
 		case !cacheEnabled:
@@ -331,9 +368,6 @@ func printCacheStats(close bool) {
 			fmt.Printf("⇒ Cache: disabled\n")
 		}
 		return
-	}
-	if close {
-		statsListener.Close()
 	}
 
 	stats := statsListener.Stats()

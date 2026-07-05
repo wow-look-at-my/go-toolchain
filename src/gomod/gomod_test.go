@@ -130,3 +130,54 @@ func TestFindMainPackages_RootMain(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{modPath}, pkgs)
 }
+
+// k8sHeader is a multi-line /* */ license header in the style the Kubernetes
+// project stamps on every file. The old hand-rolled package-clause scanner
+// skipped only the FIRST line of such a comment ("/*"): the continuation
+// lines matched none of its prefixes, so it bailed before reaching the
+// package clause and the main package silently vanished from the build.
+const k8sHeader = `/*
+Copyright 2024 The Example Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+*/
+
+`
+
+func TestPackageNameFromFile_BlockCommentHeader(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "main.go", k8sHeader+"package main\n\nfunc main() {}\n")
+	assert.Equal(t, "main", packageNameFromFile(filepath.Join(root, "main.go")),
+		"a multi-line /* */ license header must not hide the package clause")
+}
+
+func TestPackageNameFromFile_Forms(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name, content, want string
+	}{
+		{"trailing_line_comment.go", "package main // entry point\n", "main"},
+		{"inline_block_comment.go", "package main /* entry */\n\nfunc main() {}\n", "main"},
+		{"line_comments.go", "// a\n// b\npackage lib\n", "lib"},
+		{"build_constraint.go", "//go:build linux\n\npackage lib\n", "lib"},
+		{"single_line_block.go", "/* one-liner */\npackage lib\n", "lib"},
+		{"not_go_source.go", "this is not go\n", ""},
+		{"empty.go", "", ""},
+	}
+	for _, c := range cases {
+		writeFile(t, root, c.name, c.content)
+		assert.Equal(t, c.want, packageNameFromFile(filepath.Join(root, c.name)), c.name)
+	}
+	assert.Equal(t, "", packageNameFromFile(filepath.Join(root, "does-not-exist.go")))
+}
+
+func TestHasMainPackage_BlockCommentHeaderMain(t *testing.T) {
+	root := t.TempDir()
+	// The end-to-end shape of the bug: a main package whose ONLY file starts
+	// with a k8s-style block-comment header was silently not built (missed by
+	// ResolveBuildTargets and the memlimit guard injection).
+	writeFile(t, root, "main.go", k8sHeader+"package main\n\nfunc main() {}\n")
+	assert.True(t, hasMainPackage(root),
+		"a main package behind a block-comment license header must be discovered")
+}

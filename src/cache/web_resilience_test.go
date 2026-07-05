@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -152,12 +153,12 @@ func TestServer_RemoteOutageServesLocalCorrectly(t *testing.T) {
 	s := NewServer(lc, web)
 
 	stored := []byte("compiled package archive bytes for runtime")
+	storedSum := sha256.Sum256(stored)
 	storedAction := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33}
-	storedOutput := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
 	coldAction := []byte{0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99}
 
 	var input strings.Builder
-	input.WriteString(makePutRequestRawBase64(Request{ID: 1, Command: CmdPut, ActionID: storedAction, OutputID: storedOutput, BodySize: int64(len(stored))}, string(stored)))
+	input.WriteString(makePutRequestRawBase64(Request{ID: 1, Command: CmdPut, ActionID: storedAction, OutputID: storedSum[:], BodySize: int64(len(stored))}, string(stored)))
 	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: storedAction})) // expect local hit
 	input.WriteString(makeRequest(Request{ID: 3, Command: CmdGet, ActionID: coldAction}))   // expect clean miss
 	input.WriteString(makeRequest(Request{ID: 4, Command: CmdClose}))

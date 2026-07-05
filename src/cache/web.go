@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +35,7 @@ type WebConfig struct {
 	AccessKey string // Basic Auth username
 	SecretKey string // Basic Auth password
 	Version   string // go-toolchain version, stored as object metadata
+	Module    string // main module path, stored as object metadata (provenance)
 }
 
 // WebBackend stores cache objects in a remote web server with LZ4 compression.
@@ -52,14 +52,27 @@ type WebBackend struct {
 	accessKey  string
 	secretKey  string
 	version    string // go-toolchain version for object metadata
+	module     string // main module path for object metadata (provenance)
 	Stats      CacheStats
 	Pool       ConcurrencyTracker // HTTP connection pool usage (shared across all Servers)
 	Latency    *LatencyStats      // optional; set by Server for sub-operation tracking
 	keysMu     sync.RWMutex
-	keys       set.Set[string] // known keys, built from ListObjects on startup
+	keys       set.Set[string] // known keys, from the startup index fetch + Put claims
 	indexEmpty bool            // remote index was empty at startup: nothing to batch-probe for
-	missesMu   sync.RWMutex
-	knownMiss  set.Set[string] // keys confirmed absent from remote this session
+	// indexAuthoritative is true when the startup key set came from a fresh,
+	// server-confirmed index (200 parsed, or 304 validating our disk copy).
+	// An authoritative index makes "key absent" trustworthy: a probe for an
+	// absent key can only 404/return-empty by construction, so cold keys miss
+	// cleanly without a round-trip. When the fetch FAILED (stale disk copy or
+	// empty set), absences prove nothing and cold keys are batch-probed — the
+	// recovery path for a client that doesn't know what the server holds.
+	indexAuthoritative bool
+	// indexKeysAtStart is the advertised key count from the startup index
+	// fetch, before any Put claims. Reported in WebSummary so the build
+	// profile can flag a dead remote (many advertised keys, zero hits).
+	indexKeysAtStart int
+	missesMu         sync.RWMutex
+	knownMiss        set.Set[string] // keys confirmed absent from remote this session
 
 	// Consecutive-empty-batch backoff. An empty-but-200 /_batch/get is a HEALTHY
 	// backend that simply has none of this build's keys (a large remote index
@@ -99,8 +112,33 @@ type WebBackend struct {
 	// SkippedBatchBackoff counts cold-key Gets that returned a clean miss without
 	// a /_batch/get round-trip because the consecutive-empty-batch backoff had
 	// tripped: the remote repeatedly returned zero-entry batches this run, so it
-	// provably holds nothing useful for this build.
+	// provably holds nothing useful for this build. Only reachable when the
+	// index fetch failed (with an authoritative index, absent keys are never
+	// probed in the first place — see SkippedNotInIndex).
 	SkippedBatchBackoff AtomicCounter
+
+	// SkippedNotInIndex counts cold-key Gets that returned a clean miss without
+	// a round-trip because the run's AUTHORITATIVE (fresh, non-empty) index
+	// does not list the key: probing it would 404/return-empty by construction.
+	// Before this policy, exactly these keys were batch-probed, every batch
+	// came back empty, and ~24 wasted round-trips later the empty-batch backoff
+	// disabled batching for the whole run — killing prefetch too.
+	SkippedNotInIndex AtomicCounter
+
+	// Reclaimed404 counts index-claimed keys dropped after the server
+	// authoritatively reported them absent (a 404, or missing from a 200 batch
+	// response): the stale claim is removed from the known-keys set so the PUT
+	// path re-uploads the object instead of skipping it as already-present —
+	// previously such a key was a permanent forced miss.
+	Reclaimed404 AtomicCounter
+
+	// PUT-side skip/refusal counters. WebBackend.Put returns nil for several
+	// distinct non-upload outcomes; without these the gap between local puts
+	// and actual uploads (581 uploads for 7589 local puts in the baseline) is
+	// invisible in the web summary.
+	PutSkippedKnown    AtomicCounter // key already in the index or claimed by an in-flight upload
+	PutRefusedBuildID  AtomicCounter // refused: build-id action mismatch (mis-keyed object)
+	PutRefusedModIndex AtomicCounter // refused: Go module index (never published to the shared cache)
 
 	// Failure-handling resilience. A backend outage (5xx, timeout, reset) must
 	// never stall or corrupt a build: every remote op degrades to a clean miss
@@ -135,18 +173,6 @@ type WebBackend struct {
 	putBatchDone        chan struct{}
 	putBatchHTTPWG      sync.WaitGroup
 	batchPutUnsupported atomic.Bool
-}
-
-// putReq is one prepped object queued for the PUT coalescer. The per-object
-// preparation (optimistic index claim, build-id/module-index guard, lz4) has
-// already run in Put; the coalescer only frames and ships these.
-type putReq struct {
-	actionID   string
-	key        string
-	outputID   string
-	raw        []byte            // uncompressed body, kept for the single-PUT fallback / label
-	compressed []byte            // lz4-compressed body, the data/<key> member bytes
-	metadata   map[string]string // manifest metadata: lowercased meta names sans X-Cache-Meta-
 }
 
 type batchReq struct {
@@ -228,9 +254,20 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 				// Preserve original method — Go changes PUT/POST to GET on 301/302.
 				orig := via[0]
 				req.Method = orig.Method
-				req.Body = orig.Body
-				req.GetBody = orig.GetBody
-				req.ContentLength = orig.ContentLength
+				// Rebuild the body via GetBody: orig.Body was consumed by the
+				// previous attempt, so re-sending it would transmit an empty
+				// body and fail on the ContentLength mismatch. (Every request
+				// with a body here is built from a *bytes.Reader, so GetBody
+				// is always populated by http.NewRequest.)
+				if orig.GetBody != nil {
+					body, err := orig.GetBody()
+					if err != nil {
+						return err
+					}
+					req.Body = body
+					req.GetBody = orig.GetBody
+					req.ContentLength = orig.ContentLength
+				}
 				for key, vals := range orig.Header {
 					req.Header[key] = vals
 				}
@@ -243,6 +280,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 		accessKey: accessKey,
 		secretKey: secretKey,
 		version:   cfg.Version,
+		module:    cfg.Module,
 	}
 	b.tracer = newCacheTracer(os.Stderr)
 	b.errLog = newHTTPErrLogger(os.Stderr, httpErrFlushInterval, b.tracer)
@@ -254,10 +292,15 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	b.putBatchStop = make(chan struct{})
 	b.putBatchDone = make(chan struct{})
 	go b.batchPutCoalescer()
-	b.keys = b.loadOrFetchIndex()
+	b.keys, b.indexAuthoritative = b.loadOrFetchIndex()
 	b.indexEmpty = b.keys.Len() == 0
+	b.indexKeysAtStart = b.keys.Len()
 	b.knownMiss = set.New[string]()
-	fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
+	if b.indexAuthoritative {
+		fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
+	} else {
+		fmt.Fprintf(os.Stderr, "cacheprog: web index: fetch failed; using %d cached keys (batch probing enabled)\n", b.keys.Len())
+	}
 	return b, nil
 }
 
@@ -269,18 +312,29 @@ func (b *WebBackend) url(key string) string {
 	return b.endpoint + "/" + b.bucket + "/" + key
 }
 
-// Get retrieves a cached object. If the key is in the local index, it fetches
-// individually. Otherwise, it uses the server's batch GET endpoint with
-// prefetch enabled — the server returns the requested entry plus temporally
-// related entries from the same build, which are passed to OnBatchEntries
-// for local cache population.
+// Get retrieves a cached object.
+//
+// Routing policy (the batch endpoint is the primary fetch path):
+//
+//   - Key in the index (an expected hit): fetch through the coalescing batch
+//     endpoint — one round-trip serves up to batchMaxKeys concurrent callers
+//     and carries the server's prefetch entries from the same build. This is
+//     what makes prefetch function at all: batches of only-absent keys (the
+//     old policy) return zero entries by construction, which both wasted the
+//     round-trips and tripped the empty-batch backoff on every cold run,
+//     disabling batching — and prefetch — for the rest of the build. Servers
+//     without /_batch/get still work: sendBatch falls back to individual GETs.
+//
+//   - Key absent from an AUTHORITATIVE index (fresh 200/304 this run): miss
+//     cleanly with no network — the server itself said it doesn't have it.
+//
+//   - Key absent but the index fetch FAILED: we don't know what the server
+//     holds, so batch-probe the key (the recovery path), bounded by the
+//     consecutive-empty-batch backoff.
 func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, size int64, t time.Time, miss bool, err error) {
 	key := b.key(actionID)
-	b.keysMu.RLock()
-	known := b.keys.Contains(key)
-	b.keysMu.RUnlock()
-	if known {
-		return b.getIndividual(nil, actionID, key)
+	if b.keyKnown(key) {
+		return b.getBatch(actionID, key)
 	}
 
 	// Key not in index — check if we already know it's absent.
@@ -293,23 +347,56 @@ func (b *WebBackend) Get(actionID string) (outputID string, body io.ReadCloser, 
 	}
 
 	b.MissNotInIndex.Increment()
-	if b.indexEmpty {
-		// The remote published an empty key index this run: it definitively holds
-		// nothing, so a /_batch/get can only return zero entries. Skip the network
-		// and miss cleanly instead of paying a round-trip per cold key (which, on a
-		// cold CI build, is thousands of empty batches and tens of seconds wasted).
-		b.SkippedEmptyIndex.Increment()
+	if b.indexAuthoritative {
+		// The server's own key index for this run says the key is absent, so a
+		// probe can only come back empty by construction. Miss cleanly instead
+		// of paying a round-trip per cold key (on a cold CI build, thousands).
+		if b.indexEmpty {
+			b.SkippedEmptyIndex.Increment()
+		} else {
+			b.SkippedNotInIndex.Increment()
+		}
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	if b.batchProbingOff() {
-		// The remote's index is non-empty, but it has returned enough consecutive
-		// zero-entry batches that the empty-batch backoff tripped: it provably holds
-		// nothing useful for this build (a large but non-overlapping or stale index).
-		// Miss cleanly without the round-trip, same as the empty-index case.
+		// No authoritative index this run AND the remote has returned enough
+		// consecutive zero-entry batches that the backoff tripped: it provably
+		// holds nothing useful for this build. Miss without the round-trip.
 		b.SkippedBatchBackoff.Increment()
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	return b.getBatch(actionID, key)
+}
+
+// keyKnown reports whether key is in the known-keys set (the startup index
+// plus optimistic Put claims).
+func (b *WebBackend) keyKnown(key string) bool {
+	b.keysMu.RLock()
+	defer b.keysMu.RUnlock()
+	return b.keys.Contains(key)
+}
+
+// reclaimAbsent records an AUTHORITATIVE "not present" answer from the server
+// for key (an individual 404, or absence from a 200 batch response). If our
+// index claimed the key, that claim is stale (evicted server-side, or a stale
+// index entry): drop it so Put's check-and-claim re-uploads the object —
+// previously the claim made every future Put skip as already-present,
+// leaving the key a permanent forced miss. The key is also marked knownMiss
+// so Gets stop re-asking this run. Returns whether a stale claim was dropped.
+func (b *WebBackend) reclaimAbsent(key string) bool {
+	b.keysMu.Lock()
+	removed := b.keys.Contains(key)
+	if removed {
+		b.keys.Remove(key)
+	}
+	b.keysMu.Unlock()
+	if removed {
+		b.Reclaimed404.Increment()
+	}
+	b.missesMu.Lock()
+	b.knownMiss.Add(key)
+	b.missesMu.Unlock()
+	return removed
 }
 
 // getIndividual fetches a single object stored under an individual cache key.
@@ -347,6 +434,9 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTP404.Increment()
+		// Drop any stale index claim so the PUT path re-uploads the object;
+		// without this the key 404s forever and is never re-published.
+		b.reclaimAbsent(key)
 		markSpanMiss(span, "http_404")
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -479,160 +569,22 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 		// Backend is closing — return miss so the caller can fall back.
 		return "", nil, 0, time.Time{}, true, nil
 	}
-	r := <-respCh
-	return r.outputID, r.body, r.size, r.t, r.miss, nil
-}
-
-// Put stores a cached object with LZ4 compression. The per-object preparation
-// (optimistic index claim, read, build-id/module-index write guards, lz4, and
-// the metadata map) runs synchronously here; the upload itself is COALESCED:
-// the prepped object is enqueued onto the PUT coalescer (batchPutCoalescer),
-// which ships many objects as one /_batch/put tar instead of one HTTP PUT per
-// object — a CI build stores thousands of objects and the per-object PUT storm
-// saturated the cache server's admission control. Put returns nil immediately
-// (fire-and-forget, matching the prior async model); the coalescer reports
-// per-object outcomes (rolling back a claim on a server-side error) and the
-// whole batch is retried as one tar on a 503 shed. If the server does not
-// support the batch endpoint (sticky batchPutUnsupported, set on a 404/405),
-// Put falls back to the per-object doRetryPUT path — the #272 single-PUT retry
-// is the floor.
-func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
-	key := b.key(actionID)
-
-	// Atomically check-and-claim: if the key is already known (or being
-	// uploaded by another goroutine), skip immediately.
-	b.keysMu.Lock()
-	if b.keys.Contains(key) {
-		b.keysMu.Unlock()
-		return nil
-	}
-	b.keys.Add(key)
-	b.keysMu.Unlock()
-
-	_, span := b.tracer.Start("cacheprog.web.put",
-		attribute.String("cacheprog.action_id", shortID(actionID)),
-		attribute.Int64("cacheprog.bytes_uncompressed", bodySize))
-	defer span.End()
-
-	// Release the optimistic claim unless the object is successfully queued for
-	// upload (enqueued onto the coalescer or, in fallback mode, dispatched on the
-	// single-PUT path). Each path sets queued=true once it has taken ownership of
-	// the claim; the coalescer/single-PUT path is then responsible for any later
-	// rollback (a per-object server error or a whole-batch final failure).
-	var queued bool
-	defer func() {
-		if !queued {
-			b.removeClaimed(key)
-		}
-	}()
-
-	raw, err := io.ReadAll(body)
-	if err != nil {
-		markSpanErr(span, "read body", err)
-		return fmt.Errorf("web put read: %w", err)
-	}
-
-	// Write-side cross-contamination guard: never publish a compiled package to
-	// the shared cache under a key that disagrees with the package's own build
-	// id. The body<->outputID hash is self-consistent for a mis-keyed object, so
-	// only this check stops a swapped (actionID, object) pair from poisoning the
-	// remote cache for every other consumer. The deferred removeClaimed releases
-	// the optimistic index claim, so a later correct Put for this key still runs.
-	if act, ok := buildIDMatchesAction(actionID, raw); !ok {
-		markSpanMiss(span, "buildid_mismatch")
-		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: refusing upload, build-id action mismatch (want action=%s, got action=%s); object does not belong under this key\n",
-			shortID(actionID), expectedBuildIDAction(actionID), act)
-		return nil
-	}
-
-	// Never publish a Go module index to the shared cache. It cannot be verified
-	// against an action key on the way back in (see isGoModuleIndex), so a
-	// consumer has no way to tell a correct one from a mis-keyed (build-breaking)
-	// one -- the read side refuses all of them. Uploading is therefore pure
-	// downside: wasted bytes plus a standing poison vector for any client. Every
-	// consumer recomputes the index locally, so dropping the upload costs nothing.
-	if isGoModuleIndex(raw) {
-		markSpanMiss(span, "module_index")
-		return nil
-	}
-
-	compressStart := time.Now()
-	compressed, err := compressData(raw)
-	if b.Latency != nil {
-		b.Latency.Compress.Record(time.Since(compressStart))
-	}
-	if err != nil {
-		markSpanErr(span, "compress", err)
-		return fmt.Errorf("web put compress: %w", err)
-	}
-	span.SetAttributes(attribute.Int("cacheprog.bytes_compressed", len(compressed)),
-		attribute.String("cacheprog.label", describeData(raw)))
-
-	// Assemble the manifest metadata map: lowercased meta names WITHOUT the
-	// X-Cache-Meta- prefix, the SAME values a single PUT sends as headers. The
-	// single-PUT fallback re-derives these as headers from this map (see
-	// metadataHeaders), so this map is the single source of truth for both paths.
-	meta := map[string]string{
-		"outputid":    outputID,
-		"object-type": detectObjectType(raw),
-		"body-size":   strconv.FormatInt(bodySize, 10),
-		"compression": "lz4",
-		"created":     time.Now().UTC().Format(time.RFC3339),
-	}
-	if b.version != "" {
-		meta["toolchain-version"] = b.version
-	}
-	if goVer, target := parseArchiveHeader(raw); goVer != "" {
-		meta["go-version"] = goVer
-		meta["target"] = target
-	}
-	if pkg := parseImportPath(raw); pkg != "" {
-		meta["pkg"] = pkg
-	}
-	if files := parseSourceFiles(raw); len(files) > 0 {
-		meta["src"] = strings.Join(files, " ")
-	}
-
-	pr := putReq{
-		actionID:   actionID,
-		key:        key,
-		outputID:   outputID,
-		raw:        raw,
-		compressed: compressed,
-		metadata:   meta,
-	}
-
-	// Server has no batch endpoint (learned from an earlier 404/405): fall back
-	// to the per-object single-PUT path. This keeps the client working against an
-	// un-upgraded server; the #272 retry is the floor.
-	if b.batchPutUnsupported.Load() {
-		queued = true // putSingle owns the claim from here on.
-		return b.putSingle(pr)
-	}
-
-	// Enqueue onto the coalescer and return immediately. The coalescer owns the
-	// claim from here: it keeps it on stored/conflict/dropped and rolls it back
-	// on a per-object error or a whole-batch final failure.
 	select {
-	case b.putBatchReqCh <- pr:
-		queued = true
-	case <-b.putBatchStop:
-		// Backend is closing — drop the claim so a later run re-uploads.
+	case r := <-respCh:
+		return r.outputID, r.body, r.size, r.t, r.miss, nil
+	case <-b.batchDone:
+		// Shutdown raced our enqueue: the coalescer exited and may never
+		// drain batchReqCh. If it DID process our request, the reply is
+		// already buffered in respCh (batchDone closes only after all
+		// sendBatch goroutines finish); otherwise degrade to a clean miss
+		// instead of blocking forever on a reply that will never come.
+		select {
+		case r := <-respCh:
+			return r.outputID, r.body, r.size, r.t, r.miss, nil
+		default:
+			return "", nil, 0, time.Time{}, true, nil
+		}
 	}
-	return nil
-}
-
-// metadataHeaders renders a manifest metadata map back into the X-Cache-Meta-*
-// request headers a single PUT uses. The map keys are the lowercased meta names
-// without the prefix; this is the inverse of the map assembled in Put, so the
-// single-PUT fallback sends byte-identical metadata to what the batch manifest
-// carries. Header keys are canonicalized by net/http on Set.
-func metadataHeaders(meta map[string]string) http.Header {
-	h := http.Header{}
-	for name, val := range meta {
-		h.Set("X-Cache-Meta-"+name, val)
-	}
-	return h
 }
 
 // removeClaimed removes a key that was optimistically added to the index

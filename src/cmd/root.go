@@ -92,6 +92,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
 	rootCmd.PersistentFlags().BoolVar(&cacheMisses, "cache-misses", false, "Show packages that missed the build cache")
 	rootCmd.PersistentFlags().BoolVar(&countGenerated, "count-generated", false, "Count generated files (Code generated ... DO NOT EDIT.) in the file length check instead of skipping them")
+	rootCmd.PersistentFlags().BoolVar(&noProfile, "no-profile", false, "Skip the per-action build profile (actiongraph collection, console section, and profile.json)")
 
 	// Silent no-op flags — accepted without error for tool compatibility
 	rootCmd.Flags().Bool("build", false, "")
@@ -150,11 +151,19 @@ func run(cmd *cobra.Command, args []string) error {
 		if tl := GetTimeline(); tl != nil {
 			entries = tl.Entries()
 		}
-		tracePath := filepath.Join(os.TempDir(), "go-toolchain-profile", "trace.json")
+		tracePath := filepath.Join(profileDir(), "trace.json")
 		if err := gotrace.WriteChrome(tracePath, entries, activeTrace); err != nil {
 			fmt.Fprintf(os.Stderr, "⇒ Warning: failed to write Chrome trace: %v\n", err)
 		}
 	}()
+
+	// Collect per-action build profiles (unless --no-profile). The deferred
+	// capture parses the actiongraph dumps and records per-action lanes into
+	// the trace; registered AFTER the trace-write defer so it runs first
+	// (LIFO), even when the build fails. The final report (console + JSON)
+	// is emitted later by printCacheStats, once the cache daemon has drained.
+	initBuildProfile()
+	defer captureProfileTrace()
 
 	// Accumulate summary data across all modules; write once at the end.
 	var allSummary summary.SummaryData

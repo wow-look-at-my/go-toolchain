@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
+	"github.com/wow-look-at-my/go-toolchain/src/profile"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
@@ -63,6 +64,11 @@ type buildResult struct {
 
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
+	// Collect per-action build profiles for every cross-compile target. The
+	// matrix path has no Chrome trace, but the deferred capture still parses
+	// and stashes the graphs so printCacheStats can emit the final report.
+	initBuildProfile()
+	defer captureProfileTrace()
 	r := runner.New()
 	err := runReleaseWithRunner(r)
 	if err != nil {
@@ -281,6 +287,11 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 // indicators on the default build path).
 func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
 	args := []string{"build"}
+	// Dump the action graph for the build profile (one file per invocation;
+	// matrix targets each get their own). No-op when profiling is off.
+	if garg := profile.GraphArg(); garg != "" {
+		args = append(args, garg)
+	}
 	if onFirstOutput != nil {
 		args = append(args, "-v") // print packages as they are compiled
 	}

@@ -100,13 +100,37 @@ The two tiers:
 - **Remote tier — `WebBackend`** (`src/cache/web.go`): the shared
   [go-s3-server](https://github.com/wow-look-at-my/go-s3-server) (being renamed
   go-toolchain-cache). Consulted on a local miss; populated asynchronously on
-  `put`. A miss also triggers a **batch GET** that returns temporally-related
-  entries (same build) and pre-populates the local pack — see
-  [`src/cache/batch.go`](../src/cache/batch.go). The wire protocol is **not
+  `put`. Fetch routing is driven by the server's key index, fetched once at
+  startup (with a short dedicated budget): keys the index lists are fetched
+  through the coalescing **batch GET** endpoint — one round-trip serves many
+  concurrent requests and returns temporally-related prefetch entries (same
+  build) that pre-populate the local pack — see
+  [`src/cache/batch.go`](../src/cache/batch.go); keys an AUTHORITATIVE (fresh)
+  index does not list miss cleanly with no round-trip, while a failed index
+  fetch keeps cold-key batch probing enabled as the recovery path (bounded by
+  the consecutive-empty-batch backoff). A key the server authoritatively
+  reports absent despite an index claim is dropped from the client's key set
+  so the next `put` re-uploads it. Uploads are coalesced symmetrically:
+  buffered PUTs ship as one **batch PUT** tar (`/_batch/put`,
+  `manifest.json` + `data/<key>` members — see
+  [`src/cache/batchput.go`](../src/cache/batchput.go)) so a build's thousands
+  of stores take one server admission slot per ~128 objects, with a sticky
+  fallback to individual PUTs against a server without the endpoint. The wire
+  protocol is **not
   S3**: object metadata travels in native `X-Cache-Meta-*` headers and errors
   are native plain text. The client still reads the deprecated `X-Amz-Meta-*`
   response header as a fallback so it interoperates with a not-yet-upgraded
-  server during a rollout.
+  server during a rollout. Every PUT (batch manifest entry or single-PUT
+  headers — both render the same map, assembled once in
+  [`src/cache/webput.go`](../src/cache/webput.go)) carries **provenance
+  metadata** alongside the protocol fields: `Pkg` (the archive's import
+  path), `Src` (source-file basenames, capped at 8 names / 256 bytes with a
+  `+N more` suffix so the value always fits the server's xattr budget),
+  `Module` (the producing repo's main module path), `Go-Version`/`Target`,
+  `Toolchain-Version`, and `Created`. The server stores them as xattrs and
+  returns them on GET/HEAD, so `curl -I` on any stored key answers "what
+  file/package/repo did this cache item come from?" — the full key list and
+  an example live in the README's "How It Works" section.
 
 <a name="the-local-tier-is-a-virtual-filesystem"></a>
 ## The local tier is a virtual filesystem
@@ -120,6 +144,7 @@ classDiagram
     class LocalStore {
         <<interface>>
         +Get(actionID) CacheMeta
+        +Peek(actionID) CacheMeta
         +Put(actionID, outputID, body) string
         +StatsPtr() CacheStats
         +Close() error
@@ -132,6 +157,7 @@ classDiagram
     class LocalCache {
         +one loose body file per entry
         +plus a .meta sidecar each
+        +read-verified like the pack tier
     }
     LocalStore <|.. FuseCache : default (FUSE)
     LocalStore <|.. LocalCache : fallback (loose files)
@@ -228,9 +254,19 @@ Design properties:
   the dedup lived only in memory those thousands of mappings would vanish on
   restart and miss on the next build, falling through to the slow network tier.
 - **Bounded growth.** Packs rotate at 1 GiB (`pack-000001.data`,
-  `pack-000002.data`, ...). If the total exceeds a cap at startup, the store
-  resets to a cold cache rather than growing forever — the same "purge instead of
-  trust stale data" stance the server takes on a cache-version bump.
+  `pack-000002.data`, ...). If the total exceeds the budget at startup, whole
+  packs are evicted **oldest-first** down to ~80% of the budget
+  (`src/cache/packevict.go`); the newest pack — the append target holding the
+  hottest records — is never evicted. Evicted records are simply recomputed;
+  the hot tail of the cache survives instead of cold-cycling.
+- **Verified-read memoization.** The serve gates below consume per-record
+  facts (CRC-ok, SHA-256 vs `outputID`, package shape, build-id stamp,
+  module-index magic) computed by ONE body read and memoized by
+  `(packID, dataOff)` (`src/cache/verify.go`) — sound because records are
+  append-only and physically immutable within a process. Just-appended records
+  are pre-memoized from the in-memory bytes, so the compiler's open right
+  after a PUT costs no re-read + hash. Facts are memoized, verdicts are
+  per-call: the per-action build-id gate is still applied on every `get`.
 
 <a name="request-flows"></a>
 ## Request flows
@@ -249,12 +285,12 @@ sequenceDiagram
     Go->>S: get(actionID)
     S->>L: Get(actionID)
     alt local hit
-        Note over L: GetVerified: CRC-check body<br/>mismatch → evict + miss
+        Note over L: GetVerified: memoized serve gates<br/>(rot + build-id action + module index)<br/>failure → evict + miss
         L-->>S: DiskPath = mnt/outputID
         S-->>Go: DiskPath, size, outputID
         Go->>K: open(DiskPath) then read
         K->>L: FUSE Lookup(outputID)
-        Note over L: GetByOutputVerified: SHA-256 vs outputID<br/>mismatch → evict + ENOENT
+        Note over L: GetByOutputVerified: SHA-256 vs outputID<br/>(memoized) mismatch → evict + ENOENT
         K->>L: FUSE read (zero-copy from pack)
         L-->>Go: body bytes (served virtually)
     else local miss
