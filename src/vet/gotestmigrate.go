@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 const (
@@ -83,6 +84,10 @@ func MigrateGotestTools(ed Editor) (bool, error) {
 			return err
 		}
 		if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git" || d.Name() == "testdata") {
+			return filepath.SkipDir
+		}
+		// Never rewrite a nested module's files (e.g. src/compat/go-isatty).
+		if d.IsDir() && gomod.IsNestedModule(p) {
 			return filepath.SkipDir
 		}
 		if d.IsDir() || !strings.HasSuffix(p, ".go") {

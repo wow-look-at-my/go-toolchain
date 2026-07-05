@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 // removeImport removes an import from the file's AST.
@@ -86,6 +88,10 @@ func FixUnusedRangeVars(pattern string) ([]string, error) {
 				return err
 			}
 			if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git") {
+				return filepath.SkipDir
+			}
+			// Never rewrite a nested module's files (e.g. src/compat/go-isatty).
+			if d.IsDir() && gomod.IsNestedModule(p) {
 				return filepath.SkipDir
 			}
 			if !d.IsDir() && strings.HasSuffix(p, ".go") {
