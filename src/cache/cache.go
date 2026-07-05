@@ -3,7 +3,7 @@ package cache
 import (
 	"bufio"
 	"bytes"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +12,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -65,18 +64,35 @@ type StatEvent struct {
 	BatchPop  uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch GET
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
+
+	// Per-action outcome, piggybacked on the counter events handleGet and
+	// handlePut already emit (no extra socket writes). All optional: an old
+	// listener ignores them and an old sender simply never sets them, so the
+	// wire format stays compatible in both directions.
+	Action  string `json:"a,omitempty"`  // 20-char truncated actionID (base64.RawURLEncoding(id[:15]))
+	Op      string `json:"op,omitempty"` // "get" | "put"
+	Outcome string `json:"o,omitempty"`  // "hit-local" | "hit-remote" | "miss" | "put"
+	Bytes   int64  `json:"b,omitempty"`  // object size in bytes
+	DurUS   int64  `json:"d,omitempty"`  // operation duration, microseconds
 }
 
 // maxConcurrentPuts is the maximum number of concurrent remote put operations.
 // Matches the HTTP transport's MaxConnsPerHost to avoid connection churn.
 const maxConcurrentPuts = 64
 
+// lockShards is the size of the fixed per-action mutex table. The old
+// map[string]*sync.Mutex grew one entry per unique actionID for the
+// connection's lifetime (tens of MB across daemon connections on 100k-action
+// builds) and was never pruned. A fixed sharded table caps that at a constant:
+// hash collisions merely serialize two unrelated actions occasionally, which
+// is always safe.
+const lockShards = 256
+
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
 	local     LocalStore
 	remote    IBackend // nil if no remote backend configured
-	mu        sync.Mutex
-	locks     map[string]*sync.Mutex
+	locks     [lockShards]sync.Mutex
 	wg        sync.WaitGroup // tracks in-flight async remote puts
 	putSem    chan struct{}  // semaphore bounding concurrent remote puts
 	Misses    AtomicCounter
@@ -97,26 +113,33 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 	s := &Server{
 		local:  local,
 		remote: remote,
-		locks:  make(map[string]*sync.Mutex),
 		putSem: make(chan struct{}, maxConcurrentPuts),
 		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
 	}
-	// Wire sub-operation latency tracking into the web backend.
-	// Also wire batch callbacks for standalone mode (direct WebBackend).
-	// In daemon mode the remote is wrapped in noCloseBackend, so the
-	// batch callback type assertion fails — the Daemon wires those instead.
+	// Wire sub-operation latency tracking and batch callbacks for standalone
+	// mode (direct WebBackend) only. In daemon mode the remote is wrapped in
+	// noCloseBackend and the Daemon wires BOTH once on the shared WebBackend:
+	// re-pointing wb.Latency here per connection was an unsynchronized write
+	// to shared state that raced every other connection's in-flight web ops.
 	if wb, ok := remote.(*WebBackend); ok {
 		wb.Latency = &s.Latency
 		wireBatchCallbacks(wb, local, s)
-	} else if nc, ok := remote.(*noCloseBackend); ok {
-		if wb, ok := nc.IBackend.(*WebBackend); ok {
-			wb.Latency = &s.Latency
-		}
 	}
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
 		if err == nil {
-			s.statsConn = conn
+			// Wait for the listener's accept-ack. A unix dial succeeds as
+			// soon as the kernel queues the connection — reading the ack
+			// guarantees the listener has accepted it and registered its
+			// reader, so stat events cannot be dropped in the accept queue.
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var ack [1]byte
+			if _, err := conn.Read(ack[:]); err == nil {
+				conn.SetReadDeadline(time.Time{})
+				s.statsConn = conn
+			} else {
+				conn.Close()
+			}
 		}
 	}
 	return s
@@ -249,130 +272,6 @@ func (s *Server) GetStats() *ServerStats {
 	return ss
 }
 
-// StatsListener listens on a unix domain socket and aggregates streaming
-// stat events from all cacheprog subprocesses in real-time.
-type StatsListener struct {
-	listener  net.Listener
-	path      string
-	local     CacheStats
-	remote    CacheStats
-	batch     BatchStats
-	misses    AtomicCounter
-	latency   LatencyStats
-	pool      ConcurrencyTracker
-	hasRemote atomic.Bool // true if a remote backend was configured (set by caller)
-	hasBatch  atomic.Bool
-	wg        sync.WaitGroup // tracks active handleConn goroutines
-	acceptWg  sync.WaitGroup // tracks the accept loop goroutine
-}
-
-// SetHasRemote marks the listener as having a remote backend configured.
-// This controls whether Stats() includes the Remote field, regardless of
-// whether any remote events have actually been received yet.
-func (sl *StatsListener) SetHasRemote() {
-	sl.hasRemote.Store(true)
-}
-
-// NewStatsListener creates a unix socket and starts accepting connections.
-func NewStatsListener(path string) (*StatsListener, error) {
-	os.Remove(path)
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, err
-	}
-	sl := &StatsListener{listener: ln, path: path}
-	sl.acceptWg.Add(1)
-	go func() {
-		defer sl.acceptWg.Done()
-		sl.accept()
-	}()
-	return sl, nil
-}
-
-func (sl *StatsListener) accept() {
-	for {
-		conn, err := sl.listener.Accept()
-		if err != nil {
-			return
-		}
-		sl.wg.Add(1)
-		go sl.handleConn(conn)
-	}
-}
-
-func (sl *StatsListener) handleConn(conn net.Conn) {
-	defer sl.wg.Done()
-	defer conn.Close()
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		var ev StatEvent
-		if json.Unmarshal(scanner.Bytes(), &ev) != nil {
-			continue
-		}
-		if ev.LocalHit > 0 {
-			sl.local.Hits.Add(ev.LocalHit)
-		}
-		if ev.LocalPut > 0 {
-			sl.local.Puts.Add(ev.LocalPut)
-		}
-		if ev.RemoteHit > 0 {
-			sl.hasRemote.Store(true)
-			sl.remote.Hits.Add(ev.RemoteHit)
-		}
-		if ev.RemotePut > 0 {
-			sl.hasRemote.Store(true)
-			sl.remote.Puts.Add(ev.RemotePut)
-		}
-		if ev.Miss > 0 {
-			sl.misses.Add(ev.Miss)
-		}
-		if ev.BatchPop > 0 {
-			sl.hasBatch.Store(true)
-			sl.batch.Populated.Add(ev.BatchPop)
-		}
-		if ev.Latency != nil {
-			sl.latency.Merge(*ev.Latency)
-			sl.pool.Merge(ev.Latency.Pool)
-		}
-	}
-}
-
-// Close stops the listener, waits for all connections to drain, and cleans up.
-// Uses SetDeadline instead of immediately closing the listener so that connections
-// already in the accept queue are drained before the socket is closed.
-// listener.Close() drops queued-but-not-yet-accepted connections, causing a race
-// where stats sent just before Close arrives are silently lost.
-func (sl *StatsListener) Close() {
-	// Give the accept loop a short window to drain any connections that are
-	// already in the kernel accept queue. listener.Close() would drop them.
-	if ul, ok := sl.listener.(*net.UnixListener); ok {
-		ul.SetDeadline(time.Now().Add(10 * time.Millisecond))
-	} else {
-		sl.listener.Close()
-	}
-	sl.acceptWg.Wait() // wait for accept loop to exit after draining queue
-	sl.wg.Wait()       // wait for all handleConn goroutines to finish
-	sl.listener.Close()
-	os.Remove(sl.path)
-}
-
-// Stats returns the aggregated stats.
-func (sl *StatsListener) Stats() *ServerStats {
-	ss := &ServerStats{
-		Local:   &sl.local,
-		Misses:  &sl.misses,
-		Latency: &sl.latency,
-		Pool:    &sl.pool,
-	}
-	if sl.hasRemote.Load() {
-		ss.Remote = &sl.remote
-	}
-	if sl.hasBatch.Load() {
-		ss.Batch = &sl.batch
-	}
-	return ss
-}
-
 // Run starts the protocol loop, reading requests from r and writing
 // responses to w. It blocks until the input stream closes or a close
 // command is received.
@@ -390,8 +289,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 		return fmt.Errorf("handshake: %w", err)
 	}
 
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+	br := bufio.NewReaderSize(r, 64*1024)
 
 	// Thread-safe response writer — multiple goroutines may respond
 	// concurrently for parallel GETs.
@@ -405,8 +303,16 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 	// Track in-flight GET goroutines so we can drain them on close.
 	var getWg sync.WaitGroup
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
+	var readErr error
+loop:
+	for {
+		line, err := readProtoLine(br, 0)
+		if err != nil {
+			if err != io.EOF {
+				readErr = err
+			}
+			break
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -429,30 +335,31 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 			return nil
 
 		case CmdPut:
-			// PUT body follows on the next non-empty line as base64.
-			// Body must be read synchronously before the next request.
-			// Go <=1.24: JSON string literal (quoted base64)
-			// Go >=1.25: raw base64 (unquoted)
+			// PUT body follows on the next non-empty line as base64 (cmd/go
+			// writes the JSON line, a blank line, then '"'+base64+'"'; raw
+			// unquoted base64 is also accepted — see readloop.go). The body
+			// must be read synchronously before the next request. The line
+			// is read in full whatever its length, so bodies past the old
+			// 64 MiB scanner cap no longer kill the protocol loop.
 			if req.BodySize > 0 {
-				for scanner.Scan() {
-					bodyLine := scanner.Bytes()
-					if len(bodyLine) == 0 {
+				body, err := readPutBody(br, req.BodySize)
+				if err != nil {
+					if bad := (*badPutBodyError)(nil); errors.As(err, &bad) {
+						// The stream is still line-aligned: fail only this
+						// PUT and store NOTHING — an empty or truncated body
+						// committed under the real actionID/outputID would be
+						// served as a "valid" hit forever — then keep serving.
+						writeResp(Response{ID: req.ID, Err: "cacheprog: put body: " + bad.Error()})
 						continue
 					}
-					// Body line is base64, optionally wrapped in JSON quotes.
-					raw := string(bodyLine)
-					if bodyLine[0] == '"' {
-						// JSON string: unquote first, then decode base64.
-						var unquoted string
-						if err := json.Unmarshal(bodyLine, &unquoted); err == nil {
-							raw = unquoted
-						}
+					// Stream-level failure (EOF mid-request or a read error):
+					// stop serving. Nothing was stored for this PUT.
+					if err != io.EOF {
+						readErr = err
 					}
-					if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
-						req.Body = decoded
-					}
-					break
+					break loop
 				}
+				req.Body = body
 			}
 			writeResp(s.handlePut(req))
 
@@ -473,49 +380,37 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 	}
 	s.flushLatency()
 	s.closeStats()
-	return scanner.Err()
+	return readErr
 }
 
+// lock returns the shard mutex for key. Distinct keys may share a shard
+// (coarser serialization on a collision — always safe); the same key always
+// maps to the same mutex. Allocation-free inline FNV-1a.
 func (s *Server) lock(key string) *sync.Mutex {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m, ok := s.locks[key]
-	if !ok {
-		m = &sync.Mutex{}
-		s.locks[key] = m
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
 	}
-	return m
+	return &s.locks[h%lockShards]
 }
 
-// flushLatency sends a final latency snapshot over the stats socket.
-// Pool usage is read from the WebBackend directly (it's shared across
-// all daemon Servers, so only the cumulative snapshot matters).
+// flushLatency sends a final latency snapshot over the stats socket. It
+// covers only this Server's own trackers; in standalone mode (direct
+// WebBackend) the shared HTTP-pool usage is attached too. In daemon mode the
+// Daemon reports the shared pool and web-op latencies exactly once at Close —
+// each connection flushing the shared CUMULATIVE pool snapshot made the
+// listener, which merges snapshots additively, overcount it N-fold.
 func (s *Server) flushLatency() {
 	snap := s.Latency.Snapshot()
-	if wb := s.webBackend(); wb != nil {
+	if wb, ok := s.remote.(*WebBackend); ok {
 		snap.Pool = wb.Pool.Snapshot()
 	}
 	s.sendStat(StatEvent{Latency: &snap})
 }
 
-// webBackend extracts the *WebBackend from the remote, unwrapping
-// the noCloseBackend wrapper if present.
-func (s *Server) webBackend() *WebBackend {
-	if s.remote == nil {
-		return nil
-	}
-	if wb, ok := s.remote.(*WebBackend); ok {
-		return wb
-	}
-	if nc, ok := s.remote.(*noCloseBackend); ok {
-		if wb, ok := nc.IBackend.(*WebBackend); ok {
-			return wb
-		}
-	}
-	return nil
-}
-
 func (s *Server) handleGet(req Request) Response {
+	start := time.Now()
 	actionID := fmt.Sprintf("%x", req.ActionID)
 	mu := s.lock(actionID)
 
@@ -530,7 +425,7 @@ func (s *Server) handleGet(req Request) Response {
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
 	if !miss {
-		s.sendStat(StatEvent{LocalHit: 1})
+		s.sendStat(withAction(StatEvent{LocalHit: 1}, req.ActionID, "get", "hit-local", meta.Size, time.Since(start)))
 		if s.debug {
 			fmt.Fprintf(os.Stderr, "cache: HIT local  %s output=%s size=%d\n", actionID, shortID(meta.OutputID), meta.Size)
 		}
@@ -547,7 +442,7 @@ func (s *Server) handleGet(req Request) Response {
 	// Try remote backend.
 	if s.remote == nil {
 		s.Misses.Increment()
-		s.sendStat(StatEvent{Miss: 1})
+		s.sendStat(withAction(StatEvent{Miss: 1}, req.ActionID, "get", "miss", 0, time.Since(start)))
 		if s.debug {
 			fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
 		}
@@ -555,11 +450,11 @@ func (s *Server) handleGet(req Request) Response {
 	}
 
 	remoteStart := time.Now()
-	outputID, body, _, t, remoteMiss, err := s.remote.Get(actionID)
+	outputID, body, size, t, remoteMiss, err := s.remote.Get(actionID)
 
 	if err != nil || remoteMiss {
 		s.Misses.Increment()
-		s.sendStat(StatEvent{Miss: 1})
+		s.sendStat(withAction(StatEvent{Miss: 1}, req.ActionID, "get", "miss", 0, time.Since(start)))
 		if s.debug {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "cache: MISS       %s (remote error: %v)\n", actionID, err)
@@ -570,7 +465,7 @@ func (s *Server) handleGet(req Request) Response {
 		return Response{ID: req.ID, Miss: true}
 	}
 	s.Latency.RemoteGet.Record(time.Since(remoteStart))
-	s.sendStat(StatEvent{RemoteHit: 1})
+	s.sendStat(withAction(StatEvent{RemoteHit: 1}, req.ActionID, "get", "hit-remote", size, time.Since(start)))
 	defer body.Close()
 
 	// Write to local cache for future hits.
@@ -596,6 +491,7 @@ func (s *Server) handleGet(req Request) Response {
 }
 
 func (s *Server) handlePut(req Request) Response {
+	start := time.Now()
 	actionID := fmt.Sprintf("%x", req.ActionID)
 	outputID := fmt.Sprintf("%x", req.OutputID)
 	mu := s.lock(actionID)
@@ -605,9 +501,11 @@ func (s *Server) handlePut(req Request) Response {
 	s.Latency.LockWait.Record(time.Since(lockStart))
 	defer mu.Unlock()
 
-	// Check if already cached locally.
+	// Dedup check: already cached locally? Peek, not Get — serving the entry
+	// the caller just recomputed is not a cache hit, and counting it inflated
+	// the hit rate on warm rebuilds.
 	localStart := time.Now()
-	meta, miss := s.local.Get(actionID)
+	meta, miss := s.local.Peek(actionID)
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
 	if !miss {
@@ -626,16 +524,21 @@ func (s *Server) handlePut(req Request) Response {
 	if err != nil {
 		return Response{ID: req.ID, Err: err.Error()}
 	}
-	s.sendStat(StatEvent{LocalPut: 1})
+	s.sendStat(withAction(StatEvent{LocalPut: 1}, req.ActionID, "put", "put", int64(len(req.Body)), time.Since(start)))
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s [%s] size=%d\n", actionID, describeData(req.Body), len(req.Body))
 	}
 	// Async write to remote. The semaphore bounds concurrency to avoid
 	// connection churn — each goroutine reuses a pooled HTTP connection
 	// instead of creating (and discarding) a new TCP+TLS connection.
+	//
+	// req.Body is handed to the goroutine WITHOUT copying: it is a
+	// per-request buffer allocated by the body decoder (readPutBody), the
+	// read loop never reuses it, and the local.Put above consumed it through
+	// a fresh bytes.Reader — nothing mutates or aliases it after this point.
+	// The old defensive copy doubled transient memory during PUT bursts.
 	if s.remote != nil {
-		data := make([]byte, len(req.Body))
-		copy(data, req.Body)
+		data := req.Body
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -662,11 +565,11 @@ func (s *Server) handlePut(req Request) Response {
 	}
 }
 
-func hexToBytes(hex string) []byte {
-	b := make([]byte, len(hex)/2)
-	for i := 0; i < len(b); i++ {
-		fmt.Sscanf(hex[i*2:i*2+2], "%02x", &b[i])
-	}
+func hexToBytes(h string) []byte {
+	// hex.DecodeString, not 32 reflective fmt.Sscanf calls per GET-hit
+	// response. On malformed input it returns the bytes decoded so far,
+	// matching the old best-effort behavior.
+	b, _ := hex.DecodeString(h)
 	return b
 }
 

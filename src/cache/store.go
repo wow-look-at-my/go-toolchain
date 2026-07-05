@@ -30,6 +30,12 @@ import (
 type LocalStore interface {
 	// Get returns the cached entry for actionID, or miss == true.
 	Get(actionID string) (CacheMeta, bool)
+	// Peek is Get without counting a hit. The PUT dedup check uses it: a PUT
+	// that finds its action already stored serves the existing entry, but
+	// counting that as a cache "hit" inflated the hit rate on warm rebuilds
+	// (the caller just COMPUTED the object; nothing was saved). Verification
+	// and eviction semantics are identical to Get.
+	Peek(actionID string) (CacheMeta, bool)
 	// Put stores body under actionID/outputID and returns a DiskPath that the
 	// Go toolchain can open.
 	Put(actionID, outputID string, body io.Reader) (string, error)

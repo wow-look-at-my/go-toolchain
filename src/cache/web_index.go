@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -12,9 +13,24 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
 )
+
+// indexFetchBudget bounds the WHOLE startup index load (conditional GET plus
+// the rare unconditional refetch), and indexFetchRetries caps its retries.
+// The index is an optimization, never a correctness dependency: without a
+// dedicated budget, a slow-but-answering server could hold NewWebBackend —
+// and therefore the daemon start — for up to ~94s (client timeout 30s x up
+// to 3 attempts + backoff) before the first cache request was served. On
+// budget exhaustion the backend proceeds with the disk-cached or empty key
+// set, which is non-authoritative — so batch probing stays enabled and the
+// run recovers hits the index could not advertise. indexFetchBudget is a var
+// so tests can shrink it.
+var indexFetchBudget = 5 * time.Second
+
+const indexFetchRetries = 1
 
 // gbciKeyPrefix is the constant leading portion of every cacheprog cache
 // key. The wire format ships only the variable 32-byte action-ID hash that
@@ -42,46 +58,54 @@ func (b *WebBackend) indexCachePath() string {
 	return filepath.Join(os.TempDir(), name)
 }
 
-// loadOrFetchIndex returns the set of known cache keys for this backend.
+// loadOrFetchIndex returns the set of known cache keys for this backend and
+// whether that set is AUTHORITATIVE — i.e. server-confirmed fresh this run
+// (a parsed 200 blob, or a 304 validating our disk copy).
+//
 // It reads any previously cached blob from disk, then issues a conditional
 // GET /<bucket>/_index against the server. On 304 we keep the disk blob;
-// on 200 we adopt the new one and persist it. Any failure produces an
-// empty set — Get/Put still work, they just always miss b.keys until the
-// next refresh.
-func (b *WebBackend) loadOrFetchIndex() set.Set[string] {
+// on 200 we adopt the new one and persist it. Any failure produces a
+// NON-authoritative set (the stale disk copy, or empty): Get/Put still work,
+// and because absences from a non-authoritative set prove nothing, cold keys
+// are batch-probed instead of fast-missed (see WebBackend.Get).
+func (b *WebBackend) loadOrFetchIndex() (set.Set[string], bool) {
 	path := b.indexCachePath()
 	diskBlob, diskKeys, diskETag := b.readDiskIndex(path)
 
-	blob, status, err := b.fetchIndexBlob(diskETag)
+	// One short budget covers the whole load — see indexFetchBudget.
+	ctx, cancel := context.WithTimeout(context.Background(), indexFetchBudget)
+	defer cancel()
+
+	blob, status, err := b.fetchIndexBlob(ctx, diskETag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web index fetch: %v\n", err)
 		if diskBlob != nil {
-			return diskKeys
+			return diskKeys, false
 		}
-		return set.New[string]()
+		return set.New[string](), false
 	}
 	if status == http.StatusNotModified {
 		if diskBlob != nil {
-			return diskKeys
+			return diskKeys, true // server confirmed our disk copy is current
 		}
 		// Server claimed not-modified but we have no disk copy (likely a
 		// cleared /tmp between the ETag fetch and now). Refetch unconditionally.
-		blob, _, err = b.fetchIndexBlob("")
+		blob, _, err = b.fetchIndexBlob(ctx, "")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cacheprog: web index refetch: %v\n", err)
-			return set.New[string]()
+			return set.New[string](), false
 		}
 	}
 	keys, _, err := parseIndexBlob(blob)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cacheprog: web index parse: %v\n", err)
 		if diskBlob != nil {
-			return diskKeys
+			return diskKeys, false
 		}
-		return set.New[string]()
+		return set.New[string](), false
 	}
 	b.writeIndexBlob(path, blob)
-	return keys
+	return keys, true
 }
 
 // readDiskIndex returns (raw, parsed, etag) or (nil, empty, "") if the file
@@ -98,15 +122,17 @@ func (b *WebBackend) readDiskIndex(path string) ([]byte, set.Set[string], string
 	return data, keys, etag
 }
 
-// fetchIndexBlob does a conditional GET <endpoint>/<bucket>/_index. Returns:
+// fetchIndexBlob does a conditional GET <endpoint>/<bucket>/_index within
+// ctx's deadline, with at most indexFetchRetries retries (further capped by
+// the configured retry policy). Returns:
 //
 //	body, http.StatusOK, nil          for a 200 response
 //	nil,  http.StatusNotModified, nil for a 304 response
 //	nil,  <statusCode>, err           for a bad HTTP status (status preserved
 //	                                  so the caller can classify it)
 //	nil,  0, err                      for any transport failure
-func (b *WebBackend) fetchIndexBlob(ifNoneMatch string) ([]byte, int, error) {
-	req, err := http.NewRequest("GET", b.endpoint+"/"+b.bucket+"/_index", nil)
+func (b *WebBackend) fetchIndexBlob(ctx context.Context, ifNoneMatch string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", b.endpoint+"/"+b.bucket+"/_index", nil)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -114,7 +140,11 @@ func (b *WebBackend) fetchIndexBlob(ifNoneMatch string) ([]byte, int, error) {
 		req.Header.Set("If-None-Match", ifNoneMatch)
 	}
 	b.signRequest(req)
-	resp, err := b.doRetryGET(req)
+	retries := indexFetchRetries
+	if b.maxRetries < retries {
+		retries = b.maxRetries
+	}
+	resp, err := b.doRetryGETN(req, retries)
 	if err != nil {
 		return nil, 0, err
 	}

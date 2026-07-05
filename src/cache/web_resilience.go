@@ -130,13 +130,18 @@ func parseRetryAfter(resp *http.Response) time.Duration {
 	return d
 }
 
-// doRetryGET issues an idempotent GET (index fetch, individual get, batch get)
-// with bounded retries on transient failures, using exponential backoff with
-// full jitter. It returns the final (resp, err) exactly as http.Client.Do
-// would, so callers handle status codes and bodies unchanged; it never retries
-// a definitive (<500, non-429) response.
+// doRetryGET issues an idempotent GET (individual get, batch get) with the
+// configured number of bounded retries on transient failures. The index fetch
+// uses doRetryGETN directly with its own tighter budget.
 func (b *WebBackend) doRetryGET(req *http.Request) (*http.Response, error) {
-	return b.doRetry(req)
+	return b.doRetry(req, b.maxRetries)
+}
+
+// doRetryGETN issues an idempotent GET with up to maxRetries retries — the
+// index fetch caps its retries below the configured policy so a slow server
+// cannot stall daemon startup (see indexFetchBudget / indexFetchRetries).
+func (b *WebBackend) doRetryGETN(req *http.Request, maxRetries int) (*http.Response, error) {
+	return b.doRetry(req, maxRetries)
 }
 
 // doRetryPUT issues an upload with the same bounded-retry/backoff policy as
@@ -152,18 +157,20 @@ func (b *WebBackend) doRetryPUT(req *http.Request, body []byte) (*http.Response,
 	req.GetBody = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(body)), nil
 	}
-	return b.doRetry(req)
+	return b.doRetry(req, b.maxRetries)
 }
 
-// doRetry is the shared retry loop behind doRetryGET and doRetryPUT. It retries
-// a transient response (transientStatus) up to maxRetries times, sleeping
-// max(exponential-jittered backoff, server Retry-After) capped at retryMaxDelay
-// between attempts, and rewinds the request body from req.GetBody on each retry.
-// It returns the final (resp, err) exactly as http.Client.Do would. A 503
-// admission shed is transient and so is retried and backed off (honoring
-// Retry-After); if the retry budget is exhausted the caller falls back to a
-// local miss for that one operation.
-func (b *WebBackend) doRetry(req *http.Request) (*http.Response, error) {
+// doRetry is the shared retry loop behind doRetryGET, doRetryGETN, and
+// doRetryPUT. It retries a transient response (transientStatus) up to
+// maxRetries times, sleeping max(exponential-jittered backoff, server
+// Retry-After) capped at retryMaxDelay between attempts, and rewinds the
+// request body from req.GetBody on each retry. It returns the final
+// (resp, err) exactly as http.Client.Do would, so callers handle status codes
+// and bodies unchanged; it never retries a definitive (<500, non-429)
+// response. A 503 admission shed is transient and so is retried and backed
+// off (honoring Retry-After); if the retry budget is exhausted the caller
+// falls back to a local miss for that one operation.
+func (b *WebBackend) doRetry(req *http.Request, maxRetries int) (*http.Response, error) {
 	var (
 		resp *http.Response
 		err  error
@@ -180,7 +187,7 @@ func (b *WebBackend) doRetry(req *http.Request) (*http.Response, error) {
 		if err == nil && !transientStatus(resp.StatusCode) {
 			return resp, nil
 		}
-		if attempt >= b.maxRetries {
+		if attempt >= maxRetries {
 			return resp, err
 		}
 		// Honor a server-supplied Retry-After (e.g. the admission-control 503

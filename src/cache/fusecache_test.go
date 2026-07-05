@@ -69,34 +69,50 @@ func TestFuseCache_GetReturnsReadableDiskPath(t *testing.T) {
 // serve-path integrity gap. GetVerified guards the GET *RPC* path, but the
 // compiler does not read bytes over that RPC: it opens the DiskPath and reads
 // the body through the mount (Lookup -> Read). That path must ALSO refuse a
-// corrupt body, or the CRC guard is bypassed for exactly the bytes that reach
-// the compiler. A body byte rotted in place (header length + recorded CRC left
-// intact, so the startup scan still indexes it) must not be served — otherwise
-// it surfaces in the go command as "unexpected EOF" / "corrupt index".
+// corrupt body, or the integrity guard is bypassed for exactly the bytes that
+// reach the compiler. A body byte rotted in place (header length + recorded
+// CRC left intact, so the startup scan still indexes it) must not be served —
+// otherwise it surfaces in the go command as "unexpected EOF"/"corrupt index".
+//
+// Rot is applied across an unmount/remount: within one process a just-Put or
+// once-verified record is memoized (records are physically immutable; see
+// verify.go), which is exactly how rot manifests in reality — across runs.
 func TestFuseCache_CorruptBodyNotServedThroughMount(t *testing.T) {
-	c := newFuseCacheForTest(t)
+	dir := t.TempDir()
+	fc, err := newFuseCache(dir)
+	if err != nil {
+		t.Skipf("FUSE unavailable: %v", err)
+	}
+	c := fc.(*FuseCache)
 	body := []byte("export data the compiler must never read corrupted")
 	aid, oid := hexID(5), casID(body)
-	diskPath, err := c.Put(aid, oid, bytes.NewReader(body))
+	_, err = c.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
-
-	// Rot one body byte in the pack, leaving the header (length + CRC) untouched
-	// — the disk/overlay-rot case GetVerified catches on the RPC path. The scan
-	// cannot catch it (length still fits), so the index still points at it.
 	loc, ok := c.store.GetByOutput(oid)
 	require.True(t, ok)
-	f := c.store.pack(loc.packID)
-	require.NotNil(t, f)
+	require.Nil(t, c.Close()) // unmount; releases the pack handles
+
+	// Rot one body byte in the pack, leaving the header (length + CRC)
+	// untouched. The remount's scan cannot catch it (length still fits), so
+	// the index still points at it.
+	f, err := os.OpenFile(filepath.Join(dir, "packs", "pack-000001.data"), os.O_RDWR, 0o644)
+	require.Nil(t, err)
 	var b [1]byte
 	_, err = f.ReadAt(b[:], loc.dataOff)
 	require.Nil(t, err)
 	_, err = f.WriteAt([]byte{b[0] ^ 0xff}, loc.dataOff)
 	require.Nil(t, err)
+	require.Nil(t, f.Close())
+
+	fc2, err := newFuseCache(dir)
+	require.Nil(t, err)
+	c2 := fc2.(*FuseCache)
+	defer c2.Close()
 
 	// Reading through the mount is the compiler's exact path. It must NOT hand
 	// back the corrupt bytes: the entry is refused (ENOENT) so the go command
 	// treats it as a miss and recomputes, rather than consuming a damaged object.
-	got, err := os.ReadFile(diskPath)
+	got, err := os.ReadFile(filepath.Join(c2.mnt, oid))
 	require.NotNil(t, err, "corrupt body must not be served through the mount; got %d bytes back", len(got))
 }
 
