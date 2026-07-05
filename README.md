@@ -70,6 +70,7 @@ To opt out, pass `codeql: 'false'`.
 | `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
 | `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
+| `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write` and `actions: read`) |
 | `allow-source-build` | string  | `false`    | Allow building go-toolchain from source when the buildhost binary is unavailable; when `false`, the build fails fast instead of silently falling back |
@@ -89,6 +90,9 @@ go-toolchain
 
 # Cross-compile for multiple platforms
 go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
+
+# Build an exact target list: one Cosmopolitan fat APE plus two native builds
+go-toolchain matrix --targets cosmo,darwin/amd64,windows/arm64
 
 # Run benchmarks independently
 go-toolchain bench run --benchtime 5s --count 3
@@ -143,7 +147,7 @@ go-toolchain release --tag v1.0.0
 
 ### Subcommands
 
-- **`matrix`** — cross-compile for multiple platforms (`--os`, `--arch`, `--parallel`, `--no-benchmark`)
+- **`matrix`** — cross-compile for multiple platforms (`--os`, `--arch`, `--targets`, `--cosmo-slots`, `--parallel`, `--no-benchmark`)
 - **`bench`** — run and manage benchmarks
   - `run` — run benchmarks and show deltas vs stored results
   - `save` — run benchmarks and store results in git notes
@@ -155,6 +159,70 @@ go-toolchain release --tag v1.0.0
 - **`version`** — show build version and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
+
+### Cosmopolitan fat binaries (`--targets cosmo`)
+
+`matrix --targets` replaces the `--os` x `--arch` cartesian product with an
+exact target list. Each entry is an `os/arch` pair, or the special value
+`cosmo`: one **fat Actually Portable Executable** built with the
+[gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) Go fork
+(`GOOS=cosmo`). A fat APE is a single self-contained binary that runs natively
+on x86-64 Linux, ARM64 Linux, ARM64 macOS, and x86-64 Windows — it embeds cosmo
+amd64, cosmo arm64, and a native windows/amd64 PE payload. The artifact is
+named `<name>_cosmo_fat` (no `.exe`, even though the file is a genuine PE
+polyglot).
+
+```bash
+# One fat APE (with slot copies) plus native builds for the two carve-outs
+go-toolchain matrix --targets cosmo,darwin/amd64,windows/arm64
+```
+
+**Slot mapping.** After a successful cosmo build the fat APE is *copied* (real
+files, never symlinks — artifact upload and publishing skip symlinks) onto the
+conventional per-platform artifact names, so per-platform consumers (e.g.
+buildhost's `?os=&arch=` download slots) keep resolving without changes:
+
+| Slot (default `--cosmo-slots`) | Artifact name |
+|---|---|
+| `linux/amd64`   | `<name>_linux_amd64` |
+| `linux/arm64`   | `<name>_linux_arm64` |
+| `darwin/arm64`  | `<name>_darwin_arm64` |
+| `windows/amd64` | `<name>_windows_amd64.exe` (the APE is a real PE, so `.exe` is correct) |
+
+`--cosmo-slots` accepts a custom `os/arch` list, or `none` to disable mapping.
+`checksums.txt` covers the copies. If the target list *also* names a slot's
+platform as an explicit native target (e.g. `--targets cosmo,linux/amd64`),
+the native build wins that filename and the copy is skipped with a warning —
+explicit beats mapped.
+
+**Native carve-outs.** `darwin/amd64` and `windows/arm64` are deliberately NOT
+default slots: the cosmo runtime for Intel macs is not yet verified end to
+end, and the APE's embedded Windows payload is amd64-only. Build those two as
+native targets alongside `cosmo` (as in the example above) for full coverage.
+
+**Toolchain resolution.** Building the cosmo target needs the gosmopolitan
+toolchain:
+
+1. `GO_TOOLCHAIN_COSMO_GOROOT` — path to a local gosmopolitan build's GOROOT;
+   used directly, nothing is downloaded.
+2. Otherwise it is downloaded from buildhost
+   (`https://dl.pazer.build/gosmopolitan?branch=<GO_TOOLCHAIN_COSMO_BRANCH>`,
+   default branch `master`) and cached under
+   `~/.cache/go-toolchain/cosmo/v<N>/` keyed by the buildhost release version,
+   so it downloads once per release. Prebuilt toolchains exist for linux/amd64
+   hosts only today; on other hosts set `GO_TOOLCHAIN_COSMO_GOROOT`.
+
+**Build semantics.** The cosmo build always runs with `CGO_ENABLED=0`
+(cosmopolitan has no cgo; `--cgo` warns and is ignored for this target) and
+without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
+
+**Heads-up: APEs self-assimilate.** Executing an APE rewrites its own header
+in place to the host's native format, making the file differ from its
+checksum. Never execute the artifacts in `build/` directly (that includes the
+`<name>`/`<name>_host` convenience symlinks after a cosmo-only build, which
+point at a mapped copy of the APE) — run a throwaway copy instead. The build
+pipeline itself never executes matrix artifacts (benchmarks compile their own
+test binaries), so artifacts stay pristine through the build.
 
 ### Automatic GOMEMLIMIT (cgroup-aware memory limit)
 
