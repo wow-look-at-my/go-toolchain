@@ -185,9 +185,14 @@ jobs:
           cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
-          "$RUNNER_TEMP/gt-ape" --help
 
       - name: Full pipeline in a tiny module
+        env:
+          # The smoke module is a synthetic consumer WITHOUT the org cache
+          # credentials (no secret-server step here on purpose); this documented
+          # knob downgrades the in-CI "caching not configured" error to a
+          # warning. The repo's own build/action-test jobs keep the shared cache.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/smokemod"
@@ -229,6 +234,10 @@ jobs:
           	require.Equal(t, "hello, cosmo", got)
           }
           EOF
+          # --help runs INSIDE the module: go-toolchain bootstraps a Go
+          # toolchain before dispatching any root-command invocation, and on a
+          # runner without Go on PATH that needs a go.mod to pick a version.
+          "$RUNNER_TEMP/gt-ape" --help
           # Full default pipeline: bootstraps an official Go toolchain if the
           # runner's is too old, then tidy/vet/test/coverage/build.
           "$RUNNER_TEMP/gt-ape"
@@ -251,9 +260,11 @@ jobs:
           cp dist/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
-          "$RUNNER_TEMP/gt-ape" --help
 
       - name: Full pipeline in a tiny module
+        env:
+          # See smoke-linux: synthetic consumer without org cache credentials.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/smokemod"
@@ -295,6 +306,10 @@ jobs:
           	require.Equal(t, "hello, cosmo", got)
           }
           EOF
+          # --help inside the module (macos-latest has no Go on PATH; the
+          # bootstrap needs go.mod to pick a version -- this also exercises the
+          # go.dev darwin/arm64 toolchain download under the APE).
+          "$RUNNER_TEMP/gt-ape" --help
           "$RUNNER_TEMP/gt-ape"
 
   smoke-windows:
