@@ -482,6 +482,16 @@ jobs:
           }
           EOF
 
+      # Iteration-1 findings (run 28741276162): the daemon starts fine
+      # ("cacheprog: local only" printed); then cmd/go's fork/exec of the APE
+      # as its GOCACHEPROG child fails with ENOEXEC ("exec format error" --
+      # the APE keeps its MZ magic on macOS, no self-assimilation there), go
+      # mod tidy dies in <1s, go-toolchain prints the error... and then HANGS
+      # in post-error teardown instead of exiting -- for the rest of the 420s
+      # budget, with or without the watchdog. Iteration 2: the cacheprog
+      # wrapper fix removes the ENOEXEC, and gtimeout now sends SIGQUIT
+      # (-s QUIT) so a residual hang dumps every goroutine stack, naming the
+      # exact blocked teardown primitive.
       - name: A - full pipeline under the APE, watchdog OFF (SIGQUIT on timeout)
         continue-on-error: true
         env:
@@ -492,7 +502,7 @@ jobs:
           set -euo pipefail
           cp -R "$RUNNER_TEMP/modsrc" "$RUNNER_TEMP/dbgmod-a"
           cd "$RUNNER_TEMP/dbgmod-a"
-          gtimeout -v -k 30 420 "$RUNNER_TEMP/gt-ape"
+          gtimeout -v -s QUIT -k 30 300 "$RUNNER_TEMP/gt-ape"
 
       - name: B - full pipeline under the APE, watchdog ON (control)
         continue-on-error: true
@@ -503,7 +513,7 @@ jobs:
           set -euo pipefail
           cp -R "$RUNNER_TEMP/modsrc" "$RUNNER_TEMP/dbgmod-b"
           cd "$RUNNER_TEMP/dbgmod-b"
-          gtimeout -v -k 30 420 "$RUNNER_TEMP/gt-ape"
+          gtimeout -v -s QUIT -k 30 300 "$RUNNER_TEMP/gt-ape"
 
       - name: Post-mortem process table
         if: always()
