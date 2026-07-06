@@ -16,6 +16,11 @@ import (
 // (checkFileCommittedByName) always takes its git-CLI fallback there.
 
 // checkFileCommittedGoGit checks file status using the go-git library.
+// go-git v5 cannot read an index written under index.skipHash/feature.manyFiles
+// (git >= 2.40 writes an all-zero trailer hash): Status fails with "invalid
+// checksum" — the upstream fix (go-git#2181) is v6/main-only, unreleased. The
+// git-CLI fallback in checkFileCommittedByName covers such repos
+// (regression-tested by TestCheckFileCommittedByName_ManyFilesIndex).
 func checkFileCommittedGoGit(filename string) error {
 	fileDir := filepath.Dir(filename)
 	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{DetectDotGit: true})
