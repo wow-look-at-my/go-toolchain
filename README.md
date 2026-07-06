@@ -383,7 +383,7 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
    ```
 10. Discovers packages with test files, excluding those where all non-test `.go` files are generated code
 11. Runs `go test` across non-generated packages with coverage profiling
-12. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%)
+12. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%). A module with no coverable statements at all (e.g. one that only embeds assets or declares constants/types) passes this check vacuously with a note; a module that has coverable statements but produced no test results fails with a pointer to add `*_test.go` files; and a run where tests executed over coverable code yet no statements were measured aborts loudly — that means the coverage profile itself is missing or broken
 13. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
 14. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`), builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
 15. Automatically adds `build/` to `.gitignore` (if in a git repo)
