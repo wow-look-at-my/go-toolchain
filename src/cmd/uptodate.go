@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -190,7 +191,8 @@ func isUpToDate(r runner.CommandRunner) bool {
 	for _, t := range targets {
 		outputName := t.OutputName
 		if inDocker {
-			outputName = build.BinaryName(outputName, runtime.GOOS, runtime.GOARCH)
+			// hostos: must mirror the naming in root.go's runBuildPhase.
+			outputName = build.BinaryName(outputName, hostos.GOOS(), runtime.GOARCH)
 		}
 		outPath := filepath.Join(outputDir, outputName)
 		if _, err := os.Stat(outPath); err != nil {

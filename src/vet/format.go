@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 var generatedCodeRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
@@ -30,6 +32,12 @@ func RunGofmt(ed Editor) (bool, error) {
 		if d.IsDir() {
 			name := d.Name()
 			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+				return filepath.SkipDir
+			}
+			// A nested module's files (e.g. src/compat/go-isatty) are not
+			// this module's to reformat — they must stay byte-identical to
+			// their upstream.
+			if gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}
 			return nil

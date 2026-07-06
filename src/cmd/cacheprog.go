@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -255,8 +257,43 @@ func enableCacheProg() error {
 		fmt.Fprintf(os.Stderr, "cacheprog: local only\n")
 	}
 
-	os.Setenv("GOCACHEPROG", quoteExeForGOCACHEPROG(exe)+" cacheprog")
+	progCmd, err := cacheProgCommand(runtime.GOOS, hostos.GOOS(), exe)
+	if err != nil {
+		cacheSetupErr = err
+		return nil
+	}
+	os.Setenv("GOCACHEPROG", progCmd)
 	return nil
+}
+
+// cacheProgCommand returns the GOCACHEPROG value that launches this binary's
+// cacheprog subcommand. Normally that is the bare self-exec ("<exe> cacheprog"),
+// but a cosmo fat APE running on a macOS host cannot be fork/exec'd directly:
+// on ARM64 macOS the APE never self-assimilates (it executes through its shell
+// header + the compiled APE loader, unlike Linux where the first exec rewrites
+// the file to a native ELF), so the file keeps its MZ polyglot magic and the
+// kernel rejects a direct execve with ENOEXEC. cmd/go has no shell fallback,
+// so every `go` invocation died with `error starting GOCACHEPROG program ...:
+// exec format error` — the visible half of the macOS APE pipeline wedge
+// (go-toolchain CI runs 28739021382/28739520377; localized by the run
+// 28741276162 debug job). The fix: write a #!/bin/sh wrapper that re-execs
+// the APE — the shell's ENOEXEC fallback interprets the APE header, the exact
+// mechanism by which `gt-ape version`/`--help` are proven to work on macs.
+func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
+	if goos != cosmoOS || hostGOOS != "darwin" {
+		return quoteExeForGOCACHEPROG(exe) + " cacheprog", nil
+	}
+	if strings.Contains(exe, "'") {
+		// Not representable inside the single-quoted wrapper line; disable
+		// the cache rather than misquote the exec.
+		return "", fmt.Errorf("executable path %q cannot be embedded in the cacheprog wrapper", exe)
+	}
+	wrapper := filepath.Join(os.TempDir(), fmt.Sprintf("gocacheprog-wrapper-%d.sh", os.Getpid()))
+	script := "#!/bin/sh\nexec '" + exe + "' cacheprog\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		return "", fmt.Errorf("write cacheprog wrapper: %w", err)
+	}
+	return quoteExeForGOCACHEPROG(wrapper), nil
 }
 
 // quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG

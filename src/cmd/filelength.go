@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 const (
@@ -97,6 +99,11 @@ func checkFileLength(root string) error {
 		if d.IsDir() {
 			name := d.Name()
 			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules") {
+				return filepath.SkipDir
+			}
+			// A nested module's files (e.g. src/compat/go-isatty) follow
+			// their upstream's conventions, not this repo's length limits.
+			if path != root && gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}
 			return nil

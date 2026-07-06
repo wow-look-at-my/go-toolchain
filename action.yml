@@ -31,6 +31,10 @@ inputs:
     description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
     required: false
     default: 'amd64,arm64'
+  targets:
+    description: 'Comma-separated exact build targets, each an os/arch pair (e.g. darwin/amd64) or the special value "cosmo" (one fat APE built with the gosmopolitan toolchain, plus per-platform slot copies). When non-empty this replaces the os/arch inputs.'
+    required: false
+    default: ''
   cgo:
     description: 'Enable CGO (disabled by default for static binaries)'
     required: false
@@ -255,11 +259,16 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
-        if [ -n "${{ inputs.os }}" ]; then
-          ARGS="$ARGS --os ${{ inputs.os }}"
-        fi
-        if [ -n "${{ inputs.arch }}" ]; then
-          ARGS="$ARGS --arch ${{ inputs.arch }}"
+        if [ -n "${{ inputs.targets }}" ]; then
+          # --targets replaces the --os x --arch matrix entirely.
+          ARGS="$ARGS --targets ${{ inputs.targets }}"
+        else
+          if [ -n "${{ inputs.os }}" ]; then
+            ARGS="$ARGS --os ${{ inputs.os }}"
+          fi
+          if [ -n "${{ inputs.arch }}" ]; then
+            ARGS="$ARGS --arch ${{ inputs.arch }}"
+          fi
         fi
         if [ "${{ inputs.cgo }}" = "true" ]; then
           ARGS="$ARGS --cgo"

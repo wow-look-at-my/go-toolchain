@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	git "github.com/go-git/go-git/v5"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
@@ -344,39 +343,6 @@ func checkFileCommittedByName(filename string) error {
 	}
 	// go-git failed for infrastructure reasons; fall back to git CLI
 	return checkFileCommittedExec(filename)
-}
-
-// checkFileCommittedGoGit checks file status using the go-git library.
-func checkFileCommittedGoGit(filename string) error {
-	fileDir := filepath.Dir(filename)
-	repo, err := git.PlainOpenWithOptions(fileDir, &git.PlainOpenOptions{DetectDotGit: true})
-	if err != nil {
-		return fmt.Errorf("cannot auto-fix %s: not in a git repo: %w", filename, err)
-	}
-
-	wt, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("cannot auto-fix %s: failed to get worktree: %w", filename, err)
-	}
-
-	status, err := wt.Status()
-	if err != nil {
-		return fmt.Errorf("cannot auto-fix %s: failed to get status: %w", filename, err)
-	}
-
-	repoRoot := wt.Filesystem.Root()
-	relPath, err := filepath.Rel(repoRoot, filename)
-	if err != nil {
-		return fmt.Errorf("cannot auto-fix %s: failed to get relative path: %w", filename, err)
-	}
-
-	if fileStatus, ok := status[relPath]; ok {
-		if fileStatus.Staging != git.Unmodified || fileStatus.Worktree != git.Unmodified {
-			return fmt.Errorf("cannot auto-fix: %s has uncommitted changes\ncommit or stash changes first", filename)
-		}
-	}
-
-	return nil
 }
 
 // checkFileCommittedExec checks file status by shelling out to the git CLI.

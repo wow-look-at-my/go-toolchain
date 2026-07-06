@@ -35,6 +35,21 @@ func skipDir(name string) bool {
 	return strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules"
 }
 
+// IsNestedModule reports whether dir is the root of ANOTHER Go module nested
+// inside the tree being walked — i.e. a directory (other than the walk root
+// ".") containing its own go.mod. Filesystem walkers (gofmt, the import
+// fixers, the file-length check, main-package discovery) must skip such
+// directories: their files belong to a different module — e.g. the vendored
+// src/compat/go-isatty — are not covered by "./...", and must not be
+// rewritten by the outer module's fixers.
+func IsNestedModule(dir string) bool {
+	if dir == "." {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(dir, "go.mod"))
+	return err == nil
+}
+
 // FindMainPackages walks the filesystem from the current directory to find
 // all directories containing non-test .go files with "package main" declarations,
 // returning their import paths (module path + relative directory).
@@ -55,6 +70,11 @@ func FindMainPackages() ([]string, error) {
 		// Skip hidden dirs, vendor, testdata, node_modules
 		name := d.Name()
 		if name != "." && skipDir(name) {
+			return filepath.SkipDir
+		}
+		// Skip nested modules: their main packages belong to their own module
+		// and are not buildable as import paths of this one.
+		if IsNestedModule(path) {
 			return filepath.SkipDir
 		}
 
