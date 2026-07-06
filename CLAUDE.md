@@ -11,6 +11,11 @@
 # Source: buildhost (pazer.build). The ?branch=v1 pin matches action.yml.
 curl -fL --compressed "https://dl.pazer.build/go-toolchain?branch=v1&os=linux&arch=amd64" -o /tmp/go-toolchain
 chmod +x /tmp/go-toolchain
+# The linux slots serve a fat APE that self-assimilates (rewrites its own file
+# to a native ELF) on first exec -- run it once while still writable, BEFORE
+# installing to a root-owned location, or a non-root exec dies with
+# "line 11: ... Permission denied".
+/tmp/go-toolchain version
 cp /tmp/go-toolchain /usr/local/bin/go-toolchain
 
 # Build and test (runs mod tidy, vet, tests with coverage, then builds)
