@@ -5,7 +5,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -604,23 +603,6 @@ func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-// initGitRepo initializes a git repo in dir, adds all files, and commits them.
-func initGitRepo(t *testing.T, dir string) {
-	t.Helper()
-	for _, args := range [][]string{
-		{"init"},
-		{"config", "user.email", "test@test.com"},
-		{"config", "user.name", "Test"},
-		{"config", "commit.gpgsign", "false"},
-		{"add", "."},
-		{"commit", "-m", "initial"},
-	} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		require.NoError(t, cmd.Run(), "git %v failed", args)
-	}
-}
-
 func TestCheckFileCommittedExec_Clean(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
@@ -674,6 +656,38 @@ func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
 	os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644)
 
 	err := checkFileCommittedGoGit(src)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes")
+}
+
+// TestCheckFileCommittedByName_ManyFilesIndex pins support for repos whose
+// index was written under feature.manyFiles. On git >= 2.40 feature.manyFiles
+// implies index.skipHash, which writes .git/index with an all-zero trailer
+// hash; go-git v5 cannot read such an index (Status fails with "invalid
+// checksum" — the upstream fix, go-git#2181, is merged on the v6/main line
+// only and unreleased), so on modern git this exercises the
+// go-git-fails -> git-CLI-fallback path of checkFileCommittedByName end to
+// end: that fallback is the load-bearing support for feature.manyFiles.
+// index.skipHash is ALSO set explicitly: manyFiles is the user's real config,
+// and the explicit key guarantees the zero-hash trailer on any git >= 2.40
+// regardless of how the feature macro expands. On older gits that know
+// neither key the index stays normal and go-git succeeds directly — the
+// production contract asserted here holds either way.
+func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	require.NoError(t, os.WriteFile(src, []byte("package main\n"), 0644))
+	initGitRepoWithConfig(t, dir, [][2]string{
+		{"feature.manyFiles", "true"},
+		{"index.skipHash", "true"},
+	})
+
+	// Clean repo: the committed check must pass.
+	assert.NoError(t, checkFileCommittedByName(src))
+
+	// Dirty the file: the check must report uncommitted changes.
+	require.NoError(t, os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644))
+	err := checkFileCommittedByName(src)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
