@@ -125,6 +125,17 @@ runs:
         # reason and decide whether to fail the build.
         if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
           chmod +x /tmp/go-toolchain
+          # Run the binary once BEFORE the root-owned install. Since the
+          # fat-APE migration (#275) the linux and windows/amd64 slots serve
+          # an APE polyglot that self-assimilates on first exec by reopening
+          # ITSELF read-write -- fine here while the file is still
+          # runner-writable in /tmp, impossible for the non-root runner once
+          # it is root-owned in /usr/local/bin ("line 11: ... Permission
+          # denied"). After this run, the installed file is a plain native
+          # binary. For native slots (e.g. darwin/arm64) this is just an
+          # early version check. Failures are tolerated (|| true): the probe
+          # below stays the single pass/fail gate and surfaces the reason.
+          /tmp/go-toolchain version || true
           sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
         else
           echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
@@ -150,8 +161,14 @@ runs:
       if: inputs.binary != ''
       shell: bash
       run: |
-        chmod +x "${{ inputs.binary }}"
-        sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
+        # Stage through /tmp and pre-run once so a fat-APE binary
+        # self-assimilates while still runner-writable (see the buildhost
+        # install step above for why); staging also keeps the caller's file
+        # byte-identical. For a native binary this changes nothing.
+        cp "${{ inputs.binary }}" /tmp/go-toolchain-provided
+        chmod +x /tmp/go-toolchain-provided
+        /tmp/go-toolchain-provided version || true
+        sudo cp /tmp/go-toolchain-provided /usr/local/bin/go-toolchain
 
     - name: Install timeout (macOS)
       if: runner.os == 'macOS'
