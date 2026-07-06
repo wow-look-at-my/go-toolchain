@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	mmap "github.com/wow-look-at-my/go-mmap"
 )
 
 // packNow returns the current unix time. It is a var so tests can pin it.
@@ -552,16 +550,12 @@ func (s *PackStore) getVerifiedCounted(actionID string, countHit bool) (packLoc,
 func (s *PackStore) verifyBody(loc packLoc, check func(body []byte) bool) bool {
 	if loc.dataLen >= mmapVerifyThreshold && loc.dataLen <= int64(maxInt) {
 		if f := s.pack(loc.packID); f != nil {
-			pageSize := int64(os.Getpagesize())
-			pageStart := loc.dataOff - loc.dataOff%pageSize
-			span := loc.dataOff - pageStart + loc.dataLen
-			if m, err := mmap.MapRegion(int(f.Fd()), span, mmap.ProtRead, mmap.MapShared, pageStart); err == nil {
-				defer m.Unmap()
-				_ = m.Advise(mmap.AdvSequential) // best-effort readahead hint for the linear scan
-				bodyStart := int(loc.dataOff - pageStart)
-				return check([]byte(m)[bodyStart : bodyStart+int(loc.dataLen)])
+			if body, release, ok := mapPackSpan(f, loc.dataOff, loc.dataLen); ok {
+				defer release()
+				return check(body)
 			}
-			// mmap unavailable (map error): fall back to a read below.
+			// mmap unavailable (map error, or no mmap port for this GOOS):
+			// fall back to a read below.
 		}
 	}
 	body, err := s.ReadAll(loc)

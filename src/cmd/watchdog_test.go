@@ -15,6 +15,20 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// TestWatchdogDisabledByEnv pins the GO_TOOLCHAIN_NO_WATCHDOG=1 off-switch:
+// startWatchdog must decline to touch fd 1/2 and return nil (the build then
+// runs on its real stdio). Only the exact value "1" disables.
+func TestWatchdogDisabledByEnv(t *testing.T) {
+	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "1")
+	require.True(t, watchdogDisabled())
+	require.Nil(t, startWatchdog(time.Second))
+
+	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "")
+	require.False(t, watchdogDisabled())
+	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "0")
+	require.False(t, watchdogDisabled())
+}
+
 // TestWatchdogStopDoesNotDropBufferedOutput is a regression test for the pipe
 // drain race at shutdown: output written just before wd.stop() must still make
 // it through to the original stdout. Without the forward-goroutine wait in

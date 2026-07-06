@@ -181,3 +181,29 @@ func TestHasMainPackage_BlockCommentHeaderMain(t *testing.T) {
 	assert.True(t, hasMainPackage(root),
 		"a main package behind a block-comment license header must be discovered")
 }
+
+func TestIsNestedModule(t *testing.T) {
+	newModule(t, "example.com/outer")
+	writeFile(t, "plain", "lib.go", "package lib\n")
+	writeFile(t, "nested", "go.mod", "module example.com/nested\n\ngo 1.25\n")
+
+	assert.False(t, IsNestedModule("."), "the walk root is never a NESTED module")
+	assert.False(t, IsNestedModule("plain"))
+	assert.True(t, IsNestedModule("nested"))
+	assert.False(t, IsNestedModule("does-not-exist"))
+}
+
+func TestFindMainPackages_SkipsNestedModule(t *testing.T) {
+	modPath := "example.com/outer"
+	newModule(t, modPath)
+	writeFile(t, "cmd/app", "main.go", "package main\n\nfunc main() {}\n")
+	// A nested module (e.g. a vendored compat copy like src/compat/go-isatty)
+	// may contain main packages of its own; they belong to that module and
+	// must not be reported as buildable import paths of the outer one.
+	writeFile(t, "compat/tool", "go.mod", "module example.com/tool\n\ngo 1.25\n")
+	writeFile(t, "compat/tool", "main.go", "package main\n\nfunc main() {}\n")
+
+	pkgs, err := FindMainPackages()
+	require.NoError(t, err)
+	assert.Equal(t, []string{modPath + "/cmd/app"}, pkgs)
+}

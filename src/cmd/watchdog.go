@@ -13,6 +13,16 @@ import (
 // Accessed by the step system to report current step names.
 var activeWatchdog *outputWatchdog
 
+// watchdogDisabled reports whether GO_TOOLCHAIN_NO_WATCHDOG=1 disables the
+// output watchdog. The watchdog dup2-redirects fd 1 and 2 through in-process
+// pipes; a supported off-switch is required when debugging output plumbing,
+// because a fault inside the watchdog's own forwarding path traps ALL output
+// — including crash dumps — in a pipe nobody drains (this is exactly the
+// bisection knob used for the darwin cosmo-APE pipeline wedge, go-toolchain
+// CI runs 28739021382/28739520377). With the watchdog off the build runs on
+// its real stdio and only loses the "STALLED: no output for Ns" warnings.
+func watchdogDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_WATCHDOG") == "1" }
+
 // outputWatchdog monitors all stdout/stderr output and warns when the build
 // goes silent for too long. It intercepts file descriptors 1 and 2 via dup2
 // so that nothing can bypass it.

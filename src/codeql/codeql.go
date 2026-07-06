@@ -12,8 +12,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -98,7 +98,9 @@ func extractorPath() (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("CODEQL_EXTRACTOR_GO_ROOT not set")
 	}
-	return extractorPathFor(root, runtime.GOOS)
+	// hostos, not runtime: the CodeQL bundle ships host-OS tool dirs, and a
+	// cosmo fat APE reports runtime.GOOS=="cosmo" on every host.
+	return extractorPathFor(root, hostos.GOOS())
 }
 
 func extractorPathFor(root, goos string) (string, error) {
@@ -111,7 +113,7 @@ func extractorPathFor(root, goos string) (string, error) {
 
 // codeqlBin returns the path to the codeql CLI driver inside CODEQL_DIST.
 func codeqlBin() string {
-	return codeqlBinFor(os.Getenv("CODEQL_DIST"), runtime.GOOS)
+	return codeqlBinFor(os.Getenv("CODEQL_DIST"), hostos.GOOS())
 }
 
 func codeqlBinFor(dist, goos string) string {
