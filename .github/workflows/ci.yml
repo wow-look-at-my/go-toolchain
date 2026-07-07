@@ -138,12 +138,6 @@ jobs:
   action-test:
     needs: build
     runs-on: ubuntu-latest
-    env:
-      # TEMPORARY until wow-look-at-my/gosmopolitan#26 merges and gosmopolitan's
-      # master CI publishes the toolchain tarball once -- then DELETE this env
-      # line (the cosmo bootstrap's default is ?branch=master). Composite-action
-      # run steps inherit the job env, so `matrix --targets cosmo` sees it.
-      GO_TOOLCHAIN_COSMO_BRANCH: claude/laughing-heisenberg-87lkft
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
