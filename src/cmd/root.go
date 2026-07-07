@@ -8,7 +8,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -638,35 +637,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 	}
 
-	// Round to 1 decimal place for comparison (same precision as display)
-	roundedTotal := float32(math.Round(float64(report.Total)*10) / 10)
-	roundedMin := float32(math.Round(float64(effectiveMin)*10) / 10)
-	if roundedTotal < roundedMin {
-		// Calculate total uncovered statements across all packages
-		var totalUncovered int
-		for _, pkg := range report.Packages {
-			totalUncovered += pkg.Uncovered()
-		}
-		// Packages exist but no statements were measured — coverage data is missing or broken.
-		if totalUncovered == 0 && len(report.Packages) > 0 {
-			panic(fmt.Sprintf("coverage %.1f%% is below minimum %.1f%% with 0 uncovered statements — coverage data is missing or broken", report.Total, effectiveMin))
-		}
-		// Allow reduced coverage if fewer than 10 statements are uncovered
-		// (e.g. small programs where main() can't be easily covered)
-		if totalUncovered < 10 {
-			if !quiet {
-				fmt.Printf("⇒ Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing\n", report.Total, effectiveMin, totalUncovered)
-			}
-		} else {
-			msg := fmt.Sprintf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
-			// Skip annotation in --json mode: the coverage report has already
-			// been written to stdout above, and a workflow command on stdout
-			// would corrupt the JSON payload.
-			if isGHA() && !quiet {
-				logError("", msg)
-			}
-			return false, result, fmt.Errorf("%s", msg)
-		}
+	if err := enforceCoverage(report, result, effectiveMin, quiet); err != nil {
+		return false, result, err
 	}
 
 	return filesChanged, result, nil
