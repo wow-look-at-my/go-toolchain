@@ -518,15 +518,17 @@ func (s *PackStore) getVerifiedCounted(actionID string, countHit bool) (packLoc,
 	if !ok {
 		return packLoc{}, false
 	}
-	// The serve-gate facts — rot (CRC/content address), build-id action, and
-	// module-index — come from one memoized body read (first access this
-	// process, or free at Put time; see verify.go). The per-ACTION gate is
-	// still applied on every call: facts are content properties, but whether
-	// a stamped archive belongs under THIS action depends on the key, so an
-	// aliased archive stamped for a different action is refused even on a
-	// memo hit. Any failure evicts the entry and reports a miss, so the
-	// toolchain recomputes clean data instead of being handed poison — the
-	// local-tier counterpart of the web ingestion guards.
+	// The serve-gate facts — rot (CRC/content address) and build-id action —
+	// come from one memoized body read (first access this process, or free at
+	// Put time; see verify.go). The per-ACTION gate is still applied on every
+	// call: facts are content properties, but whether a stamped archive
+	// belongs under THIS action depends on the key, so an aliased archive
+	// stamped for a different action is refused even on a memo hit. Any
+	// failure evicts the entry and reports a miss, so the toolchain recomputes
+	// clean data instead of being handed poison — the local-tier counterpart
+	// of the web ingestion guards. (Module indexes are deliberately served:
+	// web ingestion refuses them on every path, so a local one is
+	// locally-originated — see verify.go's file-top comment.)
 	vi, ok := s.verifiedInfo(loc)
 	if !ok || !vi.servableForAction(actionID) {
 		s.evictCorrupt(actionID, loc)

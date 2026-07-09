@@ -134,6 +134,11 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 
+	// One-time cache version purge before the tier opens. The daemon path gets
+	// this via NewLocalStore; standalone mode constructs the loose cache
+	// directly (below), so it must run the check itself.
+	cache.EnsureLocalCacheVersion(cacheDir)
+
 	// Standalone mode (no daemon) uses the loose-file cache, not the FUSE store:
 	// the virtual filesystem is owned by the single daemon process so that
 	// concurrent standalone cacheprog invocations can't collide on one mount

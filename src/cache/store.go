@@ -76,6 +76,13 @@ var errFuseBusy = errors.New("FUSE cache already owned by another process")
 // loose cache rather than failing the build — the cache is an optimization,
 // never a correctness dependency.
 func NewLocalStore(dir string) (LocalStore, error) {
+	// One-time cache version purge, BEFORE the FUSE mount and before either
+	// tier opens (packs/ and the loose bucket dirs share this root), so no
+	// tier ever serves pre-purge data. See cacheversion.go. The standalone
+	// cacheprog path, which bypasses NewLocalStore on purpose (it must never
+	// grab the FUSE mount), calls this itself — see cmd/cacheprog.go.
+	EnsureLocalCacheVersion(dir)
+
 	// Escape hatch: force the loose-file cache, skipping FUSE entirely. Lets an
 	// operator sidestep the FUSE tier wholesale if a mount misbehaves in some
 	// environment, without code changes.

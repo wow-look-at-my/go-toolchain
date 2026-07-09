@@ -155,20 +155,31 @@ func TestLocalCache_RefusesCrossContaminatedPackage(t *testing.T) {
 	require.False(t, miss, "a correctly-keyed package must still be served")
 }
 
-// TestLocalCache_RefusesModuleIndex: the loose tier must never serve a Go
-// module index, mirroring the pack store and the web ingestion guards.
-func TestLocalCache_RefusesModuleIndex(t *testing.T) {
+// TestLocalCache_ServesLocalModuleIndex: the loose tier serves a Go module
+// index the local cmd/go stored, mirroring the pack store. Local indexes are
+// locally-originated by construction (the web ingestion paths refuse index
+// blobs before any local Put — see verify.go); refusing them here caused the
+// permanent store/refuse loop with an eviction log line per index key per
+// build.
+func TestLocalCache_ServesLocalModuleIndex(t *testing.T) {
 	lc, err := NewLocalCache(t.TempDir())
 	require.Nil(t, err)
 
 	actionID := hexID(40)
-	index := []byte("go index v2\n\x00\x00module-index payload that must never be served")
-	_, err = lc.Put(actionID, casID(index), bytes.NewReader(index))
+	index := []byte("go index v2\n\x00\x00module-index payload the local tier must serve")
+	diskPath, err := lc.Put(actionID, casID(index), bytes.NewReader(index))
 	require.Nil(t, err)
 
-	_, miss := lc.Get(actionID)
-	require.True(t, miss, "a module index must not be served from the loose tier")
-	require.Equal(t, uint32(1), lc.Stats.Corrupt.Load())
+	meta, miss := lc.Get(actionID)
+	require.False(t, miss, "a locally-stored module index must be served from the loose tier")
+	require.Equal(t, int64(len(index)), meta.Size)
+	require.Equal(t, uint32(0), lc.Stats.Corrupt.Load(), "serving a local index must not count as corruption")
+
+	// No eviction: data and sidecar stay on disk.
+	_, err = os.Stat(diskPath)
+	require.Nil(t, err)
+	_, err = os.Stat(diskPath + ".meta")
+	require.Nil(t, err)
 }
 
 func TestLocalCache_SubdirCreation(t *testing.T) {

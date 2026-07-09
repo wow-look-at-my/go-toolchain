@@ -47,8 +47,9 @@ type CacheMeta struct {
 // A hit is integrity-verified before it is served (verifyBodyForServe): the
 // body must hash to its sidecar outputID (so truncation, rot, and the empty
 // bodies the old oversized-PUT bug committed are caught — the stat size that
-// used to overwrite m.Size hid exactly that), a compiled package's build id
-// must belong to this action, and a Go module index is never served. This is
+// used to overwrite m.Size hid exactly that), and a compiled package's build
+// id must belong to this action. (Module indexes are served like any other
+// entry: they are locally-originated by construction — see verify.go.) This is
 // the loose-tier counterpart of the pack store's GetVerified — previously this
 // fallback tier (Windows, missing /dev/fuse, GOCACHE_NO_FUSE=1, nested runs,
 // standalone cacheprog) served bodies with zero read-side checks, so poison

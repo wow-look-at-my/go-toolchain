@@ -38,6 +38,15 @@ const goModuleIndexMagic = "go index v"
 // provenance under this key cannot be established. A false positive (some other
 // payload that happens to start with this magic) only costs a recompute, never
 // correctness, so the loose prefix match is deliberately conservative.
+//
+// The refusal is scoped to the SHARED tier: every web->local ingestion path
+// (web.go individual GET, batch.go batch GET, the prefetch filter in cache.go)
+// and the upload path (webput.go) consult this predicate. The LOCAL tiers do
+// NOT -- an index in the local store was, post the one-time version purge
+// (cacheversion.go), stored there by the local cmd/go under its own action key,
+// and is served back exactly like upstream GOCACHE serves its own directory
+// (see verify.go's file-top comment for the store/refuse loop that scoping
+// this wrongly caused).
 func isGoModuleIndex(body []byte) bool {
 	return bytes.HasPrefix(body, []byte(goModuleIndexMagic))
 }
