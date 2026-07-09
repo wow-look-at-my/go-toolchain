@@ -50,7 +50,7 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, err
 	}
-	lockFile, err := os.OpenFile(filepath.Join(cacheDir, ".fuse.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	lockFile, err := os.OpenFile(filepath.Join(cacheDir, fuseLockName), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, errFuseBusy
 		}
-		return nil, fmt.Errorf("fuse cache lock %s: %w", filepath.Join(cacheDir, ".fuse.lock"), err)
+		return nil, fmt.Errorf("fuse cache lock %s: %w", filepath.Join(cacheDir, fuseLockName), err)
 	}
 	// We hold the lock, so any mount still on mnt is stale (left by a crashed
 	// owner whose flock the kernel already released). Clear it before mounting.
