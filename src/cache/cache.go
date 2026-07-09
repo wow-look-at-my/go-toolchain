@@ -190,6 +190,10 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			// mis-keyed one seeded as a local hit breaks package loading
 			// ("package runtime is not in std" / "corrupt index"). cmd/go
 			// recomputes the index locally, so skipping the prefetch is free.
+			// This filter is LOAD-BEARING: the local tier serves module indexes
+			// on the trust that they are locally-originated (see verify.go), so
+			// no web-originated body may carry one into the local store — here,
+			// or on the individual/batch GET paths (web.go / batch.go).
 			if isGoModuleIndex(decompressed) {
 				continue
 			}
@@ -468,7 +472,12 @@ func (s *Server) handleGet(req Request) Response {
 	s.sendStat(withAction(StatEvent{RemoteHit: 1}, req.ActionID, "get", "hit-remote", size, time.Since(start)))
 	defer body.Close()
 
-	// Write to local cache for future hits.
+	// Write to local cache for future hits. A remote body reaching this Put
+	// has already passed the web ingestion guards (sha256 vs outputID,
+	// build-id action, module-index refusal — web.go / batch.go): that is
+	// load-bearing, because the local tier SERVES module indexes on the trust
+	// that only local cmd/go ever stores one (see verify.go). A web-originated
+	// index must never be materialized here.
 	localPutStart := time.Now()
 	diskPath, err := s.local.Put(actionID, outputID, body)
 	s.Latency.LocalPut.Record(time.Since(localPutStart))
