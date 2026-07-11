@@ -92,9 +92,11 @@ func findAllPackagesByDir(moduleName string) ([]string, error) {
 		if !d.IsDir() {
 			return nil
 		}
-		// Skip hidden dirs, testdata, vendor
+		// Skip hidden dirs, testdata, vendor, and nested modules (their
+		// packages belong to a different module and are not import paths
+		// of this one).
 		base := d.Name()
-		if base != "." && (strings.HasPrefix(base, ".") || base == "testdata" || base == "vendor") {
+		if base != "." && (strings.HasPrefix(base, ".") || base == "testdata" || base == "vendor" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir
 		}
 		// Check if dir contains any .go files

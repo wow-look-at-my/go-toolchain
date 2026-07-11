@@ -30,6 +30,12 @@ import (
 type LocalStore interface {
 	// Get returns the cached entry for actionID, or miss == true.
 	Get(actionID string) (CacheMeta, bool)
+	// Peek is Get without counting a hit. The PUT dedup check uses it: a PUT
+	// that finds its action already stored serves the existing entry, but
+	// counting that as a cache "hit" inflated the hit rate on warm rebuilds
+	// (the caller just COMPUTED the object; nothing was saved). Verification
+	// and eviction semantics are identical to Get.
+	Peek(actionID string) (CacheMeta, bool)
 	// Put stores body under actionID/outputID and returns a DiskPath that the
 	// Go toolchain can open.
 	Put(actionID, outputID string, body io.Reader) (string, error)
@@ -70,6 +76,13 @@ var errFuseBusy = errors.New("FUSE cache already owned by another process")
 // loose cache rather than failing the build — the cache is an optimization,
 // never a correctness dependency.
 func NewLocalStore(dir string) (LocalStore, error) {
+	// One-time cache version purge, BEFORE the FUSE mount and before either
+	// tier opens (packs/ and the loose bucket dirs share this root), so no
+	// tier ever serves pre-purge data. See cacheversion.go. The standalone
+	// cacheprog path, which bypasses NewLocalStore on purpose (it must never
+	// grab the FUSE mount), calls this itself — see cmd/cacheprog.go.
+	EnsureLocalCacheVersion(dir)
+
 	// Escape hatch: force the loose-file cache, skipping FUSE entirely. Lets an
 	// operator sidestep the FUSE tier wholesale if a mount misbehaves in some
 	// environment, without code changes.

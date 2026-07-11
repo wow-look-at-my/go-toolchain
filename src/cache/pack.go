@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	mmap "github.com/wow-look-at-my/go-mmap"
 )
 
 // packNow returns the current unix time. It is a var so tests can pin it.
@@ -60,6 +58,10 @@ type PackStore struct {
 
 	pmu   sync.RWMutex
 	packs map[int]*os.File // packID -> open RW handle (used for ReadAt and append)
+
+	// verified memoizes per-record serve-gate facts so warm GETs and FUSE
+	// lookups don't re-read + re-hash bodies on every access (see verify.go).
+	verified verifiedSet
 }
 
 // packLoc records where a body lives: which pack file, the byte offset of the
@@ -101,8 +103,9 @@ var (
 	// keeping individual files manageable for the OS and for backups.
 	maxPackBytes int64 = 1 << 30 // 1 GiB
 	// packResetBytes bounds unbounded cross-build growth: if the packs total
-	// more than this at startup, the store is reset (a cold cache, not a
-	// correctness problem). Mirrors how the server purges on a version bump.
+	// more than this at startup, whole packs are evicted OLDEST-FIRST down to
+	// ~80% of this budget (the newest pack is never evicted) — see
+	// evictPacksToBudget. Evicted records are recomputed on demand.
 	packResetBytes int64 = 8 << 30 // 8 GiB
 )
 
@@ -137,14 +140,10 @@ func OpenPackStore(dir string) (*PackStore, error) {
 		return nil, err
 	}
 
-	// Bound cross-build growth: a too-large store is reset rather than carried
-	// forever. A reset just means a cold cache on the next build.
-	if total > packResetBytes {
-		for _, id := range ids {
-			os.Remove(s.packPath(id))
-		}
-		ids = nil
-	}
+	// Bound cross-build growth: evict oldest packs (never the newest) until
+	// back under budget — see evictPacksToBudget. Evicted records are simply
+	// recomputed; the hot tail of the cache survives.
+	ids = s.evictPacksToBudget(ids, total)
 
 	for _, id := range ids {
 		f, err := os.OpenFile(s.packPath(id), os.O_RDWR, 0o644)
@@ -339,6 +338,10 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 	if err != nil {
 		return packLoc{}, err
 	}
+	// Pre-memoize the serve-gate facts from the exact bytes just written, so
+	// the compiler's open of the DiskPath this Put returns (and every later
+	// GET this process) doesn't pay a full body re-read + hash.
+	s.verified.put(verifyKey{packID: loc.packID, dataOff: loc.dataOff}, verifyInfoForPut(outputID, data))
 	s.mu.Lock()
 	s.byAction[actionID] = loc
 	s.byOutput[outputID] = loc
@@ -413,7 +416,12 @@ func (s *PackStore) appendRaw(hdr, body []byte) (id int, off int64, err error) {
 	if rotate {
 		s.wmu.Lock()
 		if s.activeID == id { // not already rotated by another goroutine
-			_ = s.openActive(id + 1)
+			if err := s.openActive(id + 1); err != nil {
+				// The active pack keeps growing past maxPackBytes until a
+				// later rotation succeeds — functional, but silent failure
+				// here previously let it grow unbounded with no trace.
+				fmt.Fprintf(os.Stderr, "cacheprog: pack rotation to %d failed: %v (active pack keeps growing)\n", id+1, err)
+			}
 		}
 		s.wmu.Unlock()
 	}
@@ -441,20 +449,26 @@ func (s *PackStore) GetByOutput(outputID string) (packLoc, bool) {
 	return loc, ok
 }
 
-// GetByOutputVerified is GetByOutput with the same CRC integrity gate as
-// GetVerified, applied on the path that actually feeds the compiler.
+// GetByOutputVerified is GetByOutput with a content-address integrity gate,
+// applied on the path that actually feeds the compiler.
 //
 // GetVerified guards the GET *RPC*, but the Go toolchain does not consume bytes
 // over that RPC: the GET response hands it a DiskPath, and the compiler opens
 // that path and reads the body through the FUSE mount (Lookup -> Read). That
 // read resolves the body via this method, not via GetVerified — so without a
-// check here the CRC guard is bypassed for exactly the bytes the compiler reads,
-// and a corrupt-but-indexed body (disk/overlay rot, a partial overwrite — the
-// case the startup scan's torn-tail check cannot catch) reaches the compiler as
-// "valid", surfacing as "unexpected EOF" / "corrupt index". A mismatch evicts
-// the entry from the output index and reports not-found, so the mount returns
-// ENOENT and the go command recomputes instead of consuming a damaged object.
-// Like GetByOutput it does not count as a hit — the originating Get already did.
+// check here the integrity guard is bypassed for exactly the bytes the compiler
+// reads. This gate verifies the body's SHA-256 against the requested outputID
+// (the content address: outputID == sha256(body) is the GOCACHEPROG invariant),
+// which is strictly stronger than the pack CRC: it catches not only disk/overlay
+// rot but also a torn or mis-mapped record whose bytes are self-consistent with
+// their own recorded CRC yet are not the content asked for — the case that
+// otherwise reaches the compiler as "unexpected EOF" / "corrupt index" /
+// "package ... is not in std" (a poisoned module index). It is the local
+// serve-path counterpart of the end-to-end hash the web ingestion path already
+// enforces (integrity.go). A mismatch evicts the entry from the output index and
+// reports not-found, so the mount returns ENOENT and the go command recomputes
+// instead of consuming a damaged object. Like GetByOutput it does not count as a
+// hit — the originating Get already did.
 func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
 	s.mu.RLock()
 	loc, ok := s.byOutput[outputID]
@@ -462,9 +476,19 @@ func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
 	if !ok {
 		return packLoc{}, false
 	}
-	if !s.bodyMatchesCRC(loc) {
+	// One memoized fact set serves both gates; this path requires the
+	// content-address proof (shaOK), exactly as bodyMatchesOutputID did.
+	// (byOutput's invariant guarantees loc.outputID == outputID, so the memo's
+	// sha result is against the id being served.)
+	vi, ok := s.verifiedInfo(loc)
+	if !ok || !vi.shaOK {
 		s.evictCorruptByOutput(outputID, loc)
 		s.Stats.Corrupt.Increment()
+		// This is the FUSE serve path: a GET response already promised this
+		// DiskPath to the toolchain, and the eviction turns its next open
+		// into ENOENT. Deliberate poison-refusal trade-off; make it visible.
+		fmt.Fprintf(os.Stderr, "cacheprog: local pack: refusing corrupt body for output %s; evicted (a previously promised DiskPath for it will now open as ENOENT)\n",
+			shortID(outputID))
 		return packLoc{}, false
 	}
 	return loc, true
@@ -479,65 +503,78 @@ func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
 // mismatch evicts the entry and reports a miss, letting the toolchain recompute
 // and re-Put clean data instead of consuming garbage.
 func (s *PackStore) GetVerified(actionID string) (packLoc, bool) {
+	return s.getVerifiedCounted(actionID, true)
+}
+
+// PeekVerified is GetVerified without counting a hit — the PUT dedup lookup.
+func (s *PackStore) PeekVerified(actionID string) (packLoc, bool) {
+	return s.getVerifiedCounted(actionID, false)
+}
+
+func (s *PackStore) getVerifiedCounted(actionID string, countHit bool) (packLoc, bool) {
 	s.mu.RLock()
 	loc, ok := s.byAction[actionID]
 	s.mu.RUnlock()
 	if !ok {
 		return packLoc{}, false
 	}
-	if !s.bodyMatchesCRC(loc) {
+	// The serve-gate facts — rot (CRC/content address) and build-id action —
+	// come from one memoized body read (first access this process, or free at
+	// Put time; see verify.go). The per-ACTION gate is still applied on every
+	// call: facts are content properties, but whether a stamped archive
+	// belongs under THIS action depends on the key, so an aliased archive
+	// stamped for a different action is refused even on a memo hit. Any
+	// failure evicts the entry and reports a miss, so the toolchain recomputes
+	// clean data instead of being handed poison — the local-tier counterpart
+	// of the web ingestion guards. (Module indexes are deliberately served:
+	// web ingestion refuses them on every path, so a local one is
+	// locally-originated — see verify.go's file-top comment.)
+	vi, ok := s.verifiedInfo(loc)
+	if !ok || !vi.servableForAction(actionID) {
 		s.evictCorrupt(actionID, loc)
 		s.Stats.Corrupt.Increment()
 		return packLoc{}, false
 	}
-	s.Stats.Hits.Increment()
+	if countHit {
+		s.Stats.Hits.Increment()
+	}
 	return loc, true
 }
 
-// bodyMatchesCRC reports whether loc's body still hashes to the CRC recorded in
-// its record header. A read error counts as a mismatch.
-//
-// Large bodies are verified over an mmap of the pack region so they are never
-// copied onto the heap on every hit (see mmapVerifyThreshold); small bodies
-// take a plain read, whose allocation is negligible and cheaper than the
-// mmap/munmap syscalls.
-func (s *PackStore) bodyMatchesCRC(loc packLoc) bool {
+// verifyBody runs check over loc's stored body and returns its result. Large
+// bodies are verified over an mmap of the pack region so they are never copied
+// onto the heap on every hit (see mmapVerifyThreshold); small bodies take a
+// plain read, whose allocation is negligible and cheaper than the mmap/munmap
+// syscalls. A read or map error counts as a failure. check must not retain the
+// slice past its return — for a mapped body the region is unmapped on return.
+// mmap offsets must be page-aligned, so it maps from the page boundary at or
+// before the body and indexes in.
+func (s *PackStore) verifyBody(loc packLoc, check func(body []byte) bool) bool {
 	if loc.dataLen >= mmapVerifyThreshold && loc.dataLen <= int64(maxInt) {
-		if match, ok := s.bodyMatchesCRCMmap(loc); ok {
-			return match
+		if f := s.pack(loc.packID); f != nil {
+			if body, release, ok := mapPackSpan(f, loc.dataOff, loc.dataLen); ok {
+				defer release()
+				return check(body)
+			}
+			// mmap unavailable (map error, or no mmap port for this GOOS):
+			// fall back to a read below.
 		}
-		// mmap unavailable (no fd / map error): fall back to a read.
 	}
 	body, err := s.ReadAll(loc)
 	if err != nil {
 		return false
 	}
-	return crc32.Checksum(body, packCRC) == loc.crc
+	return check(body)
 }
 
-// bodyMatchesCRCMmap verifies loc's CRC over a memory-mapped view of the pack,
-// avoiding a heap copy of the body. ok is false if the region could not be
-// mapped, so the caller can fall back to a read. mmap offsets must be
-// page-aligned, so it maps from the page boundary at or before the body and
-// indexes in.
-func (s *PackStore) bodyMatchesCRCMmap(loc packLoc) (match, ok bool) {
-	f := s.pack(loc.packID)
-	if f == nil {
-		return false, false
-	}
-	pageSize := int64(os.Getpagesize())
-	pageStart := loc.dataOff - loc.dataOff%pageSize
-	span := loc.dataOff - pageStart + loc.dataLen
-	m, err := mmap.MapRegion(int(f.Fd()), span, mmap.ProtRead, mmap.MapShared, pageStart)
-	if err != nil {
-		return false, false
-	}
-	defer m.Unmap()
-	_ = m.Advise(mmap.AdvSequential) // best-effort readahead hint for the linear scan
-	data := []byte(m)
-	bodyStart := int(loc.dataOff - pageStart)
-	body := data[bodyStart : bodyStart+int(loc.dataLen)]
-	return crc32.Checksum(body, packCRC) == loc.crc, true
+// bodyMatchesCRC reports whether loc's body still hashes to the CRC recorded
+// in its record header. The serve paths consume this fact via the memoized
+// verifyInfo (verify.go); this direct form remains for tests that need to
+// interrogate a record's raw CRC state.
+func (s *PackStore) bodyMatchesCRC(loc packLoc) bool {
+	return s.verifyBody(loc, func(body []byte) bool {
+		return crc32.Checksum(body, packCRC) == loc.crc
+	})
 }
 
 // evictCorrupt drops a corrupt entry from the in-memory index so it is never

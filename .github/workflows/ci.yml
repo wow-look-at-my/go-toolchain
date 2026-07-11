@@ -31,12 +31,69 @@ jobs:
           fi
 
       - name: Build and test
-        run: go run ./src
         env:
           OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
           OTEL_SERVICE_NAME: ${{ github.repository }}
+          # Dependency-graph submission needs a token with contents: write
+          # (granted at the workflow level above). A bare `go run ./src` does
+          # not inherit one, so pass it explicitly. Without it, submission can't
+          # authenticate and fails loudly -- this is what wires the feature up.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: go run ./src
+
+      - name: Check build profile
+        uses: wow-look-at-my/actions@typescript#latest
+        with:
+          script: |
+            // Assert on the first build's per-action profile. Two classes of
+            // failure are gated here:
+            //   1. Poison tripwires: the remote SERVED an object a client-side
+            //      integrity guard had to refuse (checksum / build-id action /
+            //      module-index). Any nonzero value means the shared cache is
+            //      carrying poison and needs inspection. (put_refused_modindex
+            //      is NOT gated — refusing to UPLOAD module indexes is normal
+            //      and large on every cold run.)
+            //   2. Dead-remote signature: a populated advertised index
+            //      (>1000 keys) yielding ZERO web hits on a fresh runner's
+            //      first build — the remote tier is serving nothing.
+            const path = 'build/profile.json';
+            if (!fs.existsSync(path)) {
+              core.setFailed(`${path} missing — the build profile did not run`);
+            } else {
+              const p = JSON.parse(fs.readFileSync(path, 'utf-8'));
+              core.info(`profile: ${p.total_actions} actions (${p.executed_actions} executed), ` +
+                `${Number(p.cache_satisfied_pct).toFixed(0)}% cache-satisfied, ` +
+                `outcomes=${JSON.stringify(p.cache_outcomes)}`);
+              const web = p.web;
+              if (!web) {
+                core.info('no web tier configured; skipping web-cache assertions');
+              } else {
+                core.info(`web: hits=${web.hits} puts=${web.puts} index_keys=${web.index_keys} ` +
+                  `authoritative=${web.index_authoritative} put_refused_modindex=${web.put_refused_modindex}`);
+                core.info(`tripwires: checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}`);
+                if (web.miss_checksum > 0 || web.miss_buildid > 0 || web.miss_modindex > 0) {
+                  core.setFailed(`cache poison tripwire: the remote served objects that failed integrity gates ` +
+                    `(checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}) — inspect the cache server`);
+                }
+                if (web.index_keys > 1000 && web.hits === 0) {
+                  core.setFailed(`dead-remote signature: ${web.index_keys} advertised index keys but zero web hits ` +
+                    `on the first build — the remote cache tier is serving nothing`);
+                }
+              }
+            }
 
       - name: Cache validation (second build)
+        # build/ in THIS job is the host-built native linux/amd64 binary from
+        # `go run ./src` above -- never the cosmo APE -- so executing it here is
+        # safe (APEs self-assimilate on exec; the APE artifacts are built in
+        # action-test and only ever executed as throwaway copies in the smoke
+        # jobs below).
+        env:
+          # The second build re-invokes go-toolchain, which also submits the
+          # dependency snapshot; give it the same token so it succeeds rather
+          # than warning. Same job + correlator as the first submission, so it
+          # replaces it (idempotent) rather than duplicating.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
@@ -64,7 +121,20 @@ jobs:
           path: /tmp/go-toolchain-profile/
           if-no-files-found: ignore
 
-  # Test the composite action end-to-end using the binary we just built
+  # Build + test via the composite action, exercising the cosmo fat-APE target
+  # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
+  # (go-toolchain_cosmo_fat) and copies it onto the linux/amd64, linux/arm64
+  # and windows/amd64 slot names; darwin/arm64, darwin/amd64 and windows/arm64
+  # stay native cross-compiles (deliberate carve-outs: the pipeline WEDGES
+  # under the APE on macos-arm64 -- runs 28739021382/28739520377, silent
+  # >28-min hangs of a step that takes 26s on ubuntu -- so ARM64 macs keep a
+  # native binary until that is fixed; the Intel-mac cosmo runtime is
+  # unverified; the APE's PE payload is amd64-only).
+  #
+  # Publishing is NOT done here (autorelease: false): the dedicated `publish`
+  # job below is the single publish path, gated on the three smoke jobs that
+  # actually EXECUTE the APE artifacts on linux, macOS and Windows runners --
+  # a broken APE can fail loudly but can never be released.
   action-test:
     needs: build
     runs-on: ubuntu-latest
@@ -75,6 +145,13 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
       - uses: ./
+        with:
+          targets: 'cosmo,darwin/amd64,darwin/arm64,windows/arm64'
+          autorelease: 'false'
+          # The cosmo target additionally downloads + extracts the gosmopolitan
+          # toolchain and cold-compiles its stdlib; the default 10 minutes is
+          # too tight for a cold runner.
+          timeout: '15'
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
@@ -82,12 +159,251 @@ jobs:
           name: build-output
           path: build/
 
-  publish-buildhost:
-    if: github.ref_type == 'branch'
-    needs: [build, action-test]
+  # Cross-OS smoke of the actual release artifacts: download the `go-build`
+  # artifact (what `publish` will ship) and RUN the APE on each host OS. APEs
+  # self-assimilate on first exec -- they rewrite their own header in place to
+  # the host's native format -- so every job runs a throwaway copy, never the
+  # artifact file itself.
+  smoke-linux:
+    needs: action-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: go-build
+          path: dist
+
+      - name: Run the APE (linux/amd64 slot)
+        run: |
+          set -euo pipefail
+          # The linux/amd64 slot must BE the fat APE (magic MZqFpD), not a
+          # native ELF -- this is the consumer-visible contract of the migration.
+          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          chmod +x "$RUNNER_TEMP/gt-ape"
+          "$RUNNER_TEMP/gt-ape" version
+
+      - name: Full pipeline in a tiny module
+        env:
+          # The smoke module is a synthetic consumer WITHOUT the org cache
+          # credentials (no secret-server step here on purpose); this documented
+          # knob downgrades the in-CI "caching not configured" error to a
+          # warning. The repo's own build/action-test jobs keep the shared cache.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/smokemod"
+          cd "$RUNNER_TEMP/smokemod"
+          cat > go.mod <<'EOF'
+          module example.com/apesmoke
+
+          go 1.24
+
+          require github.com/stretchr/testify v1.11.1
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used to smoke-test the published APE:
+          // the full go-toolchain pipeline (tidy/vet/test/build) must work when
+          // driven by the fat APE on this runner's OS.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("cosmo"))
+          }
+          EOF
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("cosmo")
+          	require.Equal(t, "hello, cosmo", got)
+          }
+          EOF
+          # --help runs INSIDE the module: go-toolchain bootstraps a Go
+          # toolchain before dispatching any root-command invocation, and on a
+          # runner without Go on PATH that needs a go.mod to pick a version.
+          "$RUNNER_TEMP/gt-ape" --help
+          # Full default pipeline: bootstraps an official Go toolchain if the
+          # runner's is too old, then tidy/vet/test/coverage/build.
+          "$RUNNER_TEMP/gt-ape"
+
+  # macos-latest is arm64. Two things are asserted here:
+  #
+  # 1. The NATIVE darwin/arm64 binary (what ARM64 macs are actually served --
+  #    darwin/arm64 is a native carve-out, not an APE slot) runs the FULL
+  #    default pipeline. This is the consumer-critical gate for mac users.
+  #
+  # 2. The APE still EXECUTES on darwin/arm64 (magic + `version` + `--help`
+  #    from inside a module; the --help path bootstraps a real official Go
+  #    toolchain first: go.dev download + extract + version probe under the
+  #    APE loader). This is a REDUCED gate on purpose: the full pipeline
+  #    WEDGES AT EXIT under the APE on macOS. Root cause (SIGQUIT goroutine
+  #    dumps from the run-28742069477 debug job; see issue #276): the
+  #    gosmopolitan runtime runs unix-socket fds in blocking mode with no
+  #    netpoller on darwin hosts, so the cache daemon's Listener.Close
+  #    deadlocks forever against its own Accept, blocked in raw accept4(2),
+  #    which a close never wakes on XNU. Every pipeline phase (tidy/vet/test/
+  #    build/bench) is green under the APE now that the GOCACHEPROG self-exec
+  #    goes through a sh wrapper (the APE keeps its MZ magic on macOS -- no
+  #    self-assimilation there -- so cmd/go's direct fork/exec of it ENOEXECs;
+  #    fixed in cacheProgCommand). That exit deadlock is why darwin/arm64
+  #    reverted to a native slot; the APE gate here proves the APE keeps
+  #    working for the surface it still serves, and guards the day the fork
+  #    fix restores the darwin/arm64 APE slot.
+  smoke-macos:
+    needs: action-test
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: go-build
+          path: dist
+
+      - name: Check slot formats + run the APE
+        run: |
+          set -euo pipefail
+          # The darwin/arm64 slot must be a NATIVE Mach-O arm64 binary (the
+          # macOS carve-out), NOT the APE.
+          [ "$(head -c 4 dist/go-toolchain_darwin_arm64 | xxd -p)" = "cffaedfe" ]
+          # The linux slots still carry the fat APE (magic MZqFpD); an APE is
+          # an APE regardless of slot name -- its loader picks the arm64
+          # payload at runtime -- so the linux/amd64 copy is what we execute
+          # here as a throwaway.
+          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          chmod +x "$RUNNER_TEMP/gt-ape"
+          "$RUNNER_TEMP/gt-ape" version
+
+      - name: 'APE reduced gate: bootstrap + --help in a tiny module'
+        env:
+          # See smoke-linux: synthetic consumer without org cache credentials.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/apemod"
+          cd "$RUNNER_TEMP/apemod"
+          cat > go.mod <<'EOF'
+          module example.com/apesmoke
+
+          go 1.24
+          EOF
+          cat > main.go <<'EOF'
+          package main
+
+          func main() {}
+          EOF
+          # macos-latest has no Go on PATH; the bootstrap needs go.mod to pick
+          # a version, downloads the official darwin/arm64 toolchain from
+          # go.dev, extracts and probes it, and only then prints help.
+          "$RUNNER_TEMP/gt-ape" --help
+
+      - name: Full pipeline with the native darwin/arm64 binary
+        env:
+          # See smoke-linux: synthetic consumer without org cache credentials.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+        run: |
+          set -euo pipefail
+          # Native Mach-O binaries do not self-assimilate, but run a copy
+          # anyway for symmetry with the APE smoke steps (and because
+          # download-artifact drops the executable bit either way).
+          cp dist/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-native"
+          chmod +x "$RUNNER_TEMP/gt-native"
+          mkdir -p "$RUNNER_TEMP/nativemod"
+          cd "$RUNNER_TEMP/nativemod"
+          cat > go.mod <<'EOF'
+          module example.com/nativesmoke
+
+          go 1.24
+
+          require github.com/stretchr/testify v1.11.1
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used to smoke-test the published
+          // native darwin/arm64 binary: the full go-toolchain pipeline
+          // (tidy/vet/test/build) must work when driven by the exact binary
+          // ARM64 mac users download.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("mac"))
+          }
+          EOF
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("mac")
+          	require.Equal(t, "hello, mac", got)
+          }
+          EOF
+          # Full default pipeline: reuses the Go toolchain the APE gate above
+          # already bootstrapped (shared ~/.cache/go-toolchain), then
+          # tidy/vet/test/coverage/build.
+          "$RUNNER_TEMP/gt-native"
+
+  smoke-windows:
+    needs: action-test
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: go-build
+          path: dist
+
+      - name: Run the APE PE payload (windows/amd64 slot)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The windows/amd64 slot IS the fat APE: an APE is simultaneously a
+          # valid PE, whose embedded payload is a native windows/amd64 build.
+          [ "$(head -c 6 dist/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
+          mkdir -p smoke
+          cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
+          ./smoke/gt-ape.exe version
+          ./smoke/gt-ape.exe --help
+          # The full pipeline is deliberately NOT run on Windows: gobootstrap
+          # downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
+          # serve for windows (windows archives are .zip) -- a pre-existing
+          # bootstrap gap independent of the APE migration.
+
+  # The single publish path. Gated on the cross-OS smoke jobs above so a build
+  # whose APE cannot actually run on linux/macOS/Windows is never released.
+  # buildhost-publish self-serves the `go-build` artifact of the current run
+  # (hence actions: read) and authenticates to buildhost with a GHA OIDC token
+  # (hence id-token: write).
+  publish:
+    needs: [smoke-linux, smoke-macos, smoke-windows]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      contents: read
       actions: read
     steps:
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
