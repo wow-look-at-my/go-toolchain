@@ -11,10 +11,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
-
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // generateDirective represents a single //go:generate directive
@@ -45,7 +45,7 @@ func runGenerate(quiet bool, expectedHash string) error {
 	// Allow explicit skip
 	if expectedHash == "skip" {
 		if !quiet {
-			logger.Info("%s    Generate commands skipped%s", colorYellow, colorReset)
+			fmt.Println(colorYellow + "    Generate commands skipped" + colorReset)
 		}
 		return nil
 	}
@@ -53,11 +53,11 @@ func runGenerate(quiet bool, expectedHash string) error {
 	// If no hash provided or hash mismatch, show commands and stop
 	if expectedHash == "" || expectedHash != hash {
 		if !quiet {
-			logger.Info("%s    Generate commands detected (not executed):%s", colorYellow, colorReset)
+			fmt.Println(colorYellow + "    Generate commands detected (not executed):" + colorReset)
 			for _, d := range directives {
-				logger.Info("\t%s:%d: %s%s%s", d.File, d.Line, colorYellow, d.Command, colorReset)
+				fmt.Printf("\t%s:%d: %s%s%s\n", d.File, d.Line, colorYellow, d.Command, colorReset)
 			}
-			logger.Info("\n%sTo run these commands, add: --generate %s%s", colorYellow, hash, colorReset)
+			fmt.Printf("\n%sTo run these commands, add: --generate %s%s\n", colorYellow, hash, colorReset)
 		}
 		return fmt.Errorf("generate commands require approval: --generate %s", hash)
 	}
@@ -125,6 +125,7 @@ func findGenerateDirectives(root string) ([]generateDirective, error) {
 }
 
 var generateRegex = regexp.MustCompile(`^//go:generate\s+(.+)$`)
+var shellGoFmtRegex = regexp.MustCompile(`(^|[;&|()\s])go\s+fmt($|[;&|()\s])`)
 
 // parseDirectives extracts //go:generate directives from a single file.
 // Uses bufio.Reader.ReadLine instead of Scanner to handle arbitrarily long lines
@@ -156,11 +157,15 @@ func parseDirectives(path string) ([]generateDirective, error) {
 
 		matches := generateRegex.FindSubmatch(chunk)
 		if matches != nil {
-			directives = append(directives, generateDirective{
+			d := generateDirective{
 				File:    path,
 				Line:    lineNum,
 				Command: string(matches[1]),
-			})
+			}
+			if isGoFmtGenerateCommand(d.Command) {
+				return nil, fmt.Errorf("%s:%d: go fmt is not allowed in go:generate directives", d.File, d.Line)
+			}
+			directives = append(directives, d)
 		}
 
 		// Discard remaining chunks of long lines without buffering
@@ -178,16 +183,47 @@ func parseDirectives(path string) ([]generateDirective, error) {
 	return directives, nil
 }
 
+func isGoFmtGenerateCommand(command string) bool {
+	args, err := splitGenerateCommand(command)
+	if err != nil || len(args) == 0 {
+		return false
+	}
+	if len(args) >= 2 && isGoCommand(args[0]) && args[1] == "fmt" {
+		return true
+	}
+	if isShellCommand(args[0]) {
+		for i := 1; i < len(args)-1; i++ {
+			if args[i] == "-c" && shellGoFmtRegex.MatchString(args[i+1]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isGoCommand(command string) bool {
+	base := filepath.Base(command)
+	base = strings.TrimSuffix(strings.ToLower(base), ".exe")
+	return base == "go"
+}
+
+func isShellCommand(command string) bool {
+	switch filepath.Base(command) {
+	case "sh", "bash":
+		return true
+	default:
+		return false
+	}
+}
+
 // executeDirective runs a single generate directive
 func executeDirective(d generateDirective, quiet bool) error {
 	dir := filepath.Dir(d.File)
 
-	// Print the command being executed
 	if !quiet {
-		logger.Info("\t%s", d.Command)
+		fmt.Printf("\t%s\n", d.Command)
 	}
 
-	// Set up environment like go generate does
 	env := os.Environ()
 	env = append(env,
 		"GOFILE="+filepath.Base(d.File),
@@ -195,37 +231,116 @@ func executeDirective(d generateDirective, quiet bool) error {
 		"GOPACKAGE="+guessPackage(d.File),
 	)
 
-	// Use bash with strict mode to handle pipes, redirects, etc.
-	cmd := exec.Command("bash", "-euo", "pipefail", "-c", d.Command)
+	expanded := expandGenerateVars(d.Command, d)
+
+	args, err := splitGenerateCommand(expanded)
+	if err != nil {
+		return fmt.Errorf("generate directive in %s:%d: %w", d.File, d.Line, err)
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("generate directive in %s:%d: empty command", d.File, d.Line)
+	}
+
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = dir
 	cmd.Env = env
 
-	// Capture stdout and stderr together to preserve chronological order
 	var combined bytes.Buffer
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
 
-	err := cmd.Run()
+	err = cmd.Run()
 	output := combined.String()
 
-	// Prefix each line with "> "
 	prefixed := prefixOutput(output)
 
 	if err != nil {
-		// On failure, re-print the command and all output to stderr
-		logger.Error("\t%s", d.Command)
+		fmt.Fprintf(os.Stderr, "\t%s\n", d.Command)
 		if prefixed != "" {
-			logger.Output("%s", prefixed)
+			fmt.Fprint(os.Stderr, prefixed)
 		}
 		return fmt.Errorf("generate failed in %s:%d: %w", d.File, d.Line, err)
 	}
 
-	// On success, print output to stdout
 	if !quiet && prefixed != "" {
-		logger.Output("%s", prefixed)
+		fmt.Print(prefixed)
 	}
 
 	return nil
+}
+
+func splitGenerateCommand(line string) ([]string, error) {
+	var words []string
+	for {
+		line = strings.TrimLeft(line, " \t")
+		if line == "" {
+			break
+		}
+
+		switch line[0] {
+		case '"':
+			i := 1
+			for i < len(line) {
+				if line[i] == '\\' && i+1 < len(line) {
+					i += 2
+					continue
+				}
+				if line[i] == '"' {
+					break
+				}
+				i++
+			}
+			if i >= len(line) {
+				return nil, fmt.Errorf("unterminated double-quoted string")
+			}
+			word, err := strconv.Unquote(line[:i+1])
+			if err != nil {
+				return nil, fmt.Errorf("bad quoted string: %w", err)
+			}
+			words = append(words, word)
+			line = line[i+1:]
+
+		case '`':
+			i := strings.Index(line[1:], "`")
+			if i < 0 {
+				return nil, fmt.Errorf("unterminated raw string")
+			}
+			words = append(words, line[1:1+i])
+			line = line[2+i:]
+
+		default:
+			i := strings.IndexAny(line, " \t")
+			if i < 0 {
+				i = len(line)
+			}
+			words = append(words, line[:i])
+			line = line[i:]
+		}
+	}
+	return words, nil
+}
+
+func expandGenerateVars(s string, d generateDirective) string {
+	return os.Expand(s, func(key string) string {
+		switch key {
+		case "GOARCH":
+			return runtime.GOARCH
+		case "GOOS":
+			return runtime.GOOS
+		case "GOFILE":
+			return filepath.Base(d.File)
+		case "GOLINE":
+			return fmt.Sprintf("%d", d.Line)
+		case "GOPACKAGE":
+			return guessPackage(d.File)
+		case "GOROOT":
+			return runtime.GOROOT()
+		case "DOLLAR":
+			return "$"
+		default:
+			return os.Getenv(key)
+		}
+	})
 }
 
 // prefixOutput prefixes each line with "\t> "

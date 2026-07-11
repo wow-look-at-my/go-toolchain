@@ -15,12 +15,12 @@ import (
 
 // BenchmarkResult holds parsed benchmark data
 type BenchmarkResult struct {
-	Name       string  `json:"name"`
-	Package    string  `json:"package"`
-	Iterations int64   `json:"iterations"`
-	NsPerOp    float64 `json:"ns_per_op"`
-	BytesPerOp int64   `json:"bytes_per_op"`
-	AllocsPerOp int64  `json:"allocs_per_op"`
+	Name        string  `json:"name"`
+	Package     string  `json:"package"`
+	Iterations  int64   `json:"iterations"`
+	NsPerOp     float64 `json:"ns_per_op"`
+	BytesPerOp  int64   `json:"bytes_per_op"`
+	AllocsPerOp int64   `json:"allocs_per_op"`
 }
 
 // BenchmarkReport holds all benchmark results grouped by package

@@ -3,13 +3,24 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+func chdirWithBenchFile(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "x_test.go"), []byte("package p\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(oldWd) })
+}
+
 func TestRunBenchmarkInBuild(t *testing.T) {
+	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
 	// Set up benchmark response
@@ -44,6 +55,7 @@ func TestRunBenchmarkInBuild(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildJSON(t *testing.T) {
+	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
@@ -71,6 +83,7 @@ func TestRunBenchmarkInBuildJSON(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
+	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
@@ -105,6 +118,7 @@ func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildFails(t *testing.T) {
+	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
 	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
@@ -130,11 +144,29 @@ func TestRunBenchmarkInBuildFails(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
+func TestRunBenchmarkInBuildSkipsWhenNoBenchmarks(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte("package p\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n"), 0644)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	mock := runner.NewMock()
+	br, err := runBenchmarkInBuild(mock)
+	assert.Nil(t, err)
+	assert.Nil(t, br)
+	for _, cfg := range mock.Calls() {
+		assert.False(t, cfg.HasArg("-bench"), "should not run benchmarks when no Benchmark functions exist")
+	}
+}
+
 func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+
+	os.WriteFile(filepath.Join(tmpDir, "x_test.go"), []byte("package p\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
 
 	mock := newTestPassMock(0)
 
