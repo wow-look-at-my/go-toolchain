@@ -18,8 +18,8 @@ func TestNewLocalStore_RoundTrip(t *testing.T) {
 	require.Nil(t, err)
 	defer store.Close()
 
-	aid, oid := hexID(1), hexID(100)
 	body := []byte("backend-agnostic round trip")
+	aid, oid := hexID(1), casID(body)
 
 	diskPath, err := store.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)

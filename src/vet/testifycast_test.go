@@ -228,11 +228,51 @@ func TestCastEditsApply(t *testing.T) {
 		Fset:     fset,
 		Edits:    []CastEdit{{Start: lit.Pos(), End: lit.End(), TypeName: "float64"}},
 	}
-	require.NoError(t, ce.Apply())
+	wrote, err := ce.Apply(NewEditor(true))
+	require.NoError(t, err)
+	require.True(t, wrote)
 
 	got, err := os.ReadFile(fp)
 	require.NoError(t, err)
 	assert.Contains(t, string(got), "var _ = float64(0)")
+}
+
+// TestCastEditsApplyCheckMode verifies a check-mode (CI) editor records the
+// pending conversion as a violation and does NOT rewrite the file.
+func TestCastEditsApplyCheckMode(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "x.go")
+	src := "package p\n\nvar _ = 0\n"
+	require.NoError(t, os.WriteFile(fp, []byte(src), 0644))
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, fp, src, 0)
+	require.NoError(t, err)
+
+	var lit *ast.BasicLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if b, ok := n.(*ast.BasicLit); ok {
+			lit = b
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, lit)
+
+	ce := &CastEdits{
+		Filename: fp,
+		Fset:     fset,
+		Edits:    []CastEdit{{Start: lit.Pos(), End: lit.End(), TypeName: "float64"}},
+	}
+	ed := NewEditor(false)
+	wrote, err := ce.Apply(ed)
+	require.NoError(t, err)
+	assert.False(t, wrote)
+	require.Error(t, ed.Err())
+
+	got, err := os.ReadFile(fp)
+	require.NoError(t, err)
+	assert.Equal(t, src, string(got)) // check mode must not write
 }
 
 func TestImportsUpstreamTestify(t *testing.T) {
