@@ -19,6 +19,33 @@ func newTestLogger(buf *bytes.Buffer) *httpErrLogger {
 	return newHTTPErrLogger(buf, time.Hour, nil)
 }
 
+// syncBuffer is a mutex-guarded bytes.Buffer for tests that read the buffer
+// while the logger's ticker goroutine may still be flushing into it. A plain
+// bytes.Buffer is not safe for that: the ticker-flush write races the test's
+// Len/String read (the intermittent -race failure in TickerFlush).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func TestHTTPErrLogger_SingleRecordFormat(t *testing.T) {
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
@@ -120,7 +147,9 @@ func TestHTTPErrLogger_CloseIdempotent(t *testing.T) {
 }
 
 func TestHTTPErrLogger_TickerFlush(t *testing.T) {
-	var buf bytes.Buffer
+	// The buffer must be synchronized: the logger's ticker goroutine writes
+	// into it concurrently with this test's Eventually polling Len().
+	var buf syncBuffer
 	l := newHTTPErrLogger(&buf, 10*time.Millisecond, nil)
 
 	l.Record("web put", 502, "aabbccdd", "boom")
@@ -272,7 +301,7 @@ func TestHTTPErrLogger_MixedHTTPErrAndBatchHTTP(t *testing.T) {
 }
 
 func TestHTTPErrLogger_NoFlushWhenEmpty(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer // read below while the ticker goroutine is still live
 	l := newHTTPErrLogger(&buf, 5*time.Millisecond, nil)
 	time.Sleep(50 * time.Millisecond)
 	require.Empty(t, buf.String(), "ticker must not emit when there are no records")

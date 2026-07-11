@@ -20,6 +20,15 @@ func archiveWithBuildID(action string) []byte {
 	return buildAr("__.PKGDEF", []byte(body))
 }
 
+// archivePkgdefNoBuildID builds a Go package archive (ar + __.PKGDEF export
+// data) that carries NO `build id` line -- the shape of a corrupt object, or one
+// deliberately stripped to slip a different package's export data under a key
+// while evading the build-id cross-check.
+func archivePkgdefNoBuildID() []byte {
+	body := "go object linux amd64 go1.24.13\n\n\n$$B\nu\x00\x00\x00\n$$\n"
+	return buildAr("__.PKGDEF", []byte(body))
+}
+
 // hermeticOTel pins the shared tracer provider to disabled for this test.
 // trace.Provider is a process-global sync.Once gated on
 // OTEL_EXPORTER_OTLP_ENDPOINT at first-call time (see src/trace/provider.go).
@@ -88,6 +97,34 @@ func TestBuildIDMatchesAction(t *testing.T) {
 	// must not false-positive either.
 	_, ok = buildIDMatchesAction("aabbccdd", archiveWithBuildID(wantB))
 	require.True(t, ok)
+
+	// A package archive with the build id STRIPPED, served under a real key,
+	// must be refused: the Go toolchain always stamps a build id into a compiled
+	// package, so a __.PKGDEF object without one is corrupt or a deliberate
+	// evasion. This closes the gap a bare "no build id -> pass" would leave.
+	_, ok = buildIDMatchesAction(actionA, archivePkgdefNoBuildID())
+	require.False(t, ok, "a package archive without a build id must be refused")
+
+	// ...but with no derivable expectation (short key) it must not false-positive.
+	_, ok = buildIDMatchesAction("aabbccdd", archivePkgdefNoBuildID())
+	require.True(t, ok)
+}
+
+func TestArchiveExportInfo(t *testing.T) {
+	// A stamped package archive: isPkgArchive true, action extracted.
+	isPkg, action := archiveExportInfo(archiveWithBuildID("EPlPwC3MJFgg3YYfTGwl"))
+	require.True(t, isPkg)
+	require.Equal(t, "EPlPwC3MJFgg3YYfTGwl", action)
+
+	// A package archive with no build id: isPkgArchive true, action "".
+	isPkg, action = archiveExportInfo(archivePkgdefNoBuildID())
+	require.True(t, isPkg, "an ar archive with __.PKGDEF is a package archive even without a build id")
+	require.Equal(t, "", action)
+
+	// A non-archive: isPkgArchive false.
+	isPkg, action = archiveExportInfo([]byte("vet facts, not an archive"))
+	require.False(t, isPkg)
+	require.Equal(t, "", action)
 }
 
 // TestWebBackend_GetRejectsBuildIDMismatch is the core regression guard: a body
@@ -108,7 +145,7 @@ func TestWebBackend_GetRejectsBuildIDMismatch(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
 		w.WriteHeader(200)
 		c, _ := compressData([]byte(poison))
 		w.Write(c)
@@ -140,6 +177,50 @@ func TestWebBackend_GetRejectsBuildIDMismatch(t *testing.T) {
 	require.False(t, contains(), "poisoned key must be evicted so a recompute re-uploads it clean")
 }
 
+// TestWebBackend_GetRejectsStrippedBuildID is the deliberate-evasion guard: a
+// package archive (loadable __.PKGDEF export data) that hashes to its advertised
+// outputID but carries NO build id -- a corrupt object, or one crafted with the
+// build id stripped to evade the cross-check -- must be refused as a miss and
+// its key evicted, exactly like a mismatched build id.
+func TestWebBackend_GetRejectsStrippedBuildID(t *testing.T) {
+	hermeticOTel(t)
+	const actionID = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b"
+	poison := string(archivePkgdefNoBuildID())
+	outputID := testOutputID(poison) // self-consistent: passes the hash gate
+
+	objectPath := "/testbucket/go-buildcache/v1" + actionID
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != objectPath {
+			w.WriteHeader(404)
+			return
+		}
+		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.WriteHeader(200)
+		c, _ := compressData([]byte(poison))
+		w.Write(c)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	primeIndex(b, actionID)
+
+	_, _, _, _, miss, err := b.Get(actionID)
+	require.NoError(t, err)
+	require.True(t, miss, "a package archive with no build id must be a miss, never served")
+	require.Equal(t, uint32(1), b.MissBuildID.Load())
+	require.Equal(t, uint32(0), b.Stats.Hits.Load())
+
+	b.keysMu.RLock()
+	stillKnown := b.keys.Contains(b.key(actionID))
+	b.keysMu.RUnlock()
+	require.False(t, stillKnown, "the stripped object's key must be evicted")
+}
+
 // TestWebBackend_GetServesMatchingBuildID is the positive control: an object
 // whose build id matches the requested action is served as a hit.
 func TestWebBackend_GetServesMatchingBuildID(t *testing.T) {
@@ -154,7 +235,7 @@ func TestWebBackend_GetServesMatchingBuildID(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
 		w.WriteHeader(200)
 		c, _ := compressData([]byte(good))
 		w.Write(c)

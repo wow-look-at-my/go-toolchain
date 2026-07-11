@@ -65,13 +65,17 @@ func TestPackStore_PutGetReadAll(t *testing.T) {
 }
 
 func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
+	// Rot detection is a CROSS-PROCESS property: within one process a record
+	// that verified once is memoized (records are physically immutable; see
+	// verify.go), so this test corrupts the pack between a Close and a
+	// reopen — how rot actually manifests — and the fresh process must refuse.
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
-	defer s.Close()
 
-	aid, oid := hexID(7), hexID(70)
-	body := []byte("a module-index body that must never be served if corrupted")
+	aid := hexID(7)
+	body := []byte("a body that must never be served if corrupted")
+	oid := casID(body)
 	loc, err := s.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
 
@@ -79,77 +83,160 @@ func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
 	got, ok := s.GetVerified(aid)
 	require.True(t, ok)
 	require.Equal(t, oid, got.outputID)
+	require.Nil(t, s.Close())
 
 	// Corrupt one body byte in place: length and header (and thus the recorded
 	// CRC) are untouched, so the scan still indexes it — exactly the case the
 	// torn-tail check cannot catch (disk/overlay rot, or a partial overwrite).
-	f := s.pack(loc.packID)
-	require.NotNil(t, f)
+	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
+	require.Nil(t, err)
 	var b [1]byte
 	_, err = f.ReadAt(b[:], loc.dataOff)
 	require.Nil(t, err)
 	_, err = f.WriteAt([]byte{b[0] ^ 0xff}, loc.dataOff)
 	require.Nil(t, err)
+	require.Nil(t, f.Close())
 
 	// The corrupt body must NOT be served: report a miss, bump the corruption
 	// counter, and evict from both the action and output indexes.
-	_, ok = s.GetVerified(aid)
+	s2, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s2.Close()
+	_, ok = s2.GetVerified(aid)
 	require.False(t, ok, "corrupt body must not be served as a hit")
-	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
-	_, ok = s.GetVerified(aid)
+	require.Equal(t, uint32(1), s2.Stats.Corrupt.Load())
+	_, ok = s2.GetVerified(aid)
 	require.False(t, ok, "evicted entry stays a miss")
-	_, ok = s.GetByOutput(oid)
+	_, ok = s2.GetByOutput(oid)
 	require.False(t, ok, "corrupt body evicted from the output index too")
 
 	// A fresh Put for the same action heals the cache.
-	_, err = s.Put(aid, oid, bytes.NewReader(body))
+	_, err = s2.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
-	got, ok = s.GetVerified(aid)
+	got, ok = s2.GetVerified(aid)
 	require.True(t, ok, "re-Put clean body is served again")
-	data, err := s.ReadAll(got)
+	data, err := s2.ReadAll(got)
 	require.Nil(t, err)
 	require.True(t, bytes.Equal(body, data))
 }
 
 func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
+	// Cross-process rot on the mmap verification path (see the sibling test
+	// for why corruption is applied across a Close/reopen).
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
-	defer s.Close()
 
-	aid, oid := hexID(9), hexID(90)
+	aid := hexID(9)
 	// Larger than mmapVerifyThreshold so verification takes the mmap path (a
 	// page-aligned region map indexed into), not the small-body read.
 	body := bytes.Repeat([]byte("go-toolchain pack-cache integrity probe; "), 4096) // ~168 KiB
 	require.Greater(t, len(body), mmapVerifyThreshold)
+	oid := casID(body)
 	loc, err := s.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
 
 	// Clean large body verifies via mmap.
 	_, ok := s.GetVerified(aid)
 	require.True(t, ok)
+	require.Nil(t, s.Close())
 
 	// Corrupt the final body byte: it sits well past the first page, so the
 	// page-alignment/offset math and the full mapped span are both exercised.
-	f := s.pack(loc.packID)
-	require.NotNil(t, f)
+	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
+	require.Nil(t, err)
 	pos := loc.dataOff + loc.dataLen - 1
 	var b [1]byte
 	_, err = f.ReadAt(b[:], pos)
 	require.Nil(t, err)
 	_, err = f.WriteAt([]byte{b[0] ^ 0xff}, pos)
 	require.Nil(t, err)
+	require.Nil(t, f.Close())
 
-	_, ok = s.GetVerified(aid)
+	s2, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s2.Close()
+	_, ok = s2.GetVerified(aid)
 	require.False(t, ok, "corrupt large body must not be served (mmap verify path)")
-	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
+	require.Equal(t, uint32(1), s2.Stats.Corrupt.Load())
 }
 
-func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
+// TestPackStore_GetVerifiedRefusesCrossContaminatedPackage is the local
+// serve-path counterpart of the web build-id guard: a compiled package whose
+// build id belongs to a DIFFERENT action than the key it is stored under (the
+// "runtime imported as reflectlite" poison) must be refused, even though its
+// bytes are self-consistent (clean CRC). This is what lets a poisoned local pack
+// self-heal — the entry is evicted and the GET misses, so the toolchain
+// recomputes instead of being handed the wrong package's export data.
+func TestPackStore_GetVerifiedRefusesCrossContaminatedPackage(t *testing.T) {
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
 	defer s.Close()
+
+	actionA, actionB := hexID(20), hexID(99)
+	oid := hexID(120)
+	poison := archiveWithBuildID(expectedBuildIDAction(actionB)) // stamped for B
+	_, err = s.Put(actionA, oid, bytes.NewReader(poison))        // stored under A
+	require.Nil(t, err)
+
+	_, ok := s.GetVerified(actionA)
+	require.False(t, ok, "a package whose build id belongs to another action must not be served")
+	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
+	_, ok = s.GetByOutput(oid)
+	require.False(t, ok, "cross-contaminated body evicted from the output index too")
+
+	// A correctly build-id-stamped package for the SAME action IS served — the
+	// guard refuses only mis-keyed objects, never legitimate cache hits.
+	good := archiveWithBuildID(expectedBuildIDAction(actionA))
+	goodOID := hexID(121)
+	_, err = s.Put(actionA, goodOID, bytes.NewReader(good))
+	require.Nil(t, err)
+	_, ok = s.GetVerified(actionA)
+	require.True(t, ok, "a correctly-keyed package must still be served")
+}
+
+// TestPackStore_GetVerifiedServesLocalModuleIndex pins the local tier's
+// module-index policy: an index the local cmd/go stored is SERVED back, on both
+// decoupled read paths (the GET RPC and the FUSE Lookup byOutput path). Local
+// indexes are trustworthy by construction — every web->local ingestion path
+// refuses index blobs (web.go, batch.go, the prefetch filter in cache.go), so
+// only local cmd/go ever stores one here — and refusing them (as this tier once
+// did) created a permanent accept-at-Put/refuse-at-Get loop: guaranteed misses
+// for every index key on every build, plus unbounded duplicate-record append
+// churn in the packs. See verify.go's file-top comment.
+func TestPackStore_GetVerifiedServesLocalModuleIndex(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s.Close()
+
+	index := []byte("go index v2\n\x00\x00module-index payload the local tier must serve")
+	aid, oid := hexID(40), casID(index) // content-addressed, as cmd/go stores it
+	_, err = s.Put(aid, oid, bytes.NewReader(index))
+	require.Nil(t, err)
+
+	// GET RPC path.
+	loc, ok := s.GetVerified(aid)
+	require.True(t, ok, "a locally-stored module index must be served from the local pack")
+	data, err := s.ReadAll(loc)
+	require.Nil(t, err)
+	require.Equal(t, index, data)
+
+	// FUSE serve path (the bytes the compiler actually reads).
+	_, ok = s.GetByOutputVerified(oid)
+	require.True(t, ok, "a locally-stored module index must be served on the FUSE byOutput path")
+
+	require.Equal(t, uint32(0), s.Stats.Corrupt.Load(), "serving a local index must not count as corruption")
+}
+
+func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
+	// Cross-process rot on the compiler's serve path (see the GetVerified
+	// sibling test for why corruption is applied across a Close/reopen: a
+	// record that verified once is memoized within a process).
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
 
 	body := []byte("a body resolved by outputID on the compiler's serve path")
 	aid, oid := hexID(11), casID(body)
@@ -160,30 +247,73 @@ func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 	got, ok := s.GetByOutputVerified(oid)
 	require.True(t, ok)
 	require.Equal(t, oid, got.outputID)
+	require.Nil(t, s.Close())
 
 	// Rot one body byte in place: header length + recorded CRC stay intact, so
 	// the startup scan still indexes it (the disk/overlay-rot case the torn-tail
 	// check cannot catch).
-	f := s.pack(loc.packID)
-	require.NotNil(t, f)
+	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
+	require.Nil(t, err)
 	var b [1]byte
 	_, err = f.ReadAt(b[:], loc.dataOff)
 	require.Nil(t, err)
 	_, err = f.WriteAt([]byte{b[0] ^ 0xff}, loc.dataOff)
 	require.Nil(t, err)
+	require.Nil(t, f.Close())
+
+	s2, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s2.Close()
 
 	// The unverified accessor (what Lookup used to call) cannot detect the rot —
 	// it would hand these bytes to the compiler. This is the gap.
-	_, stillThere := s.GetByOutput(oid)
+	_, stillThere := s2.GetByOutput(oid)
 	require.True(t, stillThere, "unverified GetByOutput cannot detect in-place rot")
 
 	// The verified accessor refuses it: report a miss, bump the corruption
 	// counter, and evict from the output index so the mount stops serving it.
-	_, ok = s.GetByOutputVerified(oid)
+	_, ok = s2.GetByOutputVerified(oid)
 	require.False(t, ok, "corrupt body must not be served on the verified serve path")
-	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
-	_, ok = s.GetByOutput(oid)
+	require.Equal(t, uint32(1), s2.Stats.Corrupt.Load())
+	_, ok = s2.GetByOutput(oid)
 	require.False(t, ok, "corrupt body evicted from the output index")
+}
+
+// TestPackStore_MemoizedVerificationStillChecksActionPerKey guards the one
+// subtlety of the verified-read memo: facts are memoized per RECORD, but the
+// build-id action gate is per KEY. Two actions aliased to the same archive
+// body (content dedup) must get independent verdicts — serving action B a
+// package stamped for action A on a memo hit would be cross-contamination.
+func TestPackStore_MemoizedVerificationStillChecksActionPerKey(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s.Close()
+
+	actionA, actionB := hexID(20), hexID(99)
+	archive := archiveWithBuildID(expectedBuildIDAction(actionA)) // stamped for A
+	oid := casID(archive)
+
+	_, err = s.Put(actionA, oid, bytes.NewReader(archive))
+	require.Nil(t, err)
+	// Same content under action B: stored as an alias to the same record.
+	_, err = s.Put(actionB, oid, bytes.NewReader(archive))
+	require.Nil(t, err)
+
+	// Action A verifies and memoizes the record's facts.
+	_, ok := s.GetVerified(actionA)
+	require.True(t, ok, "the correctly-stamped action must be served")
+
+	// Action B resolves to the SAME memoized record but must be refused: the
+	// stamp belongs to A.
+	_, ok = s.GetVerified(actionB)
+	require.False(t, ok, "an aliased archive stamped for another action must be refused on a memo hit")
+	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
+
+	// And action A must still be served afterwards (B's eviction only removed
+	// B's mapping).
+	_, ok = s.GetVerified(actionA)
+	require.True(t, ok, "the stamped action must remain served after the alias refusal")
 }
 
 // TestPackStore_GetByOutputVerifiedRejectsContentMismatch is the regression for
@@ -465,15 +595,69 @@ func TestPackStore_Rotation(t *testing.T) {
 	}
 }
 
-func TestPackStore_ResetWhenTooLarge(t *testing.T) {
+// TestPackStore_EvictsOldestPacksWhenOverBudget replaces the old wholesale
+// reset (which nuked EVERY pack the moment the total crossed the budget, so
+// a working set >= budget cold-cycled forever): the oldest packs are evicted
+// until the total is back under ~80% of the budget, and the newest records
+// survive.
+func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
+	origMax, origReset := maxPackBytes, packResetBytes
+	maxPackBytes = int64(packHeaderLen + 512) // rotate after every record
+	defer func() { maxPackBytes = origMax; packResetBytes = origReset }()
+
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
-	_, err = s.Put(hexID(1), hexID(10), bytes.NewReader(bytes.Repeat([]byte("z"), 4096)))
+
+	// 10 records with DISTINCT content (dedup would alias them), one pack each.
+	const n = 10
+	recBytes := int64(packHeaderLen + 512)
+	for i := 0; i < n; i++ {
+		body := bytes.Repeat([]byte{byte('a' + i)}, 512)
+		_, err := s.Put(hexID(byte(i+1)), casID(body), bytes.NewReader(body))
+		require.Nil(t, err)
+	}
+	require.Nil(t, s.Close())
+
+	// Total is n*recBytes = 6000; budget 3000 → target 2400 → the 6 oldest
+	// packs must go, the 4 newest records must survive.
+	packResetBytes = 3000
+
+	s2, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	defer s2.Close()
+
+	for i := 0; i < 6; i++ {
+		_, ok := s2.Get(hexID(byte(i + 1)))
+		require.False(t, ok, "oldest record %d must have been evicted", i+1)
+	}
+	for i := 6; i < n; i++ {
+		loc, ok := s2.Get(hexID(byte(i + 1)))
+		require.True(t, ok, "newest record %d must survive eviction", i+1)
+		data, err := s2.ReadAll(loc)
+		require.Nil(t, err)
+		require.Equal(t, bytes.Repeat([]byte{byte('a' + i)}, 512), data)
+	}
+
+	_, total, err := s2.discoverPacks()
+	require.Nil(t, err)
+	require.LessOrEqual(t, total, packResetBytes/10*8+recBytes,
+		"surviving packs must be back around the eviction target")
+}
+
+// TestPackStore_EvictionNeverDeletesNewestPack: even when a single pack alone
+// exceeds the whole budget, the newest pack (the append target, holding the
+// hottest records) is never deleted — the store runs over budget instead of
+// cold-cycling.
+func TestPackStore_EvictionNeverDeletesNewestPack(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.Nil(t, err)
+	body := bytes.Repeat([]byte("z"), 4096)
+	_, err = s.Put(hexID(1), casID(body), bytes.NewReader(body))
 	require.Nil(t, err)
 	require.Nil(t, s.Close())
 
-	// Simulate a startup where the total pack size exceeds the reset bound.
 	orig := packResetBytes
 	packResetBytes = 100
 	defer func() { packResetBytes = orig }()
@@ -481,9 +665,12 @@ func TestPackStore_ResetWhenTooLarge(t *testing.T) {
 	s2, err := OpenPackStore(dir)
 	require.Nil(t, err)
 	defer s2.Close()
-	require.Equal(t, 0, s2.Len()) // store was reset to a cold cache
-	_, ok := s2.Get(hexID(1))
-	require.False(t, ok)
+	require.Equal(t, 1, s2.Len(), "the newest pack must never be evicted")
+	loc, ok := s2.Get(hexID(1))
+	require.True(t, ok)
+	data, err := s2.ReadAll(loc)
+	require.Nil(t, err)
+	require.Equal(t, body, data)
 }
 
 func TestParsePackName(t *testing.T) {
