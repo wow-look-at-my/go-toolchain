@@ -3,8 +3,9 @@ package logger
 import (
 	"strings"
 	"testing"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // captureLogger builds a Logger that writes to string builders instead of
@@ -13,11 +14,11 @@ func captureLogger(level Level, gha bool) (*Logger, *strings.Builder, *strings.B
 	out := &strings.Builder{}
 	err := &strings.Builder{}
 	l := New(Options{
-		Level:	level,
-		Stdout:	out,
-		Stderr:	err,
-		GHA:	gha,
-		Colors:	false,
+		Level:  level,
+		Stdout: out,
+		Stderr: err,
+		GHA:    gha,
+		Colors: false,
 	})
 	return l, out, err
 }
@@ -162,9 +163,9 @@ func TestGHAFileAnnotations(t *testing.T) {
 // TestParseLevel confirms ParseLevel handles valid and invalid inputs.
 func TestParseLevel(t *testing.T) {
 	cases := []struct {
-		input	string
-		want	Level
-		ok	bool
+		input string
+		want  Level
+		ok    bool
 	}{
 		{"debug", LevelDebug, true},
 		{"info", LevelInfo, true},
@@ -208,9 +209,9 @@ func TestDefaultLogger(t *testing.T) {
 	out := &strings.Builder{}
 	errBuf := &strings.Builder{}
 	l := Init(Options{
-		Level:	LevelWarn,
-		Stdout:	out,
-		Stderr:	errBuf,
+		Level:  LevelWarn,
+		Stdout: out,
+		Stderr: errBuf,
 	})
 	assert.Equal(t, l, Default())
 
