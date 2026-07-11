@@ -12,14 +12,13 @@ require (
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
 	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
 	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9
-	github.com/wow-look-at-my/go-selfupdate-mini v0.0.0-20260508001053-7d3c4280189c
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
-	golang.org/x/mod v0.36.0
-	golang.org/x/sys v0.45.0
-	golang.org/x/tools v0.45.0
+	golang.org/x/mod v0.37.0
+	golang.org/x/sys v0.46.0
+	golang.org/x/tools v0.47.0
 	gotest.tools/gotestsum v1.13.0
 	modernc.org/sqlite v1.50.0
 )
@@ -62,11 +61,11 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
-	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/term v0.43.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/term v0.44.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/grpc v1.81.1 // indirect
@@ -109,3 +108,9 @@ replace modernc.org/strutil v1.2.1 => gitlab.com/cznic/strutil v1.2.1
 replace modernc.org/token v1.1.0 => gitlab.com/cznic/token v1.1.0
 
 replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
+
+// go-isatty selects zero implementation files under GOOS=cosmo (fat APE
+// builds with the gosmopolitan fork), breaking fatih/color and, through it,
+// gotestsum/testjson. The local copy is byte-identical to upstream plus an
+// isatty_cosmo.go; see src/compat/go-isatty/README.md.
+replace github.com/mattn/go-isatty => ./src/compat/go-isatty

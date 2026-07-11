@@ -521,6 +521,12 @@ func TestListTestPackages(t *testing.T) {
 	// Also create a dir with no test files
 	os.MkdirAll("notest", 0755)
 	os.WriteFile("notest/main.go", []byte("package notest\n"), 0644)
+	// And a nested module with its own go.mod and a test file: its packages
+	// belong to a different module and must not be listed as import paths of
+	// this one (go test would fail with "no required module provides package").
+	os.MkdirAll("nestedmod/sub", 0755)
+	os.WriteFile("nestedmod/go.mod", []byte("module example.com/othermodule\n\ngo 1.25\n"), 0644)
+	os.WriteFile("nestedmod/sub/foo_test.go", []byte("package sub\n"), 0644)
 
 	mock := runner.NewMock()
 	pkgs := listTestPackages(mock)
@@ -529,6 +535,8 @@ func TestListTestPackages(t *testing.T) {
 	assert.Contains(t, pkgs, "example.com/mymod/pkg2")
 	assert.Contains(t, pkgs, "example.com/mymod/pkg3/sub")
 	assert.NotContains(t, pkgs, "example.com/mymod/notest")
+	assert.NotContains(t, pkgs, "example.com/mymod/nestedmod", "nested module root must be skipped")
+	assert.NotContains(t, pkgs, "example.com/mymod/nestedmod/sub", "packages inside a nested module must be skipped")
 }
 
 func TestListTestPackagesNoGoMod(t *testing.T) {

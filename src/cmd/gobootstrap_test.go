@@ -4,10 +4,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -332,6 +335,130 @@ func TestEnsureGoVersionGoPresent(t *testing.T) {
 	// so EnsureGoVersion should succeed without downloading anything.
 	err := EnsureGoVersion()
 	assert.Nil(t, err)
+}
+
+func TestVerifyGoToolchainHealthy(t *testing.T) {
+	goPath, err := exec.LookPath("go")
+	require.NoError(t, err)
+
+	// A real, healthy toolchain must pass the probe (and quickly — this is the
+	// happy path that runs on every invocation).
+	assert.NoError(t, verifyGoToolchain(goPath))
+}
+
+func TestVerifyGoToolchainBrokenGOROOT(t *testing.T) {
+	goPath, err := exec.LookPath("go")
+	require.NoError(t, err)
+
+	cases := []struct {
+		name string
+		// setup populates a fake GOROOT under root and returns nothing; the dir
+		// is then pointed at via the GOROOT env var.
+		setup func(t *testing.T, root string)
+	}{
+		{
+			name: "missing runtime",
+			setup: func(t *testing.T, root string) {
+				// Looks like a Go install (has src/) but src/runtime is absent —
+				// the half-extracted hosted-tool-cache case.
+				require.NoError(t, os.MkdirAll(filepath.Join(root, "src"), 0o755))
+			},
+		},
+		{
+			name: "garbled runtime",
+			setup: func(t *testing.T, root string) {
+				// src/runtime exists but its sources are not valid Go.
+				rt := filepath.Join(root, "src", "runtime")
+				require.NoError(t, os.MkdirAll(rt, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(rt, "pool.go"), []byte("not valid go source"), 0o644))
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			brokenRoot := t.TempDir()
+			tc.setup(t, brokenRoot)
+
+			// The go binary still runs and reports its version, but its GOROOT
+			// can't satisfy "go list runtime" — exactly the runner symptom.
+			t.Setenv("GOROOT", brokenRoot)
+
+			err := verifyGoToolchain(goPath)
+			require.Error(t, err)
+			// Confirms we reproduce the real failure mode, not some unrelated error.
+			assert.Contains(t, err.Error(), "runtime")
+		})
+	}
+}
+
+func TestEnsureGoVersionBrokenTakesBootstrap(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake go binary is a shell script; LookPath expects go.exe on Windows")
+	}
+
+	// go.mod requires a version the installed Go already satisfies, so
+	// EnsureGoVersion reaches the integrity probe rather than the too-old path.
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(oldWd)
+	require.NoError(t, os.WriteFile("go.mod", []byte("module test\n\ngo 1.20.0\n"), 0o644))
+
+	sysGo, err := exec.LookPath("go")
+	require.NoError(t, err)
+
+	// Simulate a broken preinstalled Go but a healthy freshly downloaded one:
+	// the probe fails for the system binary and passes for anything else.
+	oldVerify := verifyGoToolchainFunc
+	verifyGoToolchainFunc = func(goPath string) error {
+		if goPath == sysGo {
+			return fmt.Errorf("simulated corruption: package runtime is not in std")
+		}
+		return nil
+	}
+	defer func() { verifyGoToolchainFunc = oldVerify }()
+
+	// Serve a fake Go archive so bootstrapGo "downloads" without touching the network.
+	archive := createTestTarGz(t, map[string]string{
+		"go/bin/go": "#!/bin/sh\necho go1.20.0",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(archive)
+	}))
+	defer srv.Close()
+
+	oldURLs := goDownloadURLsFunc
+	goDownloadURLsFunc = func(archiveName string) []string { return []string{srv.URL + "/" + archiveName} }
+	defer func() { goDownloadURLsFunc = oldURLs }()
+
+	cacheDir := t.TempDir()
+	oldCacheDir := goCacheDirFunc
+	goCacheDirFunc = func() (string, error) { return cacheDir, nil }
+	defer func() { goCacheDirFunc = oldCacheDir }()
+
+	// Snapshot mutated globals/env so the download path doesn't leak into other tests.
+	oldMinor := resolvedGoMinor
+	defer func() { resolvedGoMinor = oldMinor }()
+	origPATH := os.Getenv("PATH")
+	origGOROOT, hadGOROOT := os.LookupEnv("GOROOT")
+	defer func() {
+		os.Setenv("PATH", origPATH)
+		if hadGOROOT {
+			os.Setenv("GOROOT", origGOROOT)
+		} else {
+			os.Unsetenv("GOROOT")
+		}
+	}()
+
+	require.NoError(t, EnsureGoVersion())
+
+	// The bootstrap (download) path must have been taken: GOROOT now points into
+	// our fake cache and the downloaded binary is present.
+	wantRoot := filepath.Join(cacheDir, "go1.20.0")
+	assert.Equal(t, wantRoot, os.Getenv("GOROOT"))
+	_, statErr := os.Stat(filepath.Join(wantRoot, "bin", "go"))
+	assert.NoError(t, statErr)
 }
 
 func TestRecordGoMinor(t *testing.T) {

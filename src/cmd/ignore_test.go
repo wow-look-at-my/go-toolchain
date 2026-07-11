@@ -85,7 +85,7 @@ func TestUnignoreConfirmationAbort(t *testing.T) {
 	wIn.Close()
 	os.Stdin = rIn
 	defer func() { os.Stdin = oldStdin }()
-	err := unignoreCmd.PersistentPreRunE(nil, nil)
+	err := confirmUnignore()
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "aborted")
 }
@@ -97,7 +97,7 @@ func TestUnignoreConfirmationAccept(t *testing.T) {
 	wIn.Close()
 	os.Stdin = rIn
 	defer func() { os.Stdin = oldStdin }()
-	err := unignoreCmd.PersistentPreRunE(nil, nil)
+	err := confirmUnignore()
 	assert.Nil(t, err)
 }
 
