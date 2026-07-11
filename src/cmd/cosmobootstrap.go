@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 // Environment variables controlling gosmopolitan toolchain resolution.
@@ -225,7 +226,7 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	if err := extractTarGz(resp.Body, tmpDir); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(dlStart)))
+	fmt.Fprintf(os.Stderr, " %s\n", logx.FmtDuration(time.Since(dlStart)))
 
 	if _, err := os.Stat(filepath.Join(tmpDir, "go", "bin", "go")); err != nil {
 		return fmt.Errorf("downloaded archive does not contain go/bin/go: %w", err)

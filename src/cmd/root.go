@@ -119,12 +119,6 @@ func Execute() error {
 func run(cmd *cobra.Command, args []string) error {
 	InitTimeline()
 
-	// vet.CompileStderr is initialized at package init time — before
-	// main.go installs the logx pipe — so it captures the pristine
-	// os.Stderr and its output would bypass timestamps. Rebind it now so
-	// compile progress flows through the pipe and gets prefixed.
-	vet.CompileStderr = logx.Stderr
-
 	if cacheMisses {
 		tracker := newCacheMissTracker(os.Stderr)
 		activeMissTracker = tracker
