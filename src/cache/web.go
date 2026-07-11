@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
