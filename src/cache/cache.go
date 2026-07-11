@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logx"
@@ -58,14 +57,24 @@ type IBackend interface {
 
 // StatEvent is a single counter increment sent over the stats socket.
 type StatEvent struct {
-	LocalHit   uint32 `json:"lh,omitempty"`
-	LocalPut   uint32 `json:"lp,omitempty"`
-	RemoteHit  uint32 `json:"rh,omitempty"`
-	RemotePut  uint32 `json:"rp,omitempty"`
-	Miss       uint32 `json:"m,omitempty"`
-	BatchPop uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch GET
+	LocalHit  uint32 `json:"lh,omitempty"`
+	LocalPut  uint32 `json:"lp,omitempty"`
+	RemoteHit uint32 `json:"rh,omitempty"`
+	RemotePut uint32 `json:"rp,omitempty"`
+	Miss      uint32 `json:"m,omitempty"`
+	BatchPop  uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch GET
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
+
+	// Per-action outcome, piggybacked on the counter events handleGet and
+	// handlePut already emit (no extra socket writes). All optional: an old
+	// listener ignores them and an old sender simply never sets them, so the
+	// wire format stays compatible in both directions.
+	Action  string `json:"a,omitempty"`  // 20-char truncated actionID (base64.RawURLEncoding(id[:15]))
+	Op      string `json:"op,omitempty"` // "get" | "put"
+	Outcome string `json:"o,omitempty"`  // "hit-local" | "hit-remote" | "miss" | "put"
+	Bytes   int64  `json:"b,omitempty"`  // object size in bytes
+	DurUS   int64  `json:"d,omitempty"`  // operation duration, microseconds
 }
 
 // maxConcurrentPuts is the maximum number of concurrent remote put operations.
@@ -74,7 +83,7 @@ const maxConcurrentPuts = 64
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
-	local    *LocalCache
+	local    LocalStore
 	remote   IBackend // nil if no remote backend configured
 	mu       sync.Mutex
 	locks    map[string]*sync.Mutex
@@ -94,7 +103,7 @@ type Server struct {
 // For standalone mode (direct WebBackend), this also wires up batch
 // callbacks. In daemon mode, use Daemon.wireBatchCallbacks instead —
 // callbacks must be set once on the shared WebBackend, not per-connection.
-func NewServer(local *LocalCache, remote IBackend) *Server {
+func NewServer(local LocalStore, remote IBackend) *Server {
 	s := &Server{
 		local:  local,
 		remote: remote,
@@ -126,7 +135,7 @@ func NewServer(local *LocalCache, remote IBackend) *Server {
 // wireBatchCallbacks sets up the OnBatchEntries callback on a WebBackend.
 // When a batch GET returns prefetch entries, this callback writes them to
 // the local cache so future GETs hit locally.
-func wireBatchCallbacks(wb *WebBackend, local *LocalCache, sink statsSink) {
+func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
 		for _, e := range entries {
@@ -209,137 +218,13 @@ type ServerStats struct {
 // GetStats returns pointers to the live cache layer stats.
 func (s *Server) GetStats() *ServerStats {
 	ss := &ServerStats{
-		Local:   &s.local.Stats,
+		Local:   s.local.StatsPtr(),
 		Misses:  &s.Misses,
 		Batch:   &s.batch,
 		Latency: &s.Latency,
 	}
 	if s.remote != nil {
 		ss.Remote = s.remote.GetStats()
-	}
-	return ss
-}
-
-// StatsListener listens on a unix domain socket and aggregates streaming
-// stat events from all cacheprog subprocesses in real-time.
-type StatsListener struct {
-	listener  net.Listener
-	path      string
-	local     CacheStats
-	remote    CacheStats
-	batch     BatchStats
-	misses    AtomicCounter
-	latency   LatencyStats
-	pool      ConcurrencyTracker
-	hasRemote atomic.Bool // true if a remote backend was configured (set by caller)
-	hasBatch  atomic.Bool
-	wg        sync.WaitGroup // tracks active handleConn goroutines
-	acceptWg  sync.WaitGroup // tracks the accept loop goroutine
-}
-
-// SetHasRemote marks the listener as having a remote backend configured.
-// This controls whether Stats() includes the Remote field, regardless of
-// whether any remote events have actually been received yet.
-func (sl *StatsListener) SetHasRemote() {
-	sl.hasRemote.Store(true)
-}
-
-// NewStatsListener creates a unix socket and starts accepting connections.
-func NewStatsListener(path string) (*StatsListener, error) {
-	os.Remove(path)
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, err
-	}
-	sl := &StatsListener{listener: ln, path: path}
-	sl.acceptWg.Add(1)
-	go func() {
-		defer sl.acceptWg.Done()
-		sl.accept()
-	}()
-	return sl, nil
-}
-
-func (sl *StatsListener) accept() {
-	for {
-		conn, err := sl.listener.Accept()
-		if err != nil {
-			return
-		}
-		sl.wg.Add(1)
-		go sl.handleConn(conn)
-	}
-}
-
-func (sl *StatsListener) handleConn(conn net.Conn) {
-	defer sl.wg.Done()
-	defer conn.Close()
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		var ev StatEvent
-		if json.Unmarshal(scanner.Bytes(), &ev) != nil {
-			continue
-		}
-		if ev.LocalHit > 0 {
-			sl.local.Hits.Add(ev.LocalHit)
-		}
-		if ev.LocalPut > 0 {
-			sl.local.Puts.Add(ev.LocalPut)
-		}
-		if ev.RemoteHit > 0 {
-			sl.hasRemote.Store(true)
-			sl.remote.Hits.Add(ev.RemoteHit)
-		}
-		if ev.RemotePut > 0 {
-			sl.hasRemote.Store(true)
-			sl.remote.Puts.Add(ev.RemotePut)
-		}
-		if ev.Miss > 0 {
-			sl.misses.Add(ev.Miss)
-		}
-		if ev.BatchPop > 0 {
-			sl.hasBatch.Store(true)
-			sl.batch.Populated.Add(ev.BatchPop)
-		}
-		if ev.Latency != nil {
-			sl.latency.Merge(*ev.Latency)
-			sl.pool.Merge(ev.Latency.Pool)
-		}
-	}
-}
-
-// Close stops the listener, waits for all connections to drain, and cleans up.
-// Uses SetDeadline instead of immediately closing the listener so that connections
-// already in the accept queue are drained before the socket is closed.
-// listener.Close() drops queued-but-not-yet-accepted connections, causing a race
-// where stats sent just before Close arrives are silently lost.
-func (sl *StatsListener) Close() {
-	// Give the accept loop a short window to drain any connections that are
-	// already in the kernel accept queue. listener.Close() would drop them.
-	if ul, ok := sl.listener.(*net.UnixListener); ok {
-		ul.SetDeadline(time.Now().Add(10 * time.Millisecond))
-	} else {
-		sl.listener.Close()
-	}
-	sl.acceptWg.Wait() // wait for accept loop to exit after draining queue
-	sl.wg.Wait()       // wait for all handleConn goroutines to finish
-	sl.listener.Close()
-	os.Remove(sl.path)
-}
-
-// Stats returns the aggregated stats.
-func (sl *StatsListener) Stats() *ServerStats {
-	ss := &ServerStats{
-		Local:   &sl.local,
-		Misses:  &sl.misses,
-		Latency: &sl.latency,
-		Pool:    &sl.pool,
-	}
-	if sl.hasRemote.Load() {
-		ss.Remote = &sl.remote
-	}
-	if sl.hasBatch.Load() {
-		ss.Batch = &sl.batch
 	}
 	return ss
 }
