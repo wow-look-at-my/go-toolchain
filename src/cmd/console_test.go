@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wow-look-at-my/go-toolchain/src/logx"
 	"github.com/stretchr/testify/assert"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 func TestColorPct(t *testing.T) {
