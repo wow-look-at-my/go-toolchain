@@ -3,13 +3,13 @@ package logx
 import (
 	"bufio"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"io"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 // captureInstalled runs fn with Install() active, replacing the underlying
@@ -52,7 +52,7 @@ func captureInstalled(t *testing.T, fn func()) string {
 	return string(outBytes) + string(errBytes)
 }
 
-func stripANSI(s string) string	{ return ansiRE.ReplaceAllString(s, "") }
+func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
 // durSuffixRE matches a line that ends with a space and a duration (e.g. " 0.00s").
 var durSuffixRE = regexp.MustCompile(` \d+\.\d{2}s\n$`)

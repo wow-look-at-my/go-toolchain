@@ -83,18 +83,18 @@ const maxConcurrentPuts = 64
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
-	local    LocalStore
-	remote   IBackend // nil if no remote backend configured
-	mu       sync.Mutex
-	locks    map[string]*sync.Mutex
-	wg       sync.WaitGroup    // tracks in-flight async remote puts
-	putSem   chan struct{}      // semaphore bounding concurrent remote puts
-	Misses   AtomicCounter
-	batch    BatchStats
-	Latency  LatencyStats
+	local     LocalStore
+	remote    IBackend // nil if no remote backend configured
+	mu        sync.Mutex
+	locks     map[string]*sync.Mutex
+	wg        sync.WaitGroup // tracks in-flight async remote puts
+	putSem    chan struct{}  // semaphore bounding concurrent remote puts
+	Misses    AtomicCounter
+	batch     BatchStats
+	Latency   LatencyStats
 	statsConn net.Conn // persistent connection to parent's stats socket
 	statsMu   sync.Mutex
-	debug    bool // log hits/misses to stderr
+	debug     bool // log hits/misses to stderr
 }
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
@@ -495,7 +495,7 @@ func (s *Server) handlePut(req Request) Response {
 		go func() {
 			defer s.wg.Done()
 			semStart := time.Now()
-			s.putSem <- struct{}{}        // acquire
+			s.putSem <- struct{}{} // acquire
 			s.Latency.SemWait.Record(time.Since(semStart))
 			defer func() { <-s.putSem }() // release
 			remotePutStart := time.Now()
