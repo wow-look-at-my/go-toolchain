@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -17,17 +17,27 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
-	_ "modernc.org/sqlite"
 )
 
-const (
-	// How long to cache "up-to-date" results before rechecking
-	upToDateCacheDuration = time.Minute
+// How long to cache "up-to-date" results before rechecking
+const upToDateCacheDuration = time.Minute
 
-	// Cache is stored in ~/.cache/go-toolchain/deps.db
-	cacheSubdir = "go-toolchain"
-	cacheFile   = "deps.db"
-)
+// depsCache persists dependency-check results across runs. The production
+// implementation is sqlite-backed (depscache_sqlite.go); GOOS=cosmo builds
+// get a no-op cache instead (depscache_cosmo.go) because modernc.org/sqlite
+// drags in modernc.org/libc, whose per-GOOS generated code has no cosmo
+// target.
+type depsCache interface {
+	// lookup returns the cached entry for (path, version). found=false means
+	// no entry. update != "" means the module was cached as outdated (outdated
+	// entries never expire); update == "" means it was cached as up-to-date at
+	// checkedAt (unix seconds).
+	lookup(path, version string) (update string, checkedAt int64, found bool)
+	// store records a check result performed at checkedAt (unix seconds);
+	// update == "" means up-to-date.
+	store(path, version, update string, checkedAt int64)
+	close()
+}
 
 // OutdatedDep represents a dependency with an available update
 type OutdatedDep struct {
@@ -38,7 +48,7 @@ type OutdatedDep struct {
 
 // DepChecker handles async dependency checking with caching
 type DepChecker struct {
-	db           *sql.DB
+	cache        depsCache
 	results      []OutdatedDep
 	total        int
 	checked      int
@@ -49,6 +59,7 @@ type DepChecker struct {
 	canceled     bool
 	listDepsTime time.Duration // time spent listing direct deps
 	liveChecks   int           // number of live (non-cached) checks performed
+	start        time.Time     // when the check was started (for timeline)
 }
 
 // CheckOutdatedDeps starts an async check for outdated dependencies.
@@ -56,6 +67,7 @@ type DepChecker struct {
 func CheckOutdatedDeps() *DepChecker {
 	dc := &DepChecker{
 		doneCh: make(chan struct{}),
+		start:  time.Now(),
 	}
 
 	go dc.run()
@@ -65,8 +77,8 @@ func CheckOutdatedDeps() *DepChecker {
 func (dc *DepChecker) run() {
 	defer close(dc.doneCh)
 
-	// Open/create cache database
-	db, err := openCacheDB()
+	// Open/create the persistent result cache
+	cache, err := openDepsCache()
 	if err != nil {
 		dc.mu.Lock()
 		dc.err = err
@@ -74,8 +86,8 @@ func (dc *DepChecker) run() {
 		dc.mu.Unlock()
 		return
 	}
-	dc.db = db
-	defer db.Close()
+	dc.cache = cache
+	defer cache.close()
 
 	// Get list of direct dependencies
 	listStart := time.Now()
@@ -136,18 +148,10 @@ func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate
 	now := time.Now().Unix()
 
 	// Check cache first
-	var cachedUpdate sql.NullString
-	var checkedAt int64
-	err = dc.db.QueryRow(
-		`SELECT update_version, checked_at FROM deps WHERE path = ? AND version = ?`,
-		path, version,
-	).Scan(&cachedUpdate, &checkedAt)
-
-	if err == nil {
-		// Cache hit
-		if cachedUpdate.Valid {
+	if cachedUpdate, checkedAt, found := dc.cache.lookup(path, version); found {
+		if cachedUpdate != "" {
 			// Cached as outdated - return immediately (no expiry for outdated)
-			return cachedUpdate.String, true, nil
+			return cachedUpdate, true, nil
 		}
 		// Cached as up-to-date - check if still fresh
 		if now-checkedAt < int64(upToDateCacheDuration.Seconds()) {
@@ -164,40 +168,92 @@ func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate
 		return "", false, err
 	}
 
-	// Update cache
-	var updateVal sql.NullString
-	if needsUpdate {
-		updateVal = sql.NullString{String: update, Valid: true}
-	}
-	_, _ = dc.db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		path, version, updateVal, now,
-	)
+	// Update cache (update is "" when up-to-date)
+	dc.cache.store(path, version, update, now)
 
 	return update, needsUpdate, nil
 }
 
-// checkDepLive queries go list for a single module's update status
+// checkDepLive queries the Go module proxy for a module's latest version.
+// It uses a direct HTTP request to the GOPROXY instead of shelling out to
+// "go list -m -u" which can be unreliable and slow in CI environments.
 func checkDepLive(path string) (update string, needsUpdate bool, err error) {
-	cmd := exec.Command("go", "list", "-m", "-u", "-json", path)
-	output, err := cmd.Output()
+	proxy := os.Getenv("GOPROXY")
+	// GOPROXY can be a comma-separated list; use the first proxy entry (skip "direct"/"off")
+	var found string
+	for _, entry := range strings.FieldsFunc(proxy, func(r rune) bool { return r == ',' || r == '|' }) {
+		entry = strings.TrimSpace(entry)
+		if entry != "" && entry != "off" && entry != "direct" {
+			found = entry
+			break
+		}
+	}
+	if found == "" {
+		return "", false, fmt.Errorf("no usable proxy in GOPROXY=%q", os.Getenv("GOPROXY"))
+	}
+	proxy = found
+
+	// Ensure proxy URL has a scheme
+	if !strings.HasPrefix(proxy, "http://") && !strings.HasPrefix(proxy, "https://") {
+		proxy = "https://" + proxy
+	}
+
+	// Query $GOPROXY/<module>/@latest
+	// Module paths are case-encoded per https://pkg.go.dev/golang.org/x/mod/module#EscapePath
+	escapedPath, err := escapePath(path)
+	if err != nil {
+		return "", false, err
+	}
+	url := proxy + "/" + escapedPath + "/@latest"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", false, err
 	}
 
-	var mod struct {
-		Update *struct {
-			Version string
-		}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", false, err
 	}
-	if err := json.Unmarshal(output, &mod); err != nil {
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", false, fmt.Errorf("proxy returned %d for %s", resp.StatusCode, path)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return "", false, err
 	}
 
-	if mod.Update != nil {
-		return mod.Update.Version, true, nil
+	var info struct {
+		Version string `json:"Version"`
+	}
+	if err := json.Unmarshal(body, &info); err != nil {
+		return "", false, err
+	}
+
+	if info.Version != "" {
+		return info.Version, true, nil
 	}
 	return "", false, nil
+}
+
+// escapePath converts a module path to its case-encoded form for proxy URLs.
+// Upper-case letters are replaced with '!' followed by the lower-case letter.
+func escapePath(path string) (string, error) {
+	var b strings.Builder
+	for _, r := range path {
+		if r >= 'A' && r <= 'Z' {
+			b.WriteByte('!')
+			b.WriteRune(r + ('a' - 'A'))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), nil
 }
 
 type depInfo struct {
@@ -247,41 +303,6 @@ func listDirectDeps() ([]depInfo, error) {
 		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version})
 	}
 	return deps, nil
-}
-
-func openCacheDB() (*sql.DB, error) {
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		cacheDir = filepath.Join(os.Getenv("HOME"), ".cache")
-	}
-
-	dir := filepath.Join(cacheDir, cacheSubdir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-
-	dbPath := filepath.Join(dir, cacheFile)
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create table if not exists
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS deps (
-			path TEXT NOT NULL,
-			version TEXT NOT NULL,
-			update_version TEXT,
-			checked_at INTEGER NOT NULL,
-			PRIMARY KEY (path, version)
-		)
-	`)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	return db, nil
 }
 
 // looksLikeGitVersion returns true if the version appears to be a pseudo-version
@@ -443,6 +464,11 @@ func WaitForOutdatedDeps(dc *DepChecker) bool {
 	}
 	deps := dc.WaitWithProgress()
 
+	// Record to the pipeline timeline
+	if pipelineTimeline != nil {
+		pipelineTimeline.Record("Dependency check", "deps", dc.start, time.Now(), dc.err != nil)
+	}
+
 	// Get auto-update prefix from current module
 	autoUpdatePrefix := getAutoUpdatePrefix()
 
@@ -538,7 +564,7 @@ func FixBogusDepsVersions(r runner.CommandRunner) error {
 	// Resolve each module to its actual latest version
 	for _, mod := range toFix {
 		if !jsonOutput {
-			fmt.Printf("==> Resolving %s (v0.0.0 is not a valid version)\n", mod)
+			fmt.Printf("⇒ Resolving %s (v0.0.0 is not a valid version)\n", mod)
 		}
 
 		version, err := resolveLatestVersionViaGit(r, mod)

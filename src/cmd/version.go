@@ -6,22 +6,74 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
+	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
-// Build-time variables, set via -ldflags -X.
-var (
-	buildVersion   = "dev"
-	buildCommit    = "unknown"
-	buildTimestamp = ""
-	buildDate      = ""
-)
+// buildVersion is derived from Go's built-in VCS stamping.
+// Other commands (update, cacheprog, dependabot) read this directly.
+var buildVersion = resolvedVersion()
 
-const ldflagsPrefix = "github.com/wow-look-at-my/go-toolchain/src/cmd"
+// vcsInfo reads Go's built-in VCS stamping from the binary.
+type vcsInfo struct {
+	Revision string
+	Time     string
+	Modified bool
+}
+
+var cachedVCS *vcsInfo
+
+func getVCS() vcsInfo {
+	if cachedVCS != nil {
+		return *cachedVCS
+	}
+	var v vcsInfo
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				v.Revision = s.Value
+			case "vcs.time":
+				v.Time = s.Value
+			case "vcs.modified":
+				v.Modified = s.Value == "true"
+			}
+		}
+	}
+	cachedVCS = &v
+	return v
+}
+
+func resolvedVersion() string {
+	vcs := getVCS()
+	if vcs.Time != "" {
+		if t, err := time.Parse(time.RFC3339, vcs.Time); err == nil {
+			return fmt.Sprintf("v0.0.%d", t.Unix())
+		}
+	}
+	return "dev"
+}
+
+func resolvedCommit() string {
+	if vcs := getVCS(); vcs.Revision != "" {
+		return vcs.Revision
+	}
+	return "unknown"
+}
+
+func resolvedTimestamp() (int64, bool) {
+	if vcs := getVCS(); vcs.Time != "" {
+		if t, err := time.Parse(time.RFC3339, vcs.Time); err == nil {
+			return t.Unix(), true
+		}
+	}
+	return 0, false
+}
 
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 var githubAPIBase = "https://api.github.com"
@@ -42,7 +94,55 @@ func init() {
 		Short: "Show build version and staleness information",
 		Run:   runVersion,
 	}
+	versionCmd.AddCommand(&cobra.Command{
+		Use:   "raw",
+		Short: "Print just the version number",
+		Run:   func(cmd *cobra.Command, args []string) { fmt.Println(resolvedVersion()) },
+	})
+	versionCmd.AddCommand(&cobra.Command{
+		Use:   "json",
+		Short: "Print version info as JSON",
+		Run:   runVersionJSON,
+	})
 	rootCmd.AddCommand(versionCmd)
+}
+
+type versionOutput struct {
+	Version       string `json:"version"`
+	Commit        string `json:"commit"`
+	CommitDate    string `json:"commit_date,omitempty"`
+	BuildDate     string `json:"build_date,omitempty"`
+	LatestCommit  string `json:"latest_commit,omitempty"`
+	CommitsBehind *int   `json:"commits_behind,omitempty"`
+}
+
+func runVersionJSON(cmd *cobra.Command, args []string) {
+	commit := resolvedCommit()
+	out := versionOutput{
+		Version: resolvedVersion(),
+		Commit:  commit,
+	}
+
+	if ts, ok := resolvedTimestamp(); ok {
+		out.CommitDate = time.Unix(ts, 0).UTC().Format(time.RFC3339)
+
+		if commit != "unknown" {
+			if latest, err := fetchLatestCommitFromGitHub(); err == nil {
+				out.LatestCommit = latest.sha
+				behind := 0
+				if latest.timestamp > ts {
+					if count, err := fetchCommitsBehind(commit, latest.sha); err == nil {
+						behind = count
+					}
+				}
+				out.CommitsBehind = &behind
+			}
+		}
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(out) //nolint:errcheck
 }
 
 func runVersion(cmd *cobra.Command, args []string) {
@@ -51,18 +151,11 @@ func runVersion(cmd *cobra.Command, args []string) {
 }
 
 func printVersionInfo() {
-	fmt.Printf("Version:     %s\n", buildVersion)
-	fmt.Printf("Commit:      %s\n", buildCommit)
+	fmt.Printf("Version:     %s\n", resolvedVersion())
+	fmt.Printf("Commit:      %s\n", resolvedCommit())
 
-	if buildTimestamp != "" {
-		if ts, err := strconv.ParseInt(buildTimestamp, 10, 64); err == nil {
-			commitTime := time.Unix(ts, 0).UTC()
-			fmt.Printf("Commit date: %s\n", commitTime.Format(time.RFC3339))
-		}
-	}
-
-	if buildDate != "" {
-		fmt.Printf("Build date:  %s\n", buildDate)
+	if ts, ok := resolvedTimestamp(); ok {
+		fmt.Printf("Commit date: %s\n", time.Unix(ts, 0).UTC().Format(time.RFC3339))
 	}
 }
 
@@ -76,13 +169,10 @@ type commitInfo struct {
 }
 
 func printStaleness() {
-	if buildTimestamp == "" || buildCommit == "unknown" {
+	builtTs, ok := resolvedTimestamp()
+	commit := resolvedCommit()
+	if !ok || commit == "unknown" {
 		fmt.Println("\nNo build info embedded (dev build).")
-		return
-	}
-
-	builtTs, err := strconv.ParseInt(buildTimestamp, 10, 64)
-	if err != nil {
 		return
 	}
 
@@ -100,16 +190,34 @@ func printStaleness() {
 	diff := time.Duration(latest.timestamp-builtTs) * time.Second
 	msg := fmt.Sprintf("\nBuild is %s behind latest commit.", formatDuration(diff))
 
-	if count, err := fetchCommitsBehind(buildCommit, latest.sha); err == nil && count > 0 {
+	if count, err := fetchCommitsBehind(commit, latest.sha); err == nil && count > 0 {
 		msg += fmt.Sprintf(" (%d commits)", count)
 	}
 
 	fmt.Println(msg)
 }
 
+// newGitHubRequest creates an HTTP GET request, adding an Authorization
+// header if a GitHub token is discovered in the environment. This raises
+// the rate limit from 60 to 5 000 requests/hour.
+func newGitHubRequest(url string) (*http.Request, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token := discoverGitHubToken(); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+	return req, nil
+}
+
 func fetchLatestCommitFromGitHub() (*commitInfo, error) {
 	url := fmt.Sprintf("%s/repos/%s/commits?per_page=1", githubAPIBase, githubRepo)
-	resp, err := httpClient.Get(url)
+	req, err := newGitHubRequest(url)
+	if err != nil {
+		return nil, fmt.Errorf("GitHub API request failed: %w", err)
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("GitHub API request failed: %w", err)
 	}
@@ -144,7 +252,11 @@ func fetchLatestCommitFromGitHub() (*commitInfo, error) {
 
 func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 	url := fmt.Sprintf("%s/repos/%s/compare/%s...%s", githubAPIBase, githubRepo, fromCommit, toCommit)
-	resp, err := httpClient.Get(url)
+	req, err := newGitHubRequest(url)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -164,83 +276,115 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 	return result.AheadBy, nil
 }
 
-// gitInfo holds version metadata collected from git.
-type gitInfo struct {
-	version   string
-	commit    string
-	timestamp string
+// checkDirtyInCI returns an error if running in CI with a dirty working
+// tree. This prevents shipping binaries built from uncommitted changes.
+//
+// The transient GOMEMLIMIT guard (memlimit.GuardFileName) is excluded in every
+// state — added, modified, or deleted. It is generated for the build and removed
+// afterward, so it must never count as a dirty change. The deleted case matters
+// for migration: a repo that committed the guard under an older go-toolchain
+// sheds it the first time the new cleanup runs, and that in-flight deletion must
+// not fail the build.
+func checkDirtyInCI() error {
+	if os.Getenv("CI") == "" {
+		return nil
+	}
+	out, err := exec.Command("git", "status", "--short").Output()
+	if err != nil {
+		return nil
+	}
+	files := dirtyFilesExcludingGuard(string(out))
+	if files == "" {
+		return nil
+	}
+	if !jsonOutput {
+		logError("", fmt.Sprintf(
+			"Working tree is dirty in CI (go-toolchain %s). Dirty files:\n%s\n\n"+
+				"Fix: run `go-toolchain` locally, review the diff, commit the changes, and push.",
+			buildVersion, files))
+	}
+	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
-// collectGitInfo gathers version metadata from environment variables first
-// (GITHUB_SHA, GITHUB_REF_NAME, GITHUB_REF_TYPE), falling back to git
-// commands only when env vars are not set.
-func collectGitInfo() gitInfo {
-	var info gitInfo
-
-	// Commit: GITHUB_SHA or git rev-parse HEAD
-	info.commit = os.Getenv("GITHUB_SHA")
-	if info.commit == "" {
-		if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
-			info.commit = strings.TrimSpace(string(out))
+// dirtyFilesExcludingGuard returns the trimmed `git status --short` lines that
+// represent real uncommitted changes, dropping any line that refers to the
+// go-toolchain-managed GOMEMLIMIT guard. An empty result means the tree is clean
+// apart from guard files.
+func dirtyFilesExcludingGuard(statusOut string) string {
+	var kept []string
+	for _, line := range strings.Split(statusOut, "\n") {
+		if strings.TrimSpace(line) == "" || statusLineIsGuard(line) {
+			continue
 		}
+		kept = append(kept, line)
 	}
-
-	// Version: use tag ref from CI, or git describe
-	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
-		info.version = os.Getenv("GITHUB_REF_NAME")
-	}
-	if info.version == "" {
-		if out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output(); err == nil {
-			info.version = strings.TrimSpace(string(out))
-		}
-	}
-
-	// Timestamp: no env var for this, always from git
-	if out, err := exec.Command("git", "log", "-1", "--format=%ct").Output(); err == nil {
-		info.timestamp = strings.TrimSpace(string(out))
-	}
-
-	return info
+	return strings.Join(kept, "\n")
 }
 
-// ldflags returns a string suitable for `go build -ldflags`.
-// Build date uses SOURCE_DATE_EPOCH or the git commit timestamp
-// for reproducible builds (never wall-clock time).
-func (g gitInfo) ldflags() string {
-	var flags []string
-	if g.version != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildVersion=%s", ldflagsPrefix, g.version))
+// statusLineIsGuard reports whether a `git status --short` porcelain line refers
+// to a GOMEMLIMIT guard file. The format is "XY <path>" (or "XY <old> -> <new>"
+// for renames); the guard is matched by base name so it is ignored in any
+// package directory.
+func statusLineIsGuard(line string) bool {
+	if len(line) < 4 {
+		return false
 	}
-	if g.commit != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildCommit=%s", ldflagsPrefix, g.commit))
+	path := strings.TrimSpace(line[3:])
+	if i := strings.Index(path, " -> "); i != -1 {
+		path = path[i+len(" -> "):]
 	}
-	if g.timestamp != "" {
-		flags = append(flags, fmt.Sprintf("-X %s.buildTimestamp=%s", ldflagsPrefix, g.timestamp))
+	path = strings.Trim(path, "\"")
+	if filepath.Base(path) == memlimit.GuardFileName {
+		return true
 	}
-	// Build date: SOURCE_DATE_EPOCH > git commit timestamp
-	if epoch := os.Getenv("SOURCE_DATE_EPOCH"); epoch != "" {
-		if ts, err := strconv.ParseInt(epoch, 10, 64); err == nil {
-			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", ldflagsPrefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
-		}
-	} else if g.timestamp != "" {
-		if ts, err := strconv.ParseInt(g.timestamp, 10, 64); err == nil {
-			flags = append(flags, fmt.Sprintf("-X %s.buildDate=%s", ldflagsPrefix, time.Unix(ts, 0).UTC().Format(time.RFC3339)))
-		}
+	// removeFromGitignore strips the stale guard line from .gitignore during the
+	// build; a .gitignore whose only change vs HEAD is that removal is the
+	// toolchain's own migration cleanup, not a developer edit, so it must not
+	// count as a dirty tree — mirroring the guard-file exclusion above. (A repo
+	// finalizes the migration by committing the removal once.)
+	if filepath.Base(path) == ".gitignore" && gitignoreChangeOnlyDropsGuard(path) {
+		return true
 	}
-	return strings.Join(flags, " ")
+	return false
 }
 
-func (g gitInfo) String() string {
-	if g.version != "" {
-		return g.version
+// gitignoreChangeOnlyDropsGuard reports whether the working-tree change to the
+// .gitignore at path, relative to HEAD, is solely the removal of the GOMEMLIMIT
+// guard line.
+func gitignoreChangeOnlyDropsGuard(path string) bool {
+	out, err := exec.Command("git", "diff", "HEAD", "--", path).Output()
+	if err != nil {
+		return false
 	}
-	if g.commit != "" {
-		if len(g.commit) > 7 {
-			return g.commit[:7]
+	return diffOnlyDropsGuard(string(out))
+}
+
+// diffOnlyDropsGuard parses a unified diff and reports whether every content
+// change is the removal of the guard line: at least one guard line removed, no
+// additions, and nothing else removed (blank-line churn aside). It is split out
+// from the git invocation so it can be unit-tested without a repository.
+func diffOnlyDropsGuard(diff string) bool {
+	sawGuardRemoval := false
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+			// file headers, not content
+		case strings.HasPrefix(line, "+"):
+			if strings.TrimSpace(line[1:]) != "" {
+				return false // a real addition
+			}
+		case strings.HasPrefix(line, "-"):
+			content := strings.TrimSpace(line[1:])
+			if content == "" {
+				continue // removed blank line: cosmetic
+			}
+			if content != memlimit.GuardFileName {
+				return false // removed something other than the guard
+			}
+			sawGuardRemoval = true
 		}
-		return g.commit
 	}
-	return "unknown"
+	return sawGuardRemoval
 }
 
 func formatDuration(d time.Duration) string {

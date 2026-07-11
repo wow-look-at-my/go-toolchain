@@ -9,5 +9,8 @@ src/src
 coverage.out
 src/coverage.out
 
+# Credentials
+.env
+
 # Claude Code
 .claude/

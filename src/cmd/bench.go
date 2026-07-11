@@ -80,6 +80,10 @@ func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
 		CPU:     benchCPU,
 		Verbose: verbose,
 	}
+	if benchStep != nil {
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
+	}
 
 	report, err := bench.RunBenchmarks(r, opts)
 	if benchStep != nil {
@@ -102,16 +106,16 @@ func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
 	}
 
 	if prev != nil && prevSHA != "" {
-		fmt.Printf("\n==> Benchmark comparison vs %s\n", prevSHA)
+		fmt.Printf("\n⇒ Benchmark comparison vs %s\n", prevSHA)
 		comp := bench.Compare(report, prev)
 		comp.PreviousCommit = prevSHA
 		comp.Print()
 	} else {
-		fmt.Println("\n==> Benchmark results (no previous data for comparison)")
+		fmt.Println("\n⇒ Benchmark results (no previous data for comparison)")
 		report.Print()
 	}
 
-	fmt.Println("==> Benchmarks complete")
+	fmt.Println("⇒ Benchmarks complete")
 	return nil
 }
 
@@ -131,6 +135,10 @@ func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
 		Count:   benchCount,
 		CPU:     benchCPU,
 		Verbose: verbose,
+	}
+	if benchStep != nil {
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
 	}
 
 	report, err := bench.RunBenchmarks(r, opts)
@@ -154,7 +162,7 @@ func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
 
 	sha, _ := bench.GetHeadSHA(r)
 	if !quiet {
-		fmt.Printf("==> Benchmark results stored for %s\n", sha)
+		fmt.Printf("⇒ Benchmark results stored for %s\n", sha)
 	}
 
 	return nil
@@ -179,7 +187,7 @@ func runBenchShow(cmd *cobra.Command, args []string) error {
 		return enc.Encode(report)
 	}
 
-	fmt.Printf("==> Benchmark results for %s\n", sha)
+	fmt.Printf("⇒ Benchmark results for %s\n", sha)
 	report.Print()
 	return nil
 }
@@ -206,14 +214,24 @@ func runBenchCompare(cmd *cobra.Command, args []string) error {
 		return enc.Encode(comp)
 	}
 
-	fmt.Printf("==> Benchmark comparison: %s → %s\n", args[0], args[1])
+	fmt.Printf("⇒ Benchmark comparison: %s → %s\n", args[0], args[1])
 	comp.Print()
 	return nil
 }
 
+// benchResult holds the output of a benchmark run for downstream consumers (e.g. CI summary).
+type benchResult struct {
+	Report     *bench.BenchmarkReport
+	Comparison *bench.Comparison
+}
+
 // runBenchmarkInBuild runs benchmarks as part of the default build
-// and shows comparison against previous stored results
-func runBenchmarkInBuild(r runner.CommandRunner) error {
+// and shows comparison against previous stored results.
+func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
+	if !bench.HasBenchmarks() {
+		return nil, nil
+	}
+
 	var benchStep *step
 	if !jsonOutput {
 		benchStep = logStep("Running benchmarks")
@@ -225,6 +243,10 @@ func runBenchmarkInBuild(r runner.CommandRunner) error {
 		CPU:     benchCPU,
 		Verbose: verbose,
 	}
+	if benchStep != nil {
+		opts.StreamTo = os.Stdout
+		opts.OnFirstResult = benchStep.noteOutput
+	}
 
 	report, err := bench.RunBenchmarks(r, opts)
 	if benchStep != nil {
@@ -234,21 +256,22 @@ func runBenchmarkInBuild(r runner.CommandRunner) error {
 		if report != nil && report.HasResults() {
 			report.Print()
 		}
-		return err
+		return nil, err
 	}
 
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "\t")
-		return enc.Encode(report)
+		return &benchResult{Report: report}, enc.Encode(report)
 	}
 
 	// Fetch previous results for comparison
 	prev, prevSHA, _ := bench.FetchPrevious(r)
 
+	var comp *bench.Comparison
 	if prev != nil && prevSHA != "" {
-		fmt.Printf("\n==> Benchmark comparison vs %s\n", prevSHA)
-		comp := bench.Compare(report, prev)
+		fmt.Printf("\n⇒ Benchmark comparison vs %s\n", prevSHA)
+		comp = bench.Compare(report, prev)
 		comp.PreviousCommit = prevSHA
 		comp.Print()
 	} else {
@@ -256,6 +279,6 @@ func runBenchmarkInBuild(r runner.CommandRunner) error {
 		report.Print()
 	}
 
-	fmt.Println("==> Benchmarks complete")
-	return nil
+	fmt.Println("⇒ Benchmarks complete")
+	return &benchResult{Report: report, Comparison: comp}, nil
 }
