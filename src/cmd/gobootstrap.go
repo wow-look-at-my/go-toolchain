@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 // Test seams — overridden in tests to avoid real downloads / corrupted runners.
@@ -32,6 +33,35 @@ var (
 // "go version" (which can fail to find the bootstrapped binary or mis-parse
 // non-standard version strings).
 var resolvedGoMinor int
+
+// poisonedGoVersions maps an exact Go version that is known to corrupt builds
+// to the known-good version go-toolchain must use instead. Go 1.24.13
+// intermittently cross-contaminates GOCACHEPROG cache entries -- it serves one
+// package's compiled object under another package's action key -- so a build
+// dies at package load with `"<pkg>" imported as <other>` (e.g. runtime
+// imported as reflectlite) or `package runtime is not in std`. The corruption
+// is specific to that patch release (1.24.7 and 1.25.0 are clean) and the
+// `go list runtime` integrity probe does NOT surface it (that probe runs
+// without the cacheprog), so the version must be blocklisted explicitly:
+// go-toolchain treats it as unusable and silently substitutes the replacement,
+// whether it is the runner's preinstalled Go or a go.mod requirement.
+// The replacement is a current 1.25.x rather than 1.25.0 so the substitution is
+// not a security downgrade: 1.24 is EOL (1.24.13 is the final 1.24.x, no
+// 1.24.14 will ship), and 1.24.13 itself carried CVE fixes that 1.25.0 predates.
+var poisonedGoVersions = map[string]string{
+	"1.24.13": "1.25.11",
+}
+
+// unpoisonGoVersion returns the Go version go-toolchain should actually use for
+// the given requested/installed version: the version itself when clean, or its
+// known-good replacement when poisoned. The bool reports whether a substitution
+// was made.
+func unpoisonGoVersion(version string) (string, bool) {
+	if replacement, ok := poisonedGoVersions[version]; ok {
+		return replacement, true
+	}
+	return version, false
+}
 
 // EnsureGoVersion checks whether Go is available in PATH and whether its
 // version satisfies the project's go.mod requirement. If Go is missing or too
@@ -76,6 +106,13 @@ func EnsureGoVersion() error {
 	}
 
 	if !installedVer.LessThan(requiredVer) {
+		// Refuse a known-poisoned toolchain even though its version satisfies the
+		// requirement: it corrupts the build cache (see poisonedGoVersions).
+		// Re-bootstrap a known-good toolchain instead.
+		if replacement, poisoned := unpoisonGoVersion(installed); poisoned {
+			fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is poisoned (corrupts the build cache); replacing with a known-good toolchain (>= %s)\n", installed, replacement)
+			return bootstrapGo(fmt.Sprintf("installed %s is poisoned", installed))
+		}
 		// Version is fine, but a fraction of GitHub-hosted runners ship a
 		// half-extracted Go whose binary runs and reports its version yet whose
 		// GOROOT std library is incomplete. Probe the toolchain before trusting
@@ -127,6 +164,12 @@ func bootstrapGo(reason string) error {
 	required, err := requiredGoVersion()
 	if err != nil || required == "" {
 		return fmt.Errorf("%s and cannot determine version from go.mod: %v", reason, err)
+	}
+
+	// Never download a poisoned version, even if go.mod asks for it directly.
+	if replacement, poisoned := unpoisonGoVersion(required); poisoned {
+		fmt.Fprintf(os.Stderr, "go-bootstrap: required Go %s is poisoned; using known-good %s instead\n", required, replacement)
+		required = replacement
 	}
 
 	fmt.Fprintf(os.Stderr, "go-bootstrap: bootstrapping Go %s...\n", required)
@@ -267,7 +310,9 @@ func ensureGoCached(version string) (string, error) {
 
 	goRoot := filepath.Join(cacheDir, "go"+version)
 	goBin := filepath.Join(goRoot, "bin", "go")
-	if runtime.GOOS == "windows" {
+	// hostos, not runtime: a GOOS=cosmo fat APE reports runtime.GOOS=="cosmo"
+	// on every host, but the downloaded toolchain layout follows the HOST OS.
+	if hostos.GOOS() == "windows" {
 		goBin += ".exe"
 	}
 
@@ -303,7 +348,11 @@ func goCacheDir() (string, error) {
 }
 
 func downloadGo(version, cacheDir, goRoot string) error {
-	archiveName := fmt.Sprintf("go%s.%s-%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
+	// hostos, not runtime: go.dev has no "cosmo" archives — a cosmo fat APE
+	// must download the toolchain for the host it is running on (e.g.
+	// go1.x.linux-amd64.tar.gz). runtime.GOARCH is correct as-is: the running
+	// payload of a fat APE always matches the host architecture.
+	archiveName := fmt.Sprintf("go%s.%s-%s.tar.gz", version, hostos.GOOS(), runtime.GOARCH)
 	urls := goDownloadURLsFunc(archiveName)
 
 	var resp *http.Response
