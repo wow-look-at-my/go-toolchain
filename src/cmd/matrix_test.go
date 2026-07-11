@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -381,6 +381,7 @@ func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+	os.WriteFile("x_test.go", []byte("package main\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
 
 	oldOS := matrixOS
 	oldArch := matrixArch

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestParseProfile(t *testing.T) {
@@ -190,8 +190,17 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 }
 
 func TestReachablePackages(t *testing.T) {
-	mock := newMockRunnerForReachable("example.com/mymod",
-		"example.com/mymod/cmd/app\n",
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Set up filesystem: go.mod + a main package in cmd/app
+	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("cmd/app", 0755)
+	os.WriteFile("cmd/app/main.go", []byte("package main\n"), 0644)
+
+	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
 
 	reachable, err := ReachablePackages(mock)
@@ -204,10 +213,18 @@ func TestReachablePackages(t *testing.T) {
 }
 
 func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
 	// Simulate: main package imports pkg1, but pkg2 is behind a build tag
 	// and not reachable from the main entry point.
-	mock := newMockRunnerForReachable("example.com/mymod",
-		"example.com/mymod/cmd/app\n",
+	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("cmd/app", 0755)
+	os.WriteFile("cmd/app/main.go", []byte("package main\n"), 0644)
+
+	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nstrings\n")
 
 	reachable, err := ReachablePackages(mock)
@@ -219,9 +236,17 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 }
 
 func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
 	// No main packages found — falls back to ./...
-	mock := newMockRunnerForReachable("example.com/mymod",
-		"",
+	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("pkg/lib", 0755)
+	os.WriteFile("pkg/lib/lib.go", []byte("package lib\n"), 0644)
+
+	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
 
 	reachable, err := ReachablePackages(mock)
@@ -232,7 +257,13 @@ func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
 }
 
 func TestReachablePackagesModuleFailure(t *testing.T) {
-	mock := newMockRunnerForReachable("", "", "")
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// No go.mod — ReadModulePath returns ""
+	mock := newMockRunnerForReachable("")
 
 	reachable, err := ReachablePackages(mock)
 	// Empty module prefix returns nil, nil
@@ -241,24 +272,18 @@ func TestReachablePackagesModuleFailure(t *testing.T) {
 }
 
 // newMockRunnerForReachable creates a mock runner for ReachablePackages tests.
-func newMockRunnerForReachable(moduleName, mainPkgs, depsOutput string) *mockReachableRunner {
-	return &mockReachableRunner{moduleName: moduleName, mainPkgs: mainPkgs, depsOutput: depsOutput}
+// Now only needs the depsOutput since module path and main packages come from filesystem.
+func newMockRunnerForReachable(depsOutput string) *mockReachableRunner {
+	return &mockReachableRunner{depsOutput: depsOutput}
 }
 
 type mockReachableRunner struct {
-	moduleName string
-	mainPkgs   string
 	depsOutput string
 }
 
 func (m *mockReachableRunner) Run(cfg runner.Config) (runner.IProcess, error) {
 	key := cfg.Name + " " + joinArgs(cfg.Args)
 	switch {
-	case key == "go list -m":
-		return runner.MockProcess([]byte(m.moduleName+"\n"), nil), nil
-	case strings.HasPrefix(key, "go list -f "):
-		// go list -f '{{if eq .Name "main"}}...' ./...
-		return runner.MockProcess([]byte(m.mainPkgs), nil), nil
 	case strings.HasPrefix(key, "go list -deps -f {{.ImportPath}}"):
 		return runner.MockProcess([]byte(m.depsOutput), nil), nil
 	default:
@@ -276,4 +301,3 @@ func joinArgs(args []string) string {
 	}
 	return result
 }
-

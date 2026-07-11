@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -34,35 +34,60 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-func TestCollectGitInfo(t *testing.T) {
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	assert.NotEqual(t, "", info.commit)
-	assert.NotEqual(t, "", info.timestamp)
-	assert.NotEqual(t, "", info.version)
+func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
+	t.Setenv("CI", "")
+	assert.NoError(t, checkDirtyInCI())
 }
 
-func TestCollectGitInfoFromEnv(t *testing.T) {
-	// Set CI env vars
-	t.Setenv("GITHUB_SHA", "env-sha-123456")
-	t.Setenv("GITHUB_REF_TYPE", "tag")
-	t.Setenv("GITHUB_REF_NAME", "v2.0.0")
-
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	assert.Equal(t, "env-sha-123456", info.commit)
-	assert.Equal(t, "v2.0.0", info.version)
+func TestDirtyFilesExcludingGuard(t *testing.T) {
+	// Guard files are ignored in every state — including the deletions that a
+	// repo migrating off committed guards produces — while real changes remain.
+	status := " M .gitignore\n" +
+		" D gomemlimit_gen.go\n" +
+		" D cmd/tool/gomemlimit_gen.go\n" +
+		"?? gomemlimit_gen.go\n" +
+		" M src/main.go\n"
+	got := dirtyFilesExcludingGuard(status)
+	assert.Equal(t, " M .gitignore\n M src/main.go", got)
 }
 
-func TestCollectGitInfoBranchRef(t *testing.T) {
-	// Branch refs should NOT override version (only tags)
-	t.Setenv("GITHUB_REF_TYPE", "branch")
-	t.Setenv("GITHUB_REF_NAME", "main")
+func TestDirtyFilesExcludingGuardOnlyGuards(t *testing.T) {
+	// A tree dirty *only* with guard files reads as clean.
+	status := " D gomemlimit_gen.go\n?? cmd/tool/gomemlimit_gen.go\n"
+	assert.Equal(t, "", dirtyFilesExcludingGuard(status))
+}
 
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	// version should come from git describe, not the branch name
-	assert.NotEqual(t, "main", info.version)
+func TestDirtyFilesExcludingGuardEmpty(t *testing.T) {
+	assert.Equal(t, "", dirtyFilesExcludingGuard(""))
+}
+
+func TestStatusLineIsGuard(t *testing.T) {
+	cases := map[string]bool{
+		" D gomemlimit_gen.go":           true,
+		"?? gomemlimit_gen.go":           true,
+		" M cmd/tool/gomemlimit_gen.go":  true,
+		"R  old.go -> gomemlimit_gen.go": true, // rename destination is the guard
+		" M .gitignore":                  false,
+		" M src/gomemlimit_gen.go.bak":   false,
+		"":                               false,
+	}
+	for line, want := range cases {
+		assert.Equalf(t, want, statusLineIsGuard(line), "line %q", line)
+	}
+}
+
+func TestResolvedVersionFromVCS(t *testing.T) {
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
+	assert.Equal(t, "v0.0.1700000000", resolvedVersion())
+}
+
+func TestResolvedVersionNoVCS(t *testing.T) {
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{}
+	assert.Equal(t, "dev", resolvedVersion())
 }
 
 func TestEnvOr(t *testing.T) {
@@ -84,82 +109,10 @@ func TestGithubRepoFromEnv(t *testing.T) {
 	assert.Equal(t, "other-org/other-repo", githubRepo)
 }
 
-func TestCheckDirtyInCIErrors(t *testing.T) {
-	t.Setenv("CI", "true")
-	info := gitInfo{version: "abc1234-dirty"}
-	err := checkDirtyInCI(info)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "-dirty")
-	assert.Contains(t, err.Error(), "refusing to build")
-}
-
-func TestCheckDirtyInCIAllowsCleanVersion(t *testing.T) {
-	t.Setenv("CI", "true")
-	info := gitInfo{version: "v1.2.3"}
-	err := checkDirtyInCI(info)
-	assert.NoError(t, err)
-}
-
-func TestCheckDirtyInCIAllowsDirtyOutsideCI(t *testing.T) {
-	t.Setenv("CI", "")
-	info := gitInfo{version: "abc1234-dirty"}
-	err := checkDirtyInCI(info)
-	assert.NoError(t, err)
-}
-
-func TestGitInfoLdflags(t *testing.T) {
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	ldflags := info.ldflags()
-
-	assert.NotEqual(t, "", ldflags)
-	for _, want := range []string{"buildVersion", "buildCommit", "buildTimestamp", "buildDate"} {
-		assert.Contains(t, ldflags, want)
-	}
-}
-
-func TestGitInfoLdflagsReproducible(t *testing.T) {
-	info, err := collectGitInfo()
-	require.NoError(t, err)
-	ldflags1 := info.ldflags()
-	ldflags2 := info.ldflags()
-	assert.Equal(t, ldflags2, ldflags1)
-}
-
-func TestGitInfoLdflagsSourceDateEpoch(t *testing.T) {
-	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
-	info := gitInfo{version: "v1.0.0", commit: "abc123", timestamp: "1600000000"}
-	ldflags := info.ldflags()
-	// Should use SOURCE_DATE_EPOCH (1700000000) not git timestamp (1600000000)
-	assert.Contains(t, ldflags, "2023-11-14")
-}
-
-func TestGitInfoLdflagsNoTimestamp(t *testing.T) {
-	info := gitInfo{version: "v1.0.0", commit: "abc123"}
-	ldflags := info.ldflags()
-	assert.NotContains(t, ldflags, "buildDate")
-}
-
-func TestGitInfoString(t *testing.T) {
-	tests := []struct {
-		info gitInfo
-		want string
-	}{
-		{gitInfo{version: "v1.0.0", commit: "abc1234567890"}, "v1.0.0"},
-		{gitInfo{commit: "abc1234567890"}, "abc1234"},
-		{gitInfo{commit: "abc"}, "abc"},
-		{gitInfo{}, "unknown"},
-	}
-	for _, tt := range tests {
-		got := tt.info.String()
-	assert.Equal(t, tt.want, got)
-	}
-}
-
 func TestVersionRaw(t *testing.T) {
-	old := buildVersion
-	defer func() { buildVersion = old }()
-	buildVersion = "v9.9.9"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
 
 	cmd := rootCmd
 	buf := new(strings.Builder)
@@ -178,21 +131,13 @@ func TestVersionRaw(t *testing.T) {
 	buf2 := make([]byte, 1024)
 	n, _ := r.Read(buf2)
 	out.Write(buf2[:n])
-	assert.Contains(t, out.String(), "v9.9.9")
+	assert.Contains(t, out.String(), "v0.0.1700000000")
 }
 
 func TestRunVersionJSON_DevBuild(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	oldVer := buildVersion
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-		buildVersion = oldVer
-	}()
-	buildTimestamp = ""
-	buildCommit = "unknown"
-	buildVersion = "dev"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{}
 
 	r, w, _ := os.Pipe()
 	oldStdout := os.Stdout
@@ -214,21 +159,13 @@ func TestRunVersionJSON_DevBuild(t *testing.T) {
 	assert.Nil(t, out.CommitsBehind)
 }
 
-func TestRunVersionJSON_WithBuildInfo(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	oldVer := buildVersion
-	oldDate := buildDate
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-		buildVersion = oldVer
-		buildDate = oldDate
-	}()
-	buildTimestamp = "1700000000"
-	buildCommit = "abc123"
-	buildVersion = "v1.2.3"
-	buildDate = "2023-11-14T22:13:20Z"
+func TestRunVersionJSON_WithVCS(t *testing.T) {
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{
+		Revision: "abc123",
+		Time:     "2023-11-14T22:13:20Z",
+	}
 
 	server := newGitHubMock(t, time.Unix(1700000000, 0), "abc123", 0)
 	defer server.Close()
@@ -248,82 +185,27 @@ func TestRunVersionJSON_WithBuildInfo(t *testing.T) {
 
 	var out versionOutput
 	require.Nil(t, json.Unmarshal([]byte(buf.String()), &out))
-	assert.Equal(t, "v1.2.3", out.Version)
+	assert.Equal(t, "v0.0.1700000000", out.Version)
 	assert.Equal(t, "abc123", out.Commit)
-	assert.NotEqual(t, "", out.CommitDate)
-	assert.Equal(t, "2023-11-14T22:13:20Z", out.BuildDate)
+	assert.Equal(t, "2023-11-14T22:13:20Z", out.CommitDate)
 	require.NotNil(t, out.CommitsBehind)
 	assert.Equal(t, 0, *out.CommitsBehind)
 }
 
-func TestRunVersionJSON_Behind(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-	buildTimestamp = "1000000000"
-	buildCommit = "old123"
-
-	server := newGitHubMock(t, time.Now(), "new456", 3)
-	defer server.Close()
-	defer withMockGitHub(t, server)()
-
-	r, w, _ := os.Pipe()
-	oldStdout := os.Stdout
-	os.Stdout = w
-	runVersionJSON(nil, nil)
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf strings.Builder
-	tmp := make([]byte, 4096)
-	n, _ := r.Read(tmp)
-	buf.Write(tmp[:n])
-
-	var out versionOutput
-	require.Nil(t, json.Unmarshal([]byte(buf.String()), &out))
-	require.NotNil(t, out.CommitsBehind)
-	assert.Equal(t, 3, *out.CommitsBehind)
-	assert.Equal(t, "new456", out.LatestCommit)
-}
-
 func TestPrintVersionInfo(t *testing.T) {
-	old := buildVersion
-	defer func() { buildVersion = old }()
-	buildVersion = "test-version"
-	printVersionInfo()
-}
-
-func TestPrintVersionInfoWithTimestamp(t *testing.T) {
-	oldTs := buildTimestamp
-	oldDate := buildDate
-	defer func() {
-		buildTimestamp = oldTs
-		buildDate = oldDate
-	}()
-	buildTimestamp = "1700000000"
-	buildDate = "2024-01-15T10:30:00Z"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{
+		Revision: "abc123",
+		Time:     "2023-11-14T22:13:20Z",
+	}
 	printVersionInfo()
 }
 
 func TestPrintStalenessDevBuild(t *testing.T) {
-	old := buildTimestamp
-	defer func() { buildTimestamp = old }()
-	buildTimestamp = ""
-	printStaleness()
-}
-
-func TestPrintStalenessUnknownCommit(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-	buildTimestamp = "1234567890"
-	buildCommit = "unknown"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{}
 	printStaleness()
 }
 
@@ -420,16 +302,13 @@ func TestFetchCommitsBehindHTTPError(t *testing.T) {
 }
 
 func TestPrintStalenessUpToDate(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-
-	// Use a unix timestamp that's in the future relative to the mock
-	buildTimestamp = "9999999999"
-	buildCommit = "abc123"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	// Use a timestamp that's in the future relative to the mock
+	cachedVCS = &vcsInfo{
+		Revision: "abc123",
+		Time:     "2300-01-01T00:00:00Z",
+	}
 
 	server := newGitHubMock(t, time.Now(), "abc123", 0)
 	defer server.Close()
@@ -439,15 +318,12 @@ func TestPrintStalenessUpToDate(t *testing.T) {
 }
 
 func TestPrintStalenessBehind(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-
-	buildTimestamp = "1000000000" // old timestamp
-	buildCommit = "old123"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{
+		Revision: "old123",
+		Time:     "2001-09-09T01:46:40Z",
+	}
 
 	server := newGitHubMock(t, time.Now(), "new456", 5)
 	defer server.Close()
@@ -457,15 +333,12 @@ func TestPrintStalenessBehind(t *testing.T) {
 }
 
 func TestPrintStalenessAPIFailure(t *testing.T) {
-	oldTs := buildTimestamp
-	oldCommit := buildCommit
-	defer func() {
-		buildTimestamp = oldTs
-		buildCommit = oldCommit
-	}()
-
-	buildTimestamp = "1000000000"
-	buildCommit = "abc123"
+	oldCache := cachedVCS
+	defer func() { cachedVCS = oldCache }()
+	cachedVCS = &vcsInfo{
+		Revision: "abc123",
+		Time:     "2001-09-09T01:46:40Z",
+	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -475,4 +348,25 @@ func TestPrintStalenessAPIFailure(t *testing.T) {
 
 	// Should print error message, not panic
 	printStaleness()
+}
+
+func TestDiffOnlyDropsGuard(t *testing.T) {
+	header := "diff --git a/.gitignore b/.gitignore\n" +
+		"index abc1234..def5678 100644\n" +
+		"--- a/.gitignore\n" +
+		"+++ b/.gitignore\n" +
+		"@@ -1,3 +1,2 @@\n"
+
+	// Only the guard line removed -> the toolchain's own cleanup, excluded.
+	assert.True(t, diffOnlyDropsGuard(header+" /build/\n-gomemlimit_gen.go\n vendor/\n"))
+
+	// A real addition alongside the removal -> a developer edit, not excluded.
+	assert.False(t, diffOnlyDropsGuard(header+"-gomemlimit_gen.go\n+something-new\n"))
+
+	// Removing a non-guard line -> not excluded.
+	assert.False(t, diffOnlyDropsGuard(header+" /build/\n-vendor/\n"))
+
+	// No removal at all (empty diff, or pure additions) -> nothing to exclude.
+	assert.False(t, diffOnlyDropsGuard(""))
+	assert.False(t, diffOnlyDropsGuard(header+"+/build/\n"))
 }

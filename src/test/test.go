@@ -7,14 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"gotest.tools/gotestsum/testjson"
 )
+
+// GraphArgFunc, when non-nil, returns an extra flag for the go test argv —
+// the build profiler's "-debug-actiongraph=<file>" dump (or "" for none).
+// Set by cmd when profiling is enabled; a function hook rather than a direct
+// profile import because src/profile depends on src/trace, which reaches
+// this package back through src/summary (an import cycle otherwise).
+var GraphArgFunc func() string
 
 const (
 	clrGreen  = "\033[38;2;0;255;0m"
@@ -53,6 +61,8 @@ type coverageHandler struct {
 	packageStart   map[string]time.Time // first event time per package
 	packageTimings []PackageTiming      // per-package wall-clock timings
 	timeline       TimelineRecorder     // pipeline timeline for per-test spans
+	fastCount      int
+	fastElapsed    float64
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
@@ -109,21 +119,22 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 
 	// Capture per-test results for CI summary
 	if event.Test != "" {
+		now := time.Now()
 		switch event.Action {
 		case testjson.ActionPass:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "pass", Elapsed: event.Elapsed,
+				Status: "pass", Elapsed: event.Elapsed, End: now,
 			})
 		case testjson.ActionFail:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "fail", Elapsed: event.Elapsed,
+				Status: "fail", Elapsed: event.Elapsed, End: now,
 			})
 		case testjson.ActionSkip:
 			h.testCases = append(h.testCases, TestCaseResult{
 				Package: event.Package, Test: event.Test,
-				Status: "skip", Elapsed: event.Elapsed,
+				Status: "skip", Elapsed: event.Elapsed, End: now,
 			})
 		}
 
@@ -149,6 +160,9 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 					h.onOutput()
 				}
 				fmt.Fprintf(h.out, "  %s.%s... %sdone.%s %s%.2fs%s\n", pkg, event.Test, clrGreen, colorReset, colorDimCyan, event.Elapsed, colorReset)
+			} else {
+				h.fastCount++
+				h.fastElapsed += event.Elapsed
 			}
 		case testjson.ActionFail:
 			if h.onOutput != nil {
@@ -170,11 +184,30 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 					h.onOutput()
 				}
 				fmt.Fprintf(h.out, "  %s.%s... %sskipped.%s %s%.2fs%s\n", pkg, event.Test, clrYellow, colorReset, colorDimCyan, event.Elapsed, colorReset)
+			} else {
+				h.fastCount++
+				h.fastElapsed += event.Elapsed
 			}
 		}
 	}
 
 	return nil
+}
+
+func (h *coverageHandler) printFastSummary() {
+	if h.fastCount == 0 || h.verbose {
+		return
+	}
+	if h.onOutput != nil {
+		h.onOutput()
+	}
+	label := "fast tests"
+	if h.fastCount == 1 {
+		label = "fast test"
+	}
+	fmt.Fprintf(h.out, "  [%d %s]... %s%.2fs%s\n", h.fastCount, label, colorDimCyan, h.fastElapsed, colorReset)
+	h.fastCount = 0
+	h.fastElapsed = 0
 }
 
 func (h *coverageHandler) FailureOutput() string {
@@ -202,9 +235,10 @@ func (h *coverageHandler) Err(text string) error {
 // TestCaseResult captures per-test data for CI summary tables.
 type TestCaseResult struct {
 	Package string
-	Test    string  // includes subtest path, e.g. "TestFoo/case_a"
-	Status  string  // "pass", "fail", "skip"
-	Elapsed float64 // seconds
+	Test    string    // includes subtest path, e.g. "TestFoo/case_a"
+	Status  string    // "pass", "fail", "skip"
+	Elapsed float64   // seconds
+	End     time.Time // wall-clock time when the result was received
 }
 
 // PackageTiming records the wall-clock start and end time of a test package's execution.
@@ -225,16 +259,7 @@ type TestResult struct {
 
 // readModulePath reads the module path from go.mod in the current directory.
 func readModulePath() string {
-	data, err := os.ReadFile("go.mod")
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
-		}
-	}
-	return ""
+	return gomod.ReadModulePath()
 }
 
 // listTestPackages returns the import paths of packages that contain test files,
@@ -255,9 +280,11 @@ func listTestPackages(_ runner.CommandRunner) []string {
 		if !d.IsDir() {
 			return nil
 		}
-		// Skip hidden dirs and common non-source dirs
+		// Skip hidden dirs, common non-source dirs, and nested modules
+		// (their packages belong to a different module and are not import
+		// paths of this one).
 		name := d.Name()
-		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir
 		}
 		// Skip packages where all non-test .go files are generated code
@@ -295,9 +322,24 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// Enumerate only packages that have test files to avoid the "no such tool
 	// covdata" error on main packages without tests. Also excludes packages
 	// where all non-test .go files are generated code (e.g. sqlc output).
-	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
+	args := []string{"test", "-json", "-timeout=" + testTimeout.String()}
+	// Dump the action graph for the build profile. No-op when profiling is
+	// off (hook unset — e.g. --no-profile or unit tests).
+	if GraphArgFunc != nil {
+		if garg := GraphArgFunc(); garg != "" {
+			args = append(args, garg)
+		}
+	}
 	if coverFile != "" {
-		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
+		// -count=1 disables Go's test-result cache for this invocation.
+		// Go#74873: when -coverpkg=./... is in play, cached coverprofile
+		// fragments reference stale line ranges of packages outside the
+		// cached test package. On any edit, the fresh and stale line ranges
+		// collide in our dedup map (coverage.go parseProfileBlocks), inflating
+		// totals and corrupting aggregate coverage. Compilation is still
+		// cached via GOCACHEPROG; only test-result replay is disabled, and
+		// only when coverage is being collected.
+		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
 	}
 	if pkgs := listTestPackages(r); len(pkgs) > 0 {
 		args = append(args, pkgs...)
@@ -305,9 +347,11 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		args = append(args, "./...")
 	}
 
-	// Capture stderr in a buffer — build errors go here, not in JSON stream.
+	// Tee stderr to console (for compilation progress like "go: downloading"
+	// and build errors) while also capturing it in a buffer for error reporting.
 	var stderrBuf bytes.Buffer
-	proc, err := runner.Cmd("go", args...).WithStderrWriter(&stderrBuf).Run(r)
+	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
+	proc, err := runner.Cmd("go", args...).WithStderrWriter(stderrTee).Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -331,6 +375,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		Handler:                  handler,
 		IgnoreNonJSONOutputLines: true,
 	})
+	handler.printFastSummary()
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +431,15 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 						pkg = pkg[:i]
 					}
 				}
-				buildProc, buildErr := runner.Cmd("go", "build", pkg).WithQuiet().Run(r)
+				// -o os.DevNull: this is a diagnostic compile to surface the real
+				// build error, not a build that should produce a binary. Without
+				// -o, `go build <main-pkg>` writes an executable named after the
+				// import path's last element into CWD; when that element is "src"
+				// (this module's main package) it collides with the src/ directory
+				// and fails with "build output \"src\" already exists and is a
+				// directory" — which would then mask the very error we are trying
+				// to capture. Discard the binary so only the compiler errors show.
+				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
 				}

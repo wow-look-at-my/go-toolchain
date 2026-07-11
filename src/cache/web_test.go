@@ -1,14 +1,21 @@
 package cache
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompressDecompress_RoundTrip(t *testing.T) {
@@ -123,6 +130,12 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 	headers := map[string]http.Header{} // capture all headers per path
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// No batch endpoint on this fake (any method): the client falls back
+		// to individual GETs, the path this test exercises.
+		if r.URL.Path == "/testbucket/_batch/get" {
+			w.WriteHeader(404)
+			return
+		}
 		switch r.Method {
 		case "PUT":
 			body, _ := io.ReadAll(r.Body)
@@ -142,7 +155,7 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 				return
 			}
 			h := headers[r.URL.Path]
-			w.Header().Set("X-Amz-Meta-Outputid", h.Get("X-Amz-Meta-Outputid"))
+			w.Header().Set("X-Cache-Meta-Outputid", h.Get("X-Cache-Meta-Outputid"))
 			w.WriteHeader(200)
 			w.Write(data)
 		}
@@ -157,32 +170,40 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 		Version:   "v1.2.3",
 	})
 	require.NoError(t, err)
+	// Exercise the synchronous single-PUT path (the batch-unsupported fallback),
+	// which sends one HTTP PUT per object with the X-Cache-Meta-* headers this
+	// test asserts. (The coalesced batch path is covered in batchput_test.go.)
+	b.batchPutUnsupported.Store(true)
+
+	// Use a payload >= batchSizeThreshold so it's uploaded individually.
+	payload := largePayload(1024)
+	outputID := testOutputID(payload)
 
 	// Put.
-	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("hello world"), 11)
+	err = b.Put("aabbccdd11223344", outputID, nopReader(payload), int64(len(payload)))
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), b.Stats.Puts.Load())
 
 	// Verify metadata headers were sent.
 	h := headers["/testbucket/go-buildcache/v1aabbccdd11223344"]
-	require.Equal(t, "eeff0011aabbccdd", h.Get("X-Amz-Meta-Outputid"))
-	require.Equal(t, "unknown", h.Get("X-Amz-Meta-Object-Type"))
-	require.Equal(t, "11", h.Get("X-Amz-Meta-Body-Size"))
-	require.Equal(t, "lz4", h.Get("X-Amz-Meta-Compression"))
-	require.NotEmpty(t, h.Get("X-Amz-Meta-Created"))
-	require.Equal(t, "v1.2.3", h.Get("X-Amz-Meta-Toolchain-Version"))
+	require.Equal(t, outputID, h.Get("X-Cache-Meta-Outputid"))
+	require.Equal(t, "unknown", h.Get("X-Cache-Meta-Object-Type"))
+	require.Equal(t, strconv.Itoa(len(payload)), h.Get("X-Cache-Meta-Body-Size"))
+	require.Equal(t, "lz4", h.Get("X-Cache-Meta-Compression"))
+	require.NotEmpty(t, h.Get("X-Cache-Meta-Created"))
+	require.Equal(t, "v1.2.3", h.Get("X-Cache-Meta-Toolchain-Version"))
 	// Plain text body has no go object header, so these should be absent.
-	require.Empty(t, h.Get("X-Amz-Meta-Go-Version"))
-	require.Empty(t, h.Get("X-Amz-Meta-Target"))
+	require.Empty(t, h.Get("X-Cache-Meta-Go-Version"))
+	require.Empty(t, h.Get("X-Cache-Meta-Target"))
 
 	// Get.
-	outputID, body, size, _, miss, err := b.Get("aabbccdd11223344")
+	gotOutputID, body, size, _, miss, err := b.Get("aabbccdd11223344")
 	require.NoError(t, err)
 	require.False(t, miss)
-	require.Equal(t, "eeff0011aabbccdd", outputID)
+	require.Equal(t, outputID, gotOutputID)
 	data, _ := io.ReadAll(body)
-	require.Equal(t, "hello world", string(data))
-	require.Equal(t, int64(11), size)
+	require.Equal(t, payload, string(data))
+	require.Equal(t, int64(len(payload)), size)
 	require.Equal(t, uint32(1), b.Stats.Hits.Load())
 }
 
@@ -203,16 +224,19 @@ func TestWebBackend_PutArchiveMetadata(t *testing.T) {
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
 	require.NoError(t, err)
+	b.batchPutUnsupported.Store(true) // assert single-PUT headers synchronously
 
 	// Simulate a Go archive body with __.PKGDEF containing a go object header.
+	// Pad to >= batchSizeThreshold so it's uploaded individually.
 	archiveBody := "!<arch>\n__.PKGDEF       0           0     0     644     100       `\ngo object linux amd64 go1.24.7 X:regabiwrappers\nsome export data here\n"
+	archiveBody += largePayload(1024)
 	err = b.Put("1111111122222222", "3333333344444444", nopReader(archiveBody), int64(len(archiveBody)))
 	require.NoError(t, err)
 
 	h := headers["/testbucket/go-buildcache/v11111111122222222"]
-	require.Equal(t, "go-archive", h.Get("X-Amz-Meta-Object-Type"))
-	require.Equal(t, "go1.24.7", h.Get("X-Amz-Meta-Go-Version"))
-	require.Equal(t, "linux/amd64", h.Get("X-Amz-Meta-Target"))
+	require.Equal(t, "go-archive", h.Get("X-Cache-Meta-Object-Type"))
+	require.Equal(t, "go1.24.7", h.Get("X-Cache-Meta-Go-Version"))
+	require.Equal(t, "linux/amd64", h.Get("X-Cache-Meta-Target"))
 }
 
 func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
@@ -232,12 +256,14 @@ func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
 		// Version intentionally empty.
 	})
 	require.NoError(t, err)
+	b.batchPutUnsupported.Store(true) // assert single-PUT headers synchronously
 
-	err = b.Put("aaaa000011112222", "bbbb333344445555", nopReader("x"), 1)
+	payload := largePayload(1024)
+	err = b.Put("aaaa000011112222", "bbbb333344445555", nopReader(payload), int64(len(payload)))
 	require.NoError(t, err)
 
 	h := headers["/testbucket/go-buildcache/v1aaaa000011112222"]
-	require.Empty(t, h.Get("X-Amz-Meta-Toolchain-Version"))
+	require.Empty(t, h.Get("X-Cache-Meta-Toolchain-Version"))
 }
 
 func TestWebBackend_GetMiss(t *testing.T) {
@@ -275,6 +301,191 @@ func TestWebBackend_GetMissingMetadata(t *testing.T) {
 	require.True(t, miss)
 }
 
+// primeIndex forces a key into the in-memory index so subsequent Gets
+// take the getIndividual path instead of falling through to batch GET.
+// Test helper only — in production, keys enter the index via the GBCI
+// blob loaded by loadOrFetchIndex, or the check-and-claim step in Put.
+func primeIndex(b *WebBackend, actionID string) {
+	b.keysMu.Lock()
+	b.keys.Add(b.key(actionID))
+	b.keysMu.Unlock()
+}
+
+// TestWebBackend_GetIndividualMissPaths drives each error branch in
+// getIndividual by routing Gets past the batch fallback. The branches
+// are the same ones that emit miss-reason spans, so this also guards
+// against span-tagging regressions.
+func TestWebBackend_GetIndividualMissPaths(t *testing.T) {
+	cases := []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{"404", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(404) }},
+		{"http_error", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(500)
+			w.Write([]byte("boom"))
+		}},
+		{"no_outputid", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(200)
+			w.Write([]byte("data-without-outputid-header"))
+		}},
+		{"decompress", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Cache-Meta-Outputid", "aabbccdd")
+			w.WriteHeader(200)
+			// Not LZ4 — will fail decompress.
+			w.Write([]byte("not lz4 framed data"))
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(tc.handler)
+			defer srv.Close()
+
+			b, err := NewWebBackend(WebConfig{
+				Bucket: "testbucket", Endpoint: srv.URL,
+				AccessKey: "testkey", SecretKey: "testsecret",
+			})
+			require.NoError(t, err)
+			primeIndex(b, "deadbeef00000000")
+
+			_, _, _, _, miss, _ := b.Get("deadbeef00000000")
+			require.True(t, miss, "expected miss for %s path", tc.name)
+		})
+	}
+}
+
+// TestWebBackend_GetRejectsCorruptBody is the regression test for the "corrupt
+// index" failure. A remote object whose body does not hash to its advertised
+// outputID is corrupt (truncated, badly decoded, or poisoned/rotted remotely) and
+// must be refused — treated as a miss, never served — so the go command never
+// consumes a damaged object. The key is also evicted from the in-memory index
+// so a later recompute re-uploads (overwrites) it clean instead of skipping the
+// Put as already-present.
+func TestWebBackend_GetRejectsCorruptBody(t *testing.T) {
+	const actionID = "aabbccdd11223344"
+	// outputID advertises the hash of the CORRECT body, but the server serves a
+	// different (corrupt) body of the same length under it.
+	good := largePayload(2048)
+	corrupt := good[:len(good)-10] + "XXXXXXXXXX"
+	outputID := testOutputID(good)
+	require.NotEqual(t, outputID, testOutputID(corrupt))
+
+	objectPath := "/testbucket/go-buildcache/v1" + actionID
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != objectPath {
+			w.WriteHeader(404) // index fetch etc.
+			return
+		}
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
+		w.WriteHeader(200)
+		c, _ := compressData([]byte(corrupt))
+		w.Write(c)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	primeIndex(b, actionID)
+
+	contains := func() bool {
+		b.keysMu.RLock()
+		defer b.keysMu.RUnlock()
+		return b.keys.Contains(b.key(actionID))
+	}
+	require.True(t, contains(), "precondition: key is in the index")
+
+	_, _, _, _, miss, err := b.Get(actionID)
+	require.NoError(t, err)
+	require.True(t, miss, "a corrupt body must be treated as a miss, never served")
+	require.Equal(t, uint32(1), b.MissChecksum.Load())
+	require.Equal(t, uint32(1), b.Stats.Corrupt.Load())
+	require.Equal(t, uint32(0), b.Stats.Hits.Load())
+	require.False(t, contains(), "corrupt key must be evicted from the index so a recompute re-uploads it clean")
+}
+
+// TestWebBackend_GetServesCorrectBody is the positive control for the integrity
+// check: a body that hashes to its advertised outputID is served as a hit.
+func TestWebBackend_GetServesCorrectBody(t *testing.T) {
+	const actionID = "aabbccdd11223344"
+	good := largePayload(2048)
+	outputID := testOutputID(good)
+
+	objectPath := "/testbucket/go-buildcache/v1" + actionID
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != objectPath {
+			w.WriteHeader(404)
+			return
+		}
+		w.Header().Set("X-Cache-Meta-Outputid", outputID)
+		w.WriteHeader(200)
+		c, _ := compressData([]byte(good))
+		w.Write(c)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	primeIndex(b, actionID)
+
+	gotOutputID, body, size, _, miss, err := b.Get(actionID)
+	require.NoError(t, err)
+	require.False(t, miss)
+	require.Equal(t, outputID, gotOutputID)
+	require.Equal(t, uint32(0), b.MissChecksum.Load())
+	require.Equal(t, uint32(1), b.Stats.Hits.Load())
+	data, _ := io.ReadAll(body)
+	require.Equal(t, good, string(data))
+	require.Equal(t, int64(len(good)), size)
+}
+
+// TestWebBackend_GetLegacyAmzMetaFallback verifies the deprecated read path: a
+// new client still reads the outputid from an older cache server that emits only
+// the legacy S3-style X-Amz-Meta-Outputid header (no native X-Cache-Meta-*).
+func TestWebBackend_GetLegacyAmzMetaFallback(t *testing.T) {
+	const actionID = "aabbccdd11223344"
+	good := largePayload(2048)
+	outputID := testOutputID(good)
+
+	objectPath := "/testbucket/go-buildcache/v1" + actionID
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != objectPath {
+			w.WriteHeader(404)
+			return
+		}
+		// Only the deprecated header — simulates a not-yet-upgraded server.
+		w.Header().Set("X-Amz-Meta-Outputid", outputID)
+		w.WriteHeader(200)
+		c, _ := compressData([]byte(good))
+		w.Write(c)
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+	defer b.Close()
+	primeIndex(b, actionID)
+
+	gotOutputID, body, _, _, miss, err := b.Get(actionID)
+	require.NoError(t, err)
+	require.False(t, miss, "client must fall back to X-Amz-Meta-Outputid when the native header is absent")
+	require.Equal(t, outputID, gotOutputID)
+	require.Equal(t, uint32(1), b.Stats.Hits.Load())
+	data, _ := io.ReadAll(body)
+	require.Equal(t, good, string(data))
+}
+
 func TestWebBackend_PutServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
@@ -287,10 +498,58 @@ func TestWebBackend_PutServerError(t *testing.T) {
 		AccessKey: "testkey", SecretKey: "testsecret",
 	})
 	require.NoError(t, err)
+	// Force the synchronous single-PUT path so the HTTP-error result (and its
+	// errLogged wrapping) is returned from Put directly, as this test asserts.
+	b.batchPutUnsupported.Store(true)
 
-	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("data"), 4)
+	payload := largePayload(1024)
+	err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 	require.Error(t, err)
+	require.True(t, errors.Is(err, errLogged), "PUT HTTP error must wrap errLogged so cache.go suppresses the duplicate log")
 	require.Equal(t, uint32(0), b.Stats.Puts.Load())
+}
+
+func TestWebBackend_PutServerError_Coalesced(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(502)
+		w.Write([]byte("error code: 502"))
+	}))
+	defer srv.Close()
+
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "testbucket", Endpoint: srv.URL,
+		AccessKey: "testkey", SecretKey: "testsecret",
+	})
+	require.NoError(t, err)
+	// This test exercises per-object PUT error coalescing in the error logger,
+	// so drive the synchronous single-PUT path (one "web put" record per object).
+	b.batchPutUnsupported.Store(true)
+
+	// Swap the auto-initialized 30s logger for one bound to a buffer with
+	// a long interval, so all flushing happens on Close.
+	_ = b.errLog.Close()
+	var buf bytes.Buffer
+	b.errLog = newHTTPErrLogger(&buf, time.Hour, b.tracer)
+
+	const n = 10
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			actionID := strings.Repeat("0", 14) + strconv.FormatInt(int64(i), 16) + "0"
+			outputID := "eeff0011aabbccdd"
+			payload := largePayload(64)
+			_ = b.Put(actionID, outputID, nopReader(payload), int64(len(payload)))
+		}(i)
+	}
+	wg.Wait()
+	require.NoError(t, b.Close())
+
+	out := buf.String()
+	require.Equal(t, 1, strings.Count(out, "\n"), "expected exactly one aggregated line, got: %q", out)
+	require.Contains(t, out, "cacheprog: web put ")
+	require.Contains(t, out, "HTTP 502: error code: 502")
 }
 
 func TestSignRequest_BasicAuth(t *testing.T) {
@@ -446,8 +705,10 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 				AccessKey: "testkey", SecretKey: "testsecret",
 			})
 			require.NoError(t, err)
+			b.batchPutUnsupported.Store(true) // single PUT to the object path under test
 
-			err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader("hello"), 5)
+			payload := largePayload(1024)
+			err = b.Put("aabbccdd11223344", "eeff0011aabbccdd", nopReader(payload), int64(len(payload)))
 			require.NoError(t, err)
 			require.Equal(t, "PUT", gotMethod, "redirect should preserve PUT method")
 			require.NotEmpty(t, gotBody, "redirect should preserve request body")
@@ -459,4 +720,23 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 
 func nopReader(s string) io.Reader {
 	return strings.NewReader(s)
+}
+
+// testOutputID returns the cache outputID for a body: its lowercase-hex
+// SHA-256, exactly as the go command derives it. Web-tier GETs verify the
+// served body against this id (see outputIDMatches), so any test that exercises
+// a cache hit must advertise the body's real hash, not an arbitrary string.
+func testOutputID(data string) string {
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
+}
+
+// largePayload returns a payload of exactly n bytes (>= batchSizeThreshold)
+// so that Put uploads it individually rather than batching it.
+func largePayload(n int) string {
+	buf := make([]byte, n)
+	for i := range buf {
+		buf[i] = byte('A' + i%26)
+	}
+	return string(buf)
 }

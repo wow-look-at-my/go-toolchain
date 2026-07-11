@@ -1,14 +1,13 @@
 package build
 
 import (
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/wow-look-at-my/go-containers/sortedmap"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -17,27 +16,9 @@ type Target struct {
 	OutputName string
 }
 
-// findMainPackages uses go list to discover all main packages in the module.
-func findMainPackages(r runner.CommandRunner) ([]string, error) {
-	proc, err := runner.Cmd("go", "list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./...").
-		WithQuiet().
-		Run(r)
-	if err != nil {
-		return nil, fmt.Errorf("go list failed: %w", err)
-	}
-	out, _ := io.ReadAll(proc.Stdout())
-	if err := proc.Wait(); err != nil {
-		return nil, fmt.Errorf("go list failed: %w", err)
-	}
-
-	var pkgs []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			pkgs = append(pkgs, line)
-		}
-	}
-	return pkgs, nil
+// findMainPackages walks the filesystem to discover all main packages in the module.
+func findMainPackages() ([]string, error) {
+	return gomod.FindMainPackages()
 }
 
 // binaryNameFromImportPath derives a binary name from a package's import path
@@ -63,22 +44,16 @@ func binaryNameFromImportPath(pkg, moduleName string) string {
 }
 
 // ResolveBuildTargets determines what to build and what to name the binaries.
-// Uses go list to find all main packages in the module. If no main packages
-// exist (library-only project), falls back to all packages found by walking
-// the filesystem.
+// Walks the filesystem to find all main packages in the module. If no main
+// packages exist (library-only project), falls back to all packages found by
+// walking the filesystem.
 // Binary names are always auto-derived from the package/directory name.
 func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	// Get module name for smart binary naming
-	proc, modErr := runner.Cmd("go", "list", "-m").WithQuiet().Run(r)
-	moduleName := ""
-	if modErr == nil {
-		modOut, _ := io.ReadAll(proc.Stdout())
-		proc.Wait()
-		moduleName = strings.TrimSpace(string(modOut))
-	}
+	moduleName := gomod.ReadModulePath()
 
 	// Find all main packages in the module
-	pkgs, err := findMainPackages(r)
+	pkgs, err := findMainPackages()
 	if err != nil {
 		return nil, err
 	}
@@ -117,9 +92,11 @@ func findAllPackagesByDir(moduleName string) ([]string, error) {
 		if !d.IsDir() {
 			return nil
 		}
-		// Skip hidden dirs, testdata, vendor
+		// Skip hidden dirs, testdata, vendor, and nested modules (their
+		// packages belong to a different module and are not import paths
+		// of this one).
 		base := d.Name()
-		if base != "." && (strings.HasPrefix(base, ".") || base == "testdata" || base == "vendor") {
+		if base != "." && (strings.HasPrefix(base, ".") || base == "testdata" || base == "vendor" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir
 		}
 		// Check if dir contains any .go files
