@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 )
 
 // noCloseBackend wraps an IBackend and suppresses Close calls.
@@ -27,7 +28,8 @@ type Daemon struct {
 	listener  net.Listener
 	path      string
 	wg        sync.WaitGroup
-	batch     BatchStats // shared batch stats, reported to parent
+	batch     BatchStats   // shared batch stats, reported to parent
+	latency   LatencyStats // web-op latencies of the shared WebBackend (wired once)
 	statsMu   sync.Mutex
 	statsConn net.Conn // persistent connection to parent's stats socket
 }
@@ -55,12 +57,24 @@ func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, err
 	// Connect to the stats socket once for the daemon's lifetime.
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		if conn, err := net.Dial("unix", sock); err == nil {
-			d.statsConn = conn
+			// Wait for the listener's accept-ack (see NewServer).
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var ack [1]byte
+			if _, err := conn.Read(ack[:]); err == nil {
+				conn.SetReadDeadline(time.Time{})
+				d.statsConn = conn
+			} else {
+				conn.Close()
+			}
 		}
 	}
-	// Wire batch callbacks on the shared WebBackend once, using the
-	// daemon's long-lived stats connection instead of per-connection ones.
+	// Wire batch callbacks AND web-op latency tracking on the shared
+	// WebBackend exactly once, for the daemon's lifetime. Per-connection
+	// Servers must never touch these: each NewServer re-pointing wb.Latency
+	// at its own tracker was an unsynchronized shared write racing every
+	// other connection's in-flight web operations.
 	if wb, ok := remote.(*WebBackend); ok {
+		wb.Latency = &d.latency
 		wireBatchCallbacks(wb, local, d)
 	}
 	go d.accept()
@@ -115,25 +129,27 @@ func (d *Daemon) Close() {
 		// hits and puts numbers make it obvious whether the cache is
 		// actually working or whether everything is missing.
 		if wb, ok := d.remote.(*WebBackend); ok {
-			hits := wb.Stats.Hits.Load()
-			puts := wb.Stats.Puts.Load()
-			notInIndex := wb.MissNotInIndex.Load()
-			http404 := wb.MissHTTP404.Load()
-			httpErr := wb.MissHTTPError.Load()
-			noOutputID := wb.MissNoOutputID.Load()
-			readBody := wb.MissReadBody.Load()
-			decompress := wb.MissDecompress.Load()
-			checksum := wb.MissChecksum.Load()
-			buildID := wb.MissBuildID.Load()
-			network := wb.MissNetwork.Load()
-			circuitOpen := wb.MissCircuitOpen.Load()
-			missTotal := notInIndex + http404 + httpErr + noOutputID + readBody + decompress + checksum + buildID + network + circuitOpen
-			if hits > 0 || puts > 0 || missTotal > 0 {
-				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d network=%d circuit-open=%d)\n",
-					hits, puts, missTotal, notInIndex, http404, httpErr, noOutputID, readBody, decompress, checksum, buildID, network, circuitOpen)
+			ws := wb.SummarySnapshot()
+			// MissTotal excludes the skipped-* counters: they are breakdowns
+			// of not-in-index (each such Get already incremented
+			// MissNotInIndex before the skip) — adding them would double-count.
+			missTotal := ws.MissTotal()
+			if ws.Hits > 0 || ws.Puts > 0 || missTotal > 0 {
+				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d modindex=%d network=%d skipped-empty-index=%d skipped-not-in-index=%d skipped-batch-backoff=%d reclaimed-404=%d) put-skipped: known=%d modindex=%d buildid=%d\n",
+					ws.Hits, ws.Puts, missTotal, ws.MissNotInIndex, ws.MissHTTP404, ws.MissHTTPError, ws.MissNoOutputID, ws.MissReadBody, ws.MissDecompress, ws.MissChecksum, ws.MissBuildID, ws.MissModuleIndex, ws.MissNetwork, ws.SkippedEmptyIndex, ws.SkippedNotInIndex, ws.SkippedBatchBackoff, ws.Reclaimed404, ws.PutSkippedKnown, ws.PutRefusedModIndex, ws.PutRefusedBuildID)
 			}
 		}
 		d.remote.Close()
+		// Report the shared web-op latencies and the cumulative HTTP-pool
+		// usage exactly once, after the backend has fully drained. Doing this
+		// per connection (the old flushLatency behavior) merged the shared
+		// cumulative pool snapshot additively per connection at the listener,
+		// overcounting samples and sums N-fold for N connections.
+		if wb, ok := d.remote.(*WebBackend); ok {
+			snap := d.latency.Snapshot()
+			snap.Pool = wb.Pool.Snapshot()
+			d.sendStat(StatEvent{Latency: &snap})
+		}
 	}
 	// Unmount/close the local store after all connections have drained (so no
 	// in-flight compiler read can hit a closed FUSE mount or pack handle).

@@ -26,4 +26,7 @@ func TestBinaryName(t *testing.T) {
 	assert.Equal(t, "myapp_linux_amd64", BinaryName("myapp", "linux", "amd64"))
 	assert.Equal(t, "myapp_darwin_arm64", BinaryName("myapp", "darwin", "arm64"))
 	assert.Equal(t, "myapp_windows_amd64.exe", BinaryName("myapp", "windows", "amd64"))
+	// The cosmo fat APE gets no .exe even though it is a genuine PE polyglot:
+	// only the windows/* slot copies carry the .exe name.
+	assert.Equal(t, "myapp_cosmo_fat", BinaryName("myapp", "cosmo", "fat"))
 }

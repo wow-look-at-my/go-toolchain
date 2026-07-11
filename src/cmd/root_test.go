@@ -472,15 +472,19 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 	setupMockProject()
+	// Coverable statements + test results below are what make the empty
+	// profile "broken" rather than a legitimately zero-statement module.
+	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
 
-	// Mock that reports a passing package but writes an empty coverage profile
+	// Mock that reports a passing test but writes an empty coverage profile
 	// (just "mode: set"). This simulates broken coverage data collection.
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "test") {
 			writeMockCoverProfileStmts(cfg.Args, 0, 0) // empty profile
-			out := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}` + "\n" +
-				`{"Time":"2024-01-01T00:00:01Z","Action":"pass","Package":"example.com/pkg"}` + "\n"
+			out := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestX"}` + "\n" +
+				`{"Time":"2024-01-01T00:00:01Z","Action":"pass","Package":"example.com/pkg","Test":"TestX","Elapsed":0.01}` + "\n" +
+				`{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}` + "\n"
 			return runner.MockProcess([]byte(out), nil), nil
 		}
 		if proc, ok := handleGoList(cfg); ok {

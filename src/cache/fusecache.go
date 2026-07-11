@@ -50,7 +50,7 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, err
 	}
-	lockFile, err := os.OpenFile(filepath.Join(cacheDir, ".fuse.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	lockFile, err := os.OpenFile(filepath.Join(cacheDir, fuseLockName), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, errFuseBusy
 		}
-		return nil, fmt.Errorf("fuse cache lock %s: %w", filepath.Join(cacheDir, ".fuse.lock"), err)
+		return nil, fmt.Errorf("fuse cache lock %s: %w", filepath.Join(cacheDir, fuseLockName), err)
 	}
 	// We hold the lock, so any mount still on mnt is stale (left by a crashed
 	// owner whose flock the kernel already released). Clear it before mounting.
@@ -141,12 +141,25 @@ func (c *FuseCache) Get(actionID string) (CacheMeta, bool) {
 	if !ok {
 		return CacheMeta{}, true
 	}
+	return c.metaFor(loc), false
+}
+
+// Peek is Get without counting a hit — see LocalStore.Peek.
+func (c *FuseCache) Peek(actionID string) (CacheMeta, bool) {
+	loc, ok := c.store.PeekVerified(actionID)
+	if !ok {
+		return CacheMeta{}, true
+	}
+	return c.metaFor(loc), false
+}
+
+func (c *FuseCache) metaFor(loc packLoc) CacheMeta {
 	return CacheMeta{
 		OutputID: loc.outputID,
 		Size:     loc.dataLen,
 		Time:     time.Unix(loc.created, 0),
 		DiskPath: filepath.Join(c.mnt, loc.outputID),
-	}, false
+	}
 }
 
 // Put stores body and returns a DiskPath inside the FUSE mount that the Go
