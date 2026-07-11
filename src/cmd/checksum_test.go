@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGenerateChecksums(t *testing.T) {
@@ -16,8 +16,8 @@ func TestGenerateChecksums(t *testing.T) {
 
 	// Create dummy binaries with known content
 	files := map[string]string{
-		"tool_linux_amd64":  "linux-amd64-binary",
-		"tool_darwin_arm64": "darwin-arm64-binary",
+		"tool_linux_amd64":       "linux-amd64-binary",
+		"tool_darwin_arm64":      "darwin-arm64-binary",
 		"tool_windows_amd64.exe": "windows-amd64-binary",
 	}
 

@@ -87,4 +87,3 @@ func isRedundantCast(typeName string, lit *ast.BasicLit) bool {
 	}
 	return false
 }
-

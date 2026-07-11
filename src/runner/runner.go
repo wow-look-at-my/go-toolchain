@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -15,9 +16,9 @@ type IProcess interface {
 	// Wait blocks until the process completes and returns the exit error
 	Wait() error
 	// Stdout returns captured stout
-	Stdout()  io.Reader
+	Stdout() io.Reader
 	// Stderr returns captured stderr
-	Stderr()  io.Reader
+	Stderr() io.Reader
 }
 
 // Config specifies how to run a command
@@ -25,10 +26,10 @@ type Config struct {
 	Name          string
 	Args          []string
 	Env           *sortedmap.SortedMap[string, string] // Merged with current environment
-	Quiet         bool              // Don't tee stdout/stderr to console
-	OnFirstOutput func()            // Called before the first byte of output is written to console
-	StdoutWriter  io.Writer         // If set, stdout is copied here instead of os.Stdout
-	StderrWriter  io.Writer         // If set, stderr is copied here instead of os.Stderr
+	Quiet         bool                                 // Don't tee stdout/stderr to console
+	OnFirstOutput func()                               // Called before the first byte of output is written to console
+	StdoutWriter  io.Writer                            // If set, stdout is copied here instead of os.Stdout
+	StderrWriter  io.Writer                            // If set, stderr is copied here instead of os.Stderr
 }
 
 // IsCmd checks if this config runs the given command with the given prefix args.
@@ -113,7 +114,20 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	cmd := exec.Command(cfg.Name, cfg.Args...)
 
 	if cfg.Env != nil && cfg.Env.Len() > 0 {
-		cmd.Env = os.Environ()
+		// Build env list by merging overrides into the current environment.
+		// Remove existing entries that are being overridden, since duplicate
+		// keys have platform-dependent behavior (Linux getenv returns the
+		// first match, so appending wouldn't actually override).
+		overrides := make(map[string]bool, cfg.Env.Len())
+		for k := range cfg.Env.All() {
+			overrides[k] = true
+		}
+		for _, e := range os.Environ() {
+			if k, _, ok := strings.Cut(e, "="); ok && overrides[k] {
+				continue // skip — will be replaced by override
+			}
+			cmd.Env = append(cmd.Env, e)
+		}
 		for k, v := range cfg.Env.All() {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}

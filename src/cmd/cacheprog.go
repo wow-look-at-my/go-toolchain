@@ -1,15 +1,23 @@
 package cmd
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func init() {
@@ -23,45 +31,100 @@ func init() {
 }
 
 // buildCacheConfig is the JSON structure inside GO_BUILDCACHE_CONFIG.
+//
+// The cache server is no longer S3-compatible: it authenticates with plain HTTP
+// Basic Auth, so the native credential fields are username/password. The old
+// S3/AWS-style fields (key_id, access_key, region) are still accepted as
+// deprecated aliases — parseBuildCacheConfig warns when they are used and they
+// will be removed in a future release.
 type buildCacheConfig struct {
-	Endpoint  string `json:"endpoint"`
-	Bucket    string `json:"bucket"`
-	Region    string `json:"region"`
-	KeyID     string `json:"key_id"`
-	AccessKey string `json:"access_key"`
+	Endpoint string `json:"endpoint"`
+	Bucket   string `json:"bucket"`
+
+	// Native credential fields (HTTP Basic Auth).
+	Username string `json:"username"`
+	Password string `json:"password"`
+
+	// Deprecated S3/AWS-style aliases.
+	KeyID     string `json:"key_id"`     // deprecated alias for username
+	AccessKey string `json:"access_key"` // deprecated alias for password
+	Region    string `json:"region"`     // S3-only, ignored
 }
 
-// parseBuildCacheConfig reads S3 cache configuration from GO_BUILDCACHE_CONFIG
+// parseBuildCacheConfig reads web cache configuration from GO_BUILDCACHE_CONFIG
 // (base64-encoded JSON) or falls back to individual env vars.
-func parseBuildCacheConfig() cache.S3Config {
+func parseBuildCacheConfig() cache.WebConfig {
 	raw := os.Getenv("GO_BUILDCACHE_CONFIG")
 	if raw == "" {
-		return cache.S3Config{}
+		return cache.WebConfig{}
 	}
-	data, err := base64.StdEncoding.DecodeString(raw)
+	// Accept both standard and URL-safe base64, with or without padding,
+	// and with or without line wrapping (76-char lines).
+	normalized := strings.NewReplacer("-", "+", "_", "/", "\n", "", "\r", "", " ", "").Replace(raw)
+	if m := len(normalized) % 4; m != 0 {
+		normalized += strings.Repeat("=", 4-m)
+	}
+	data, err := base64.StdEncoding.DecodeString(normalized)
 	if err != nil {
-		return cache.S3Config{}
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: base64 decode error: %v\n", err)
+		return cache.WebConfig{}
 	}
 	var cfg buildCacheConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cache.S3Config{}
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: json unmarshal error: %v\n", err)
+		return cache.WebConfig{}
+	}
+	if cfg.Endpoint == "" {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing endpoint field\n")
+		return cache.WebConfig{}
+	}
+
+	// Resolve credentials, preferring the native username/password fields and
+	// falling back to the deprecated S3/AWS-style aliases. Collect which
+	// deprecated fields were used so we can warn about them in one message.
+	var deprecated []string
+	username := cfg.Username
+	if username == "" && cfg.KeyID != "" {
+		username = cfg.KeyID
+		deprecated = append(deprecated, "key_id (use username)")
+	}
+	password := cfg.Password
+	if password == "" && cfg.AccessKey != "" {
+		password = cfg.AccessKey
+		deprecated = append(deprecated, "access_key (use password)")
+	}
+	if cfg.Region != "" {
+		deprecated = append(deprecated, "region (ignored; the cache server is not S3)")
+	}
+	if len(deprecated) > 0 {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: deprecated S3-style field(s): %s; these will be removed in a future release\n", strings.Join(deprecated, ", "))
+	}
+	if username == "" || password == "" {
+		fmt.Fprintf(os.Stderr, "cacheprog: GO_BUILDCACHE_CONFIG: missing username or password\n")
+		return cache.WebConfig{}
 	}
 	bucket := cfg.Bucket
 	if bucket == "" {
 		bucket = "gobuildcache"
 	}
-	return cache.S3Config{
+	return cache.WebConfig{
 		Bucket:    bucket,
-		Region:    cfg.Region,
 		Endpoint:  cfg.Endpoint,
-		AccessKey: cfg.KeyID,
-		SecretKey: cfg.AccessKey,
+		AccessKey: username,
+		SecretKey: password,
+		Version:   buildVersion,
+		// Provenance: stamp every uploaded object with the main module path
+		// (X-Cache-Meta-Module) so a server-side HEAD shows which repo
+		// produced it. Read from go.mod in the CWD — the repo root for the
+		// daemon, the module dir for a standalone cacheprog; empty (omitted)
+		// when there is no go.mod here, e.g. a multi-module workspace root.
+		Module: gomod.ReadModulePath(),
 	}
 }
 
 func runCacheProg(cmd *cobra.Command, args []string) error {
 	// Fast path: if a cache daemon is running, proxy to it.
-	// This avoids re-loading the S3 index for every go subprocess.
+	// This avoids re-loading the web index for every go subprocess.
 	if sock := os.Getenv("GOCACHE_DAEMON_SOCK"); sock != "" {
 		if err := cache.ProxyToDaemon(sock); err == nil {
 			return nil
@@ -71,6 +134,16 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 
+	// One-time cache version purge before the tier opens. The daemon path gets
+	// this via NewLocalStore; standalone mode constructs the loose cache
+	// directly (below), so it must run the check itself.
+	cache.EnsureLocalCacheVersion(cacheDir)
+
+	// Standalone mode (no daemon) uses the loose-file cache, not the FUSE store:
+	// the virtual filesystem is owned by the single daemon process so that
+	// concurrent standalone cacheprog invocations can't collide on one mount
+	// point. In the normal go-toolchain flow a daemon is always started and
+	// this path is only the fallback.
 	local, err := cache.NewLocalCache(cacheDir)
 	if err != nil {
 		return fmt.Errorf("local cache: %w", err)
@@ -79,16 +152,16 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	var remote cache.IBackend
 	cfg := parseBuildCacheConfig()
 	{
-		s3, err := cache.NewS3Backend(cfg)
+		web, err := cache.NewWebBackend(cfg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: s3 init error: %v (continuing local-only)\n", err)
-		} else if s3 != nil {
+			fmt.Fprintf(os.Stderr, "cacheprog: web init error: %v (continuing local-only)\n", err)
+		} else if web != nil {
 			endpoint := cfg.Endpoint
 			if endpoint == "" {
-				endpoint = "AWS"
+				endpoint = "(default)"
 			}
-			fmt.Fprintf(os.Stderr, "cacheprog: s3 enabled bucket=%s endpoint=%s\n", cfg.Bucket, endpoint)
-			remote = s3
+			fmt.Fprintf(os.Stderr, "cacheprog: web enabled bucket=%s endpoint=%s\n", cfg.Bucket, endpoint)
+			remote = web
 		}
 	}
 
@@ -125,7 +198,7 @@ var statsListener *cache.StatsListener
 
 // cacheDaemon is the shared cache daemon started by enableCacheProg.
 // It serves GOCACHEPROG requests over a Unix socket so child processes
-// don't each re-load the S3 index.
+// don't each re-load the web index.
 var cacheDaemon *cache.Daemon
 
 // cacheEnabled tracks whether enableCacheProg was called (even if setup failed).
@@ -161,37 +234,127 @@ func enableCacheProg() error {
 	statsListener = sl
 	os.Setenv("GOCACHE_STATS_SOCK", sockPath)
 
-	// Start cache daemon so child go processes share a single S3 index.
-	daemonSock := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-daemon-%d.sock", os.Getpid()))
-	if d, err := startCacheDaemon(daemonSock); err == nil {
-		cacheDaemon = d
-		os.Setenv("GOCACHE_DAEMON_SOCK", daemonSock)
+	// Generate and propagate W3C trace context BEFORE the daemon (and
+	// its WebBackend) starts: the shared tracer provider reads
+	// OTEL_TRACEPARENT during init to force the timeline root span's
+	// spanID to match what cacheprog subprocesses will report as their
+	// parent. Setting this env var after the daemon starts would leave
+	// the provider's root-ID generator unconfigured.
+	if os.Getenv("OTEL_TRACEPARENT") == "" {
+		traceID, spanID := generateTraceIDs()
+		traceparent := fmt.Sprintf("00-%s-%s-01", traceID.String(), spanID.String())
+		os.Setenv("OTEL_TRACEPARENT", traceparent)
 	}
 
-	os.Setenv("GOCACHEPROG", exe+" cacheprog")
+	// Start cache daemon so child go processes share a single web index.
+	daemonSock := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-daemon-%d.sock", os.Getpid()))
+	d, remoteEndpoint, err := startCacheDaemon(daemonSock)
+	if err != nil {
+		cacheSetupErr = fmt.Errorf("cache daemon: %w", err)
+		return nil
+	}
+	cacheDaemon = d
+	os.Setenv("GOCACHE_DAEMON_SOCK", daemonSock)
+	if remoteEndpoint != "" {
+		sl.SetHasRemote()
+		fmt.Fprintf(os.Stderr, "cacheprog: remote enabled endpoint=%s\n", remoteEndpoint)
+	} else {
+		fmt.Fprintf(os.Stderr, "cacheprog: local only\n")
+	}
+
+	progCmd, err := cacheProgCommand(runtime.GOOS, hostos.GOOS(), exe)
+	if err != nil {
+		cacheSetupErr = err
+		return nil
+	}
+	os.Setenv("GOCACHEPROG", progCmd)
 	return nil
 }
 
-// startCacheDaemon creates a cache daemon with local + S3 backends.
-func startCacheDaemon(sockPath string) (*cache.Daemon, error) {
-	cacheDir := filepath.Join(cacheHome(), "buildcache")
-	local, err := cache.NewLocalCache(cacheDir)
-	if err != nil {
-		return nil, err
+// cacheProgCommand returns the GOCACHEPROG value that launches this binary's
+// cacheprog subcommand. Normally that is the bare self-exec ("<exe> cacheprog"),
+// but a cosmo fat APE running on a macOS host cannot be fork/exec'd directly:
+// on ARM64 macOS the APE never self-assimilates (it executes through its shell
+// header + the compiled APE loader, unlike Linux where the first exec rewrites
+// the file to a native ELF), so the file keeps its MZ polyglot magic and the
+// kernel rejects a direct execve with ENOEXEC. cmd/go has no shell fallback,
+// so every `go` invocation died with `error starting GOCACHEPROG program ...:
+// exec format error` — the visible half of the macOS APE pipeline wedge
+// (go-toolchain CI runs 28739021382/28739520377; localized by the run
+// 28741276162 debug job). The fix: write a #!/bin/sh wrapper that re-execs
+// the APE — the shell's ENOEXEC fallback interprets the APE header, the exact
+// mechanism by which `gt-ape version`/`--help` are proven to work on macs.
+func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
+	if goos != cosmoOS || hostGOOS != "darwin" {
+		return quoteExeForGOCACHEPROG(exe) + " cacheprog", nil
 	}
-
-	var remote cache.IBackend
-	s3, err := cache.NewS3Backend(parseBuildCacheConfig())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: daemon s3 error: %v (continuing local-only)\n", err)
-	} else if s3 != nil {
-		remote = s3
+	if strings.Contains(exe, "'") {
+		// Not representable inside the single-quoted wrapper line; disable
+		// the cache rather than misquote the exec.
+		return "", fmt.Errorf("executable path %q cannot be embedded in the cacheprog wrapper", exe)
 	}
-
-	return cache.NewDaemon(sockPath, local, remote)
+	wrapper := filepath.Join(os.TempDir(), fmt.Sprintf("gocacheprog-wrapper-%d.sh", os.Getpid()))
+	script := "#!/bin/sh\nexec '" + exe + "' cacheprog\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		return "", fmt.Errorf("write cacheprog wrapper: %w", err)
+	}
+	return quoteExeForGOCACHEPROG(wrapper), nil
 }
 
-// validateCICacheConfig checks that S3 caching env vars are configured when
+// quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
+// parser (internal/quoted.Split: space-separated words, single or double
+// quotes, NO escape sequences). An unquoted path containing a space would be
+// split into two argv words and the cacheprog launch would fail fatally.
+// A path with no spaces or quotes is returned unchanged.
+func quoteExeForGOCACHEPROG(exe string) string {
+	if !strings.ContainsAny(exe, " \t'\"") {
+		return exe
+	}
+	if !strings.Contains(exe, `"`) {
+		return `"` + exe + `"`
+	}
+	if !strings.Contains(exe, "'") {
+		return "'" + exe + "'"
+	}
+	// Contains BOTH quote kinds: not representable for quoted.Split. Return
+	// as-is — the launch fails loudly rather than silently misparsing.
+	return exe
+}
+
+// startCacheDaemon creates a cache daemon with local + web backends.
+// Returns the daemon, the remote endpoint (empty if no remote), and any error.
+func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
+	cacheDir := filepath.Join(cacheHome(), "buildcache")
+	// The daemon is the single, shared cache process for the whole build, so it
+	// owns the FUSE mount: NewLocalStore prefers the FUSE-backed packed cache
+	// (the "virtual filesystem"), falling back to the loose-file cache when
+	// FUSE is unavailable.
+	local, err := cache.NewLocalStore(cacheDir)
+	if err != nil {
+		return nil, "", err
+	}
+
+	cfg := parseBuildCacheConfig()
+	var remote cache.IBackend
+	web, err := cache.NewWebBackend(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cacheprog: daemon web error: %v (continuing local-only)\n", err)
+	} else if web != nil {
+		remote = web
+	}
+
+	d, err := cache.NewDaemon(sockPath, local, remote)
+	if err != nil {
+		return nil, "", err
+	}
+	endpoint := ""
+	if remote != nil {
+		endpoint = cfg.Endpoint
+	}
+	return d, endpoint, nil
+}
+
+// validateCICacheConfig checks that web caching env vars are configured when
 // running in CI. Returns an error if any are missing, unless
 // GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 is set (downgrades to warning).
 func validateCICacheConfig() error {
@@ -215,21 +378,38 @@ func printCacheStats(close bool) {
 	if close && cacheDaemon != nil {
 		cacheDaemon.Close()
 	}
+	// Flush and shut down the process-wide OTel tracer provider now that
+	// the daemon has drained (and therefore no more cacheprog spans will
+	// be enqueued). Done here rather than in Daemon.Close so the timeline
+	// exporter spans emitted by src/trace.Export are included in the
+	// same final batch.
+	if close {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = gotrace.Shutdown(ctx)
+	}
+	if close && statsListener != nil {
+		statsListener.Close()
+	}
+	// Emit the per-action build profile once everything has drained: the
+	// daemon Close above flushed the remote tier (final web counters) and the
+	// listener Close delivered every per-action outcome event. Emitting here
+	// rather than in run() is what makes build/profile.json's counters final.
+	if close {
+		emitBuildProfile()
+	}
 	if statsListener == nil {
 		switch {
 		case !cacheEnabled:
 			return
 		case !goSupportsFeature(FeatureCacheProg):
-			fmt.Printf("==> Cache: disabled (requires Go 1.%d+)\n", FeatureCacheProg.MinorVersion)
+			fmt.Printf("⇒ Cache: disabled (requires Go 1.%d+)\n", FeatureCacheProg.MinorVersion)
 		case cacheSetupErr != nil:
-			fmt.Printf("==> Cache: disabled (%v)\n", cacheSetupErr)
+			fmt.Printf("⇒ Cache: disabled (%v)\n", cacheSetupErr)
 		default:
-			fmt.Printf("==> Cache: disabled\n")
+			fmt.Printf("⇒ Cache: disabled\n")
 		}
 		return
-	}
-	if close {
-		statsListener.Close()
 	}
 
 	stats := statsListener.Stats()
@@ -252,8 +432,14 @@ func printCacheStats(close bool) {
 		rate := float64(hits) / float64(total) * 100
 		parts = append(parts, fmt.Sprintf("(%.0f%% hit)", rate))
 	}
+	if stats.Batch != nil {
+		populated := stats.Batch.Populated.Load()
+		if populated > 0 {
+			parts = append(parts, fmt.Sprintf("prefetched %d", populated))
+		}
+	}
 
-	fmt.Printf("==> Cache: %s\n", strings.Join(parts, "  "))
+	fmt.Printf("⇒ Cache: %s\n", strings.Join(parts, "  "))
 }
 
 // cacheHome returns the base cache directory (~/.cache/go-toolchain).
@@ -263,4 +449,12 @@ func cacheHome() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".cache", "go-toolchain")
+}
+
+func generateTraceIDs() (trace.TraceID, trace.SpanID) {
+	traceIDBytes := [16]byte{}
+	spanIDBytes := [8]byte{}
+	rand.Read(traceIDBytes[:])
+	rand.Read(spanIDBytes[:])
+	return trace.TraceID(traceIDBytes), trace.SpanID(spanIDBytes)
 }

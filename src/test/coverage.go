@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -114,6 +115,7 @@ func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, 
 	}
 
 	blocks = filterBlocksByReachable(blocks, reachable)
+	blocks = filterBlocksByGenerated(blocks)
 
 	// Group blocks by file
 	type fileStats struct {
@@ -182,16 +184,8 @@ func ParseProfileFiltered(filename string, reachable map[string]bool) (float32, 
 // If no main packages are found (library-only project), falls back to
 // go list -deps ./... which includes all packages.
 func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
-	// Get module prefix
-	modProc, err := runner.Cmd("go", "list", "-m").WithQuiet().Run(r)
-	if err != nil {
-		return nil, err
-	}
-	modOut, _ := io.ReadAll(modProc.Stdout())
-	if err := modProc.Wait(); err != nil {
-		return nil, err
-	}
-	modulePrefix := strings.TrimSpace(string(modOut))
+	// Get module prefix from go.mod
+	modulePrefix := gomod.ReadModulePath()
 	if modulePrefix == "" {
 		return nil, nil
 	}
@@ -200,21 +194,9 @@ func ReachablePackages(r runner.CommandRunner) (map[string]bool, error) {
 	// Using entry points instead of ./... prevents build-tag-excluded
 	// packages from being counted toward coverage thresholds.
 	roots := "./..."
-	mainProc, err := runner.Cmd("go", "list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./...").WithQuiet().Run(r)
-	if err == nil {
-		mainOut, _ := io.ReadAll(mainProc.Stdout())
-		if mainProc.Wait() == nil {
-			var mainPkgs []string
-			for _, line := range strings.Split(strings.TrimSpace(string(mainOut)), "\n") {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					mainPkgs = append(mainPkgs, line)
-				}
-			}
-			if len(mainPkgs) > 0 {
-				roots = strings.Join(mainPkgs, "\n")
-			}
-		}
+	mainPkgs, _ := gomod.FindMainPackages()
+	if len(mainPkgs) > 0 {
+		roots = strings.Join(mainPkgs, "\n")
 	}
 
 	// Get all reachable packages from the roots
@@ -267,7 +249,11 @@ func filterBlocksByReachable(blocks []coverageBlock, reachable map[string]bool) 
 	return filtered
 }
 
-// parseProfileBlocks parses a coverage profile into blocks
+// parseProfileBlocks parses a coverage profile into blocks.
+// Duplicate entries (same file + line range) are merged by taking the max
+// count. Go 1.25 with -coverpkg=./... and -p 1 emits one entry per
+// test-package per block, so without merging, statements get counted N times
+// (once per test package) which dramatically deflates the coverage percentage.
 func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -275,7 +261,14 @@ func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 	}
 	defer file.Close()
 
-	var blocks []coverageBlock
+	// Use a map to merge duplicate entries by location key.
+	type blockKey struct {
+		file      string
+		lineRange string // original "startLine.startCol,endLine.endCol"
+	}
+	merged := make(map[blockKey]*coverageBlock)
+	var order []blockKey // preserve first-seen order
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -311,16 +304,33 @@ func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 		numStmts, _ := strconv.Atoi(parts[1])
 		count, _ := strconv.Atoi(parts[2])
 
-		blocks = append(blocks, coverageBlock{
-			file:       filePath,
-			startLine:  startLine,
-			endLine:    endLine,
-			statements: numStmts,
-			count:      count,
-		})
+		key := blockKey{file: filePath, lineRange: lineRange}
+		if existing, ok := merged[key]; ok {
+			// Merge: take max count (if any test covered this block, it's covered)
+			if count > existing.count {
+				existing.count = count
+			}
+		} else {
+			merged[key] = &coverageBlock{
+				file:       filePath,
+				startLine:  startLine,
+				endLine:    endLine,
+				statements: numStmts,
+				count:      count,
+			}
+			order = append(order, key)
+		}
 	}
 
-	return blocks, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	blocks := make([]coverageBlock, 0, len(order))
+	for _, key := range order {
+		blocks = append(blocks, *merged[key])
+	}
+	return blocks, nil
 }
 
 func parseLineNum(s string) int {
