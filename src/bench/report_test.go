@@ -3,12 +3,11 @@ package bench
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"os"
 	"strings"
 	"testing"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
-
 )
 
 func TestParseBenchmarkOutput(t *testing.T) {

@@ -3,7 +3,7 @@ package runner
 import (
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConfigIsCmd(t *testing.T) {
@@ -128,8 +128,10 @@ func TestCmd(t *testing.T) {
 
 func TestConfigWithEnv(t *testing.T) {
 	cfg := Cmd("go", "build").WithEnv("GOOS", "linux").WithEnv("GOARCH", "amd64")
-	assert.Equal(t, "linux", cfg.Env["GOOS"])
-	assert.Equal(t, "amd64", cfg.Env["GOARCH"])
+	goos, _ := cfg.Env.Get("GOOS")
+	goarch, _ := cfg.Env.Get("GOARCH")
+	assert.Equal(t, "linux", goos)
+	assert.Equal(t, "amd64", goarch)
 }
 
 func TestConfigWithQuiet(t *testing.T) {
@@ -257,7 +259,7 @@ func TestRealRunnerWithEnv(t *testing.T) {
 	proc, err := r.Run(Config{
 		Name:  "sh",
 		Args:  []string{"-c", "echo $TEST_VAR"},
-		Env:   map[string]string{"TEST_VAR": "test_value"},
+		Env:   Cmd("").WithEnv("TEST_VAR", "test_value").Env,
 		Quiet: true,
 	})
 	assert.Nil(t, err)

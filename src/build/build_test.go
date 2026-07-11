@@ -2,31 +2,75 @@ package build
 
 import (
 	"os"
-
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-func TestFindMainPackagesParsesOutput(t *testing.T) {
-	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("example.com/cmd/foo\n\nexample.com/cmd/bar\n"), nil)
+func TestFindMainPackagesParsesFilesystem(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
 
-	pkgs, err := findMainPackages(mock)
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("cmd/foo", 0755)
+	os.MkdirAll("cmd/bar", 0755)
+	os.MkdirAll("pkg/lib", 0755)
+	os.WriteFile("cmd/foo/main.go", []byte("package main\n"), 0644)
+	os.WriteFile("cmd/bar/main.go", []byte("package main\n"), 0644)
+	os.WriteFile("pkg/lib/lib.go", []byte("package lib\n"), 0644)
+
+	pkgs, err := findMainPackages()
 	require.Nil(t, err)
 	require.Equal(t, 2, len(pkgs))
-	assert.False(t, pkgs[0] != "example.com/cmd/foo" || pkgs[1] != "example.com/cmd/bar")
+	assert.Contains(t, pkgs, "example.com/cmd/foo")
+	assert.Contains(t, pkgs, "example.com/cmd/bar")
 }
 
 func TestFindMainPackagesEmpty(t *testing.T) {
-	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("\n\n"), nil)
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
 
-	pkgs, err := findMainPackages(mock)
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("pkg/lib", 0755)
+	os.WriteFile("pkg/lib/lib.go", []byte("package lib\n"), 0644)
+
+	pkgs, err := findMainPackages()
+	require.Nil(t, err)
+	assert.Equal(t, 0, len(pkgs))
+}
+
+func TestFindMainPackagesSkipsTestFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	// Only a _test.go file declaring package main — should NOT be found
+	os.WriteFile("main_test.go", []byte("package main\n"), 0644)
+
+	pkgs, err := findMainPackages()
+	require.Nil(t, err)
+	assert.Equal(t, 0, len(pkgs))
+}
+
+func TestFindMainPackagesSkipsHiddenDirs(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll(".hidden", 0755)
+	os.WriteFile(".hidden/main.go", []byte("package main\n"), 0644)
+
+	pkgs, err := findMainPackages()
 	require.Nil(t, err)
 	assert.Equal(t, 0, len(pkgs))
 }
@@ -63,12 +107,10 @@ func TestResolveBuildTargetsGoFilesInRoot(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("example.com\n"), nil)
-	mock.SetResponse("go", []string{"list", "-m"},
-		[]byte("example.com\n"), nil)
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
 
+	mock := runner.NewMock()
 	targets, err := ResolveBuildTargets(mock)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(targets))
@@ -82,12 +124,11 @@ func TestResolveBuildTargetsAutoDetectSingle(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("example.com/cmd/myapp\n"), nil)
-	mock.SetResponse("go", []string{"list", "-m"},
-		[]byte("example.com\n"), nil)
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("cmd/myapp", 0755)
+	os.WriteFile("cmd/myapp/main.go", []byte("package main\n"), 0644)
 
+	mock := runner.NewMock()
 	targets, err := ResolveBuildTargets(mock)
 	require.Nil(t, err)
 	assert.False(t, len(targets) != 1 || targets[0].ImportPath != "example.com/cmd/myapp" || targets[0].OutputName != "myapp")
@@ -99,12 +140,13 @@ func TestResolveBuildTargetsAutoDetectMultiple(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("example.com/cmd/foo\nexample.com/cmd/bar\n"), nil)
-	mock.SetResponse("go", []string{"list", "-m"},
-		[]byte("example.com\n"), nil)
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("cmd/foo", 0755)
+	os.MkdirAll("cmd/bar", 0755)
+	os.WriteFile("cmd/foo/main.go", []byte("package main\n"), 0644)
+	os.WriteFile("cmd/bar/main.go", []byte("package main\n"), 0644)
 
+	mock := runner.NewMock()
 	targets, err := ResolveBuildTargets(mock)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(targets))
@@ -118,12 +160,11 @@ func TestResolveBuildTargetsAutoDetectSrcDir(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("github.com/wow-look-at-my/go-toolchain/src\n"), nil)
-	mock.SetResponse("go", []string{"list", "-m"},
-		[]byte("github.com/wow-look-at-my/go-toolchain\n"), nil)
+	os.WriteFile("go.mod", []byte("module github.com/wow-look-at-my/go-toolchain\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("src", 0755)
+	os.WriteFile("src/main.go", []byte("package main\n"), 0644)
 
+	mock := runner.NewMock()
 	targets, err := ResolveBuildTargets(mock)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(targets))
@@ -156,6 +197,11 @@ func TestFindAllPackagesByDir(t *testing.T) {
 	os.WriteFile(".hidden/h.go", []byte("package hidden"), 0644)
 	os.WriteFile("vendor/v.go", []byte("package vendor"), 0644)
 	os.WriteFile("testdata/t.go", []byte("package testdata"), 0644)
+	// Nested module (own go.mod) should be skipped: its packages belong to a
+	// different module and are not import paths of this one.
+	os.MkdirAll("nestedmod/sub", 0755)
+	os.WriteFile("nestedmod/go.mod", []byte("module example.com/othermodule\n\ngo 1.25\n"), 0644)
+	os.WriteFile("nestedmod/sub/sub.go", []byte("package sub"), 0644)
 
 	pkgs, err := findAllPackagesByDir("example.com/mylib")
 	require.Nil(t, err)
@@ -167,6 +213,8 @@ func TestFindAllPackagesByDir(t *testing.T) {
 	assert.NotContains(t, pkgs, "example.com/mylib/vendor")
 	assert.NotContains(t, pkgs, "example.com/mylib/testdata")
 	assert.NotContains(t, pkgs, "example.com/mylib/empty")
+	assert.NotContains(t, pkgs, "example.com/mylib/nestedmod", "nested module root must be skipped")
+	assert.NotContains(t, pkgs, "example.com/mylib/nestedmod/sub", "packages inside a nested module must be skipped")
 }
 
 func TestResolveBuildTargetsFallsBackToAllPackages(t *testing.T) {
@@ -176,16 +224,12 @@ func TestResolveBuildTargetsFallsBackToAllPackages(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Create a library-only project (no main packages)
+	os.WriteFile("go.mod", []byte("module example.com/mylib\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("pkg", 0755)
 	os.WriteFile("lib.go", []byte("package mylib"), 0644)
 	os.WriteFile("pkg/helper.go", []byte("package pkg"), 0644)
 
 	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("\n"), nil)
-	mock.SetResponse("go", []string{"list", "-m"},
-		[]byte("example.com/mylib\n"), nil)
-
 	targets, err := ResolveBuildTargets(mock)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(targets))
@@ -201,16 +245,32 @@ func TestResolveBuildTargetsDeduplicates(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
+	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
 	// Two main packages that resolve to the same binary name
-	mock := runner.NewMock()
-	mock.SetResponse("go", []string{"list", "-f", `{{if eq .Name "main"}}{{.ImportPath}}{{end}}`, "./..."},
-		[]byte("example.com/mymod\nexample.com/mymod/src\n"), nil)
-	mock.SetResponse("go", []string{"list", "-m"},
-		[]byte("example.com/mymod\n"), nil)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+	os.MkdirAll("src", 0755)
+	os.WriteFile("src/main.go", []byte("package main\n"), 0644)
 
+	mock := runner.NewMock()
 	targets, err := ResolveBuildTargets(mock)
 	require.Nil(t, err)
 	// Both resolve to "mymod" — should be deduplicated to 1
 	require.Equal(t, 1, len(targets))
 	assert.Equal(t, "mymod", targets[0].OutputName)
+}
+
+// Verify that findMainPackages does not need the runner parameter
+func TestFindMainPackagesNoRunner(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("go.mod", []byte("module example.com/test\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n\nfunc main() {}\n"), 0644)
+
+	pkgs, err := findMainPackages()
+	require.Nil(t, err)
+	require.Equal(t, 1, len(pkgs))
+	assert.Equal(t, "example.com/test", pkgs[0])
 }

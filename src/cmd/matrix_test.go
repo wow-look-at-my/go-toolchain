@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -286,9 +286,12 @@ func TestRunBuild(t *testing.T) {
 
 	// Verify env vars were set
 	cfg := calls[0]
-	assert.Equal(t, "linux", cfg.Env["GOOS"])
-	assert.Equal(t, "amd64", cfg.Env["GOARCH"])
-	assert.Equal(t, "0", cfg.Env["CGO_ENABLED"])
+	goos, _ := cfg.Env.Get("GOOS")
+	goarch, _ := cfg.Env.Get("GOARCH")
+	cgo, _ := cfg.Env.Get("CGO_ENABLED")
+	assert.Equal(t, "linux", goos)
+	assert.Equal(t, "amd64", goarch)
+	assert.Equal(t, "0", cgo)
 
 	// Verify -o flag
 	hasOutput := false
@@ -320,9 +323,11 @@ func TestRunBuildWithCgoEnabled(t *testing.T) {
 	assert.Equal(t, 1, len(calls))
 
 	cfg := calls[0]
-	assert.Equal(t, "linux", cfg.Env["GOOS"])
-	assert.Equal(t, "amd64", cfg.Env["GOARCH"])
-	_, hasCgo := cfg.Env["CGO_ENABLED"]
+	goos2, _ := cfg.Env.Get("GOOS")
+	goarch2, _ := cfg.Env.Get("GOARCH")
+	assert.Equal(t, "linux", goos2)
+	assert.Equal(t, "amd64", goarch2)
+	hasCgo := cfg.Env.Contains("CGO_ENABLED")
 	assert.False(t, hasCgo, "CGO_ENABLED should not be set when --cgo is used")
 }
 
@@ -376,6 +381,7 @@ func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+	os.WriteFile("x_test.go", []byte("package main\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
 
 	oldOS := matrixOS
 	oldArch := matrixArch

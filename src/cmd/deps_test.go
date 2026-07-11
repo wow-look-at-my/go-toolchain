@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -134,29 +137,28 @@ func TestDepChecker_Cancel(t *testing.T) {
 }
 
 func TestCheckOutdatedDeps(t *testing.T) {
-	// This test verifies the function doesn't panic and returns a DepChecker
+	// This test verifies the function doesn't panic and returns a DepChecker.
+	// We cancel immediately rather than waiting for completion, since the live
+	// dependency checks require network access and can exceed the test timeout.
 	dc := CheckOutdatedDeps()
 	assert.NotNil(t, dc)
-	// Wait for completion
+	dc.Cancel()
 	<-dc.doneCh
-	// Should be done now
 	assert.True(t, dc.Done())
 }
 
-func TestOpenCacheDB(t *testing.T) {
-	db, err := openCacheDB()
+func TestOpenDepsCache(t *testing.T) {
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	// Verify table exists by inserting and querying
-	_, err = db.Exec(`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/module", "v1.0.0", nil, 12345)
-	require.Nil(t, err)
+	// Verify the backing store works with a store+lookup round-trip
+	c.store("test/module", "v1.0.0", "", 12345)
 
-	var path string
-	err = db.QueryRow(`SELECT path FROM deps WHERE path = ?`, "test/module").Scan(&path)
-	require.Nil(t, err)
-	assert.Equal(t, "test/module", path)
+	update, checkedAt, found := c.lookup("test/module", "v1.0.0")
+	assert.True(t, found)
+	assert.Equal(t, "", update)
+	assert.Equal(t, int64(12345), checkedAt)
 }
 
 func TestListDirectDeps(t *testing.T) {
@@ -192,29 +194,58 @@ func TestDepChecker_WaitWithProgress_AlreadyDone(t *testing.T) {
 	assert.Equal(t, 1, len(result))
 }
 
-func TestCheckDepLive_RealModule(t *testing.T) {
-	// Test with a real module that exists
-	// github.com/spf13/cobra should work
+func TestCheckDepLive_WithUpdate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"Version":"v1.2.0"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
 	update, needsUpdate, err := checkDepLive("github.com/spf13/cobra")
 	require.Nil(t, err)
-	// We don't care about the result, just that it didn't error
-	_ = update
-	_ = needsUpdate
+	assert.True(t, needsUpdate)
+	assert.Equal(t, "v1.2.0", update)
+}
+
+func TestCheckDepLive_NoUpdate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
+	update, needsUpdate, err := checkDepLive("github.com/spf13/cobra")
+	require.Nil(t, err)
+	assert.False(t, needsUpdate)
+	assert.Equal(t, "", update)
+}
+
+func TestCheckDepLive_ProxyError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
+	_, _, err := checkDepLive("github.com/fake/module")
+	assert.NotNil(t, err)
+}
+
+func TestCheckDepLive_NoProxy(t *testing.T) {
+	t.Setenv("GOPROXY", "direct")
+	_, _, err := checkDepLive("github.com/spf13/cobra")
+	assert.NotNil(t, err)
 }
 
 func TestDepChecker_checkDep_CacheHit(t *testing.T) {
-	db, err := openCacheDB()
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	dc := &DepChecker{db: db}
+	dc := &DepChecker{cache: c}
 
 	// Insert a cached "outdated" entry
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/cached-outdated", "v0.0.0-20240101-abc123def456", "v1.0.0", 9999999999,
-	)
-	require.Nil(t, err)
+	c.store("test/cached-outdated", "v0.0.0-20240101-abc123def456", "v1.0.0", 9999999999)
 
 	// Should return cached result
 	update, needsUpdate, err := dc.checkDep("test/cached-outdated", "v0.0.0-20240101-abc123def456")
@@ -224,19 +255,15 @@ func TestDepChecker_checkDep_CacheHit(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
-	db, err := openCacheDB()
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	dc := &DepChecker{db: db}
+	dc := &DepChecker{cache: c}
 
 	// Insert a fresh "up-to-date" entry (checked just now)
 	now := int64(9999999999) // Far future timestamp
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/cached-fresh", "v0.0.0-20240101-abc123def456", nil, now,
-	)
-	require.Nil(t, err)
+	c.store("test/cached-fresh", "v0.0.0-20240101-abc123def456", "", now)
 
 	// Should return cached "up-to-date" result
 	update, needsUpdate, err := dc.checkDep("test/cached-fresh", "v0.0.0-20240101-abc123def456")
@@ -246,30 +273,29 @@ func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
-	db, err := openCacheDB()
-	require.Nil(t, err)
-	defer db.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"Version":"v1.11.0"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
 
-	dc := &DepChecker{db: db}
+	c, err := openDepsCache()
+	require.Nil(t, err)
+	defer c.close()
+
+	dc := &DepChecker{cache: c}
 
 	// Insert an expired "up-to-date" entry (checked long ago)
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"github.com/spf13/cobra", "v1.10.2", nil, 0, // timestamp 0 = expired
-	)
-	require.Nil(t, err)
+	c.store("github.com/spf13/cobra", "v1.10.2", "", 0) // timestamp 0 = expired
 
 	// Should do a live check since cache is expired
-	// This will update the cache
 	_, _, err = dc.checkDep("github.com/spf13/cobra", "v1.10.2")
 	require.Nil(t, err)
 
 	// Verify cache was updated
-	var checkedAt int64
-	err = db.QueryRow(`SELECT checked_at FROM deps WHERE path = ? AND version = ?`,
-		"github.com/spf13/cobra", "v1.10.2").Scan(&checkedAt)
-	require.Nil(t, err)
-	assert.NotEqual(t, 0, checkedAt)
+	_, checkedAt, found := c.lookup("github.com/spf13/cobra", "v1.10.2")
+	require.True(t, found)
+	assert.NotEqual(t, int64(0), checkedAt)
 }
 
 func TestDepChecker_run_Canceled(t *testing.T) {
@@ -511,11 +537,11 @@ func TestCheckDepLive_NonexistentModule(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestOpenCacheDB_CreatesDir(t *testing.T) {
-	// This test verifies openCacheDB works when cache dir needs creation
-	db, err := openCacheDB()
+func TestOpenDepsCache_CreatesDir(t *testing.T) {
+	// This test verifies openDepsCache works when the cache dir needs creation
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	db.Close()
+	c.close()
 }
 
 func TestDepChecker_run_DBOpenError(t *testing.T) {
