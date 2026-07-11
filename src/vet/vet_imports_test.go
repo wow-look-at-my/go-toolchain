@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestImportName(t *testing.T) {
@@ -177,8 +177,8 @@ func TestDeterminePositiveAssertFunc(t *testing.T) {
 			expected: "True",
 		},
 		{
-			name: "parenthesized",
-			cond: &ast.ParenExpr{X: &ast.Ident{Name: "ok"}},
+			name:     "parenthesized",
+			cond:     &ast.ParenExpr{X: &ast.Ident{Name: "ok"}},
 			expected: "True",
 		},
 	}
@@ -346,7 +346,7 @@ func main() {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	_, err := vetSemantic("./...", false, nil)
+	_, err := vetSemantic("./...", NewEditor(false), nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "package load errors")
 }
@@ -376,7 +376,7 @@ func TestFoo(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	// Just run it to exercise the compound condition path
-	_, err := vetSemantic("./...", false, nil)
+	_, err := vetSemantic("./...", NewEditor(false), nil)
 	// It should find an issue
 	assert.NotNil(t, err)
 }
