@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
 // ensureBuildDirInGitignore adds the build output directory to .gitignore
@@ -14,6 +16,47 @@ import (
 // are silently ignored so they never block the build.
 func ensureBuildDirInGitignore() {
 	ensureGitignored("/" + outputDir + "/")
+	// Migration cleanup: older go-toolchain versions appended the transient
+	// GOMEMLIMIT guard to .gitignore. The guard is deliberately NOT gitignored
+	// now (the CI dirty-check excludes it instead — see checkDirtyInCI), so a
+	// lingering line is pure liability: it re-dirties the tree on every run.
+	// Strip any stale one a previous version left behind.
+	removeFromGitignore(memlimit.GuardFileName)
+}
+
+// removeFromGitignore deletes every line of the repository's .gitignore that
+// exactly equals entry (ignoring surrounding whitespace), rewriting the file
+// only when something was actually removed. It is the inverse of
+// ensureGitignored and exists to undo an entry an older go-toolchain wrote that
+// the current one must not keep — namely the transient GOMEMLIMIT guard
+// filename. Best-effort: any error is silently ignored so it never blocks the
+// build.
+func removeFromGitignore(entry string) {
+	gitRoot := findGitRoot()
+	if gitRoot == "" {
+		return
+	}
+	gitignorePath := filepath.Join(gitRoot, ".gitignore")
+	data, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	kept := make([]string, 0, len(lines))
+	removed := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == entry {
+			removed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !removed {
+		return
+	}
+	// strings.Split/Join round-trips a trailing newline as a final "" element,
+	// so the file's final-newline state is preserved without special handling.
+	_ = os.WriteFile(gitignorePath, []byte(strings.Join(kept, "\n")), 0644)
 }
 
 // ensureGitignored appends entry to the repository's .gitignore when the

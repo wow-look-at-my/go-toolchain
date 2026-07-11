@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,9 @@ import (
 type LocalCache struct {
 	dir   string
 	Stats CacheStats
+
+	vmu      sync.RWMutex
+	verified map[string]looseVerified // actionID -> verified (outputID, size)
 }
 
 // NewLocalCache creates a local cache rooted at dir. It pre-creates 256
@@ -26,7 +30,7 @@ func NewLocalCache(dir string) (*LocalCache, error) {
 			return nil, fmt.Errorf("cache init: %w", err)
 		}
 	}
-	return &LocalCache{dir: dir}, nil
+	return &LocalCache{dir: dir, verified: make(map[string]looseVerified)}, nil
 }
 
 // CacheMeta holds the metadata stored alongside a cached object.
@@ -39,7 +43,31 @@ type CacheMeta struct {
 
 // Get looks up actionID in the local cache. If found it returns the metadata;
 // otherwise miss is true.
+//
+// A hit is integrity-verified before it is served (verifyBodyForServe): the
+// body must hash to its sidecar outputID (so truncation, rot, and the empty
+// bodies the old oversized-PUT bug committed are caught — the stat size that
+// used to overwrite m.Size hid exactly that), and a compiled package's build
+// id must belong to this action. (Module indexes are served like any other
+// entry: they are locally-originated by construction — see verify.go.) This is
+// the loose-tier counterpart of the pack store's GetVerified — previously this
+// fallback tier (Windows, missing /dev/fuse, GOCACHE_NO_FUSE=1, nested runs,
+// standalone cacheprog) served bodies with zero read-side checks, so poison
+// stuck forever. A failing entry is evicted (data + sidecar removed) and
+// reported as a miss, so the toolchain recomputes clean data.
+//
+// Verification results are memoized per process (see looseVerified), so the
+// PUT dedup check and warm-build re-Gets don't re-read and re-hash bodies.
 func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
+	return c.get(actionID, true)
+}
+
+// Peek is Get without counting a hit — see LocalStore.Peek.
+func (c *LocalCache) Peek(actionID string) (meta CacheMeta, miss bool) {
+	return c.get(actionID, false)
+}
+
+func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss bool) {
 	dataPath := c.dataPath(actionID)
 	metaPath := dataPath + ".meta"
 
@@ -59,8 +87,45 @@ func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
 		return CacheMeta{}, true
 	}
 	m.DiskPath = dataPath
-	m.Size = info.Size()
-	c.Stats.Hits.Increment()
+
+	// Fast path: this exact (outputID, size) was verified earlier this
+	// process and the entry on disk still matches. Skip the body re-read.
+	c.vmu.RLock()
+	v, vok := c.verified[actionID]
+	c.vmu.RUnlock()
+	if vok && v.outputID == m.OutputID && v.size == info.Size() {
+		m.Size = v.size
+		if countHit {
+			c.Stats.Hits.Increment()
+		}
+		return m, false
+	}
+
+	body, err := os.ReadFile(dataPath)
+	if err != nil {
+		return CacheMeta{}, true
+	}
+	if reason, ok := verifyBodyForServe(actionID, m.OutputID, body); !ok {
+		// Never serve a bad body: evict data + sidecar and miss, so the
+		// toolchain recomputes and re-Puts clean data (self-heal).
+		os.Remove(dataPath)
+		os.Remove(metaPath)
+		c.vmu.Lock()
+		delete(c.verified, actionID)
+		c.vmu.Unlock()
+		c.Stats.Corrupt.Increment()
+		fmt.Fprintf(os.Stderr, "cacheprog: local cache: evicting %s: %s; treating as miss\n", shortID(actionID), reason)
+		return CacheMeta{}, true
+	}
+	// Serve the verified byte count as the size — never the raw stat size,
+	// which would mask a truncated body behind a stale sidecar.
+	m.Size = int64(len(body))
+	c.vmu.Lock()
+	c.verified[actionID] = looseVerified{outputID: m.OutputID, size: m.Size}
+	c.vmu.Unlock()
+	if countHit {
+		c.Stats.Hits.Increment()
+	}
 	return m, false
 }
 
@@ -107,6 +172,12 @@ func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, err
 	if err := os.Rename(metaTmpName, metaPath); err != nil {
 		os.Remove(metaTmpName)
 	}
+
+	// The entry's content changed: drop any memoized verification so the
+	// next Get re-verifies the new bytes.
+	c.vmu.Lock()
+	delete(c.verified, actionID)
+	c.vmu.Unlock()
 
 	c.Stats.Puts.Increment()
 	return dataPath, nil

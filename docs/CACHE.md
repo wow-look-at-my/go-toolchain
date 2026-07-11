@@ -98,10 +98,39 @@ The two tiers:
   process-local, backed by pack files and exposed via FUSE. First port of call
   for every `get`; every `put` is written here synchronously.
 - **Remote tier — `WebBackend`** (`src/cache/web.go`): the shared
-  [go-s3-server](https://github.com/wow-look-at-my/go-s3-server). Consulted on a
-  local miss; populated asynchronously on `put`. A miss also triggers a
-  **batch GET** that returns temporally-related entries (same build) and
-  pre-populates the local pack — see [`src/cache/batch.go`](../src/cache/batch.go).
+  [go-s3-server](https://github.com/wow-look-at-my/go-s3-server) (being renamed
+  go-toolchain-cache). Consulted on a local miss; populated asynchronously on
+  `put`. Fetch routing is driven by the server's key index, fetched once at
+  startup (with a short dedicated budget): keys the index lists are fetched
+  through the coalescing **batch GET** endpoint — one round-trip serves many
+  concurrent requests and returns temporally-related prefetch entries (same
+  build) that pre-populate the local pack — see
+  [`src/cache/batch.go`](../src/cache/batch.go); keys an AUTHORITATIVE (fresh)
+  index does not list miss cleanly with no round-trip, while a failed index
+  fetch keeps cold-key batch probing enabled as the recovery path (bounded by
+  the consecutive-empty-batch backoff). A key the server authoritatively
+  reports absent despite an index claim is dropped from the client's key set
+  so the next `put` re-uploads it. Uploads are coalesced symmetrically:
+  buffered PUTs ship as one **batch PUT** tar (`/_batch/put`,
+  `manifest.json` + `data/<key>` members — see
+  [`src/cache/batchput.go`](../src/cache/batchput.go)) so a build's thousands
+  of stores take one server admission slot per ~128 objects, with a sticky
+  fallback to individual PUTs against a server without the endpoint. The wire
+  protocol is **not
+  S3**: object metadata travels in native `X-Cache-Meta-*` headers and errors
+  are native plain text. The client still reads the deprecated `X-Amz-Meta-*`
+  response header as a fallback so it interoperates with a not-yet-upgraded
+  server during a rollout. Every PUT (batch manifest entry or single-PUT
+  headers — both render the same map, assembled once in
+  [`src/cache/webput.go`](../src/cache/webput.go)) carries **provenance
+  metadata** alongside the protocol fields: `Pkg` (the archive's import
+  path), `Src` (source-file basenames, capped at 8 names / 256 bytes with a
+  `+N more` suffix so the value always fits the server's xattr budget),
+  `Module` (the producing repo's main module path), `Go-Version`/`Target`,
+  `Toolchain-Version`, and `Created`. The server stores them as xattrs and
+  returns them on GET/HEAD, so `curl -I` on any stored key answers "what
+  file/package/repo did this cache item come from?" — the full key list and
+  an example live in the README's "How It Works" section.
 
 <a name="the-local-tier-is-a-virtual-filesystem"></a>
 ## The local tier is a virtual filesystem
@@ -115,6 +144,7 @@ classDiagram
     class LocalStore {
         <<interface>>
         +Get(actionID) CacheMeta
+        +Peek(actionID) CacheMeta
         +Put(actionID, outputID, body) string
         +StatsPtr() CacheStats
         +Close() error
@@ -127,6 +157,7 @@ classDiagram
     class LocalCache {
         +one loose body file per entry
         +plus a .meta sidecar each
+        +read-verified like the pack tier
     }
     LocalStore <|.. FuseCache : default (FUSE)
     LocalStore <|.. LocalCache : fallback (loose files)
@@ -192,15 +223,22 @@ Design properties:
   served; a mismatch evicts the entry and reports a **miss**, so the toolchain
   recomputes rather than being handed a corrupt object. Serving corrupt bytes is
   never an option — e.g. a corrupt Go module index fails the build with `corrupt
-  index`, which the `go` process cannot recover from. Crucially the check runs on
-  **both** read paths, because they are decoupled by the protocol: a GET *RPC*
-  returns a `DiskPath`, and the compiler then opens that path and reads the body
-  itself through the mount — a read that never re-enters the GET RPC. So the CRC
-  is verified (1) on the GET RPC, by `GetVerified`, which lets the server miss
-  and recompute in-band; **and** (2) on the mount's serve path, by
-  `GetByOutputVerified` when `Lookup` resolves `mnt/outputID` to an inode, which
-  is the gate on the bytes the compiler actually consumes. Verifying only the RPC
-  would leave the compiler-facing read unguarded. Large bodies are verified over
+  index` / `package ... is not in std`, which the `go` process cannot recover
+  from. Crucially the check runs on **both** read paths, because they are
+  decoupled by the protocol: a GET *RPC* returns a `DiskPath`, and the compiler
+  then opens that path and reads the body itself through the mount — a read that
+  never re-enters the GET RPC. So the body is verified (1) on the GET RPC, by
+  `GetVerified` — a CRC over the body, which lets the server miss and recompute
+  in-band; **and** (2) on the mount's serve path, by `GetByOutputVerified` when
+  `Lookup` resolves `mnt/outputID` to an inode, which is the gate on the bytes the
+  compiler actually consumes. The serve-path gate verifies the body's **SHA-256
+  against the requested `outputID`** (the content address) rather than the CRC:
+  this strictly subsumes the CRC — it catches rot *and* a torn or mis-mapped
+  record whose bytes are self-consistent with their own recorded CRC yet are not
+  the content the compiler asked for (which would otherwise surface as `corrupt
+  index` / `package ... is not in std`, e.g. a poisoned module index when the
+  shared web cache is unavailable). Verifying only the RPC would leave the
+  compiler-facing read unguarded. Large bodies are verified over
   an **mmap** of the pack region (via
   [go-mmap](https://github.com/wow-look-at-my/go-mmap)) so a multi-MB archive is
   never copied onto the heap on every hit; tiny entries (the common case) take a
@@ -216,9 +254,19 @@ Design properties:
   the dedup lived only in memory those thousands of mappings would vanish on
   restart and miss on the next build, falling through to the slow network tier.
 - **Bounded growth.** Packs rotate at 1 GiB (`pack-000001.data`,
-  `pack-000002.data`, ...). If the total exceeds a cap at startup, the store
-  resets to a cold cache rather than growing forever — the same "purge instead of
-  trust stale data" stance the server takes on a cache-version bump.
+  `pack-000002.data`, ...). If the total exceeds the budget at startup, whole
+  packs are evicted **oldest-first** down to ~80% of the budget
+  (`src/cache/packevict.go`); the newest pack — the append target holding the
+  hottest records — is never evicted. Evicted records are simply recomputed;
+  the hot tail of the cache survives instead of cold-cycling.
+- **Verified-read memoization.** The serve gates below consume per-record
+  facts (CRC-ok, SHA-256 vs `outputID`, package shape, build-id stamp)
+  computed by ONE body read and memoized by
+  `(packID, dataOff)` (`src/cache/verify.go`) — sound because records are
+  append-only and physically immutable within a process. Just-appended records
+  are pre-memoized from the in-memory bytes, so the compiler's open right
+  after a PUT costs no re-read + hash. Facts are memoized, verdicts are
+  per-call: the per-action build-id gate is still applied on every `get`.
 
 <a name="request-flows"></a>
 ## Request flows
@@ -237,12 +285,12 @@ sequenceDiagram
     Go->>S: get(actionID)
     S->>L: Get(actionID)
     alt local hit
-        Note over L: GetVerified: CRC-check body<br/>mismatch → evict + miss
+        Note over L: GetVerified: memoized serve gates<br/>(rot + build-id action)<br/>failure → evict + miss
         L-->>S: DiskPath = mnt/outputID
         S-->>Go: DiskPath, size, outputID
         Go->>K: open(DiskPath) then read
         K->>L: FUSE Lookup(outputID)
-        Note over L: GetByOutputVerified: CRC-check body<br/>mismatch → evict + ENOENT
+        Note over L: GetByOutputVerified: SHA-256 vs outputID<br/>(memoized) mismatch → evict + ENOENT
         K->>L: FUSE read (zero-copy from pack)
         L-->>Go: body bytes (served virtually)
     else local miss
@@ -293,10 +341,23 @@ any object whose build id belongs to a different action than requested, treating
 it as a miss and evicting the key so a recompute re-uploads the correct object.
 The guard runs on every remote ingestion path (individual GET, batch GET,
 prefetch population) **and** on the remote PUT, so a mis-keyed object can neither
-be served from the shared cache nor written to it. Entries with no build id (vet
-facts, command stdout, `go tool compile` output) carry nothing to check and fall
-through to the outputID hash as before. It is counted as `buildid` in the
-`web summary` miss breakdown. The poisoned key self-heals: under the cache
+be served from the shared cache nor written to it. It is counted as `buildid` in
+the `web summary` miss breakdown.
+
+The check also refuses a **package archive that carries no build id at all**:
+`go build`/`vet`/`test` always stamp one, so an object that presents as a
+loadable package (an ar archive with a `__.PKGDEF` member) yet lacks a build id
+is corrupt — or has been deliberately *stripped* to slip a different package's
+export data under this key while evading the comparison above. Plain non-archive
+entries (vet facts, command stdout, source-file lists, empty outputs) have no
+`__.PKGDEF` and legitimately carry no build id, so they fall through to the
+outputID hash as before; only objects shaped like a package are required to
+prove their key. This is best-effort *integrity*, not an *authorization*
+boundary: a writer who forges a build id matching the target action still
+passes, because the cache trusts whoever can write to it. A shared cache must
+therefore also control who may `PUT` (and treat the store as untrusted-write) —
+the build-id guard stops accidental cross-contamination and unsophisticated
+tampering, not a credentialed attacker. The poisoned key self-heals: under the cache
 server's default `write_once: allow`, the recompute's re-`Put` overwrites the
 bad object; an operator can also evict it directly via the cache server's
 `DELETE` endpoint.
@@ -315,18 +376,32 @@ and fail before compilation starts; a truncated or cross-version one yields
 `corrupt index`. The outputID hash only proves the blob is self-consistent, not
 that it belongs under this key, so a mis-keyed-but-well-formed index slips every
 check. Because an index is cheap for `cmd/go` to recompute locally (one
-directory read), the safe answer is to never trust one from the shared tier:
-`isGoModuleIndex` ([`src/cache/modindex.go`](../src/cache/modindex.go)) detects
-the `go index v` magic, and the cacheprog **refuses every module-index blob on
-ingestion** (individual GET, batch GET, prefetch population) — treating it as a
-miss so the index is rebuilt locally — **and refuses to upload one** on PUT, so
-the shared cache stops accumulating an unverifiable, build-breaking payload.
-Refused GETs are counted as `modindex` in the `web summary` miss breakdown. A
-false positive (some other payload starting with the same magic) costs only a
-recompute, never correctness, so the prefix match is deliberately conservative.
-This is a *client-side* defense: the cache server stores opaque bytes and cannot
-itself tell a good index from a poisoned one, so enforcement lives where the
-semantics are known — in the cacheprog.
+directory read), the safe answer is to never trust one from the **shared**
+tier: `isGoModuleIndex` ([`src/cache/modindex.go`](../src/cache/modindex.go))
+detects the `go index v` magic, and the cacheprog **refuses every module-index
+blob on ingestion** (individual GET, batch GET, prefetch population) — treating
+it as a miss so the index is rebuilt locally — **and refuses to upload one** on
+PUT, so the shared cache stops accumulating an unverifiable, build-breaking
+payload. Refused GETs are counted as `modindex` in the `web summary` miss
+breakdown. A false positive (some other payload starting with the same magic)
+costs only a recompute, never correctness, so the prefix match is deliberately
+conservative. This is a *client-side* defense: the cache server stores opaque
+bytes and cannot itself tell a good index from a poisoned one, so enforcement
+lives where the semantics are known — in the cacheprog.
+
+The refusal is deliberately scoped to the shared tier. The **local** tiers
+store and serve their *own* module indexes like any other object — the exact
+trust upstream `GOCACHE` places in its own directory — still SHA-256-verified
+against `outputID` (rot-protected), because after the ingestion + upload
+refusals above, an index in the local store can only have been computed by the
+local `cmd/go` under its own action key. Refusing it locally (an earlier
+iteration did) created a permanent accept-at-Put/refuse-at-Get loop: `cmd/go`
+stores hundreds of per-directory index blobs per invocation, so every index key
+missed on every build forever — per-key eviction log spam on the loose tier,
+duplicate-record append churn and unbounded pack growth on the pack tier. The
+one gap — local stores populated by binaries *older* than the web-ingestion
+guards, which may hold web-originated (potentially mis-keyed) indexes — is
+closed by the one-time local cache version purge (see below).
 
 ### PUT
 
@@ -361,33 +436,55 @@ a build; it can only ever cost a slower build-from-source. Two independent
 invariants enforce this:
 
 1. **Integrity** (covered above): a body that fails its `outputID` hash, build-id
-   action, or pack CRC — or that is an unverifiable Go module index — is treated
-   as a miss, never served. A backend can hand us garbage and the worst outcome
-   is a recompute.
+   action, or pack CRC — or that arrives from the **web tier** as an
+   unverifiable Go module index — is treated as a miss, never served. A backend
+   can hand us garbage and the worst outcome is a recompute.
 2. **Failure handling** (`web_resilience.go`): the cache layer degrades cleanly
    and *fast*, and never amplifies an outage.
 
    - **GET** on any non-200 / timeout / network error returns a clean miss. The
      toolchain recompiles from source.
-   - **PUT** is fire-and-forget: a failure is dropped silently (a missed upload
-     only costs a future cache miss). PUTs are never retried — retrying writes at
-     a struggling backend only deepens its overload.
+   - **PUT** is fire-and-forget: a failure (after the bounded retry below) is
+     dropped silently for that one object — a missed upload only costs a future
+     cache miss, never build correctness.
    - **Bounded retries** with exponential backoff + full jitter cover transient
-     GET-class blips (a single 502 among many 200s), so an isolated hiccup
-     becomes a hit rather than a wasteful recompute.
-   - **Circuit breaker**: after `GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD` (default
-     24) *consecutive* failures, the backend is tripped to **local-only** for the
-     rest of the process and a single warning is logged. This is the key
-     protection: without it, every one of a build's thousands of cache ops would
-     independently hammer a failing backend — adding latency to the build and
-     piling load onto the very server that is already struggling (the feedback
-     loop behind a cache-server 502 storm). Once tripped, GETs are instant local
-     misses and PUTs are instant drops, with zero further network traffic.
+     blips (a single 5xx/429 among many 200s), so an isolated hiccup becomes a
+     hit rather than a wasteful recompute. Retries honor the server's
+     `Retry-After` header (the admission-control 503 shed's "wait," not "give
+     up") as a floor on the backoff, and apply to GETs, the batch GET, and PUTs
+     (single and whole-batch tar — the key is a content address so re-storing is
+     a no-op). This is the **only** backpressure handling: there is no circuit
+     breaker. A remote GET/PUT is *always* attempted; a failure that outlasts the
+     retry budget falls back to a local miss for that single operation and the
+     remote tier is never disabled for the rest of the run. (An earlier circuit
+     breaker was removed: once PUTs are batched into one `/_batch/put` request per
+     ~128 objects holding one server admission slot, the server does not collapse
+     under CI load, and the breaker's failure mode — a transient 503 tripping it
+     and disabling *GETs* too, i.e. "no cache hits at all" — was pure downside.)
 
-   Tunable via `GO_TOOLCHAIN_CACHE_BREAKER_THRESHOLD` (consecutive failures before
-   tripping; `0` disables the breaker) and `GO_TOOLCHAIN_CACHE_MAX_RETRIES`
-   (transient GET retries; `0` disables). Circuit-open misses are reported in the
-   `cacheprog: web summary:` line as `circuit-open=N`.
+   Tunable via `GO_TOOLCHAIN_CACHE_MAX_RETRIES` (transient retries; `0` disables).
+
+3. **Uniform serve-path integrity — self-healing local tier**
+   (`src/cache/verify.go`): the rot and build-id checks the web tier runs on
+   ingestion also run on the **local** serve path, so the cache never serves an
+   object it cannot tie to the requested key — on either tier. The GET-RPC gate
+   behind every FUSE hit (`PackStore.GetVerified`) verifies, from the memoized
+   facts of one body read, that the object (a) is rot-free (its recorded CRC,
+   or the strictly stronger SHA-256 content address) and (b) carries a build id
+   whose action field matches the requested key — not a cross-contaminated
+   package mapped under the wrong key, the `"runtime" imported as reflectlite`
+   poison. Any failure evicts the entry and reports a miss, so the toolchain
+   recomputes from source and re-Puts clean data. Module-index refusal is NOT a
+   local serve gate: it lives on every web ingestion path (individual GET,
+   batch GET, prefetch) plus the upload path, which is exactly what makes a
+   local index locally-originated and therefore servable (upstream-`GOCACHE`
+   parity; see above). The residual gap — local data written by binaries older
+   than those ingestion guards — is closed by the one-time local cache version
+   purge (`src/cache/cacheversion.go`), not per-Get inspection. So a poisoned
+   local cache **self-heals structurally** — by refusing to serve what it
+   cannot verify, never by inspecting build output. (Fixing the *shared* cache
+   so other consumers stop hitting a poison is still the server's job — its
+   module-index refusal and cache-version purge.)
 
 <a name="fallback-and-portability"></a>
 ## Fallback and portability
@@ -423,6 +520,7 @@ flowchart LR
 
 ```
 <XDG_CACHE_HOME>/go-toolchain/buildcache/
+├── .cache_version           # local cache version stamp (see below)
 ├── mnt/                     # FUSE mount point (empty when unmounted)
 │   └── <outputID>           # virtual files; reads served from packs
 └── packs/
@@ -433,3 +531,23 @@ flowchart LR
 Compare the loose-file fallback, which writes `buildcache/<aa>/v1<actionID>` plus
 a `.meta` sidecar **per entry** across 256 shard directories — the layout this
 design replaces.
+
+**Local cache versioning.** The buildcache root carries a `.cache_version`
+stamp (`src/cache/cacheversion.go`); a root without one is implicitly version
+1. When the stamp differs from `currentLocalCacheVersion`, the cached DATA —
+the `packs/` dir, the loose tier's `00`..`ff` bucket dirs, stray temp files —
+is deleted once and the stamp rewritten (atomically, temp + rename), before the
+FUSE mount and before either tier opens, in every mode (daemon, standalone
+`cacheprog`, `GOCACHE_NO_FUSE=1`). `mnt/` (a possibly-mounted mountpoint), the
+`.fuse.lock` file, and unknown names are never touched, and the purge briefly
+takes the same exclusive flock the FUSE daemon holds, so it can never delete
+packs out from under a live owner (when the lock is busy the purge is deferred
+to the next run). Version 2 exists because module indexes became servable from
+the local tier: pack/loose data written by binaries *older* than the
+web-ingestion modindex guards could hold web-originated (potentially mis-keyed)
+indexes, and pack bytes are otherwise immortal — evictions only drop in-memory
+index entries and `scanPack` re-indexes everything at startup. The purge also
+reclaims the duplicate-record bloat the old accept-at-Put/refuse-at-Get
+modindex loop appended to the packs. Bump the constant to force every machine
+to shed cache contents a code change has made untrustworthy — the client-side
+mirror of go-s3-server's `currentCacheVersion`.

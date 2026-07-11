@@ -147,20 +147,18 @@ func TestCheckOutdatedDeps(t *testing.T) {
 	assert.True(t, dc.Done())
 }
 
-func TestOpenCacheDB(t *testing.T) {
-	db, err := openCacheDB()
+func TestOpenDepsCache(t *testing.T) {
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	// Verify table exists by inserting and querying
-	_, err = db.Exec(`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/module", "v1.0.0", nil, 12345)
-	require.Nil(t, err)
+	// Verify the backing store works with a store+lookup round-trip
+	c.store("test/module", "v1.0.0", "", 12345)
 
-	var path string
-	err = db.QueryRow(`SELECT path FROM deps WHERE path = ?`, "test/module").Scan(&path)
-	require.Nil(t, err)
-	assert.Equal(t, "test/module", path)
+	update, checkedAt, found := c.lookup("test/module", "v1.0.0")
+	assert.True(t, found)
+	assert.Equal(t, "", update)
+	assert.Equal(t, int64(12345), checkedAt)
 }
 
 func TestListDirectDeps(t *testing.T) {
@@ -240,18 +238,14 @@ func TestCheckDepLive_NoProxy(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheHit(t *testing.T) {
-	db, err := openCacheDB()
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	dc := &DepChecker{db: db}
+	dc := &DepChecker{cache: c}
 
 	// Insert a cached "outdated" entry
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/cached-outdated", "v0.0.0-20240101-abc123def456", "v1.0.0", 9999999999,
-	)
-	require.Nil(t, err)
+	c.store("test/cached-outdated", "v0.0.0-20240101-abc123def456", "v1.0.0", 9999999999)
 
 	// Should return cached result
 	update, needsUpdate, err := dc.checkDep("test/cached-outdated", "v0.0.0-20240101-abc123def456")
@@ -261,19 +255,15 @@ func TestDepChecker_checkDep_CacheHit(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
-	db, err := openCacheDB()
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	dc := &DepChecker{db: db}
+	dc := &DepChecker{cache: c}
 
 	// Insert a fresh "up-to-date" entry (checked just now)
 	now := int64(9999999999) // Far future timestamp
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/cached-fresh", "v0.0.0-20240101-abc123def456", nil, now,
-	)
-	require.Nil(t, err)
+	c.store("test/cached-fresh", "v0.0.0-20240101-abc123def456", "", now)
 
 	// Should return cached "up-to-date" result
 	update, needsUpdate, err := dc.checkDep("test/cached-fresh", "v0.0.0-20240101-abc123def456")
@@ -289,28 +279,22 @@ func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("GOPROXY", srv.URL)
 
-	db, err := openCacheDB()
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	dc := &DepChecker{db: db}
+	dc := &DepChecker{cache: c}
 
 	// Insert an expired "up-to-date" entry (checked long ago)
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"github.com/spf13/cobra", "v1.10.2", nil, 0, // timestamp 0 = expired
-	)
-	require.Nil(t, err)
+	c.store("github.com/spf13/cobra", "v1.10.2", "", 0) // timestamp 0 = expired
 
 	// Should do a live check since cache is expired
 	_, _, err = dc.checkDep("github.com/spf13/cobra", "v1.10.2")
 	require.Nil(t, err)
 
 	// Verify cache was updated
-	var checkedAt int64
-	err = db.QueryRow(`SELECT checked_at FROM deps WHERE path = ? AND version = ?`,
-		"github.com/spf13/cobra", "v1.10.2").Scan(&checkedAt)
-	require.Nil(t, err)
+	_, checkedAt, found := c.lookup("github.com/spf13/cobra", "v1.10.2")
+	require.True(t, found)
 	assert.NotEqual(t, int64(0), checkedAt)
 }
 
@@ -553,11 +537,11 @@ func TestCheckDepLive_NonexistentModule(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestOpenCacheDB_CreatesDir(t *testing.T) {
-	// This test verifies openCacheDB works when cache dir needs creation
-	db, err := openCacheDB()
+func TestOpenDepsCache_CreatesDir(t *testing.T) {
+	// This test verifies openDepsCache works when the cache dir needs creation
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	db.Close()
+	c.close()
 }
 
 func TestDepChecker_run_DBOpenError(t *testing.T) {
