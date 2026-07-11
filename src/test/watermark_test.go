@@ -1,10 +1,9 @@
 package test
 
 import (
+	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
-	"github.com/wow-look-at-my/testify/require"
-
 )
 
 func TestWatermarkGetSetRoundTrip(t *testing.T) {

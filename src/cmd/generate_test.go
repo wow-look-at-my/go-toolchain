@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseDirectives(t *testing.T) {
@@ -73,6 +73,32 @@ func main() {}
 	require.Nil(t, err)
 
 	require.Equal(t, 0, len(directives))
+}
+
+func TestParseDirectivesRejectsGoFmt(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.go")
+
+	content := "package main\n\n" +
+		"//go:generate go fmt ./...\n"
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
+
+	_, err := parseDirectives(testFile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "go fmt is not allowed")
+}
+
+func TestParseDirectivesRejectsShellWrappedGoFmt(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.go")
+
+	content := "package main\n\n" +
+		"//go:generate sh -c \"go fmt ./...\"\n"
+	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
+
+	_, err := parseDirectives(testFile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "go fmt is not allowed")
 }
 
 func TestFindGenerateDirectives(t *testing.T) {

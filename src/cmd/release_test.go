@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParseCommitLines(t *testing.T) {
@@ -325,7 +325,6 @@ func TestResolveNoCosign(t *testing.T) {
 		})
 	}
 }
-
 
 func TestRealExecutorGitOutput(t *testing.T) {
 	ex := realExecutor{}

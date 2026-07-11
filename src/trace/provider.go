@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
@@ -75,7 +74,11 @@ func Shutdown(ctx context.Context) error {
 }
 
 func buildProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
-	otlp, err := otlptracehttp.New(ctx)
+	// The exporter construction is build-tag split: provider_otlp.go (!cosmo)
+	// returns the real OTLP/HTTP exporter; provider_otlp_cosmo.go degrades to
+	// a span-dropping no-op because the otlptracehttp exporter cannot compile
+	// for GOOS=cosmo (see that file for the TODO).
+	otlp, err := newOTLPExporter(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +140,9 @@ func buildProviderResource(ctx context.Context) (*resource.Resource, error) {
 // a single HTTP POST, which is the actually-interesting number.
 type loggingExporter struct {
 	inner sdktrace.SpanExporter
-	w     interface{ Write(p []byte) (n int, err error) }
+	w     interface {
+		Write(p []byte) (n int, err error)
+	}
 	count atomic.Uint64
 }
 

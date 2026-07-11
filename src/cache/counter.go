@@ -29,17 +29,18 @@ func (c *AtomicCounter) UnmarshalJSON(data []byte) error {
 
 // CacheStats tracks get/put counters for a single cache layer.
 type CacheStats struct {
-	Hits AtomicCounter `json:"hits"`
-	Puts AtomicCounter `json:"puts"`
+	Hits    AtomicCounter `json:"hits"`
+	Puts    AtomicCounter `json:"puts"`
+	Corrupt AtomicCounter `json:"corrupt,omitempty"` // entries evicted on a CRC mismatch
 }
 
 // LatencyTracker records min/max/sum/count for a single operation type
 // using lock-free atomics. Durations are stored as microseconds.
 type LatencyTracker struct {
 	count atomic.Uint64
-	sumUs atomic.Uint64  // total microseconds
-	minUs atomic.Uint64  // minimum microseconds
-	maxUs atomic.Uint64  // maximum microseconds
+	sumUs atomic.Uint64 // total microseconds
+	minUs atomic.Uint64 // minimum microseconds
+	maxUs atomic.Uint64 // maximum microseconds
 }
 
 // Record adds a single duration observation.
