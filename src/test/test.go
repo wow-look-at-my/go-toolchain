@@ -249,9 +249,11 @@ func listTestPackages(_ runner.CommandRunner) []string {
 		if !d.IsDir() {
 			return nil
 		}
-		// Skip hidden dirs and common non-source dirs
+		// Skip hidden dirs, common non-source dirs, and nested modules
+		// (their packages belong to a different module and are not import
+		// paths of this one).
 		name := d.Name()
-		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir
 		}
 		// Skip packages where all non-test .go files are generated code
