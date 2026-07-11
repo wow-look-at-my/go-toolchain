@@ -6,9 +6,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestEnableCacheProg(t *testing.T) {
@@ -180,6 +180,38 @@ func TestParseBuildCacheConfig_Unified(t *testing.T) {
 		SecretKey: "SECRET",
 		Version:   buildVersion,
 	}, cfg)
+}
+
+// TestParseBuildCacheConfig_NativeCredentials exercises the native, non-S3
+// credential field names (username/password, mapped onto WebConfig's Basic Auth
+// AccessKey/SecretKey).
+func TestParseBuildCacheConfig_NativeCredentials(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"cache.example.com","bucket":"mybucket","username":"alice","password":"hunter2"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, cache.WebConfig{
+		Endpoint:  "cache.example.com",
+		Bucket:    "mybucket",
+		AccessKey: "alice",
+		SecretKey: "hunter2",
+		Version:   buildVersion,
+	}, cfg)
+}
+
+// TestParseBuildCacheConfig_NativeOverridesDeprecated verifies the native fields
+// win when both native and deprecated S3-style fields are present.
+func TestParseBuildCacheConfig_NativeOverridesDeprecated(t *testing.T) {
+	defer saveCacheEnv(t)()
+
+	raw := `{"endpoint":"cache.example.com","username":"alice","password":"hunter2","key_id":"AKID","access_key":"SECRET"}`
+	os.Setenv("GO_BUILDCACHE_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
+
+	cfg := parseBuildCacheConfig()
+	assert.Equal(t, "alice", cfg.AccessKey)
+	assert.Equal(t, "hunter2", cfg.SecretKey)
 }
 
 func TestParseBuildCacheConfig_UnifiedDefaultBucket(t *testing.T) {

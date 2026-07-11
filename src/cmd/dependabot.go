@@ -125,8 +125,8 @@ func buildDepSnapshot() (*depSnapshot, error) {
 		Scanned: time.Now().UTC().Format(time.RFC3339),
 		Manifests: map[string]depManifest{
 			sourceLocation: {
-				Name: sourceLocation,
-				File: depManifestFile{SourceLocation: sourceLocation},
+				Name:     sourceLocation,
+				File:     depManifestFile{SourceLocation: sourceLocation},
 				Resolved: resolved,
 			},
 		},

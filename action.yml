@@ -31,18 +31,22 @@ inputs:
     description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
     required: false
     default: 'amd64,arm64'
+  targets:
+    description: 'Comma-separated exact build targets, each an os/arch pair (e.g. darwin/amd64) or the special value "cosmo" (one fat APE built with the gosmopolitan toolchain, plus per-platform slot copies). When non-empty this replaces the os/arch inputs.'
+    required: false
+    default: ''
   cgo:
     description: 'Enable CGO (disabled by default for static binaries)'
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically publish to buildhost when running on the default branch (requires id-token: write permission)'
+    description: 'Automatically publish to buildhost on every branch push (requires id-token: write and actions: read permissions)'
     required: false
     default: 'true'
-  buildhost-url:
-    description: 'Buildhost base URL'
+  allow-source-build:
+    description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
-    default: 'https://pazer.build'
+    default: 'false'
   upload-artifacts:
     description: 'Upload build/ directory as a GitHub Actions artifact after building'
     required: false
@@ -97,9 +101,58 @@ runs:
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
-        timeout --signal=KILL 60 npm install -g @buildhost/go-toolchain --registry="${{ inputs.buildhost-url }}/npm/" || true
-        if ! go-toolchain version &>/dev/null; then
-          echo "::warning::buildhost binary not usable, building from source"
+        set -euo pipefail
+        # Download the released binary straight from buildhost's dl endpoint with
+        # curl -- no npm. --compressed advertises Accept-Encoding (including zstd
+        # when curl was built with it), so buildhost streams the stored zstd blob
+        # as-is and curl decompresses client-side; the server never pays the
+        # decompression cost. If curl lacks zstd it just gets the plain binary.
+        # buildhost normalizes platform aliases natively (RUNNER_OS Linux/macOS/
+        # Windows, RUNNER_ARCH X64/ARM64, ...), so pass them through verbatim, and
+        # it serves the branch tip no-store, so no cache-buster is needed.
+        #
+        # TEMPORARY: pinned to ?branch=v1 instead of the apex "latest". buildhost's
+        # "latest" resolves against a project's default branch; until buildhost has
+        # learned go-toolchain's default branch is "v1" it defaults to "master"
+        # (which go-toolchain never publishes to), so the unqualified latest
+        # download 404s and hard-fails every consumer's build. Revert to the
+        # unqualified URL once buildhost has resolved go-toolchain's default branch
+        # to v1 (buildhost deploy + the next go-toolchain publish).
+        URL="https://dl.pazer.build/go-toolchain?branch=v1&os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
+        # Install only on a successful download. A failure is reported (not hidden
+        # behind `|| true`) but is non-fatal here: gating with `if` keeps `set -e`
+        # from skipping the probe + source-build fallback below, which surface the
+        # reason and decide whether to fail the build.
+        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
+          chmod +x /tmp/go-toolchain
+          # Run the binary once BEFORE the root-owned install. Since the
+          # fat-APE migration (#275) the linux and windows/amd64 slots serve
+          # an APE polyglot that self-assimilates on first exec by reopening
+          # ITSELF read-write -- fine here while the file is still
+          # runner-writable in /tmp, impossible for the non-root runner once
+          # it is root-owned in /usr/local/bin ("line 11: ... Permission
+          # denied"). After this run, the installed file is a plain native
+          # binary. For native slots (e.g. darwin/arm64) this is just an
+          # early version check. Failures are tolerated (|| true): the probe
+          # below stays the single pass/fail gate and surfaces the reason.
+          /tmp/go-toolchain version || true
+          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        else
+          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
+        fi
+        # Probe the installed binary. Capture the output (don't discard it) so
+        # the real reason it is unusable -- 404, not on PATH, or a crash -- is shown.
+        if ! probe=$(go-toolchain version 2>&1); then
+          echo "buildhost go-toolchain (${URL}) not usable; probe output:"
+          echo "${probe}"
+          # Fail fast unless the caller has explicitly opted in to a source
+          # build: a silent fallback hides buildhost outages and ships a
+          # locally-compiled toolchain that may differ from the released one.
+          if [ "${{ inputs.allow-source-build }}" != "true" ]; then
+            echo "::error::Could not install go-toolchain from buildhost and allow-source-build is not enabled. Set allow-source-build: 'true' to build from source instead."
+            exit 1
+          fi
+          echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
           sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
         fi
@@ -108,8 +161,14 @@ runs:
       if: inputs.binary != ''
       shell: bash
       run: |
-        chmod +x "${{ inputs.binary }}"
-        sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
+        # Stage through /tmp and pre-run once so a fat-APE binary
+        # self-assimilates while still runner-writable (see the buildhost
+        # install step above for why); staging also keeps the caller's file
+        # byte-identical. For a native binary this changes nothing.
+        cp "${{ inputs.binary }}" /tmp/go-toolchain-provided
+        chmod +x /tmp/go-toolchain-provided
+        /tmp/go-toolchain-provided version || true
+        sudo cp /tmp/go-toolchain-provided /usr/local/bin/go-toolchain
 
     - name: Install timeout (macOS)
       if: runner.os == 'macOS'
@@ -143,6 +202,55 @@ runs:
         fi
         echo "security-events: write confirmed (probe HTTP ${HTTP_CODE})"
 
+    - name: Verify autorelease permissions
+      if: inputs.autorelease == 'true'
+      uses: wow-look-at-my/actions@typescript#latest
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      with:
+        script: |
+          // Probe the artifacts endpoint to verify actions: read.
+          // A 403 means the workflow is missing the permission.
+          // The typescript action's auto-derived `github` context carries no
+          // token, and composite actions don't propagate GITHUB_TOKEN to
+          // sub-action processes, so pass it explicitly via the step env above
+          // and build the client from process.env.
+          const token = process.env.GITHUB_TOKEN;
+          if (!token) {
+            // Top-level `return` is rejected by the typescript action's tsc
+            // validation (the script is type-checked as a module); throwing
+            // fails the step with this message via the action's catch handler.
+            throw new Error("autorelease permission check needs GITHUB_TOKEN, but it is empty -- the action passes github.token via step env; ensure the workflow grants at least 'contents: read'.");
+          }
+          const oct = getOctokit(token);
+          let actionsReadOk = false;
+          try {
+            await oct.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            actionsReadOk = true;
+          } catch (e: any) {
+            if (e.status !== 403) throw e;
+            core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing.");
+          }
+          if (actionsReadOk) {
+            core.info('actions: read confirmed');
+            // Verify id-token: write via OIDC environment variables.
+            // On external fork PRs GitHub withholds OIDC regardless of
+            // declared permissions; skip rather than fail spuriously.
+            const isForkPr = context.eventName === 'pull_request' &&
+              (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+            if (isForkPr) {
+              core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
+            } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+              core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
+            } else {
+              core.info('id-token: write confirmed (OIDC environment variables present)');
+            }
+          }
+
     - name: Initialize CodeQL
       if: inputs.codeql == 'true'
       uses: github/codeql-action/init@v4
@@ -168,11 +276,16 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
-        if [ -n "${{ inputs.os }}" ]; then
-          ARGS="$ARGS --os ${{ inputs.os }}"
-        fi
-        if [ -n "${{ inputs.arch }}" ]; then
-          ARGS="$ARGS --arch ${{ inputs.arch }}"
+        if [ -n "${{ inputs.targets }}" ]; then
+          # --targets replaces the --os x --arch matrix entirely.
+          ARGS="$ARGS --targets ${{ inputs.targets }}"
+        else
+          if [ -n "${{ inputs.os }}" ]; then
+            ARGS="$ARGS --os ${{ inputs.os }}"
+          fi
+          if [ -n "${{ inputs.arch }}" ]; then
+            ARGS="$ARGS --arch ${{ inputs.arch }}"
+          fi
         fi
         if [ "${{ inputs.cgo }}" = "true" ]; then
           ARGS="$ARGS --cgo"
@@ -193,5 +306,5 @@ runs:
         path: ${{ inputs.working-directory }}/build/
 
     - name: Auto-release to buildhost
-      if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      if: inputs.autorelease == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master

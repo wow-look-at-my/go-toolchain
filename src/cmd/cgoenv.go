@@ -5,9 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 var setupCGOOnce sync.Once
@@ -29,7 +30,8 @@ func setupCGOEnvironment() {
 		}
 
 		// On macOS, also add homebrew's pkgconfig for other C deps
-		if runtime.GOOS == "darwin" {
+		// (hostos, not runtime: a cosmo fat APE on a mac must still find brew)
+		if hostos.GOOS() == "darwin" {
 			if prefix, err := brewPrefix(); err == nil {
 				pkgConfigDir := filepath.Join(prefix, "lib", "pkgconfig")
 				if _, err := os.Stat(pkgConfigDir); err == nil {
