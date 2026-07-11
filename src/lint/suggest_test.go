@@ -3,7 +3,7 @@ package lint
 import (
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildSuggestion_IdenticalBlocks(t *testing.T) {

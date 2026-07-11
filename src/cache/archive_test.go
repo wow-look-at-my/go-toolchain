@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseImportPath_RealArchive(t *testing.T) {
@@ -106,10 +106,11 @@ func buildAr(name string, body []byte) []byte {
 // buildMinimalPkgbitsV0 constructs a synthetic pkgbits V0 payload that encodes
 // importPath as the package path in SectionPkg[0], without sync markers.
 // Layout:
-//   version=0 (no flags)
-//   elemEndsEnds: SectionString=1, others cumulative up to total=2
-//   elemEnds: [len(importPath), <SectionPkg[0] elem size>]
-//   elemData: <importPath bytes> <SectionPkg[0] elem> <8-byte fingerprint>
+//
+//	version=0 (no flags)
+//	elemEndsEnds: SectionString=1, others cumulative up to total=2
+//	elemEnds: [len(importPath), <SectionPkg[0] elem size>]
+//	elemData: <importPath bytes> <SectionPkg[0] elem> <8-byte fingerprint>
 func buildMinimalPkgbitsV0(importPath string) []byte {
 	// SectionPkg[0] element body:
 	//   nrelocs=1 (uvarint)

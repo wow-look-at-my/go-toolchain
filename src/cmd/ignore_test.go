@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
@@ -85,7 +85,7 @@ func TestUnignoreConfirmationAbort(t *testing.T) {
 	wIn.Close()
 	os.Stdin = rIn
 	defer func() { os.Stdin = oldStdin }()
-	err := unignoreCmd.PersistentPreRunE(nil, nil)
+	err := confirmUnignore()
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "aborted")
 }
@@ -97,7 +97,7 @@ func TestUnignoreConfirmationAccept(t *testing.T) {
 	wIn.Close()
 	os.Stdin = rIn
 	defer func() { os.Stdin = oldStdin }()
-	err := unignoreCmd.PersistentPreRunE(nil, nil)
+	err := confirmUnignore()
 	assert.Nil(t, err)
 }
 

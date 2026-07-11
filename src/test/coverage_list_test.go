@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func captureOutput(f func()) string {
@@ -66,7 +66,7 @@ example.com/pkg/bar.go:14.1,16.1 4 0
 
 func TestSortByUncovered(t *testing.T) {
 	files := []FileCoverage{
-		{baseCoverageItem: baseCoverageItem{Statements: 8, Covered: 3}, File: "example.com/pkg/foo.go"},  // 5 uncovered
+		{baseCoverageItem: baseCoverageItem{Statements: 8, Covered: 3}, File: "example.com/pkg/foo.go"},   // 5 uncovered
 		{baseCoverageItem: baseCoverageItem{Statements: 14, Covered: 10}, File: "example.com/pkg/bar.go"}, // 4 uncovered
 	}
 

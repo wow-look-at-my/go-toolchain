@@ -18,7 +18,7 @@ const colorYellow = "\033[38;2;255;255;0m"
 const colorGreen = "\033[38;2;0;255;0m"
 const colorRed = "\033[38;2;255;0;0m"
 const colorPass = colorGreen
-const colorFail = "\033[38;2;255;128;128m" // softer red for readability
+const colorFail = "\033[38;2;255;128;128m"    // softer red for readability
 const colorDimCyan = "\033[38;2;100;160;160m" // dark greyish-cyan for durations
 
 type ColorPct struct {

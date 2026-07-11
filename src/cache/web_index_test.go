@@ -9,9 +9,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-containers/set"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestParseIndexBlob_RoundTrip(t *testing.T) {
@@ -110,13 +111,13 @@ func TestDecodeActionHash_Bad(t *testing.T) {
 // ETag/304 semantics. PUT/GET on object keys are no-ops/404s — this fixture
 // is only for exercising the index-fetch path.
 type indexFixture struct {
-	t        *testing.T
-	bucket   string
-	blob     atomic.Pointer[[]byte]
-	hits200  atomic.Int32
-	hits304  atomic.Int32
-	hitsAny  atomic.Int32
-	srv      *httptest.Server
+	t       *testing.T
+	bucket  string
+	blob    atomic.Pointer[[]byte]
+	hits200 atomic.Int32
+	hits304 atomic.Int32
+	hitsAny atomic.Int32
+	srv     *httptest.Server
 }
 
 func newIndexFixture(t *testing.T, bucket string, initial set.Set[string]) *indexFixture {
@@ -218,6 +219,46 @@ func TestLoadOrFetchIndex_WarmCache304(t *testing.T) {
 	require.True(t, b2.keys.Contains(gbciKeyPrefix+hex.EncodeToString(h[:])))
 	require.Equal(t, int32(1), f.hits304.Load(), "expected one 304 on warm restart")
 	require.Equal(t, int32(1), f.hits200.Load(), "200 count should not have grown")
+}
+
+// TestLoadOrFetchIndex_SlowServerBounded pins the startup budget: a
+// slow-but-answering index endpoint must not hold NewWebBackend (and the
+// daemon start) hostage — the fetch is abandoned within indexFetchBudget and
+// the backend proceeds with a non-authoritative (probing-enabled) key set.
+func TestLoadOrFetchIndex_SlowServerBounded(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Hang until released (slower than any sane budget), but also honor
+		// the client abandoning the request so the handler can exit.
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	// LIFO defers: release the handler BEFORE srv.Close waits on it.
+	defer srv.Close()
+	defer close(release)
+
+	orig := indexFetchBudget
+	indexFetchBudget = 150 * time.Millisecond
+	defer func() { indexFetchBudget = orig }()
+
+	start := time.Now()
+	b, err := NewWebBackend(WebConfig{
+		Bucket: "bk", Endpoint: srv.URL,
+		AccessKey: "k", SecretKey: "s",
+	})
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	defer b.Close()
+
+	require.Less(t, elapsed, 2*time.Second,
+		"the index fetch must be abandoned within its budget, not the 30s client timeout")
+	require.Equal(t, 0, b.keys.Len())
+	require.False(t, b.indexAuthoritative,
+		"an abandoned index fetch must leave the key set non-authoritative so batch probing stays enabled")
 }
 
 func TestLoadOrFetchIndex_ServerError(t *testing.T) {
@@ -331,4 +372,3 @@ func TestWriteAndReadIndexBlob(t *testing.T) {
 	require.Equal(t, 1, gotKeys.Len())
 	require.NotEqual(t, "", etag)
 }
-

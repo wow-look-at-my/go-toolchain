@@ -13,12 +13,12 @@ import (
 // stderr output. Each line printed by -v is a package that was compiled because
 // it wasn't in the build cache.
 type cacheMissTracker struct {
-	mu      sync.Mutex
-	target  io.Writer // underlying writer (e.g. os.Stderr)
-	buf     []byte
-	pkgs    []string
-	seen    map[string]bool
-	phase   string // current phase label (e.g. "vet", "test", "build")
+	mu     sync.Mutex
+	target io.Writer // underlying writer (e.g. os.Stderr)
+	buf    []byte
+	pkgs   []string
+	seen   map[string]bool
+	phase  string // current phase label (e.g. "vet", "test", "build")
 }
 
 // newCacheMissTracker creates a tracker that tees to the given writer.

@@ -16,9 +16,9 @@ import (
 
 // Options configures benchmark execution
 type Options struct {
-	Time          string    // -benchtime
-	Count         int       // -count
-	CPU           string    // -cpu
+	Time          string // -benchtime
+	Count         int    // -count
+	CPU           string // -cpu
 	Verbose       bool
 	StreamTo      io.Writer // if set, benchmark results are printed here as they complete
 	OnFirstResult func()    // called before the first benchmark result is streamed
