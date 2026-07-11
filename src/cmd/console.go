@@ -6,8 +6,11 @@ import (
 	"io"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
 const colorReset = "\033[0m"
@@ -15,7 +18,7 @@ const colorYellow = "\033[38;2;255;255;0m"
 const colorGreen = "\033[38;2;0;255;0m"
 const colorRed = "\033[38;2;255;0;0m"
 const colorPass = colorGreen
-const colorFail = "\033[38;2;255;128;128m" // softer red for readability
+const colorFail = "\033[38;2;255;128;128m"    // softer red for readability
 const colorDimCyan = "\033[38;2;100;160;160m" // dark greyish-cyan for durations
 
 type ColorPct struct {
@@ -99,22 +102,57 @@ func logError(file, msg string) {
 	}
 }
 
-// step tracks progress for a long-running build step.
-// It prints "==> label..." initially, then " done. (Xs)" when finished.
-// If output was produced between start and finish, the done message
-// goes on a new line with the label repeated.
-type step struct {
-	label   string
-	start   time.Time
-	noisy   bool
-	once    sync.Once
+// pipelineTimeline records start/end times for pipeline steps.
+// Initialized by InitTimeline(); nil until then.
+var pipelineTimeline *summary.Timeline
+
+// InitTimeline creates the global pipeline timeline, anchored to now.
+func InitTimeline() {
+	pipelineTimeline = summary.NewTimeline()
 }
 
-// logStep prints "==> label..." without a newline and returns a step
-// that can be finished later with done().
+// GetTimeline returns the global pipeline timeline (may be nil).
+func GetTimeline() *summary.Timeline {
+	return pipelineTimeline
+}
+
+// step tracks progress for a long-running build step.
+// It prints "⇒ label..." initially, then " done. (Xs)" when finished.
+// If output was produced between start and finish, the done message
+// goes on a new line with the label repeated.
+// Sub-steps (created via logSubStep) print indented "    label Xs" instead.
+type step struct {
+	label  string
+	thread string
+	start  time.Time
+	noisy  bool
+	sub    bool // sub-step: indented output, no "⇒" prefix
+	once   sync.Once
+}
+
+// logStep prints "⇒ label..." without a newline and returns a step
+// that can be finished later with done(). Records on the "main" thread.
 func logStep(label string) *step {
-	fmt.Printf("==> %s...", label)
-	return &step{label: label, start: time.Now()}
+	return logStepOn(label, "main")
+}
+
+// logStepOn is like logStep but records on the given thread.
+func logStepOn(label, thread string) *step {
+	fmt.Printf("⇒ %s...", label)
+	if activeWatchdog != nil {
+		activeWatchdog.setStep(label)
+	}
+	return &step{label: label, thread: thread, start: time.Now()}
+}
+
+// logSubStep creates a sub-step that prints as "    label Xs" when done.
+// It doesn't print anything on creation — only on completion.
+// Useful for recording sub-phases (e.g. vet phases) that have their own timing.
+func logSubStep(label, thread string) *step {
+	if activeWatchdog != nil {
+		activeWatchdog.setStep(label)
+	}
+	return &step{label: label, thread: thread, start: time.Now(), sub: true}
 }
 
 // noteOutput marks that visible output was produced during this step.
@@ -134,11 +172,24 @@ func fmtDuration(d time.Duration) string {
 
 // finish prints the completion message with elapsed time and a status word.
 func (s *step) finish(status string) {
-	d := time.Since(s.start)
-	if s.noisy {
-		fmt.Printf("==> %s %s %s\n", s.label, status, fmtDuration(d))
+	end := time.Now()
+	d := end.Sub(s.start)
+	if s.sub {
+		fmt.Fprintf(os.Stderr, "    %s %s\n", s.label, fmtDuration(d))
+	} else if s.noisy {
+		fmt.Printf("⇒ %s %s %s\n", s.label, status, fmtDuration(d))
 	} else {
 		fmt.Printf(" %s %s\n", status, fmtDuration(d))
+	}
+
+	if activeWatchdog != nil {
+		activeWatchdog.clearStep()
+	}
+
+	// Record to the pipeline timeline if initialized
+	if pipelineTimeline != nil {
+		failed := strings.Contains(status, "failed")
+		pipelineTimeline.Record(s.label, s.thread, s.start, end, failed)
 	}
 }
 

@@ -5,11 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestGenerateMarkdownEmpty(t *testing.T) {
@@ -318,4 +319,34 @@ func TestCountTestStatuses(t *testing.T) {
 	assert.Equal(t, 2, p)
 	assert.Equal(t, 1, f)
 	assert.Equal(t, 1, s)
+}
+
+func TestGenerateMarkdownWithTimeline(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+		Timeline: []TimelineEntry{
+			{Label: "go mod tidy", Thread: "main", Start: base, End: base.Add(500 * time.Millisecond)},
+			{Label: "go test", Thread: "main", Start: base.Add(500 * time.Millisecond), End: base.Add(2 * time.Second)},
+		},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.Contains(t, md, "Pipeline Timeline")
+	assert.Contains(t, md, "```mermaid")
+	assert.Contains(t, md, "gantt")
+	assert.Contains(t, md, "go mod tidy")
+	assert.Contains(t, md, "go test")
+}
+
+func TestGenerateMarkdownWithoutTimeline(t *testing.T) {
+	data := &SummaryData{
+		Coverage: &gotest.Report{Total: 80.0},
+	}
+
+	md := GenerateMarkdown(data)
+
+	assert.NotContains(t, md, "Pipeline Timeline")
+	assert.NotContains(t, md, "```mermaid")
 }

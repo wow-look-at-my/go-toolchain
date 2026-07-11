@@ -1,0 +1,17 @@
+name: Block merged branches
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  id-token: write
+
+jobs:
+  block:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: wow-look-at-my/actions@branch-block#latest
+        with:
+          branch: ${{ github.head_ref }}
+          token: ${{ secrets.BRANCH_BLOCK_PAT }}
