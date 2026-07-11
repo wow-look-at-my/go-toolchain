@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
@@ -466,14 +466,48 @@ func newSmallMock(covered, uncovered int) *runner.Mock {
 	return mock
 }
 
+func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+	setupMockProject()
+	// Coverable statements + test results below are what make the empty
+	// profile "broken" rather than a legitimately zero-statement module.
+	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
+
+	// Mock that reports a passing test but writes an empty coverage profile
+	// (just "mode: set"). This simulates broken coverage data collection.
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "test") {
+			writeMockCoverProfileStmts(cfg.Args, 0, 0) // empty profile
+			out := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestX"}` + "\n" +
+				`{"Time":"2024-01-01T00:00:01Z","Action":"pass","Package":"example.com/pkg","Test":"TestX","Elapsed":0.01}` + "\n" +
+				`{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}` + "\n"
+			return runner.MockProcess([]byte(out), nil), nil
+		}
+		if proc, ok := handleGoList(cfg); ok {
+			return proc, nil
+		}
+		return nil, nil
+	}
+
+	jsonOutput = true
+	defer func() { jsonOutput = false }()
+	assert.Panics(t, func() {
+		runWithRunner(mock, nil) //nolint
+	})
+}
+
 func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		cov, unc int
 		wantErr  bool
 	}{
-		{"5 uncovered allows", 12, 5, false},  // 70.6% < 80% but 5 < 10
-		{"40 uncovered fails", 60, 40, true},  // 60% < 80% and 40 >= 10
+		{"5 uncovered allows", 12, 5, false}, // 70.6% < 80% but 5 < 10
+		{"40 uncovered fails", 60, 40, true}, // 60% < 80% and 40 >= 10
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()

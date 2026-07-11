@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseVanityModulesFromSum(t *testing.T) {
@@ -95,23 +95,25 @@ func TestParseGoImportMeta(t *testing.T) {
 <meta name="go-import" content="gotest.tools/gotestsum git https://github.com/gotestyourself/gotestsum">
 </head></html>`
 
-	url, err := parseGoImportMeta(html, "gotest.tools/gotestsum")
+	url, prefix, err := parseGoImportMeta(html, "gotest.tools/gotestsum")
 	require.Nil(t, err)
 	assert.Equal(t, "https://github.com/gotestyourself/gotestsum", url)
+	assert.Equal(t, "gotest.tools/gotestsum", prefix)
 }
 
 func TestParseGoImportMetaPrefixMatch(t *testing.T) {
 	// Module path is longer than the prefix in the meta tag
 	html := `<meta name="go-import" content="gotest.tools git https://github.com/gotestyourself/gotest.tools">`
 
-	url, err := parseGoImportMeta(html, "gotest.tools/v3")
+	url, prefix, err := parseGoImportMeta(html, "gotest.tools/v3")
 	require.Nil(t, err)
 	assert.Equal(t, "https://github.com/gotestyourself/gotest.tools", url)
+	assert.Equal(t, "gotest.tools", prefix)
 }
 
 func TestParseGoImportMetaNotFound(t *testing.T) {
 	html := `<html><head><title>Nothing here</title></head></html>`
-	_, err := parseGoImportMeta(html, "example.com/foo")
+	_, _, err := parseGoImportMeta(html, "example.com/foo")
 	assert.NotNil(t, err)
 }
 
@@ -121,9 +123,9 @@ func TestInjectVanityReplacesNoGoSum(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	assert.Nil(t, err)
-	assert.Nil(t, replaces)
+	assert.Nil(t, state)
 }
 
 func TestInjectVanityReplacesAllReachable(t *testing.T) {
@@ -143,9 +145,9 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	vanityHostChecker = func(host string) bool { return true }
 	defer func() { vanityHostChecker = old }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	assert.Nil(t, err)
-	assert.Nil(t, replaces)
+	assert.Nil(t, state)
 }
 
 func TestInjectAndRemoveVanityReplaces(t *testing.T) {
@@ -168,11 +170,11 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	defer func() { vanityHostChecker = oldChecker }()
 
 	oldResolver := vanityVCSResolver
-	vanityVCSResolver = func(modulePath, version string) (string, error) {
+	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
 		if modulePath == "gotest.tools/gotestsum" {
-			return "https://github.com/gotestyourself/gotestsum", nil
+			return "https://github.com/gotestyourself/gotestsum", modulePath, nil
 		}
-		return "", os.ErrNotExist
+		return "", "", os.ErrNotExist
 	}
 	defer func() { vanityVCSResolver = oldResolver }()
 
@@ -181,11 +183,13 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	defer func() { jsonOutput = oldJSON }()
 
 	// Inject
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	require.Nil(t, err)
-	require.Equal(t, 1, len(replaces))
-	assert.Equal(t, "gotest.tools/gotestsum", replaces[0].OldPath)
-	assert.Equal(t, "github.com/gotestyourself/gotestsum", replaces[0].NewPath)
+	require.NotNil(t, state)
+	require.Equal(t, 1, len(state.Replaces))
+	assert.Equal(t, "gotest.tools/gotestsum", state.Replaces[0].OldPath)
+	assert.Equal(t, "github.com/gotestyourself/gotestsum", state.Replaces[0].NewPath)
+	assert.Equal(t, gosum, string(state.OrigGoSum))
 
 	// Verify go.mod has the replace directive
 	data, _ := os.ReadFile("go.mod")
@@ -193,8 +197,12 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	assert.Contains(t, content, "replace gotest.tools/gotestsum")
 	assert.Contains(t, content, "github.com/gotestyourself/gotestsum")
 
+	// Corrupt go.sum to simulate what go mod tidy would do while the
+	// replace is active (swap vanity entries for replacement entries).
+	os.WriteFile("go.sum", []byte("github.com/gotestyourself/gotestsum v1.13.0 h1:xxx=\n"), 0644)
+
 	// Remove
-	err = removeVanityReplaces(replaces)
+	err = removeVanityReplaces(state)
 	require.Nil(t, err)
 
 	// Verify replace is gone
@@ -203,6 +211,10 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	assert.NotContains(t, content, "replace")
 	// Original require should still be there
 	assert.Contains(t, content, "gotest.tools/gotestsum")
+
+	// go.sum should be restored to its pre-injection state
+	restored, _ := os.ReadFile("go.sum")
+	assert.Equal(t, gosum, string(restored))
 }
 
 func TestInjectVanityReplacesMultipleModulesSameHost(t *testing.T) {
@@ -226,15 +238,15 @@ modernc.org/libc v1.67.6/go.mod h1:ddd=
 	defer func() { vanityHostChecker = oldChecker }()
 
 	oldResolver := vanityVCSResolver
-	vanityVCSResolver = func(modulePath, version string) (string, error) {
+	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
 		mapping := map[string]string{
 			"modernc.org/sqlite": "https://gitlab.com/cznic/sqlite",
 			"modernc.org/libc":   "https://gitlab.com/cznic/libc",
 		}
 		if url, ok := mapping[modulePath]; ok {
-			return url, nil
+			return url, modulePath, nil
 		}
-		return "", os.ErrNotExist
+		return "", "", os.ErrNotExist
 	}
 	defer func() { vanityVCSResolver = oldResolver }()
 
@@ -242,9 +254,10 @@ modernc.org/libc v1.67.6/go.mod h1:ddd=
 	jsonOutput = true
 	defer func() { jsonOutput = oldJSON }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	require.Nil(t, err)
-	assert.Equal(t, 2, len(replaces))
+	require.NotNil(t, state)
+	assert.Equal(t, 2, len(state.Replaces))
 
 	// Verify both replaces are in go.mod
 	data, _ := os.ReadFile("go.mod")
@@ -253,7 +266,7 @@ modernc.org/libc v1.67.6/go.mod h1:ddd=
 	assert.Contains(t, content, "gitlab.com/cznic/libc")
 
 	// Clean up
-	err = removeVanityReplaces(replaces)
+	err = removeVanityReplaces(state)
 	require.Nil(t, err)
 
 	data, _ = os.ReadFile("go.mod")
@@ -278,8 +291,8 @@ func TestInjectVanityReplacesSkipsUnresolvable(t *testing.T) {
 
 	// Resolver fails for everything
 	oldResolver := vanityVCSResolver
-	vanityVCSResolver = func(modulePath, version string) (string, error) {
-		return "", os.ErrNotExist
+	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
+		return "", "", os.ErrNotExist
 	}
 	defer func() { vanityVCSResolver = oldResolver }()
 
@@ -287,9 +300,9 @@ func TestInjectVanityReplacesSkipsUnresolvable(t *testing.T) {
 	jsonOutput = true
 	defer func() { jsonOutput = oldJSON }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	assert.Nil(t, err)
-	assert.Nil(t, replaces)
+	assert.Nil(t, state)
 
 	// go.mod should be unchanged
 	data, _ := os.ReadFile("go.mod")
@@ -312,8 +325,8 @@ func TestInjectVanityReplacesAppendsVersionSuffix(t *testing.T) {
 	defer func() { vanityHostChecker = oldChecker }()
 
 	oldResolver := vanityVCSResolver
-	vanityVCSResolver = func(modulePath, version string) (string, error) {
-		return "https://github.com/yaml/go-yaml", nil
+	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
+		return "https://github.com/yaml/go-yaml", "go.yaml.in/yaml", nil
 	}
 	defer func() { vanityVCSResolver = oldResolver }()
 
@@ -321,19 +334,115 @@ func TestInjectVanityReplacesAppendsVersionSuffix(t *testing.T) {
 	jsonOutput = true
 	defer func() { jsonOutput = oldJSON }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	require.Nil(t, err)
-	require.Equal(t, 1, len(replaces))
+	require.NotNil(t, state)
+	require.Equal(t, 1, len(state.Replaces))
 
 	// The replacement path must include /v3 suffix for the version to be valid
-	assert.Equal(t, "github.com/yaml/go-yaml/v3", replaces[0].NewPath)
-	assert.Equal(t, "v3.0.4", replaces[0].NewVersion)
+	assert.Equal(t, "github.com/yaml/go-yaml/v3", state.Replaces[0].NewPath)
+	assert.Equal(t, "v3.0.4", state.Replaces[0].NewVersion)
 
 	data, _ := os.ReadFile("go.mod")
 	assert.Contains(t, string(data), "github.com/yaml/go-yaml/v3 v3.0.4")
 
-	err = removeVanityReplaces(replaces)
+	err = removeVanityReplaces(state)
 	require.Nil(t, err)
+}
+
+func TestInjectVanityReplacesSubModule(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	gomod := "module test\n\ngo 1.21\n\nrequire (\n\tgo.opentelemetry.io/otel v1.35.0\n\tgo.opentelemetry.io/otel/trace v1.35.0\n\tgo.opentelemetry.io/otel/sdk v1.35.0\n)\n"
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+
+	gosum := `go.opentelemetry.io/otel v1.35.0 h1:aaa=
+go.opentelemetry.io/otel/trace v1.35.0 h1:bbb=
+go.opentelemetry.io/otel/sdk v1.35.0 h1:ccc=
+`
+	os.WriteFile("go.sum", []byte(gosum), 0644)
+
+	oldChecker := vanityHostChecker
+	vanityHostChecker = func(host string) bool { return false }
+	defer func() { vanityHostChecker = oldChecker }()
+
+	oldResolver := vanityVCSResolver
+	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
+		return "https://github.com/open-telemetry/opentelemetry-go", "go.opentelemetry.io/otel", nil
+	}
+	defer func() { vanityVCSResolver = oldResolver }()
+
+	oldJSON := jsonOutput
+	jsonOutput = true
+	defer func() { jsonOutput = oldJSON }()
+
+	state, err := injectVanityReplaces()
+	require.Nil(t, err)
+	require.NotNil(t, state)
+	require.Equal(t, 3, len(state.Replaces))
+
+	replacePaths := map[string]string{}
+	for _, r := range state.Replaces {
+		replacePaths[r.OldPath] = r.NewPath
+	}
+
+	assert.Equal(t, "github.com/open-telemetry/opentelemetry-go", replacePaths["go.opentelemetry.io/otel"])
+	assert.Equal(t, "github.com/open-telemetry/opentelemetry-go/trace", replacePaths["go.opentelemetry.io/otel/trace"])
+	assert.Equal(t, "github.com/open-telemetry/opentelemetry-go/sdk", replacePaths["go.opentelemetry.io/otel/sdk"])
+
+	data, _ := os.ReadFile("go.mod")
+	content := string(data)
+	assert.Contains(t, content, "github.com/open-telemetry/opentelemetry-go/trace")
+	assert.Contains(t, content, "github.com/open-telemetry/opentelemetry-go/sdk")
+
+	err = removeVanityReplaces(state)
+	require.Nil(t, err)
+
+	data, _ = os.ReadFile("go.mod")
+	assert.NotContains(t, string(data), "replace")
+}
+
+func TestInjectVanityReplacesSkipsNonDirectHost(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	gomod := "module test\n\ngo 1.21\n\nrequire vanity.test/widget v1.2.3\n"
+	os.WriteFile("go.mod", []byte(gomod), 0644)
+	gosum := "vanity.test/widget v1.2.3 h1:aaa=\n"
+	os.WriteFile("go.sum", []byte(gosum), 0644)
+
+	oldChecker := vanityHostChecker
+	vanityHostChecker = func(host string) bool { return false }
+	defer func() { vanityHostChecker = oldChecker }()
+
+	// This vanity module's real repository is on go.googlesource.com, which is
+	// not a direct code host. Rewriting onto it would only swap one indirect
+	// host for another, so the replace must be skipped entirely. (google.golang.org
+	// modules can no longer reach this path — they are well-known and excluded
+	// before the reachability check.)
+	oldResolver := vanityVCSResolver
+	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
+		return "https://go.googlesource.com/widget", "vanity.test/widget", nil
+	}
+	defer func() { vanityVCSResolver = oldResolver }()
+
+	oldJSON := jsonOutput
+	jsonOutput = true
+	defer func() { jsonOutput = oldJSON }()
+
+	state, err := injectVanityReplaces()
+	assert.Nil(t, err)
+	assert.Nil(t, state)
+
+	// go.mod must be untouched — no replace onto a non-direct host.
+	data, _ := os.ReadFile("go.mod")
+	assert.NotContains(t, string(data), "replace")
+	assert.NotContains(t, string(data), "go.googlesource.com")
 }
 
 func TestRemoveVanityReplacesEmpty(t *testing.T) {
@@ -352,9 +461,16 @@ gitlab.com/baz/qux v2.0.0 h1:bbb=
 golang.org/x/mod v0.30.0 h1:ccc=
 gopkg.in/yaml.v3 v3.0.1 h1:ddd=
 bitbucket.org/test/repo v0.1.0 h1:eee=
+google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 h1:fff=
+google.golang.org/grpc v1.80.0 h1:ggg=
 `
 	os.WriteFile("go.sum", []byte(gosum), 0644)
 
+	// google.golang.org is a well-known host: its modules (genproto, grpc,
+	// protobuf, ...) always resolve via the Go proxy, so they must never be
+	// treated as rewritable vanity modules. Treating them as vanity caused a
+	// stale build to mis-rewrite them onto GitHub mirrors when a slow network
+	// made the reachability probe time out.
 	modules, err := parseVanityModulesFromSum()
 	require.Nil(t, err)
 	assert.Equal(t, 0, len(modules))
@@ -385,8 +501,8 @@ replace example.com/existing => example.com/replacement v1.0.0
 	defer func() { vanityHostChecker = oldChecker }()
 
 	oldResolver := vanityVCSResolver
-	vanityVCSResolver = func(modulePath, version string) (string, error) {
-		return "https://github.com/gotestyourself/gotestsum", nil
+	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
+		return "https://github.com/gotestyourself/gotestsum", modulePath, nil
 	}
 	defer func() { vanityVCSResolver = oldResolver }()
 
@@ -394,9 +510,10 @@ replace example.com/existing => example.com/replacement v1.0.0
 	jsonOutput = true
 	defer func() { jsonOutput = oldJSON }()
 
-	replaces, err := injectVanityReplaces()
+	state, err := injectVanityReplaces()
 	require.Nil(t, err)
-	require.Equal(t, 1, len(replaces))
+	require.NotNil(t, state)
+	require.Equal(t, 1, len(state.Replaces))
 
 	// Existing replace should still be there
 	data, _ := os.ReadFile("go.mod")
@@ -404,7 +521,7 @@ replace example.com/existing => example.com/replacement v1.0.0
 	assert.Contains(t, content, "example.com/existing")
 
 	// Remove only injected replaces
-	err = removeVanityReplaces(replaces)
+	err = removeVanityReplaces(state)
 	require.Nil(t, err)
 
 	data, _ = os.ReadFile("go.mod")

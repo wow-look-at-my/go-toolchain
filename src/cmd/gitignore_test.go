@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGitignoreContains_ExactMatch(t *testing.T) {
@@ -177,4 +177,64 @@ func TestNeedsLeadingNewline(t *testing.T) {
 
 	// Missing file
 	assert.False(t, needsLeadingNewline(filepath.Join(dir, "missing")))
+}
+
+func TestRemoveFromGitignore_RemovesGuardLine(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(gitignorePath, []byte("/build/\ngomemlimit_gen.go\nvendor/\n"), 0644))
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	require.NoError(t, os.Chdir(dir))
+
+	removeFromGitignore("gomemlimit_gen.go")
+
+	content, err := os.ReadFile(gitignorePath)
+	require.NoError(t, err)
+	assert.Equal(t, "/build/\nvendor/\n", string(content), "only the guard line is dropped; other entries and the trailing newline survive")
+}
+
+func TestRemoveFromGitignore_NoOpWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	const original = "/build/\nvendor/\n"
+	require.NoError(t, os.WriteFile(gitignorePath, []byte(original), 0644))
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	require.NoError(t, os.Chdir(dir))
+
+	removeFromGitignore("gomemlimit_gen.go")
+
+	content, err := os.ReadFile(gitignorePath)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(content), "an absent entry leaves the file byte-identical (no rewrite)")
+}
+
+// TestEnsureBuildDirInGitignore_StripsStaleGuard verifies the migration: a
+// .gitignore an older go-toolchain polluted with the guard line is cleaned up
+// while the build-dir entry is still ensured.
+func TestEnsureBuildDirInGitignore_StripsStaleGuard(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(gitignorePath, []byte("/build/\ngomemlimit_gen.go\n"), 0644))
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	require.NoError(t, os.Chdir(dir))
+
+	oldOutputDir := outputDir
+	defer func() { outputDir = oldOutputDir }()
+	outputDir = "build"
+
+	ensureBuildDirInGitignore()
+
+	content, err := os.ReadFile(gitignorePath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(content), "gomemlimit_gen.go", "stale guard line must be stripped")
+	assert.Contains(t, string(content), "/build/", "build dir entry is preserved")
 }

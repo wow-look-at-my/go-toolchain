@@ -7,15 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"gotest.tools/gotestsum/testjson"
 )
+
+// GraphArgFunc, when non-nil, returns an extra flag for the go test argv —
+// the build profiler's "-debug-actiongraph=<file>" dump (or "" for none).
+// Set by cmd when profiling is enabled; a function hook rather than a direct
+// profile import because src/profile depends on src/trace, which reaches
+// this package back through src/summary (an import cycle otherwise).
+var GraphArgFunc func() string
 
 const (
 	clrGreen  = "\033[38;2;0;255;0m"
@@ -51,7 +58,7 @@ type coverageHandler struct {
 	onOutput    func()              // called before the first visible output
 	stderrLines []string            // build errors and panics from stderr
 	testCases   []TestCaseResult    // per-test results for CI summary
-	timeline    TimelineRecorder     // pipeline timeline for per-test spans
+	timeline    TimelineRecorder    // pipeline timeline for per-test spans
 	fastCount   int
 	fastElapsed float64
 }
@@ -242,9 +249,11 @@ func listTestPackages(_ runner.CommandRunner) []string {
 		if !d.IsDir() {
 			return nil
 		}
-		// Skip hidden dirs and common non-source dirs
+		// Skip hidden dirs, common non-source dirs, and nested modules
+		// (their packages belong to a different module and are not import
+		// paths of this one).
 		name := d.Name()
-		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir
 		}
 		// Skip packages where all non-test .go files are generated code
@@ -282,7 +291,14 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// Enumerate only packages that have test files to avoid the "no such tool
 	// covdata" error on main packages without tests. Also excludes packages
 	// where all non-test .go files are generated code (e.g. sqlc output).
-	args := []string{"test", "-vet=off", "-json", "-timeout=" + testTimeout.String()}
+	args := []string{"test", "-json", "-timeout=" + testTimeout.String()}
+	// Dump the action graph for the build profile. No-op when profiling is
+	// off (hook unset — e.g. --no-profile or unit tests).
+	if GraphArgFunc != nil {
+		if garg := GraphArgFunc(); garg != "" {
+			args = append(args, garg)
+		}
+	}
 	if coverFile != "" {
 		// -count=1 disables Go's test-result cache for this invocation.
 		// Go#74873: when -coverpkg=./... is in play, cached coverprofile
@@ -383,7 +399,15 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 						pkg = pkg[:i]
 					}
 				}
-				buildProc, buildErr := runner.Cmd("go", "build", pkg).WithQuiet().Run(r)
+				// -o os.DevNull: this is a diagnostic compile to surface the real
+				// build error, not a build that should produce a binary. Without
+				// -o, `go build <main-pkg>` writes an executable named after the
+				// import path's last element into CWD; when that element is "src"
+				// (this module's main package) it collides with the src/ directory
+				// and fails with "build output \"src\" already exists and is a
+				// directory" — which would then mask the very error we are trying
+				// to capture. Discard the binary so only the compiler errors show.
+				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
 				}

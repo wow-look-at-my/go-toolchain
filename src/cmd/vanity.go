@@ -17,11 +17,24 @@ import (
 // wellKnownHosts are code-hosting domains that resolve directly without
 // vanity URL meta-tag resolution.
 var wellKnownHosts = map[string]bool{
+	"github.com":        true,
+	"gitlab.com":        true,
+	"bitbucket.org":     true,
+	"golang.org":        true,
+	"google.golang.org": true,
+	"gopkg.in":          true,
+}
+
+// directMirrorHosts are the hosts we are willing to rewrite a vanity module
+// *onto*. They serve plain git repositories that resolve without any further
+// vanity/meta indirection. If a vanity module's real repository lives anywhere
+// else (e.g. go.googlesource.com), rewriting to it merely swaps one indirect
+// host for another — and can break resolution that the module proxy would
+// otherwise satisfy for the original path — so we leave such modules untouched.
+var directMirrorHosts = map[string]bool{
 	"github.com":    true,
 	"gitlab.com":    true,
 	"bitbucket.org": true,
-	"golang.org":    true,
-	"gopkg.in":      true,
 }
 
 type vanityModule struct {
@@ -36,6 +49,17 @@ type vanityReplace struct {
 	OldVersion string
 	NewPath    string
 	NewVersion string
+}
+
+// vanityState carries the replaces that were injected together with a
+// snapshot of go.sum as it existed prior to injection. The snapshot lets
+// removeVanityReplaces restore the original go.sum entries, which is
+// necessary because go mod tidy — run while the replace is active —
+// rewrites go.sum to reference the replacement path (e.g. github.com
+// mirror) instead of the original vanity path (e.g. gonum.org).
+type vanityState struct {
+	Replaces  []vanityReplace
+	OrigGoSum []byte
 }
 
 // parseVanityModulesFromSum reads go.sum and returns modules whose hosts are
@@ -99,22 +123,42 @@ func isVanityHostReachable(host string) bool {
 	return true
 }
 
-// resolveVanityVCSURL discovers the VCS repository URL for a vanity module.
+// resolveVanityVCSURL discovers the VCS repository URL and import prefix for
+// a vanity module. The import prefix identifies the root of the vanity
+// namespace that maps to the repository; any path beyond the prefix is a
+// sub-module path within the repo.
+//
 // It first queries the Go module proxy (go mod download -json) to get the
-// Origin URL, then falls back to the go-import meta tag on the vanity host.
-func resolveVanityVCSURL(modulePath, version string) (string, error) {
+// Origin URL and Subdir, then falls back to the go-import meta tag on the
+// vanity host.
+func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
 	// Strategy 1: use go mod download -json via proxy to get Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
-	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct")
+	// Resolve in a scratch directory, outside the current module, so that
+	// downloading this one module does not load the main module's full
+	// requirement graph. On a cold machine that graph can pull in other
+	// uncached or unreachable vanity modules and make this call fail — which
+	// would force the go-import meta fallback below. That fallback cannot see a
+	// module's repository subdirectory, so it produces flat, colliding replaces
+	// for sub-modules (e.g. dropping "/sdk" from go.opentelemetry.io/auto/sdk,
+	// or mapping every go.opentelemetry.io/otel/* onto the same repo path). The
+	// proxy's Origin.Subdir is the authoritative source for that suffix.
+	cmd.Dir = os.TempDir()
+	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct", "GOWORK=off", "GOFLAGS=")
 	output, err := cmd.Output()
 	if err == nil {
 		var info struct {
 			Origin *struct {
-				URL string `json:"URL"`
+				URL    string `json:"URL"`
+				Subdir string `json:"Subdir"`
 			} `json:"Origin"`
 		}
 		if json.Unmarshal(output, &info) == nil && info.Origin != nil && info.Origin.URL != "" {
-			return info.Origin.URL, nil
+			importPrefix := modulePath
+			if info.Origin.Subdir != "" {
+				importPrefix = strings.TrimSuffix(modulePath, "/"+info.Origin.Subdir)
+			}
+			return info.Origin.URL, importPrefix, nil
 		}
 	}
 
@@ -123,27 +167,27 @@ func resolveVanityVCSURL(modulePath, version string) (string, error) {
 }
 
 // resolveGoImportMeta fetches the go-import meta tag from a vanity host.
-func resolveGoImportMeta(modulePath string) (string, error) {
+func resolveGoImportMeta(modulePath string) (vcsURL, importPrefix string, err error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get("https://" + modulePath + "?go-get=1")
 	if err != nil {
-		return "", fmt.Errorf("fetch go-import for %s: %w", modulePath, err)
+		return "", "", fmt.Errorf("fetch go-import for %s: %w", modulePath, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	return parseGoImportMeta(string(body), modulePath)
 }
 
-// parseGoImportMeta extracts the VCS repo URL from HTML containing a go-import
-// meta tag.  The expected format is:
+// parseGoImportMeta extracts the VCS repo URL and import prefix from HTML
+// containing a go-import meta tag.  The expected format is:
 //
 //	<meta name="go-import" content="prefix vcs repo-url">
-func parseGoImportMeta(html, modulePath string) (string, error) {
+func parseGoImportMeta(html, modulePath string) (repoURL, importPrefix string, err error) {
 	for _, line := range strings.Split(html, "\n") {
 		if !strings.Contains(line, "go-import") {
 			continue
@@ -158,11 +202,11 @@ func parseGoImportMeta(html, modulePath string) (string, error) {
 			continue
 		}
 		parts := strings.Fields(rest[:end])
-		if len(parts) >= 3 && strings.HasPrefix(modulePath, parts[0]) {
-			return parts[2], nil
+		if len(parts) >= 3 && (modulePath == parts[0] || strings.HasPrefix(modulePath, parts[0]+"/")) {
+			return parts[2], parts[0], nil
 		}
 	}
-	return "", fmt.Errorf("no go-import meta found for %s", modulePath)
+	return "", "", fmt.Errorf("no go-import meta found for %s", modulePath)
 }
 
 // vcsURLToModulePath strips the scheme and .git suffix from a VCS URL,
@@ -175,15 +219,15 @@ func vcsURLToModulePath(vcsURL string) string {
 }
 
 // vanityVCSResolver abstracts VCS URL resolution for testing.
-var vanityVCSResolver func(modulePath, version string) (string, error)
+var vanityVCSResolver func(modulePath, version string) (string, string, error)
 
 // injectVanityReplaces parses go.sum for vanity-URL modules, checks host
 // reachability, and injects replace directives into go.mod for any module
 // whose vanity host is unreachable.
 //
-// Returns the list of injected replaces so the caller can remove them after
-// go mod tidy completes.
-func injectVanityReplaces() ([]vanityReplace, error) {
+// Returns the state (replaces + go.sum snapshot) so the caller can remove
+// the replaces and restore go.sum after go mod tidy completes.
+func injectVanityReplaces() (*vanityState, error) {
 	modules, err := parseVanityModulesFromSum()
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -217,7 +261,7 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 			if vanityVCSResolver != nil {
 				resolve = vanityVCSResolver
 			}
-			vcsURL, err := resolve(m.Path, m.Version)
+			vcsURL, importPrefix, err := resolve(m.Path, m.Version)
 			if err != nil {
 				if !jsonOutput {
 					fmt.Printf("    warning: cannot resolve %s: %v\n", m.Path, err)
@@ -227,6 +271,25 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 			ghPath := vcsURLToModulePath(vcsURL)
 			if ghPath == "" || ghPath == m.Path {
 				continue
+			}
+
+			// Only rewrite onto a direct code host. If the resolved repository
+			// lives elsewhere (e.g. go.googlesource.com), a replace would just
+			// move the indirection — and may break what the proxy could resolve
+			// for the original path — so skip it and let the proxy handle it.
+			if targetHost := strings.SplitN(ghPath, "/", 2)[0]; !directMirrorHosts[targetHost] {
+				if !jsonOutput {
+					fmt.Printf("    skipping %s: resolved host %s is not a direct mirror\n", m.Path, targetHost)
+				}
+				continue
+			}
+
+			// Append sub-module suffix: if the module path extends beyond
+			// the import prefix, the extra path identifies a sub-module
+			// directory within the repository (e.g. otel/trace in
+			// opentelemetry-go).
+			if importPrefix != "" && strings.HasPrefix(m.Path, importPrefix+"/") {
+				ghPath += m.Path[len(importPrefix):]
 			}
 
 			// If the vanity module has a /vN major version suffix (e.g.
@@ -285,17 +348,30 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 		return nil, nil
 	}
 
+	// Snapshot go.sum so we can restore it when the replaces are removed.
+	// go mod tidy, run while the replace is active, will rewrite go.sum to
+	// reference the replacement path; the snapshot lets us revert that.
+	origGoSum, err := os.ReadFile("go.sum")
+	if err != nil {
+		return nil, err
+	}
+
 	newData, err := f.Format()
 	if err != nil {
 		return nil, err
 	}
-	return injected, os.WriteFile("go.mod", newData, 0644)
+	if err := os.WriteFile("go.mod", newData, 0644); err != nil {
+		return nil, err
+	}
+	return &vanityState{Replaces: injected, OrigGoSum: origGoSum}, nil
 }
 
 // removeVanityReplaces removes previously injected vanity replace directives
-// from go.mod, preserving any other changes go mod tidy may have made.
-func removeVanityReplaces(replaces []vanityReplace) error {
-	if len(replaces) == 0 {
+// from go.mod and restores go.sum to its pre-injection snapshot. The restore
+// undoes the path swap go mod tidy performed while the replace was active
+// (e.g. rewriting gonum.org/v1/gonum entries as github.com/gonum/gonum).
+func removeVanityReplaces(state *vanityState) error {
+	if state == nil || len(state.Replaces) == 0 {
 		return nil
 	}
 
@@ -309,15 +385,29 @@ func removeVanityReplaces(replaces []vanityReplace) error {
 		return err
 	}
 
-	for _, r := range replaces {
+	for _, r := range state.Replaces {
 		if err := f.DropReplace(r.OldPath, r.OldVersion); err != nil {
 			return fmt.Errorf("remove replace for %s: %w", r.OldPath, err)
 		}
 	}
 
+	// Collapse the now-empty replace slots that DropReplace leaves behind so
+	// removal restores go.mod to its original shape, rather than leaving stray
+	// `replace ( ... )` blocks with blank lines festering in the user's file.
+	f.Cleanup()
+
 	newData, err := f.Format()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("go.mod", newData, 0644)
+	if err := os.WriteFile("go.mod", newData, 0644); err != nil {
+		return err
+	}
+
+	if state.OrigGoSum != nil {
+		if err := os.WriteFile("go.sum", state.OrigGoSum, 0644); err != nil {
+			return fmt.Errorf("restore go.sum: %w", err)
+		}
+	}
+	return nil
 }
