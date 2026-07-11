@@ -12,9 +12,9 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func testEntries() []summary.TimelineEntry {
@@ -272,7 +272,7 @@ func TestGitHubResourceAttributes(t *testing.T) {
 	t.Setenv("GITHUB_REF", "refs/heads/main")
 	t.Setenv("GITHUB_RUN_ID", "12345")
 
-	res, err := buildResource(context.Background())
+	res, err := buildProviderResource(context.Background())
 	require.NoError(t, err)
 
 	attrs := res.Attributes()
@@ -286,4 +286,27 @@ func TestGitHubResourceAttributes(t *testing.T) {
 	assert.Equal(t, "wow-look-at-my/go-toolchain", attrMap["github.repository"])
 	assert.Equal(t, "refs/heads/main", attrMap["github.ref"])
 	assert.Equal(t, "12345", attrMap["github.run_id"])
+}
+
+// TestRootIDGenerator verifies that the first NewIDs call returns the
+// pre-determined traceparent IDs — the invariant that makes cacheprog
+// spans nest under the go-toolchain root span instead of appearing as
+// a separate trace. Subsequent calls fall back to random IDs.
+func TestRootIDGenerator(t *testing.T) {
+	tid, err := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
+	require.NoError(t, err)
+	sid, err := trace.SpanIDFromHex("1112131415161718")
+	require.NoError(t, err)
+
+	g := newRootIDGenerator(tid, sid)
+
+	gotTID, gotSID := g.NewIDs(context.Background())
+	assert.Equal(t, tid, gotTID, "first NewIDs must return the seeded traceID")
+	assert.Equal(t, sid, gotSID, "first NewIDs must return the seeded spanID")
+
+	_, nextSID := g.NewIDs(context.Background())
+	assert.NotEqual(t, sid, nextSID, "second NewIDs must generate a fresh spanID")
+
+	childSID := g.NewSpanID(context.Background(), tid)
+	assert.NotEqual(t, sid, childSID, "NewSpanID must always be random")
 }

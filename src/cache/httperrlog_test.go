@@ -8,13 +8,42 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestLogger returns a logger with a long flush interval so that all
-// flushing happens via Close (deterministic for tests).
+// flushing happens via Close (deterministic for tests). No tracer is
+// attached — tests that need to exercise span emission construct their
+// own cacheTracer.
 func newTestLogger(buf *bytes.Buffer) *httpErrLogger {
-	return newHTTPErrLogger(buf, time.Hour)
+	return newHTTPErrLogger(buf, time.Hour, nil)
+}
+
+// syncBuffer is a mutex-guarded bytes.Buffer for tests that read the buffer
+// while the logger's ticker goroutine may still be flushing into it. A plain
+// bytes.Buffer is not safe for that: the ticker-flush write races the test's
+// Len/String read (the intermittent -race failure in TickerFlush).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 func TestHTTPErrLogger_SingleRecordFormat(t *testing.T) {
@@ -118,8 +147,10 @@ func TestHTTPErrLogger_CloseIdempotent(t *testing.T) {
 }
 
 func TestHTTPErrLogger_TickerFlush(t *testing.T) {
-	var buf bytes.Buffer
-	l := newHTTPErrLogger(&buf, 10*time.Millisecond)
+	// The buffer must be synchronized: the logger's ticker goroutine writes
+	// into it concurrently with this test's Eventually polling Len().
+	var buf syncBuffer
+	l := newHTTPErrLogger(&buf, 10*time.Millisecond, nil)
 
 	l.Record("web put", 502, "aabbccdd", "boom")
 
@@ -176,9 +207,12 @@ func TestHTTPErrLogger_ShortIDSafe(t *testing.T) {
 func TestHTTPErrLogger_OTELOptOutByDefault(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	var buf bytes.Buffer
-	l := newTestLogger(&buf)
-	require.Nil(t, l.tracer, "tracer must be nil when OTEL endpoint is unset")
-	require.Nil(t, l.tp, "tracer provider must be nil when OTEL endpoint is unset")
+	// Build the same way WebBackend does: the tracer is nil when the env
+	// var is unset, and newHTTPErrLogger accepts that nil directly.
+	tracer := newCacheTracer(&buf)
+	require.Nil(t, tracer, "cacheTracer must be nil when OTEL endpoint is unset")
+	l := newHTTPErrLogger(&buf, time.Hour, tracer)
+	require.Nil(t, l.tracer, "httpErrLogger.tracer must be nil when no tracer is supplied")
 	require.NoError(t, l.Close())
 }
 
@@ -267,8 +301,8 @@ func TestHTTPErrLogger_MixedHTTPErrAndBatchHTTP(t *testing.T) {
 }
 
 func TestHTTPErrLogger_NoFlushWhenEmpty(t *testing.T) {
-	var buf bytes.Buffer
-	l := newHTTPErrLogger(&buf, 5*time.Millisecond)
+	var buf syncBuffer // read below while the ticker goroutine is still live
+	l := newHTTPErrLogger(&buf, 5*time.Millisecond, nil)
 	time.Sleep(50 * time.Millisecond)
 	require.Empty(t, buf.String(), "ticker must not emit when there are no records")
 	require.NoError(t, l.Close())

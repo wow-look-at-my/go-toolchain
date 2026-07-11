@@ -10,45 +10,37 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
-// Export converts timeline entries to OTel spans and exports them via OTLP/HTTP.
-// It is a no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset or if entries is empty.
+// Export converts timeline entries to OTel spans and emits them through
+// the shared tracer provider (see provider.go). It is a no-op if
+// OTEL_EXPORTER_OTLP_ENDPOINT is unset or if entries is empty.
+//
+// The shared provider owns the batcher and exporter for the whole
+// build, so this function doesn't build or shut down its own — the
+// build entrypoint calls Shutdown once, after Export, which flushes
+// every emitter's queued spans in a single OTLP round-trip.
 func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" || len(entries) == 0 {
 		return nil
 	}
+
+	tp, err := Provider(ctx)
+	if err != nil {
+		return err
+	}
+	if tp == nil {
+		return nil
+	}
+
 	fmt.Fprintf(os.Stderr, "⇒ Exporting %d timeline entries to %s\n", len(entries), endpoint)
-
-	exporter, err := otlptracehttp.New(ctx)
-	if err != nil {
-		return err
-	}
-
-	res, err := buildResource(ctx)
-	if err != nil {
-		return err
-	}
-
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
-
 	buildSpans(ctx, tp, entries)
-
-	if err := tp.ForceFlush(ctx); err != nil {
-		return err
-	}
-	return tp.Shutdown(ctx)
+	return nil
 }
 
 // buildSpans creates the three-level span hierarchy: root → worker → step.
@@ -150,33 +142,6 @@ func stepSpanInfo(e summary.TimelineEntry) (string, []attribute.KeyValue) {
 		return "build.compile", attrs
 	}
 	return e.Label, attrs
-}
-
-// buildResource creates the OTel resource with service name and GitHub CI attributes.
-func buildResource(ctx context.Context) (*resource.Resource, error) {
-	serviceName := os.Getenv("OTEL_SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = "go-toolchain"
-	}
-
-	attrs := []attribute.KeyValue{
-		semconv.ServiceName(serviceName),
-	}
-
-	// Add GitHub CI attributes when available.
-	for _, kv := range []struct{ envVar, attrKey string }{
-		{"GITHUB_SHA", "github.sha"},
-		{"GITHUB_REPOSITORY", "github.repository"},
-		{"GITHUB_REF", "github.ref"},
-		{"GITHUB_RUN_ID", "github.run_id"},
-		{"GITHUB_RUN_ATTEMPT", "github.run_attempt"},
-	} {
-		if v := os.Getenv(kv.envVar); v != "" {
-			attrs = append(attrs, attribute.String(kv.attrKey, v))
-		}
-	}
-
-	return resource.New(ctx, resource.WithAttributes(attrs...))
 }
 
 // groupByThread groups entries by thread, preserving first-seen order.

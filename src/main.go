@@ -68,14 +68,44 @@ func main() {
 func run() int {
 	// Drain any buffered pipe content before exit so nothing is lost.
 	defer logx.Flush()
+
+	// Kick off a non-blocking background check for a newer go-toolchain on
+	// buildhost. It runs while the real work happens and is surfaced (or killed)
+	// by ReportUpdateCheck on every exit path — it never blocks or delays.
+	if shouldCheckForUpdate() {
+		cmd.StartUpdateCheck()
+	}
+
 	if needsGo() {
 		if err := cmd.EnsureGoVersion(); err != nil {
 			logx.Logf("go bootstrap: %v", err)
+			cmd.ReportUpdateCheck()
 			return 1
 		}
 	}
-	if err := cmd.Execute(); err != nil {
+	err := cmd.Execute()
+	cmd.ReportUpdateCheck()
+	if err != nil {
 		return 1
 	}
 	return 0
+}
+
+// shouldCheckForUpdate reports whether to start the background update check. It
+// is skipped for the GOCACHEPROG subprocess (spawned by the Go build itself, not
+// a user invocation) and for the `version` command, which already reports its
+// own staleness.
+func shouldCheckForUpdate() bool {
+	if isCacheProgInvocation() {
+		return false
+	}
+	for _, arg := range os.Args[1:] {
+		if arg == "--" {
+			return true
+		}
+		if arg == "version" {
+			return false
+		}
+	}
+	return true
 }

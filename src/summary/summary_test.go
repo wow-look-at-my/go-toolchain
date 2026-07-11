@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestGenerateMarkdownEmpty(t *testing.T) {

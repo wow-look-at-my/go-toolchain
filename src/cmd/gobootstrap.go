@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 

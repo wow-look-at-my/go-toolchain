@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -197,6 +197,11 @@ func TestFindAllPackagesByDir(t *testing.T) {
 	os.WriteFile(".hidden/h.go", []byte("package hidden"), 0644)
 	os.WriteFile("vendor/v.go", []byte("package vendor"), 0644)
 	os.WriteFile("testdata/t.go", []byte("package testdata"), 0644)
+	// Nested module (own go.mod) should be skipped: its packages belong to a
+	// different module and are not import paths of this one.
+	os.MkdirAll("nestedmod/sub", 0755)
+	os.WriteFile("nestedmod/go.mod", []byte("module example.com/othermodule\n\ngo 1.25\n"), 0644)
+	os.WriteFile("nestedmod/sub/sub.go", []byte("package sub"), 0644)
 
 	pkgs, err := findAllPackagesByDir("example.com/mylib")
 	require.Nil(t, err)
@@ -208,6 +213,8 @@ func TestFindAllPackagesByDir(t *testing.T) {
 	assert.NotContains(t, pkgs, "example.com/mylib/vendor")
 	assert.NotContains(t, pkgs, "example.com/mylib/testdata")
 	assert.NotContains(t, pkgs, "example.com/mylib/empty")
+	assert.NotContains(t, pkgs, "example.com/mylib/nestedmod", "nested module root must be skipped")
+	assert.NotContains(t, pkgs, "example.com/mylib/nestedmod/sub", "packages inside a nested module must be skipped")
 }
 
 func TestResolveBuildTargetsFallsBackToAllPackages(t *testing.T) {
@@ -267,4 +274,3 @@ func TestFindMainPackagesNoRunner(t *testing.T) {
 	require.Equal(t, 1, len(pkgs))
 	assert.Equal(t, "example.com/test", pkgs[0])
 }
-

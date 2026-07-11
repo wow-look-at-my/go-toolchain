@@ -141,10 +141,21 @@ func writeNetrc(host, user, password string) {
 	}
 }
 
-// ensureDirectFallback appends ",direct" to a GOPROXY value if not present.
+// ensureDirectFallback appends "|direct" to a GOPROXY value so that any
+// upstream proxy error (e.g. a 503 with body "DNS cache overflow" from a
+// flaky proxy) falls through to a direct download instead of failing the
+// build. The pipe (|) separator falls back on any error; comma (,) only
+// falls back on 404/410, which is too narrow for resilience.
+//
+// If the value ends with ",direct", it is upgraded to "|direct". Any
+// other configuration containing "direct" is left untouched to respect
+// explicit user intent.
 func ensureDirectFallback(goproxy string) string {
+	if strings.HasSuffix(goproxy, ",direct") {
+		return strings.TrimSuffix(goproxy, ",direct") + "|direct"
+	}
 	if !strings.Contains(goproxy, "direct") {
-		return goproxy + ",direct"
+		return goproxy + "|direct"
 	}
 	return goproxy
 }
@@ -184,7 +195,7 @@ func configureGoEnv() {
 		}
 	}
 
-	// GOPROXY: use configured value with ",direct" fallback, or default to "direct".
+	// GOPROXY: use configured value with "|direct" fallback, or default to "direct".
 	if goproxy != "" && goproxy != "direct" && goproxy != "off" {
 		os.Setenv("GOPROXY", ensureDirectFallback(goproxy))
 	} else {

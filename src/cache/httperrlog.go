@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,11 +10,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -29,12 +23,14 @@ const (
 // httpErrLogger coalesces repetitive HTTP error messages from the web
 // backend so that a failing remote doesn't flood stderr with one line
 // per request. Each error is also exported as a short OTel span when
-// OTEL_EXPORTER_OTLP_ENDPOINT is set, so the granular per-request data
-// is preserved out-of-band.
+// tracing is enabled on the shared cacheTracer, so the granular
+// per-request data is preserved out-of-band.
+//
+// The cacheTracer is owned by WebBackend and passed in so that HTTP
+// errors, cache operations, and batch HTTP requests all share a single
+// tracer provider (one exporter, one batcher, one parent span context).
 type httpErrLogger struct {
-	tp            *sdktrace.TracerProvider // nil if OTel is not configured
-	tracer        trace.Tracer             // nil if tp is nil
-	parentSpanCtx trace.SpanContext        // parent span context from go-toolchain
+	tracer *cacheTracer // nil => no OTel spans emitted
 
 	mu        sync.Mutex
 	w         io.Writer
@@ -74,12 +70,13 @@ type batchHTTPGroup struct {
 	sumDur     time.Duration // sum of HTTP durations
 }
 
-// newHTTPErrLogger returns a logger that writes aggregated stderr summaries
-// to w on every interval tick (and once more on Close). If
-// OTEL_EXPORTER_OTLP_ENDPOINT is set, errors are also exported as
-// cacheprog.http_error spans. Init failures fall back to stderr-only mode.
-func newHTTPErrLogger(w io.Writer, interval time.Duration) *httpErrLogger {
+// newHTTPErrLogger returns a logger that writes aggregated stderr
+// summaries to w on every interval tick (and once more on Close).
+// tracer may be nil; if non-nil, HTTP errors are also exported as
+// cacheprog.http_error spans via the shared cacheTracer.
+func newHTTPErrLogger(w io.Writer, interval time.Duration, tracer *cacheTracer) *httpErrLogger {
 	l := &httpErrLogger{
+		tracer:    tracer,
 		w:         w,
 		interval:  interval,
 		maxNamed:  httpErrMaxNamed,
@@ -88,56 +85,8 @@ func newHTTPErrLogger(w io.Writer, interval time.Duration) *httpErrLogger {
 		stop:      make(chan struct{}),
 		done:      make(chan struct{}),
 	}
-	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if tp, err := newCacheTracerProvider(ctx); err != nil {
-			fmt.Fprintf(w, "cacheprog: otel init failed: %v\n", err)
-		} else {
-			l.tp = tp
-			l.tracer = tp.Tracer("go-toolchain/cacheprog")
-			l.parentSpanCtx = extractParentSpanContext()
-		}
-	}
 	go l.loop()
 	return l
-}
-
-func newCacheTracerProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
-	exporter, err := otlptracehttp.New(ctx)
-	if err != nil {
-		return nil, err
-	}
-	res, err := buildCacheResource(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	), nil
-}
-
-func buildCacheResource(ctx context.Context) (*resource.Resource, error) {
-	serviceName := os.Getenv("OTEL_SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = "go-toolchain"
-	}
-	attrs := []attribute.KeyValue{
-		semconv.ServiceName(serviceName),
-	}
-	for _, kv := range []struct{ envVar, attrKey string }{
-		{"GITHUB_SHA", "github.sha"},
-		{"GITHUB_REPOSITORY", "github.repository"},
-		{"GITHUB_REF", "github.ref"},
-		{"GITHUB_RUN_ID", "github.run_id"},
-		{"GITHUB_RUN_ATTEMPT", "github.run_attempt"},
-	} {
-		if v := os.Getenv(kv.envVar); v != "" {
-			attrs = append(attrs, attribute.String(kv.attrKey, v))
-		}
-	}
-	return resource.New(ctx, resource.WithAttributes(attrs...))
 }
 
 // Record reports one HTTP error: emits an OTel span (if configured) and
@@ -152,7 +101,7 @@ func (l *httpErrLogger) Record(op string, status int, id, body string) {
 		fmt.Fprintln(os.Stderr)
 		return
 	}
-	if l.tracer != nil {
+	if l.tracer.Enabled() {
 		l.emitSpan(op, status, id, body)
 	}
 	key := httpErrKey{
@@ -212,13 +161,7 @@ func (l *httpErrLogger) emitSpan(op string, status int, id, body string) {
 		}
 		attrs = append(attrs, attribute.String("cacheprog.body", disp))
 	}
-	ctx := context.Background()
-	if l.parentSpanCtx.IsValid() {
-		ctx = trace.ContextWithSpanContext(ctx, l.parentSpanCtx)
-	}
-	_, span := l.tracer.Start(ctx, "cacheprog.http_error",
-		trace.WithAttributes(attrs...),
-	)
+	_, span := l.tracer.Start("cacheprog.http_error", attrs...)
 	span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", status))
 	span.End()
 }
@@ -257,8 +200,10 @@ func (l *httpErrLogger) flush() {
 	}
 }
 
-// Close stops the background ticker, flushes any pending groups, and shuts
-// down the OTel exporter. Idempotent.
+// Close stops the background ticker and flushes any pending groups.
+// Idempotent. The shared cacheTracer's shutdown is the WebBackend's
+// responsibility, not the logger's — multiple components share the
+// tracer and we can't tear it down here.
 func (l *httpErrLogger) Close() error {
 	l.mu.Lock()
 	if l.closed {
@@ -271,13 +216,6 @@ func (l *httpErrLogger) Close() error {
 	close(l.stop)
 	<-l.done
 	l.flush()
-
-	if l.tp != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = l.tp.ForceFlush(ctx)
-		_ = l.tp.Shutdown(ctx)
-	}
 	return nil
 }
 
@@ -343,28 +281,4 @@ func shortID(id string) string {
 		return id[:httpErrShortIDLen]
 	}
 	return id
-}
-
-func extractParentSpanContext() trace.SpanContext {
-	traceparent := os.Getenv("OTEL_TRACEPARENT")
-	if traceparent == "" {
-		return trace.SpanContext{}
-	}
-	parts := strings.Split(traceparent, "-")
-	if len(parts) != 4 {
-		return trace.SpanContext{}
-	}
-	traceID, err := trace.TraceIDFromHex(parts[1])
-	if err != nil {
-		return trace.SpanContext{}
-	}
-	spanID, err := trace.SpanIDFromHex(parts[2])
-	if err != nil {
-		return trace.SpanContext{}
-	}
-	return trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID: traceID,
-		SpanID:  spanID,
-		Remote:  true,
-	})
 }
