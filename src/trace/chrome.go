@@ -57,6 +57,13 @@ func (t *Trace) Complete(name, category, thread string, start, end time.Time) {
 	t.Record(Event{Name: name, Category: category, Thread: thread, Start: start, End: end})
 }
 
+// Events returns a snapshot copy of the recorded events.
+func (t *Trace) Events() []Event {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]Event(nil), t.events...)
+}
+
 // threadID assigns a stable numeric ID to each thread name.
 func resolveThreadID(name string, seen map[string]int) int {
 	if id, ok := seen[name]; ok {

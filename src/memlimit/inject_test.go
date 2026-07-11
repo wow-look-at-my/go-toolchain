@@ -76,6 +76,81 @@ func TestInjectAllDiscoversMainPackages(t *testing.T) {
 	require.Empty(t, changed)
 }
 
+func TestCleanupAllRemovesInjectedGuards(t *testing.T) {
+	mod := t.TempDir()
+	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
+	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, mod, "cmd/tool/main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, mod, "internal/lib/lib.go", "package lib\n")
+
+	restore := chdir(t, mod)
+	defer restore()
+
+	_, err := InjectAll()
+	require.NoError(t, err)
+
+	removed, err := CleanupAll()
+	require.NoError(t, err)
+	sort.Strings(removed)
+	require.Equal(t, []string{".", "cmd/tool"}, removed)
+
+	// Guards are gone from every main package...
+	for _, dir := range []string{".", "cmd/tool"} {
+		_, statErr := os.Stat(filepath.Join(mod, dir, GuardFileName))
+		require.Truef(t, os.IsNotExist(statErr), "guard should be removed from %s", dir)
+	}
+	// ...but the real source files are left untouched.
+	for _, rel := range []string{"main.go", "cmd/tool/main.go", "internal/lib/lib.go"} {
+		_, statErr := os.Stat(filepath.Join(mod, rel))
+		require.NoErrorf(t, statErr, "cleanup must not remove %s", rel)
+	}
+}
+
+func TestCleanupAllIdempotentWhenAbsent(t *testing.T) {
+	mod := t.TempDir()
+	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
+	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
+
+	restore := chdir(t, mod)
+	defer restore()
+
+	// No guards were ever injected: cleanup is a clean no-op, not an error.
+	removed, err := CleanupAll()
+	require.NoError(t, err)
+	require.Empty(t, removed)
+}
+
+func TestCleanupAllNoModule(t *testing.T) {
+	dir := t.TempDir()
+	restore := chdir(t, dir)
+	defer restore()
+
+	removed, err := CleanupAll()
+	require.NoError(t, err)
+	require.Empty(t, removed)
+}
+
+func TestInjectAllThenCleanupAllRoundTrip(t *testing.T) {
+	mod := t.TempDir()
+	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
+	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, mod, "cmd/tool/main.go", "package main\n\nfunc main() {}\n")
+
+	restore := chdir(t, mod)
+	defer restore()
+
+	injected, err := InjectAll()
+	require.NoError(t, err)
+	sort.Strings(injected)
+
+	removed, err := CleanupAll()
+	require.NoError(t, err)
+	sort.Strings(removed)
+
+	// Whatever was injected is exactly what gets cleaned up.
+	require.Equal(t, injected, removed)
+}
+
 func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, rel)

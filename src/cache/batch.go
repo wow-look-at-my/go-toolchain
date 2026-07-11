@@ -160,13 +160,21 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		attribute.Int("cacheprog.batch.requests", len(reqs)))
 	defer span.End()
 
-	respondAllMiss := func() {
-		b.missesMu.Lock()
+	// respondAllMiss replies miss to every caller after a TRANSIENT failure
+	// (network error, 5xx, marshal/parse failure). It must NOT mark keys as
+	// knownMiss: only an authoritative in-protocol "not present" (a 200
+	// response lacking the key) proves absence. Marking transients froze
+	// those keys for the rest of the run — one blip and they were never
+	// re-probed even after the backend recovered. reason, when non-nil, is
+	// bumped once per INDEXED key so the web summary's miss breakdown stays
+	// coherent (cold keys already counted MissNotInIndex in Get).
+	respondAllMiss := func(reason *AtomicCounter) {
 		for _, r := range reqs {
-			b.knownMiss.Add(r.key)
+			if reason != nil && b.keyKnown(r.key) {
+				reason.Increment()
+			}
 			r.resp <- batchResp{miss: true}
 		}
-		b.missesMu.Unlock()
 	}
 
 	// Circuit breaker tripped between enqueue and dispatch: skip the network and
@@ -179,10 +187,15 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 
 	reqBody, _ := json.Marshal(batchGetRequest{Keys: keys, Prefetch: true})
 	batchURL := b.endpoint + "/" + b.bucket + "/_batch/get"
-	httpReq, err := http.NewRequest("GET", batchURL, bytes.NewReader(reqBody))
+	// POST, not GET-with-body: a body-carrying GET is proxy-hostile, and the
+	// cache server accepts both methods on /_batch/get (GET remains
+	// server-side for older clients). A server without the endpoint at all
+	// still answers 404/405 and takes the individual-GET fallback below. The
+	// retry loop rewinds the JSON body via GetBody, method-agnostically.
+	httpReq, err := http.NewRequest("POST", batchURL, bytes.NewReader(reqBody))
 	if err != nil {
 		span.SetStatus(codes.Error, "build request")
-		respondAllMiss()
+		respondAllMiss(nil)
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -195,7 +208,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		b.noteRemoteResult(true)
 		markSpanErr(span, "network", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: %v\n", err)
-		respondAllMiss()
+		respondAllMiss(&b.MissNetwork)
 		return
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
@@ -223,7 +236,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		for _, r := range reqs {
 			b.errLog.Record("web batch get", resp.StatusCode, r.actionID, "")
 		}
-		respondAllMiss()
+		respondAllMiss(&b.MissHTTPError)
 		return
 	}
 	b.noteRemoteResult(false) // 200: backend healthy, reset the failure streak
@@ -234,9 +247,15 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	if err != nil {
 		markSpanErr(span, "parse response", err)
 		fmt.Fprintf(os.Stderr, "cacheprog: web batch get: parse: %v\n", err)
-		respondAllMiss()
+		respondAllMiss(&b.MissReadBody)
 		return
 	}
+
+	// Feed the entry count to the consecutive-empty-batch backoff. A run of
+	// zero-entry batches means the remote — though healthy — holds nothing useful
+	// for this build, so after a threshold we stop probing for the rest of the
+	// run; any non-empty batch resets the streak.
+	b.noteBatchEntries(len(entries))
 
 	var nPrefetch int
 	for _, e := range entries {
@@ -248,29 +267,33 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		attribute.Int("cacheprog.batch.prefetched", nPrefetch))
 	b.errLog.RecordBatchHTTP(len(reqs), len(entries), nPrefetch, time.Since(start))
 
-	// Hand prefetched (and non-requested) entries to the local-cache populator.
-	if b.OnBatchEntries != nil && len(entries) > 0 {
-		b.OnBatchEntries(entries)
-	}
-
 	// Index returned entries by key for O(1) lookup.
 	entryByKey := make(map[string]*BatchEntry, len(entries))
 	for i := range entries {
 		entryByKey[entries[i].Key] = &entries[i]
 	}
 
-	// Distribute responses to each caller. Each request gets its own
-	// cacheprog.web.get child span so the batch span has one child per
-	// individual cache request it served — making the parent/child
-	// hierarchy in OTel match the build's logical request structure.
+	// Distribute responses to the waiting compiler goroutines FIRST; prefetch
+	// ingestion is housekeeping and runs asynchronously below. (It used to run
+	// inline before the reply loop, so every caller blocked on decompress +
+	// hash + pack-append work for entries nobody was waiting on.)
+	//
+	// Each request gets its own cacheprog.web.get child span so the batch
+	// span has one child per individual cache request it served — making the
+	// parent/child hierarchy in OTel match the build's logical structure.
 	for _, r := range reqs {
 		_, itemSpan := b.tracer.StartFromCtx(ctx, "cacheprog.web.get",
 			attribute.String("cacheprog.action_id", shortID(r.actionID)))
 		e, ok := entryByKey[r.key]
 		if !ok {
-			b.missesMu.Lock()
-			b.knownMiss.Add(r.key)
-			b.missesMu.Unlock()
+			// Authoritative absence: a healthy 200 response did not include
+			// this key. If our index claimed it, drop the stale claim so the
+			// PUT path re-uploads it (see reclaimAbsent) — that case counts as
+			// an http-404-class miss, since Get() recorded no miss reason for
+			// indexed keys. Cold probed keys already counted MissNotInIndex.
+			if b.reclaimAbsent(r.key) {
+				b.MissHTTP404.Increment()
+			}
 			markSpanMiss(itemSpan, "not_in_batch_response")
 			itemSpan.End()
 			r.resp <- batchResp{miss: true}
@@ -326,6 +349,18 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			r.resp <- batchResp{miss: true}
 			continue
 		}
+		// Module-index guard (see isGoModuleIndex): an index blob cannot be proven
+		// to belong under this key, and a wrong one is fatal at package load.
+		// Refuse it and let cmd/go recompute the index locally.
+		if isGoModuleIndex(decompressed) {
+			b.MissModuleIndex.Increment()
+			markSpanMiss(itemSpan, "module_index")
+			itemSpan.End()
+			fmt.Fprintf(os.Stderr, "cacheprog: web batch get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss\n",
+				shortID(r.actionID), len(decompressed))
+			r.resp <- batchResp{miss: true}
+			continue
+		}
 		b.Stats.Hits.Increment()
 		itemSpan.SetAttributes(
 			attribute.Bool("cacheprog.hit", true),
@@ -338,6 +373,34 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			body:     io.NopCloser(bytes.NewReader(decompressed)),
 			size:     int64(len(decompressed)),
 			t:        time.Now(),
+		}
+	}
+
+	// Hand NON-requested (prefetch) entries to the local-cache populator, in
+	// a goroutine so no caller waits on it. Requested entries are excluded:
+	// they are already verified once in the reply loop above and written to
+	// the local tier by handleGet — feeding them to the callback too meant
+	// every requested entry was decompressed, hash-verified, and build-id
+	// parsed TWICE. The goroutine joins batchHTTPWG, so the coalescer's
+	// shutdown (and therefore WebBackend.Close and the daemon's close order:
+	// remote before local) still waits for in-flight ingestion.
+	if b.OnBatchEntries != nil {
+		requested := make(map[string]bool, len(reqs))
+		for _, r := range reqs {
+			requested[r.key] = true
+		}
+		var extra []BatchEntry
+		for _, e := range entries {
+			if !requested[e.Key] {
+				extra = append(extra, e)
+			}
+		}
+		if len(extra) > 0 {
+			b.batchHTTPWG.Add(1)
+			go func() {
+				defer b.batchHTTPWG.Done()
+				b.OnBatchEntries(extra)
+			}()
 		}
 	}
 }

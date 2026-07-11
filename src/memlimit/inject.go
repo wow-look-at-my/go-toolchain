@@ -4,6 +4,12 @@
 // so the Go garbage collector stays under the cgroup ceiling instead of
 // allocating until the kernel OOM-kills the process.
 //
+// The guard is a transient build artifact, not a committed source file:
+// InjectAll writes it into each main package immediately before the build
+// compiles them, and CleanupAll removes it again as soon as the build is done.
+// This keeps the generated file out of the working tree, so it never shows up as
+// an uncommitted change or trips go-toolchain's dirty-tree check in CI.
+//
 // The shipped guard is testdata/guard.go — that file is the editable source of
 // truth and is embedded verbatim into consumers (it is kept under testdata so
 // the go tool and go-toolchain's own main-package discovery never try to build
@@ -53,22 +59,39 @@ func Inject(dir string) (bool, error) {
 	return true, nil
 }
 
-// InjectAll discovers every main package under the current module and injects
-// the guard into each. It returns the directories that were created or updated.
-// When there is no module (no go.mod) it is a no-op.
-func InjectAll() ([]string, error) {
+// mainPackageDirs returns the directory, relative to the module root, of every
+// main package under the current module: "." for the root package, "cmd/tool"
+// for a nested one, and so on. It is the shared discovery used by both InjectAll
+// and CleanupAll. When there is no module (no go.mod) it returns nil.
+func mainPackageDirs() ([]string, error) {
 	pkgs, err := gomod.FindMainPackages()
 	if err != nil {
 		return nil, err
 	}
 	modPath := gomod.ReadModulePath()
 
-	var changed []string
+	dirs := make([]string, 0, len(pkgs))
 	for _, importPath := range pkgs {
 		dir := "."
 		if modPath != "" && importPath != modPath {
 			dir = strings.TrimPrefix(importPath, modPath+"/")
 		}
+		dirs = append(dirs, dir)
+	}
+	return dirs, nil
+}
+
+// InjectAll discovers every main package under the current module and injects
+// the guard into each. It returns the directories that were created or updated.
+// When there is no module (no go.mod) it is a no-op.
+func InjectAll() ([]string, error) {
+	dirs, err := mainPackageDirs()
+	if err != nil {
+		return nil, err
+	}
+
+	var changed []string
+	for _, dir := range dirs {
 		updated, err := Inject(dir)
 		if err != nil {
 			return changed, err
@@ -78,4 +101,31 @@ func InjectAll() ([]string, error) {
 		}
 	}
 	return changed, nil
+}
+
+// CleanupAll removes the injected guard from every main package under the
+// current module, returning the directories a guard was removed from. It is the
+// inverse of InjectAll: go-toolchain injects the guard only for the duration of
+// the build and removes it immediately afterward, so the generated file never
+// lingers in the working tree or shows up as an uncommitted change. A guard that
+// is already absent is not an error, and when there is no module it is a no-op.
+func CleanupAll() ([]string, error) {
+	dirs, err := mainPackageDirs()
+	if err != nil {
+		return nil, err
+	}
+
+	var removed []string
+	for _, dir := range dirs {
+		target := filepath.Join(dir, GuardFileName)
+		switch err := os.Remove(target); {
+		case err == nil:
+			removed = append(removed, dir)
+		case os.IsNotExist(err):
+			// Nothing to clean up in this package.
+		default:
+			return removed, err
+		}
+	}
+	return removed, nil
 }
