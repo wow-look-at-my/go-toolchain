@@ -240,6 +240,27 @@ jobs:
           # runner's is too old, then tidy/vet/test/coverage/build.
           "$RUNNER_TEMP/gt-ape"
 
+      - name: Claude output guard fires in the shipped APE
+        run: |
+          set -euo pipefail
+          # Fresh throwaway copy: APEs self-assimilate on first exec, so never
+          # run dist/ artifacts in place.
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-guard"
+          chmod +x "$RUNNER_TEMP/gt-guard"
+          cd "$RUNNER_TEMP/smokemod"
+          # The released binaries ARE the cosmo APE, so the guard must fire in
+          # THIS artifact — a GOOS=linux unit test cannot prove that (the guard
+          # once shipped as a `_linux.go` no-op while unit tests stayed green).
+          # CLAUDECODE is set per-command ONLY: the other smoke steps run the
+          # real pipeline with runner-pipe stdout and must stay inert.
+          rc=0
+          CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" > /dev/null 2> guard-err.txt || rc=$?
+          cat guard-err.txt
+          [ "$rc" -eq 1 ]
+          grep -q "refused to run" guard-err.txt
+          # The version exemption must stay intact.
+          CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" version > /dev/null
+
   # macos-latest is arm64. Two things are asserted here:
   #
   # 1. The NATIVE darwin/arm64 binary (what ARM64 macs are actually served --
