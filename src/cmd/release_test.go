@@ -106,6 +106,9 @@ func TestReleaseCmdSuccess(t *testing.T) {
 			if len(args) > 0 && args[0] == "log" {
 				return "abc1234 add feature\ndef5678 fix bug", nil
 			}
+			if len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--abbrev-ref" {
+				return "main", nil
+			}
 			return "", nil
 		},
 	}

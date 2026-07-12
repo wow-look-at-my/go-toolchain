@@ -244,7 +244,6 @@ checksum. Never execute the artifacts in `build/` directly (that includes the
 point at a mapped copy of the APE) — run a throwaway copy instead. The build
 pipeline itself never executes matrix artifacts (benchmarks compile their own
 test binaries), so artifacts stay pristine through the build.
-
 ### Automatic GOMEMLIMIT (cgroup-aware memory limit)
 
 By default, go-toolchain injects a small, stdlib-only startup guard
