@@ -125,6 +125,23 @@ func parseBuildCacheConfig() cache.WebConfig {
 }
 
 func runCacheProg(cmd *cobra.Command, args []string) error {
+	// FIRST: force the stderr-only, annotation-free logger before anything
+	// below can log. In this subprocess stdout is the GOCACHEPROG protocol
+	// pipe cmd/go parses — a GHA "::warning" workflow command there (the
+	// logger writes annotations to stdout when GITHUB_ACTIONS=true) corrupts
+	// the JSON stream. parseBuildCacheConfig below warns on the deprecated
+	// key_id/access_key/region config fields, which is exactly what
+	// go-s3-server's CI triggers. cmd/go invokes "<exe> cacheprog" bare, so
+	// CLI flags never reach this subprocess: GOCACHE_DEBUG=1 is the only
+	// verbosity knob. The root PersistentPreRunE already installs this same
+	// logger for cacheprog; re-initializing here keeps the guarantee local
+	// to the subprocess entry point.
+	level := logger.LevelInfo
+	if os.Getenv("GOCACHE_DEBUG") == "1" {
+		level = logger.LevelDebug
+	}
+	logger.InitSubprocess(level)
+
 	// Fast path: if a cache daemon is running, proxy to it.
 	// This avoids re-loading the web index for every go subprocess.
 	if sock := os.Getenv("GOCACHE_DAEMON_SOCK"); sock != "" {

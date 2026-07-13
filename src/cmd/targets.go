@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // The cosmo pseudo-target: one GOOS=cosmo fat APE built with the gosmopolitan
@@ -148,7 +149,7 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 		// --targets replaces the cartesian product entirely; call out
 		// non-default --os/--arch values that are being ignored.
 		if !slices.Equal(matrixOS, DefaultOS) || !slices.Equal(matrixArch, DefaultArch) {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: --targets is set; ignoring --os/--arch\n")
+			logger.Warn("⇒ Warning: --targets is set; ignoring --os/--arch")
 		}
 		return parseTargetList(matrixTargets)
 	}
@@ -204,7 +205,7 @@ func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform
 		for _, slot := range slots {
 			dstName := build.BinaryName(target.OutputName, slot.OS, slot.Arch)
 			if nativeBuilt[dstName] {
-				fmt.Printf("  SKIP %s (explicit native %s/%s build wins over the cosmo slot copy)\n", dstName, slot.OS, slot.Arch)
+				logger.Warn("  SKIP %s (explicit native %s/%s build wins over the cosmo slot copy)", dstName, slot.OS, slot.Arch)
 				continue
 			}
 			dstPath := filepath.Join(outDir, dstName)
@@ -216,13 +217,13 @@ func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform
 			if err := copyFile(srcPath, dstPath); err != nil {
 				return nil, nil, fmt.Errorf("cosmo slot mapping: copying %s to %s: %w", srcPath, dstPath, err)
 			}
-			fmt.Printf("  COPY %s <- %s\n", dstName, srcName)
+			logger.Info("  COPY %s <- %s", dstName, srcName)
 			targetCopies = append(targetCopies, dstPath)
 		}
 		created = append(created, targetCopies...)
 		if len(targetCopies) == 0 {
 			if len(slots) > 0 {
-				fmt.Printf("  KEEP %s (no slot copy survived; note buildhost rejects os=cosmo uploads)\n", srcName)
+				logger.Warn("  KEEP %s (no slot copy survived; note buildhost rejects os=cosmo uploads)", srcName)
 			}
 			continue
 		}
@@ -230,13 +231,13 @@ func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform
 			return nil, nil, fmt.Errorf("cosmo slot mapping: replacing %s: %w", srcName, err)
 		}
 		if dropFat {
-			fmt.Printf("  DROP %s (buildhost rejects os=cosmo uploads; the slot copies carry the APE)\n", srcName)
+			logger.Info("  DROP %s (buildhost rejects os=cosmo uploads; the slot copies carry the APE)", srcName)
 		} else {
 			linkTarget := filepath.Base(targetCopies[0])
 			if err := os.Symlink(linkTarget, srcPath); err != nil {
 				return nil, nil, fmt.Errorf("cosmo slot mapping: linking %s -> %s: %w", srcName, linkTarget, err)
 			}
-			fmt.Printf("  LINK %s -> %s (kept as a symlink: publish skips symlinks; buildhost rejects os=cosmo)\n", srcName, linkTarget)
+			logger.Info("  LINK %s -> %s (kept as a symlink: publish skips symlinks; buildhost rejects os=cosmo)", srcName, linkTarget)
 		}
 		replacedFat = append(replacedFat, srcPath)
 	}

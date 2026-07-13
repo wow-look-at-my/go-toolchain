@@ -1,11 +1,12 @@
 package cache
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // currentLocalCacheVersion stamps the content generation of the local cache
@@ -55,7 +56,7 @@ const fuseLockName = ".fuse.lock"
 // stderr line is printed only when data was actually removed.
 func EnsureLocalCacheVersion(root string) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: version check: %v\n", err)
+		logger.Warn("cacheprog: local cache: version check: %v", err)
 		return
 	}
 	stamp := filepath.Join(root, localCacheVersionFile)
@@ -71,7 +72,7 @@ func EnsureLocalCacheVersion(root string) {
 	// live owner) performs it.
 	release, ok := lockCacheRootForPurge(root)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: another process owns %s; deferring version purge to the next run\n", root)
+		logger.Info("cacheprog: local cache: another process owns %s; deferring version purge to the next run", root)
 		return
 	}
 	defer release()
@@ -79,16 +80,16 @@ func EnsureLocalCacheVersion(root string) {
 	purged, err := purgeLocalCacheData(root)
 	if err != nil {
 		// Leave the stamp unwritten so the next run retries the purge.
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: version %d -> %d purge: %v (will retry next run)\n",
+		logger.Warn("cacheprog: local cache: version %d -> %d purge: %v (will retry next run)",
 			stored, currentLocalCacheVersion, err)
 		return
 	}
 	if err := writeLocalCacheVersion(stamp); err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: writing version stamp: %v\n", err)
+		logger.Warn("cacheprog: local cache: writing version stamp: %v", err)
 		return
 	}
 	if purged {
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: purged (cache version %d -> %d: pre-guard module-index residue)\n",
+		logger.Info("cacheprog: local cache: purged (cache version %d -> %d: pre-guard module-index residue)",
 			stored, currentLocalCacheVersion)
 	}
 }

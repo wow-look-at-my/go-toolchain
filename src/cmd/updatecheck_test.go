@@ -207,6 +207,10 @@ func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
 	require.NotNil(t, activeUpdateCheck)
 	<-activeUpdateCheck.done // wait so Report takes the "ready" branch
 
+	// The staleness notice is a logger.Warn, which under GITHUB_ACTIONS=true
+	// routes to stdout as a ::warning annotation; pin non-GHA mode so it lands
+	// on stderr for capture.
+	t.Setenv("GITHUB_ACTIONS", "")
 	out := captureStderr(t, ReportUpdateCheck)
 	assert.Contains(t, out, "out of date")
 	assert.Contains(t, out, "v202")

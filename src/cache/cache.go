@@ -102,7 +102,6 @@ type Server struct {
 	Latency   LatencyStats
 	statsConn net.Conn // persistent connection to parent's stats socket
 	statsMu   sync.Mutex
-	debug     bool // log hits/misses to stderr
 }
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
@@ -116,7 +115,6 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 		local:  local,
 		remote: remote,
 		putSem: make(chan struct{}, maxConcurrentPuts),
-		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
 	}
 	// Wire sub-operation latency tracking and batch callbacks for standalone
 	// mode (direct WebBackend) only. In daemon mode the remote is wrapped in
@@ -484,9 +482,7 @@ func (s *Server) handleGet(req Request) Response {
 		return Response{ID: req.ID, Miss: true}
 	}
 
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: HIT remote %s [%s] output=%s\n", actionID, describeFile(diskPath), shortID(outputID))
-	}
+	cacheLog.Debug("HIT remote %s [%s] output=%s", actionID, describeFile(diskPath), shortID(outputID))
 
 	return Response{
 		ID:       req.ID,

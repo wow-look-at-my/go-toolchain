@@ -31,7 +31,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Release management** — create GitHub releases with checksums, structured release notes, and rolling tag management via the `release` subcommand
 - **Buildhost publishing** — CI automatically publishes cross-compiled binaries to [buildhost](https://pazer.build) via OIDC, making them available for download in multiple formats (raw binary, tar.gz, deb, Homebrew, npm, OCI)
 - **Background update check** — every run kicks off a non-blocking check against [buildhost](https://pazer.build) for a newer published `go-toolchain`. If this binary's commit is behind the latest release, a one-line warning is logged at the end of the run. The check runs in the background and is killed the instant the build finishes — it never blocks, delays, or fails the build, and stays silent on any error (offline, 404, etc.). It is a check only: the binary never replaces itself (update via buildhost/Homebrew/npm/APT). The check always runs — there is no opt-out. Point it at a self-hosted buildhost with `GO_TOOLCHAIN_BUILDHOST_URL`; it is skipped only for the `version` command (which reports its own staleness) and the GOCACHEPROG subprocess
-- **Claude output guard** — when go-toolchain runs under the Claude agent (detected via the `CLAUDECODE` environment marker and process ancestry), it refuses to run unless its full output is visible in the agent's transcript. Every way of hiding or truncating that output aborts immediately with an error pointing back to a plain run: piping into another command (`head`/`tail`/`grep`/`sed`/`awk`/`cat`/`tee`/…), redirecting to a file (`> out.log`, `>> out.log`), discarding to `/dev/null`, or capturing via `$(...)`. The only allowed "redirect" is the harness's own transcript-capture file (recognized by the `CLAUDE_CODE_SESSION_ID` embedded in its path) — that *is* how the agent reads the output — and a real terminal. It is a no-op when not running under Claude, so CI and human shells are unaffected. The guard is unconditional — there is deliberately no environment variable or flag to disable it. Linux only (stdout classification uses `/proc`)
+- **Claude output guard** — when go-toolchain runs under the Claude agent (detected via the `CLAUDECODE` environment marker and process ancestry), it refuses to run unless its full output is visible in the agent's transcript. Every way of hiding or truncating that output aborts immediately with an error pointing back to a plain run: piping into another command (`head`/`tail`/`grep`/`sed`/`awk`/`cat`/`tee`/…), redirecting to a file (`> out.log`, `>> out.log`), discarding to `/dev/null`, or capturing via `$(...)`. The only allowed "redirect" is the harness's own transcript-capture file (recognized by the `CLAUDE_CODE_SESSION_ID` embedded in its path) — that *is* how the agent reads the output — and a real terminal. It is a no-op when not running under Claude, so CI and human shells are unaffected. The guard is unconditional — there is deliberately no environment variable or flag to disable it. Stdout classification uses `/proc`, so the guard is live on linux hosts — including the released binaries, which are GOOS=cosmo fat-APE copies (the classifier builds for both `linux` and `cosmo`); native darwin/windows builds, and the cosmo APE on a macOS host (no `/proc`), fail open and never fire
 
 ## GitHub Action Usage
 
@@ -130,12 +130,16 @@ go-toolchain release --tag v1.0.0
 | Flag             | Default     | Description                                          |
 |------------------|-------------|------------------------------------------------------|
 | `--json`         | `false`     | Output coverage as JSON                              |
+| `-v`, `--verbose` | `false`    | Verbose output: debug log level, plus per-test output lines |
+| `--log-level`    | `info`      | Minimum log level: `debug`, `info`, `warn`, `error`, or `silent`. Precedence: `--log-level` > `--verbose` > `GOCACHE_DEBUG=1` (debug) |
 | `--generate`     | `''`        | Run `go:generate` directives matching this hash      |
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
 | `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |
 | `--count-generated` | `false`  | Count generated files in the file length check instead of skipping them |
 | `--no-profile`   | `false`     | Skip the per-action build profile (actiongraph collection, console section, and `profile.json`) |
+
+Log routing: debug messages go to stderr and info to stdout; warnings and errors print to stderr locally and are emitted as `::warning`/`::error` workflow annotations in GitHub Actions, so they surface in the run UI (multi-line messages are escaped per the workflow-command encoding, so they annotate intact).
 
 #### Root command flags
 
@@ -244,7 +248,6 @@ checksum. Never execute the artifacts in `build/` directly (that includes the
 point at a mapped copy of the APE) — run a throwaway copy instead. The build
 pipeline itself never executes matrix artifacts (benchmarks compile their own
 test binaries), so artifacts stay pristine through the build.
-
 ### Automatic GOMEMLIMIT (cgroup-aware memory limit)
 
 By default, go-toolchain injects a small, stdlib-only startup guard

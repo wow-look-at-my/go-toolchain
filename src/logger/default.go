@@ -66,6 +66,24 @@ func Init(opts Options) *Logger {
 	return l
 }
 
+// InitSubprocess replaces the global default logger with one that is safe for
+// subprocesses whose stdout is a protocol channel rather than a human-readable
+// stream — e.g. the cacheprog subprocess, whose stdout carries the GOCACHEPROG
+// JSON protocol that cmd/go parses. Every message, including Info and Output,
+// is routed to stderr, and GitHub Actions annotations are disabled: annotations
+// are written to the Stdout writer, so a Warn/Error under GITHUB_ACTIONS=true
+// would otherwise inject a "::warning"/"::error" line into the protocol
+// stream. Returns the new logger for convenience.
+func InitSubprocess(level Level) *Logger {
+	return Init(Options{
+		Level:  level,
+		Stdout: stderrWriter{},
+		Stderr: stderrWriter{},
+		// GHA and GHAAuto are deliberately left false: annotation output must
+		// stay off regardless of the GITHUB_ACTIONS environment variable.
+	})
+}
+
 // Ensure the indirect writers implement io.Writer.
 var _ io.Writer = stdoutWriter{}
 var _ io.Writer = stderrWriter{}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // LocalCache is a filesystem-based build cache. Objects are stored in a
@@ -114,7 +116,7 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 		delete(c.verified, actionID)
 		c.vmu.Unlock()
 		c.Stats.Corrupt.Increment()
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: evicting %s: %s; treating as miss\n", shortID(actionID), reason)
+		logger.Warn("cacheprog: local cache: evicting %s: %s; treating as miss", shortID(actionID), reason)
 		return CacheMeta{}, true
 	}
 	// Serve the verified byte count as the size — never the raw stat size,
