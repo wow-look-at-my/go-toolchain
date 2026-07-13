@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // go-toolchain binaries are published to buildhost (pazer.build). The background
@@ -68,7 +69,7 @@ func ReportUpdateCheck() {
 		case <-uc.done:
 			// Finished in time: surface the result (msg is "" when up to date).
 			if uc.msg != "" {
-				fmt.Fprintln(os.Stderr, uc.msg)
+				logger.Warn("%s", uc.msg)
 			}
 		default:
 			// Not finished by the time the main work is done: kill it and move

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 var installCopy bool
@@ -85,12 +86,12 @@ func placeFile(src, dst string, useCopy bool) error {
 		if err := copyFile(src, dst); err != nil {
 			return fmt.Errorf("failed to copy binary: %w", err)
 		}
-		fmt.Printf("⇒ Copied %s to %s\n", filepath.Base(dst), dst)
+		logger.Info("⇒ Copied %s to %s", filepath.Base(dst), dst)
 	} else {
 		if err := os.Symlink(src, dst); err != nil {
 			return fmt.Errorf("failed to create symlink: %w", err)
 		}
-		fmt.Printf("⇒ Symlinked %s -> %s\n", dst, src)
+		logger.Info("⇒ Symlinked %s -> %s", dst, src)
 	}
 	return nil
 }

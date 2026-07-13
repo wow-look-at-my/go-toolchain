@@ -130,12 +130,16 @@ go-toolchain release --tag v1.0.0
 | Flag             | Default     | Description                                          |
 |------------------|-------------|------------------------------------------------------|
 | `--json`         | `false`     | Output coverage as JSON                              |
+| `-v`, `--verbose` | `false`    | Verbose output: debug log level, plus per-test output lines |
+| `--log-level`    | `info`      | Minimum log level: `debug`, `info`, `warn`, `error`, or `silent`. Precedence: `--log-level` > `--verbose` > `GOCACHE_DEBUG=1` (debug) |
 | `--generate`     | `''`        | Run `go:generate` directives matching this hash      |
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
 | `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |
 | `--count-generated` | `false`  | Count generated files in the file length check instead of skipping them |
 | `--no-profile`   | `false`     | Skip the per-action build profile (actiongraph collection, console section, and `profile.json`) |
+
+Log routing: debug messages go to stderr and info to stdout; warnings and errors print to stderr locally and are emitted as `::warning`/`::error` workflow annotations in GitHub Actions, so they surface in the run UI (multi-line messages are escaped per the workflow-command encoding, so they annotate intact).
 
 #### Root command flags
 
@@ -405,11 +409,8 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 # Run the tool on itself
 go run ./src
 
-# Run unit tests
-go test ./src/...
-
-# Run integration tests (requires bats, jq, attr)
-bats tests/
+# Build and test (runs mod tidy, vet, tests with coverage, then builds)
+go-toolchain
 ```
 
 ## License

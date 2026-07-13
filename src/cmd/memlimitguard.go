@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
@@ -49,7 +50,7 @@ func injectMemLimitGuard(quiet bool) error {
 		return fmt.Errorf("injecting GOMEMLIMIT guard: %w", err)
 	}
 	if len(changed) > 0 && !quiet {
-		fmt.Printf("  GOMEMLIMIT guard written to %d package(s): %s\n",
+		logger.Info("  GOMEMLIMIT guard written to %d package(s): %s",
 			len(changed), strings.Join(changed, ", "))
 	}
 	return nil
@@ -118,6 +119,6 @@ func cleanupMemLimitGuards() {
 		return
 	}
 	if _, err := memlimit.CleanupAll(); err != nil {
-		fmt.Printf("  warning: failed to remove GOMEMLIMIT guard: %v\n", err)
+		logger.Warn("  warning: failed to remove GOMEMLIMIT guard: %v", err)
 	}
 }

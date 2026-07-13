@@ -77,6 +77,16 @@ func (w *outputWatchdog) watchLoop(ctx context.Context) {
 				if v := w.stepName.Load(); v != nil {
 					step, _ = v.(string)
 				}
+				// These writes MUST go to the saved pre-redirect fd
+				// (w.origStderr), never through the logger: the logger writes
+				// to the current os.Stderr, which is fd 2 = the watchdog's own
+				// monitored pipe. Routing the warning there feeds it back into
+				// forward(), resetting the stall timer (self-defeating), and
+				// in the trapped-pipe failure mode -- the exact scenario
+				// origStderr exists for -- the warning would be lost in the
+				// undrained pipe. The bannedoutput vet analyzer deliberately
+				// does not flag writes to a writer held in a variable, so this
+				// stays analyzer-clean.
 				if step != "" {
 					fmt.Fprintf(w.origStderr, "%s⚠ STALLED: no output for %ds (currently: %s)%s\n",
 						colorBoldRed, int(gap.Seconds()), step, colorReset)

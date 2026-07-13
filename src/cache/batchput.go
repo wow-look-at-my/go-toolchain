@@ -8,11 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // batchPutManifest is the JSON manifest (first tar member) the client sends to
@@ -189,7 +190,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	tarBytes, err := buildPutTar(reqs)
 	if err != nil {
 		markSpanErr(span, "build tar", err)
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch put: build tar: %v\n", err)
+		logger.Warn("cacheprog: web batch put: build tar: %v", err)
 		for _, r := range reqs {
 			b.removeClaimed(r.key)
 		}
@@ -215,7 +216,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	if err != nil {
 		b.Pool.Release()
 		markSpanErr(span, "network", err)
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch put: %v\n", err)
+		logger.Warn("cacheprog: web batch put: %v", err)
 		for _, r := range reqs {
 			b.removeClaimed(r.key)
 		}
@@ -234,7 +235,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 		span.SetAttributes(attribute.Bool("cacheprog.batch.fallback_single", true))
 		for _, r := range reqs {
 			if perr := b.putSingle(r); perr != nil && !isLoggedErr(perr) {
-				fmt.Fprintf(os.Stderr, "cacheprog: web put %s: %v\n", shortID(r.actionID), perr)
+				logger.Warn("cacheprog: web put %s: %v", shortID(r.actionID), perr)
 			}
 		}
 		return
@@ -257,7 +258,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	b.Pool.Release()
 	if err != nil {
 		markSpanErr(span, "read response", err)
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch put: read response: %v\n", err)
+		logger.Warn("cacheprog: web batch put: read response: %v", err)
 		for _, r := range reqs {
 			b.removeClaimed(r.key)
 		}
@@ -267,7 +268,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	var parsed batchPutResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		markSpanErr(span, "parse response", err)
-		fmt.Fprintf(os.Stderr, "cacheprog: web batch put: parse response: %v\n", err)
+		logger.Warn("cacheprog: web batch put: parse response: %v", err)
 		for _, r := range reqs {
 			b.removeClaimed(r.key)
 		}
@@ -298,7 +299,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 			// unaffected.
 			b.removeClaimed(r.key)
 			if res.Message != "" {
-				fmt.Fprintf(os.Stderr, "cacheprog: web batch put %s: server error: %s\n", shortID(r.actionID), res.Message)
+				logger.Warn("cacheprog: web batch put %s: server error: %s", shortID(r.actionID), res.Message)
 			}
 		}
 	}
