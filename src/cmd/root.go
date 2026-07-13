@@ -505,6 +505,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vetStep != nil {
 		vetStep.done()
 	}
+
+	// Vet is the last stage that can modify files (auto-fix). Fail fast here
+	// rather than after the full test run.
+	if err := checkDirtyInCI(); err != nil {
+		return false, nil, err
+	}
+
 	printCacheStats(false)
 
 	if dupcode {
