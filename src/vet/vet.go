@@ -29,6 +29,7 @@ func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		AssertLintAnalyzer,
 		AssertNormAnalyzer,
+		BannedOutputAnalyzer,
 		RedundantCastAnalyzer,
 		TestifyCastAnalyzer,
 	}
