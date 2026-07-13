@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Cmd is a GOCACHEPROG command verb.
@@ -428,11 +430,10 @@ func (s *Server) handleGet(req Request) Response {
 	meta, miss := s.local.Get(actionID)
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
+	cacheLog := logger.WithSubsystem("cache")
 	if !miss {
 		s.sendStat(withAction(StatEvent{LocalHit: 1}, req.ActionID, "get", "hit-local", meta.Size, time.Since(start)))
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: HIT local  %s output=%s size=%d\n", actionID, shortID(meta.OutputID), meta.Size)
-		}
+		cacheLog.Debug("HIT local  %s output=%s size=%d", actionID, shortID(meta.OutputID), meta.Size)
 		t := meta.Time
 		return Response{
 			ID:       req.ID,
@@ -447,9 +448,7 @@ func (s *Server) handleGet(req Request) Response {
 	if s.remote == nil {
 		s.Misses.Increment()
 		s.sendStat(withAction(StatEvent{Miss: 1}, req.ActionID, "get", "miss", 0, time.Since(start)))
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
-		}
+		cacheLog.Debug("MISS       %s", actionID)
 		return Response{ID: req.ID, Miss: true}
 	}
 
@@ -459,17 +458,16 @@ func (s *Server) handleGet(req Request) Response {
 	if err != nil || remoteMiss {
 		s.Misses.Increment()
 		s.sendStat(withAction(StatEvent{Miss: 1}, req.ActionID, "get", "miss", 0, time.Since(start)))
-		if s.debug {
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "cache: MISS       %s (remote error: %v)\n", actionID, err)
-			} else {
-				fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
-			}
+		if err != nil {
+			cacheLog.Debug("MISS       %s (remote error: %v)", actionID, err)
+		} else {
+			cacheLog.Debug("MISS       %s", actionID)
 		}
 		return Response{ID: req.ID, Miss: true}
 	}
 	s.Latency.RemoteGet.Record(time.Since(remoteStart))
 	s.sendStat(withAction(StatEvent{RemoteHit: 1}, req.ActionID, "get", "hit-remote", size, time.Since(start)))
+	cacheLog.Debug("HIT remote %s", actionID)
 	defer body.Close()
 
 	// Write to local cache for future hits. A remote body reaching this Put
@@ -517,10 +515,9 @@ func (s *Server) handlePut(req Request) Response {
 	meta, miss := s.local.Peek(actionID)
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
+	cacheLog := logger.WithSubsystem("cache")
 	if !miss {
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s output=%s\n", actionID, shortID(meta.OutputID))
-		}
+		cacheLog.Debug("PUT  dedup  %s output=%s", actionID, shortID(meta.OutputID))
 		return Response{ID: req.ID, DiskPath: meta.DiskPath, Size: meta.Size}
 	}
 
@@ -534,9 +531,7 @@ func (s *Server) handlePut(req Request) Response {
 		return Response{ID: req.ID, Err: err.Error()}
 	}
 	s.sendStat(withAction(StatEvent{LocalPut: 1}, req.ActionID, "put", "put", int64(len(req.Body)), time.Since(start)))
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s [%s] size=%d\n", actionID, describeData(req.Body), len(req.Body))
-	}
+	cacheLog.Debug("PUT  new    %s [%s] size=%d", actionID, describeData(req.Body), len(req.Body))
 	// Async write to remote. The semaphore bounds concurrency to avoid
 	// connection churn — each goroutine reuses a pooled HTTP connection
 	// instead of creating (and discarding) a new TCP+TLS connection.
@@ -560,7 +555,7 @@ func (s *Server) handlePut(req Request) Response {
 			s.Latency.RemotePut.Record(time.Since(remotePutStart))
 			if err != nil {
 				if !errors.Is(err, errLogged) {
-					fmt.Fprintf(os.Stderr, "cacheprog: remote put: %v\n", err)
+					logger.WithSubsystem("cache").Debug("remote put: %v", err)
 				}
 			} else {
 				s.sendStat(StatEvent{RemotePut: 1})

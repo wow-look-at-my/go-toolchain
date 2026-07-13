@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 func init() {
@@ -62,7 +63,7 @@ func runLintImpl(args []string) error {
 			}
 			f, err := parser.ParseFile(fset, path, nil, 0)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: skipping %s: %v\n", path, err)
+				logger.Warn("warning: skipping %s: %v", path, err)
 				continue
 			}
 			allFiles[path] = f
@@ -71,7 +72,7 @@ func runLintImpl(args []string) error {
 
 	if len(allFiles) == 0 {
 		if !jsonOutput {
-			fmt.Println("No Go files found.")
+			logger.Info("No Go files found.")
 		}
 		return nil
 	}
@@ -85,16 +86,16 @@ func runLintImpl(args []string) error {
 	}
 
 	if len(reports) == 0 {
-		fmt.Println("No near-duplicate code blocks found.")
+		logger.Info("No near-duplicate code blocks found.")
 		return nil
 	}
 
-	fmt.Printf("Found %d near-duplicate pair(s):\n\n", len(reports))
+	logger.Info("Found %d near-duplicate pair(s):\n", len(reports))
 	for i, r := range reports {
-		fmt.Printf("%s%d. %.0f%% similar:%s\n", colorYellow, i+1, r.Similarity*100, colorReset)
-		fmt.Printf("   %s:%d  function %s%s%s\n", r.FileA, r.LineA, colorGreen, r.FuncA, colorReset)
-		fmt.Printf("   %s:%d  function %s%s%s\n", r.FileB, r.LineB, colorGreen, r.FuncB, colorReset)
-		fmt.Printf("   %s\n\n", r.Suggestion.Description)
+		logger.Info("%s%d. %.0f%% similar:%s", colorYellow, i+1, r.Similarity*100, colorReset)
+		logger.Info("   %s:%d  function %s%s%s", r.FileA, r.LineA, colorGreen, r.FuncA, colorReset)
+		logger.Info("   %s:%d  function %s%s%s", r.FileB, r.LineB, colorGreen, r.FuncB, colorReset)
+		logger.Info("   %s\n", r.Suggestion.Description)
 	}
 
 	return nil
