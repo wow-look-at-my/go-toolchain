@@ -401,11 +401,8 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 # Run the tool on itself
 go run ./src
 
-# Run unit tests
-go test ./src/...
-
-# Run integration tests (requires bats, jq, attr)
-bats tests/
+# Build and test (runs mod tidy, vet, tests with coverage, then builds)
+go-toolchain
 ```
 
 ## License
