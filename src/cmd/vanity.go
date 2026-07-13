@@ -281,7 +281,7 @@ func injectVanityReplaces() (*vanityState, error) {
 			// for the original path — so skip it and let the proxy handle it.
 			if targetHost := strings.SplitN(ghPath, "/", 2)[0]; !directMirrorHosts[targetHost] {
 				if !jsonOutput {
-					fmt.Printf("    skipping %s: resolved host %s is not a direct mirror\n", m.Path, targetHost)
+					logger.Info("    skipping %s: resolved host %s is not a direct mirror", m.Path, targetHost)
 				}
 				continue
 			}

@@ -2,7 +2,6 @@ package cache
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -157,7 +156,7 @@ func (d *Daemon) Close() {
 	// in-flight compiler read can hit a closed FUSE mount or pack handle).
 	if d.local != nil {
 		if err := d.local.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: local cache close: %v\n", err)
+			logger.Warn("cacheprog: local cache close: %v", err)
 		}
 	}
 	// Close the stats connection AFTER remote.Close() so that batch flush
