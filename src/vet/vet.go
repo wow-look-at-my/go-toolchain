@@ -121,7 +121,10 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	// Load packages for analysis.
 	report("type-check")
 	cfg := &packages.Config{
-		Mode:  packages.LoadSyntax,
+		// NeedModule populates pkg.Module -> pass.Module, which the
+		// bannedoutput analyzer uses to scope its ban to the go-toolchain
+		// module (consumer projects must keep their fmt.Println).
+		Mode:  packages.LoadSyntax | packages.NeedModule,
 		Tests: true,
 	}
 	var nParsed int
