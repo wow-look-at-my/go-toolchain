@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wow-look-at-my/go-containers/set"
 	ansi "github.com/wow-look-at-my/ansi-writer"
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/ast/astutil"
 )
 
@@ -66,7 +66,7 @@ var (
 )
 
 type math32FileFix struct {
-	rewriteMathFuncs  set.Set[string] // math.Xxx → math32.Xxx
+	rewriteMathFuncs  set.Set[string]   // math.Xxx → math32.Xxx
 	caseFixes         map[string]string // math32.wrong → correctName
 	caseFixPkg        map[string]string // math32.wrong → target package
 	needsImport       bool
