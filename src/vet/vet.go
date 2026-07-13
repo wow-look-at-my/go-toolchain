@@ -16,6 +16,8 @@ import (
 
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/tools/go/analysis/checker"
 	"golang.org/x/tools/go/packages"
 )
@@ -144,7 +146,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 			nPkgs++
 			return true
 		}, nil)
-		fmt.Fprintf(os.Stderr, "vet: loaded %d packages (%d files parsed) in %v\n", nPkgs, nParsed, loadDur.Round(time.Millisecond))
+		logger.Info("vet: loaded %d packages (%d files parsed) in %v", nPkgs, nParsed, loadDur.Round(time.Millisecond))
 	}
 
 	// Check for load errors, filtering out Go version mismatch warnings.

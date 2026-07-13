@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -92,9 +93,16 @@ func claudeOutputViolation() (outputSink, bool) {
 // go-toolchain is running under Claude and its output is being hidden — piped,
 // redirected to a file, or discarded — instead of shown in the transcript. It
 // is a no-op in every other situation.
+// claudeGuardOut is a deliberate logger bypass: the abort message below MUST
+// always reach the real stderr and must never become a stdout GHA annotation,
+// because the guard fires precisely when stdout is redirected or captured (the
+// smoke-linux CI step asserts the "refused to run" text on stderr). Held in a
+// variable, which the bannedoutput analyzer deliberately permits.
+var claudeGuardOut io.Writer = os.Stderr
+
 func guardAgainstClaudeOutputCapture() {
 	if s, bad := claudeOutputViolation(); bad {
-		fmt.Fprint(os.Stderr, claudeOutputMessage(s))
+		fmt.Fprint(claudeGuardOut, claudeOutputMessage(s))
 		os.Exit(1)
 	}
 }

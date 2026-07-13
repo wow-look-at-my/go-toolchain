@@ -17,6 +17,11 @@ import (
 // deliberately permits.
 var rawStderr io.Writer = os.Stderr
 
+// rawStdout is the stdout counterpart of rawStderr, for interactive prompts
+// that await input mid-line on stdout (unignore confirmation). Same rationale:
+// the logger's auto-newline and level filtering would corrupt or hide them.
+var rawStdout io.Writer = os.Stdout
+
 // isCacheProg reports whether cmd or any of its ancestors is the cacheprog
 // subcommand (same ancestor walk as skipCache).
 func isCacheProg(cmd *cobra.Command) bool {
