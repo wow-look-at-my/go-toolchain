@@ -1,6 +1,8 @@
 package logger
 
 import (
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -222,6 +224,58 @@ func TestDefaultLogger(t *testing.T) {
 	Warn("visible")
 	assert.Contains(t, errBuf.String(), "visible")
 
+}
+
+// TestInitSubprocess verifies the subprocess logger routes every message to
+// stderr and never emits GHA annotations on stdout, even when
+// GITHUB_ACTIONS=true — stdout may be a protocol channel (e.g. GOCACHEPROG).
+func TestInitSubprocess(t *testing.T) {
+	// Save and restore the global default so this test is hermetic.
+	defaultMu.Lock()
+	saved := defaultLogger
+	defaultMu.Unlock()
+	defer func() {
+		defaultMu.Lock()
+		defaultLogger = saved
+		defaultMu.Unlock()
+	}()
+
+	t.Setenv("GITHUB_ACTIONS", "true")
+
+	// The subprocess logger writes through the indirect stdout/stderr
+	// writers, so swap the real os.Stdout/os.Stderr for pipes.
+	origStdout, origStderr := os.Stdout, os.Stderr
+	outR, outW, err := os.Pipe()
+	require.NoError(t, err)
+	errR, errW, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout, os.Stderr = outW, errW
+	defer func() { os.Stdout, os.Stderr = origStdout, origStderr }()
+
+	l := InitSubprocess(LevelInfo)
+	assert.Equal(t, l, Default())
+	Debug("hidden at info")
+	Info("info line")
+	Warn("warn line")
+	Output("output line")
+
+	os.Stdout, os.Stderr = origStdout, origStderr
+	outW.Close()
+	errW.Close()
+	outBytes, err := io.ReadAll(outR)
+	require.NoError(t, err)
+	errBytes, err := io.ReadAll(errR)
+	require.NoError(t, err)
+
+	// Nothing may reach stdout — it is the protocol channel.
+	assert.Empty(t, string(outBytes))
+
+	errStr := string(errBytes)
+	assert.NotContains(t, errStr, "::warning")
+	assert.Contains(t, errStr, "WARNING: warn line")
+	assert.Contains(t, errStr, "info line")
+	assert.Contains(t, errStr, "output line")
+	assert.NotContains(t, errStr, "hidden at info")
 }
 
 // TestTrailingNewline checks that messages always end with exactly one newline.
