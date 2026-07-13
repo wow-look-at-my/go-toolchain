@@ -2,7 +2,6 @@ package trace
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
@@ -38,7 +38,7 @@ func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "⇒ Exporting %d timeline entries to %s\n", len(entries), endpoint)
+	logger.Info("⇒ Exporting %d timeline entries to %s", len(entries), endpoint)
 	buildSpans(ctx, tp, entries)
 	return nil
 }

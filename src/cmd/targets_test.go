@@ -308,7 +308,7 @@ func TestCopyCosmoSlotsAllSlotsCollidedKeepsFat(t *testing.T) {
 
 	nativeBuilt := map[string]bool{"mytool_linux_amd64": true}
 	var created, replacedFat []string
-	output := captureStdout(func() {
+	output := captureCombinedOutput(func() {
 		created, replacedFat, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt, false)
 	})
 	require.NoError(t, err)
@@ -336,7 +336,7 @@ func TestCopyCosmoSlotsNativeCollisionWins(t *testing.T) {
 
 	nativeBuilt := map[string]bool{"mytool_linux_amd64": true}
 	var created []string
-	output := captureStdout(func() {
+	output := captureCombinedOutput(func() {
 		created, _, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt, false)
 	})
 	require.NoError(t, err)

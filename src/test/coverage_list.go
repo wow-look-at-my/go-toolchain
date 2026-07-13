@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 const (
@@ -166,7 +168,7 @@ func (r Report) Print() {
 
 	printTargetGroup(untested, "UNTESTED (0% covered — one test likely covers most lines):", totalStatements)
 	if len(untested) > 0 && len(partial) > 0 {
-		fmt.Println()
+		logger.Info("")
 	}
 	printTargetGroup(partial, "PARTIAL (need specific branches/inputs):", totalStatements)
 }
@@ -177,7 +179,7 @@ func printTargetGroup(funcs []funcWithPath, header string, totalStatements int) 
 	}
 
 	dim := dimText(0.6)
-	fmt.Printf("  %s%s%s\n", dim, header, colorReset)
+	logger.Info("  %s%s%s", dim, header, colorReset)
 
 	for _, f := range funcs {
 		var gain float32
@@ -194,7 +196,7 @@ func printTargetGroup(funcs []funcWithPath, header string, totalStatements int) 
 			}
 		}
 
-		fmt.Printf("   %s  %s%3d stmts%s  %-28s %s\n",
+		logger.Info("   %s  %s%3d stmts%s  %-28s %s",
 			colorGain(gain),
 			dim, f.fn.Uncovered(), fgReset,
 			location,

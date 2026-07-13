@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Comparison holds benchmark deltas between two reports
@@ -81,7 +83,7 @@ func Compare(current, previous *BenchmarkReport) *Comparison {
 // Print outputs the comparison in a formatted table
 func (c *Comparison) Print() {
 	if len(c.Packages) == 0 {
-		fmt.Println("     (no benchmarks to compare)")
+		logger.Info("     (no benchmarks to compare)")
 		return
 	}
 
@@ -92,7 +94,7 @@ func (c *Comparison) Print() {
 	}
 	sort.Strings(pkgNames)
 
-	fmt.Println("        time/op       delta     alloc/op   allocs/op  name")
+	logger.Info("        time/op       delta     alloc/op   allocs/op  name")
 	for _, pkg := range pkgNames {
 		deltas := c.Packages[pkg]
 		// Sort by ns/op (fastest first)
@@ -105,7 +107,7 @@ func (c *Comparison) Print() {
 		if idx := strings.LastIndex(pkg, "/"); idx >= 0 {
 			shortPkg = pkg[idx+1:]
 		}
-		fmt.Printf("\033[1m%s\033[0m\n", shortPkg)
+		logger.Info("\033[1m%s\033[0m", shortPkg)
 
 		for _, d := range deltas {
 			name := d.Name
@@ -117,7 +119,7 @@ func (c *Comparison) Print() {
 			allocStr := formatBenchBytes(d.Current.BytesPerOp)
 			deltaStr := formatDelta(d.NsPerOpDelta, d.Previous != nil)
 
-			fmt.Printf("  %12s  %10s  %10s  %9d  %s\n",
+			logger.Info("  %12s  %10s  %10s  %9d  %s",
 				timeStr, deltaStr, allocStr, d.Current.AllocsPerOp, name)
 		}
 	}

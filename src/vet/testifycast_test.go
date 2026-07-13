@@ -28,6 +28,11 @@ func applyCastFixtures(t *testing.T) (output, stderrText string) {
 	dir, err := filepath.Abs(filepath.Join("testdata", "src", "testifycast"))
 	require.NoError(t, err)
 
+	// The element-mismatch notice is a logger.Warn, which under
+	// GITHUB_ACTIONS=true routes to stdout as a ::warning annotation; pin
+	// non-GHA mode so it lands on stderr for capture.
+	t.Setenv("GITHUB_ACTIONS", "")
+
 	// Capture os.Stderr so we can assert on element-mismatch warnings.
 	oldStderr := os.Stderr
 	pr, pw, _ := os.Pipe()

@@ -19,6 +19,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 var (
@@ -105,14 +107,14 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	if tl := GetTimeline(); tl != nil {
 		sd := summary.SummaryData{Timeline: tl.Entries()}
 		if writeErr := summary.Write(&sd); writeErr != nil {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: failed to write step summary: %v\n", writeErr)
+			logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 		}
 
 		// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := gotrace.Export(ctx, sd.Timeline); err != nil {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: failed to export traces: %v\n", err)
+			logger.Warn("⇒ Warning: failed to export traces: %v", err)
 		}
 	}
 	return nil
@@ -135,7 +137,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 			return err
 		}
 		if cgoEnabled {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: --cgo has no effect on the cosmo target (cosmopolitan has no cgo; CGO_ENABLED=0 is forced)\n")
+			logger.Warn("⇒ Warning: --cgo has no effect on the cosmo target (cosmopolitan has no cgo; CGO_ENABLED=0 is forced)")
 		}
 		if cosmoGoroot, err = ensureCosmoToolchainFunc(); err != nil {
 			return err
@@ -213,9 +215,9 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 
 	if len(matrixTargets) > 0 {
-		fmt.Printf("⇒ Building %d binaries (%d targets)\n", len(jobs), len(platforms))
+		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
 	} else {
-		fmt.Printf("⇒ Building %d binaries (%d OS x %d arch)\n", len(jobs), len(matrixOS), len(matrixArch))
+		logger.Info("⇒ Building %d binaries (%d OS x %d arch)", len(jobs), len(matrixOS), len(matrixArch))
 	}
 	buildStart := time.Now()
 
@@ -264,10 +266,10 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	for result := range results {
 		completed++
 		if result.err != nil {
-			fmt.Printf("  FAIL [%d/%d] %s/%s: %v %s\n", completed, len(jobs), result.job.goos, result.job.goarch, result.err, fmtDuration(result.duration))
+			logger.Info("  FAIL [%d/%d] %s/%s: %v %s", completed, len(jobs), result.job.goos, result.job.goarch, result.err, fmtDuration(result.duration))
 			failed = append(failed, result)
 		} else {
-			fmt.Printf("  OK   [%d/%d] %s %s\n", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
+			logger.Info("  OK   [%d/%d] %s %s", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
 			if _, statErr := os.Stat(result.job.outputPath); statErr == nil {
 				builtFiles = append(builtFiles, result.job.outputPath)
 			}
@@ -318,7 +320,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		}
 	}
 
-	fmt.Printf("⇒ All %d binaries built successfully in %s/ %s\n", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	logger.Info("⇒ All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
 
 	// Run benchmarks after successful build
 	if !noBenchmark {
@@ -347,7 +349,7 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 		// Verify the host binary exists in the output directory
 		hostPath := filepath.Join(outDir, hostBinary)
 		if _, err := os.Stat(hostPath); err != nil {
-			fmt.Printf("  SKIP symlink for %s (host binary %s not found)\n", target.OutputName, hostBinary)
+			logger.Info("  SKIP symlink for %s (host binary %s not found)", target.OutputName, hostBinary)
 			continue
 		}
 
@@ -359,7 +361,7 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 			if err := os.Symlink(hostBinary, linkPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %w", linkName, err)
 			}
-			fmt.Printf("  LINK %s -> %s\n", linkPath, hostBinary)
+			logger.Info("  LINK %s -> %s", linkPath, hostBinary)
 		}
 	}
 	return nil
