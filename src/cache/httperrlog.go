@@ -3,13 +3,14 @@ package cache
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 const (
@@ -94,11 +95,11 @@ func newHTTPErrLogger(w io.Writer, interval time.Duration, tracer *cacheTracer) 
 // so call sites that may have a partially-constructed WebBackend don't panic.
 func (l *httpErrLogger) Record(op string, status int, id, body string) {
 	if l == nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: %s %s: HTTP %d", op, shortID(id), status)
+		msg := fmt.Sprintf("cacheprog: %s %s: HTTP %d", op, shortID(id), status)
 		if body != "" {
-			fmt.Fprintf(os.Stderr, ": %s", body)
+			msg += fmt.Sprintf(": %s", body)
 		}
-		fmt.Fprintln(os.Stderr)
+		logger.Warn("%s", msg)
 		return
 	}
 	if l.tracer.Enabled() {
@@ -129,7 +130,7 @@ func (l *httpErrLogger) Record(op string, status int, id, body string) {
 // a working one. Nil-safe.
 func (l *httpErrLogger) RecordBatchHTTP(keysRequested, entriesReturned, prefetched int, dur time.Duration) {
 	if l == nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: batch GET: %d keys → %d entries (%d prefetched) in %v\n",
+		logger.Info("cacheprog: batch GET: %d keys → %d entries (%d prefetched) in %v",
 			keysRequested, entriesReturned, prefetched, dur.Round(time.Millisecond))
 		return
 	}
