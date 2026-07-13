@@ -1,7 +1,6 @@
 package vet
 
 import (
-	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
@@ -14,6 +13,8 @@ import (
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Upstream testify package paths. The toolchain rewrites the in-house fork
@@ -415,8 +416,8 @@ func warnElementMismatch(pass *analysis.Pass, call *ast.CallExpr, name string, c
 		return
 	}
 	pos := pass.Fset.Position(call.Pos())
-	fmt.Fprintf(os.Stderr,
-		"testifycast: warning: %s:%d: %s compares %s elements against %s; the testify fork may have matched these via loose numeric equality, but upstream will not — add an explicit conversion if a match was intended\n",
+	logger.Warn(
+		"testifycast: warning: %s:%d: %s compares %s elements against %s; the testify fork may have matched these via loose numeric equality, but upstream will not — add an explicit conversion if a match was intended",
 		pos.Filename, pos.Line, name, elem, cmpType)
 }
 
@@ -506,5 +507,5 @@ func (c *CastEdits) printEdit(src []byte, e CastEdit) {
 	grey := ansi.Concat(ansi.BrightBlack.FG, loc.ShortLoc(), ansi.Reset)
 	red := ansi.Concat(ansi.Red.FG, old, ansi.Reset)
 	green := ansi.Concat(ansi.Green.FG, e.TypeName+"("+old+")", ansi.Reset)
-	fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
+	logger.Info("%s %s %s → %s", yellow, grey, red, green)
 }

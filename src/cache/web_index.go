@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // indexFetchBudget bounds the WHOLE startup index load (conditional GET plus
@@ -78,7 +79,7 @@ func (b *WebBackend) loadOrFetchIndex() (set.Set[string], bool) {
 
 	blob, status, err := b.fetchIndexBlob(ctx, diskETag)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: web index fetch: %v\n", err)
+		logger.Warn("cacheprog: web index fetch: %v", err)
 		if diskBlob != nil {
 			return diskKeys, false
 		}
@@ -92,13 +93,13 @@ func (b *WebBackend) loadOrFetchIndex() (set.Set[string], bool) {
 		// cleared /tmp between the ETag fetch and now). Refetch unconditionally.
 		blob, _, err = b.fetchIndexBlob(ctx, "")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: web index refetch: %v\n", err)
+			logger.Warn("cacheprog: web index refetch: %v", err)
 			return set.New[string](), false
 		}
 	}
 	keys, _, err := parseIndexBlob(blob)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: web index parse: %v\n", err)
+		logger.Warn("cacheprog: web index parse: %v", err)
 		if diskBlob != nil {
 			return diskKeys, false
 		}
