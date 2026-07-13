@@ -595,8 +595,7 @@ func (b *WebBackend) removeClaimed(key string) {
 	b.keysMu.Unlock()
 }
 
-// Close drains the batch coalescer, uploads the updated index if any PUTs
-// happened, and flushes the HTTP error logger.
+// Close drains the batch coalescer and flushes the HTTP error logger.
 // The OTel tracer provider is process-wide (see src/trace) and is shut
 // down once by the build entrypoint, not per WebBackend — multiple
 // components (timeline exporter, cacheprog) share the same provider so
@@ -616,7 +615,6 @@ func (b *WebBackend) Close() error {
 		close(b.batchStop)
 		<-b.batchDone
 	}
-	b.batchHTTPWG.Wait()
 	if b.errLog != nil {
 		_ = b.errLog.Close()
 	}
