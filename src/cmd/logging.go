@@ -1,11 +1,21 @@
 package cmd
 
 import (
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
+
+// rawStderr is a deliberate logger bypass for output that MUST stay on the raw
+// stderr stream: mid-line progress fragments that are printed without a
+// trailing newline and completed later on the same line (bootstrap download /
+// extract timings), and interactive prompts that await input on the same line
+// (release confirmation). The logger's auto-newline and level filtering would
+// corrupt or hide these. Held in a variable, which the bannedoutput analyzer
+// deliberately permits.
+var rawStderr io.Writer = os.Stderr
 
 // isCacheProg reports whether cmd or any of its ancestors is the cacheprog
 // subcommand (same ancestor walk as skipCache).
