@@ -444,7 +444,6 @@ func TestInjectVanityReplacesSkipsNonDirectHost(t *testing.T) {
 	assert.NotContains(t, string(data), "replace")
 	assert.NotContains(t, string(data), "go.googlesource.com")
 }
-
 func TestRemoveVanityReplacesEmpty(t *testing.T) {
 	err := removeVanityReplaces(nil)
 	assert.Nil(t, err)
