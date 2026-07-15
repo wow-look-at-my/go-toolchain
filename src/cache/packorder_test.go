@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // mkPackBody returns (body, outputID-hex) for deterministic pseudo-random
@@ -239,6 +240,74 @@ func TestServer_PutReplacesMismatchedOutputID(t *testing.T) {
 	require.Equal(t, hex.EncodeToString(freshSum[:]), meta.OutputID,
 		"a re-PUT with different content must overwrite the stored entry")
 	require.Equal(t, uint32(2), lc.Stats.Puts.Load())
+}
+
+// forgetRecorder wraps an IBackend and records ForgetStale calls.
+type forgetRecorder struct {
+	IBackend
+	mu     sync.Mutex
+	forgot []string
+}
+
+func (f *forgetRecorder) ForgetStale(actionID string) {
+	f.mu.Lock()
+	f.forgot = append(f.forgot, actionID)
+	f.mu.Unlock()
+}
+
+// TestServer_PutReplaceForgetsStaleWebClaim: when the PUT replace path
+// overwrites a mismatched local entry, it must also drop the remote's
+// optimistic claim for that key (via staleKeyForgetter), so the immediately
+// following remote Put uploads the fresh body instead of skipping it as
+// already-present — that upload is what heals the shared tier.
+func TestServer_PutReplaceForgetsStaleWebClaim(t *testing.T) {
+	lc, err := NewLocalCache(t.TempDir())
+	require.NoError(t, err)
+	remote := &forgetRecorder{IBackend: newMemBackend()}
+	srv := NewServer(lc, remote)
+
+	actionID := bytes.Repeat([]byte{0xd2}, 32)
+	stale := "stale body"
+	fresh := "fresh replacement body"
+	staleSum := sha256.Sum256([]byte(stale))
+	freshSum := sha256.Sum256([]byte(fresh))
+
+	var input strings.Builder
+	input.WriteString(makePutRequest(Request{
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: staleSum[:], BodySize: int64(len(stale)),
+	}, stale))
+	input.WriteString(makePutRequest(Request{
+		ID: 2, Command: CmdPut, ActionID: actionID, OutputID: freshSum[:], BodySize: int64(len(fresh)),
+	}, fresh))
+	input.WriteString(makePutRequest(Request{ // exact re-put: dedup, no forget
+		ID: 3, Command: CmdPut, ActionID: actionID, OutputID: freshSum[:], BodySize: int64(len(fresh)),
+	}, fresh))
+	input.WriteString(makeRequest(Request{ID: 4, Command: CmdClose}))
+
+	var out bytes.Buffer
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
+	require.Equal(t, []string{hex.EncodeToString(actionID)}, remote.forgot,
+		"exactly the replace (mismatch) PUT must drop the stale remote claim; matching dedup PUTs must not")
+}
+
+// TestWebBackend_ForgetStaleDropsClaim: ForgetStale removes the optimistic
+// index claim so a later Put's check-and-claim re-uploads, and the
+// noCloseBackend daemon wrapper forwards the capability.
+func TestWebBackend_ForgetStaleDropsClaim(t *testing.T) {
+	b := &WebBackend{prefix: "go-buildcache/"}
+	b.keys = set.New[string]()
+	action := strings.Repeat("d", 64)
+	key := b.key(action)
+	b.keys.Add(key)
+	require.True(t, b.keyKnown(key))
+
+	var viaWrapper staleKeyForgetter = &noCloseBackend{b}
+	viaWrapper.ForgetStale(action)
+	require.False(t, b.keyKnown(key),
+		"ForgetStale (through the daemon wrapper) must drop the stale index claim")
 }
 
 // TestWireBatchCallbacks_PrefetchNeverReplacesLocalEntry: a prefetched entry

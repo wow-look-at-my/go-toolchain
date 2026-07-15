@@ -597,6 +597,16 @@ func (b *WebBackend) removeClaimed(key string) {
 	b.keysMu.Unlock()
 }
 
+// ForgetStale implements staleKeyForgetter: it drops the index claim for
+// actionID's key so the next Put re-uploads instead of skipping as known.
+// Called by the PUT replace path when a local entry was overwritten because
+// its outputID disagreed with a fresh cmd/go PUT — whatever the shared tier
+// holds (or is claimed to hold) under that key is not the content cmd/go
+// just computed, and only an actual upload can heal it.
+func (b *WebBackend) ForgetStale(actionID string) {
+	b.removeClaimed(b.key(actionID))
+}
+
 // Close drains the batch coalescer and flushes the HTTP error logger.
 // The OTel tracer provider is process-wide (see src/trace) and is shut
 // down once by the build entrypoint, not per WebBackend — multiple

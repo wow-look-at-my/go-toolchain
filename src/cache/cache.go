@@ -56,6 +56,20 @@ type IBackend interface {
 	GetStats() *CacheStats
 }
 
+// staleKeyForgetter is the optional backend capability the PUT replace path
+// uses: when a fresh cmd/go PUT overwrites a local entry whose outputID
+// disagreed (a mis-keyed or stale body), the remote's optimistic "already
+// present" claim for that key is stale too — the object the server holds (or
+// that this client believes it holds) is NOT the content cmd/go just
+// computed. Forgetting the claim lets the immediately following remote Put
+// actually upload the fresh body instead of skipping it as known
+// (put-skipped: known), so the shared tier self-heals alongside the local
+// one. Module indexes still never upload (webput's content guard), which is
+// correct — they are refused on every read path too.
+type staleKeyForgetter interface {
+	ForgetStale(actionID string)
+}
+
 // StatEvent is a single counter increment sent over the stats socket.
 type StatEvent struct {
 	LocalHit  uint32 `json:"lh,omitempty"`
@@ -538,6 +552,12 @@ func (s *Server) handlePut(req Request) Response {
 	if !miss {
 		cacheLog.Debug("PUT  replace %s stored-output=%s incoming-output=%s (stored entry does not match; overwriting)",
 			actionID, shortID(meta.OutputID), shortID(outputID))
+		// The remote claim for this key is as stale as the local entry was:
+		// drop it so the remote Put below re-uploads the fresh body instead
+		// of skipping it as already-present (see staleKeyForgetter).
+		if f, ok := s.remote.(staleKeyForgetter); ok {
+			f.ForgetStale(actionID)
+		}
 	}
 
 	body := bytes.NewReader(req.Body)
