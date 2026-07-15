@@ -172,6 +172,15 @@ func (c *FuseCache) Put(actionID, outputID string, body io.Reader) (string, erro
 	return filepath.Join(c.mnt, loc.outputID), nil
 }
 
+// PutIfAbsent stores body only if actionID is not already cached — see
+// LocalStore.PutIfAbsent. The absence check and the store are atomic in the
+// pack store, so a prefetched body can never displace an entry a concurrent
+// PUT just stored.
+func (c *FuseCache) PutIfAbsent(actionID, outputID string, body io.Reader) (bool, error) {
+	_, stored, err := c.store.PutIfAbsent(actionID, outputID, body)
+	return stored, err
+}
+
 // StatsPtr returns the underlying pack store's hit/put counters.
 func (c *FuseCache) StatsPtr() *CacheStats { return &c.store.Stats }
 
