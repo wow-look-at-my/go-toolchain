@@ -190,13 +190,28 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 	defer cleanupMemLimitGuards()
 
-	// Resolve what to build
-	targets, err := build.ResolveBuildTargets(r)
+	// Resolve what to build. hostTargets — main packages under the HOST build
+	// context — drive the legacy --os/--arch product (unchanged behavior),
+	// the cosmo fat APE (which embeds payloads for several native platforms,
+	// so the host set is the sanest approximation), cosmo slot mapping, and
+	// the host convenience symlinks. Explicit --targets entries additionally
+	// get main-package discovery under their OWN GOOS/GOARCH context (see
+	// resolvePlatformTargets), so a main guarded "//go:build js && wasm" is
+	// built for js/wasm targets and never attempted for native ones. This
+	// runs AFTER guard injection, which is safe because discovery skips the
+	// guard file by name (gomod.MemLimitGuardFileName) — an unconstrained
+	// guard in a host-only main dir cannot leak that dir into another
+	// target's main set.
+	hostTargets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err
 	}
 
-	if len(targets) == 0 {
+	platformTargets, anyMains, err := resolvePlatformTargets(platforms, hostTargets)
+	if err != nil {
+		return err
+	}
+	if !anyMains {
 		return fmt.Errorf("no main packages found to build")
 	}
 
@@ -208,7 +223,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	// Build job queue - one job per platform per main package
 	var jobs []buildJob
 	for _, p := range platforms {
-		for _, target := range targets {
+		for _, target := range platformTargets[p] {
 			outputName := build.BinaryName(target.OutputName, p.OS, p.Arch)
 			if p.IsWasm() {
 				// Publishable buildhost naming by default; the excluded
@@ -318,7 +333,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 				nativeBuilt[filepath.Base(job.outputPath)] = true
 			}
 		}
-		copied, replacedFat, err := copyCosmoSlots(targets, outputDir, slotPlatforms, nativeBuilt, os.Getenv("CI") != "")
+		copied, replacedFat, err := copyCosmoSlots(hostTargets, outputDir, slotPlatforms, nativeBuilt, os.Getenv("CI") != "")
 		if err != nil {
 			return err
 		}
@@ -352,6 +367,22 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		}
 	}
 
+	// Consumers of a js/wasm artifact need the EXACT wasm_exec.js of the
+	// toolchain that built it. Ship the fork's copy next to the artifact:
+	// covered by checksums.txt and the CI artifact, but outside the buildhost
+	// publish set — "wasm_exec.js" cannot match the publish action's
+	// <binary>_{os}_{arch} filename pattern (pinned by
+	// TestWasmArtifactNamesInBuildhostPublishSet). Best-effort: a fork
+	// GOROOT without lib/wasm only warns.
+	if forkGoroot != "" && slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
+		if dst, err := copyWasmExecJS(forkGoroot, outputDir); err != nil {
+			logger.Warn("⇒ Warning: could not copy wasm_exec.js from the fork toolchain: %v (browser/Node consumers must take lib/wasm/wasm_exec.js from the matching toolchain themselves)", err)
+		} else {
+			logger.Info("  COPY wasm_exec.js <- %s", filepath.Join(forkGoroot, "lib", "wasm"))
+			builtFiles = append(builtFiles, dst)
+		}
+	}
+
 	// Generate SHA-256 checksums for release artifacts
 	if len(builtFiles) > 0 {
 		if _, err := generateChecksums(outputDir, builtFiles); err != nil {
@@ -363,7 +394,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	// are pointless (nothing consumes them) and harmful: upload-artifact
 	// dereferences symlinks, bloating the artifact with full duplicate copies.
 	if os.Getenv("CI") == "" {
-		if err := createHostSymlinks(targets, outputDir); err != nil {
+		if err := createHostSymlinks(hostTargets, outputDir); err != nil {
 			return err
 		}
 	}

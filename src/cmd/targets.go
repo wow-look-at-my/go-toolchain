@@ -232,6 +232,82 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	return out, nil
 }
 
+// resolvePlatformTargets returns the main packages to build for each
+// platform, plus whether ANY platform has at least one.
+//
+// The legacy --os x --arch product keeps today's behavior exactly: one
+// host-context set (hostTargets, from build.ResolveBuildTargets, including
+// its library-only fallback) shared by every platform. With an explicit
+// --targets list, each entry gets discovery under its OWN GOOS/GOARCH build
+// context instead: a main package guarded "//go:build js && wasm" is built
+// for js/wasm targets and never attempted for native ones (it has zero files
+// there, so building it would fail), while a "//go:build linux" main builds
+// for linux entries even from a non-linux host. An unconstrained main is in
+// every set. The cosmo pseudo-target keeps the host set — the fat APE embeds
+// several native platforms, so no single GOOS/GOARCH context describes it
+// (unchanged semantics). A platform whose context has no main packages is
+// skipped with a warning rather than failing the whole matrix.
+//
+// The memlimit guard never distorts these sets even though injection happens
+// earlier: discovery skips gomod.MemLimitGuardFileName by name, so the
+// unconstrained guard injected into HOST-context main dirs cannot make a
+// host-only main dir (e.g. //go:build linux) look like a main package under
+// another target's context.
+func resolvePlatformTargets(platforms []buildPlatform, hostTargets []build.Target) (map[buildPlatform][]build.Target, bool, error) {
+	perPlatform := make(map[buildPlatform][]build.Target, len(platforms))
+	anyMains := false
+	if len(matrixTargets) == 0 {
+		for _, p := range platforms {
+			perPlatform[p] = hostTargets
+		}
+		return perPlatform, len(platforms) > 0 && len(hostTargets) > 0, nil
+	}
+	cache := make(map[string][]build.Target)
+	for _, p := range platforms {
+		if p.IsCosmo() {
+			perPlatform[p] = hostTargets
+			if len(hostTargets) > 0 {
+				anyMains = true
+			}
+			continue
+		}
+		key := p.OS + "/" + p.Arch
+		ts, ok := cache[key]
+		if !ok {
+			var err error
+			if ts, err = build.ResolveBuildTargetsForTarget(p.OS, p.Arch); err != nil {
+				return nil, false, err
+			}
+			cache[key] = ts
+		}
+		if len(ts) == 0 {
+			logger.Warn("⇒ Warning: no main packages found under GOOS=%s GOARCH=%s; skipping target %s", p.OS, p.Arch, key)
+		} else {
+			anyMains = true
+		}
+		perPlatform[p] = ts
+	}
+	return perPlatform, anyMains, nil
+}
+
+// copyWasmExecJS copies the fork toolchain's lib/wasm/wasm_exec.js (the JS
+// harness that loads and runs a GOOS=js wasm binary in a browser or Node)
+// into the output directory. The harness MUST byte-match the toolchain that
+// built the wasm artifact, which is why the build ships it rather than
+// leaving consumers to find a compatible copy.
+func copyWasmExecJS(forkGoroot, outDir string) (string, error) {
+	src := filepath.Join(forkGoroot, "lib", "wasm", "wasm_exec.js")
+	dst := filepath.Join(outDir, "wasm_exec.js")
+	// Replace any stale copy (possibly a symlink) with a fresh real file.
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	if err := copyFile(src, dst); err != nil {
+		return "", err
+	}
+	return dst, nil
+}
+
 // copyCosmoSlots copies each build target's cosmo fat APE onto the
 // conventional per-platform artifact names (the "slots" buildhost serves),
 // e.g. name_cosmo_fat -> name_linux_amd64, name_windows_amd64.exe. The APE is

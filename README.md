@@ -263,6 +263,19 @@ such as wasmtime or wazero). Wasm targets mix freely with native pairs and
 go-toolchain matrix --targets js/wasm,wasip1/wasm,linux/amd64
 ```
 
+**Per-target main-package discovery.** With an explicit `--targets` list,
+main packages are discovered under **each target's own build context**
+(GOOS/GOARCH), not the host's: a main package guarded `//go:build js && wasm`
+(e.g. a browser entry point importing `syscall/js`) is built for `js/wasm`
+targets and never attempted for native ones, an unconstrained main builds for
+every target as before, and a `//go:build linux` main builds for `linux/*`
+entries even from a non-linux host. A target whose context has no main
+packages at all is skipped with a warning (a target list where **no** entry
+has any main packages is still an error). The `cosmo` pseudo-target keeps
+host-context discovery (the fat APE spans several native platforms), and the
+legacy `--os` x `--arch` product keeps host-context discovery exactly as
+before.
+
 **Toolchain.** Wasm targets are built with the same
 [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) fork toolchain
 as the cosmo target (resolution is identical: `GO_TOOLCHAIN_COSMO_GOROOT`,
@@ -305,9 +318,23 @@ disable `autorelease` in that combination (the build logs a warning for this
 case too). Without the opt-out, wasm-only publishes are fine once the server
 has wasm support.
 
+**wasm_exec.js.** A `js/wasm` build also copies the fork toolchain's
+`lib/wasm/wasm_exec.js` — the JS harness that loads the wasm in a browser or
+Node, which must byte-match the toolchain that built it — into
+`build/wasm_exec.js`. It is covered by `checksums.txt` and ships in the CI
+artifact, but stays outside the buildhost publish set (its name doesn't match
+the publish pipeline's `<binary>_{os}_{arch}` pattern, like `checksums.txt`
+itself). Missing harness in the fork GOROOT only warns.
+
 **GOMEMLIMIT guard.** The injected cgroup guard is stdlib-only and compiles
 for both wasm ports; without cgroup files it is a startup no-op, so wasm
-binaries are built from the same guarded source as every other target.
+binaries are built from the same guarded source as every other target. The
+guard is injected into main packages visible under the **host** context only;
+a main that exists only under a cross-compile context (such as a
+`js && wasm`-guarded browser entry point) gets no guard — sound, since the
+guard reads Linux cgroup limits and would no-op there anyway. Discovery skips
+the guard file by name, so an injected (or stale) guard never makes a
+host-only main dir look like a main package for another target.
 
 **Running and testing wasm binaries.** The build pipeline never executes
 matrix artifacts, and the test phase always runs on the HOST platform — wasm
