@@ -310,3 +310,46 @@ func TestRunReleaseWithRunnerNoMainsForAnyTargetFails(t *testing.T) {
 	require.Error(t, runErr)
 	assert.Contains(t, runErr.Error(), "no main packages found to build")
 }
+
+func TestRunReleaseWithRunnerWasmViaOsArchFlags(t *testing.T) {
+	// The action inputs os: wasm / arch: js flow through --os/--arch. This
+	// must behave exactly like --targets wasm/js: same fork toolchain, same
+	// <name>_wasm_js artifact, and the same per-target main discovery (the
+	// js&&wasm-guarded main is found even though --targets is unset).
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
+	matrixOS, matrixArch = []string{"wasm"}, []string{"js"}
+	t.Setenv("CI", "")
+	writeConstrainedMain(t, "cmd/wasmonly", "//go:build js && wasm")
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+
+	err := runReleaseWithRunner(mock)
+	require.NoError(t, err)
+
+	assert.FileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
+	assert.FileExists(t, filepath.Join(outDir, "wasmonly_wasm_js"),
+		"per-target discovery must apply to wasm platforms on the --os/--arch path too")
+
+	// Both builds went through the fork toolchain with GOOS=js GOARCH=wasm.
+	forkBuilds := 0
+	for _, cfg := range mock.Calls() {
+		if cfg.Name != forkGo {
+			continue
+		}
+		forkBuilds++
+		goos, _ := cfg.Env.Get("GOOS")
+		assert.Equal(t, "js", goos)
+		goarch, _ := cfg.Env.Get("GOARCH")
+		assert.Equal(t, "wasm", goarch)
+	}
+	assert.Equal(t, 2, forkBuilds)
+}

@@ -69,8 +69,8 @@ To opt out, pass `codeql: 'false'`.
 | `generate`          | string   | `''`       | Run `go:generate` directives matching this hash          |
 | `working-directory` | string   | `.`        | Working directory for the build                          |
 | `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
-| `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
-| `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
+| `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems; `wasm` (WebAssembly) pairs only with arch `js`/`wasip1` — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1) |
+| `arch`              | string   | `amd64,arm64` | Comma-separated target architectures; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
 | `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write` and `actions: read`) |
@@ -266,6 +266,23 @@ target). Wasm targets mix freely with native pairs and `cosmo` in one run:
 go-toolchain matrix --targets wasm/js,wasm/wasip1,linux/amd64
 ```
 
+The same pairing also works through the `--os`/`--arch` cartesian product
+(and thus the action's `os:`/`arch:` inputs): `--os wasm` combines only with
+the wasm flavor arches `js`/`wasip1`, producing the identical targets —
+`--os wasm --arch js` is `--targets wasm/js` (same artifacts, naming, and
+per-target main discovery). In a mixed list the impossible cross
+combinations (`wasm` with a native arch, a native os with `js`/`wasip1`) are
+skipped with one aggregate warning; if the whole product is impossible
+(`--os wasm --arch amd64` alone) the build fails fast, and a `js`/`wasip1`
+arch without `wasm` anywhere in `--os` is an error naming the fix. A
+wasm-only consumer's action config is simply:
+
+```yaml
+with:
+  os: wasm
+  arch: js
+```
+
 **Per-target main-package discovery.** With an explicit `--targets` list,
 main packages are discovered under **each target's own build context**
 (GOOS/GOARCH), not the host's: a main package guarded `//go:build js && wasm`
@@ -353,9 +370,11 @@ PATH="$GOROOT/bin:$GOROOT/lib/wasm:$PATH" GOTOOLCHAIN=local \
 ```
 
 Rejected spellings fail fast with a pointer to the right one: `js`/`wasip1`
-in `--os` and `wasm` in `--arch` (use `--targets wasm/js`/`wasm/wasip1`),
-`js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings), and wasm
-targets in `--cosmo-slots` (an APE is not a wasm binary).
+in `--os` and `wasm` in `--arch` (both flipped in buildhost's model — use
+`--os wasm --arch js|wasip1`, or `--targets wasm/js`/`wasm/wasip1`),
+`js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings), a
+`js`/`wasip1` arch with no `wasm` os in the list, and wasm targets in
+`--cosmo-slots` (an APE is not a wasm binary).
 
 ### Automatic GOMEMLIMIT (cgroup-aware memory limit)
 

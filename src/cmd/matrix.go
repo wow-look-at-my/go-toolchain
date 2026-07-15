@@ -54,7 +54,9 @@ native target in --targets wins over a slot copy of the same name.
 The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
 also built with the gosmopolitan fork toolchain (it carries the org's wasm
 runtime fixes); the GOOS-order spellings js/wasm and wasip1/wasm are accepted
-as compatibility aliases for the same targets. Their artifacts use
+as compatibility aliases for the same targets, and the cartesian flags accept
+the pairing too (--os wasm combines only with --arch js/wasip1 and yields the
+identical targets). Their artifacts use
 buildhost's publishable wasm naming (<name>_wasm_js, <name>_wasm_wasip1 —
 os=wasm with arch=js/wasip1, no file extension); publishing them requires a
 buildhost with wasm artifact support. Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use
