@@ -29,4 +29,7 @@ func TestBinaryName(t *testing.T) {
 	// The cosmo fat APE gets no .exe even though it is a genuine PE polyglot:
 	// only the windows/* slot copies carry the .exe name.
 	assert.Equal(t, "myapp_cosmo_fat", BinaryName("myapp", "cosmo", "fat"))
+	// WebAssembly targets carry a .wasm suffix.
+	assert.Equal(t, "myapp_js_wasm.wasm", BinaryName("myapp", "js", "wasm"))
+	assert.Equal(t, "myapp_wasip1_wasm.wasm", BinaryName("myapp", "wasip1", "wasm"))
 }

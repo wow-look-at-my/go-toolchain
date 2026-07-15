@@ -77,6 +77,38 @@ func TestParseTargetList(t *testing.T) {
 			wantErr: "always one fat APE",
 		},
 		{
+			name:    "wasm targets",
+			entries: []string{"js/wasm", "wasip1/wasm"},
+			want: []buildPlatform{
+				{OS: "js", Arch: "wasm"},
+				{OS: "wasip1", Arch: "wasm"},
+			},
+		},
+		{
+			name:    "wasm mixed with native and cosmo",
+			entries: []string{"cosmo", "linux/amd64", "js/wasm"},
+			want: []buildPlatform{
+				{OS: "cosmo", Arch: "fat"},
+				{OS: "linux", Arch: "amd64"},
+				{OS: "js", Arch: "wasm"},
+			},
+		},
+		{
+			name:    "js without wasm arch is rejected",
+			entries: []string{"js/amd64"},
+			wantErr: "only builds WebAssembly",
+		},
+		{
+			name:    "wasip1 without wasm arch is rejected",
+			entries: []string{"wasip1/arm64"},
+			wantErr: "only builds WebAssembly",
+		},
+		{
+			name:    "wasm arch without wasm os is rejected",
+			entries: []string{"linux/wasm"},
+			wantErr: "needs GOOS js or wasip1",
+		},
+		{
 			name:    "duplicate pair",
 			entries: []string{"linux/amd64", "linux/amd64"},
 			wantErr: "duplicate target",
@@ -149,6 +181,11 @@ func TestParseCosmoSlots(t *testing.T) {
 			wantErr: "not a slot",
 		},
 		{
+			name:    "wasm is not a slot",
+			entries: []string{"js/wasm"},
+			wantErr: "not a wasm binary",
+		},
+		{
 			name:    "unknown arch",
 			entries: []string{"linux/amd65"},
 			wantErr: "unknown architecture",
@@ -219,6 +256,49 @@ func TestResolveMatrixPlatformsRejectsCosmoOS(t *testing.T) {
 	_, err := resolveMatrixPlatforms()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--targets cosmo")
+}
+
+func TestResolveMatrixPlatformsRejectsWasmInCartesian(t *testing.T) {
+	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
+	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
+	matrixTargets = nil
+
+	// GOOS js/wasip1 through --os point at --targets.
+	matrixOS, matrixArch = []string{"js"}, []string{"amd64"}
+	_, err := resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--targets js/wasm")
+
+	matrixOS, matrixArch = []string{"wasip1"}, []string{"amd64"}
+	_, err = resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--targets wasip1/wasm")
+
+	// GOARCH wasm through --arch points at --targets too.
+	matrixOS, matrixArch = []string{"linux"}, []string{"wasm"}
+	_, err = resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--targets js/wasm")
+}
+
+func TestBuildPlatformPredicates(t *testing.T) {
+	cosmo := buildPlatform{OS: "cosmo", Arch: "fat"}
+	js := buildPlatform{OS: "js", Arch: "wasm"}
+	wasip1 := buildPlatform{OS: "wasip1", Arch: "wasm"}
+	linux := buildPlatform{OS: "linux", Arch: "amd64"}
+
+	assert.True(t, cosmo.IsCosmo())
+	assert.False(t, cosmo.IsWasm())
+	assert.True(t, js.IsWasm())
+	assert.True(t, wasip1.IsWasm())
+	assert.False(t, linux.IsWasm())
+
+	// The fork toolchain builds cosmo and wasm; everything else uses the go
+	// on PATH.
+	assert.True(t, cosmo.NeedsForkToolchain())
+	assert.True(t, js.NeedsForkToolchain())
+	assert.True(t, wasip1.NeedsForkToolchain())
+	assert.False(t, linux.NeedsForkToolchain())
 }
 
 func TestCopyCosmoSlots(t *testing.T) {

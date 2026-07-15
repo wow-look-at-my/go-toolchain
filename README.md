@@ -71,7 +71,7 @@ To opt out, pass `codeql: 'false'`.
 | `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
 | `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems |
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures |
-| `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
+| `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `js/wasm`/`wasip1/wasm` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-jswasmwasip1wasm)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write` and `actions: read`) |
 | `allow-source-build` | string  | `false`    | Allow building go-toolchain from source when the buildhost binary is unavailable; when `false`, the build fails fast instead of silently falling back |
@@ -94,6 +94,9 @@ go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
 
 # Build an exact target list: one Cosmopolitan fat APE plus three native builds
 go-toolchain matrix --targets cosmo,darwin/amd64,darwin/arm64,windows/arm64
+
+# WebAssembly builds (browser/Node.js and WASI) alongside a native target
+go-toolchain matrix --targets js/wasm,wasip1/wasm,linux/amd64
 
 # Run benchmarks independently
 go-toolchain bench run --benchtime 5s --count 3
@@ -248,6 +251,61 @@ checksum. Never execute the artifacts in `build/` directly (that includes the
 point at a mapped copy of the APE) — run a throwaway copy instead. The build
 pipeline itself never executes matrix artifacts (benchmarks compile their own
 test binaries), so artifacts stay pristine through the build.
+
+### WebAssembly targets (`--targets js/wasm,wasip1/wasm`)
+
+`matrix --targets` also accepts the two WebAssembly platforms: `js/wasm`
+(browser / Node.js, run with `wasm_exec.js`) and `wasip1/wasm` (WASI runtimes
+such as wasmtime or wazero). Wasm targets mix freely with native pairs and
+`cosmo` in one run:
+
+```bash
+go-toolchain matrix --targets js/wasm,wasip1/wasm,linux/amd64
+```
+
+**Toolchain.** Wasm targets are built with the same
+[gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) fork toolchain
+as the cosmo target (resolution is identical: `GO_TOOLCHAIN_COSMO_GOROOT`,
+else a buildhost download selected by `GO_TOOLCHAIN_COSMO_BRANCH`, cached
+under `~/.cache/go-toolchain/cosmo/`) — the fork carries this org's wasm
+runtime fixes (default-on preemptible loops, Node.js `fetch` networking,
+synchronous stdout under node, CPU profiling, DWARF debug info; see the fork's
+`WASM_SHORTCOMINGS.md`). The fork defaults to `GOOS=cosmo`, so wasm builds
+always pin `GOOS`/`GOARCH` explicitly and run with `GOTOOLCHAIN=local` and
+`CGO_ENABLED=0` (wasm has no cgo; `--cgo` warns and is ignored for these
+targets).
+
+**Artifacts.** Wasm binaries are named `<name>_js_wasm.wasm` /
+`<name>_wasip1_wasm.wasm` and are ordinary regular files covered by
+`checksums.txt`. None of the cosmo slot machinery applies to them. Unlike
+`cosmo`, `js` and `wasip1` are real `GOOS` values, so the artifacts keep their
+canonical names; note that publishing them to buildhost has not been verified
+yet — if your buildhost deployment rejects `os=js`/`os=wasip1` on upload (one
+rejected artifact aborts that publish), build wasm targets in a run with
+`autorelease` disabled.
+
+**GOMEMLIMIT guard.** The injected cgroup guard is stdlib-only and compiles
+for both wasm ports; without cgroup files it is a startup no-op, so wasm
+binaries are built from the same guarded source as every other target.
+
+**Running and testing wasm binaries.** The build pipeline never executes
+matrix artifacts, and the test phase always runs on the HOST platform — wasm
+builds do not change what `go test` tests. To run the artifacts or execute a
+package's tests under wasm, use the fork toolchain's exec wrappers in
+`<goroot>/lib/wasm` (`go_js_wasm_exec` needs Node.js 18+; `go_wasip1_wasm_exec`
+needs wasmtime, or wazero via `GOWASIRUNTIME=wazero`):
+
+```bash
+GOROOT=$HOME/.cache/go-toolchain/cosmo/<key>/go
+PATH="$GOROOT/bin:$GOROOT/lib/wasm:$PATH" GOTOOLCHAIN=local \
+  GOOS=js GOARCH=wasm go test ./...
+```
+
+Rejected spellings fail fast with a pointer to the right one: `js`/`wasip1`
+in `--os` and `wasm` in `--arch` (use `--targets`), `js/amd64` and
+`linux/wasm` (impossible pairings), and `js/wasm` in `--cosmo-slots` (an APE
+is not a wasm binary).
+
 ### Automatic GOMEMLIMIT (cgroup-aware memory limit)
 
 By default, go-toolchain injects a small, stdlib-only startup guard

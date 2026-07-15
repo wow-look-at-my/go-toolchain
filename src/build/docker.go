@@ -23,11 +23,15 @@ func SetInDockerCheck(f func() bool) func() {
 	return func() { inDockerCheck = old }
 }
 
-// BinaryName returns name_goos_goarch with .exe appended for Windows.
+// BinaryName returns name_goos_goarch with .exe appended for Windows and
+// .wasm appended for WebAssembly targets (GOARCH=wasm).
 func BinaryName(name, goos, goarch string) string {
 	out := name + "_" + goos + "_" + goarch
-	if goos == "windows" {
+	switch {
+	case goos == "windows":
 		out += ".exe"
+	case goarch == "wasm":
+		out += ".wasm"
 	}
 	return out
 }
