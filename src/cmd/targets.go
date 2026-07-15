@@ -30,6 +30,31 @@ const wasmArch = "wasm"
 // isWasmGOOS reports whether goos only exists as a GOARCH=wasm pairing.
 func isWasmGOOS(goos string) bool { return goos == "js" || goos == "wasip1" }
 
+// wasmPublishEnv is the opt-out knob for buildhost publishing of wasm
+// artifacts. By default wasm artifacts use buildhost's publishable naming
+// (<name>_wasm_js / <name>_wasm_wasip1 — os=wasm with arch=js/wasip1, see
+// wow-look-at-my/buildhost#166). Uploading those requires a buildhost with
+// wasm artifact support; on an older server the upload 400s (`invalid os
+// "wasm"`) and one rejected artifact aborts the whole publish. Setting
+// GO_TOOLCHAIN_WASM_PUBLISH=0 falls back to the excluded naming
+// (<name>_<goos>_wasm.wasm), which never reaches the publish upload set but
+// still ships in build/, checksums.txt, and the CI artifact.
+const wasmPublishEnv = "GO_TOOLCHAIN_WASM_PUBLISH"
+
+// wasmPublishOptOut reports whether GO_TOOLCHAIN_WASM_PUBLISH=0 disabled
+// buildhost publishing of wasm artifacts.
+func wasmPublishOptOut() bool { return os.Getenv(wasmPublishEnv) == "0" }
+
+// wasmArtifactName returns the wasm platform's artifact name: buildhost's
+// publishable convention by default, the excluded .wasm-suffixed shape under
+// GO_TOOLCHAIN_WASM_PUBLISH=0.
+func wasmArtifactName(name string, p buildPlatform) string {
+	if wasmPublishOptOut() {
+		return build.UnpublishableWasmName(name, p.OS)
+	}
+	return build.BinaryName(name, p.OS, p.Arch)
+}
+
 // DefaultCosmoSlots are the per-platform artifact names that receive a copy
 // of the cosmo fat APE (see copyCosmoSlots). darwin/arm64 is deliberately
 // absent even though the fat APE boots and builds fine on ARM64 macs: the

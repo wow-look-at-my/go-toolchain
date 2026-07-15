@@ -36,18 +36,19 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	})
 	require.NoError(t, runErr)
 
-	// The build warns that wasm artifacts are excluded from buildhost
-	// publishing — but not the wasm-only warning, since a native target is
-	// in the same run.
-	assert.Contains(t, output, "excluded from buildhost publishing")
-	assert.NotContains(t, output, "every target is wasm")
+	// The build warns that publishing wasm artifacts requires buildhost wasm
+	// artifact support; the opt-out exclusion warning must NOT appear on the
+	// default path.
+	assert.Contains(t, output, "requires buildhost wasm artifact support")
+	assert.NotContains(t, output, "excluded from buildhost publishing")
 
-	// Wasm artifacts carry the .wasm suffix and are ordinary regular files;
-	// the native target coexists in the same run.
+	// Wasm artifacts use buildhost's publishable os=wasm naming (order
+	// swapped, no extension) and are ordinary regular files; the native
+	// target coexists in the same run.
 	for name, content := range map[string]string{
-		"mytool_js_wasm.wasm":     "WASM",
-		"mytool_wasip1_wasm.wasm": "WASM",
-		"mytool_linux_amd64":      "NATIVE",
+		"mytool_wasm_js":     "WASM",
+		"mytool_wasm_wasip1": "WASM",
+		"mytool_linux_amd64": "NATIVE",
 	} {
 		info, statErr := os.Lstat(filepath.Join(outDir, name))
 		require.NoError(t, statErr, "artifact %s must exist", name)
@@ -67,8 +68,8 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, 3, len(strings.Split(strings.TrimSpace(string(sums)), "\n")))
-	assert.Contains(t, string(sums), "mytool_js_wasm.wasm")
-	assert.Contains(t, string(sums), "mytool_wasip1_wasm.wasm")
+	assert.Contains(t, string(sums), "mytool_wasm_js")
+	assert.Contains(t, string(sums), "mytool_wasm_wasip1")
 
 	// Each wasm build must run the fork's bin/go with GOOS/GOARCH pinned
 	// explicitly (the fork defaults to GOOS=cosmo), GOTOOLCHAIN=local, GOROOT
@@ -125,17 +126,48 @@ func TestRunReleaseWithRunnerWasmOnlySkipsSlotParsing(t *testing.T) {
 		return origHandler(cfg)
 	}
 
+	err := runReleaseWithRunner(mock)
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
+}
+
+func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm"})
+	// GO_TOOLCHAIN_WASM_PUBLISH=0: fall back to the excluded .wasm-suffixed
+	// naming, which never reaches the buildhost publish upload set (for
+	// consumers whose buildhost predates wasm artifact support).
+	t.Setenv(wasmPublishEnv, "0")
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+
 	var runErr error
 	output := captureCombinedOutput(func() {
 		runErr = runReleaseWithRunner(mock)
 	})
 	require.NoError(t, runErr)
-	assert.FileExists(t, filepath.Join(outDir, "mytool_js_wasm.wasm"))
 
-	// A wasm-only run additionally warns that a buildhost publish step will
-	// find nothing to publish (autorelease should be off).
+	// The opt-out shape is built (and checksummed); the publishable name is
+	// not produced.
+	assert.FileExists(t, filepath.Join(outDir, "mytool_js_wasm.wasm"))
+	assert.NoFileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
+	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
+	require.NoError(t, err)
+	assert.Contains(t, string(sums), "mytool_js_wasm.wasm")
+
+	// The exclusion warning fires, plus the wasm-only note that a buildhost
+	// publish step will find nothing to publish.
 	assert.Contains(t, output, "excluded from buildhost publishing")
 	assert.Contains(t, output, "every target is wasm")
+	assert.NotContains(t, output, "requires buildhost wasm artifact support")
 }
 
 func TestRunReleaseWithRunnerWasmToolchainFailureFailsFast(t *testing.T) {

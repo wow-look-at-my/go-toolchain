@@ -23,15 +23,36 @@ func SetInDockerCheck(f func() bool) func() {
 	return func() { inDockerCheck = old }
 }
 
-// BinaryName returns name_goos_goarch with .exe appended for Windows and
-// .wasm appended for WebAssembly targets (GOARCH=wasm).
+// BinaryName returns name_goos_goarch with .exe appended for Windows.
+//
+// WebAssembly targets (GOARCH=wasm) deliberately swap the order to
+// name_wasm_<goos> (name_wasm_js, name_wasm_wasip1) with no extension: that
+// is buildhost's wasm artifact convention (os=wasm with arch=js/wasip1, see
+// wow-look-at-my/buildhost#166), and the buildhost-publish action parses
+// artifacts from the trailing two underscore-separated tokens after
+// stripping only a .exe suffix — so this bare form publishes as
+// os=wasm/arch=<goos>, while any extension would keep the file out of the
+// upload set entirely. The file is still a wasm module; only the name
+// carries no extension. See UnpublishableWasmName for the opt-out shape.
 func BinaryName(name, goos, goarch string) string {
+	if goarch == "wasm" {
+		return name + "_wasm_" + goos
+	}
 	out := name + "_" + goos + "_" + goarch
-	switch {
-	case goos == "windows":
+	if goos == "windows" {
 		out += ".exe"
-	case goarch == "wasm":
-		out += ".wasm"
 	}
 	return out
+}
+
+// UnpublishableWasmName returns the opt-out wasm artifact name used when
+// buildhost publishing of wasm artifacts is disabled
+// (GO_TOOLCHAIN_WASM_PUBLISH=0): name_<goos>_wasm.wasm. The .wasm suffix
+// cannot match the buildhost-publish action's <binary>_{os}_{arch} pattern
+// (it strips only .exe, and the trailing token would contain a dot), so the
+// artifact stays out of the publish upload set — for consumers whose
+// buildhost predates wasm artifact support, where an os=wasm upload 400s
+// and aborts the whole publish.
+func UnpublishableWasmName(name, goos string) string {
+	return name + "_" + goos + "_wasm.wasm"
 }
