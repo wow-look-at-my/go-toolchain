@@ -99,6 +99,19 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 		"assert.Equal(t, time.Duration(0), getDuration())",
 		// Dot-imported named type: spelled unqualified, not ".Duration".
 		"assert.Equal(t, Duration(0), getDot())",
+		// Ordering assertions (upstream compareTwoValues is kind-strict):
+		// int16 field vs untyped 0 — the go-font-renderer TestParseHhea shape.
+		"assert.Greater(t, getInt16(), int16(0))",
+		// float64 vs untyped 0 — the go-font-renderer TestSuperRoundNegative shape.
+		"assert.Less(t, getFloat64(), float64(0))",
+		// Typed width mismatch — e1 wrapped.
+		"assert.GreaterOrEqual(t, int64(getInt32()), getInt64())",
+		// require package form.
+		"require.Less(t, getInt16(), int16(100))",
+		// f-variant, format string and args left intact.
+		`require.Lessf(t, getFloat64(), float64(1), "x=%d", k)`,
+		// *Assertions method form.
+		"a.Greater(getInt16(), int16(0))",
 	}
 	for _, w := range want {
 		assert.Contains(t, out, w)
@@ -116,11 +129,13 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 
 	// Cases that MUST be left exactly as written.
 	unchanged := []string{
-		"assert.Equal(t, getInt(), getInt())",    // identical types
-		`assert.Equal(t, "x", []byte("x"))`,      // non-numeric mismatch
-		"assert.Equal(t, 1.5, getInt())",         // fractional truncation
-		"x.Equal(0, getFloat64())",               // non-testify Equal
-		"assert.EqualValues(t, 0, getFloat64())", // EqualValues untouched
+		"assert.Equal(t, getInt(), getInt())",       // identical types
+		`assert.Equal(t, "x", []byte("x"))`,         // non-numeric mismatch
+		"assert.Equal(t, 1.5, getInt())",            // fractional truncation
+		"x.Equal(0, getFloat64())",                  // non-testify Equal
+		"assert.EqualValues(t, 0, getFloat64())",    // EqualValues untouched
+		"assert.Greater(t, getInt(), 0)",            // identical default types
+		"assert.Greater(t, getInt16(), 1000000000)", // constant overflows int16
 	}
 	for _, u := range unchanged {
 		assert.Contains(t, out, u)
@@ -130,6 +145,7 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 	assert.NotContains(t, out, "float64(float64(")
 	assert.NotContains(t, out, "int64(int64(")
 	assert.NotContains(t, out, "uint(uint(")
+	assert.NotContains(t, out, "int16(int16(")
 }
 
 func TestIsForkNumeric(t *testing.T) {
