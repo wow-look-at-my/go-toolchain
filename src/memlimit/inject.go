@@ -32,8 +32,17 @@ import (
 
 // GuardFileName is the name of the generated file written into each main
 // package. The _gen suffix marks it as generated; it carries a build constraint
-// (go1.19) and is stdlib-only, so it compiles on every supported platform.
-const GuardFileName = "gomemlimit_gen.go"
+// (go1.19) and is stdlib-only, so it compiles on every supported platform
+// (including both wasm ports, where it no-ops for lack of cgroup files).
+// Defined from gomod's constant: main-package discovery skips the guard by
+// name so an injected (or stale) guard — an unconstrained "package main"
+// file — can never make a host-only main dir look like a main package under
+// another target's build context (see gomod.MemLimitGuardFileName). Guards
+// are injected into HOST-context main packages only: a main that exists only
+// under some cross-compile context (e.g. //go:build js && wasm) gets no
+// guard, which is sound — the guard reads Linux cgroup limits and would be a
+// startup no-op there anyway.
+const GuardFileName = gomod.MemLimitGuardFileName
 
 // guardSource is the exact content written into each main package.
 //
