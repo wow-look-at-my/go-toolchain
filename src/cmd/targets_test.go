@@ -353,6 +353,12 @@ func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
 	_, _, ok = parse(build.UnpublishableWasmName("my-tool", "wasip1"))
 	assert.False(t, ok, "opt-out wasm names must not match the publish pattern")
 
+	// The shipped js exec harness rides along in build/ and checksums.txt but
+	// must stay outside the publish set (its trailing token is "exec.js",
+	// which the pattern cannot match).
+	_, _, ok = parse("wasm_exec.js")
+	assert.False(t, ok, "wasm_exec.js must not match the publish pattern")
+
 	// Native platforms keep matching, .exe and hyphens included.
 	for _, name := range []string{
 		build.BinaryName("mytool", "linux", "amd64"),
