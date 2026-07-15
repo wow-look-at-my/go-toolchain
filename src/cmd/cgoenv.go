@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 var setupCGOOnce sync.Once
@@ -81,7 +82,7 @@ func addPkgConfigPath(dir string) {
 	} else {
 		os.Setenv("PKG_CONFIG_PATH", dir)
 	}
-	fmt.Fprintf(os.Stderr, "cgo: added %s to PKG_CONFIG_PATH\n", dir)
+	logger.Info("cgo: added %s to PKG_CONFIG_PATH", dir)
 }
 
 func brewPrefix() (string, error) {

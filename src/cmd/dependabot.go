@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 type depSnapshot struct {
@@ -176,7 +178,7 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 	for _, m := range snapshot.Manifests {
 		total += len(m.Resolved)
 	}
-	fmt.Printf("=> Submitted %d dependencies to GitHub Dependency Graph\n", total)
+	logger.Info("=> Submitted %d dependencies to GitHub Dependency Graph", total)
 	return nil
 }
 
@@ -189,10 +191,10 @@ func maybeSubmitDeps() {
 
 	snapshot, err := buildDepSnapshot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "=> Warning: dependency snapshot failed: %v\n", err)
+		logger.Warn("=> Warning: dependency snapshot failed: %v", err)
 		return
 	}
 	if err := postDepSnapshot(snapshot); err != nil {
-		fmt.Fprintf(os.Stderr, "=> Warning: dependency submission failed: %v\n", err)
+		logger.Warn("=> Warning: dependency submission failed: %v", err)
 	}
 }

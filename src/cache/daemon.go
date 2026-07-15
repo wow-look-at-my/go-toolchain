@@ -2,12 +2,13 @@ package cache
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // noCloseBackend wraps an IBackend and suppresses Close calls.
@@ -135,7 +136,7 @@ func (d *Daemon) Close() {
 			// MissNotInIndex before the skip) — adding them would double-count.
 			missTotal := ws.MissTotal()
 			if ws.Hits > 0 || ws.Puts > 0 || missTotal > 0 {
-				fmt.Fprintf(os.Stderr, "cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d modindex=%d network=%d skipped-empty-index=%d skipped-not-in-index=%d skipped-batch-backoff=%d reclaimed-404=%d) put-skipped: known=%d modindex=%d buildid=%d\n",
+				logger.Output("cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d modindex=%d network=%d skipped-empty-index=%d skipped-not-in-index=%d skipped-batch-backoff=%d reclaimed-404=%d) put-skipped: known=%d modindex=%d buildid=%d",
 					ws.Hits, ws.Puts, missTotal, ws.MissNotInIndex, ws.MissHTTP404, ws.MissHTTPError, ws.MissNoOutputID, ws.MissReadBody, ws.MissDecompress, ws.MissChecksum, ws.MissBuildID, ws.MissModuleIndex, ws.MissNetwork, ws.SkippedEmptyIndex, ws.SkippedNotInIndex, ws.SkippedBatchBackoff, ws.Reclaimed404, ws.PutSkippedKnown, ws.PutRefusedModIndex, ws.PutRefusedBuildID)
 			}
 		}
@@ -155,7 +156,7 @@ func (d *Daemon) Close() {
 	// in-flight compiler read can hit a closed FUSE mount or pack handle).
 	if d.local != nil {
 		if err := d.local.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "cacheprog: local cache close: %v\n", err)
+			logger.Warn("cacheprog: local cache close: %v", err)
 		}
 	}
 	// Close the stats connection AFTER remote.Close() so that batch flush

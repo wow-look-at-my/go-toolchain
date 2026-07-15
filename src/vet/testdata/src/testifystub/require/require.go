@@ -17,6 +17,11 @@ func Equalf(t TestingT, expected, actual interface{}, msg string, args ...interf
 
 func NotEqual(t TestingT, expected, actual interface{}, msgAndArgs ...interface{}) bool { return true }
 
+// Ordering assertions mirror the assert stub.
+func Less(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
+func Lessf(t TestingT, e1, e2 interface{}, msg string, args ...interface{}) bool { return true }
+
 // Assertions is the method-form receiver: a.Equal(expected, actual).
 type Assertions struct{}
 

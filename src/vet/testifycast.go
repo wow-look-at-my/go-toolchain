@@ -1,7 +1,6 @@
 package vet
 
 import (
-	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
@@ -14,6 +13,8 @@ import (
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Upstream testify package paths. The toolchain rewrites the in-house fork
@@ -25,23 +26,28 @@ const (
 )
 
 // TestifyCastAnalyzer inserts explicit type conversions into the arguments of
-// upstream testify equality assertions (assert/require .Equal/.NotEqual and
-// their f-variants, in both package and *Assertions method form).
+// upstream testify two-operand comparison assertions (assert/require
+// .Equal/.NotEqual and the ordering family .Greater/.GreaterOrEqual/.Less/
+// .LessOrEqual, plus their f-variants, in both package and *Assertions method
+// form).
 //
-// The wow-look-at-my/testify fork loosened ObjectsAreEqual so that
-// numerically-equal values of different convertible types compared equal
-// (e.g. assert.Equal(t, 0, f) with f float64). Upstream testify only does
-// reflect.DeepEqual, which is type-strict. To keep code that relied on the
-// fork compiling and passing against upstream, this analyzer makes the two
+// The wow-look-at-my/testify fork loosened its comparisons so that
+// numerically-equal (or ordered) values of different convertible types
+// compared fine (e.g. assert.Equal(t, 0, f) with f float64). Upstream testify
+// is type-strict on both paths: Equal/NotEqual use reflect.DeepEqual, and the
+// ordering assertions go through compareTwoValues, which fails with "Elements
+// should be the same type" when the operand kinds differ (e.g.
+// assert.Greater(t, v, 0) with v int16). To keep code that relied on the fork
+// compiling and passing against upstream, this analyzer makes the two
 // compared operands the same static type by wrapping one of them in a
-// conversion — mirroring exactly the cases ObjectsAreEqual would have treated
-// as equal.
+// conversion — mirroring exactly the cases the fork would have treated as
+// equal (or comparable).
 //
 // Fixes are emitted as surgical byte edits (CastEdits) rather than whole-file
 // AST reprints, so all surrounding formatting and comments are preserved.
 var TestifyCastAnalyzer = &analysis.Analyzer{
 	Name:       "testifycast",
-	Doc:        "inserts type conversions for cross-type testify Equal/NotEqual assertions so they pass against upstream testify",
+	Doc:        "inserts type conversions for cross-type testify Equal/NotEqual and Greater/Less-family assertions so they pass against upstream testify",
 	Run:        runTestifyCast,
 	ResultType: reflect.TypeOf([]*CastEdits{}),
 }
@@ -66,6 +72,20 @@ type CastEdits struct {
 var equalityFuncs = map[string]bool{
 	"Equal": true, "Equalf": true,
 	"NotEqual": true, "NotEqualf": true,
+}
+
+// orderingFuncs are the testify ordering assertions. Upstream routes them
+// through compareTwoValues, which requires the two operands to have the same
+// reflect kind and fails with "Elements should be the same type" otherwise —
+// so e.g. assert.Greater(t, v, 0) with v int16 fails upstream (0 is an int)
+// even though the fork's loose numeric comparison accepted it. They take the
+// same (expected, actual) operand shape as Equal and get the same conversion
+// treatment.
+var orderingFuncs = map[string]bool{
+	"Greater": true, "Greaterf": true,
+	"GreaterOrEqual": true, "GreaterOrEqualf": true,
+	"Less": true, "Lessf": true,
+	"LessOrEqual": true, "LessOrEqualf": true,
 }
 
 // elementFuncs are testify assertions whose element comparison also uses
@@ -116,7 +136,7 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 			}
 
 			switch {
-			case equalityFuncs[name]:
+			case equalityFuncs[name] || orderingFuncs[name]:
 				if edit := castEditForEqual(pass, file, call, expIdx, actIdx); edit != nil {
 					ce := fileToEdits[file]
 					if ce == nil {
@@ -166,7 +186,7 @@ func equalArgIndices(fn *types.Func, call *ast.CallExpr) (exp, act int, ok bool)
 }
 
 // castEditForEqual decides whether a conversion is needed to make the two
-// operands of an Equal/NotEqual assertion the same static type, and if so
+// operands of an Equal/NotEqual or ordering assertion the same static type, and if so
 // returns the edit wrapping the chosen operand. It returns nil when no sound
 // conversion applies (identical types, non-convertible, fractional-truncating
 // constants, etc.), in which case the assertion is left exactly as the fork
@@ -415,8 +435,8 @@ func warnElementMismatch(pass *analysis.Pass, call *ast.CallExpr, name string, c
 		return
 	}
 	pos := pass.Fset.Position(call.Pos())
-	fmt.Fprintf(os.Stderr,
-		"testifycast: warning: %s:%d: %s compares %s elements against %s; the testify fork may have matched these via loose numeric equality, but upstream will not — add an explicit conversion if a match was intended\n",
+	logger.Warn(
+		"testifycast: warning: %s:%d: %s compares %s elements against %s; the testify fork may have matched these via loose numeric equality, but upstream will not — add an explicit conversion if a match was intended",
 		pos.Filename, pos.Line, name, elem, cmpType)
 }
 
@@ -480,7 +500,7 @@ func (c *CastEdits) Apply(ed Editor) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	wrote, err := ed.Require(c.Filename, c.rendered(src), "testify Equal/NotEqual needs explicit type conversions for upstream testify")
+	wrote, err := ed.Require(c.Filename, c.rendered(src), "testify Equal/NotEqual/Greater/Less needs explicit type conversions for upstream testify")
 	if err != nil {
 		return false, err
 	}
@@ -506,5 +526,5 @@ func (c *CastEdits) printEdit(src []byte, e CastEdit) {
 	grey := ansi.Concat(ansi.BrightBlack.FG, loc.ShortLoc(), ansi.Reset)
 	red := ansi.Concat(ansi.Red.FG, old, ansi.Reset)
 	green := ansi.Concat(ansi.Green.FG, e.TypeName+"("+old+")", ansi.Reset)
-	fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
+	logger.Info("%s %s %s → %s", yellow, grey, red, green)
 }

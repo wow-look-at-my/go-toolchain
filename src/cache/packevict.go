@@ -1,9 +1,10 @@
 package cache
 
 import (
-	"fmt"
 	"os"
 	"sort"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // evictPacksToBudget bounds cross-build growth at startup: when the packs on
@@ -40,7 +41,7 @@ func (s *PackStore) evictPacksToBudget(ids []int, total int64) []int {
 		if err := os.Remove(path); err != nil {
 			// Cannot delete (permissions, races): stop rather than spin. The
 			// store still works, just over budget; say so below.
-			fmt.Fprintf(os.Stderr, "cacheprog: pack eviction: remove %s: %v\n", path, err)
+			logger.Warn("cacheprog: pack eviction: remove %s: %v", path, err)
 			break
 		}
 		s.verified.dropPack(id)
@@ -50,11 +51,11 @@ func (s *PackStore) evictPacksToBudget(ids []int, total int64) []int {
 		kept = kept[1:]
 	}
 	if evicted > 0 {
-		fmt.Fprintf(os.Stderr, "cacheprog: pack cache over budget: evicted %d oldest pack(s), freed %d MiB; %d pack(s) kept\n",
+		logger.Info("cacheprog: pack cache over budget: evicted %d oldest pack(s), freed %d MiB; %d pack(s) kept",
 			evicted, freed>>20, len(kept))
 	}
 	if total > packResetBytes {
-		fmt.Fprintf(os.Stderr, "cacheprog: pack cache still over budget after eviction (%d MiB; the newest pack is never evicted)\n", total>>20)
+		logger.Warn("cacheprog: pack cache still over budget after eviction (%d MiB; the newest pack is never evicted)", total>>20)
 	}
 	return kept
 }

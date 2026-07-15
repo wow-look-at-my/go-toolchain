@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
@@ -97,7 +98,7 @@ func init() {
 	versionCmd.AddCommand(&cobra.Command{
 		Use:   "raw",
 		Short: "Print just the version number",
-		Run:   func(cmd *cobra.Command, args []string) { fmt.Println(resolvedVersion()) },
+		Run:   func(cmd *cobra.Command, args []string) { logger.Output("%s", resolvedVersion()) },
 	})
 	versionCmd.AddCommand(&cobra.Command{
 		Use:   "json",
@@ -151,11 +152,11 @@ func runVersion(cmd *cobra.Command, args []string) {
 }
 
 func printVersionInfo() {
-	fmt.Printf("Version:     %s\n", resolvedVersion())
-	fmt.Printf("Commit:      %s\n", resolvedCommit())
+	logger.Output("Version:     %s", resolvedVersion())
+	logger.Output("Commit:      %s", resolvedCommit())
 
 	if ts, ok := resolvedTimestamp(); ok {
-		fmt.Printf("Commit date: %s\n", time.Unix(ts, 0).UTC().Format(time.RFC3339))
+		logger.Output("Commit date: %s", time.Unix(ts, 0).UTC().Format(time.RFC3339))
 	}
 }
 
@@ -172,18 +173,18 @@ func printStaleness() {
 	builtTs, ok := resolvedTimestamp()
 	commit := resolvedCommit()
 	if !ok || commit == "unknown" {
-		fmt.Println("\nNo build info embedded (dev build).")
+		logger.Output("\nNo build info embedded (dev build).")
 		return
 	}
 
 	latest, err := fetchLatestCommitFromGitHub()
 	if err != nil {
-		fmt.Printf("\nCould not check for updates: %v\n", err)
+		logger.Output("\nCould not check for updates: %v", err)
 		return
 	}
 
 	if latest.timestamp <= builtTs {
-		fmt.Println("\nBuild is up to date with latest commit.")
+		logger.Output("\nBuild is up to date with latest commit.")
 		return
 	}
 
@@ -194,7 +195,7 @@ func printStaleness() {
 		msg += fmt.Sprintf(" (%d commits)", count)
 	}
 
-	fmt.Println(msg)
+	logger.Output("%s", msg)
 }
 
 // newGitHubRequest creates an HTTP GET request, adding an Authorization
