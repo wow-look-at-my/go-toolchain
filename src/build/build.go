@@ -81,6 +81,29 @@ func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	return targets, nil
 }
 
+// ResolveBuildTargetsForTarget resolves the main packages visible under an
+// explicit cross-compile target's build context (GOOS/GOARCH), so a main
+// package guarded e.g. "//go:build js && wasm" is discovered for js/wasm
+// targets while a "//go:build linux" main is discovered for linux targets —
+// regardless of the host platform. Unlike ResolveBuildTargets there is no
+// library-only fallback: an empty result means this target has no main
+// packages to build (the caller decides whether that is a skip or an error).
+func ResolveBuildTargetsForTarget(goos, goarch string) ([]Target, error) {
+	moduleName := gomod.ReadModulePath()
+	pkgs, err := gomod.FindMainPackagesForTarget(goos, goarch)
+	if err != nil {
+		return nil, err
+	}
+	byName := sortedmap.New[string, Target]()
+	for _, pkg := range pkgs {
+		name := binaryNameFromImportPath(pkg, moduleName)
+		if !byName.Contains(name) {
+			byName.Put(name, Target{ImportPath: pkg, OutputName: name})
+		}
+	}
+	return slices.Collect(byName.Values()), nil
+}
+
 // findAllPackagesByDir walks the filesystem from the current directory to find
 // all directories containing .go files, returning them as import paths.
 func findAllPackagesByDir(moduleName string) ([]string, error) {
