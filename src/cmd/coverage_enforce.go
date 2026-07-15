@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
@@ -44,7 +45,7 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 			// module only embeds assets or declares types/constants).
 			// 0-of-0 statements is complete, not broken.
 			if !quiet {
-				fmt.Println("⇒ No coverable statements in this module — nothing to measure, skipping coverage check")
+				logger.Info("⇒ No coverable statements in this module — nothing to measure, skipping coverage check")
 			}
 			return nil
 		}
@@ -77,7 +78,7 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 	}
 	if allSmall {
 		if !quiet {
-			fmt.Printf("⇒ Coverage %.1f%% is below minimum %.1f%%, but no file has 10+ uncovered statements — allowing\n", report.Total, effectiveMin)
+			logger.Info("⇒ Coverage %.1f%% is below minimum %.1f%%, but no file has 10+ uncovered statements — allowing", report.Total, effectiveMin)
 		}
 		return nil
 	}
