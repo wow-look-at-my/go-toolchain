@@ -2,9 +2,10 @@ package cache
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // LocalStore is the process-local cache tier that sits in front of the remote
@@ -87,16 +88,16 @@ func NewLocalStore(dir string) (LocalStore, error) {
 	// operator sidestep the FUSE tier wholesale if a mount misbehaves in some
 	// environment, without code changes.
 	if os.Getenv("GOCACHE_NO_FUSE") == "1" {
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: loose-file (GOCACHE_NO_FUSE=1)\n")
+		logger.Info("cacheprog: local cache: loose-file (GOCACHE_NO_FUSE=1)")
 		return NewLocalCache(dir)
 	}
 	fc, err := newFuseCache(dir)
 	if err == nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: FUSE virtual filesystem (%s)\n", fc.mountInfo())
+		logger.Info("cacheprog: local cache: FUSE virtual filesystem (%s)", fc.mountInfo())
 		return fc, nil
 	}
 	if !errors.Is(err, errFuseUnsupported) && !errors.Is(err, errFuseBusy) {
-		fmt.Fprintf(os.Stderr, "cacheprog: FUSE cache unavailable (%v); using loose-file cache\n", err)
+		logger.Warn("cacheprog: FUSE cache unavailable (%v); using loose-file cache", err)
 	}
 	return NewLocalCache(dir)
 }

@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/profile"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
@@ -102,10 +102,10 @@ func emitBuildProfile() {
 		r.PrintConsole(os.Stdout)
 	}
 	if err := r.WriteJSON(filepath.Join(outputDir, "profile.json"), filepath.Join(profileDir(), "profile.json")); err != nil {
-		fmt.Fprintf(os.Stderr, "⇒ Warning: build profile: write profile.json: %v\n", err)
+		logger.Warn("⇒ Warning: build profile: write profile.json: %v", err)
 	}
 	if err := r.AppendStepSummary(); err != nil {
-		fmt.Fprintf(os.Stderr, "⇒ Warning: build profile: step summary: %v\n", err)
+		logger.Warn("⇒ Warning: build profile: step summary: %v", err)
 	}
 }
 

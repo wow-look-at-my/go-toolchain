@@ -29,6 +29,18 @@ func EqualValues(t TestingT, expected, actual interface{}, msgAndArgs ...interfa
 	return true
 }
 
+// Ordering assertions: upstream routes these through compareTwoValues, which
+// requires both operands to have the same kind.
+func Greater(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
+func Greaterf(t TestingT, e1, e2 interface{}, msg string, args ...interface{}) bool { return true }
+
+func GreaterOrEqual(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
+func Less(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
+func LessOrEqual(t TestingT, e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
 func Contains(t TestingT, s, contains interface{}, msgAndArgs ...interface{}) bool { return true }
 
 func ElementsMatch(t TestingT, listA, listB interface{}, msgAndArgs ...interface{}) bool { return true }
@@ -43,3 +55,5 @@ func (a *Assertions) Equal(expected, actual interface{}, msgAndArgs ...interface
 func (a *Assertions) Equalf(expected, actual interface{}, msg string, args ...interface{}) bool {
 	return true
 }
+
+func (a *Assertions) Greater(e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -106,16 +107,16 @@ func runBenchRunWithRunner(r runner.CommandRunner, quiet bool) error {
 	}
 
 	if prev != nil && prevSHA != "" {
-		fmt.Printf("\n⇒ Benchmark comparison vs %s\n", prevSHA)
+		logger.Info("\n⇒ Benchmark comparison vs %s", prevSHA)
 		comp := bench.Compare(report, prev)
 		comp.PreviousCommit = prevSHA
 		comp.Print()
 	} else {
-		fmt.Println("\n⇒ Benchmark results (no previous data for comparison)")
+		logger.Info("\n⇒ Benchmark results (no previous data for comparison)")
 		report.Print()
 	}
 
-	fmt.Println("⇒ Benchmarks complete")
+	logger.Info("⇒ Benchmarks complete")
 	return nil
 }
 
@@ -162,7 +163,7 @@ func runBenchSaveWithRunner(r runner.CommandRunner, quiet bool) error {
 
 	sha, _ := bench.GetHeadSHA(r)
 	if !quiet {
-		fmt.Printf("⇒ Benchmark results stored for %s\n", sha)
+		logger.Info("⇒ Benchmark results stored for %s", sha)
 	}
 
 	return nil
@@ -187,7 +188,7 @@ func runBenchShow(cmd *cobra.Command, args []string) error {
 		return enc.Encode(report)
 	}
 
-	fmt.Printf("⇒ Benchmark results for %s\n", sha)
+	logger.Info("⇒ Benchmark results for %s", sha)
 	report.Print()
 	return nil
 }
@@ -214,7 +215,7 @@ func runBenchCompare(cmd *cobra.Command, args []string) error {
 		return enc.Encode(comp)
 	}
 
-	fmt.Printf("⇒ Benchmark comparison: %s → %s\n", args[0], args[1])
+	logger.Info("⇒ Benchmark comparison: %s → %s", args[0], args[1])
 	comp.Print()
 	return nil
 }
@@ -270,15 +271,15 @@ func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
 
 	var comp *bench.Comparison
 	if prev != nil && prevSHA != "" {
-		fmt.Printf("\n⇒ Benchmark comparison vs %s\n", prevSHA)
+		logger.Info("\n⇒ Benchmark comparison vs %s", prevSHA)
 		comp = bench.Compare(report, prev)
 		comp.PreviousCommit = prevSHA
 		comp.Print()
 	} else {
-		fmt.Println()
+		logger.Info("")
 		report.Print()
 	}
 
-	fmt.Println("⇒ Benchmarks complete")
+	logger.Info("⇒ Benchmarks complete")
 	return &benchResult{Report: report, Comparison: comp}, nil
 }

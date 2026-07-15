@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // putReq is one prepped object queued for the PUT coalescer. The per-object
@@ -83,7 +84,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	if act, ok := buildIDMatchesAction(actionID, raw); !ok {
 		b.PutRefusedBuildID.Increment()
 		markSpanMiss(span, "buildid_mismatch")
-		fmt.Fprintf(os.Stderr, "cacheprog: web put %s: refusing upload, build-id action mismatch (want action=%s, got action=%s); object does not belong under this key\n",
+		logger.Warn("cacheprog: web put %s: refusing upload, build-id action mismatch (want action=%s, got action=%s); object does not belong under this key",
 			shortID(actionID), expectedBuildIDAction(actionID), act)
 		return nil
 	}

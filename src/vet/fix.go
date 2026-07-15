@@ -13,6 +13,8 @@ import (
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
 	"golang.org/x/tools/go/ast/astutil"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // ASTFix represents an AST-based fix: replace OldNode with NewNodes.
@@ -69,7 +71,7 @@ func (f *ASTFixes) printFix(fix ASTFix) {
 
 	// Format output based on whether this is a deletion or replacement
 	if len(fix.NewNodes) == 0 {
-		fmt.Printf("%s %s -%s\n", yellow, grey, red)
+		logger.Output("%s %s -%s", yellow, grey, red)
 	} else {
 		// Combine all new nodes into a single string
 		var newParts []string
@@ -82,7 +84,7 @@ func (f *ASTFixes) printFix(fix ASTFix) {
 		}
 		newStr := strings.Join(newParts, "; ")
 		green := ansi.Concat(ansi.Green.FG, newStr, ansi.Reset)
-		fmt.Printf("%s %s %s → %s\n", yellow, grey, red, green)
+		logger.Output("%s %s %s → %s", yellow, grey, red, green)
 	}
 }
 

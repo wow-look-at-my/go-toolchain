@@ -18,6 +18,8 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // errLogged signals that an error has already been reported to stderr at
@@ -297,9 +299,9 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	b.indexKeysAtStart = b.keys.Len()
 	b.knownMiss = set.New[string]()
 	if b.indexAuthoritative {
-		fmt.Fprintf(os.Stderr, "cacheprog: web index: %d keys\n", b.keys.Len())
+		logger.Info("cacheprog: web index: %d keys", b.keys.Len())
 	} else {
-		fmt.Fprintf(os.Stderr, "cacheprog: web index: fetch failed; using %d cached keys (batch probing enabled)\n", b.keys.Len())
+		logger.Warn("cacheprog: web index: fetch failed; using %d cached keys (batch probing enabled)", b.keys.Len())
 	}
 	return b, nil
 }
@@ -425,7 +427,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissNetwork.Increment()
 		markSpanErr(span, "network", err)
 		markSpanMiss(span, "network")
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: %v\n", shortID(actionID), err)
+		logger.Warn("cacheprog: web get %s: %v", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
@@ -462,7 +464,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.Pool.Release()
 		b.MissNoOutputID.Increment()
 		markSpanMiss(span, "no_outputid")
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: missing outputid metadata\n", shortID(actionID))
+		logger.Warn("cacheprog: web get %s: missing outputid metadata", shortID(actionID))
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -476,7 +478,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissReadBody.Increment()
 		markSpanErr(span, "read_body", err)
 		markSpanMiss(span, "read_body")
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: read body: %v\n", shortID(actionID), err)
+		logger.Warn("cacheprog: web get %s: read body: %v", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -489,7 +491,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissDecompress.Increment()
 		markSpanErr(span, "decompress", err)
 		markSpanMiss(span, "decompress")
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: decompress: %v\n", shortID(actionID), err)
+		logger.Warn("cacheprog: web get %s: decompress: %v", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -505,7 +507,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.Stats.Corrupt.Increment()
 		markSpanMiss(span, "checksum")
 		b.removeClaimed(key)
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: body checksum mismatch (want outputid=%s, got sha256=%s, len=%d); evicting and treating as miss\n",
+		logger.Warn("cacheprog: web get %s: body checksum mismatch (want outputid=%s, got sha256=%s, len=%d); evicting and treating as miss",
 			shortID(actionID), shortID(outputID), shortID(got), len(decompressed))
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -522,7 +524,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.Stats.Corrupt.Increment()
 		markSpanMiss(span, "buildid_mismatch")
 		b.removeClaimed(key)
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: build-id action mismatch (want action=%s, got action=%s, len=%d); evicting and treating as miss\n",
+		logger.Warn("cacheprog: web get %s: build-id action mismatch (want action=%s, got action=%s, len=%d); evicting and treating as miss",
 			shortID(actionID), expectedBuildIDAction(actionID), act, len(decompressed))
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -538,7 +540,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissModuleIndex.Increment()
 		markSpanMiss(span, "module_index")
 		b.removeClaimed(key)
-		fmt.Fprintf(os.Stderr, "cacheprog: web get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss\n",
+		logger.Warn("cacheprog: web get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss",
 			shortID(actionID), len(decompressed))
 		return "", nil, 0, time.Time{}, true, nil
 	}

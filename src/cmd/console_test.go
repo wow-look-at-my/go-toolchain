@@ -71,6 +71,27 @@ func captureStdout(f func()) string {
 	return buf.String()
 }
 
+// captureCombinedOutput runs f with BOTH stdout and stderr captured into one
+// stream and returns the combined output. Use it when asserting on messages
+// the logger may route to either stream depending on the environment (e.g.
+// logger.Warn: stderr locally, a ::warning annotation on stdout under
+// GITHUB_ACTIONS=true).
+func captureCombinedOutput(f func()) string {
+	oldOut, oldErr := os.Stdout, os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	os.Stderr = w
+
+	f()
+
+	w.Close()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	os.Stdout = oldOut
+	os.Stderr = oldErr
+	return buf.String()
+}
+
 func TestLogStepSilent(t *testing.T) {
 	output := captureStdout(func() {
 		s := logStep("go build")

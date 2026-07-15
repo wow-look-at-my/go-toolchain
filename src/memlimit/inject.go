@@ -8,7 +8,11 @@
 // InjectAll writes it into each main package immediately before the build
 // compiles them, and CleanupAll removes it again as soon as the build is done.
 // This keeps the generated file out of the working tree, so it never shows up as
-// an uncommitted change or trips go-toolchain's dirty-tree check in CI.
+// an uncommitted change or trips go-toolchain's dirty-tree check in CI. The cmd
+// layer additionally lists the guard in the repo's clone-local .git/info/exclude
+// at inject time (see cmd's ensureGuardExcluded), so the go command's own VCS
+// stamping — a `git status` taken while the guard exists — never sees it as an
+// untracked file and built binaries don't stamp "+dirty" on clean checkouts.
 //
 // The shipped guard is testdata/guard.go — that file is the editable source of
 // truth and is embedded verbatim into consumers (it is kept under testdata so
