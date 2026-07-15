@@ -274,3 +274,40 @@ func TestFindMainPackagesNoRunner(t *testing.T) {
 	require.Equal(t, 1, len(pkgs))
 	assert.Equal(t, "example.com/test", pkgs[0])
 }
+
+func TestResolveBuildTargetsForTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	os.WriteFile("go.mod", []byte("module example.com/mytool\n\ngo 1.21\n"), 0644)
+	// Root main guarded js && wasm (the go-font-renderer shape), a nested
+	// unconstrained main, and a linux-only main.
+	os.WriteFile("main.go", []byte("//go:build js && wasm\n\npackage main\n\nfunc main() {}\n"), 0644)
+	os.MkdirAll("cmd/everywhere", 0755)
+	os.WriteFile("cmd/everywhere/main.go", []byte("package main\n\nfunc main() {}\n"), 0644)
+	os.MkdirAll("cmd/linuxonly", 0755)
+	os.WriteFile("cmd/linuxonly/main.go", []byte("//go:build linux\n\npackage main\n\nfunc main() {}\n"), 0644)
+
+	js, err := ResolveBuildTargetsForTarget("js", "wasm")
+	require.NoError(t, err)
+	assert.Equal(t, []Target{
+		{ImportPath: "example.com/mytool/cmd/everywhere", OutputName: "everywhere"},
+		{ImportPath: "example.com/mytool", OutputName: "mytool"},
+	}, js, "js/wasm context: root js&&wasm main plus the unconstrained main")
+
+	linux, err := ResolveBuildTargetsForTarget("linux", "amd64")
+	require.NoError(t, err)
+	assert.Equal(t, []Target{
+		{ImportPath: "example.com/mytool/cmd/everywhere", OutputName: "everywhere"},
+		{ImportPath: "example.com/mytool/cmd/linuxonly", OutputName: "linuxonly"},
+	}, linux)
+
+	// No library-only fallback: an empty context result stays empty.
+	darwin, err := ResolveBuildTargetsForTarget("darwin", "arm64")
+	require.NoError(t, err)
+	assert.Equal(t, []Target{
+		{ImportPath: "example.com/mytool/cmd/everywhere", OutputName: "everywhere"},
+	}, darwin)
+}

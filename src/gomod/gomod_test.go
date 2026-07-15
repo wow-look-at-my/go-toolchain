@@ -207,3 +207,60 @@ func TestFindMainPackages_SkipsNestedModule(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{modPath + "/cmd/app"}, pkgs)
 }
+
+func TestFindMainPackagesForTarget(t *testing.T) {
+	newModule(t, "example.com/multi")
+	writeFile(t, "cmd/everywhere", "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, "cmd/wasmonly", "main.go", "//go:build js && wasm\n\npackage main\n\nfunc main() {}\n")
+	writeFile(t, "cmd/linuxonly", "main.go", "//go:build linux\n\npackage main\n\nfunc main() {}\n")
+	// The generator idiom stays excluded in EVERY context.
+	writeFile(t, "lib", "lib.go", "package lib\n")
+	writeFile(t, "lib", "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
+
+	js, err := FindMainPackagesForTarget("js", "wasm")
+	require.NoError(t, err)
+	sort.Strings(js)
+	assert.Equal(t, []string{
+		"example.com/multi/cmd/everywhere",
+		"example.com/multi/cmd/wasmonly",
+	}, js, "js/wasm context must see the js&&wasm-guarded main, not the linux one")
+
+	linux, err := FindMainPackagesForTarget("linux", "amd64")
+	require.NoError(t, err)
+	sort.Strings(linux)
+	assert.Equal(t, []string{
+		"example.com/multi/cmd/everywhere",
+		"example.com/multi/cmd/linuxonly",
+	}, linux, "linux context must see the linux-guarded main regardless of host")
+
+	darwin, err := FindMainPackagesForTarget("darwin", "arm64")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"example.com/multi/cmd/everywhere"}, darwin,
+		"an unmatched context must only see the unconstrained main")
+}
+
+func TestFindMainPackagesSkipsMemLimitGuard(t *testing.T) {
+	newModule(t, "example.com/guarded")
+	// A host-only main dir carrying an injected memlimit guard (the guard is
+	// an UNCONSTRAINED package main file): the guard must not leak this dir
+	// into other targets' discovery.
+	writeFile(t, "cmd/linuxonly", "main.go", "//go:build linux\n\npackage main\n\nfunc main() {}\n")
+	writeFile(t, "cmd/linuxonly", MemLimitGuardFileName, "package main\n")
+	// A dir whose ONLY main-ish file is a stale guard is not a main package
+	// in any context.
+	writeFile(t, "cmd/stale", MemLimitGuardFileName, "package main\n")
+
+	js, err := FindMainPackagesForTarget("js", "wasm")
+	require.NoError(t, err)
+	assert.Empty(t, js, "the unconstrained guard must not make a linux-only main dir visible to js/wasm")
+
+	linux, err := FindMainPackagesForTarget("linux", "amd64")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"example.com/guarded/cmd/linuxonly"}, linux,
+		"the real main is still discovered under its own context; the guard-only dir is not")
+
+	host, err := FindMainPackages()
+	require.NoError(t, err)
+	assert.NotContains(t, host, "example.com/guarded/cmd/stale",
+		"a stale guard alone must not make a dir a main package under the host context either")
+}
