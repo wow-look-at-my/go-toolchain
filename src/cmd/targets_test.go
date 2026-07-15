@@ -3,6 +3,8 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,6 +79,38 @@ func TestParseTargetList(t *testing.T) {
 			wantErr: "always one fat APE",
 		},
 		{
+			name:    "wasm targets",
+			entries: []string{"js/wasm", "wasip1/wasm"},
+			want: []buildPlatform{
+				{OS: "js", Arch: "wasm"},
+				{OS: "wasip1", Arch: "wasm"},
+			},
+		},
+		{
+			name:    "wasm mixed with native and cosmo",
+			entries: []string{"cosmo", "linux/amd64", "js/wasm"},
+			want: []buildPlatform{
+				{OS: "cosmo", Arch: "fat"},
+				{OS: "linux", Arch: "amd64"},
+				{OS: "js", Arch: "wasm"},
+			},
+		},
+		{
+			name:    "js without wasm arch is rejected",
+			entries: []string{"js/amd64"},
+			wantErr: "only builds WebAssembly",
+		},
+		{
+			name:    "wasip1 without wasm arch is rejected",
+			entries: []string{"wasip1/arm64"},
+			wantErr: "only builds WebAssembly",
+		},
+		{
+			name:    "wasm arch without wasm os is rejected",
+			entries: []string{"linux/wasm"},
+			wantErr: "needs GOOS js or wasip1",
+		},
+		{
 			name:    "duplicate pair",
 			entries: []string{"linux/amd64", "linux/amd64"},
 			wantErr: "duplicate target",
@@ -149,6 +183,11 @@ func TestParseCosmoSlots(t *testing.T) {
 			wantErr: "not a slot",
 		},
 		{
+			name:    "wasm is not a slot",
+			entries: []string{"js/wasm"},
+			wantErr: "not a wasm binary",
+		},
+		{
 			name:    "unknown arch",
 			entries: []string{"linux/amd65"},
 			wantErr: "unknown architecture",
@@ -219,6 +258,112 @@ func TestResolveMatrixPlatformsRejectsCosmoOS(t *testing.T) {
 	_, err := resolveMatrixPlatforms()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--targets cosmo")
+}
+
+func TestResolveMatrixPlatformsRejectsWasmInCartesian(t *testing.T) {
+	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
+	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
+	matrixTargets = nil
+
+	// GOOS js/wasip1 through --os point at --targets.
+	matrixOS, matrixArch = []string{"js"}, []string{"amd64"}
+	_, err := resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--targets js/wasm")
+
+	matrixOS, matrixArch = []string{"wasip1"}, []string{"amd64"}
+	_, err = resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--targets wasip1/wasm")
+
+	// GOARCH wasm through --arch points at --targets too.
+	matrixOS, matrixArch = []string{"linux"}, []string{"wasm"}
+	_, err = resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--targets js/wasm")
+}
+
+func TestBuildPlatformPredicates(t *testing.T) {
+	cosmo := buildPlatform{OS: "cosmo", Arch: "fat"}
+	js := buildPlatform{OS: "js", Arch: "wasm"}
+	wasip1 := buildPlatform{OS: "wasip1", Arch: "wasm"}
+	linux := buildPlatform{OS: "linux", Arch: "amd64"}
+
+	assert.True(t, cosmo.IsCosmo())
+	assert.False(t, cosmo.IsWasm())
+	assert.True(t, js.IsWasm())
+	assert.True(t, wasip1.IsWasm())
+	assert.False(t, linux.IsWasm())
+
+	// The fork toolchain builds cosmo and wasm; everything else uses the go
+	// on PATH.
+	assert.True(t, cosmo.NeedsForkToolchain())
+	assert.True(t, js.NeedsForkToolchain())
+	assert.True(t, wasip1.NeedsForkToolchain())
+	assert.False(t, linux.NeedsForkToolchain())
+}
+
+// TestWasmArtifactNamesInBuildhostPublishSet pins the wasm publishing naming
+// contract. The buildhost-publish action selects its upload set by filename:
+// regular files (symlinks and checksums.txt are skipped) whose name, after
+// stripping a trailing .exe, matches ^(.+)_([a-z]+)_([a-z0-9]+)$, parsed as
+// <binary>_{os}_{arch} from the trailing two tokens (filter transcribed from
+// the go-font-renderer run 29396682812 logs). Default wasm names use
+// buildhost's wasm artifact scheme (wow-look-at-my/buildhost#166): os=wasm
+// with arch=js/wasip1, i.e. <name>_wasm_js — they MUST match the pattern and
+// parse as os=wasm. The GO_TOOLCHAIN_WASM_PUBLISH=0 opt-out shape
+// (<name>_<goos>_wasm.wasm) must NOT match, keeping those artifacts out of
+// the publish set entirely (for servers predating #166, where an os=wasm
+// upload 400s and one rejected artifact aborts the whole publish).
+func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
+	// The exact filter from the buildhost-publish action (wow-look-at-my
+	// actions), transcribed from the go-font-renderer failure run's logs.
+	publishRe := regexp.MustCompile(`^(.+)_([a-z]+)_([a-z0-9]+)$`)
+	parse := func(name string) (osToken, archToken string, ok bool) {
+		m := publishRe.FindStringSubmatch(strings.TrimSuffix(name, ".exe"))
+		if m == nil {
+			return "", "", false
+		}
+		return m[2], m[3], true
+	}
+
+	// Default wasm names are in the publish set and parse as os=wasm with
+	// arch carrying the GOOS.
+	for goos, wantName := range map[string]string{
+		"js":     "mytool_wasm_js",
+		"wasip1": "mytool_wasm_wasip1",
+	} {
+		name := build.BinaryName("mytool", goos, "wasm")
+		require.Equal(t, wantName, name)
+		osToken, archToken, ok := parse(name)
+		require.True(t, ok, "%s must match the publish pattern", name)
+		assert.Equal(t, "wasm", osToken, "%s must parse as os=wasm", name)
+		assert.Equal(t, goos, archToken, "%s must parse arch=%s", name, goos)
+	}
+	// Hyphenated binary names keep parsing correctly (the pattern takes the
+	// trailing two tokens).
+	osToken, archToken, ok := parse(build.BinaryName("my-tool", "js", "wasm"))
+	require.True(t, ok)
+	assert.Equal(t, "wasm", osToken)
+	assert.Equal(t, "js", archToken)
+
+	// The opt-out shape must never enter the publish set.
+	_, _, ok = parse(build.UnpublishableWasmName("mytool", "js"))
+	assert.False(t, ok, "opt-out wasm names must not match the publish pattern")
+	_, _, ok = parse(build.UnpublishableWasmName("my-tool", "wasip1"))
+	assert.False(t, ok, "opt-out wasm names must not match the publish pattern")
+
+	// Native platforms keep matching, .exe and hyphens included.
+	for _, name := range []string{
+		build.BinaryName("mytool", "linux", "amd64"),
+		build.BinaryName("mytool", "windows", "amd64"),
+		build.BinaryName("my-tool", "darwin", "arm64"),
+		// The cosmo slot copies are what carries the APE to buildhost.
+		build.BinaryName("mytool", "linux", "arm64"),
+	} {
+		_, _, ok := parse(name)
+		assert.True(t, ok, "%s must stay in the publish set", name)
+	}
 }
 
 func TestCopyCosmoSlots(t *testing.T) {

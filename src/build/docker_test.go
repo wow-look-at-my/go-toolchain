@@ -29,4 +29,16 @@ func TestBinaryName(t *testing.T) {
 	// The cosmo fat APE gets no .exe even though it is a genuine PE polyglot:
 	// only the windows/* slot copies carry the .exe name.
 	assert.Equal(t, "myapp_cosmo_fat", BinaryName("myapp", "cosmo", "fat"))
+	// WebAssembly targets use buildhost's os=wasm convention: order swapped
+	// to name_wasm_<goos>, no extension (an extension would keep the file
+	// out of the buildhost-publish upload set).
+	assert.Equal(t, "myapp_wasm_js", BinaryName("myapp", "js", "wasm"))
+	assert.Equal(t, "myapp_wasm_wasip1", BinaryName("myapp", "wasip1", "wasm"))
+}
+
+func TestUnpublishableWasmName(t *testing.T) {
+	// The opt-out shape (GO_TOOLCHAIN_WASM_PUBLISH=0): .wasm suffix keeps
+	// the artifact out of the buildhost-publish upload set.
+	assert.Equal(t, "myapp_js_wasm.wasm", UnpublishableWasmName("myapp", "js"))
+	assert.Equal(t, "myapp_wasip1_wasm.wasm", UnpublishableWasmName("myapp", "wasip1"))
 }

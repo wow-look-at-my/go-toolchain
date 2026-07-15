@@ -49,7 +49,15 @@ Actually Portable Executable built with the gosmopolitan Go fork, covering
 Linux, macOS and Windows in a single binary (artifact <name>_cosmo_fat). After
 a cosmo build the fat APE is also copied to the per-platform artifact names
 listed in --cosmo-slots, so per-platform consumers keep working; an explicit
-native target in --targets wins over a slot copy of the same name.`,
+native target in --targets wins over a slot copy of the same name.
+
+The WebAssembly pairs js/wasm (browser/Node.js) and wasip1/wasm (WASI) are
+also built with the gosmopolitan fork toolchain (it carries the org's wasm
+runtime fixes). Their artifacts use buildhost's publishable wasm naming
+(<name>_wasm_js, <name>_wasm_wasip1 — os=wasm with arch=js/wasip1, no file
+extension); publishing them requires a buildhost with wasm artifact support.
+Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use the excluded <name>_<goos>_wasm.wasm
+naming instead, which never reaches the buildhost publish upload set.`,
 		SilenceUsage: true,
 		RunE:         runRelease,
 	}
@@ -67,7 +75,7 @@ native target in --targets wins over a slot copy of the same name.`,
 func addMatrixTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
 	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
-	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
+	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. js/wasm and wasip1/wasm, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
 	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
 }
 
@@ -77,9 +85,10 @@ type buildJob struct {
 	srcPath    string
 	outputPath string
 	ldflags    string
-	// cosmoGoroot is the gosmopolitan toolchain GOROOT for GOOS=cosmo fat-APE
-	// jobs; empty for normal jobs, which build with the go on PATH.
-	cosmoGoroot string
+	// forkGoroot is the gosmopolitan toolchain GOROOT for jobs built with the
+	// fork: GOOS=cosmo fat-APE jobs and wasm (js/wasm, wasip1/wasm) jobs.
+	// Empty for normal jobs, which build with the go on PATH.
+	forkGoroot string
 }
 
 type buildResult struct {
@@ -127,11 +136,14 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		return err
 	}
 
-	// Resolve the cosmo prerequisites up front so a missing gosmopolitan
-	// toolchain or a bad --cosmo-slots value fails fast, before the test phase.
-	var cosmoGoroot string
+	// Resolve the gosmopolitan-fork prerequisites up front so a missing
+	// toolchain or a bad --cosmo-slots value fails fast, before the test
+	// phase. Both the cosmo fat APE and the wasm targets build with the fork.
+	hasCosmo := slices.ContainsFunc(platforms, buildPlatform.IsCosmo)
+	hasWasm := slices.ContainsFunc(platforms, buildPlatform.IsWasm)
+	var forkGoroot string
 	var slotPlatforms []buildPlatform
-	if slices.ContainsFunc(platforms, buildPlatform.IsCosmo) {
+	if hasCosmo {
 		slotPlatforms, err = parseCosmoSlots(cosmoSlots)
 		if err != nil {
 			return err
@@ -139,7 +151,12 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		if cgoEnabled {
 			logger.Warn("⇒ Warning: --cgo has no effect on the cosmo target (cosmopolitan has no cgo; CGO_ENABLED=0 is forced)")
 		}
-		if cosmoGoroot, err = ensureCosmoToolchainFunc(); err != nil {
+	}
+	if hasWasm && cgoEnabled {
+		logger.Warn("⇒ Warning: --cgo has no effect on wasm targets (WebAssembly has no cgo; CGO_ENABLED=0 is forced)")
+	}
+	if hasCosmo || hasWasm {
+		if forkGoroot, err = ensureCosmoToolchainFunc(); err != nil {
 			return err
 		}
 	}
@@ -193,14 +210,21 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	for _, p := range platforms {
 		for _, target := range targets {
 			outputName := build.BinaryName(target.OutputName, p.OS, p.Arch)
+			if p.IsWasm() {
+				// Publishable buildhost naming by default; the excluded
+				// .wasm-suffixed shape under GO_TOOLCHAIN_WASM_PUBLISH=0.
+				outputName = wasmArtifactName(target.OutputName, p)
+			}
 			job := buildJob{
 				goos:       p.OS,
 				goarch:     p.Arch,
 				srcPath:    target.ImportPath,
 				outputPath: filepath.Join(outputDir, outputName),
 			}
+			if p.NeedsForkToolchain() {
+				job.forkGoroot = forkGoroot
+			}
 			if p.IsCosmo() {
-				job.cosmoGoroot = cosmoGoroot
 				// A previous local run leaves <name>_cosmo_fat as a symlink to
 				// a slot copy (see copyCosmoSlots). Remove it before building:
 				// `go build -o` follows symlinks, so it would otherwise write
@@ -287,10 +311,10 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	// upload-artifact dereferences symlinks); locally it becomes a symlink to
 	// the first slot copy. Replaced fat paths leave builtFiles: checksums
 	// cover real files only.
-	if cosmoGoroot != "" && len(slotPlatforms) > 0 {
+	if hasCosmo && len(slotPlatforms) > 0 {
 		nativeBuilt := make(map[string]bool)
 		for _, job := range jobs {
-			if job.cosmoGoroot == "" {
+			if job.goos != cosmoOS {
 				nativeBuilt[filepath.Base(job.outputPath)] = true
 			}
 		}
@@ -301,6 +325,30 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		builtFiles = append(builtFiles, copied...)
 		for _, fat := range replacedFat {
 			builtFiles = slices.DeleteFunc(builtFiles, func(p string) bool { return p == fat })
+		}
+	}
+
+	// Wasm artifacts default to buildhost's publishable naming
+	// (<name>_wasm_js / <name>_wasm_wasip1 — os=wasm with arch=js/wasip1,
+	// wow-look-at-my/buildhost#166; pinned by
+	// TestWasmArtifactNamesInBuildhostPublishSet). Publishing them requires a
+	// buildhost with wasm artifact support: on an older server the upload
+	// 400s (the same validation that rejected the pre-suffix `os=js` name,
+	// field-confirmed on go-font-renderer run 29396682812) and one rejected
+	// artifact aborts the whole publish — warn about the requirement and the
+	// opt-out. Under GO_TOOLCHAIN_WASM_PUBLISH=0 the artifacts take the
+	// excluded .wasm-suffixed shape instead, which never reaches the publish
+	// upload set (the action only uploads files matching <binary>_{os}_{arch}
+	// after stripping .exe) but still ships in build/, checksums.txt, and the
+	// CI artifact.
+	if hasWasm {
+		if wasmPublishOptOut() {
+			logger.Warn("⇒ Warning: %s=0 — wasm artifacts are excluded from buildhost publishing (.wasm-suffixed names stay outside the publish upload set); they remain in %s/ and checksums.txt for CI artifact uploads", wasmPublishEnv, outputDir)
+			if !slices.ContainsFunc(platforms, func(p buildPlatform) bool { return !p.IsWasm() }) {
+				logger.Warn("⇒ Warning: every target is wasm and %s=0, so a buildhost publish step will find no publishable artifacts and fail; disable autorelease for wasm-only builds with publishing opted out", wasmPublishEnv)
+			}
+		} else {
+			logger.Warn("⇒ Warning: wasm artifacts publish to buildhost as os=wasm (arch=js/wasip1); this requires buildhost wasm artifact support (wow-look-at-my/buildhost#166) — on older servers the upload is rejected and aborts the whole publish; set %s=0 to keep wasm artifacts out of the publish set", wasmPublishEnv)
 		}
 	}
 
@@ -385,11 +433,12 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	}
 	args = append(args, "-o", job.outputPath, job.srcPath)
 	goCmd := "go"
-	if job.cosmoGoroot != "" {
-		goCmd = filepath.Join(job.cosmoGoroot, "bin", "go")
+	if job.forkGoroot != "" {
+		goCmd = filepath.Join(job.forkGoroot, "bin", "go")
 	}
 	cmd := runner.Cmd(goCmd, args...)
-	if job.cosmoGoroot != "" {
+	switch {
+	case job.forkGoroot != "" && job.goos == cosmoOS:
 		// GOOS=cosmo fat-APE build via the gosmopolitan toolchain. GOARCH is
 		// cleared: fat (amd64+arm64+windows payloads in one output) is the
 		// fork's default and the job's pseudo-arch "fat" is a naming artifact,
@@ -400,10 +449,20 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").
 			WithEnv("GOTOOLCHAIN", "local").
-			WithEnv("GOROOT", job.cosmoGoroot).
-			WithEnv("PATH", filepath.Join(job.cosmoGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
+			WithEnv("GOROOT", job.forkGoroot).
+			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
 			WithEnv("CGO_ENABLED", "0")
-	} else {
+	case job.forkGoroot != "":
+		// Wasm build (js/wasm or wasip1/wasm) via the gosmopolitan toolchain.
+		// The fork DEFAULTS to GOOS=cosmo, so GOOS and GOARCH are always
+		// pinned explicitly. CGO_ENABLED=0 always: wasm has no cgo.
+		cmd = cmd.WithEnv("GOOS", job.goos).
+			WithEnv("GOARCH", job.goarch).
+			WithEnv("GOTOOLCHAIN", "local").
+			WithEnv("GOROOT", job.forkGoroot).
+			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
+			WithEnv("CGO_ENABLED", "0")
+	default:
 		if job.goos != "" {
 			cmd = cmd.WithEnv("GOOS", job.goos)
 		}
