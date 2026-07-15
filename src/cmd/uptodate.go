@@ -15,6 +15,7 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -207,11 +208,11 @@ func isUpToDate(r runner.CommandRunner) bool {
 func saveFingerprint(r runner.CommandRunner) {
 	current, err := computeFingerprint(r)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⇒ Warning: failed to compute fingerprint: %v\n", err)
+		logger.Warn("⇒ Warning: failed to compute fingerprint: %v", err)
 		return
 	}
 	fp := fingerprintFile()
 	if err := os.WriteFile(fp, []byte(current), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "⇒ Warning: failed to save fingerprint: %v\n", err)
+		logger.Warn("⇒ Warning: failed to save fingerprint: %v", err)
 	}
 }
