@@ -50,10 +50,44 @@ func IsNestedModule(dir string) bool {
 	return err == nil
 }
 
+// MemLimitGuardFileName is the filename of the transient GOMEMLIMIT guard
+// that src/memlimit injects into main packages during builds (memlimit's
+// GuardFileName is defined from this constant — gomod cannot import memlimit,
+// which imports gomod). Main-package discovery skips the file by name: the
+// guard is an UNCONSTRAINED "package main" file injected into dirs that are
+// main packages under the HOST context, so during per-target discovery (e.g.
+// GOOS=js) a guard — freshly injected, or stale from an interrupted build —
+// would make a host-only main dir (say //go:build linux) look like a main
+// package for every other target, whose build of that dir would then fail
+// (the guard alone has no main()). The guard never makes a dir a main
+// package by itself, so skipping it cannot hide a real main.
+const MemLimitGuardFileName = "gomemlimit_gen.go"
+
 // FindMainPackages walks the filesystem from the current directory to find
 // all directories containing non-test .go files with "package main" declarations,
-// returning their import paths (module path + relative directory).
+// returning their import paths (module path + relative directory). Build
+// constraints are evaluated against the HOST context (build.Default).
 func FindMainPackages() ([]string, error) {
+	return findMainPackages(matchFile)
+}
+
+// FindMainPackagesForTarget is FindMainPackages under an explicit target
+// build context: constraints are evaluated with GOOS/GOARCH set to the given
+// target (derived from build.Default, so local tags and toolchain defaults
+// are otherwise preserved). A main package guarded e.g. "//go:build js &&
+// wasm" is discovered for GOOS=js GOARCH=wasm and invisible to native
+// targets, matching what `go build` would compile for that target.
+func FindMainPackagesForTarget(goos, goarch string) ([]string, error) {
+	ctx := build.Default
+	ctx.GOOS = goos
+	ctx.GOARCH = goarch
+	return findMainPackages(ctx.MatchFile)
+}
+
+// findMainPackages is the shared walk behind FindMainPackages and
+// FindMainPackagesForTarget; match evaluates build constraints for the
+// desired context.
+func findMainPackages(match func(dir, name string) (bool, error)) ([]string, error) {
 	modPath := ReadModulePath()
 	if modPath == "" {
 		return nil, nil
@@ -79,7 +113,7 @@ func FindMainPackages() ([]string, error) {
 		}
 
 		// Check if this directory has a non-test .go file with package main
-		if hasMainPackage(path) {
+		if hasMainPackageMatch(path, match) {
 			importPath := modPath
 			if path != "." {
 				importPath = modPath + "/" + filepath.ToSlash(path)
@@ -92,8 +126,15 @@ func FindMainPackages() ([]string, error) {
 }
 
 // hasMainPackage returns true if the directory at path contains at least one
-// non-test .go file whose package declaration is "main".
+// non-test .go file whose package declaration is "main", under the host
+// build context.
 func hasMainPackage(dir string) bool {
+	return hasMainPackageMatch(dir, matchFile)
+}
+
+// hasMainPackageMatch is hasMainPackage with an explicit build-constraint
+// matcher (see FindMainPackagesForTarget).
+func hasMainPackageMatch(dir string, match func(dir, name string) (bool, error)) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
@@ -104,6 +145,14 @@ func hasMainPackage(dir string) bool {
 		}
 		name := e.Name()
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		// Never count the transient memlimit guard: it is an unconstrained
+		// "package main" file injected only into dirs that already have a
+		// real main under the host context, so honoring it here would leak
+		// host main dirs into other targets' discovery (see
+		// MemLimitGuardFileName).
+		if name == MemLimitGuardFileName {
 			continue
 		}
 		// Read the cheap "package" clause FIRST. The vast majority of files in
@@ -117,13 +166,13 @@ func hasMainPackage(dir string) bool {
 		}
 		// This file declares "package main". Only now pay for the constraint
 		// check: honor build constraints so a file excluded from the build for
-		// the current context (notably "//go:build ignore", but also a
+		// the desired context (notably "//go:build ignore", but also a
 		// GOOS/GOARCH mismatch) does not contribute a "package main". This
 		// stops generator idioms such as "//go:build ignore" + "package main"
 		// (run via `go run`) from being misidentified as the directory's main
 		// package, while a legitimately-constrained main (e.g. "//go:build
 		// linux") is still discovered under the matching context.
-		if !fileMatchesBuild(dir, name) {
+		if matched, err := match(dir, name); err == nil && !matched {
 			continue
 		}
 		return true
@@ -131,25 +180,12 @@ func hasMainPackage(dir string) bool {
 	return false
 }
 
-// fileMatchesBuild reports whether the named .go file in dir is part of the
-// build for the current build context, honoring "//go:build" / "// +build"
-// constraints (including the never-satisfied "ignore" tag) and the
-// GOOS/GOARCH-encoding filename convention. It uses go/build's own matcher so
-// the result matches what `go build` would actually compile. A file that
-// go/build cannot classify is treated as included, preserving the previous
-// build-tag-blind behavior for anything MatchFile can't decide.
-func fileMatchesBuild(dir, name string) bool {
-	matched, err := matchFile(dir, name)
-	if err != nil {
-		return true
-	}
-	return matched
-}
-
-// matchFile is the build-constraint matcher used by fileMatchesBuild. It is a
-// package-level variable (defaulting to go/build's own matcher) so tests can
-// observe exactly which files the constraint check is consulted for — it must
-// only ever run on "package main" candidates, never on every .go file.
+// matchFile is the host-context build-constraint matcher (defaulting to
+// go/build's build.Default.MatchFile). It is a package-level variable so
+// tests can observe exactly which files the constraint check is consulted
+// for — it must only ever run on "package main" candidates, never on every
+// .go file. Match errors fail open: a file go/build cannot classify is
+// treated as included, preserving the previous build-tag-blind behavior.
 var matchFile = build.Default.MatchFile
 
 // packageNameFromFile reads the package declaration from a Go source file
