@@ -30,8 +30,17 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		return origHandler(cfg)
 	}
 
-	err := runReleaseWithRunner(mock)
-	require.NoError(t, err)
+	var runErr error
+	output := captureCombinedOutput(func() {
+		runErr = runReleaseWithRunner(mock)
+	})
+	require.NoError(t, runErr)
+
+	// The build warns that wasm artifacts are excluded from buildhost
+	// publishing — but not the wasm-only warning, since a native target is
+	// in the same run.
+	assert.Contains(t, output, "excluded from buildhost publishing")
+	assert.NotContains(t, output, "every target is wasm")
 
 	// Wasm artifacts carry the .wasm suffix and are ordinary regular files;
 	// the native target coexists in the same run.
@@ -116,9 +125,17 @@ func TestRunReleaseWithRunnerWasmOnlySkipsSlotParsing(t *testing.T) {
 		return origHandler(cfg)
 	}
 
-	err := runReleaseWithRunner(mock)
-	require.NoError(t, err)
+	var runErr error
+	output := captureCombinedOutput(func() {
+		runErr = runReleaseWithRunner(mock)
+	})
+	require.NoError(t, runErr)
 	assert.FileExists(t, filepath.Join(outDir, "mytool_js_wasm.wasm"))
+
+	// A wasm-only run additionally warns that a buildhost publish step will
+	// find nothing to publish (autorelease should be off).
+	assert.Contains(t, output, "excluded from buildhost publishing")
+	assert.Contains(t, output, "every target is wasm")
 }
 
 func TestRunReleaseWithRunnerWasmToolchainFailureFailsFast(t *testing.T) {

@@ -277,12 +277,21 @@ targets).
 
 **Artifacts.** Wasm binaries are named `<name>_js_wasm.wasm` /
 `<name>_wasip1_wasm.wasm` and are ordinary regular files covered by
-`checksums.txt`. None of the cosmo slot machinery applies to them. Unlike
-`cosmo`, `js` and `wasip1` are real `GOOS` values, so the artifacts keep their
-canonical names; note that publishing them to buildhost has not been verified
-yet — if your buildhost deployment rejects `os=js`/`os=wasip1` on upload (one
-rejected artifact aborts that publish), build wasm targets in a run with
-`autorelease` disabled.
+`checksums.txt`. None of the cosmo slot machinery applies to them.
+
+**Buildhost publishing.** buildhost **rejects** wasm artifacts on upload
+(`400 invalid os "js"` — same validation that rejects `os=cosmo`), and a
+single rejected artifact aborts the whole publish. Wasm artifacts are
+therefore excluded from buildhost publishing, with a warning logged during
+the build: their `.wasm` filenames don't match the publish action's
+`<binary>_{os}_{arch}` selection pattern (the same skip that covers
+`checksums.txt` and `profile.json`), so they never reach the upload set —
+while remaining real files in `build/` and in `checksums.txt`, so the
+`go-build` CI artifact still carries them. `autorelease` stays safe with
+mixed target lists (the native and cosmo-slot artifacts publish as usual);
+a **wasm-only** target list leaves the publish step nothing to upload and it
+fails with "No matrix artifacts" — disable `autorelease` for wasm-only
+builds (the build logs a warning for this case too).
 
 **GOMEMLIMIT guard.** The injected cgroup guard is stdlib-only and compiles
 for both wasm ports; without cgroup files it is a startup no-op, so wasm

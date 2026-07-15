@@ -319,6 +319,23 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		}
 	}
 
+	// Wasm artifacts cannot be published to buildhost: the server validates
+	// os on artifact upload and 400-rejects os=js/os=wasip1 (field-confirmed:
+	// `invalid os "js"`, go-font-renderer run 29396682812), and one rejected
+	// artifact aborts the whole publish. Their .wasm names keep them out of
+	// the buildhost-publish upload set (the action only uploads files
+	// matching <binary>_{os}_{arch} after stripping .exe — pinned by
+	// TestWasmArtifactNamesExcludedFromBuildhostPublishSet), while the real
+	// files stay in build/ and checksums.txt so CI artifact uploads carry
+	// them. Warn so autorelease users know why the wasm binaries are absent
+	// from buildhost.
+	if hasWasm {
+		logger.Warn("⇒ Warning: wasm artifacts are excluded from buildhost publishing (buildhost rejects os=js/os=wasip1 uploads); they remain in %s/ and checksums.txt for CI artifact uploads", outputDir)
+		if !slices.ContainsFunc(platforms, func(p buildPlatform) bool { return !p.IsWasm() }) {
+			logger.Warn("⇒ Warning: every target is wasm, so a buildhost publish step will find no publishable artifacts and fail; disable autorelease for wasm-only builds")
+		}
+	}
+
 	// Generate SHA-256 checksums for release artifacts
 	if len(builtFiles) > 0 {
 		if _, err := generateChecksums(outputDir, builtFiles); err != nil {

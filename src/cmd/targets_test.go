@@ -3,6 +3,8 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -299,6 +301,40 @@ func TestBuildPlatformPredicates(t *testing.T) {
 	assert.True(t, js.NeedsForkToolchain())
 	assert.True(t, wasip1.NeedsForkToolchain())
 	assert.False(t, linux.NeedsForkToolchain())
+}
+
+// TestWasmArtifactNamesExcludedFromBuildhostPublishSet pins the naming
+// contract that keeps wasm artifacts out of buildhost publishing. buildhost
+// validates os on artifact upload and 400-rejects os=js/os=wasip1 (observed:
+// `invalid os "js"` on go-font-renderer run 29396682812, which aborted that
+// whole publish). The buildhost-publish action selects its upload set by
+// filename: regular files (symlinks and checksums.txt are skipped) whose
+// name, after stripping a trailing .exe, matches
+// ^(.+)_([a-z]+)_([a-z0-9]+)$. The .wasm suffix cannot match that pattern
+// (the trailing token would contain a dot), so wasm artifacts stay out of
+// the publish set while remaining ordinary files in build/ and in
+// checksums.txt for CI artifact uploads. If BinaryName's wasm naming ever
+// changes, this test failing means wasm artifacts would reach buildhost
+// again and abort consumer publishes.
+func TestWasmArtifactNamesExcludedFromBuildhostPublishSet(t *testing.T) {
+	// The exact filter from the buildhost-publish action (wow-look-at-my
+	// actions), transcribed from the go-font-renderer failure run's logs.
+	publishRe := regexp.MustCompile(`^(.+)_([a-z]+)_([a-z0-9]+)$`)
+	inPublishSet := func(name string) bool {
+		return publishRe.MatchString(strings.TrimSuffix(name, ".exe"))
+	}
+
+	// Wasm artifacts must never enter the publish set.
+	assert.False(t, inPublishSet(build.BinaryName("mytool", "js", "wasm")))
+	assert.False(t, inPublishSet(build.BinaryName("mytool", "wasip1", "wasm")))
+	assert.False(t, inPublishSet(build.BinaryName("my-tool", "js", "wasm")))
+
+	// Publishable platforms must keep matching, .exe and hyphens included.
+	assert.True(t, inPublishSet(build.BinaryName("mytool", "linux", "amd64")))
+	assert.True(t, inPublishSet(build.BinaryName("mytool", "windows", "amd64")))
+	assert.True(t, inPublishSet(build.BinaryName("my-tool", "darwin", "arm64")))
+	// The cosmo slot copies are what carries the APE to buildhost.
+	assert.True(t, inPublishSet(build.BinaryName("mytool", "linux", "arm64")))
 }
 
 func TestCopyCosmoSlots(t *testing.T) {
