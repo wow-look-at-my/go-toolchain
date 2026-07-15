@@ -121,7 +121,9 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmOnlySkipsSlotParsing(t *testing.T) {
-	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm"})
+	// Uses the canonical wasm/js spelling end to end (the other wasm tests
+	// pin the js/wasm GOOS-order alias); both produce the same artifact.
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	// An invalid --cosmo-slots value must be ignored when no cosmo target is
 	// requested: slot parsing is a cosmo-only prerequisite.
 	cosmoSlots = []string{"not-a-pair"}

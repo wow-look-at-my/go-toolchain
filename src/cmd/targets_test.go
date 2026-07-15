@@ -79,12 +79,43 @@ func TestParseTargetList(t *testing.T) {
 			wantErr: "always one fat APE",
 		},
 		{
-			name:    "wasm targets",
+			name:    "wasm targets canonical spelling",
+			entries: []string{"wasm/js", "wasm/wasip1"},
+			want: []buildPlatform{
+				{OS: "js", Arch: "wasm"},
+				{OS: "wasip1", Arch: "wasm"},
+			},
+		},
+		{
+			// The GOOS-order spellings are a quiet compatibility alias
+			// (already shipped in released consumers) and normalize to the
+			// same internal targets as the canonical wasm/js form.
+			name:    "wasm targets GOOS-order alias",
 			entries: []string{"js/wasm", "wasip1/wasm"},
 			want: []buildPlatform{
 				{OS: "js", Arch: "wasm"},
 				{OS: "wasip1", Arch: "wasm"},
 			},
+		},
+		{
+			// Mixing the canonical spelling and its alias dedupes to ONE
+			// target — they are the same platform after normalization.
+			name:    "wasm spellings dedupe to one target",
+			entries: []string{"wasm/js", "js/wasm", "wasip1/wasm", "wasm/wasip1"},
+			want: []buildPlatform{
+				{OS: "js", Arch: "wasm"},
+				{OS: "wasip1", Arch: "wasm"},
+			},
+		},
+		{
+			name:    "identical wasm entry twice is still a duplicate",
+			entries: []string{"wasm/js", "wasm/js"},
+			wantErr: "duplicate target",
+		},
+		{
+			name:    "wasm with a non-wasm flavor is rejected",
+			entries: []string{"wasm/amd64"},
+			wantErr: "wasm targets are wasm/js or wasm/wasip1",
 		},
 		{
 			name:    "wasm mixed with native and cosmo",
@@ -188,6 +219,11 @@ func TestParseCosmoSlots(t *testing.T) {
 			wantErr: "not a wasm binary",
 		},
 		{
+			name:    "canonical wasm spelling is not a slot either",
+			entries: []string{"wasm/js"},
+			wantErr: "not a wasm binary",
+		},
+		{
 			name:    "unknown arch",
 			entries: []string{"linux/amd65"},
 			wantErr: "unknown architecture",
@@ -265,22 +301,22 @@ func TestResolveMatrixPlatformsRejectsWasmInCartesian(t *testing.T) {
 	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
 	matrixTargets = nil
 
-	// GOOS js/wasip1 through --os point at --targets.
+	// GOOS js/wasip1 through --os point at --targets (canonical spelling).
 	matrixOS, matrixArch = []string{"js"}, []string{"amd64"}
 	_, err := resolveMatrixPlatforms()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--targets js/wasm")
+	assert.Contains(t, err.Error(), "--targets wasm/js")
 
 	matrixOS, matrixArch = []string{"wasip1"}, []string{"amd64"}
 	_, err = resolveMatrixPlatforms()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--targets wasip1/wasm")
+	assert.Contains(t, err.Error(), "--targets wasm/wasip1")
 
 	// GOARCH wasm through --arch points at --targets too.
 	matrixOS, matrixArch = []string{"linux"}, []string{"wasm"}
 	_, err = resolveMatrixPlatforms()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--targets js/wasm")
+	assert.Contains(t, err.Error(), "--targets wasm/js")
 }
 
 func TestBuildPlatformPredicates(t *testing.T) {

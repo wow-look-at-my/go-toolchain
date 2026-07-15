@@ -51,13 +51,15 @@ a cosmo build the fat APE is also copied to the per-platform artifact names
 listed in --cosmo-slots, so per-platform consumers keep working; an explicit
 native target in --targets wins over a slot copy of the same name.
 
-The WebAssembly pairs js/wasm (browser/Node.js) and wasip1/wasm (WASI) are
+The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
 also built with the gosmopolitan fork toolchain (it carries the org's wasm
-runtime fixes). Their artifacts use buildhost's publishable wasm naming
-(<name>_wasm_js, <name>_wasm_wasip1 — os=wasm with arch=js/wasip1, no file
-extension); publishing them requires a buildhost with wasm artifact support.
-Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use the excluded <name>_<goos>_wasm.wasm
-naming instead, which never reaches the buildhost publish upload set.`,
+runtime fixes); the GOOS-order spellings js/wasm and wasip1/wasm are accepted
+as compatibility aliases for the same targets. Their artifacts use
+buildhost's publishable wasm naming (<name>_wasm_js, <name>_wasm_wasip1 —
+os=wasm with arch=js/wasip1, no file extension); publishing them requires a
+buildhost with wasm artifact support. Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use
+the excluded <name>_<goos>_wasm.wasm naming instead, which never reaches the
+buildhost publish upload set.`,
 		SilenceUsage: true,
 		RunE:         runRelease,
 	}
@@ -75,7 +77,7 @@ naming instead, which never reaches the buildhost publish upload set.`,
 func addMatrixTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
 	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
-	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. js/wasm and wasip1/wasm, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
+	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. wasm/js and wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
 	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
 }
 

@@ -119,6 +119,19 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 		}
 		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: slots name the native platforms the fat APE is copied to, so %q itself is not a slot", flagName, entry, cosmoOS)
 	}
+	// Canonical wasm spelling: wasm/js and wasm/wasip1, matching buildhost's
+	// artifact scheme (os=wasm with arch=js/wasip1) and the published
+	// <name>_wasm_js naming. Normalized here to the internal GOOS/GOARCH form
+	// ({js, wasm} / {wasip1, wasm}); the GOOS-order spellings js/wasm and
+	// wasip1/wasm stay accepted below as quiet compatibility aliases (Go's
+	// own GOOS/GOARCH order, already shipped in released consumers) and
+	// normalize to the SAME target, so mixing spellings dedupes.
+	if goos == wasmArch {
+		if !isWasmGOOS(goarch) {
+			return buildPlatform{}, fmt.Errorf("invalid %s entry %q: wasm targets are %s/js or %s/wasip1", flagName, entry, wasmArch, wasmArch)
+		}
+		goos, goarch = goarch, wasmArch
+	}
 	if !slices.Contains(validGOOS, goos) {
 		return buildPlatform{}, fmt.Errorf("unknown OS %q in %s entry %q (valid: %s)", goos, flagName, entry, strings.Join(validGOOS, ", "))
 	}
@@ -128,10 +141,10 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 	// GOARCH=wasm only pairs with GOOS=js or GOOS=wasip1 (and vice versa);
 	// fail fast on impossible combinations instead of at build time.
 	if isWasmGOOS(goos) && goarch != wasmArch {
-		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: GOOS %s only builds WebAssembly; use %s/%s", flagName, entry, goos, goos, wasmArch)
+		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: GOOS %s only builds WebAssembly; use %s/%s", flagName, entry, goos, wasmArch, goos)
 	}
 	if !isWasmGOOS(goos) && goarch == wasmArch {
-		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: GOARCH %s needs GOOS js or wasip1 (js/%s or wasip1/%s)", flagName, entry, wasmArch, wasmArch, wasmArch)
+		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: GOARCH %s needs GOOS js or wasip1 (%s/js or %s/wasip1)", flagName, entry, wasmArch, wasmArch, wasmArch)
 	}
 	return buildPlatform{OS: goos, Arch: goarch}, nil
 }
@@ -142,7 +155,7 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("--targets requires at least one entry")
 	}
-	seen := make(map[buildPlatform]bool, len(entries))
+	seen := make(map[buildPlatform]string, len(entries))
 	out := make([]buildPlatform, 0, len(entries))
 	for _, raw := range entries {
 		entry := strings.TrimSpace(raw)
@@ -158,10 +171,17 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 				return nil, err
 			}
 		}
-		if seen[p] {
-			return nil, fmt.Errorf("duplicate target %q", entry)
+		if first, dup := seen[p]; dup {
+			// The same entry twice is a mistake worth flagging; two different
+			// SPELLINGS of the same target (the canonical wasm/js and its
+			// js/wasm compatibility alias) are deliberate synonyms and dedupe
+			// silently to one target.
+			if first == entry {
+				return nil, fmt.Errorf("duplicate target %q", entry)
+			}
+			continue
 		}
-		seen[p] = true
+		seen[p] = entry
 		out = append(out, p)
 	}
 	return out, nil
@@ -215,7 +235,7 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	var out []buildPlatform
 	for _, goarch := range matrixArch {
 		if goarch == wasmArch {
-			return nil, fmt.Errorf("GOARCH %q cannot be built through --os/--arch: wasm targets are exact GOOS pairings built with the gosmopolitan toolchain, not cartesian-product entries; use --targets js/%s or --targets wasip1/%s instead", wasmArch, wasmArch, wasmArch)
+			return nil, fmt.Errorf("GOARCH %q cannot be built through --os/--arch: wasm targets are exact pairings built with the gosmopolitan toolchain, not cartesian-product entries; use --targets %s/js or --targets %s/wasip1 instead", wasmArch, wasmArch, wasmArch)
 		}
 	}
 	for _, goos := range matrixOS {
@@ -223,7 +243,7 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 			return nil, fmt.Errorf("GOOS %q cannot be built through --os/--arch: a cosmo build is one fat APE, not a per-arch matrix entry; use --targets %s instead", cosmoOS, cosmoOS)
 		}
 		if isWasmGOOS(goos) {
-			return nil, fmt.Errorf("GOOS %q cannot be built through --os/--arch: wasm targets are exact GOOS pairings built with the gosmopolitan toolchain, not cartesian-product entries; use --targets %s/%s instead", goos, goos, wasmArch)
+			return nil, fmt.Errorf("GOOS %q cannot be built through --os/--arch: wasm targets are exact pairings built with the gosmopolitan toolchain, not cartesian-product entries; use --targets %s/%s instead", goos, wasmArch, goos)
 		}
 		for _, goarch := range matrixArch {
 			out = append(out, buildPlatform{OS: goos, Arch: goarch})
