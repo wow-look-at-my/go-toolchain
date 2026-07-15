@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // The cosmo pseudo-target: one GOOS=cosmo fat APE built with the gosmopolitan
@@ -18,6 +19,41 @@ const (
 	cosmoOS      = "cosmo"
 	cosmoFatArch = "fat"
 )
+
+// The WebAssembly targets: GOARCH=wasm paired with GOOS=js (browser/Node.js)
+// or GOOS=wasip1 (WASI runtimes). Like cosmo, wasm targets are built with the
+// gosmopolitan fork toolchain, which carries this org's wasm runtime fixes
+// (preemptible loops, Node.js fetch networking, DWARF debug info, ...).
+// Artifacts get a .wasm suffix (see build.BinaryName).
+const wasmArch = "wasm"
+
+// isWasmGOOS reports whether goos only exists as a GOARCH=wasm pairing.
+func isWasmGOOS(goos string) bool { return goos == "js" || goos == "wasip1" }
+
+// wasmPublishEnv is the opt-out knob for buildhost publishing of wasm
+// artifacts. By default wasm artifacts use buildhost's publishable naming
+// (<name>_wasm_js / <name>_wasm_wasip1 — os=wasm with arch=js/wasip1, see
+// wow-look-at-my/buildhost#166). Uploading those requires a buildhost with
+// wasm artifact support; on an older server the upload 400s (`invalid os
+// "wasm"`) and one rejected artifact aborts the whole publish. Setting
+// GO_TOOLCHAIN_WASM_PUBLISH=0 falls back to the excluded naming
+// (<name>_<goos>_wasm.wasm), which never reaches the publish upload set but
+// still ships in build/, checksums.txt, and the CI artifact.
+const wasmPublishEnv = "GO_TOOLCHAIN_WASM_PUBLISH"
+
+// wasmPublishOptOut reports whether GO_TOOLCHAIN_WASM_PUBLISH=0 disabled
+// buildhost publishing of wasm artifacts.
+func wasmPublishOptOut() bool { return os.Getenv(wasmPublishEnv) == "0" }
+
+// wasmArtifactName returns the wasm platform's artifact name: buildhost's
+// publishable convention by default, the excluded .wasm-suffixed shape under
+// GO_TOOLCHAIN_WASM_PUBLISH=0.
+func wasmArtifactName(name string, p buildPlatform) string {
+	if wasmPublishOptOut() {
+		return build.UnpublishableWasmName(name, p.OS)
+	}
+	return build.BinaryName(name, p.OS, p.Arch)
+}
 
 // DefaultCosmoSlots are the per-platform artifact names that receive a copy
 // of the cosmo fat APE (see copyCosmoSlots). darwin/arm64 is deliberately
@@ -59,6 +95,16 @@ type buildPlatform struct {
 // IsCosmo reports whether the platform is the cosmo fat-APE pseudo-target.
 func (p buildPlatform) IsCosmo() bool { return p.OS == cosmoOS }
 
+// IsWasm reports whether the platform is a WebAssembly target (js/wasm or
+// wasip1/wasm).
+func (p buildPlatform) IsWasm() bool { return p.Arch == wasmArch }
+
+// NeedsForkToolchain reports whether the platform is built with the
+// gosmopolitan fork toolchain instead of the go on PATH: the cosmo fat APE
+// (the fork is the only compiler for GOOS=cosmo) and the wasm targets (the
+// fork carries the org's wasm runtime fixes).
+func (p buildPlatform) NeedsForkToolchain() bool { return p.IsCosmo() || p.IsWasm() }
+
 // parsePlatformPair validates a single "os/arch" entry of the given flag.
 // The cosmo pseudo-target is NOT accepted here; callers that allow it
 // (parseTargetList) handle the bare "cosmo" spelling before calling this.
@@ -78,6 +124,14 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 	}
 	if !slices.Contains(validGOARCH, goarch) {
 		return buildPlatform{}, fmt.Errorf("unknown architecture %q in %s entry %q (valid: %s)", goarch, flagName, entry, strings.Join(validGOARCH, ", "))
+	}
+	// GOARCH=wasm only pairs with GOOS=js or GOOS=wasip1 (and vice versa);
+	// fail fast on impossible combinations instead of at build time.
+	if isWasmGOOS(goos) && goarch != wasmArch {
+		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: GOOS %s only builds WebAssembly; use %s/%s", flagName, entry, goos, goos, wasmArch)
+	}
+	if !isWasmGOOS(goos) && goarch == wasmArch {
+		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: GOARCH %s needs GOOS js or wasip1 (js/%s or wasip1/%s)", flagName, entry, wasmArch, wasmArch, wasmArch)
 	}
 	return buildPlatform{OS: goos, Arch: goarch}, nil
 }
@@ -131,6 +185,9 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 		if err != nil {
 			return nil, err
 		}
+		if p.IsWasm() {
+			return nil, fmt.Errorf("invalid --cosmo-slots entry %q: slots name native platforms the fat APE is copied to, and an APE is not a wasm binary", entry)
+		}
 		if seen[p] {
 			return nil, fmt.Errorf("duplicate --cosmo-slots entry %q", entry)
 		}
@@ -148,7 +205,7 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 		// --targets replaces the cartesian product entirely; call out
 		// non-default --os/--arch values that are being ignored.
 		if !slices.Equal(matrixOS, DefaultOS) || !slices.Equal(matrixArch, DefaultArch) {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: --targets is set; ignoring --os/--arch\n")
+			logger.Warn("⇒ Warning: --targets is set; ignoring --os/--arch")
 		}
 		return parseTargetList(matrixTargets)
 	}
@@ -156,9 +213,17 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 		return nil, fmt.Errorf("no platforms specified (need at least one --os and one --arch, or --targets)")
 	}
 	var out []buildPlatform
+	for _, goarch := range matrixArch {
+		if goarch == wasmArch {
+			return nil, fmt.Errorf("GOARCH %q cannot be built through --os/--arch: wasm targets are exact GOOS pairings built with the gosmopolitan toolchain, not cartesian-product entries; use --targets js/%s or --targets wasip1/%s instead", wasmArch, wasmArch, wasmArch)
+		}
+	}
 	for _, goos := range matrixOS {
 		if goos == cosmoOS {
 			return nil, fmt.Errorf("GOOS %q cannot be built through --os/--arch: a cosmo build is one fat APE, not a per-arch matrix entry; use --targets %s instead", cosmoOS, cosmoOS)
+		}
+		if isWasmGOOS(goos) {
+			return nil, fmt.Errorf("GOOS %q cannot be built through --os/--arch: wasm targets are exact GOOS pairings built with the gosmopolitan toolchain, not cartesian-product entries; use --targets %s/%s instead", goos, goos, wasmArch)
 		}
 		for _, goarch := range matrixArch {
 			out = append(out, buildPlatform{OS: goos, Arch: goarch})
@@ -204,7 +269,7 @@ func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform
 		for _, slot := range slots {
 			dstName := build.BinaryName(target.OutputName, slot.OS, slot.Arch)
 			if nativeBuilt[dstName] {
-				fmt.Printf("  SKIP %s (explicit native %s/%s build wins over the cosmo slot copy)\n", dstName, slot.OS, slot.Arch)
+				logger.Warn("  SKIP %s (explicit native %s/%s build wins over the cosmo slot copy)", dstName, slot.OS, slot.Arch)
 				continue
 			}
 			dstPath := filepath.Join(outDir, dstName)
@@ -216,13 +281,13 @@ func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform
 			if err := copyFile(srcPath, dstPath); err != nil {
 				return nil, nil, fmt.Errorf("cosmo slot mapping: copying %s to %s: %w", srcPath, dstPath, err)
 			}
-			fmt.Printf("  COPY %s <- %s\n", dstName, srcName)
+			logger.Info("  COPY %s <- %s", dstName, srcName)
 			targetCopies = append(targetCopies, dstPath)
 		}
 		created = append(created, targetCopies...)
 		if len(targetCopies) == 0 {
 			if len(slots) > 0 {
-				fmt.Printf("  KEEP %s (no slot copy survived; note buildhost rejects os=cosmo uploads)\n", srcName)
+				logger.Warn("  KEEP %s (no slot copy survived; note buildhost rejects os=cosmo uploads)", srcName)
 			}
 			continue
 		}
@@ -230,13 +295,13 @@ func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform
 			return nil, nil, fmt.Errorf("cosmo slot mapping: replacing %s: %w", srcName, err)
 		}
 		if dropFat {
-			fmt.Printf("  DROP %s (buildhost rejects os=cosmo uploads; the slot copies carry the APE)\n", srcName)
+			logger.Info("  DROP %s (buildhost rejects os=cosmo uploads; the slot copies carry the APE)", srcName)
 		} else {
 			linkTarget := filepath.Base(targetCopies[0])
 			if err := os.Symlink(linkTarget, srcPath); err != nil {
 				return nil, nil, fmt.Errorf("cosmo slot mapping: linking %s -> %s: %w", srcName, linkTarget, err)
 			}
-			fmt.Printf("  LINK %s -> %s (kept as a symlink: publish skips symlinks; buildhost rejects os=cosmo)\n", srcName, linkTarget)
+			logger.Info("  LINK %s -> %s (kept as a symlink: publish skips symlinks; buildhost rejects os=cosmo)", srcName, linkTarget)
 		}
 		replacedFat = append(replacedFat, srcPath)
 	}

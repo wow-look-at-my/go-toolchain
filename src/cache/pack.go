@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // packNow returns the current unix time. It is a var so tests can pin it.
@@ -420,7 +422,7 @@ func (s *PackStore) appendRaw(hdr, body []byte) (id int, off int64, err error) {
 				// The active pack keeps growing past maxPackBytes until a
 				// later rotation succeeds — functional, but silent failure
 				// here previously let it grow unbounded with no trace.
-				fmt.Fprintf(os.Stderr, "cacheprog: pack rotation to %d failed: %v (active pack keeps growing)\n", id+1, err)
+				logger.Warn("cacheprog: pack rotation to %d failed: %v (active pack keeps growing)", id+1, err)
 			}
 		}
 		s.wmu.Unlock()
@@ -487,7 +489,7 @@ func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
 		// This is the FUSE serve path: a GET response already promised this
 		// DiskPath to the toolchain, and the eviction turns its next open
 		// into ENOENT. Deliberate poison-refusal trade-off; make it visible.
-		fmt.Fprintf(os.Stderr, "cacheprog: local pack: refusing corrupt body for output %s; evicted (a previously promised DiskPath for it will now open as ENOENT)\n",
+		logger.Warn("cacheprog: local pack: refusing corrupt body for output %s; evicted (a previously promised DiskPath for it will now open as ENOENT)",
 			shortID(outputID))
 		return packLoc{}, false
 	}

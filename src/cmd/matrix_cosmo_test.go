@@ -209,7 +209,7 @@ func TestRunReleaseWithRunnerCosmoNativeCollision(t *testing.T) {
 	}
 
 	var runErr error
-	output := captureStdout(func() {
+	output := captureCombinedOutput(func() {
 		runErr = runReleaseWithRunner(mock)
 	})
 	require.NoError(t, runErr)

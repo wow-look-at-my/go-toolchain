@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // generateDirective represents a single //go:generate directive
@@ -45,7 +47,7 @@ func runGenerate(quiet bool, expectedHash string) error {
 	// Allow explicit skip
 	if expectedHash == "skip" {
 		if !quiet {
-			fmt.Println(colorYellow + "    Generate commands skipped" + colorReset)
+			logger.Info("%s", colorYellow+"    Generate commands skipped"+colorReset)
 		}
 		return nil
 	}
@@ -53,11 +55,11 @@ func runGenerate(quiet bool, expectedHash string) error {
 	// If no hash provided or hash mismatch, show commands and stop
 	if expectedHash == "" || expectedHash != hash {
 		if !quiet {
-			fmt.Println(colorYellow + "    Generate commands detected (not executed):" + colorReset)
+			logger.Info("%s", colorYellow+"    Generate commands detected (not executed):"+colorReset)
 			for _, d := range directives {
-				fmt.Printf("\t%s:%d: %s%s%s\n", d.File, d.Line, colorYellow, d.Command, colorReset)
+				logger.Info("\t%s:%d: %s%s%s", d.File, d.Line, colorYellow, d.Command, colorReset)
 			}
-			fmt.Printf("\n%sTo run these commands, add: --generate %s%s\n", colorYellow, hash, colorReset)
+			logger.Info("\n%sTo run these commands, add: --generate %s%s", colorYellow, hash, colorReset)
 		}
 		return fmt.Errorf("generate commands require approval: --generate %s", hash)
 	}
@@ -221,7 +223,7 @@ func executeDirective(d generateDirective, quiet bool) error {
 	dir := filepath.Dir(d.File)
 
 	if !quiet {
-		fmt.Printf("\t%s\n", d.Command)
+		logger.Info("\t%s", d.Command)
 	}
 
 	env := os.Environ()
@@ -255,15 +257,15 @@ func executeDirective(d generateDirective, quiet bool) error {
 	prefixed := prefixOutput(output)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\t%s\n", d.Command)
+		logger.Error("\t%s", d.Command)
 		if prefixed != "" {
-			fmt.Fprint(os.Stderr, prefixed)
+			logger.Error("%s", strings.TrimSuffix(prefixed, "\n"))
 		}
 		return fmt.Errorf("generate failed in %s:%d: %w", d.File, d.Line, err)
 	}
 
 	if !quiet && prefixed != "" {
-		fmt.Print(prefixed)
+		logger.Info("%s", prefixed)
 	}
 
 	return nil

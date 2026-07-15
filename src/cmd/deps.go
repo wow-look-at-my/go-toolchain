@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
 )
@@ -384,7 +385,7 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 		case <-dc.doneCh:
 			elapsed := time.Since(startWait)
 			if showProgress {
-				fmt.Printf(" %sdone.%s %s\n", colorGreen, colorReset, fmtDuration(elapsed))
+				logger.Info(" %sdone.%s %s", colorGreen, colorReset, fmtDuration(elapsed))
 			}
 			dc.mu.Lock()
 			result := dc.results
@@ -394,7 +395,7 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 			total := dc.total
 			dc.mu.Unlock()
 			if showProgress && elapsed > 5*time.Second {
-				fmt.Printf("    deps: list=%s, checked=%d/%d (%d live)\n",
+				logger.Info("    deps: list=%s, checked=%d/%d (%d live)",
 					fmtDuration(listTime), checked, total, liveChecks)
 			}
 			return result
@@ -410,16 +411,16 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 				if pct != lastPct {
 					if !showProgress {
 						showProgress = true
-						fmt.Printf("Checking for dependency updates... %d%%", pct)
+						logger.Info("Checking for dependency updates... %d%%", pct)
 					} else {
-						fmt.Printf(" %d%%", pct)
+						logger.Info(" %d%%", pct)
 					}
 					lastPct = pct
 				}
 			}
 		case <-ctx.Done():
 			if showProgress {
-				fmt.Println(" skipped")
+				logger.Info(" skipped")
 			}
 			return nil
 		}
@@ -432,14 +433,14 @@ func PrintOutdatedDeps(deps []OutdatedDep) {
 		return
 	}
 
-	fmt.Println()
-	fmt.Println(warn("Outdated git dependencies:"))
+	logger.Info("")
+	logger.Warn("Outdated git dependencies:")
 	for _, dep := range deps {
 		current := shortenVersion(dep.Version)
 		update := shortenVersion(dep.Update)
-		fmt.Printf("    %s: %s -> %s\n", dep.Path, current, update)
+		logger.Info("    %s: %s -> %s", dep.Path, current, update)
 	}
-	fmt.Println("    Run 'go get -u' to update")
+	logger.Info("    Run 'go get -u' to update")
 }
 
 // shortenVersion shortens a pseudo-version for display
@@ -517,17 +518,17 @@ func getAutoUpdatePrefix() string {
 
 // autoUpdateDeps runs go get -u for each dependency
 func autoUpdateDeps(deps []OutdatedDep) {
-	fmt.Println()
+	logger.Info("")
 	s := logStep("Auto-updating trusted dependencies")
 	s.noteOutput()
 	for _, dep := range deps {
 		current := shortenVersion(dep.Version)
 		update := shortenVersion(dep.Update)
-		fmt.Printf("    %s: %s -> %s\n", dep.Path, current, update)
+		logger.Info("    %s: %s -> %s", dep.Path, current, update)
 
 		cmd := exec.Command("go", "get", "-u", dep.Path+"@latest")
 		if err := cmd.Run(); err != nil {
-			fmt.Printf("    %s failed to update: %v\n", warn("WARNING:"), err)
+			logger.Warn("    WARNING: %s failed to update: %v", dep.Path, err)
 		}
 	}
 	// Run go mod tidy to clean up
@@ -564,7 +565,7 @@ func FixBogusDepsVersions(r runner.CommandRunner) error {
 	// Resolve each module to its actual latest version
 	for _, mod := range toFix {
 		if !jsonOutput {
-			fmt.Printf("⇒ Resolving %s (v0.0.0 is not a valid version)\n", mod)
+			logger.Info("⇒ Resolving %s (v0.0.0 is not a valid version)", mod)
 		}
 
 		version, err := resolveLatestVersionViaGit(r, mod)

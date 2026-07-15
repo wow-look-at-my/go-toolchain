@@ -18,6 +18,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Test seams — overridden in tests to avoid real downloads / corrupted runners.
@@ -72,11 +73,11 @@ func unpoisonGoVersion(version string) (string, bool) {
 func EnsureGoVersion() error {
 	goPath, lookErr := exec.LookPath("go")
 	if lookErr != nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: go not in PATH (%v)\n", lookErr)
+		logger.Info("go-bootstrap: go not in PATH (%v)", lookErr)
 		return bootstrapGo("go not found in PATH")
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: found go at %s\n", goPath)
+	logger.Info("go-bootstrap: found go at %s", goPath)
 
 	// Check whether the installed version satisfies go.mod.
 	required, err := requiredGoVersion()
@@ -87,20 +88,20 @@ func EnsureGoVersion() error {
 
 	installed, err := installedGoVersion()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot determine installed version (%v), proceeding\n", err)
+		logger.Warn("go-bootstrap: cannot determine installed version (%v), proceeding", err)
 		recordGoMinor(required)
 		return nil
 	}
 
 	installedVer, err := semver.NewVersion(installed)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot parse installed version %q (%v), proceeding\n", installed, err)
+		logger.Warn("go-bootstrap: cannot parse installed version %q (%v), proceeding", installed, err)
 		recordGoMinor(required)
 		return nil
 	}
 	requiredVer, err := semver.NewVersion(required)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: cannot parse required version %q (%v), proceeding\n", required, err)
+		logger.Warn("go-bootstrap: cannot parse required version %q (%v), proceeding", required, err)
 		recordGoMinor(installed)
 		return nil
 	}
@@ -110,7 +111,7 @@ func EnsureGoVersion() error {
 		// requirement: it corrupts the build cache (see poisonedGoVersions).
 		// Re-bootstrap a known-good toolchain instead.
 		if replacement, poisoned := unpoisonGoVersion(installed); poisoned {
-			fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is poisoned (corrupts the build cache); replacing with a known-good toolchain (>= %s)\n", installed, replacement)
+			logger.Warn("go-bootstrap: installed Go %s is poisoned (corrupts the build cache); replacing with a known-good toolchain (>= %s)", installed, replacement)
 			return bootstrapGo(fmt.Sprintf("installed %s is poisoned", installed))
 		}
 		// Version is fine, but a fraction of GitHub-hosted runners ship a
@@ -119,15 +120,15 @@ func EnsureGoVersion() error {
 		// it; if it's broken, treat it exactly like a missing/too-old Go and
 		// re-download a known-good copy.
 		if err := verifyGoToolchainFunc(goPath); err != nil {
-			fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is present but broken (%v); re-downloading\n", installed, err)
+			logger.Warn("go-bootstrap: installed Go %s is present but broken (%v); re-downloading", installed, err)
 			return bootstrapGo(fmt.Sprintf("installed %s is broken: %v", installed, err))
 		}
-		fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s satisfies required %s\n", installed, required)
+		logger.Info("go-bootstrap: installed Go %s satisfies required %s", installed, required)
 		recordGoMinor(installed)
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: installed Go %s is older than required %s\n", installed, required)
+	logger.Info("go-bootstrap: installed Go %s is older than required %s", installed, required)
 	return bootstrapGo(fmt.Sprintf("installed %s < required %s", installed, required))
 }
 
@@ -168,11 +169,11 @@ func bootstrapGo(reason string) error {
 
 	// Never download a poisoned version, even if go.mod asks for it directly.
 	if replacement, poisoned := unpoisonGoVersion(required); poisoned {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: required Go %s is poisoned; using known-good %s instead\n", required, replacement)
+		logger.Warn("go-bootstrap: required Go %s is poisoned; using known-good %s instead", required, replacement)
 		required = replacement
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: bootstrapping Go %s...\n", required)
+	logger.Info("go-bootstrap: bootstrapping Go %s...", required)
 
 	bootstrapStart := time.Now()
 	goRoot, err := ensureGoCached(required)
@@ -198,7 +199,7 @@ func bootstrapGo(reason string) error {
 		return fmt.Errorf("bootstrapped Go %s at %s failed integrity probe: %w", required, goRoot, err)
 	}
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: using Go %s from %s %s\n", required, goRoot, fmtDuration(time.Since(bootstrapStart)))
+	logger.Info("go-bootstrap: using Go %s from %s %s", required, goRoot, fmtDuration(time.Since(bootstrapStart)))
 	recordGoMinor(required)
 	return nil
 }
@@ -358,20 +359,22 @@ func downloadGo(version, cacheDir, goRoot string) error {
 	var resp *http.Response
 	var lastErr error
 	for _, url := range urls {
-		fmt.Fprintf(os.Stderr, "go-bootstrap: downloading %s", url)
+		// Mid-line progress fragment (completed below on the same line):
+		// bypasses the logger via rawStderr, see logging.go.
+		fmt.Fprintf(rawStderr, "go-bootstrap: downloading %s", url)
 		dlStart := time.Now()
 		resp, lastErr = http.Get(url)
 		if lastErr == nil && resp.StatusCode == http.StatusOK {
-			fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(dlStart)))
+			fmt.Fprintf(rawStderr, " %s\n", fmtDuration(time.Since(dlStart)))
 			break
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
 		if lastErr != nil {
-			fmt.Fprintf(os.Stderr, "\n  FAIL %v\n", lastErr)
+			fmt.Fprintf(rawStderr, "\n  FAIL %v\n", lastErr)
 		} else {
-			fmt.Fprintf(os.Stderr, "\n  FAIL HTTP %d\n", resp.StatusCode)
+			fmt.Fprintf(rawStderr, "\n  FAIL HTTP %d\n", resp.StatusCode)
 			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 		}
 	}
@@ -385,12 +388,14 @@ func downloadGo(version, cacheDir, goRoot string) error {
 	tmpRoot := filepath.Join(cacheDir, "go")
 	os.RemoveAll(tmpRoot) // clean any stale partial extraction
 
-	fmt.Fprintf(os.Stderr, "go-bootstrap: extracting...")
+	// Mid-line progress fragment (completed below on the same line):
+	// bypasses the logger via rawStderr, see logging.go.
+	fmt.Fprintf(rawStderr, "go-bootstrap: extracting...")
 	extractStart := time.Now()
 	if err := extractTarGz(resp.Body, cacheDir); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(extractStart)))
+	fmt.Fprintf(rawStderr, " %s\n", fmtDuration(time.Since(extractStart)))
 
 	// Rename go/ -> go<version>/
 	if err := os.Rename(tmpRoot, goRoot); err != nil {

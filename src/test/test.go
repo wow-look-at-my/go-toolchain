@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"gotest.tools/gotestsum/testjson"
 )
@@ -66,7 +67,7 @@ type coverageHandler struct {
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
 	if event.Action == testjson.ActionOutput && event.Output != "" {
 		if h.verbose {
-			fmt.Print(event.Output)
+			logger.Output("%s", strings.TrimRight(event.Output, "\n"))
 		}
 		// Buffer output per-test/package for later (if test/package fails)
 		if !h.verbose && h.testOutput != nil {
