@@ -428,6 +428,26 @@ an arbitrary offset with a single `ReadAt` — essential for the compiler's mmap
 random access, which a compressed stream could not satisfy without decompressing
 the whole object on every read.
 
+Two ordering guarantees protect the PUT path against racing writers for the
+same action key:
+
+- **Append order == index order.** `PackStore.Put` commits its in-memory index
+  update *under the append lock*, so the record order in the pack file always
+  matches the order the live index applied. Before this, two racing Puts for
+  the same action with different contents could commit their map updates in
+  the opposite order of their file appends — the live daemon served one body
+  while the **next** process's startup scan ("last write wins" over file
+  order) served the other, a silent cross-build divergence that surfaced as an
+  unrecoverable `corrupt index` on the following build.
+- **Local wins over web.** The prefetch population stores through
+  `PutIfAbsent`, whose absence check runs under the same append lock as the
+  write: a web-originated body can never displace a locally-computed entry,
+  no matter how the race resolves. Symmetrically, the PUT RPC's dedup check
+  now compares the stored entry's `outputID` with the incoming PUT's and
+  **overwrites on mismatch** — `cmd/go` is the source of truth for its own
+  action keys, so a mis-keyed body that somehow got in self-heals on the next
+  PUT instead of being sticky while the fresh correct body was discarded.
+
 ## Remote-cache resilience (fail-safe under outages)
 
 The remote (web) tier is best-effort. A backend problem — 5xx, timeout,
