@@ -40,6 +40,14 @@ type LocalStore interface {
 	// Put stores body under actionID/outputID and returns a DiskPath that the
 	// Go toolchain can open.
 	Put(actionID, outputID string, body io.Reader) (string, error)
+	// PutIfAbsent stores body under actionID/outputID only if the action is
+	// not already cached, atomically with respect to concurrent Puts, and
+	// reports whether this call stored it. It is the primitive the web
+	// prefetch population uses: a web-originated body must never displace a
+	// locally-originated entry (a plain check-then-Put can lose that race and
+	// silently replace what the local cmd/go just stored — the module-index
+	// trust model in verify.go forbids exactly that).
+	PutIfAbsent(actionID, outputID string, body io.Reader) (stored bool, err error)
 	// StatsPtr returns the live hit/put counters for this store.
 	StatsPtr() *CacheStats
 	// Close releases resources. For FuseCache this unmounts the filesystem.

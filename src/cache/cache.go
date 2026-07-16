@@ -56,6 +56,20 @@ type IBackend interface {
 	GetStats() *CacheStats
 }
 
+// staleKeyForgetter is the optional backend capability the PUT replace path
+// uses: when a fresh cmd/go PUT overwrites a local entry whose outputID
+// disagreed (a mis-keyed or stale body), the remote's optimistic "already
+// present" claim for that key is stale too — the object the server holds (or
+// that this client believes it holds) is NOT the content cmd/go just
+// computed. Forgetting the claim lets the immediately following remote Put
+// actually upload the fresh body instead of skipping it as known
+// (put-skipped: known), so the shared tier self-heals alongside the local
+// one. Module indexes still never upload (webput's content guard), which is
+// correct — they are refused on every read path too.
+type staleKeyForgetter interface {
+	ForgetStale(actionID string)
+}
+
 // StatEvent is a single counter increment sent over the stats socket.
 type StatEvent struct {
 	LocalHit  uint32 `json:"lh,omitempty"`
@@ -163,8 +177,8 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if actionID == e.Key {
 				continue // unexpected key format; skip
 			}
-			if _, miss := local.Get(actionID); !miss {
-				continue // already cached
+			if _, miss := local.Peek(actionID); !miss {
+				continue // already cached (Peek: prefetch is not a cache hit)
 			}
 			// The data from the server is LZ4-compressed (same as individual GETs).
 			decompressed, err := decompressData(e.Data)
@@ -197,7 +211,19 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if isGoModuleIndex(decompressed) {
 				continue
 			}
-			local.Put(actionID, e.OutputID, bytes.NewReader(decompressed))
+			// PutIfAbsent, never Put: the Peek above is only an optimization,
+			// and this callback runs on the batch coalescer's goroutine with no
+			// per-action serialization against the GET/PUT RPC handlers. A
+			// plain Put here could race a concurrent cmd/go PUT for the same
+			// action and — depending on which side committed last — replace a
+			// locally-computed body with this web-originated one, either in the
+			// live index or (worse) only in the pack file's replay order, where
+			// the poison surfaces on the NEXT build as "corrupt index". The
+			// atomic if-absent store makes the local cmd/go's data always win.
+			stored, err := local.PutIfAbsent(actionID, e.OutputID, bytes.NewReader(decompressed))
+			if err != nil || !stored {
+				continue
+			}
 			populated++
 		}
 		if populated > 0 {
@@ -512,9 +538,26 @@ func (s *Server) handlePut(req Request) Response {
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
 	cacheLog := logger.WithSubsystem("cache")
-	if !miss {
+	// Dedup ONLY when the stored entry is the same content cmd/go just
+	// computed. A stored outputID that differs from the incoming PUT's must be
+	// overwritten, not returned: cmd/go is the source of truth for its own
+	// action keys (a legitimate re-Put after a nondeterministic rebuild, or a
+	// mis-keyed body that slipped in — e.g. a web-prefetched object under a
+	// module-index key). The old unconditional dedup made such an entry sticky
+	// forever AND silently discarded the fresh correct body.
+	if !miss && meta.OutputID == outputID {
 		cacheLog.Debug("PUT  dedup  %s output=%s", actionID, shortID(meta.OutputID))
 		return Response{ID: req.ID, DiskPath: meta.DiskPath, Size: meta.Size}
+	}
+	if !miss {
+		cacheLog.Debug("PUT  replace %s stored-output=%s incoming-output=%s (stored entry does not match; overwriting)",
+			actionID, shortID(meta.OutputID), shortID(outputID))
+		// The remote claim for this key is as stale as the local entry was:
+		// drop it so the remote Put below re-uploads the fresh body instead
+		// of skipping it as already-present (see staleKeyForgetter).
+		if f, ok := s.remote.(staleKeyForgetter); ok {
+			f.ForgetStale(actionID)
+		}
 	}
 
 	body := bytes.NewReader(req.Body)
