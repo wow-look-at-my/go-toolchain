@@ -20,6 +20,15 @@ type noCloseBackend struct {
 
 func (n *noCloseBackend) Close() error { return nil }
 
+// ForgetStale forwards the staleKeyForgetter capability through the wrapper
+// so the PUT replace path can drop stale remote claims in daemon mode too
+// (interface embedding only promotes IBackend's own methods).
+func (n *noCloseBackend) ForgetStale(actionID string) {
+	if f, ok := n.IBackend.(staleKeyForgetter); ok {
+		f.ForgetStale(actionID)
+	}
+}
+
 // Daemon listens on a Unix socket and serves GOCACHEPROG protocol to
 // multiple clients, sharing a single web index and local cache.
 type Daemon struct {
