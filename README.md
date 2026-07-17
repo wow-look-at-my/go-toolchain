@@ -39,9 +39,8 @@ Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched a
 ```yaml
 permissions:
   contents: write
-  id-token: write
+  id-token: write          # required for secret-server and buildhost autorelease (OIDC)
   security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
-  actions: read            # required for buildhost autorelease (listWorkflowRunArtifacts/downloadArtifact)
 
 jobs:
   build:
@@ -72,9 +71,8 @@ To opt out, pass `codeql: 'false'`.
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
 | `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write` and `actions: read`) |
+| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved |
 | `allow-source-build` | string  | `false`    | Allow building go-toolchain from source when the buildhost binary is unavailable; when `false`, the build fails fast instead of silently falling back |
-| `upload-artifacts`  | string   | `true`     | Upload `build/` directory as a GitHub Actions artifact after building |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
 | `wait-ci`           | string   | `false`    | Wait for the latest go-toolchain CI run before downloading the release binary |
 | `codeql`            | string   | `true`     | Run CodeQL `security-and-quality` analysis around the build (see prerequisites above) |
@@ -268,8 +266,7 @@ whose buildhost predates wasm support, set **`GO_TOOLCHAIN_WASM_PUBLISH=0`**:
 wasm artifacts then take the excluded `<name>_<goos>_wasm.wasm` naming, whose
 `.wasm` suffix keeps them outside the publish upload set (the same skip that
 covers `checksums.txt` and `profile.json`) while the real files remain in
-`build/` and `checksums.txt`, so the `go-build` CI artifact still carries
-them. With the opt-out active, a **wasm-only** target list leaves the
+`build/` and `checksums.txt` for any downstream step to pick up. With the opt-out active, a **wasm-only** target list leaves the
 publish step nothing to upload and it fails with "No matrix artifacts" —
 disable `autorelease` in that combination (the build logs a warning for this
 case too). Without the opt-out, wasm-only publishes are fine once the server
@@ -278,8 +275,8 @@ has wasm support.
 **wasm_exec.js.** A `wasm/js` build also copies the fork toolchain's
 `lib/wasm/wasm_exec.js` — the JS harness that loads the wasm in a browser or
 Node, which must byte-match the toolchain that built it — into
-`build/wasm_exec.js`. It is covered by `checksums.txt` and ships in the CI
-artifact, but stays outside the buildhost publish set (its name doesn't match
+`build/wasm_exec.js`. It is covered by `checksums.txt` and stays in `build/`,
+but sits outside the buildhost publish set (its name doesn't match
 the publish pipeline's `<binary>_{os}_{arch}` pattern, like `checksums.txt`
 itself). Missing harness in the fork GOROOT only warns.
 
