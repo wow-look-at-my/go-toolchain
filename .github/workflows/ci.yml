@@ -142,6 +142,12 @@ jobs:
           name: host-go-toolchain
           path: build
 
+      # The go-toolchain action itself cache-uploads build/ under the name
+      # `go-build` on every run (unconditional); the smoke-linux/macos/windows
+      # and publish jobs below cache-download that same name. This is the ONLY
+      # invocation of the action in this run -- a second same-run invocation
+      # would collide on the run-scoped go-build key -- so there is no standalone
+      # upload step here.
       - uses: ./
         with:
           binary: build/go-toolchain
@@ -151,12 +157,6 @@ jobs:
           # toolchain and cold-compiles its stdlib; the default 10 minutes is
           # too tight for a cold runner.
           timeout: '15'
-
-      - name: Upload build outputs hand-off
-        uses: wow-look-at-my/actions@cache-upload#latest
-        with:
-          name: go-build
-          path: build/
 
   # Cross-OS smoke of the actual release artifacts: download the build-output
   # hand-off action-test uploaded (exactly what `publish` will ship) and RUN
