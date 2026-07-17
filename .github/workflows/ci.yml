@@ -106,21 +106,11 @@ jobs:
             exit 1
           fi
 
-      # Hand the host-built binary to action-test via a run-keyed cache
-      # hand-off. The cache-upload/cache-download composite actions own the
-      # key construction (run_id + run_attempt scope it to this run; GitHub's
-      # cache is branch-isolated and not billed like artifact storage) and the
-      # rerun semantics.
-      - name: Stage host binary for hand-off
-        run: |
-          mkdir -p /tmp/go-toolchain-handoff
-          cp build/go-toolchain /tmp/go-toolchain-handoff/go-toolchain
-
-      - name: Upload host binary hand-off
+      - name: Upload host binary
         uses: wow-look-at-my/actions@cache-upload#latest
         with:
-          name: host-binary
-          path: /tmp/go-toolchain-handoff/
+          name: host-go-toolchain
+          path: build/go-toolchain
 
   # Build + test via the composite action, exercising the cosmo fat-APE target
   # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
@@ -146,21 +136,15 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
-      # The download's exact key hits when this attempt ran `build`, falls
-      # back to the previous attempt's upload when "re-run failed jobs" skips
-      # `build`, and fails loud when no upload exists at all. The path must be
-      # the identical string used on the upload side.
-      - name: Download host binary hand-off
+      - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: host-binary
-          path: /tmp/go-toolchain-handoff/
+          name: host-go-toolchain
+          path: build/go-toolchain
 
       - uses: ./
         with:
-          # The binary the `build` job just built and tested, handed off via
-          # the run-keyed cache above (the action stages + chmods it itself).
-          binary: /tmp/go-toolchain-handoff/go-toolchain
+          binary: build/go-toolchain
           targets: 'cosmo,darwin/amd64,darwin/arm64,windows/arm64'
           autorelease: 'false'
           # The cosmo target additionally downloads + extracts the gosmopolitan
@@ -168,9 +152,6 @@ jobs:
           # too tight for a cold runner.
           timeout: '15'
 
-      # Hand build/ to the smoke + publish jobs via a run-keyed cache
-      # hand-off (cross-OS: the wrapper archives portably so the macOS and
-      # Windows smoke jobs can download an upload made on ubuntu).
       - name: Upload build outputs hand-off
         uses: wow-look-at-my/actions@cache-upload#latest
         with:
@@ -182,9 +163,7 @@ jobs:
   # the APE on each host OS. APEs self-assimilate on first exec -- they
   # rewrite their own header in place to the host's native format -- so every
   # job runs a throwaway copy, never the downloaded file itself. These jobs
-  # have no checkout, so build/ lands in an otherwise empty workspace; the
-  # download path must be the identical string used on the upload side (the
-  # cache restores to the path it was saved from).
+  # have no checkout, so build/ lands in an otherwise empty workspace.
   smoke-linux:
     needs: action-test
     runs-on: ubuntu-latest
@@ -193,16 +172,16 @@ jobs:
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: build-output
-          path: build/
+          name: go-build
+          path: dist
 
       - name: Run the APE (linux/amd64 slot)
         run: |
           set -euo pipefail
           # The linux/amd64 slot must BE the fat APE (magic MZqFpD), not a
           # native ELF -- this is the consumer-visible contract of the migration.
-          [ "$(head -c 6 build/go-toolchain_linux_amd64)" = "MZqFpD" ]
-          cp build/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
 
@@ -266,8 +245,8 @@ jobs:
         run: |
           set -euo pipefail
           # Fresh throwaway copy: APEs self-assimilate on first exec, so never
-          # run build/ artifacts in place.
-          cp build/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-guard"
+          # run dist/ artifacts in place.
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-guard"
           chmod +x "$RUNNER_TEMP/gt-guard"
           cd "$RUNNER_TEMP/smokemod"
           # The released binaries ARE the cosmo APE, so the guard must fire in
@@ -314,21 +293,21 @@ jobs:
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: build-output
-          path: build/
+          name: go-build
+          path: dist
 
       - name: Check slot formats + run the APE
         run: |
           set -euo pipefail
           # The darwin/arm64 slot must be a NATIVE Mach-O arm64 binary (the
           # macOS carve-out), NOT the APE.
-          [ "$(head -c 4 build/go-toolchain_darwin_arm64 | xxd -p)" = "cffaedfe" ]
+          [ "$(head -c 4 dist/go-toolchain_darwin_arm64 | xxd -p)" = "cffaedfe" ]
           # The linux slots still carry the fat APE (magic MZqFpD); an APE is
           # an APE regardless of slot name -- its loader picks the arm64
           # payload at runtime -- so the linux/amd64 copy is what we execute
           # here as a throwaway.
-          [ "$(head -c 6 build/go-toolchain_linux_amd64)" = "MZqFpD" ]
-          cp build/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
 
@@ -362,10 +341,9 @@ jobs:
         run: |
           set -euo pipefail
           # Native Mach-O binaries do not self-assimilate, but run a copy
-          # anyway for symmetry with the APE smoke steps (the copy gets an
-          # explicit chmod +x regardless, so a cross-OS cache restore that
-          # loses the executable bit can never break this step).
-          cp build/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-native"
+          # anyway for symmetry with the APE smoke steps (and because
+          # download-artifact drops the executable bit either way).
+          cp dist/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-native"
           chmod +x "$RUNNER_TEMP/gt-native"
           mkdir -p "$RUNNER_TEMP/nativemod"
           cd "$RUNNER_TEMP/nativemod"
@@ -420,8 +398,8 @@ jobs:
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: build-output
-          path: build/
+          name: go-build
+          path: dist
 
       - name: Run the APE PE payload (windows/amd64 slot)
         shell: bash
@@ -429,7 +407,7 @@ jobs:
           set -euo pipefail
           # The windows/amd64 slot IS the fat APE: an APE is simultaneously a
           # valid PE, whose embedded payload is a native windows/amd64 build.
-          [ "$(head -c 6 build/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
+          [ "$(head -c 6 dist/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
           mkdir -p smoke
           cp build/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
@@ -451,33 +429,11 @@ jobs:
       id-token: write
       contents: read
     steps:
-      # Checkout first (it provides the publish script below); the hand-off
-      # download then lands build/ next to it. Order matters: checkout cleans
-      # the workspace, so downloading before it would lose build/.
-      - uses: actions/checkout@v7
-
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
           name: build-output
           path: build/
-
-      - name: Publish build/ to buildhost
-        uses: wow-look-at-my/actions@typescript#latest
-        env:
-          BUILDHOST_PUBLISH_DIR: build
-        with:
-          file: .github/scripts/buildhost-publish-local.ts
-
-  # Terminal cleanup: deletes this run's hand-off cache entries whether the
-  # run succeeded or failed, plus a 12h age sweep of leftover cache-xfer-*
-  # entries from earlier runs.
-  cache-cleanup:
-    needs: [publish]
-    if: always()
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    steps:
+        
+      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       - uses: wow-look-at-my/actions@cache-cleanup#latest
