@@ -43,10 +43,6 @@ inputs:
     description: 'Automatically publish to buildhost on every branch push (requires id-token: write permission)'
     required: false
     default: 'true'
-  cache-build:
-    description: 'Hand the build/ outputs off to later jobs in the same run via the org cache-upload action under the name go-build (an artifact-free replacement for actions/upload-artifact; cache storage is free, artifact storage is billed). Off by default. When enabled, invoke this action at most once per workflow run: the hand-off cache key is not matrix/job-disambiguated, so a second upload of the same name in one run collides and fails.'
-    required: false
-    default: 'false'
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
@@ -247,8 +243,15 @@ runs:
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
+    # Hand the build/ outputs off to later jobs in the same run via the org
+    # cache-upload action (artifact-free replacement for actions/upload-artifact;
+    # cache storage is free, artifact storage is billed). This runs on EVERY
+    # go-toolchain run, so consumers only cache-download `go-build` -- no per-repo
+    # upload step. The cache key (cache-xfer-go-build-<run_id>-<run_attempt>) is
+    # NOT matrix/job-disambiguated, so a workflow must invoke this action at most
+    # once per run; a second same-run invocation would collide on the key and
+    # fail. (go-toolchain's own ci.yml invokes it exactly once, in action-test.)
     - name: Hand off build outputs (go-build)
-      if: inputs.cache-build == 'true'
       uses: wow-look-at-my/actions@cache-upload#latest
       with:
         name: go-build

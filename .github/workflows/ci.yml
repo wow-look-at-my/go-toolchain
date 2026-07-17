@@ -142,17 +142,17 @@ jobs:
           name: host-go-toolchain
           path: build
 
+      # The go-toolchain action itself cache-uploads build/ under the name
+      # `go-build` on every run (unconditional); the smoke-linux/macos/windows
+      # and publish jobs below cache-download that same name. This is the ONLY
+      # invocation of the action in this run -- a second same-run invocation
+      # would collide on the run-scoped go-build key -- so there is no standalone
+      # upload step here.
       - uses: ./
         with:
           binary: build/go-toolchain
           targets: 'cosmo,darwin/amd64,darwin/arm64,windows/arm64'
           autorelease: 'false'
-          # Exercise the action's own central go-build hand-off end-to-end:
-          # the smoke-linux/macos/windows and publish jobs below cache-download
-          # this same `go-build` name. This replaces the standalone
-          # cache-upload step this job used to run right after the action --
-          # keeping both would upload the same key twice in one job and collide.
-          cache-build: 'true'
           # The cosmo target additionally downloads + extracts the gosmopolitan
           # toolchain and cold-compiles its stdlib; the default 10 minutes is
           # too tight for a cold runner.
