@@ -147,16 +147,16 @@ jobs:
           binary: build/go-toolchain
           targets: 'cosmo,darwin/amd64,darwin/arm64,windows/arm64'
           autorelease: 'false'
+          # Exercise the action's own central go-build hand-off end-to-end:
+          # the smoke-linux/macos/windows and publish jobs below cache-download
+          # this same `go-build` name. This replaces the standalone
+          # cache-upload step this job used to run right after the action --
+          # keeping both would upload the same key twice in one job and collide.
+          cache-build: 'true'
           # The cosmo target additionally downloads + extracts the gosmopolitan
           # toolchain and cold-compiles its stdlib; the default 10 minutes is
           # too tight for a cold runner.
           timeout: '15'
-
-      - name: Upload build outputs hand-off
-        uses: wow-look-at-my/actions@cache-upload#latest
-        with:
-          name: go-build
-          path: build/
 
   # Cross-OS smoke of the actual release artifacts: download the build-output
   # hand-off action-test uploaded (exactly what `publish` will ship) and RUN

@@ -43,6 +43,10 @@ inputs:
     description: 'Automatically publish to buildhost on every branch push (requires id-token: write permission)'
     required: false
     default: 'true'
+  cache-build:
+    description: 'Hand the build/ outputs off to later jobs in the same run via the org cache-upload action under the name go-build (an artifact-free replacement for actions/upload-artifact; cache storage is free, artifact storage is billed). Off by default. When enabled, invoke this action at most once per workflow run: the hand-off cache key is not matrix/job-disambiguated, so a second upload of the same name in one run collides and fails.'
+    required: false
+    default: 'false'
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
@@ -242,6 +246,13 @@ runs:
           ARGS="$ARGS --cgo"
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
+
+    - name: Hand off build outputs (go-build)
+      if: inputs.cache-build == 'true'
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build
+        path: ${{ inputs.working-directory }}/build
 
     - name: Analyze with CodeQL
       if: inputs.codeql == 'true'
