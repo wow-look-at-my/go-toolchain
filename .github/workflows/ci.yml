@@ -1,6 +1,6 @@
 name: CI
 
-# TODO: flip these wrapper pins back to @cache-upload#latest / @cache-download#latest once wow-look-at-my/actions#110 merges (branch tags are temporary proof-run pins)
+# TODO: flip these wrapper pins back to @cache-upload#latest / @cache-download#latest / @cache-cleanup#latest once wow-look-at-my/actions#110 merges (branch tags are temporary proof-run pins)
 
 on:
   push:
@@ -470,3 +470,16 @@ jobs:
           BUILDHOST_PUBLISH_DIR: build
         with:
           file: .github/scripts/buildhost-publish-local.ts
+
+  # Terminal cleanup: deletes this run's hand-off cache entries whether the
+  # run succeeded or failed, plus a 12h age sweep of leftover cache-xfer-*
+  # entries from earlier runs.
+  cache-cleanup:
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: wow-look-at-my/actions@cache-cleanup/claude/cache-handoff-actions#latest
