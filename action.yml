@@ -189,11 +189,9 @@ runs:
       uses: wow-look-at-my/actions@typescript#latest
       with:
         script: |
-          // Verify id-token: write via OIDC environment variables. Autorelease
-          // publishes build/ straight to buildhost with a GHA OIDC token; it
-          // no longer touches the Actions API, so 'actions: read' is not
-          // needed. On external fork PRs GitHub withholds OIDC regardless of
-          // declared permissions; skip rather than fail spuriously.
+          // Verify id-token: write via OIDC environment variables. On external
+          // fork PRs GitHub withholds OIDC regardless of declared permissions;
+          // skip rather than fail spuriously.
           const isForkPr = context.eventName === 'pull_request' &&
             (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
           if (isForkPr) {
@@ -251,15 +249,9 @@ runs:
       with:
         category: /language:go
 
+    # TODO: flip to buildhost-publish@master once wow-look-at-my/buildhost#168 merges
     - name: Auto-release to buildhost
       if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@typescript#latest
-      env:
-        # Publish the build/ directory this action just produced, straight
-        # from the consumer's workspace -- no GHA artifact round-trip. The
-        # script is a local-files port of wow-look-at-my/buildhost's
-        # buildhost-publish action (which is artifacts-API-only); same
-        # scan/grouping/create/upload/publish/retry/OIDC logic.
-        BUILDHOST_PUBLISH_DIR: ${{ inputs.working-directory }}/build
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@claude/buildhost-publish-path
       with:
-        file: ${{ github.action_path }}/.github/scripts/buildhost-publish-local.ts
+        path: ${{ inputs.working-directory }}/build

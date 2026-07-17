@@ -140,7 +140,7 @@ jobs:
         uses: wow-look-at-my/actions@cache-download#latest
         with:
           name: host-go-toolchain
-          path: build/go-toolchain
+          path: build
 
       - uses: ./
         with:
@@ -155,7 +155,7 @@ jobs:
       - name: Upload build outputs hand-off
         uses: wow-look-at-my/actions@cache-upload#latest
         with:
-          name: build-output
+          name: go-build
           path: build/
 
   # Cross-OS smoke of the actual release artifacts: download the build-output
@@ -409,7 +409,7 @@ jobs:
           # valid PE, whose embedded payload is a native windows/amd64 build.
           [ "$(head -c 6 dist/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
           mkdir -p smoke
-          cp build/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
+          cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
           ./smoke/gt-ape.exe --help
           # The full pipeline is deliberately NOT run on Windows: gobootstrap
@@ -428,12 +428,18 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      actions: write
     steps:
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: build-output
+          name: go-build
           path: build/
-        
-      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
+
+      # TODO: flip to buildhost-publish@master once wow-look-at-my/buildhost#168 merges
+      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@claude/buildhost-publish-path
+        with:
+          path: build
+
       - uses: wow-look-at-my/actions@cache-cleanup#latest
+        if: always()
