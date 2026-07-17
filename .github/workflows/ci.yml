@@ -436,8 +436,7 @@ jobs:
           name: go-build
           path: build/
 
-      # TODO: flip to buildhost-publish@master once wow-look-at-my/buildhost#168 merges
-      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@claude/buildhost-publish-path
+      - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
         with:
           path: build
 
