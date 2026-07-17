@@ -1,5 +1,7 @@
 name: CI
 
+# TODO: flip these wrapper pins back to @cache-upload#latest / @cache-download#latest once wow-look-at-my/actions#110 merges (branch tags are temporary proof-run pins)
+
 on:
   push:
 
@@ -117,7 +119,7 @@ jobs:
           cp build/go-toolchain /tmp/go-toolchain-handoff/go-toolchain
 
       - name: Upload host binary hand-off
-        uses: wow-look-at-my/actions@cache-upload#latest
+        uses: wow-look-at-my/actions@cache-upload/claude/cache-handoff-actions#latest
         with:
           name: host-binary
           path: /tmp/go-toolchain-handoff/
@@ -151,7 +153,7 @@ jobs:
       # `build`, and fails loud when no upload exists at all. The path must be
       # the identical string used on the upload side.
       - name: Download host binary hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
+        uses: wow-look-at-my/actions@cache-download/claude/cache-handoff-actions#latest
         with:
           name: host-binary
           path: /tmp/go-toolchain-handoff/
@@ -172,7 +174,7 @@ jobs:
       # hand-off (cross-OS: the wrapper archives portably so the macOS and
       # Windows smoke jobs can download an upload made on ubuntu).
       - name: Upload build outputs hand-off
-        uses: wow-look-at-my/actions@cache-upload#latest
+        uses: wow-look-at-my/actions@cache-upload/claude/cache-handoff-actions#latest
         with:
           name: build-output
           path: build/
@@ -191,7 +193,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Download build outputs hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
+        uses: wow-look-at-my/actions@cache-download/claude/cache-handoff-actions#latest
         with:
           name: build-output
           path: build/
@@ -312,7 +314,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Download build outputs hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
+        uses: wow-look-at-my/actions@cache-download/claude/cache-handoff-actions#latest
         with:
           name: build-output
           path: build/
@@ -418,7 +420,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Download build outputs hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
+        uses: wow-look-at-my/actions@cache-download/claude/cache-handoff-actions#latest
         with:
           name: build-output
           path: build/
@@ -457,7 +459,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Download build outputs hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
+        uses: wow-look-at-my/actions@cache-download/claude/cache-handoff-actions#latest
         with:
           name: build-output
           path: build/
