@@ -410,28 +410,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		_ = removeVanityReplaces(vanity)
 	}()
 
-	var modTidyStep *step
-	if !quiet {
-		modTidyStep = logStep("go mod tidy")
-	}
-	timedStderr := newTimedLineWriter(os.Stderr)
-	proc, err := runner.Cmd("go", "mod", "tidy", "-v").WithStderrWriter(timedStderr).WithOnFirstOutput(func() {
-		if modTidyStep != nil {
-			modTidyStep.noteOutput()
-		}
-	}).Run(r)
-	if err != nil {
-		return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
-	}
-	if err := proc.Wait(); err != nil {
-		if _, statErr := os.Stat("go.mod"); statErr != nil {
-			return false, nil, fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
-		}
-		return false, nil, fmt.Errorf("go mod tidy failed: %w", err)
-	}
-	timedStderr.Flush()
-	if modTidyStep != nil {
-		modTidyStep.done()
+	if err := runModTidy(r, quiet); err != nil {
+		return false, nil, err
 	}
 
 	if needsGenerate() {

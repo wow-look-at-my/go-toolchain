@@ -51,13 +51,17 @@ a cosmo build the fat APE is also copied to the per-platform artifact names
 listed in --cosmo-slots, so per-platform consumers keep working; an explicit
 native target in --targets wins over a slot copy of the same name.
 
-The WebAssembly pairs js/wasm (browser/Node.js) and wasip1/wasm (WASI) are
+The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
 also built with the gosmopolitan fork toolchain (it carries the org's wasm
-runtime fixes). Their artifacts use buildhost's publishable wasm naming
-(<name>_wasm_js, <name>_wasm_wasip1 — os=wasm with arch=js/wasip1, no file
-extension); publishing them requires a buildhost with wasm artifact support.
-Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use the excluded <name>_<goos>_wasm.wasm
-naming instead, which never reaches the buildhost publish upload set.`,
+runtime fixes); the GOOS-order spellings js/wasm and wasip1/wasm are accepted
+as compatibility aliases for the same targets, and the cartesian flags accept
+the pairing too (--os wasm combines only with --arch js/wasip1 and yields the
+identical targets). Their artifacts use
+buildhost's publishable wasm naming (<name>_wasm_js, <name>_wasm_wasip1 —
+os=wasm with arch=js/wasip1, no file extension); publishing them requires a
+buildhost with wasm artifact support. Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use
+the excluded <name>_<goos>_wasm.wasm naming instead, which never reaches the
+buildhost publish upload set.`,
 		SilenceUsage: true,
 		RunE:         runRelease,
 	}
@@ -75,7 +79,7 @@ naming instead, which never reaches the buildhost publish upload set.`,
 func addMatrixTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
 	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
-	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. js/wasm and wasip1/wasm, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
+	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. wasm/js and wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
 	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
 }
 
@@ -190,13 +194,28 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	}
 	defer cleanupMemLimitGuards()
 
-	// Resolve what to build
-	targets, err := build.ResolveBuildTargets(r)
+	// Resolve what to build. hostTargets — main packages under the HOST build
+	// context — drive the legacy --os/--arch product (unchanged behavior),
+	// the cosmo fat APE (which embeds payloads for several native platforms,
+	// so the host set is the sanest approximation), cosmo slot mapping, and
+	// the host convenience symlinks. Explicit --targets entries additionally
+	// get main-package discovery under their OWN GOOS/GOARCH context (see
+	// resolvePlatformTargets), so a main guarded "//go:build js && wasm" is
+	// built for js/wasm targets and never attempted for native ones. This
+	// runs AFTER guard injection, which is safe because discovery skips the
+	// guard file by name (gomod.MemLimitGuardFileName) — an unconstrained
+	// guard in a host-only main dir cannot leak that dir into another
+	// target's main set.
+	hostTargets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err
 	}
 
-	if len(targets) == 0 {
+	platformTargets, anyMains, err := resolvePlatformTargets(platforms, hostTargets)
+	if err != nil {
+		return err
+	}
+	if !anyMains {
 		return fmt.Errorf("no main packages found to build")
 	}
 
@@ -208,7 +227,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	// Build job queue - one job per platform per main package
 	var jobs []buildJob
 	for _, p := range platforms {
-		for _, target := range targets {
+		for _, target := range platformTargets[p] {
 			outputName := build.BinaryName(target.OutputName, p.OS, p.Arch)
 			if p.IsWasm() {
 				// Publishable buildhost naming by default; the excluded
@@ -318,7 +337,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 				nativeBuilt[filepath.Base(job.outputPath)] = true
 			}
 		}
-		copied, replacedFat, err := copyCosmoSlots(targets, outputDir, slotPlatforms, nativeBuilt, os.Getenv("CI") != "")
+		copied, replacedFat, err := copyCosmoSlots(hostTargets, outputDir, slotPlatforms, nativeBuilt, os.Getenv("CI") != "")
 		if err != nil {
 			return err
 		}
@@ -352,6 +371,22 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		}
 	}
 
+	// Consumers of a js/wasm artifact need the EXACT wasm_exec.js of the
+	// toolchain that built it. Ship the fork's copy next to the artifact:
+	// covered by checksums.txt and the CI artifact, but outside the buildhost
+	// publish set — "wasm_exec.js" cannot match the publish action's
+	// <binary>_{os}_{arch} filename pattern (pinned by
+	// TestWasmArtifactNamesInBuildhostPublishSet). Best-effort: a fork
+	// GOROOT without lib/wasm only warns.
+	if forkGoroot != "" && slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
+		if dst, err := copyWasmExecJS(forkGoroot, outputDir); err != nil {
+			logger.Warn("⇒ Warning: could not copy wasm_exec.js from the fork toolchain: %v (browser/Node consumers must take lib/wasm/wasm_exec.js from the matching toolchain themselves)", err)
+		} else {
+			logger.Info("  COPY wasm_exec.js <- %s", filepath.Join(forkGoroot, "lib", "wasm"))
+			builtFiles = append(builtFiles, dst)
+		}
+	}
+
 	// Generate SHA-256 checksums for release artifacts
 	if len(builtFiles) > 0 {
 		if _, err := generateChecksums(outputDir, builtFiles); err != nil {
@@ -363,7 +398,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	// are pointless (nothing consumes them) and harmful: upload-artifact
 	// dereferences symlinks, bloating the artifact with full duplicate copies.
 	if os.Getenv("CI") == "" {
-		if err := createHostSymlinks(targets, outputDir); err != nil {
+		if err := createHostSymlinks(hostTargets, outputDir); err != nil {
 			return err
 		}
 	}
