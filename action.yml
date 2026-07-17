@@ -243,6 +243,20 @@ runs:
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
+    # Hand the build/ outputs off to later jobs in the same run via the org
+    # cache-upload action (artifact-free replacement for actions/upload-artifact;
+    # cache storage is free, artifact storage is billed). This runs on EVERY
+    # go-toolchain run, so consumers only cache-download `go-build` -- no per-repo
+    # upload step. The cache key (cache-xfer-go-build-<run_id>-<run_attempt>) is
+    # NOT matrix/job-disambiguated, so a workflow must invoke this action at most
+    # once per run; a second same-run invocation would collide on the key and
+    # fail. (go-toolchain's own ci.yml invokes it exactly once, in action-test.)
+    - name: Hand off build outputs (go-build)
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build
+        path: ${{ inputs.working-directory }}/build
+
     - name: Analyze with CodeQL
       if: inputs.codeql == 'true'
       uses: github/codeql-action/analyze@v4
