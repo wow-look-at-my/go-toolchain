@@ -159,6 +159,96 @@ jobs:
           # too tight for a cold runner.
           timeout: '15'
 
+  # Regression guard for the hand-off 409 race: a SECOND concurrent invocation
+  # of the local composite action in the same workflow run, driving the full
+  # pipeline in a tiny throwaway module. Two same-run invocations used to
+  # collide on the shared hand-off key
+  # `cache-xfer-go-build-<run_id>-<run_attempt>` -- the action ends every run
+  # with an unconditional cache-upload save, so the second finisher
+  # deterministically failed its save with a 409 Conflict (fixed in PR #311 by
+  # the per-job name `go-build-<job id>`). This job plus action-test keep that
+  # two-invocation topology in every run, so a regression back to a shared key
+  # fails loudly. Nothing downloads the `go-build-action-race-probe` hand-off
+  # this job saves -- the save succeeding alongside action-test's IS the
+  # assertion (publish's cache-cleanup step sweeps it with the run's other
+  # cache-xfer-* entries).
+  action-race-probe:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download host binary
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: host-go-toolchain
+          path: build
+
+      - name: Create the probe module
+        run: |
+          set -euo pipefail
+          # The module lives inside the checkout (the action's working-directory
+          # input points at it), so hide it from git first: the pipeline's
+          # checkDirtyInCI gate fails on ANY untracked file when CI is set. The
+          # clone-local exclude file keeps the tree clean without touching
+          # committed state (the same mechanism go-toolchain itself uses for
+          # its transient GOMEMLIMIT guard).
+          exclude_file="$(git rev-parse --git-path info/exclude)"
+          mkdir -p "$(dirname "$exclude_file")"
+          echo "probemod/" >> "$exclude_file"
+          # Module content copied from smoke-linux's proven tiny module: it
+          # passes the full pipeline, coverage gate included.
+          mkdir -p probemod
+          cd probemod
+          cat > go.mod <<'EOF'
+          module example.com/apesmoke
+
+          go 1.24
+
+          require github.com/stretchr/testify v1.11.1
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used by the action-race-probe job:
+          // the full go-toolchain pipeline (tidy/vet/test/build) must pass when
+          // the local composite action drives it concurrently with the
+          // action-test job's invocation in the same workflow run.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("cosmo"))
+          }
+          EOF
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("cosmo")
+          	require.Equal(t, "hello, cosmo", got)
+          }
+          EOF
+
+      # Host-native target only: the cheapest valid pipeline that still ends in
+      # the unconditional hand-off save this job exists to race.
+      - uses: ./
+        with:
+          binary: build/go-toolchain
+          working-directory: probemod
+          targets: 'linux/amd64'
+          autorelease: 'false'
+
   # Cross-OS smoke of the actual release artifacts: download the build-output
   # hand-off action-test uploaded (exactly what `publish` will ship) and RUN
   # the APE on each host OS. APEs self-assimilate on first exec -- they
