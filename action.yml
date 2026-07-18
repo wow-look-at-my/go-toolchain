@@ -63,6 +63,9 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Refuse jobs named all-builds
+      uses: wow-look-at-my/actions@no-all-builds-job#latest
+
     - uses: wow-look-at-my/actions@secret-server#latest
 
     - name: Configure git for private repos
