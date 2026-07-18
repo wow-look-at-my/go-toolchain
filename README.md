@@ -78,6 +78,31 @@ To opt out, pass `codeql: 'false'`.
 | `wait-ci`           | string   | `false`    | Wait for the latest go-toolchain CI run before downloading the release binary |
 | `codeql`            | string   | `true`     | Run CodeQL `security-and-quality` analysis around the build (see prerequisites above) |
 
+### Build-output hand-off
+
+Every action run ends by handing the `build/` outputs off to later jobs in the
+same workflow run via `wow-look-at-my/actions@cache-upload#latest`. The
+authoritative hand-off name is `go-build-<job id>` (cache key
+`cache-xfer-go-build-<job>-<run_id>-<run_attempt>`) -- distinct per calling
+job, so two concurrent go-toolchain jobs in one run cannot collide on a shared
+key. Downstream jobs must download the name of the specific uploader job:
+
+```yaml
+- uses: wow-look-at-my/actions@cache-download#latest
+  with:
+    name: go-build-linux   # go-build-<uploader job id>
+    path: dist
+```
+
+A deprecated bare `go-build` alias is still saved on every run (tolerated,
+non-authoritative; a `::notice` deprecation annotation accompanies it) for the
+consumers that currently download that name -- webhook-runner, buildhost,
+api-cli, github-state-mirror and the publish-ghcr.yml callers. In runs with
+more than one go-toolchain job the bare key is inherently racy (first finisher
+wins; the second save's conflict is absorbed, never the job's failure), so
+migrate downloads to `go-build-<uploader job id>`. Proposed alias removal
+after 2026-08-01, once the named consumers have migrated.
+
 ## CLI Usage
 
 ```bash

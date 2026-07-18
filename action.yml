@@ -260,6 +260,25 @@ runs:
         name: go-build-${{ github.job }}
         path: ${{ inputs.working-directory }}/build
 
+    - name: Deprecation notice (legacy go-build alias)
+      shell: bash
+      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
+
+    # Legacy alias: single-producer consumers (webhook-runner, buildhost,
+    # api-cli, github-state-mirror, publish-ghcr callers) download the bare
+    # name go-build; keep saving it until they migrate to
+    # go-build-<uploader job id>. In multi-producer runs this bare key is
+    # inherently racy (the second save hits an existing entry), so this step
+    # tolerates failure instead of failing the job -- the collision-free
+    # per-job hand-off above is the authoritative one. Remove this step once
+    # the named consumers migrate.
+    - name: Hand off build outputs (legacy go-build alias)
+      continue-on-error: true
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build
+        path: ${{ inputs.working-directory }}/build
+
     - name: Analyze with CodeQL
       if: inputs.codeql == 'true'
       uses: github/codeql-action/analyze@v4

@@ -171,7 +171,11 @@ jobs:
   # fails loudly. Nothing downloads the `go-build-action-race-probe` hand-off
   # this job saves -- the save succeeding alongside action-test's IS the
   # assertion (publish's cache-cleanup step sweeps it with the run's other
-  # cache-xfer-* entries).
+  # cache-xfer-* entries). The topology does double duty: the per-job saves
+  # staying distinct proves the 409 fix, and action-test and this job BOTH
+  # also save the deprecated legacy `go-build` alias, so the second finisher
+  # shows a tolerated failed alias step every run -- expected, it exercises
+  # the alias tolerance.
   action-race-probe:
     needs: build
     runs-on: ubuntu-latest
