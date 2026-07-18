@@ -246,12 +246,38 @@ runs:
     # Hand the build/ outputs off to later jobs in the same run via the org
     # cache-upload action (artifact-free replacement for actions/upload-artifact;
     # cache storage is free, artifact storage is billed). This runs on EVERY
-    # go-toolchain run, so consumers only cache-download `go-build` -- no per-repo
-    # upload step. The cache key (cache-xfer-go-build-<run_id>-<run_attempt>) is
-    # NOT matrix/job-disambiguated, so a workflow must invoke this action at most
-    # once per run; a second same-run invocation would collide on the key and
-    # fail. (go-toolchain's own ci.yml invokes it exactly once, in action-test.)
-    - name: Hand off build outputs (go-build)
+    # go-toolchain run. The name carries the calling job's id, so the cache key
+    # (cache-xfer-go-build-<job>-<run_id>-<run_attempt>) is distinct per job and
+    # concurrent jobs in one run (the standard linux + darwin pattern) can no
+    # longer collide -- the old shared `go-build` name made the second finisher
+    # fail its save with a 409 Conflict. Downstream jobs cache-download with
+    # NO name (nameless self-discovery of the current run's hand-off -- the
+    # preferred mode when the run saves only one hand-off; no need to know the
+    # producing job's id), or with an explicit `go-build-<uploader job id>`
+    # (e.g. go-build-linux) when the run carries several hand-offs and
+    # discovery would be ambiguous. Note github.job is the job id and does NOT
+    # distinguish matrix legs, so a single job's matrix legs still must not
+    # invoke this action more than once per run.
+    - name: Hand off build outputs (go-build-<job>)
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build-${{ github.job }}
+        path: ${{ inputs.working-directory }}/build
+
+    - name: Deprecation notice (legacy go-build alias)
+      shell: bash
+      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
+
+    # Legacy alias: single-producer consumers (webhook-runner, buildhost,
+    # api-cli, github-state-mirror, publish-ghcr callers) download the bare
+    # name go-build; keep saving it until they migrate to
+    # go-build-<uploader job id>. In multi-producer runs this bare key is
+    # inherently racy (the second save hits an existing entry), so this step
+    # tolerates failure instead of failing the job -- the collision-free
+    # per-job hand-off above is the authoritative one. Remove this step once
+    # the named consumers migrate.
+    - name: Hand off build outputs (legacy go-build alias)
+      continue-on-error: true
       uses: wow-look-at-my/actions@cache-upload#latest
       with:
         name: go-build
