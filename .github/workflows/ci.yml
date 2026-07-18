@@ -9,7 +9,7 @@ permissions:
   security-events: write
 
 jobs:
-  build:
+  host-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -86,8 +86,8 @@ jobs:
         # build/ in THIS job is the host-built native linux/amd64 binary from
         # `go run ./src` above -- never the cosmo APE -- so executing it here is
         # safe (APEs self-assimilate on exec; the APE artifacts are built in
-        # action-test and only ever executed as throwaway copies in the smoke
-        # jobs below).
+        # the `build` job and only ever executed as throwaway copies in the
+        # smoke jobs below).
         env:
           # The second build re-invokes go-toolchain, which also submits the
           # dependency snapshot; give it the same token so it succeeds rather
@@ -126,8 +126,8 @@ jobs:
   # job below is the single publish path, gated on the three smoke jobs that
   # actually EXECUTE the APE artifacts on linux, macOS and Windows runners --
   # a broken APE can fail loudly but can never be released.
-  action-test:
-    needs: build
+  build:
+    needs: host-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -136,12 +136,23 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
+      # Nameless download: cache-download self-discovers the current run's
+      # hand-off (host-go-toolchain is the only one saved at this point --
+      # the go-build-* hand-offs from the `./` action step below don't exist
+      # yet) and emits a ::notice naming what it picked. No need to know the
+      # producing job's hand-off name here.
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: host-go-toolchain
           path: build
 
+      # The go-toolchain action itself cache-uploads build/ under the per-job
+      # name `go-build-<job id>` on every run (unconditional) -- here that is
+      # `go-build-build`, which the smoke-linux/macos/windows and publish
+      # jobs below cache-download. The job id in the name keeps concurrent
+      # same-run invocations (in other repos: the linux + darwin two-job
+      # pattern) from colliding on one run-scoped key; there is no standalone
+      # upload step here.
       - uses: ./
         with:
           binary: build/go-toolchain
@@ -152,27 +163,26 @@ jobs:
           # too tight for a cold runner.
           timeout: '15'
 
-      - name: Upload build outputs hand-off
-        uses: wow-look-at-my/actions@cache-upload#latest
-        with:
-          name: go-build
-          path: build/
-
   # Cross-OS smoke of the actual release artifacts: download the build-output
-  # hand-off action-test uploaded (exactly what `publish` will ship) and RUN
+  # hand-off the `build` job uploaded (exactly what `publish` will ship) and RUN
   # the APE on each host OS. APEs self-assimilate on first exec -- they
   # rewrite their own header in place to the host's native format -- so every
   # job runs a throwaway copy, never the downloaded file itself. These jobs
   # have no checkout, so build/ lands in an otherwise empty workspace.
   smoke-linux:
-    needs: action-test
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Explicit name on purpose: by this point the run holds SEVERAL
+      # hand-offs (host-go-toolchain from host-build, the per-job
+      # go-build-build, and the deprecated bare go-build alias), so a
+      # nameless self-discovering download would be ambiguous here. Same
+      # for smoke-macos/smoke-windows/publish below.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build
+          name: go-build-build
           path: dist
 
       - name: Run the APE (linux/amd64 slot)
@@ -190,7 +200,7 @@ jobs:
           # The smoke module is a synthetic consumer WITHOUT the org cache
           # credentials (no secret-server step here on purpose); this documented
           # knob downgrades the in-CI "caching not configured" error to a
-          # warning. The repo's own build/action-test jobs keep the shared cache.
+          # warning. The repo's own host-build/build jobs keep the shared cache.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
@@ -286,14 +296,15 @@ jobs:
   #    working for the surface it still serves, and guards the day the fork
   #    fix restores the darwin/arm64 APE slot.
   smoke-macos:
-    needs: action-test
+    needs: build
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build
+          name: go-build-build
           path: dist
 
       - name: Check slot formats + run the APE
@@ -391,14 +402,15 @@ jobs:
           "$RUNNER_TEMP/gt-native"
 
   smoke-windows:
-    needs: action-test
+    needs: build
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build
+          name: go-build-build
           path: dist
 
       - name: Run the APE PE payload (windows/amd64 slot)
@@ -430,10 +442,11 @@ jobs:
       contents: read
       actions: write
     steps:
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build
+          name: go-build-build
           path: build/
 
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
