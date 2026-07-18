@@ -136,10 +136,14 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
+      # Nameless download: cache-download self-discovers the current run's
+      # hand-off (host-go-toolchain is the only one saved at this point --
+      # the go-build-* hand-offs from the `./` action step below don't exist
+      # yet) and emits a ::notice naming what it picked. No need to know the
+      # producing job's hand-off name here.
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: host-go-toolchain
           path: build
 
       # The go-toolchain action itself cache-uploads build/ under the per-job
@@ -170,6 +174,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Explicit name on purpose: by this point the run holds SEVERAL
+      # hand-offs (host-go-toolchain from host-build, the per-job
+      # go-build-build, and the deprecated bare go-build alias), so a
+      # nameless self-discovering download would be ambiguous here. Same
+      # for smoke-macos/smoke-windows/publish below.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -291,6 +300,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -396,6 +406,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -431,6 +442,7 @@ jobs:
       contents: read
       actions: write
     steps:
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:

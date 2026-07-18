@@ -85,7 +85,25 @@ same workflow run via `wow-look-at-my/actions@cache-upload#latest`. The
 authoritative hand-off name is `go-build-<job id>` (cache key
 `cache-xfer-go-build-<job>-<run_id>-<run_attempt>`) -- distinct per calling
 job, so two concurrent go-toolchain jobs in one run cannot collide on a shared
-key. Downstream jobs must download the name of the specific uploader job:
+key. Downstream jobs download it nameless: `cache-download` with no `name`
+self-discovers the current run's hand-off via the run-scoped key prefix and
+emits a `::notice` naming what it picked, so consumers never need to know the
+producing job's id:
+
+```yaml
+- uses: wow-look-at-my/actions@cache-download#latest
+  with:
+    path: dist   # no name: self-discovers this run's hand-off
+```
+
+Nameless discovery is only clean when the run's hand-off set is unambiguous
+at download time (exact ambiguity semantics are the `cache-download`
+action's -- see its docs; note the deprecated bare `go-build` alias below is
+itself a second saved name until it is removed). If a run saves several
+distinct hand-offs (multiple go-toolchain jobs, or extra `cache-upload`
+hand-offs alongside the build outputs -- this repo's own CI is such a case),
+keep an explicit `name: go-build-<uploader job id>` for exactly those
+downloads:
 
 ```yaml
 - uses: wow-look-at-my/actions@cache-download#latest
@@ -100,8 +118,11 @@ consumers that currently download that name -- webhook-runner, buildhost,
 api-cli, github-state-mirror and the publish-ghcr.yml callers. In runs with
 more than one go-toolchain job the bare key is inherently racy (first finisher
 wins; the second save's conflict is absorbed, never the job's failure), so
-migrate downloads to `go-build-<uploader job id>`. Proposed alias removal
-after 2026-08-01, once the named consumers have migrated.
+migrate downloads to nameless self-discovery (or, where ambiguous, the
+explicit `go-build-<uploader job id>`). For consumers that go nameless the
+alias question mostly dissolves -- they stop referencing any hand-off name at
+all. Proposed alias removal after 2026-08-01, once the named consumers have
+migrated.
 
 ## CLI Usage
 
