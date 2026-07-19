@@ -42,6 +42,8 @@ permissions:
   contents: write
   id-token: write          # required for secret-server and buildhost autorelease (OIDC)
   security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
+  actions: read            # lets the all-builds guard verify via the API too (its workflow-file scan runs regardless)
+  checks: read
 
 jobs:
   build:
@@ -51,7 +53,7 @@ jobs:
       - uses: wow-look-at-my/go-toolchain@v1
 ```
 
-The action handles everything: fetching secrets, configuring the Go proxy, private repo access, web build cache, running `go-toolchain matrix`, and a CodeQL `security-and-quality` analysis around the build.
+The action handles everything: refusing to proceed if any job in the workflow is named `all-builds` (that name shadows the org's required all-builds gate; rename the job), fetching secrets, configuring the Go proxy, private repo access, web build cache, running `go-toolchain matrix`, and a CodeQL `security-and-quality` analysis around the build.
 
 **CodeQL prerequisites** (the action runs CodeQL by default):
 
