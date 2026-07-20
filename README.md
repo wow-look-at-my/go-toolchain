@@ -43,8 +43,8 @@ permissions:
   contents: write          # required for dependency-graph submission — a 403 from the API fails the build
   id-token: write          # required for secret-server and buildhost autorelease (OIDC)
   security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
-  actions: read            # lets the all-builds guard verify via the API too (its workflow-file scan runs regardless)
-  checks: read
+  actions: read            # required: the all-builds guard scans the run's jobs and fails closed without it
+  checks: read             # required: same guard, the head commit's check runs (see guard note below)
 
 jobs:
   build:
@@ -55,6 +55,8 @@ jobs:
 ```
 
 The action handles everything: refusing to proceed if any job in the workflow is named `all-builds` (that name shadows the org's required all-builds gate; rename the job), fetching secrets, configuring the Go proxy, private repo access, web build cache, running `go-toolchain matrix`, and a CodeQL `security-and-quality` analysis around the build.
+
+**All-builds guard permissions**: since `no-all-builds-job#3` (2026-07-20) the guard scans the run's jobs (Actions API) and the head commit's check runs (Checks API) and **fails closed** when it cannot scan, so the workflow token must grant `actions: read` + `checks: read` as in the block above. Private repos hard-fail without them ("Resource not accessible by integration"); public repos happen to pass scope-less, but keep the block complete.
 
 **CodeQL prerequisites** (the action runs CodeQL by default):
 
