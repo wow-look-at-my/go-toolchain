@@ -7,13 +7,6 @@ permissions:
   contents: write
   id-token: write
   security-events: write
-  # actions/checks read: the org no-all-builds-job guard (the first step of
-  # this repo's own composite action, which the `build` job runs via
-  # `uses: ./`) scans the run's jobs and the head commit's check runs since
-  # no-all-builds-job#3 (2026-07-20), and FAILS CLOSED when it cannot scan
-  # ("Resource not accessible by integration"). This repo is public, so
-  # scope-less reads happen to pass -- the explicit grant keeps this workflow
-  # matching the documented consumer block and survives a visibility change.
   actions: read
   checks: read
 

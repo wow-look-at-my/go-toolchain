@@ -63,11 +63,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # Since no-all-builds-job#3 (2026-07-20) the guard scans this run's jobs
-    # (Actions API) and the head commit's check runs (Checks API) and FAILS
-    # CLOSED when it cannot scan: the calling workflow's token must grant
-    # `actions: read` + `checks: read` (private repos 403 without them;
-    # public-repo reads pass scope-less). See the README permissions block.
     - name: Refuse jobs named all-builds
       uses: wow-look-at-my/actions@no-all-builds-job#latest
 
