@@ -203,18 +203,6 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	return srv.Run(os.Stdin, os.Stdout)
 }
 
-// daemonSockUnlessNamespaced returns the cache daemon socket this cacheprog
-// should proxy to, or "" when it must run standalone: either no daemon is
-// running, or a cache key namespace is active — the daemon is shared with
-// unnamespaced clients and its byte-pipe proxy cannot carry a namespace, so a
-// namespaced client proxying to it would bypass the namespace entirely.
-func daemonSockUnlessNamespaced(namespace string) string {
-	if namespace != "" {
-		return ""
-	}
-	return os.Getenv("GOCACHE_DAEMON_SOCK")
-}
-
 // GoFeature represents a Go toolchain feature with a minimum version requirement.
 type GoFeature struct {
 	Name         string

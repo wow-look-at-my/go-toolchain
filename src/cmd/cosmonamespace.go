@@ -110,3 +110,16 @@ func hashFrame(h io.Writer, name string, data []byte) {
 	io.WriteString(h, "\x00")
 	h.Write(data)
 }
+
+// daemonSockUnlessNamespaced returns the cache daemon socket a cacheprog
+// should proxy to, or "" when it must run standalone: either no daemon is
+// running, or a cache key namespace is active — the daemon is shared with
+// unnamespaced clients and its byte-pipe proxy cannot carry a namespace, so a
+// namespaced client proxying to it would bypass the namespace entirely.
+// Consumed by runCacheProg (cacheprog.go).
+func daemonSockUnlessNamespaced(namespace string) string {
+	if namespace != "" {
+		return ""
+	}
+	return os.Getenv("GOCACHE_DAEMON_SOCK")
+}
