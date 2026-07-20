@@ -6,6 +6,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 - **Coverage enforcement** — fails the build if test coverage drops below 80%; emits a `::error::` workflow annotation in GitHub Actions so the failure is tagged in the run UI
 - **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
+- **Warnings budget** — fails the build when a run emits more than 15 warnings; the check runs at the end of the pipeline, so every warning is still printed first
 - **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
 - **Benchmarks** — benchmarks run automatically after builds; compare against previous results stored in git notes
 - **Near-duplicate detection** — scans Go source for structurally similar functions using AST comparison
@@ -610,6 +611,7 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts
 18. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
 19. Emits the per-action build profile once the cache daemon has drained: the console section, `build/profile.json` (+ `$TMPDIR/go-toolchain-profile/profile.json`), per-action Chrome-trace lanes, and a Step Summary table (see [Build profile](#build-profile); skipped with `--no-profile`)
+20. Fails the run if it emitted more than 15 warnings (`build failed: N warnings emitted (threshold: 15)`) — checked last, so every warning is printed before the failure; the same gate applies to `matrix`
 
 ## Development
 

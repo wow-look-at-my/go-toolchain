@@ -220,6 +220,15 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	os.Chdir(startDir)
+
+	// Warnings budget: fail the run — after every phase has completed and
+	// every warning has been printed — when it emitted more than maxWarnings
+	// warnings. Before saveFingerprint, so a gate-failed run is not stamped
+	// up-to-date (the next run must not fast-exit past the failure).
+	if err := checkWarningsGate(); err != nil {
+		return err
+	}
+
 	saveFingerprint(r)
 	return nil
 }
