@@ -416,12 +416,9 @@ jobs:
       # The `--help` invocation below runs go-toolchain's go-bootstrap, which
       # needs SOME host go: it cannot self-provision on Windows (go.dev ships
       # windows archives as .zip, not the .tar.gz gobootstrap downloads) and
-      # this job has no checkout, so there is no go.mod fallback either. The
-      # job used to lean on the runner image's preinstalled Go, but on
-      # 2026-07-20 windows-2025-vs2026 VMs started coming up WITHOUT Go on
-      # PATH (same image version 20260714.173.1 green at 08:21Z with Go at
-      # C:\hostedtoolcache, red at 11:11Z/11:15Z across two regions without
-      # it), so provision Go explicitly. No go-version-file: no checkout.
+      # this job has no checkout, so there is no go.mod fallback either.
+      # Provision Go explicitly instead of leaning on the runner image's
+      # default PATH state. No go-version-file: no checkout.
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
@@ -436,6 +433,16 @@ jobs:
           [ "$(head -c 6 dist/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
           mkdir -p smoke
           cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
+          # Host-go visibility diagnostic (2026-07-20): --help's go-bootstrap
+          # reported LookPath("go") failure on windows in v211-built APEs
+          # while the same APE's linux leg finds go fine. Print what BASH
+          # sees so a failure attributes cleanly: bash sees go + the APE
+          # does not = the APE's NT-side LookPath/PATH walk; bash does not
+          # see go = runner PATH plumbing (image default or GITHUB_PATH
+          # injection) lost it.
+          echo "DIAG PATH=$PATH"
+          command -v go || echo "DIAG: bash does not see go on PATH"
+          go version || echo "DIAG: go not runnable from bash"
           ./smoke/gt-ape.exe version
           ./smoke/gt-ape.exe --help
           # The full pipeline is deliberately NOT run on Windows: gobootstrap
