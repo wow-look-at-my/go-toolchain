@@ -141,7 +141,7 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 		token = os.Getenv("GH_TOKEN")
 	}
 	if token == "" {
-		return fmt.Errorf("GITHUB_TOKEN or GH_TOKEN required")
+		return fmt.Errorf("GITHUB_TOKEN or GH_TOKEN required — in GitHub Actions pass GITHUB_TOKEN: ${{ github.token }} in the step's env (the go-toolchain action does this automatically)")
 	}
 
 	repo := os.Getenv("GITHUB_REPOSITORY")
@@ -171,6 +171,9 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 
 	if resp.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusForbidden {
+			return fmt.Errorf("dependency submission failed (HTTP %d): %s — the workflow token lacks contents: write; add \"permissions: contents: write\" to the calling workflow job", resp.StatusCode, string(respBody))
+		}
 		return fmt.Errorf("dependency submission failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
 
@@ -182,19 +185,28 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 	return nil
 }
 
+// depSubmissionDisabled reports whether GO_TOOLCHAIN_NO_DEP_SUBMISSION=1
+// disables dependency-graph submission. The supported opt-out for pipelines
+// that run in CI without a usable GitHub token (e.g. this repo's own smoke
+// jobs, which drive the full pipeline inside synthetic throwaway modules),
+// now that a failed submission fails the build.
+func depSubmissionDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION") == "1" }
+
 // maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions.
-// Errors are logged but don't fail the build.
-func maybeSubmitDeps() {
+// A failed snapshot or submission fails the build; opt out entirely with
+// GO_TOOLCHAIN_NO_DEP_SUBMISSION=1.
+func maybeSubmitDeps() error {
+	if depSubmissionDisabled() {
+		logger.Debug("=> Dependency submission disabled (GO_TOOLCHAIN_NO_DEP_SUBMISSION=1)")
+		return nil
+	}
 	if os.Getenv("CI") == "" || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GITHUB_SHA") == "" {
-		return
+		return nil
 	}
 
 	snapshot, err := buildDepSnapshot()
 	if err != nil {
-		logger.Warn("=> Warning: dependency snapshot failed: %v", err)
-		return
+		return fmt.Errorf("dependency snapshot failed: %w", err)
 	}
-	if err := postDepSnapshot(snapshot); err != nil {
-		logger.Warn("=> Warning: dependency submission failed: %v", err)
-	}
+	return postDepSnapshot(snapshot)
 }
