@@ -47,7 +47,7 @@ func needsGo() bool {
 			return true
 		}
 		switch arg {
-		case "version", "cacheprog", "--help", "-h", "help":
+		case "version", "cacheprog":
 			return false
 		}
 	}
