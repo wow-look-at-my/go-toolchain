@@ -109,6 +109,8 @@ func TestPostDepSnapshot_MissingToken(t *testing.T) {
 	err := postDepSnapshot(&depSnapshot{})
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "GITHUB_TOKEN")
+	// The error must tell the user how to wire the token up.
+	assert.Contains(t, err.Error(), "github.token")
 }
 
 func TestPostDepSnapshot_MissingRepo(t *testing.T) {
@@ -202,22 +204,127 @@ func TestPostDepSnapshot_APIError(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "HTTP 403")
 	assert.Contains(t, err.Error(), "Resource not accessible")
+	// 403 means the token lacks the required permission; the error must say
+	// which one and how to grant it.
+	assert.Contains(t, err.Error(), "contents: write")
+}
+
+func TestPostDepSnapshot_APIErrorNon403(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"message":"boom"}`))
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+
+	err := postDepSnapshot(&depSnapshot{Manifests: map[string]depManifest{}})
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "HTTP 500")
+	assert.Contains(t, err.Error(), "boom")
+	// The permissions guidance is 403-specific.
+	assert.NotContains(t, err.Error(), "contents: write")
 }
 
 func TestMaybeSubmitDeps_NotCI(t *testing.T) {
 	t.Setenv("CI", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoRepo(t *testing.T) {
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoSHA(t *testing.T) {
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
+}
+
+func TestMaybeSubmitDeps_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	t.Setenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION", "")
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	require.Nil(t, maybeSubmitDeps())
+}
+
+func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	t.Setenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION", "")
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	err := maybeSubmitDeps()
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "HTTP 403")
+	assert.Contains(t, err.Error(), "contents: write")
+}
+
+func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	t.Setenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION", "")
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+
+	err := maybeSubmitDeps()
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "dependency snapshot failed")
+}
+
+func TestMaybeSubmitDeps_OptOut(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	t.Setenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION", "1")
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	require.Nil(t, maybeSubmitDeps())
+	assert.Equal(t, 0, requests)
 }

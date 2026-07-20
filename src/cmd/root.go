@@ -190,7 +190,9 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	maybeSubmitDeps()
+	if err := maybeSubmitDeps(); err != nil {
+		return err
+	}
 
 	// Populate timeline data for Gantt chart
 	if tl := GetTimeline(); tl != nil {
