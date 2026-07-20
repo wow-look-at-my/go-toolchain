@@ -130,7 +130,11 @@ func runRelease(cmd *cobra.Command, args []string) error {
 			logger.Warn("⇒ Warning: failed to export traces: %v", err)
 		}
 	}
-	return nil
+
+	// Warnings budget: fail the run — after every phase has completed and
+	// every warning has been printed — when it emitted more than maxWarnings
+	// warnings (same gate as the default pipeline).
+	return checkWarningsGate()
 }
 
 func runReleaseWithRunner(r runner.CommandRunner) error {
