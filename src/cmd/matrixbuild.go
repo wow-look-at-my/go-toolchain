@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/profile"
@@ -53,6 +54,13 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 // called when the compiler produces its first output (used for progress
 // indicators on the default build path).
 func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
+	// Last-chokepoint guard: a fork-toolchain job MUST carry a cache
+	// namespace (see buildJob.cacheNamespace). Refusing to build here means a
+	// future call site that forgets to fingerprint the toolchain fails loudly
+	// instead of silently re-opening cross-toolchain cache poisoning.
+	if job.forkGoroot != "" && job.cacheNamespace == "" {
+		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
+	}
 	args := []string{"build"}
 	// Dump the action graph for the build profile (one file per invocation;
 	// matrix targets each get their own). No-op when profiling is off.
@@ -78,24 +86,33 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		// fork's default and the job's pseudo-arch "fat" is a naming artifact,
 		// not a GOARCH. GOCOSMOFAT is cleared too so an inherited =0 cannot
 		// silently produce a thin binary that the slot copies would mislabel.
-		// CGO_ENABLED=0 always: cosmopolitan has no cgo.
+		// CGO_ENABLED=0 always: cosmopolitan has no cgo. The cache namespace
+		// keys this build's cacheprog to THIS toolchain's content (its
+		// cacheprog then skips the shared daemon and namespaces every key —
+		// see cache.KeyNamespaceEnv), because the fork's constant version
+		// stamp would otherwise collide its action IDs with every other fork
+		// toolchain build's.
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").
 			WithEnv("GOTOOLCHAIN", "local").
 			WithEnv("GOROOT", job.forkGoroot).
 			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
-			WithEnv("CGO_ENABLED", "0")
+			WithEnv("CGO_ENABLED", "0").
+			WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
 	case job.forkGoroot != "":
 		// Wasm build (js/wasm or wasip1/wasm) via the gosmopolitan toolchain.
 		// The fork DEFAULTS to GOOS=cosmo, so GOOS and GOARCH are always
-		// pinned explicitly. CGO_ENABLED=0 always: wasm has no cgo.
+		// pinned explicitly. CGO_ENABLED=0 always: wasm has no cgo. The cache
+		// namespace: same fork, same constant-version action-ID collisions,
+		// same isolation (see the cosmo case above).
 		cmd = cmd.WithEnv("GOOS", job.goos).
 			WithEnv("GOARCH", job.goarch).
 			WithEnv("GOTOOLCHAIN", "local").
 			WithEnv("GOROOT", job.forkGoroot).
 			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
-			WithEnv("CGO_ENABLED", "0")
+			WithEnv("CGO_ENABLED", "0").
+			WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
 	default:
 		if job.goos != "" {
 			cmd = cmd.WithEnv("GOOS", job.goos)

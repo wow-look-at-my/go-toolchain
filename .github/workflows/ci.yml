@@ -416,19 +416,6 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      # `--help` runs the go-bootstrap PATH probe, and on windows gobootstrap
-      # cannot self-download (go.dev serves .zip, not .tar.gz -- the
-      # documented gap below), so a go on PATH is load-bearing. The runner
-      # image stopped exposing its preinstalled Go on PATH around 2026-07-20
-      # (broke this job on v1 itself, runs 29736384319/29740667802:
-      # 'go-bootstrap: go not in PATH'), so pin one explicitly instead of
-      # trusting the image.
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-          # No checkout in this job: there is no go.sum for the module cache.
-          cache: false
-
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
@@ -446,6 +433,14 @@ jobs:
           mkdir -p smoke
           cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
+          # Smoke contract (owner-ruled): gt must resolve the machine's
+          # EXISTING Go (windows-latest ships an image-default Go) via its
+          # own exec.LookPath on the NT side and bootstrap it -- broken
+          # pre-gosmopolitan#63 (unix-style ':' PATH walk with no .exe
+          # suffixing on NT hosts), fixed in fork v237+. Do NOT provision Go
+          # in this job (no setup-go -- that bypasses the bootstrap
+          # requirement); do NOT exempt commands from the bootstrap. If the
+          # image drops Go, the red is honest -- escalate to the owner.
           ./smoke/gt-ape.exe --help
           # The full pipeline is deliberately NOT run on Windows: gobootstrap
           # downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
