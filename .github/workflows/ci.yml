@@ -132,14 +132,12 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
-      # Nameless download: cache-download self-discovers the current run's
-      # hand-off (host-go-toolchain is the only one saved at this point --
-      # the go-build-* hand-offs from the `./` action step below don't exist
-      # yet) and emits a ::notice naming what it picked. No need to know the
-      # producing job's hand-off name here.
+      # Explicit name: a re-run attempt also sees the prior attempt's
+      # go-build-* hand-offs, so self-discovery would refuse to pick one.
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
+          name: host-go-toolchain
           path: build
 
       # The go-toolchain action itself cache-uploads build/ under the per-job
