@@ -40,9 +40,20 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 	if hasWasm && cgoEnabled {
 		logger.Warn("⇒ Warning: --cgo has no effect on wasm targets (WebAssembly has no cgo; CGO_ENABLED=0 is forced)")
 	}
+	var forkCacheNamespace string
 	if hasCosmo || hasWasm {
 		if forkGoroot, err = ensureCosmoToolchainFunc(); err != nil {
 			return err
+		}
+		// Fingerprint the fork toolchain for cache isolation: every fork job's
+		// cacheprog scopes its cache keys to this content hash, so two
+		// different fork toolchain builds can never share cache entries even
+		// though the fork's constant version stamp gives them colliding action
+		// IDs (the 2026-07-20 cross-build poisoning — SIGSEGV APEs built from
+		// stale shared-cache objects). Fail closed: a fork build without a
+		// namespace would ride the shared cache un-isolated.
+		if forkCacheNamespace, err = forkToolchainCacheNamespace(forkGoroot); err != nil {
+			return fmt.Errorf("fingerprinting the fork toolchain for cache isolation: %w", err)
 		}
 	}
 
@@ -123,6 +134,7 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 			}
 			if p.NeedsForkToolchain() {
 				job.forkGoroot = forkGoroot
+				job.cacheNamespace = forkCacheNamespace
 			}
 			if p.IsCosmo() {
 				// A previous local run leaves <name>_cosmo_fat as a symlink to

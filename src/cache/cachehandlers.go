@@ -13,7 +13,7 @@ import (
 
 func (s *Server) handleGet(req Request) Response {
 	start := time.Now()
-	actionID := fmt.Sprintf("%x", req.ActionID)
+	actionID := s.actionKey(req.ActionID)
 	mu := s.lock(actionID)
 
 	lockStart := time.Now()
@@ -93,7 +93,7 @@ func (s *Server) handleGet(req Request) Response {
 
 func (s *Server) handlePut(req Request) Response {
 	start := time.Now()
-	actionID := fmt.Sprintf("%x", req.ActionID)
+	actionID := s.actionKey(req.ActionID)
 	outputID := fmt.Sprintf("%x", req.OutputID)
 	mu := s.lock(actionID)
 

@@ -82,6 +82,15 @@ type buildJob struct {
 	// fork: GOOS=cosmo fat-APE jobs and wasm (js/wasm, wasip1/wasm) jobs.
 	// Empty for normal jobs, which build with the go on PATH.
 	forkGoroot string
+	// cacheNamespace is the cache key namespace for fork-toolchain jobs — a
+	// content hash of the toolchain at forkGoroot (forkToolchainCacheNamespace),
+	// exported to the build as GO_TOOLCHAIN_CACHE_NAMESPACE so its cacheprog
+	// scopes every cache key to this exact toolchain build. REQUIRED whenever
+	// forkGoroot is set (runBuild refuses a fork job without it): an
+	// un-namespaced fork build would share action keys with other fork
+	// toolchain builds and reopen cross-build cache poisoning. Empty for
+	// normal jobs, whose toolchains have properly version-keyed tool IDs.
+	cacheNamespace string
 }
 
 type buildResult struct {

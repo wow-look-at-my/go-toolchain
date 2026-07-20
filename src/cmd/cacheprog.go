@@ -142,9 +142,23 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	}
 	logger.InitSubprocess(level)
 
+	// Cache key namespace: fork-toolchain builds (matrix cosmo/wasm jobs) set
+	// GO_TOOLCHAIN_CACHE_NAMESPACE to a content hash of the toolchain in use
+	// (see forkToolchainCacheNamespace) so that different fork toolchain
+	// builds can never share cache entries — the fork's constant version stamp
+	// gives them colliding action IDs otherwise (the 2026-07-20 SIGSEGV-APE
+	// cross-build poisoning). See cache.KeyNamespaceEnv for the mechanics.
+	namespace := cache.CanonicalKeyNamespace(os.Getenv(cache.KeyNamespaceEnv))
+
 	// Fast path: if a cache daemon is running, proxy to it.
 	// This avoids re-loading the web index for every go subprocess.
-	if sock := os.Getenv("GOCACHE_DAEMON_SOCK"); sock != "" {
+	// A NAMESPACED cacheprog must never take this path: ProxyToDaemon is a raw
+	// byte pipe, the daemon knows nothing about this process's namespace, and
+	// it serves the pipeline's unnamespaced clients — proxying would silently
+	// drop the namespace and reopen cross-toolchain poisoning. Namespaced
+	// clients always run the standalone server below (their own web backend +
+	// the loose local tier, the same arrangement as any daemonless cacheprog).
+	if sock := daemonSockUnlessNamespaced(namespace); sock != "" {
 		if err := cache.ProxyToDaemon(sock); err == nil {
 			return nil
 		}
@@ -185,6 +199,7 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	}
 
 	srv := cache.NewServer(local, remote)
+	srv.SetKeyNamespace(namespace)
 	return srv.Run(os.Stdin, os.Stdout)
 }
 

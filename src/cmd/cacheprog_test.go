@@ -311,3 +311,20 @@ func TestParseBuildCacheConfig_BadJSON(t *testing.T) {
 	cfg := parseBuildCacheConfig()
 	assert.Equal(t, cache.WebConfig{}, cfg)
 }
+
+// TestDaemonSockUnlessNamespaced: a cacheprog running under a cache key
+// namespace (a fork-toolchain build) must NEVER proxy to the shared daemon —
+// the proxy is a raw byte pipe and the daemon serves unnamespaced clients, so
+// proxying would silently drop the namespace and reopen cross-toolchain cache
+// poisoning. Unnamespaced cacheprogs keep the daemon fast path.
+func TestDaemonSockUnlessNamespaced(t *testing.T) {
+	t.Setenv("GOCACHE_DAEMON_SOCK", "/tmp/some-daemon.sock")
+	assert.Equal(t, "/tmp/some-daemon.sock", daemonSockUnlessNamespaced(""),
+		"unnamespaced cacheprogs must keep proxying to the daemon")
+	assert.Equal(t, "", daemonSockUnlessNamespaced("deadbeef00c0ffee"),
+		"a namespaced cacheprog must never proxy to the shared daemon")
+
+	t.Setenv("GOCACHE_DAEMON_SOCK", "")
+	assert.Equal(t, "", daemonSockUnlessNamespaced(""))
+	assert.Equal(t, "", daemonSockUnlessNamespaced("deadbeef00c0ffee"))
+}
