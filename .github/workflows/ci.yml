@@ -202,6 +202,9 @@ jobs:
           # knob downgrades the in-CI "caching not configured" error to a
           # warning. The repo's own host-build/build jobs keep the shared cache.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+          # Tokenless synthetic consumer: blank the dependency-submission gate
+          # (a failed submission fails the build).
+          GITHUB_REPOSITORY: ''
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/smokemod"
@@ -349,6 +352,8 @@ jobs:
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+          # See smoke-linux: tokenless, so blank the dependency-submission gate.
+          GITHUB_REPOSITORY: ''
         run: |
           set -euo pipefail
           # Native Mach-O binaries do not self-assimilate, but run a copy
