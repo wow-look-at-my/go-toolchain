@@ -132,8 +132,12 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
-      # Explicit name: a re-run attempt also sees the prior attempt's
-      # go-build-* hand-offs, so self-discovery would refuse to pick one.
+      # Explicit name (host-build's "Upload host binary" hand-off): the strict
+      # cache-download hard-fails a nameless pick whenever the RUN holds
+      # several hand-offs, and on re-run attempts the go-build-* hand-offs
+      # from an earlier attempt's `./` action step already coexist with
+      # host-go-toolchain (run-scoped keys with cross-attempt fallback), so
+      # "only one saved at this point" only ever held on attempt 1.
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
