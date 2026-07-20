@@ -206,18 +206,76 @@ func TestPostDepSnapshot_APIError(t *testing.T) {
 
 func TestMaybeSubmitDeps_NotCI(t *testing.T) {
 	t.Setenv("CI", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoRepo(t *testing.T) {
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoSHA(t *testing.T) {
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
+}
+
+func TestMaybeSubmitDeps_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	t.Setenv("GITHUB_WORKSPACE", "")
+
+	require.Nil(t, maybeSubmitDeps())
+}
+
+func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	t.Setenv("GITHUB_WORKSPACE", "")
+
+	err := maybeSubmitDeps()
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "dependency submission failed (HTTP 403)")
+	assert.Contains(t, err.Error(), "Resource not accessible")
+}
+
+func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+
+	err := maybeSubmitDeps()
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "dependency snapshot failed")
+	assert.Contains(t, err.Error(), "go.mod")
 }

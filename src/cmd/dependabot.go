@@ -183,18 +183,15 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 }
 
 // maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions.
-// Errors are logged but don't fail the build.
-func maybeSubmitDeps() {
+// A failure fails the build.
+func maybeSubmitDeps() error {
 	if os.Getenv("CI") == "" || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GITHUB_SHA") == "" {
-		return
+		return nil
 	}
 
 	snapshot, err := buildDepSnapshot()
 	if err != nil {
-		logger.Warn("=> Warning: dependency snapshot failed: %v", err)
-		return
+		return fmt.Errorf("dependency snapshot failed: %w", err)
 	}
-	if err := postDepSnapshot(snapshot); err != nil {
-		logger.Warn("=> Warning: dependency submission failed: %v", err)
-	}
+	return postDepSnapshot(snapshot)
 }
