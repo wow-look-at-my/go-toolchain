@@ -413,17 +413,6 @@ jobs:
           name: go-build-build
           path: dist
 
-      # The `--help` invocation below runs go-toolchain's go-bootstrap, which
-      # needs SOME host go: it cannot self-provision on Windows (go.dev ships
-      # windows archives as .zip, not the .tar.gz gobootstrap downloads) and
-      # this job has no checkout, so there is no go.mod fallback either.
-      # Provision Go explicitly instead of leaning on the runner image's
-      # default PATH state. No go-version-file: no checkout.
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-          cache: false
-
       - name: Run the APE PE payload (windows/amd64 slot)
         shell: bash
         run: |
