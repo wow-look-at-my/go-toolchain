@@ -355,19 +355,3 @@ func isNil(expr ast.Expr) bool {
 	}
 	return false
 }
-
-// getTestVarName extracts the test variable name (t or b) from the body.
-func getTestVarName(body *ast.BlockStmt) string {
-	for _, stmt := range body.List {
-		if exprStmt, ok := stmt.(*ast.ExprStmt); ok {
-			if call, ok := exprStmt.X.(*ast.CallExpr); ok {
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok {
-						return ident.Name
-					}
-				}
-			}
-		}
-	}
-	return ""
-}

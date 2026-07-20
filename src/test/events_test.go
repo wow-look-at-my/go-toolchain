@@ -10,6 +10,112 @@ import (
 	"gotest.tools/gotestsum/testjson"
 )
 
+func TestCoverageHandlerExtractsCoverage(t *testing.T) {
+	h := &coverageHandler{coverage: make(map[string]float32)}
+
+	// Simulate output event with coverage info
+	event := testjson.TestEvent{
+		Action:  testjson.ActionOutput,
+		Package: "example.com/pkg",
+		Output:  "coverage: 75.5% of statements\n",
+	}
+
+	require.NoError(t, h.Event(event, nil))
+
+	assert.Equal(t, float32(75.5), h.coverage["example.com/pkg"])
+}
+
+func TestCoverageHandlerIgnoresNonCoverageOutput(t *testing.T) {
+	h := &coverageHandler{coverage: make(map[string]float32)}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionOutput,
+		Package: "example.com/pkg",
+		Output:  "=== RUN TestFoo\n",
+	}
+
+	require.NoError(t, h.Event(event, nil))
+
+	_, exists := h.coverage["example.com/pkg"]
+	assert.False(t, exists)
+}
+
+func TestCoverageHandlerIgnoresNonOutputActions(t *testing.T) {
+	h := &coverageHandler{coverage: make(map[string]float32)}
+
+	event := testjson.TestEvent{
+		Action:  testjson.ActionPass,
+		Package: "example.com/pkg",
+	}
+
+	require.NoError(t, h.Event(event, nil))
+
+	_, exists := h.coverage["example.com/pkg"]
+	assert.False(t, exists)
+}
+
+func TestCoverageHandlerErr(t *testing.T) {
+	h := &coverageHandler{coverage: make(map[string]float32)}
+	assert.NoError(t, h.Err("some error"))
+}
+
+func TestCoverageRegex(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"coverage: 80.0% of statements", "80.0"},
+		{"coverage: 100% of statements", "100"},
+		{"coverage: 0.0% of statements", "0.0"},
+		{"coverage: 45.5% of statements", "45.5"},
+		{"no coverage here", ""},
+	}
+
+	for _, tc := range tests {
+		matches := coverageRe.FindStringSubmatch(tc.input)
+		if tc.expected == "" {
+			assert.LessOrEqual(t, len(matches), 0)
+		} else {
+			require.Equal(t, 2, len(matches), "input %q: expected match, got %v", tc.input, matches)
+			assert.Equal(t, tc.expected, matches[1], "input %q", tc.input)
+		}
+	}
+}
+
+func TestCoverageHandlerMultiplePackages(t *testing.T) {
+	h := &coverageHandler{coverage: make(map[string]float32)}
+
+	events := []testjson.TestEvent{
+		{Action: testjson.ActionOutput, Package: "pkg1", Output: "coverage: 50.0% of statements\n"},
+		{Action: testjson.ActionOutput, Package: "pkg2", Output: "coverage: 75.0% of statements\n"},
+		{Action: testjson.ActionOutput, Package: "pkg3", Output: "coverage: 100% of statements\n"},
+	}
+
+	for _, event := range events {
+		require.NoError(t, h.Event(event, nil))
+	}
+
+	assert.Equal(t, float32(50.0), h.coverage["pkg1"])
+	assert.Equal(t, float32(75.0), h.coverage["pkg2"])
+	assert.Equal(t, float32(100.0), h.coverage["pkg3"])
+}
+
+func TestShortPkg(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"github.com/wow-look-at-my/go-toolchain/src/cmd", "cmd"},
+		{"github.com/foo/bar", "bar"},
+		{"standalone", "standalone"},
+		{"a/b", "b"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		assert.Equal(t, tc.expected, shortPkg(tc.input), "shortPkg(%q)", tc.input)
+	}
+}
+
 func TestRealtimePassOutput(t *testing.T) {
 	var buf bytes.Buffer
 	h := &coverageHandler{

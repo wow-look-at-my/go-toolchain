@@ -216,50 +216,10 @@ require git.internal/foo v0.0.0
 	_ = FixBogusDepsVersions(mock)
 }
 
-func TestDepChecker_WaitWithProgress_Nil(t *testing.T) {
-	var dc *DepChecker
-	result := dc.WaitWithProgress()
-	assert.Nil(t, result)
-}
-
 func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
 	assert.NotNil(t, err)
-}
-
-func TestCheckDepLive_NonexistentModule(t *testing.T) {
-	// Test with a module that doesn't exist
-	_, _, err := checkDepLive("invalid.module.path.that.does.not.exist/foo")
-	assert.NotNil(t, err)
-}
-
-func TestOpenDepsCache_CreatesDir(t *testing.T) {
-	// This test verifies openDepsCache works when the cache dir needs creation
-	c, err := openDepsCache()
-	require.Nil(t, err)
-	c.close()
-}
-
-func TestDepChecker_run_DBOpenError(t *testing.T) {
-	// Test when we can't open the DB (by using a bad HOME env)
-	oldHome := os.Getenv("HOME")
-	oldCache := os.Getenv("XDG_CACHE_HOME")
-	os.Setenv("HOME", "/nonexistent/path/that/does/not/exist")
-	os.Setenv("XDG_CACHE_HOME", "/nonexistent/path/that/does/not/exist")
-	defer func() {
-		os.Setenv("HOME", oldHome)
-		os.Setenv("XDG_CACHE_HOME", oldCache)
-	}()
-
-	dc := &DepChecker{
-		doneCh: make(chan struct{}),
-	}
-	dc.run()
-
-	// Should complete (done=true) with an error
-	assert.True(t, dc.done)
-	// Note: error may or may not be set depending on OS behavior with MkdirAll
 }

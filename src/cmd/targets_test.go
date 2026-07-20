@@ -382,3 +382,23 @@ func TestResolveMatrixPlatformsWasmCartesian(t *testing.T) {
 	assert.Equal(t, []buildPlatform{{OS: "linux", Arch: "amd64"}}, got)
 	assert.Contains(t, warnOut, "wasm/amd64")
 }
+
+func TestBuildPlatformPredicates(t *testing.T) {
+	cosmo := buildPlatform{OS: "cosmo", Arch: "fat"}
+	js := buildPlatform{OS: "js", Arch: "wasm"}
+	wasip1 := buildPlatform{OS: "wasip1", Arch: "wasm"}
+	linux := buildPlatform{OS: "linux", Arch: "amd64"}
+
+	assert.True(t, cosmo.IsCosmo())
+	assert.False(t, cosmo.IsWasm())
+	assert.True(t, js.IsWasm())
+	assert.True(t, wasip1.IsWasm())
+	assert.False(t, linux.IsWasm())
+
+	// The fork toolchain builds cosmo and wasm; everything else uses the go
+	// on PATH.
+	assert.True(t, cosmo.NeedsForkToolchain())
+	assert.True(t, js.NeedsForkToolchain())
+	assert.True(t, wasip1.NeedsForkToolchain())
+	assert.False(t, linux.NeedsForkToolchain())
+}

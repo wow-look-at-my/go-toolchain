@@ -9,10 +9,9 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/profile"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
-
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 func createHostSymlinks(targets []build.Target, outDir string) error {

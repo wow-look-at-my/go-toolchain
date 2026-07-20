@@ -7,6 +7,22 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// getTestVarName extracts the test variable name (t or b) from the body.
+func getTestVarName(body *ast.BlockStmt) string {
+	for _, stmt := range body.List {
+		if exprStmt, ok := stmt.(*ast.ExprStmt); ok {
+			if call, ok := exprStmt.X.(*ast.CallExpr); ok {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+					if ident, ok := sel.X.(*ast.Ident); ok {
+						return ident.Name
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // generateASTFix creates an ASTFix for the if statement.
 func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFunc string) *ASTFix {
 	// Skip if/else chains (else-if is already filtered during detection)

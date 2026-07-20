@@ -8,6 +8,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestCastableType(t *testing.T) {
+	tests := []struct {
+		litKind    token.Token
+		litValue   string
+		targetType string
+		expected   string
+	}{
+		{token.INT, "42", "int64", "int64"},
+		{token.INT, "42", "int", ""},
+		{token.INT, "42", "uint32", "uint32"},
+		{token.FLOAT, "3.14", "float32", "float32"},
+		{token.FLOAT, "3.14", "float64", ""},
+		{token.INT, "42", "time.Duration", ""}, // complex type - no cast
+		{token.INT, "42", "byte", "byte"},
+		{token.INT, "42", "rune", "rune"},
+	}
+
+	for _, tt := range tests {
+		name := tt.targetType
+		t.Run(name, func(t *testing.T) {
+			lit := &ast.BasicLit{Kind: tt.litKind, Value: tt.litValue}
+			assert.Equal(t, tt.expected, castableType(lit, tt.targetType))
+		})
+	}
+}
+
 func TestDeterminePositiveAssertFunc(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -219,4 +245,96 @@ func TestGetTestVarName(t *testing.T) {
 
 	// Empty block
 	assert.Equal(t, "", getTestVarName(&ast.BlockStmt{}))
+}
+
+func TestDetermineAssertFuncUnary(t *testing.T) {
+	// Test negation path
+	cond := &ast.UnaryExpr{
+		Op: token.NOT,
+		X:  &ast.Ident{Name: "ok"},
+	}
+	assert.Equal(t, "True", determineAssertFunc(cond))
+
+	// Test direct identifier
+	assert.Equal(t, "False", determineAssertFunc(&ast.Ident{Name: "ok"}))
+}
+
+func TestDeterminePositiveAssertFuncCall(t *testing.T) {
+	// Test strings.HasPrefix
+	call := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "strings"},
+			Sel: &ast.Ident{Name: "HasPrefix"},
+		},
+		Args: []ast.Expr{
+			&ast.Ident{Name: "s"},
+			&ast.BasicLit{Kind: token.STRING, Value: `"hello"`},
+		},
+	}
+	assert.Equal(t, "True", determinePositiveAssertFunc(call))
+
+	// Test strings.HasSuffix
+	call2 := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "strings"},
+			Sel: &ast.Ident{Name: "HasSuffix"},
+		},
+	}
+	assert.Equal(t, "True", determinePositiveAssertFunc(call2))
+
+	// Test reflect.DeepEqual
+	call3 := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "reflect"},
+			Sel: &ast.Ident{Name: "DeepEqual"},
+		},
+	}
+	assert.Equal(t, "Equal", determinePositiveAssertFunc(call3))
+}
+
+func TestDetermineNegativeAssertFuncCall(t *testing.T) {
+	// Test reflect.DeepEqual (negative)
+	call := &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{Name: "reflect"},
+			Sel: &ast.Ident{Name: "DeepEqual"},
+		},
+	}
+	assert.Equal(t, "NotEqual", determineNegativeAssertFunc(call))
+
+	// Test parenthesized expression
+	paren := &ast.ParenExpr{X: &ast.Ident{Name: "ok"}}
+	assert.Equal(t, "False", determineNegativeAssertFunc(paren))
+}
+
+func TestDetermineAssertionWithInit(t *testing.T) {
+	// Test init clause pattern: if err := X; err != nil
+	ifStmt := &ast.IfStmt{
+		Init: &ast.AssignStmt{
+			Lhs: []ast.Expr{&ast.Ident{Name: "err"}},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "doSomething"}}},
+		},
+		Cond: &ast.BinaryExpr{
+			X:  &ast.Ident{Name: "err"},
+			Op: token.NEQ,
+			Y:  &ast.Ident{Name: "nil"},
+		},
+		Body: &ast.BlockStmt{
+			List: []ast.Stmt{
+				&ast.ExprStmt{
+					X: &ast.CallExpr{
+						Fun: &ast.SelectorExpr{
+							X:   &ast.Ident{Name: "t"},
+							Sel: &ast.Ident{Name: "Fatal"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	pkg, fn := determineAssertion(ifStmt)
+	assert.Equal(t, "require", pkg)
+	assert.Equal(t, "NoError", fn)
 }

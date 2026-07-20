@@ -2,10 +2,8 @@ package vet
 
 import (
 	"go/ast"
-	"go/constant"
 	"go/token"
 	"go/types"
-	"math"
 	"reflect"
 	"strings"
 
@@ -328,73 +326,4 @@ func isForkNumeric(b *types.Basic) bool {
 func isUntypedLiteral(expr ast.Expr) bool {
 	_, ok := expr.(*ast.BasicLit)
 	return ok
-}
-
-// constRepresentable reports whether constant v can be represented exactly in
-// basic type b. Used to refuse conversions that would truncate or overflow a
-// constant — the fork compared the underlying numeric values, so such a pair
-// was never equal and we must not paper over the inequality.
-func constRepresentable(v constant.Value, b *types.Basic) bool {
-	if v == nil || v.Kind() == constant.Unknown {
-		return false
-	}
-	switch {
-	case b.Info()&types.IsInteger != 0:
-		iv := constant.ToInt(v)
-		if iv.Kind() != constant.Int {
-			return false // not an integral value (e.g. 1.5)
-		}
-		return intInRange(iv, b.Kind())
-	case b.Info()&types.IsFloat != 0:
-		fv := constant.ToFloat(v)
-		if fv.Kind() == constant.Unknown {
-			return false
-		}
-		f, _ := constant.Float64Val(fv)
-		if math.IsInf(f, 0) {
-			return false // overflows float64
-		}
-		if b.Kind() == types.Float32 && math.IsInf(float64(float32(f)), 0) {
-			return false // value is finite in float64 but overflows float32
-		}
-		return true
-	default:
-		return false
-	}
-}
-
-// intInRange reports whether the integer constant v fits in the integer basic
-// kind k. types.Int/Uint/Uintptr are treated as 64-bit, matching the analysis
-// host and the platforms go-toolchain targets.
-func intInRange(v constant.Value, k types.BasicKind) bool {
-	switch k {
-	case types.Int, types.Int64:
-		_, ok := constant.Int64Val(v)
-		return ok
-	case types.Int8:
-		i, ok := constant.Int64Val(v)
-		return ok && i >= math.MinInt8 && i <= math.MaxInt8
-	case types.Int16:
-		i, ok := constant.Int64Val(v)
-		return ok && i >= math.MinInt16 && i <= math.MaxInt16
-	case types.Int32: // includes rune
-		i, ok := constant.Int64Val(v)
-		return ok && i >= math.MinInt32 && i <= math.MaxInt32
-	case types.Uint, types.Uint64, types.Uintptr:
-		if constant.Sign(v) < 0 {
-			return false
-		}
-		_, ok := constant.Uint64Val(v)
-		return ok
-	case types.Uint8: // includes byte
-		u, ok := constant.Uint64Val(v)
-		return ok && constant.Sign(v) >= 0 && u <= math.MaxUint8
-	case types.Uint16:
-		u, ok := constant.Uint64Val(v)
-		return ok && constant.Sign(v) >= 0 && u <= math.MaxUint16
-	case types.Uint32:
-		u, ok := constant.Uint64Val(v)
-		return ok && constant.Sign(v) >= 0 && u <= math.MaxUint32
-	}
-	return false
 }

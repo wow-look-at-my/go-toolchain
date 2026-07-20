@@ -321,3 +321,24 @@ func isHex(s string) bool {
 	}
 	return true
 }
+
+// Progress returns current check progress (checked, total)
+func (dc *DepChecker) Progress() (checked, total int) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	return dc.checked, dc.total
+}
+
+// Done returns true if the check has completed
+func (dc *DepChecker) Done() bool {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	return dc.done
+}
+
+// Cancel stops the check early
+func (dc *DepChecker) Cancel() {
+	dc.mu.Lock()
+	dc.canceled = true
+	dc.mu.Unlock()
+}
