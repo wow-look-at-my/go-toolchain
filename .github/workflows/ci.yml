@@ -239,9 +239,6 @@ jobs:
           	require.Equal(t, "hello, cosmo", got)
           }
           EOF
-          # --help runs INSIDE the module: go-toolchain bootstraps a Go
-          # toolchain before dispatching any root-command invocation, and on a
-          # runner without Go on PATH that needs a go.mod to pick a version.
           "$RUNNER_TEMP/gt-ape" --help
           # Full default pipeline: bootstraps an official Go toolchain if the
           # runner's is too old, then tidy/vet/test/coverage/build. Blank
@@ -341,7 +338,10 @@ jobs:
           EOF
           # macos-latest has no Go on PATH; the bootstrap needs go.mod to pick
           # a version, downloads the official darwin/arm64 toolchain from
-          # go.dev, extracts and probes it, and only then prints help.
+          # go.dev, extracts and probes it. `install` is the bootstrap trigger
+          # (help never bootstraps; install skips the cache daemon, so no
+          # macOS APE exit wedge).
+          "$RUNNER_TEMP/gt-ape" install
           "$RUNNER_TEMP/gt-ape" --help
 
       - name: Full pipeline with the native darwin/arm64 binary
