@@ -435,17 +435,14 @@ jobs:
           [ "$(head -c 6 dist/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
           mkdir -p smoke
           cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
-          # Host-go visibility diagnostic (2026-07-20): --help's go-bootstrap
-          # reported LookPath("go") failure on windows in v211-built APEs
-          # while the same APE's linux leg finds go fine. Print what BASH
-          # sees so a failure attributes cleanly: bash sees go + the APE
-          # does not = the APE's NT-side LookPath/PATH walk; bash does not
-          # see go = runner PATH plumbing (image default or GITHUB_PATH
-          # injection) lost it.
-          echo "DIAG PATH=$PATH"
-          command -v go || echo "DIAG: bash does not see go on PATH"
-          go version || echo "DIAG: go not runnable from bash"
           ./smoke/gt-ape.exe version
+          # Real-path gate (owner-stated contract): setup-go put a Go on PATH
+          # above; --help runs go-bootstrap, which must resolve that Go via
+          # the APE's OWN exec.LookPath on the NT side and use it. Green means
+          # that genuinely works -- broken pre-gosmopolitan#63 (unix-style ':'
+          # PATH walk with no .exe suffixing on NT hosts), fixed in fork
+          # v237+. Do NOT exempt --help from the bootstrap or pre-resolve go
+          # for the APE: that would defeat what this smoke proves.
           ./smoke/gt-ape.exe --help
           # The full pipeline is deliberately NOT run on Windows: gobootstrap
           # downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
