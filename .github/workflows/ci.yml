@@ -88,16 +88,13 @@ jobs:
         # safe (APEs self-assimilate on exec; the APE artifacts are built in
         # the `build` job and only ever executed as throwaway copies in the
         # smoke jobs below).
-        env:
-          # No dependency submission from the timed warm rebuild: it would
-          # spend the 30s budget on a network POST that duplicates the first
-          # build's snapshot.
-          GITHUB_REPOSITORY: ''
         run: |
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
           start=$SECONDS
-          go-toolchain
+          # Blank at exec (step env cannot override runner-default GITHUB_*):
+          # no dependency submission from the timed warm rebuild.
+          GITHUB_REPOSITORY= go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
           if [ "$elapsed" -gt 30 ]; then
@@ -201,9 +198,6 @@ jobs:
           # knob downgrades the in-CI "caching not configured" error to a
           # warning. The repo's own host-build/build jobs keep the shared cache.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
-          # Tokenless synthetic consumer: blank the dependency-submission gate
-          # (a failed submission fails the build).
-          GITHUB_REPOSITORY: ''
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/smokemod"
@@ -250,8 +244,11 @@ jobs:
           # runner without Go on PATH that needs a go.mod to pick a version.
           "$RUNNER_TEMP/gt-ape" --help
           # Full default pipeline: bootstraps an official Go toolchain if the
-          # runner's is too old, then tidy/vet/test/coverage/build.
-          "$RUNNER_TEMP/gt-ape"
+          # runner's is too old, then tidy/vet/test/coverage/build. Blank
+          # GITHUB_REPOSITORY at exec (step env cannot override runner-default
+          # GITHUB_*): the tokenless synthetic module must not attempt
+          # dependency submission, which is fatal on failure.
+          GITHUB_REPOSITORY= "$RUNNER_TEMP/gt-ape"
 
       - name: Claude output guard fires in the shipped APE
         run: |
@@ -351,8 +348,6 @@ jobs:
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
-          # See smoke-linux: tokenless, so blank the dependency-submission gate.
-          GITHUB_REPOSITORY: ''
         run: |
           set -euo pipefail
           # Native Mach-O binaries do not self-assimilate, but run a copy
@@ -402,8 +397,9 @@ jobs:
           EOF
           # Full default pipeline: reuses the Go toolchain the APE gate above
           # already bootstrapped (shared ~/.cache/go-toolchain), then
-          # tidy/vet/test/coverage/build.
-          "$RUNNER_TEMP/gt-native"
+          # tidy/vet/test/coverage/build. Blank GITHUB_REPOSITORY at exec:
+          # see smoke-linux.
+          GITHUB_REPOSITORY= "$RUNNER_TEMP/gt-native"
 
   smoke-windows:
     needs: build
