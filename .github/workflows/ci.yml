@@ -89,11 +89,10 @@ jobs:
         # the `build` job and only ever executed as throwaway copies in the
         # smoke jobs below).
         env:
-          # The second build re-invokes go-toolchain, which also submits the
-          # dependency snapshot; give it the same token so it succeeds rather
-          # than warning. Same job + correlator as the first submission, so it
-          # replaces it (idempotent) rather than duplicating.
-          GITHUB_TOKEN: ${{ github.token }}
+          # No dependency submission from the timed warm rebuild: it would
+          # spend the 30s budget on a network POST that duplicates the first
+          # build's snapshot.
+          GITHUB_REPOSITORY: ''
         run: |
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
