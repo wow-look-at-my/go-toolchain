@@ -415,17 +415,6 @@ jobs:
           name: go-build-build
           path: dist
 
-      # The `--help` invocation below runs go-toolchain's go-bootstrap, which
-      # needs SOME host go: it cannot self-provision on Windows (go.dev ships
-      # windows archives as .zip, not the .tar.gz gobootstrap downloads) and
-      # this job has no checkout, so there is no go.mod fallback either.
-      # Provision Go explicitly instead of leaning on the runner image's
-      # default PATH state. No go-version-file: no checkout.
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-          cache: false
-
       - name: Run the APE PE payload (windows/amd64 slot)
         shell: bash
         run: |
@@ -436,13 +425,14 @@ jobs:
           mkdir -p smoke
           cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
-          # Real-path gate (owner-stated contract): setup-go put a Go on PATH
-          # above; --help runs go-bootstrap, which must resolve that Go via
-          # the APE's OWN exec.LookPath on the NT side and use it. Green means
-          # that genuinely works -- broken pre-gosmopolitan#63 (unix-style ':'
-          # PATH walk with no .exe suffixing on NT hosts), fixed in fork
-          # v237+. Do NOT exempt --help from the bootstrap or pre-resolve go
-          # for the APE: that would defeat what this smoke proves.
+          # Smoke contract (owner-ruled): gt must resolve the machine's
+          # EXISTING Go (windows-latest ships an image-default Go) via its
+          # own exec.LookPath on the NT side and bootstrap it -- broken
+          # pre-gosmopolitan#63 (unix-style ':' PATH walk with no .exe
+          # suffixing on NT hosts), fixed in fork v237+. Do NOT provision Go
+          # in this job (no setup-go -- that bypasses the bootstrap
+          # requirement); do NOT exempt commands from the bootstrap. If the
+          # image drops Go, the red is honest -- escalate to the owner.
           ./smoke/gt-ape.exe --help
           # The full pipeline is deliberately NOT run on Windows: gobootstrap
           # downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
