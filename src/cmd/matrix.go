@@ -112,7 +112,9 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	maybeSubmitDeps()
+	if err := maybeSubmitDeps(); err != nil {
+		return err
+	}
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {

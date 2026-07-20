@@ -7,6 +7,8 @@ permissions:
   contents: write
   id-token: write
   security-events: write
+  actions: read
+  checks: read
 
 jobs:
   host-build:
@@ -14,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
           cache: false
@@ -131,7 +133,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
           cache: false
@@ -204,6 +206,9 @@ jobs:
           # knob downgrades the in-CI "caching not configured" error to a
           # warning. The repo's own host-build/build jobs keep the shared cache.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+          # Tokenless synthetic consumer: must not attempt dependency submission
+          # (now fatal on failure). Explicit opt-out, not GITHUB_* blanking.
+          GO_TOOLCHAIN_NO_DEP_SUBMISSION: '1'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/smokemod"
@@ -351,6 +356,9 @@ jobs:
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+          # Tokenless synthetic consumer: must not attempt dependency submission
+          # (now fatal on failure). Explicit opt-out, not GITHUB_* blanking.
+          GO_TOOLCHAIN_NO_DEP_SUBMISSION: '1'
         run: |
           set -euo pipefail
           # Native Mach-O binaries do not self-assimilate, but run a copy

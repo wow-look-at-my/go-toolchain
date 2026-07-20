@@ -15,7 +15,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` and ordering (`Greater`/`GreaterOrEqual`/`Less`/`LessOrEqual`) operands so cross-type numeric comparisons the fork's loose comparisons accepted keep compiling and passing against upstream (which is type-strict on both paths — its ordering assertions fail cross-kind operands with "Elements should be the same type") — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`, and `assert.Greater(t, v, 0)` with `v int16` becomes `assert.Greater(t, v, int16(0))`. The conversion is type-aware (only inserted when sound) and idempotent, and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
-- **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot
+- **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot. A failed submission fails the build with an actionable error (missing token, missing `contents: write` permission); opt out with `GO_TOOLCHAIN_NO_DEP_SUBMISSION=1`
 - **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Defers to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is a per-deploy kill switch); disable injection entirely with `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`
 - **Output stall watchdog** — the build's stdout/stderr are routed through an in-process watchdog that prints a loud `STALLED: no output for Ns` warning (with the current step name) whenever the pipeline goes silent for 5+ seconds. Disable it with `GO_TOOLCHAIN_NO_WATCHDOG=1` — the build then runs on its real stdio (useful when debugging output plumbing, since the watchdog works by dup2-redirecting fd 1/2 through pipes)
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
@@ -40,11 +40,11 @@ Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched a
 
 ```yaml
 permissions:
-  contents: write
+  contents: write          # required for dependency-graph submission — a 403 from the API fails the build
   id-token: write          # required for secret-server and buildhost autorelease (OIDC)
   security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
-  actions: read            # lets the all-builds guard verify via the API too (its workflow-file scan runs regardless)
-  checks: read
+  actions: read            # required: the all-builds guard scans the run's jobs and fails closed without it
+  checks: read             # required: same guard, the head commit's check runs (see guard note below)
 
 jobs:
   build:
@@ -55,6 +55,8 @@ jobs:
 ```
 
 The action handles everything: refusing to proceed if any job in the workflow is named `all-builds` (that name shadows the org's required all-builds gate; rename the job), fetching secrets, configuring the Go proxy, private repo access, web build cache, running `go-toolchain matrix`, and a CodeQL `security-and-quality` analysis around the build.
+
+**All-builds guard permissions**: since `no-all-builds-job#3` (2026-07-20) the guard scans the run's jobs (Actions API) and the head commit's check runs (Checks API) and **fails closed** when it cannot scan, so the workflow token must grant `actions: read` + `checks: read` as in the block above. Private repos hard-fail without them ("Resource not accessible by integration"); public repos happen to pass scope-less, but keep the block complete.
 
 **CodeQL prerequisites** (the action runs CodeQL by default):
 
@@ -582,7 +584,7 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 14. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`) — first listing it in the clone-local `.git/info/exclude` so `git status`, and with it Go's build-time version stamping, never sees the transient file (binaries stamp clean provenance instead of `+dirty`) — builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
 15. Automatically adds `build/` to `.gitignore` (if in a git repo)
 16. Runs benchmarks and compares against previously stored results
-17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts
+17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts. A failed submission fails the build; opt out with `GO_TOOLCHAIN_NO_DEP_SUBMISSION=1`
 18. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
 19. Emits the per-action build profile once the cache daemon has drained: the console section, `build/profile.json` (+ `$TMPDIR/go-toolchain-profile/profile.json`), per-action Chrome-trace lanes, and a Step Summary table (see [Build profile](#build-profile); skipped with `--no-profile`)
 20. Fails the run if it emitted more than 15 warnings (`build failed: N warnings emitted (threshold: 15)`) — checked last, so every warning is printed before the failure; the same gate applies to `matrix`
