@@ -133,9 +133,9 @@ func TestServerNamespaceIsolation(t *testing.T) {
 	// The stored keys — local and remote — must be the namespaced form, so
 	// the entry is unreachable from any other namespace by construction.
 	keyA := fmt.Sprintf("%x", actionID) + nsA
-	if _, miss := lc.Peek(keyA); miss {
-		t.Fatalf("local store must hold the entry under the namespaced key %s", keyA)
-	}
+	_, miss := lc.Peek(keyA)
+	require.False(t, miss)
+
 	remote.mu.Lock()
 	_, remoteHasA := remote.store[keyA]
 	_, remoteHasBare := remote.store[fmt.Sprintf("%x", actionID)]
