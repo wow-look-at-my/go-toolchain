@@ -413,6 +413,20 @@ jobs:
           name: go-build-build
           path: dist
 
+      # The `--help` invocation below runs go-toolchain's go-bootstrap, which
+      # needs SOME host go: it cannot self-provision on Windows (go.dev ships
+      # windows archives as .zip, not the .tar.gz gobootstrap downloads) and
+      # this job has no checkout, so there is no go.mod fallback either. The
+      # job used to lean on the runner image's preinstalled Go, but on
+      # 2026-07-20 windows-2025-vs2026 VMs started coming up WITHOUT Go on
+      # PATH (same image version 20260714.173.1 green at 08:21Z with Go at
+      # C:\hostedtoolcache, red at 11:11Z/11:15Z across two regions without
+      # it), so provision Go explicitly. No go-version-file: no checkout.
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+
       - name: Run the APE PE payload (windows/amd64 slot)
         shell: bash
         run: |
