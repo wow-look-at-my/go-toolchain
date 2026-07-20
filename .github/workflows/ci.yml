@@ -146,6 +146,37 @@ jobs:
         with:
           path: build
 
+      # ------------------------------------------------------------------
+      # TEMPORARY: pin the cosmo toolchain to gosmopolitan release v10.
+      # Root cause (bisected): no gosmopolitan release is intrinsically
+      # broken -- every release stamps the identical version string
+      # (go1.26.4cosmo), so cmd/go tool/action IDs collide across releases
+      # and the org's SHARED build cache mixes stale objects compiled by
+      # pre-#45 (FS-TLS) toolchains into binaries built by post-#45
+      # (GS-TLS) toolchains (first incompatible release: v74, commit
+      # 47cfdf78). The stale post-ABI0-call g-reload `mov %fs:0x28,%r14`
+      # then derefs absolute 0x28 -> the smoke jobs' SIGSEGV at amd64
+      # runtime bootstrap (internal/cpu.doinit, before main). Clean-cache
+      # builds boot on EVERY release. The shared cache's colliding keys
+      # still hold v10-era bodies (first-write-wins), so pinning this job
+      # to v10 keeps toolchain and cached objects coherent. The released
+      # go-toolchain binary already honors GO_TOOLCHAIN_COSMO_GOROOT (a
+      # local pre-downloaded GOROOT wins over the default ?branch=master
+      # buildhost download -- see src/cmd/cosmobootstrap.go,
+      # EnsureCosmoToolchain), so pre-downloading v10 here is the whole
+      # pin. Deliberately workflow-only: this job builds with the RELEASED
+      # binary from buildhost and publish is frozen, so a new source-side
+      # knob could never take effect (chicken-and-egg).
+      # UNPIN: delete this step once gosmopolitan stamps a unique
+      # per-release version in its publish job -- rolling master is safe
+      # again at that point.
+      # ------------------------------------------------------------------
+      - name: 'TEMPORARY: pin cosmo toolchain to gosmopolitan v10'
+        run: |
+          mkdir -p "$RUNNER_TEMP/cosmo-pin"
+          curl -fL --compressed "https://dl.pazer.build/gosmopolitan?v=10&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP/cosmo-pin"
+          echo "GO_TOOLCHAIN_COSMO_GOROOT=$RUNNER_TEMP/cosmo-pin/go" >> "$GITHUB_ENV"
+
       # The go-toolchain action itself cache-uploads build/ under the per-job
       # name `go-build-<job id>` on every run (unconditional) -- here that is
       # `go-build-build`, which the smoke-linux/macos/windows and publish
