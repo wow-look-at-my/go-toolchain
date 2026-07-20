@@ -291,6 +291,14 @@ toolchain:
 (cosmopolitan has no cgo; `--cgo` warns and is ignored for this target) and
 without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
 
+**Cache isolation.** Fork-toolchain builds (cosmo and wasm) run with their
+cache keys namespaced by a content hash of the toolchain in use
+(`GO_TOOLCHAIN_CACHE_NAMESPACE`, set automatically). The fork stamps a constant
+version, so different fork builds would otherwise collide on cache keys and
+serve each other stale objects (SIGSEGV binaries). Namespaced builds skip the
+shared cache daemon and cache per-toolchain; normal targets are unaffected.
+See [docs/CACHE.md](docs/CACHE.md#fork-toolchain-key-namespacing).
+
 **Heads-up: APEs self-assimilate.** Executing an APE rewrites its own header
 in place to the host's native format, making the file differ from its
 checksum. Never execute the artifacts in `build/` directly (that includes the

@@ -507,6 +507,53 @@ invariants enforce this:
    module-index refusal and cache-version purge.)
 
 <a name="fallback-and-portability"></a>
+<a name="fork-toolchain-key-namespacing"></a>
+## Fork-toolchain key namespacing
+
+Builds done with the gosmopolitan fork toolchain (matrix `cosmo` and wasm
+targets) get their cache keys **namespaced by a content hash of the toolchain
+in use**. The fork stamps a constant release version (`go1.26.4cosmo`) into
+every build, so cmd/go's release rule derives identical tool build IDs for
+*different* fork toolchain builds; identical tool IDs collide on action IDs,
+and a shared cache then serves objects compiled by one toolchain build into
+links done by another. Every per-entry integrity gate passes by construction —
+each colliding entry is self-consistent, just compiled by a different
+compiler — and the result is SIGSEGV binaries (the 2026-07-20 incident).
+
+Mechanics, end to end:
+
+1. **Fingerprint** — before any fork job builds, the matrix path hashes the
+   toolchain's tool binaries (`VERSION`, `bin/`, `pkg/tool/` — SHA-256 over
+   path+size-framed contents, 16 hex chars; `forkToolchainCacheNamespace` in
+   `src/cmd`). If any tool's bytes differ the namespace differs; if every tool
+   is byte-identical the toolchains are interchangeable and sharing is safe.
+   Fingerprint failure fails the build — never a silent un-namespaced run.
+2. **Propagate** — each fork build job exports it as
+   `GO_TOOLCHAIN_CACHE_NAMESPACE` (`cache.KeyNamespaceEnv`); the fork `go`
+   process passes it down to the cacheprog subprocess it spawns. `runBuild`
+   refuses a fork job without a namespace (last-chokepoint guard).
+3. **Isolate** — a namespaced cacheprog never proxies to the shared daemon
+   (the proxy is a raw byte pipe; the daemon serves unnamespaced clients). It
+   runs the standalone server — own web backend + loose local tier, the same
+   arrangement as any daemonless cacheprog.
+4. **Transform** — the server derives every store key as
+   `hex(ActionID) + namespace` (`Server.actionKey`, the single choke point
+   where a protocol ActionID becomes a store key). Local get/peek/put, remote
+   get/put, batch GETs, prefetch population, web-index membership, and stale-
+   claim bookkeeping all consume that derived key, so no path bypasses the
+   namespace on either tier.
+
+The namespace is a **suffix**, deliberately: `expectedBuildIDAction` derives
+the build-id expectation from the first 15 bytes of the hex-decoded key, and a
+suffix leaves those bytes intact — so the build-id action guard keeps
+verifying compiled packages against the *real* cmd/go action ID. (A
+hash-combined rewrite would break that guard.) Unnamespaced keys are exactly
+64 hex chars and namespaced ones strictly longer, so the two populations can
+never collide; `outputID`s are content addresses and stay untouched. Stat
+events keep the raw ActionID, so per-action build profiles still join cmd/go's
+actiongraph dumps. Normal (non-fork) builds set no namespace and their keys
+are byte-identical to before.
+
 ## Fallback and portability
 
 The cache is an optimization, never a correctness dependency, so FUSE failure

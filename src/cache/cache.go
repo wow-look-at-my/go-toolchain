@@ -106,16 +106,21 @@ const lockShards = 256
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
-	local     LocalStore
-	remote    IBackend // nil if no remote backend configured
-	locks     [lockShards]sync.Mutex
-	wg        sync.WaitGroup // tracks in-flight async remote puts
-	putSem    chan struct{}  // semaphore bounding concurrent remote puts
-	Misses    AtomicCounter
-	batch     BatchStats
-	Latency   LatencyStats
-	statsConn net.Conn // persistent connection to parent's stats socket
-	statsMu   sync.Mutex
+	local  LocalStore
+	remote IBackend // nil if no remote backend configured
+	// keyNamespace, when non-empty, is appended to every derived action key
+	// (see actionKey and KeyNamespaceEnv). Set via SetKeyNamespace before Run;
+	// only the standalone cacheprog path sets it — the daemon's per-connection
+	// Servers must never (the daemon serves unnamespaced clients).
+	keyNamespace string
+	locks        [lockShards]sync.Mutex
+	wg           sync.WaitGroup // tracks in-flight async remote puts
+	putSem       chan struct{}  // semaphore bounding concurrent remote puts
+	Misses       AtomicCounter
+	batch        BatchStats
+	Latency      LatencyStats
+	statsConn    net.Conn // persistent connection to parent's stats socket
+	statsMu      sync.Mutex
 }
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
@@ -413,6 +418,31 @@ loop:
 	return readErr
 }
 
+// SetKeyNamespace scopes every action key this Server derives to the given
+// namespace (canonicalized via CanonicalKeyNamespace; "" means no namespace,
+// keys byte-identical to historic behavior). Must be called before Run. See
+// KeyNamespaceEnv for the design and why the namespace is a key suffix.
+func (s *Server) SetKeyNamespace(namespace string) {
+	s.keyNamespace = CanonicalKeyNamespace(namespace)
+}
+
+// actionKey derives the store key for a request's raw ActionID: the
+// hex-encoded ID, plus the key namespace as a suffix when one is set. This is
+// the SINGLE choke point where a protocol ActionID becomes a store key — every
+// downstream consumer (local Get/Peek/Put/PutIfAbsent, remote Get/Put, the
+// batch GET coalescer, prefetch population, web index membership, knownMiss
+// claims, ForgetStale) receives this derived string, so no cache path can
+// bypass the namespace. Stat events deliberately keep the RAW ActionID (see
+// withAction): the per-action build profile joins cmd/go's actiongraph dumps
+// on cmd/go's own IDs.
+func (s *Server) actionKey(rawActionID []byte) string {
+	key := fmt.Sprintf("%x", rawActionID)
+	if s.keyNamespace != "" {
+		key += s.keyNamespace
+	}
+	return key
+}
+
 // lock returns the shard mutex for key. Distinct keys may share a shard
 // (coarser serialization on a collision — always safe); the same key always
 // maps to the same mutex. Allocation-free inline FNV-1a.
@@ -441,7 +471,7 @@ func (s *Server) flushLatency() {
 
 func (s *Server) handleGet(req Request) Response {
 	start := time.Now()
-	actionID := fmt.Sprintf("%x", req.ActionID)
+	actionID := s.actionKey(req.ActionID)
 	mu := s.lock(actionID)
 
 	lockStart := time.Now()
@@ -521,7 +551,7 @@ func (s *Server) handleGet(req Request) Response {
 
 func (s *Server) handlePut(req Request) Response {
 	start := time.Now()
-	actionID := fmt.Sprintf("%x", req.ActionID)
+	actionID := s.actionKey(req.ActionID)
 	outputID := fmt.Sprintf("%x", req.OutputID)
 	mu := s.lock(actionID)
 
