@@ -9,12 +9,12 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// warnGateLogger returns a logger that emits warnings into a discarded
-// buffer, so gate tests can drive the process-wide warning counter without
-// printing to the test output.
-func warnGateLogger() *logger.Logger {
+// warnGateLogger returns a logger at the given level that emits into
+// discarded buffers, so gate tests can drive the process-wide warning
+// counter without printing to the test output.
+func warnGateLogger(level logger.Level) *logger.Logger {
 	return logger.New(logger.Options{
-		Level:  logger.LevelInfo,
+		Level:  level,
 		Stdout: &strings.Builder{},
 		Stderr: &strings.Builder{},
 	})
@@ -26,7 +26,7 @@ func TestWarningsGateAtThreshold(t *testing.T) {
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 
-	l := warnGateLogger()
+	l := warnGateLogger(logger.LevelInfo)
 	for i := 0; i < maxWarnings; i++ {
 		l.Warn("warning %d", i+1)
 	}
@@ -42,7 +42,7 @@ func TestWarningsGateOverThreshold(t *testing.T) {
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 
-	l := warnGateLogger()
+	l := warnGateLogger(logger.LevelInfo)
 	for i := 0; i < maxWarnings+1; i++ {
 		l.Warn("warning %d", i+1)
 	}
@@ -60,11 +60,7 @@ func TestWarningsGateIgnoresFilteredWarnings(t *testing.T) {
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 
-	silenced := logger.New(logger.Options{
-		Level:  logger.LevelError,
-		Stdout: &strings.Builder{},
-		Stderr: &strings.Builder{},
-	})
+	silenced := warnGateLogger(logger.LevelError)
 	for i := 0; i < maxWarnings*2; i++ {
 		silenced.Warn("suppressed %d", i)
 	}
