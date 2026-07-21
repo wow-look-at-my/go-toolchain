@@ -1,0 +1,41 @@
+name: 'ctx-probe'
+description: >-
+  TEMPORARY probe (removed before merge): verifies which expression contexts
+  are usable inside composite action steps, to ground the matrix-aware
+  hand-off key fix. Asserts nothing; only prints PROBE lines for the run log.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Probe composite-step contexts
+      shell: bash
+      env:
+        M_TOJSON: ${{ toJSON(matrix) }}
+        S_TOJSON: ${{ toJSON(strategy) }}
+        CANDIDATE_NAME: go-build-${{ github.job }}${{ matrix && format('-m{0}', strategy.job-index) || '' }}
+        GH_TOKEN_FOR_PROBE: ${{ github.token }}
+      run: |
+        set -uo pipefail
+        echo "PROBE github_job=[${{ github.job }}]"
+        echo "PROBE matrix_truthy=[${{ matrix && 'T' || 'F' }}]"
+        echo "PROBE strategy_truthy=[${{ strategy && 'T' || 'F' }}]"
+        echo "PROBE strategy_job_index=[${{ strategy.job-index }}]"
+        echo "PROBE strategy_job_total=[${{ strategy.job-total }}]"
+        echo "PROBE matrix_probe_value=[${{ matrix.probe }}]"
+        echo "PROBE candidate_name=[${CANDIDATE_NAME}]"
+        echo "PROBE matrix_tojson=<${M_TOJSON}>"
+        echo "PROBE strategy_tojson=<${S_TOJSON}>"
+        echo "PROBE env_github_job=[${GITHUB_JOB}] runner_name=[${RUNNER_NAME}]"
+        echo "PROBE runtime_token_in_run_step=[$([ -n "${ACTIONS_RUNTIME_TOKEN:-}" ] && echo yes || echo no)]"
+        # Jobs API reachability from a job whose token has NO actions:read
+        # (per-job permissions override in ci.yml). Informs the fallback
+        # design only; the probe never fails on these.
+        url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs?per_page=100"
+        code_tok=$(curl -sS -o /tmp/jobs-tok.json -w '%{http_code}' -H "Authorization: Bearer ${GH_TOKEN_FOR_PROBE}" "$url" || echo curlfail)
+        echo "PROBE jobs_api_with_token=[${code_tok}]"
+        code_anon=$(curl -sS -o /tmp/jobs-anon.json -w '%{http_code}' "$url" || echo curlfail)
+        echo "PROBE jobs_api_anonymous=[${code_anon}]"
+        for f in /tmp/jobs-tok.json /tmp/jobs-anon.json; do
+          echo "PROBE names_in_${f}:"
+          grep -o '"name": *"[^"]*"' "$f" 2>/dev/null | head -12 || true
+        done

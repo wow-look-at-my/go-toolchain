@@ -473,3 +473,26 @@ jobs:
 
       - uses: wow-look-at-my/actions@cache-cleanup#latest
         if: always()
+
+  # TEMPORARY (removed before merge): composite-context probes for the
+  # matrix-aware hand-off key fix. Both jobs restrict the token to
+  # contents: read to mirror a typical consumer job without actions: read.
+  ctx-probe-matrix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        probe: [alpha, beta]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/ctx-probe
+
+  ctx-probe-plain:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/ctx-probe
