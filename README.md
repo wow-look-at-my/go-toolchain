@@ -89,10 +89,15 @@ To opt out, pass `codeql: 'false'`.
 
 Every action run ends by handing the `build/` outputs off to later jobs in the
 same workflow run via `wow-look-at-my/actions@cache-upload#latest`. The
-authoritative hand-off name is `go-build-<job id>` (cache key
-`cache-xfer-go-build-<job>-<run_id>-<run_attempt>`) -- distinct per calling
-job, so two concurrent go-toolchain jobs in one run cannot collide on a shared
-key. Downstream jobs download it nameless: `cache-download` with no `name`
+authoritative hand-off name is `go-build-<job id>` -- or, when the calling job
+is a matrix job, `go-build-<job id>.m<job-index>` per leg (cache key
+`cache-xfer-<run_id>-<name>-<run_attempt>`) -- distinct per calling job AND
+per matrix leg, so concurrent go-toolchain jobs in one run, including the legs
+of one matrix job, cannot collide on a shared key. `<job-index>` is the leg's
+`strategy.job-index`: 0-based position in the matrix expansion (definition
+order), identical across re-run attempts of the same leg. Non-matrix jobs are
+unaffected -- their name is byte-identical to before the matrix suffix
+existed. Downstream jobs download it nameless: `cache-download` with no `name`
 self-discovers the current run's hand-off via the run-scoped key prefix and
 emits a `::notice` naming what it picked, so consumers never need to know the
 producing job's id:
@@ -107,15 +112,16 @@ Nameless discovery is only clean when the run's hand-off set is unambiguous
 at download time (exact ambiguity semantics are the `cache-download`
 action's -- see its docs; note the deprecated bare `go-build` alias below is
 itself a second saved name until it is removed). If a run saves several
-distinct hand-offs (multiple go-toolchain jobs, or extra `cache-upload`
-hand-offs alongside the build outputs -- this repo's own CI is such a case),
-keep an explicit `name: go-build-<uploader job id>` for exactly those
-downloads:
+distinct hand-offs (multiple go-toolchain jobs, a matrix go-toolchain job --
+whose legs each save their own name -- or extra `cache-upload` hand-offs
+alongside the build outputs; this repo's own CI is such a case), keep an
+explicit `name: go-build-<uploader job id>` (or, for one leg of a matrix
+producer, `go-build-<uploader job id>.m<index>`) for exactly those downloads:
 
 ```yaml
 - uses: wow-look-at-my/actions@cache-download#latest
   with:
-    name: go-build-linux   # go-build-<uploader job id>
+    name: go-build-linux   # go-build-<uploader job id>[.m<index> for a matrix leg]
     path: dist
 ```
 
@@ -123,8 +129,9 @@ A deprecated bare `go-build` alias is still saved on every run (tolerated,
 non-authoritative; a `::notice` deprecation annotation accompanies it) for the
 consumers that currently download that name -- webhook-runner, buildhost,
 api-cli, github-state-mirror and the publish-ghcr.yml callers. In runs with
-more than one go-toolchain job the bare key is inherently racy (first finisher
-wins; the second save's conflict is absorbed, never the job's failure), so
+more than one go-toolchain invocation -- several jobs, or the legs of one
+matrix job -- the bare key is inherently racy (first finisher wins; the
+second save's conflict is absorbed, never the job's failure), so
 migrate downloads to nameless self-discovery (or, where ambiguous, the
 explicit `go-build-<uploader job id>`). For consumers that go nameless the
 alias question mostly dissolves -- they stop referencing any hand-off name at
