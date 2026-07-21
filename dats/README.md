@@ -17,9 +17,10 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   slot artifacts are APEs that self-assimilate on first exec.
 - Suites run serially (`dats test dats`, no `-j`) so the report is
   byte-deterministic and staged APE copies never race their first exec.
-- Snapshot goldens live in `<suite>.dats.snapshots/` next to the suite and
-  are committed. Regenerate after intentional CLI changes with
-  `dats --update test dats` and review the diff. A stale golden is a red run.
+- Snapshot goldens live in `<suite>.snapshots/` next to the suite (e.g.
+  `dats/cli.snapshots/` for `dats/cli.dats`) and are committed. Regenerate
+  after intentional CLI changes with `dats --update test dats` and review the
+  diff. A stale golden is a red run.
 
 ## Notes specific to this repo's suite
 
