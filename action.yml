@@ -43,6 +43,18 @@ inputs:
     description: 'Automatically publish to buildhost on every branch push (requires id-token: write permission)'
     required: false
     default: 'true'
+  autorelease_args:
+    description: >-
+      Extra publish options forwarded to the buildhost publish, as
+      whitespace- or comma-separated key=value pairs (e.g.
+      "create_service=true"). Recognized keys: create_service (true|false --
+      declare that the published binary runs as a background service; each
+      download format materializes it, e.g. brew formulas gain a `service do`
+      block and generated debs ship an auto-enabled systemd user unit).
+      Unknown keys fail the build. Empty (the default) forwards nothing --
+      the publish request is byte-identical to before this input existed.
+    required: false
+    default: ''
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
@@ -63,6 +75,9 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Refuse jobs named all-builds
+      uses: wow-look-at-my/actions@no-all-builds-job#latest
+
     - uses: wow-look-at-my/actions@secret-server#latest
 
     - name: Configure git for private repos
@@ -247,35 +262,47 @@ runs:
     # cache-upload action (artifact-free replacement for actions/upload-artifact;
     # cache storage is free, artifact storage is billed). This runs on EVERY
     # go-toolchain run. The name carries the calling job's id, so the cache key
-    # (cache-xfer-go-build-<job>-<run_id>-<run_attempt>) is distinct per job and
+    # (cache-xfer-<run_id>-go-build-<job>-<run_attempt>) is distinct per job and
     # concurrent jobs in one run (the standard linux + darwin pattern) can no
     # longer collide -- the old shared `go-build` name made the second finisher
-    # fail its save with a 409 Conflict. Downstream jobs cache-download with
-    # NO name (nameless self-discovery of the current run's hand-off -- the
-    # preferred mode when the run saves only one hand-off; no need to know the
-    # producing job's id), or with an explicit `go-build-<uploader job id>`
-    # (e.g. go-build-linux) when the run carries several hand-offs and
-    # discovery would be ambiguous. Note github.job is the job id and does NOT
-    # distinguish matrix legs, so a single job's matrix legs still must not
-    # invoke this action more than once per run.
+    # fail its save with a 409 Conflict. github.job alone does NOT distinguish
+    # matrix legs, so for matrix jobs the name additionally carries the leg's
+    # strategy.job-index as `.m<index>` (the matrix and strategy contexts ARE
+    # evaluable inside composite steps -- the runner's action-manifest schema
+    # allows both in step expressions, and for a non-matrix job `matrix` is
+    # null, so the suffix collapses to the empty string and the non-matrix
+    # name stays byte-identical to before). The dot makes the suffix
+    # collision-proof against job ids: job ids cannot contain dots, so
+    # `go-build-<jobA>.m<i>` can never equal -- or restore-prefix-shadow --
+    # any `go-build-<jobB>`. job-index is 0-based in matrix definition order
+    # and identical across re-run attempts of the same leg, which keeps
+    # cache-download's cross-attempt fallback working. Downstream jobs
+    # cache-download with NO name (nameless self-discovery of the current
+    # run's hand-off -- the preferred mode when the run saves only one
+    # hand-off; no need to know the producing job's id), or with an explicit
+    # `go-build-<uploader job id>` / `go-build-<uploader job id>.m<index>`
+    # (e.g. go-build-linux, go-build-build.m2) when the run carries several
+    # hand-offs and discovery would be ambiguous -- a matrix producer is
+    # always such a case, since each leg saves its own name.
     - name: Hand off build outputs (go-build-<job>)
       uses: wow-look-at-my/actions@cache-upload#latest
       with:
-        name: go-build-${{ github.job }}
+        name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}
         path: ${{ inputs.working-directory }}/build
 
     - name: Deprecation notice (legacy go-build alias)
       shell: bash
-      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
+      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
 
     # Legacy alias: single-producer consumers (webhook-runner, buildhost,
     # api-cli, github-state-mirror, publish-ghcr callers) download the bare
     # name go-build; keep saving it until they migrate to
-    # go-build-<uploader job id>. In multi-producer runs this bare key is
+    # go-build-<uploader job id>. In multi-producer runs -- several
+    # go-toolchain jobs, or the legs of one matrix job -- this bare key is
     # inherently racy (the second save hits an existing entry), so this step
     # tolerates failure instead of failing the job -- the collision-free
-    # per-job hand-off above is the authoritative one. Remove this step once
-    # the named consumers migrate.
+    # per-job/per-leg hand-off above is the authoritative one. Remove this
+    # step once the named consumers migrate.
     - name: Hand off build outputs (legacy go-build alias)
       continue-on-error: true
       uses: wow-look-at-my/actions@cache-upload#latest
@@ -289,8 +316,37 @@ runs:
       with:
         category: /language:go
 
+    # Composite `with:` blocks are static YAML, so autorelease_args cannot be
+    # spread into the publish step dynamically: each recognized key is parsed
+    # here into a step output and mapped onto an explicit buildhost-publish
+    # input below. Unknown keys fail loudly (a typo must never be silently
+    # ignored); an empty input leaves every output empty, and buildhost-publish
+    # treats empty inputs as absent, so the publish stays byte-identical.
+    - name: Parse autorelease_args
+      if: inputs.autorelease == 'true'
+      id: autorelease_args
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const raw: string = "${{ inputs.autorelease_args }}";
+          const known: string[] = ["create_service"];
+          const out: Record<string, string> = {};
+          for (const key of known) out[key] = "";
+          for (const pair of raw.split(/[\s,]+/).filter((p: string) => p.length > 0)) {
+            const eq = pair.indexOf("=");
+            const key = eq < 0 ? pair : pair.slice(0, eq);
+            const value = eq < 0 ? "" : pair.slice(eq + 1);
+            if (!known.includes(key) || value === "") {
+              core.setFailed(`autorelease_args: unrecognized or valueless entry '${pair}' (known keys: ${known.join(", ")}; form: key=value)`);
+              return;
+            }
+            out[key] = value;
+          }
+          for (const key of known) core.setOutput(key, out[key]);
+
     - name: Auto-release to buildhost
       if: inputs.autorelease == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
       with:
         path: ${{ inputs.working-directory }}/build
+        create_service: ${{ steps.autorelease_args.outputs.create_service }}

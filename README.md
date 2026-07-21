@@ -6,15 +6,17 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 
 - **Coverage enforcement** — fails the build if test coverage drops below 80%; emits a `::error::` workflow annotation in GitHub Actions so the failure is tagged in the run UI
 - **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
+- **Warnings budget** — fails the build when a run emits more than 15 warnings; the check runs at the end of the pipeline, so every warning is still printed first
 - **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
 - **Benchmarks** — benchmarks run automatically after builds; compare against previous results stored in git notes
+- **CLI test suites (dats)** — `*.dats` suites under `dats/` run against the freshly built binaries after every build via the [dats](https://github.com/wow-look-at-my/dats) runner; a failing suite fails the build (see [CLI test suites (dats)](#cli-test-suites-dats))
 - **Near-duplicate detection** — scans Go source for structurally similar functions using AST comparison
 - **File length checks** — warns at 500 lines, errors at 750 lines; generated files (canonical `// Code generated ... DO NOT EDIT.` header marker) are auto-exempted unless `--count-generated` is passed
 - **Auto-fix / CI check** — locally (`CI` unset) it fixes linter violations and the migrations below in place; on CI (`CI` set) the very same checks run read-only and a tree that isn't already canonical is a hard build failure (listing the offending files and the local remedy), so CI can never pass green on something the local autofixer would have rewritten
 - **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` and ordering (`Greater`/`GreaterOrEqual`/`Less`/`LessOrEqual`) operands so cross-type numeric comparisons the fork's loose comparisons accepted keep compiling and passing against upstream (which is type-strict on both paths — its ordering assertions fail cross-kind operands with "Elements should be the same type") — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`, and `assert.Greater(t, v, 0)` with `v int16` becomes `assert.Greater(t, v, int16(0))`. The conversion is type-aware (only inserted when sound) and idempotent, and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
-- **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot
+- **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot. A failed submission fails the build with an actionable error (missing token, missing `contents: write` permission); opt out with `GO_TOOLCHAIN_NO_DEP_SUBMISSION=1`
 - **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Defers to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is a per-deploy kill switch); disable injection entirely with `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`
 - **Output stall watchdog** — the build's stdout/stderr are routed through an in-process watchdog that prints a loud `STALLED: no output for Ns` warning (with the current step name) whenever the pipeline goes silent for 5+ seconds. Disable it with `GO_TOOLCHAIN_NO_WATCHDOG=1` — the build then runs on its real stdio (useful when debugging output plumbing, since the watchdog works by dup2-redirecting fd 1/2 through pipes)
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
@@ -39,9 +41,11 @@ Use the composite action in any `wow-look-at-my` org repo. Secrets are fetched a
 
 ```yaml
 permissions:
-  contents: write
+  contents: write          # required for dependency-graph submission — a 403 from the API fails the build
   id-token: write          # required for secret-server and buildhost autorelease (OIDC)
   security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
+  actions: read            # required: the all-builds guard scans the run's jobs and fails closed without it
+  checks: read             # required: same guard, the head commit's check runs (see guard note below)
 
 jobs:
   build:
@@ -51,7 +55,9 @@ jobs:
       - uses: wow-look-at-my/go-toolchain@v1
 ```
 
-The action handles everything: fetching secrets, configuring the Go proxy, private repo access, web build cache, running `go-toolchain matrix`, and a CodeQL `security-and-quality` analysis around the build.
+The action handles everything: refusing to proceed if any job in the workflow is named `all-builds` (that name shadows the org's required all-builds gate; rename the job), fetching secrets, configuring the Go proxy, private repo access, web build cache, running `go-toolchain matrix`, and a CodeQL `security-and-quality` analysis around the build.
+
+**All-builds guard permissions**: since `no-all-builds-job#3` (2026-07-20) the guard scans the run's jobs (Actions API) and the head commit's check runs (Checks API) and **fails closed** when it cannot scan, so the workflow token must grant `actions: read` + `checks: read` as in the block above. Private repos hard-fail without them ("Resource not accessible by integration"); public repos happen to pass scope-less, but keep the block complete.
 
 **CodeQL prerequisites** (the action runs CodeQL by default):
 
@@ -73,6 +79,7 @@ To opt out, pass `codeql: 'false'`.
 | `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved |
+| `autorelease_args`  | string   | `''`       | Extra publish options forwarded to the buildhost publish, as whitespace/comma-separated `key=value` pairs. Recognized: `create_service=true\|false` (the published binary runs as a background service; each download format materializes it — brew `service do` block, auto-enabled systemd user unit in generated debs). Unknown keys fail the build; empty forwards nothing |
 | `allow-source-build` | string  | `false`    | Allow building go-toolchain from source when the buildhost binary is unavailable; when `false`, the build fails fast instead of silently falling back |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
 | `wait-ci`           | string   | `false`    | Wait for the latest go-toolchain CI run before downloading the release binary |
@@ -82,10 +89,15 @@ To opt out, pass `codeql: 'false'`.
 
 Every action run ends by handing the `build/` outputs off to later jobs in the
 same workflow run via `wow-look-at-my/actions@cache-upload#latest`. The
-authoritative hand-off name is `go-build-<job id>` (cache key
-`cache-xfer-go-build-<job>-<run_id>-<run_attempt>`) -- distinct per calling
-job, so two concurrent go-toolchain jobs in one run cannot collide on a shared
-key. Downstream jobs download it nameless: `cache-download` with no `name`
+authoritative hand-off name is `go-build-<job id>` -- or, when the calling job
+is a matrix job, `go-build-<job id>.m<job-index>` per leg (cache key
+`cache-xfer-<run_id>-<name>-<run_attempt>`) -- distinct per calling job AND
+per matrix leg, so concurrent go-toolchain jobs in one run, including the legs
+of one matrix job, cannot collide on a shared key. `<job-index>` is the leg's
+`strategy.job-index`: 0-based position in the matrix expansion (definition
+order), identical across re-run attempts of the same leg. Non-matrix jobs are
+unaffected -- their name is byte-identical to before the matrix suffix
+existed. Downstream jobs download it nameless: `cache-download` with no `name`
 self-discovers the current run's hand-off via the run-scoped key prefix and
 emits a `::notice` naming what it picked, so consumers never need to know the
 producing job's id:
@@ -100,15 +112,16 @@ Nameless discovery is only clean when the run's hand-off set is unambiguous
 at download time (exact ambiguity semantics are the `cache-download`
 action's -- see its docs; note the deprecated bare `go-build` alias below is
 itself a second saved name until it is removed). If a run saves several
-distinct hand-offs (multiple go-toolchain jobs, or extra `cache-upload`
-hand-offs alongside the build outputs -- this repo's own CI is such a case),
-keep an explicit `name: go-build-<uploader job id>` for exactly those
-downloads:
+distinct hand-offs (multiple go-toolchain jobs, a matrix go-toolchain job --
+whose legs each save their own name -- or extra `cache-upload` hand-offs
+alongside the build outputs; this repo's own CI is such a case), keep an
+explicit `name: go-build-<uploader job id>` (or, for one leg of a matrix
+producer, `go-build-<uploader job id>.m<index>`) for exactly those downloads:
 
 ```yaml
 - uses: wow-look-at-my/actions@cache-download#latest
   with:
-    name: go-build-linux   # go-build-<uploader job id>
+    name: go-build-linux   # go-build-<uploader job id>[.m<index> for a matrix leg]
     path: dist
 ```
 
@@ -116,8 +129,9 @@ A deprecated bare `go-build` alias is still saved on every run (tolerated,
 non-authoritative; a `::notice` deprecation annotation accompanies it) for the
 consumers that currently download that name -- webhook-runner, buildhost,
 api-cli, github-state-mirror and the publish-ghcr.yml callers. In runs with
-more than one go-toolchain job the bare key is inherently racy (first finisher
-wins; the second save's conflict is absorbed, never the job's failure), so
+more than one go-toolchain invocation -- several jobs, or the legs of one
+matrix job -- the bare key is inherently racy (first finisher wins; the
+second save's conflict is absorbed, never the job's failure), so
 migrate downloads to nameless self-discovery (or, where ambiguous, the
 explicit `go-build-<uploader job id>`). For consumers that go nameless the
 alias question mostly dissolves -- they stop referencing any hand-off name at
@@ -287,6 +301,14 @@ toolchain:
 **Build semantics.** The cosmo build always runs with `CGO_ENABLED=0`
 (cosmopolitan has no cgo; `--cgo` warns and is ignored for this target) and
 without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
+
+**Cache isolation.** Fork-toolchain builds (cosmo and wasm) run with their
+cache keys namespaced by a content hash of the toolchain in use
+(`GO_TOOLCHAIN_CACHE_NAMESPACE`, set automatically). The fork stamps a constant
+version, so different fork builds would otherwise collide on cache keys and
+serve each other stale objects (SIGSEGV binaries). Namespaced builds skip the
+shared cache daemon and cache per-toolchain; normal targets are unaffected.
+See [docs/CACHE.md](docs/CACHE.md#fork-toolchain-key-namespacing).
 
 **Heads-up: APEs self-assimilate.** Executing an APE rewrites its own header
 in place to the host's native format, making the file differ from its
@@ -474,6 +496,35 @@ export GOMEMLIMIT=2GiB
 export GO_TOOLCHAIN_MEMLIMIT_RATIO=0.8
 ```
 
+### CLI test suites (dats)
+
+After every build (default pipeline and `matrix`/`release --build`), go-toolchain
+runs the module's command-line test suites written in
+[dats](https://github.com/wow-look-at-my/dats) declarative YAML.
+
+- **Convention** — suites are non-hidden `*.dats` files under `dats/` at the
+  module root. No `dats/` directory (or no suites in it) means the phase is a
+  silent no-op: zero downloads, zero output.
+- **Built binaries** — `GO_TOOLCHAIN_DATS_BUILD_DIR` is exported to dats: a
+  throwaway dir with copies of the just-built binaries, named by bare output
+  name (plus `.exe` on windows hosts). Exec them through it, never `build/`.
+- **Always-run** — every discovered test runs on every build; there is no
+  filtering, selection, or skip mechanism (dats has none by design either).
+- **Failures fail the build**, exactly like unit tests; suite and `.golden`
+  snapshot edits also invalidate the "Up to date" fast-exit.
+- **Bootstrap** — the dats binary comes from `GO_TOOLCHAIN_DATS_BIN` (local
+  override) or a cached buildhost download; `GO_TOOLCHAIN_DATS_BRANCH`
+  (default `master`) selects the buildhost branch.
+
+| Environment variable | Meaning |
+|---|---|
+| `GO_TOOLCHAIN_DATS_BIN` | Path to a local dats binary (no download; health-probed with `dats version`) |
+| `GO_TOOLCHAIN_DATS_BRANCH` | buildhost branch for the dats download (default `master`) |
+| `GO_TOOLCHAIN_DATS_BUILD_DIR` | Set *by* go-toolchain *for* suites: dir of staged built binaries |
+
+See `dats/README.md` in this repo for suite-authoring conventions and this
+repo's own suite (which tests the go-toolchain CLI itself).
+
 ## Build profile
 
 Every run profiles what the build actually did, per compiler/linker/test action, and whether the cache satisfied it. go-toolchain injects `-debug-actiongraph=<file>` into each `go build` / `go test` invocation (one dump per invocation; matrix targets each get their own), then joins the dumped action graph with the cacheprog's per-action outcome events — the join key is the 20-char truncated action ID (`base64.RawURLEncoding(actionID[:15])`), which cmd/go prints as `ActionID` and the cacheprog derives from the wire ID at emit time.
@@ -529,7 +580,7 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 
 ## How It Works
 
-Before the pipeline begins, go-toolchain runs a pre-flight check: if it is running under the Claude agent and its output is being hidden — piped into another command, redirected to a file, discarded to `/dev/null`, or captured via `$(...)` — it aborts immediately with an error (see the Claude output guard above; the guard is unconditional and has no opt-out). It then checks whether anything relevant changed since the last successful run: it fingerprints every `.go` file, `go.mod`/`go.sum`, and each file referenced by a `//go:embed` directive (enumerated for the main module via `go list`, so an edit to an embedded asset such as a static file or template is detected), and if the fingerprint matches and all `build/` outputs still exist it prints `⇒ Up to date, nothing to do` and exits without running the steps below. If `go list` cannot resolve the packages (e.g. the build is broken) it does not short-circuit. Otherwise the default workflow is:
+Before the pipeline begins, go-toolchain runs a pre-flight check: if it is running under the Claude agent and its output is being hidden — piped into another command, redirected to a file, discarded to `/dev/null`, or captured via `$(...)` — it aborts immediately with an error (see the Claude output guard above; the guard is unconditional and has no opt-out). It then checks whether anything relevant changed since the last successful run: it fingerprints every `.go` file, `go.mod`/`go.sum`, every `.dats` suite and `.golden` snapshot, and each file referenced by a `//go:embed` directive (enumerated for the main module via `go list`, so an edit to an embedded asset such as a static file or template is detected), and if the fingerprint matches and all `build/` outputs still exist it prints `⇒ Up to date, nothing to do` and exits without running the steps below. If `go list` cannot resolve the packages (e.g. the build is broken) it does not short-circuit. Otherwise the default workflow is:
 
 1. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
 2. Checks for outdated dependencies (auto-updates same-org deps)
@@ -570,9 +621,11 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 14. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`) — first listing it in the clone-local `.git/info/exclude` so `git status`, and with it Go's build-time version stamping, never sees the transient file (binaries stamp clean provenance instead of `+dirty`) — builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
 15. Automatically adds `build/` to `.gitignore` (if in a git repo)
 16. Runs benchmarks and compares against previously stored results
-17. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts
-18. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
-19. Emits the per-action build profile once the cache daemon has drained: the console section, `build/profile.json` (+ `$TMPDIR/go-toolchain-profile/profile.json`), per-action Chrome-trace lanes, and a Step Summary table (see [Build profile](#build-profile); skipped with `--no-profile`)
+17. Runs the module's dats CLI test suites (non-hidden `*.dats` files under `dats/`) against throwaway copies of the just-built binaries, exported to suites as `GO_TOOLCHAIN_DATS_BUILD_DIR`; a failing suite fails the build (see [CLI test suites (dats)](#cli-test-suites-dats)). Skipped silently when the module has no suites
+18. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts. A failed submission fails the build; opt out with `GO_TOOLCHAIN_NO_DEP_SUBMISSION=1`
+19. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
+20. Emits the per-action build profile once the cache daemon has drained: the console section, `build/profile.json` (+ `$TMPDIR/go-toolchain-profile/profile.json`), per-action Chrome-trace lanes, and a Step Summary table (see [Build profile](#build-profile); skipped with `--no-profile`)
+21. Fails the run if it emitted more than 15 warnings (`build failed: N warnings emitted (threshold: 15)`) — checked last, so every warning is printed before the failure; the same gate applies to `matrix`
 
 ## Development
 
