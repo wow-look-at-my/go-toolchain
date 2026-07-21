@@ -462,6 +462,7 @@ jobs:
       id-token: write
       contents: read
       actions: write
+      deployments: write
     steps:
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
