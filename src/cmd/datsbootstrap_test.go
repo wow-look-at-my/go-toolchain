@@ -230,4 +230,3 @@ func TestEnsureDatsWindowsBinaryName(t *testing.T) {
 	assert.Equal(t, filepath.Join(cacheDir, "dats", "branch-master", "dats.exe"), got)
 	assert.Contains(t, gotQuery.Load().(string), "os=windows")
 }
-
