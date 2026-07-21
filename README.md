@@ -89,7 +89,7 @@ To opt out, pass `codeql: 'false'`.
 Every action run ends by handing the `build/` outputs off to later jobs in the
 same workflow run via `wow-look-at-my/actions@cache-upload#latest`. The
 authoritative hand-off name is `go-build-<job id>` (cache key
-`cache-xfer-go-build-<job>-<run_id>-<run_attempt>`) -- distinct per calling
+`cache-xfer-<run_id>-go-build-<job>-<run_attempt>`) -- distinct per calling
 job, so two concurrent go-toolchain jobs in one run cannot collide on a shared
 key. Downstream jobs download it nameless: `cache-download` with no `name`
 self-discovers the current run's hand-off via the run-scoped key prefix and

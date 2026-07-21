@@ -262,7 +262,7 @@ runs:
     # cache-upload action (artifact-free replacement for actions/upload-artifact;
     # cache storage is free, artifact storage is billed). This runs on EVERY
     # go-toolchain run. The name carries the calling job's id, so the cache key
-    # (cache-xfer-go-build-<job>-<run_id>-<run_attempt>) is distinct per job and
+    # (cache-xfer-<run_id>-go-build-<job>-<run_attempt>) is distinct per job and
     # concurrent jobs in one run (the standard linux + darwin pattern) can no
     # longer collide -- the old shared `go-build` name made the second finisher
     # fail its save with a 409 Conflict. Downstream jobs cache-download with
