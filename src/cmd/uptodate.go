@@ -29,8 +29,9 @@ func fingerprintFile() string {
 }
 
 // computeFingerprint hashes all inputs that affect a go-toolchain run:
-// all .go files (including tests), go.mod, go.sum, Go version, CGO flag, and
-// every file pulled in by a //go:embed directive (resolved via go list).
+// all .go files (including tests), go.mod, go.sum, .dats suites and their
+// .golden snapshots, Go version, CGO flag, and every file pulled in by a
+// //go:embed directive (resolved via go list).
 func computeFingerprint(r runner.CommandRunner) (string, error) {
 	h := sha256.New()
 
@@ -55,7 +56,11 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 			return nil
 		}
 		name := d.Name()
-		if strings.HasSuffix(name, ".go") || name == "go.mod" || name == "go.sum" {
+		// .dats suites and their .golden snapshot files are pipeline inputs
+		// (the dats phase runs them), so editing one must bust the
+		// fingerprint or the "Up to date" fast-exit would skip the re-run.
+		if strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".dats") ||
+			strings.HasSuffix(name, ".golden") || name == "go.mod" || name == "go.sum" {
 			files = append(files, path)
 		}
 		return nil
