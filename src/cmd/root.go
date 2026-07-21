@@ -294,8 +294,16 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		ex.done()
 	}
 
-	br, err := runBuildPhase(r, quiet)
+	br, builtArtifacts, err := runBuildPhase(r, quiet)
 	if err != nil {
+		return err
+	}
+
+	// Run the module's dats suites (if any) against the binaries just built.
+	// After the build phase so the transient memlimit guard is already
+	// cleaned up; an error here fails the run before saveFingerprint, so a
+	// failing suite is never stamped up-to-date.
+	if err := runDatsPhase(r, quiet, builtArtifacts); err != nil {
 		return err
 	}
 
@@ -339,7 +347,9 @@ func injectMemLimitGuard(quiet bool) error {
 	return nil
 }
 
-func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
+// runBuildPhase builds every target and runs benchmarks. It also returns the
+// built artifacts so the dats phase can stage host-runnable copies for suites.
+func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArtifact, error) {
 	// Validate the working tree before go-toolchain writes any of its own
 	// build-time artifacts (the transient GOMEMLIMIT guard, the build/ output
 	// dir, the .gitignore upkeep below). checkDirtyInCI is meant to catch
@@ -347,11 +357,11 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	// go-toolchain's own generated files, which would otherwise make a
 	// consumer's first CI build fail on artifacts it never authored.
 	if err := checkDirtyInCI(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := injectMemLimitGuard(quiet); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// The guard is a build-time-only artifact; remove it once the build below
 	// has compiled it in, so it never lingers in the working tree.
@@ -360,14 +370,15 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+		return nil, nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
 	inDocker := build.InDocker()
+	var artifacts []datsArtifact
 	for _, t := range targets {
 		outputName := t.OutputName
 		if inDocker {
@@ -389,11 +400,15 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 			outputPath: outPath,
 		}
 		if err := runBuild(r, job, onFirstOutput); err != nil {
-			return nil, fmt.Errorf("go build failed: %w", err)
+			return nil, nil, fmt.Errorf("go build failed: %w", err)
 		}
 		if buildStep != nil {
 			buildStep.done()
 		}
+		artifacts = append(artifacts, datsArtifact{
+			sourcePath: outPath,
+			name:       datsArtifactName(t.OutputName, hostos.GOOS()),
+		})
 	}
 
 	if !quiet {
@@ -403,10 +418,10 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, error) {
 	if !noBenchmark {
 		br, err := runBenchmarkInBuild(r)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return br, nil
+		return br, artifacts, nil
 	}
 
-	return nil, nil
+	return nil, artifacts, nil
 }
