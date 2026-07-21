@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -41,13 +40,11 @@ func datsArtifactName(outputName, goos string) string {
 // non-hidden *.dats files under dats/, recursively, skipping hidden
 // directories. The walk mirrors dats' own discovery (which skips hidden
 // entries but nothing else), so this gate can never no-op a suite dats would
-// run — it only decides run-everything vs. nothing-to-run.
+// run — it only decides run-everything vs. nothing-to-run. A missing dats/
+// (or one that is a plain file) falls out naturally: the walk errors or
+// visits a single non-.dats file, and found stays false.
 func hasDatsSuites(dir string) bool {
 	root := filepath.Join(dir, datsSuiteDir)
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		return false
-	}
 	found := false
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -69,45 +66,31 @@ func hasDatsSuites(dir string) bool {
 	return found
 }
 
-// stageDatsArtifacts copies built binaries into a fresh temp dir for suites
-// to exec. Copy-then-exec is mandatory: matrix cosmo slot artifacts are fat
-// APEs that self-assimilate (rewrite their own file) on first exec, so
-// nothing may ever execute a build/ artifact in place. A missing source
-// (e.g. a cross-only build with no host-runnable artifact) is skipped with a
-// debug log — the suite still runs and fails honestly if it needed it.
-func stageDatsArtifacts(artifacts []datsArtifact) (dir string, cleanup func(), err error) {
-	dir, err = os.MkdirTemp("", "go-toolchain-dats-")
+// stageDatsArtifacts copies built binaries into a fresh temp dir (the caller
+// removes it) for suites to exec. Copy-then-exec is mandatory: matrix cosmo
+// slot artifacts are fat APEs that self-assimilate (rewrite their own file)
+// on first exec, so nothing may ever execute a build/ artifact in place. A
+// missing source (e.g. a cross-only build with no host-runnable artifact) is
+// skipped with a debug log — the suite still runs and fails honestly if it
+// needed it.
+func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
+	dir, err := os.MkdirTemp("", "go-toolchain-dats-")
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 	for _, a := range artifacts {
-		if copyErr := copyDatsArtifact(a.sourcePath, filepath.Join(dir, a.name)); copyErr != nil {
+		dst := filepath.Join(dir, a.name)
+		copyErr := copyFile(a.sourcePath, dst)
+		if copyErr == nil {
+			// copyFile propagates the source mode; force the exec bit in
+			// case the artifact was staged from a mode-stripped filesystem.
+			copyErr = os.Chmod(dst, 0o755)
+		}
+		if copyErr != nil {
 			logger.Debug("dats: not staging %s: %v", a.sourcePath, copyErr)
 		}
 	}
-	return dir, func() { os.RemoveAll(dir) }, nil
-}
-
-// copyDatsArtifact copies src to dst and marks it executable.
-func copyDatsArtifact(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	// OpenFile's mode is umask-filtered; force the executable bit.
-	return os.Chmod(dst, 0o755)
+	return dir, nil
 }
 
 // runDatsPhase runs the module's dats suites (if any) against the binaries
@@ -137,11 +120,11 @@ func runDatsPhase(r runner.CommandRunner, quiet bool, artifacts []datsArtifact) 
 		return fail(err)
 	}
 
-	buildDir, cleanupBuildDir, err := stageDatsArtifacts(artifacts)
+	buildDir, err := stageDatsArtifacts(artifacts)
 	if err != nil {
 		return fail(err)
 	}
-	defer cleanupBuildDir()
+	defer os.RemoveAll(buildDir)
 
 	// Serial on purpose (no -j): the report stays byte-deterministic, and
 	// staged APE copies never race their first-exec self-assimilation.

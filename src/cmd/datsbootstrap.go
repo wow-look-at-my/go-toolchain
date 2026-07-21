@@ -8,11 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -29,20 +27,15 @@ const (
 const defaultDatsBranch = "master"
 
 // Test seams — overridden in tests to avoid real downloads and version probes.
+// The host-platform rule is the same one the cosmo bootstrap uses (hostos +
+// runtime.GOARCH); dats publishes native binaries for every os/arch pair, so
+// unlike cosmo there is no host gate.
 var (
 	ensureDatsFunc       = EnsureDats
 	datsDownloadBase     = "https://dl.pazer.build/dats"
-	datsHostPlatformFunc = datsHostPlatform
+	datsHostPlatformFunc = cosmoHostPlatform
 	datsVersionFunc      = datsVersion
 )
-
-// datsHostPlatform returns the platform whose dats binary can run here: the
-// HOST os (a cosmo fat APE reports runtime.GOOS=="cosmo" on every host) plus
-// runtime.GOARCH (always the host arch, even inside a fat APE). dats publishes
-// native binaries for every os/arch pair, so there is no host gate.
-func datsHostPlatform() (goos, goarch string) {
-	return hostos.GOOS(), runtime.GOARCH
-}
 
 // EnsureDats resolves a dats binary (the declarative CLI test runner,
 // github.com/wow-look-at-my/dats) and returns its path. Resolution order:
@@ -75,7 +68,7 @@ func EnsureDats() (string, error) {
 	// cosmoCacheKey is generic buildhost keying (redirect version probe with
 	// a branch-keyed fallback) — reused rather than duplicated.
 	key := cosmoCacheKey(dlURL, branch)
-	binPath := filepath.Join(datsCache, key, datsBinName(hostOS))
+	binPath := filepath.Join(datsCache, key, datsArtifactName("dats", hostOS))
 	if _, statErr := os.Stat(binPath); statErr == nil {
 		ver, verErr := datsVersionFunc(binPath)
 		if verErr != nil {
@@ -105,14 +98,6 @@ func useLocalDats(bin string) (string, error) {
 	}
 	logger.Info("dats-bootstrap: using %s=%s (%s)", datsBinEnv, bin, ver)
 	return bin, nil
-}
-
-// datsBinName returns the dats binary filename for the given host OS.
-func datsBinName(goos string) string {
-	if goos == "windows" {
-		return "dats.exe"
-	}
-	return "dats"
 }
 
 // datsVersion runs `dats version` as a health probe and returns its (trimmed)

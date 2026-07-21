@@ -231,8 +231,3 @@ func TestEnsureDatsWindowsBinaryName(t *testing.T) {
 	assert.Contains(t, gotQuery.Load().(string), "os=windows")
 }
 
-func TestDatsBinName(t *testing.T) {
-	assert.Equal(t, "dats", datsBinName("linux"))
-	assert.Equal(t, "dats", datsBinName("darwin"))
-	assert.Equal(t, "dats.exe", datsBinName("windows"))
-}

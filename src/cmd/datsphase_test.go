@@ -88,12 +88,12 @@ func TestStageDatsArtifacts(t *testing.T) {
 	real := filepath.Join(src, "mytool_linux_amd64")
 	require.NoError(t, os.WriteFile(real, []byte("binary bytes"), 0o644))
 
-	dir, cleanup, err := stageDatsArtifacts([]datsArtifact{
+	dir, err := stageDatsArtifacts([]datsArtifact{
 		{sourcePath: real, name: "mytool"},
 		{sourcePath: filepath.Join(src, "missing_darwin_arm64"), name: "missing"},
 	})
 	require.NoError(t, err)
-	defer cleanup()
+	defer os.RemoveAll(dir)
 
 	// The present artifact is copied under its bare name, executable.
 	staged := filepath.Join(dir, "mytool")
@@ -106,9 +106,6 @@ func TestStageDatsArtifacts(t *testing.T) {
 
 	// The missing artifact is skipped without failing the staging.
 	assert.NoFileExists(t, filepath.Join(dir, "missing"))
-
-	cleanup()
-	assert.NoDirExists(t, dir)
 }
 
 // swapEnsureDats replaces the dats bootstrap seam for one test.
@@ -117,6 +114,17 @@ func swapEnsureDats(t *testing.T, fn func() (string, error)) {
 	old := ensureDatsFunc
 	ensureDatsFunc = fn
 	t.Cleanup(func() { ensureDatsFunc = old })
+}
+
+// chdirWithSuite creates a temp module dir containing dats/cli.dats and
+// chdirs into it for the duration of the test.
+func chdirWithSuite(t *testing.T) (dir string) {
+	t.Helper()
+	dir = t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dats"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "dats", "cli.dats"), []byte("tests: []\n"), 0o644))
+	t.Chdir(dir)
+	return dir
 }
 
 func TestRunDatsPhaseNoSuitesIsNoOp(t *testing.T) {
@@ -132,12 +140,9 @@ func TestRunDatsPhaseNoSuitesIsNoOp(t *testing.T) {
 }
 
 func TestRunDatsPhaseRunsSuites(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dats"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "dats", "cli.dats"), []byte("tests: []\n"), 0o644))
+	dir := chdirWithSuite(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "build"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "build", "mytool"), []byte("bin"), 0o755))
-	t.Chdir(dir)
 	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
 
 	mock := runner.NewMock()
@@ -178,10 +183,7 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 }
 
 func TestRunDatsPhaseFailureFailsBuild(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dats"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "dats", "cli.dats"), []byte("tests: []\n"), 0o644))
-	t.Chdir(dir)
+	chdirWithSuite(t)
 	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
 
 	mock := runner.NewMock()
@@ -193,10 +195,7 @@ func TestRunDatsPhaseFailureFailsBuild(t *testing.T) {
 }
 
 func TestRunDatsPhaseBootstrapFailureFailsBuild(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dats"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "dats", "cli.dats"), []byte("tests: []\n"), 0o644))
-	t.Chdir(dir)
+	chdirWithSuite(t)
 	swapEnsureDats(t, func() (string, error) { return "", fmt.Errorf("download blew up") })
 
 	mock := runner.NewMock()
@@ -208,10 +207,7 @@ func TestRunDatsPhaseBootstrapFailureFailsBuild(t *testing.T) {
 }
 
 func TestRunDatsPhaseQuietRoutesStdoutToStderr(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dats"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "dats", "cli.dats"), []byte("tests: []\n"), 0o644))
-	t.Chdir(dir)
+	chdirWithSuite(t)
 	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
 
 	mock := runner.NewMock()

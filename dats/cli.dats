@@ -31,16 +31,16 @@ tests:
       "!stderr":
         - "panic"
 
+  # `version raw` skips the staleness footer's GitHub query entirely, so this
+  # exemption test is fully offline (the whole version subtree is exempt).
   - desc: version stays exempt from the claude output guard
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" version'
+    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" version raw'
     timeout: 30s
     inputs:
       env:
         CLAUDECODE: "1"
         GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
     outputs:
-      stdout:
-        - "Version:"
       "!stderr":
         - "refused to run"
 
