@@ -171,3 +171,68 @@ func TestFoo(t *testing.T) {
 	content, _ := os.ReadFile(filepath.Join(dir, "main_test.go"))
 	assert.Contains(t, string(content), "assert.Equal")
 }
+
+// TestVetSemanticCastAddsMissingImport is a regression test for the testify
+// cast fixer wedging a tree: converting a bare permission literal compared
+// against an os.FileMode operand inserts fs.FileMode(...) — os.FileMode is an
+// alias for io/fs.FileMode, so the conversion is spelled with the io/fs
+// package even when the file only imports os. The fixer must add the io/fs
+// import alongside the cast; without it the rewritten file fails to load
+// (undefined: fs) and every later vet run — including the fix's own verify
+// re-run — dies at the type-check with a package load error before any fixer
+// runs, so the tree can never converge.
+func TestVetSemanticCastAddsMissingImport(t *testing.T) {
+	// Resolve upstream testify to the local stub so the fixture type-checks
+	// hermetically (same pattern as TestVetSemanticWithFixRecursive).
+	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+
+	// info.Mode() is declared in io/fs (fs.FileInfo's method), so the operand's
+	// type is the origin io/fs.FileMode — not the os.FileMode alias — and the
+	// conversion must be spelled through the io/fs package.
+	code := `package main
+
+import (
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestMode(t *testing.T) {
+	info, _ := os.Stat(".")
+	assert.NotEqual(t, 0, info.Mode()&os.ModeSymlink)
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644))
+	// go 1.24 matches the stub module's go directive: the fixture imports
+	// testify from the start, so the strict (compiled/test) package load already
+	// needs the stub's module graph — an older go directive here fails the load
+	// with "updates to go.mod needed" before the analyzer ever runs.
+	gomod := "module testmod\n\ngo 1.24\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	initGitRepo(t, dir)
+
+	// First run rewrites the literal; its internal verify re-run must load the
+	// rewritten file cleanly (this used to fail with "undefined: fs").
+	changed, err := vetSemantic("./...", NewEditor(true), nil)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	content, err := os.ReadFile(filepath.Join(dir, "main_test.go"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "assert.NotEqual(t, fs.FileMode(0), info.Mode()&os.ModeSymlink)")
+	assert.Contains(t, string(content), `"io/fs"`)
+
+	// Second run: the rewritten tree is canonical — it must load and no-op.
+	changed, err = vetSemantic("./...", NewEditor(true), nil)
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
