@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -102,11 +103,19 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		assert.True(t, strings.HasPrefix(path, filepath.Join(fakeGoroot, "bin")), "PATH must be prefixed with the fork GOROOT/bin")
 		cgo, _ := cfg.Env.Get("CGO_ENABLED")
 		assert.Equal(t, "0", cgo)
+		// Wasm builds use the same constant-version fork, so they carry the
+		// same toolchain-content cache namespace as the cosmo build.
+		ns, _ := cfg.Env.Get(cache.KeyNamespaceEnv)
+		wantNS, nsErr := forkToolchainCacheNamespace(fakeGoroot)
+		require.NoError(t, nsErr)
+		assert.Equal(t, wantNS, ns, "wasm build env must set %s from the toolchain content hash", cache.KeyNamespaceEnv)
 	}
 	assert.True(t, seenGOOS["js"], "expected a js/wasm build via the fork toolchain")
 	assert.True(t, seenGOOS["wasip1"], "expected a wasip1/wasm build via the fork toolchain")
 
-	// The native target must NOT be routed through the fork toolchain.
+	// The native target must NOT be routed through the fork toolchain — and
+	// must NOT carry the fork's cache namespace (normal toolchains have
+	// properly version-keyed tool IDs; their cache behavior stays untouched).
 	var nativeCfg *runner.Config
 	for _, cfg := range mock.Calls() {
 		if cfg.IsCmd("go", "build") && cfg.Name != forkGo {
@@ -117,6 +126,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	if assert.NotNil(t, nativeCfg, "expected a native build with the go on PATH") {
 		goroot, ok := nativeCfg.Env.Get("GOROOT")
 		assert.False(t, ok && goroot == fakeGoroot, "native builds must not inherit the fork GOROOT")
+		assert.False(t, nativeCfg.Env.Contains(cache.KeyNamespaceEnv), "native builds must not set a cache namespace")
 	}
 }
 
