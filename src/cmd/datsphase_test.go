@@ -147,9 +147,9 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if buildDir, ok := cfg.Env.Get(datsBuildDirEnv); ok {
 			stagedBinary = filepath.Join(buildDir, "mytool")
-			if _, err := os.Stat(stagedBinary); err != nil {
-				t.Errorf("staged artifact missing during dats run: %v", err)
-			}
+			_, err := os.Stat(stagedBinary)
+			assert.Nil(t, err)
+
 		}
 		return nil, nil // fall through to the default empty-success response
 	}
