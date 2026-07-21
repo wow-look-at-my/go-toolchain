@@ -413,3 +413,62 @@ func removeVanityReplaces(state *vanityState) error {
 	}
 	return nil
 }
+
+// checkDirtyInCIWithVanityRestored runs the CI dirty-tree check against the
+// tree as removeVanityReplaces will restore it: with the injected replace
+// directives dropped from go.mod and go.sum back at its pre-injection
+// snapshot. The active (injected) state is put back on disk before returning,
+// so the mirror replaces keep resolving modules for the test and build phases
+// that follow. With no active vanity state — the overwhelmingly common case —
+// this is exactly checkDirtyInCI.
+//
+// This exists because the injected replaces are the toolchain's own transient
+// mutation, removed when RunTestsWithCoverage returns — but the fail-fast
+// dirty check (#293) runs mid-function, while they are still on disk. Any CI
+// run where a vanity host happened to be unreachable at probe time therefore
+// died with "working tree is dirty in CI ... M go.mod, M go.sum" on a
+// canonically tidy tree (github-state-mirror run 29791671090: modernc.org
+// probe failed, 14 gitlab.com/cznic replaces injected, tidy rewrote go.sum,
+// post-vet check fired), and an identical re-run passed once the host was
+// reachable again. Checking the restored tree instead makes this check agree
+// with the later checkDirtyInCI call sites (runBuildPhase, the matrix flow),
+// which already run after the deferred restore.
+//
+// Real dirt still fails: removeVanityReplaces drops only the replaces this
+// run injected, so any other go.mod change (e.g. tidy updating requirements
+// on an untidy tree) survives the restore and is reported, and files other
+// than go.mod/go.sum are never touched. The one accepted narrowing is
+// inherent to the snapshot-based go.sum restore: while a vanity host is down,
+// legitimate go.sum drift is indistinguishable from the tidy path swap and is
+// restored away — the run leaves (and validates) exactly the committed
+// go.sum, and the drift fails the very next run with the host reachable.
+func checkDirtyInCIWithVanityRestored(state *vanityState) error {
+	if state == nil || len(state.Replaces) == 0 || os.Getenv("CI") == "" {
+		return checkDirtyInCI()
+	}
+	activeGoMod, modErr := os.ReadFile("go.mod")
+	activeGoSum, sumErr := os.ReadFile("go.sum")
+	if modErr != nil || sumErr != nil {
+		// Cannot snapshot the active state; check the live tree rather than
+		// risk losing the mirror replaces mid-pipeline.
+		return checkDirtyInCI()
+	}
+	if err := removeVanityReplaces(state); err != nil {
+		// The restored tree could not be computed; the live tree is checked
+		// below instead, reporting at worst the same failure this run would
+		// have reported before the restore-aware check existed.
+		logger.Warn("⇒ Warning: could not restore vanity replaces for the dirty check: %v", err)
+	}
+	dirtyErr := checkDirtyInCI()
+	// Put the active mirror state back so module resolution through the
+	// replaces keeps holding for the phases that follow. The deferred
+	// removeVanityReplaces performs the final restore when the test phase
+	// returns, exactly as before.
+	if err := os.WriteFile("go.mod", activeGoMod, 0644); err != nil && dirtyErr == nil {
+		dirtyErr = fmt.Errorf("restore active go.mod after dirty check: %w", err)
+	}
+	if err := os.WriteFile("go.sum", activeGoSum, 0644); err != nil && dirtyErr == nil {
+		dirtyErr = fmt.Errorf("restore active go.sum after dirty check: %w", err)
+	}
+	return dirtyErr
+}

@@ -138,8 +138,13 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	}
 
 	// Vet is the last stage that can modify files (auto-fix). Fail fast here
-	// rather than after the full test run.
-	if err := checkDirtyInCI(); err != nil {
+	// rather than after the full test run. The vanity replaces injected above
+	// are still active at this point (their removal is deferred to this
+	// function's return), so the check runs against the tree as that cleanup
+	// will restore it — the toolchain's own transient go.mod/go.sum mutation
+	// must never count as dirt, while every real uncommitted change still
+	// fails (see checkDirtyInCIWithVanityRestored).
+	if err := checkDirtyInCIWithVanityRestored(vanity); err != nil {
 		return false, nil, err
 	}
 
