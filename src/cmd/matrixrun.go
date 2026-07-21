@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -303,6 +305,23 @@ func runReleaseWithRunner(r runner.CommandRunner) error {
 		if _, err := runBenchmarkInBuild(r); err != nil {
 			return err
 		}
+	}
+
+	// Run the module's dats suites (if any) against host-runnable copies of
+	// the matrix artifacts. The host-named artifact may BE the cosmo fat APE
+	// (default cosmo slots), which self-assimilates on first exec — the phase
+	// stages throwaway copies, never executing anything in build/ in place.
+	// A cross-only build with no host artifact still runs the suites (the
+	// missing copy is skipped; tests that need it fail honestly).
+	hostArtifacts := make([]datsArtifact, 0, len(hostTargets))
+	for _, t := range hostTargets {
+		hostArtifacts = append(hostArtifacts, datsArtifact{
+			sourcePath: filepath.Join(outputDir, build.BinaryName(t.OutputName, hostos.GOOS(), runtime.GOARCH)),
+			name:       datsArtifactName(t.OutputName, hostos.GOOS()),
+		})
+	}
+	if err := runDatsPhase(r, false, hostArtifacts); err != nil {
+		return err
 	}
 
 	return nil
