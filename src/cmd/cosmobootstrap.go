@@ -137,13 +137,15 @@ func cosmoGoVersion(root string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// cosmoCacheKey derives the cache directory name for a toolchain download.
+// cosmoCacheKey derives the cache directory name for a buildhost download.
 // buildhost's dl endpoint redirects to a static URL whose query carries the
 // resolved release version (v=<N>); that version makes a stable, collision
 // free cache key (v<N>). When the redirect cannot be probed or parsed, the
 // key falls back to the branch name: that copy is downloaded once and then
-// reused as long as it exists (no staleness detection) rather than paying an
-// ~80 MB download on every run.
+// reused as long as it exists (no staleness detection) rather than paying a
+// large download on every run. Shared keying: both the gosmopolitan
+// toolchain bootstrap (this file) and the dats bootstrap (datsbootstrap.go)
+// key their caches with it — keep changes compatible with both.
 func cosmoCacheKey(dlURL, branch string) string {
 	if v := probeCosmoVersion(dlURL); v != "" {
 		return "v" + v
@@ -154,6 +156,8 @@ func cosmoCacheKey(dlURL, branch string) string {
 // probeCosmoVersion issues one redirect-stopping HEAD request against the dl
 // endpoint and extracts the release version from the Location's v query
 // parameter. Any failure returns "" (callers fall back to branch keying).
+// Used for every buildhost dl endpoint, not just gosmopolitan — the dats
+// bootstrap probes through it too (via cosmoCacheKey).
 func probeCosmoVersion(dlURL string) string {
 	client := &http.Client{
 		Timeout: cosmoProbeTimeout,

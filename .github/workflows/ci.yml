@@ -103,8 +103,11 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          if [ "$elapsed" -gt 30 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 30s)"
+          # Limit raised 30s -> 45s when the dats phase landed: the second
+          # build now also runs the repo's CLI suite (~3-5s on top of a 26s
+          # baseline); a broken cache still blows way past 45s.
+          if [ "$elapsed" -gt 45 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 45s)"
             exit 1
           fi
 
