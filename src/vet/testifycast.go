@@ -46,10 +46,13 @@ var TestifyCastAnalyzer = &analysis.Analyzer{
 }
 
 // CastEdit records a single conversion to insert: wrap the source span
-// [Start,End) in TypeName(...).
+// [Start,End) in TypeName(...). AddImports lists the import paths that must be
+// added to the file for TypeName to resolve — empty when every package the
+// conversion names is already imported (or the type is package-local).
 type CastEdit struct {
 	Start, End token.Pos
 	TypeName   string
+	AddImports []string
 }
 
 // CastEdits is the set of conversions to apply to one file.
@@ -262,18 +265,72 @@ func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV 
 		}
 	}
 
-	name := types.TypeString(target, fileQualifier(pass.Pkg, file))
+	base := fileQualifier(pass.Pkg, file)
+	used := make(map[*types.Package]string)
+	name := types.TypeString(target, func(p *types.Package) string {
+		q := base(p)
+		if p != nil && q != "" {
+			used[p] = q
+		}
+		return q
+	})
 	if name == "" || strings.ContainsAny(name, " \t\n") || strings.Contains(name, "invalid") {
 		// Anything we can't spell as a bare conversion function: skip rather
 		// than emit something that won't compile.
 		return nil
 	}
 
-	return &CastEdit{
-		Start:    argExpr.Pos(),
-		End:      argExpr.End(),
-		TypeName: name,
+	// Verify every package name the conversion uses actually resolves at the
+	// use site, recording the imports that must be added when one does not.
+	// The target type is not necessarily spelled through a package the file
+	// imports: os.FileMode is an alias for io/fs.FileMode, so an operand typed
+	// through the os API yields a conversion spelled fs.FileMode even in a
+	// file that only imports os. Writing that cast without its io/fs import
+	// leaves the file failing to load (undefined: fs), which blocks every
+	// subsequent vet run — including this fixer's own verify re-run — so the
+	// tree could never converge.
+	var addImports []string
+	for p, local := range used {
+		switch obj := lookupAt(pass, argExpr.Pos(), local).(type) {
+		case *types.PkgName:
+			if obj.Imported().Path() != p.Path() {
+				// The name is taken by a different import here: adding another
+				// import cannot make this spelling resolve to target. Skip.
+				return nil
+			}
+			// Already imported under this name: nothing to add.
+		case nil:
+			// Not in scope: the file lacks the import (or has it only
+			// blank-imported). Adding the import makes the bare package name
+			// resolve — sound only when that is the name the conversion uses.
+			if local != p.Name() {
+				return nil
+			}
+			addImports = append(addImports, p.Path())
+		default:
+			// Shadowed by a non-package identifier at the use site; the
+			// conversion would not resolve to the package. Skip.
+			return nil
+		}
 	}
+
+	return &CastEdit{
+		Start:      argExpr.Pos(),
+		End:        argExpr.End(),
+		TypeName:   name,
+		AddImports: addImports,
+	}
+}
+
+// lookupAt returns the object that name resolves to at pos within pass's
+// package, or nil when the name is not in scope there.
+func lookupAt(pass *analysis.Pass, pos token.Pos, name string) types.Object {
+	scope := pass.Pkg.Scope().Innermost(pos)
+	if scope == nil {
+		return nil
+	}
+	_, obj := scope.LookupParent(name, pos)
+	return obj
 }
 
 // fileQualifier returns a types.Qualifier that names packages using the import
@@ -299,8 +356,11 @@ func fileQualifier(self *types.Package, file *ast.File) types.Qualifier {
 			return p.Name()
 		}
 		// Not imported in this file: fall back to the package name. The target
-		// type is always the type of an existing operand, so its package is in
-		// practice already imported; this is a defensive default.
+		// type is the type of an existing operand, but its package is not
+		// necessarily imported here (e.g. an os.FileMode operand is spelled
+		// through io/fs, the alias's origin). buildCastEdit verifies the name
+		// resolves at the use site and records the import to add when it
+		// doesn't.
 		return p.Name()
 	}
 }
