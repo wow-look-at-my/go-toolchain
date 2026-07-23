@@ -18,9 +18,10 @@ import (
 )
 
 // applyCastFixtures runs the analyzer over the testifycast fixture module and
-// returns the rewritten source of every file that had fixes applied, plus
-// anything the analyzer wrote to stderr (element-mismatch warnings).
-func applyCastFixtures(t *testing.T) (output, stderrText string) {
+// returns the rewritten source of every file that had fixes applied, anything
+// the analyzer wrote to stderr (element-mismatch warnings), and the raw edit
+// sets themselves (for asserting on recorded imports).
+func applyCastFixtures(t *testing.T) (output, stderrText string, all []*CastEdits) {
 	t.Helper()
 	// The fixture is a self-contained module (with a local replace to the stub
 	// testify), so load it module-mode: point analysistest at the module root
@@ -63,13 +64,14 @@ func applyCastFixtures(t *testing.T) (output, stderrText string) {
 			src, err := os.ReadFile(c.Filename)
 			require.NoError(t, err)
 			out.Write(c.rendered(src))
+			all = append(all, c)
 		}
 	}
-	return out.String(), stderrText
+	return out.String(), stderrText, all
 }
 
 func TestTestifyCastAnalyzer(t *testing.T) {
-	out, stderr := applyCastFixtures(t)
+	out, stderr, all := applyCastFixtures(t)
 	require.NotEmpty(t, out, "expected some fixes to be applied")
 
 	// Cases that MUST gain a conversion.
@@ -99,6 +101,10 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 		"assert.Equal(t, time.Duration(0), getDuration())",
 		// Dot-imported named type: spelled unqualified, not ".Duration".
 		"assert.Equal(t, Duration(0), getDot())",
+		// Named type from a package the asserting file does NOT import: the
+		// conversion is still inserted (the missing import is recorded on the
+		// edit and added when the fix is applied).
+		"assert.NotEqual(t, modes.Mode(0), getMode())",
 		// Ordering assertions (upstream compareTwoValues is kind-strict):
 		// int16 field vs untyped 0 — the go-font-renderer TestParseHhea shape.
 		"assert.Greater(t, getInt16(), int16(0))",
@@ -146,6 +152,22 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 	assert.NotContains(t, out, "int64(int64(")
 	assert.NotContains(t, out, "uint(uint(")
 	assert.NotContains(t, out, "int16(int16(")
+
+	// The notimported.go edit names a package that file doesn't import, so it
+	// must record the import to add; every other file's edits (types imported
+	// or package-local) must record none.
+	var notImported *CastEdits
+	for _, c := range all {
+		if strings.HasSuffix(c.Filename, "notimported.go") {
+			notImported = c
+			continue
+		}
+		assert.Empty(t, c.neededImports(), c.Filename)
+	}
+	require.NotNil(t, notImported, "expected an edit set for notimported.go")
+	require.Len(t, notImported.Edits, 1)
+	assert.Equal(t, []string{"testifycast/modes"}, notImported.Edits[0].AddImports)
+	assert.Equal(t, []string{"testifycast/modes"}, notImported.neededImports())
 }
 
 func TestIsForkNumeric(t *testing.T) {
@@ -256,6 +278,49 @@ func TestCastEditsApply(t *testing.T) {
 	got, err := os.ReadFile(fp)
 	require.NoError(t, err)
 	assert.Contains(t, string(got), "var _ = float64(0)")
+}
+
+// TestCastEditsApplyAddsImport verifies Apply adds the import an edit recorded
+// (a conversion naming a package the file doesn't import must not leave the
+// file unloadable), merged into the existing import block gofmt-canonically.
+func TestCastEditsApplyAddsImport(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "x.go")
+	src := "package p\n\nimport \"os\"\n\nvar _ = os.Getenv(\"\")\n\nvar _ = 0\n"
+	require.NoError(t, os.WriteFile(fp, []byte(src), 0644))
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, fp, src, 0)
+	require.NoError(t, err)
+
+	var lit *ast.BasicLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if b, ok := n.(*ast.BasicLit); ok && b.Kind == token.INT {
+			lit = b
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, lit)
+
+	ce := &CastEdits{
+		Filename: fp,
+		Fset:     fset,
+		Edits: []CastEdit{{
+			Start:      lit.Pos(),
+			End:        lit.End(),
+			TypeName:   "fs.FileMode",
+			AddImports: []string{"io/fs"},
+		}},
+	}
+	wrote, err := ce.Apply(NewEditor(true))
+	require.NoError(t, err)
+	require.True(t, wrote)
+
+	got, err := os.ReadFile(fp)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "var _ = fs.FileMode(0)")
+	assert.Contains(t, string(got), `"io/fs"`)
 }
 
 // TestCastEditsApplyCheckMode verifies a check-mode (CI) editor records the
