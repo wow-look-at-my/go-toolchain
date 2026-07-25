@@ -585,7 +585,7 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 
 1. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
 2. Checks for outdated dependencies (auto-updates same-org deps)
-3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts)
+3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts). The replaces are transient — removed before the run ends — and the CI dirty-tree check evaluates the tree as it will be restored, so the toolchain's own go.mod/go.sum mutation never fails CI while any real uncommitted change still does
 4. Runs `go mod tidy`
 5. Detects and runs `//go:generate` directives (if present)
 6. Runs `go vet`: custom analyzers normalize assertions, migrate `gotest.tools`/fork-testify imports to upstream `stretchr/testify`, and insert explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` and `Greater`/`Less`-family operands, adding any import the conversion's type needs (resyncing the vendor tree afterward). Locally these fixes are applied in place; on CI (`CI` set) they run read-only and any change they would make is a hard failure instead — so importing the removed `wow-look-at-my/testify` fork fails CI rather than passing green
