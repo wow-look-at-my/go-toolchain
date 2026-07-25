@@ -140,7 +140,8 @@ func (b *WebBackend) doRetryGET(req *http.Request) (*http.Response, error) {
 
 // doRetryGETN issues an idempotent GET with up to maxRetries retries — the
 // index fetch caps its retries below the configured policy so a slow server
-// cannot stall daemon startup (see indexFetchBudget / indexFetchRetries).
+// cannot stall daemon startup (see the index fetch budgets in web_index.go /
+// indexFetchRetries).
 func (b *WebBackend) doRetryGETN(req *http.Request, maxRetries int) (*http.Response, error) {
 	return b.doRetry(req, maxRetries)
 }
