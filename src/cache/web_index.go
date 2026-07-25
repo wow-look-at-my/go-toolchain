@@ -13,23 +13,50 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// indexFetchBudget bounds the WHOLE startup index load (conditional GET plus
-// the rare unconditional refetch), and indexFetchRetries caps its retries.
-// The index is an optimization, never a correctness dependency: without a
-// dedicated budget, a slow-but-answering server could hold NewWebBackend —
-// and therefore the daemon start — for up to ~94s (client timeout 30s x up
-// to 3 attempts + backoff) before the first cache request was served. On
-// budget exhaustion the backend proceeds with the disk-cached or empty key
-// set, which is non-authoritative — so batch probing stays enabled and the
-// run recovers hits the index could not advertise. indexFetchBudget is a var
-// so tests can shrink it.
-var indexFetchBudget = 5 * time.Second
+// The startup index load is bounded by PROGRESS, not by total elapsed time.
+//
+// The index is an optimization, never a correctness dependency, so a
+// slow-but-answering server must not hold NewWebBackend — and therefore the
+// daemon start — hostage for the ~94s the raw client policy allows (client
+// timeout 30s x up to 3 attempts + backoff). The original bound was a single
+// 5s deadline over the whole load, which was wrong in a way that only got
+// worse with scale: the blob is 32 bytes per advertised key, so a shared
+// cache holding ~900k keys serves ~29 MB, and no total deadline sized for a
+// small index can distinguish "the server is hung" from "the index is big
+// and is streaming down just fine". Builds against a healthy server started
+// losing the whole index to that deadline, and the fallout is not cosmetic:
+// a non-authoritative key set disables index-based routing, the cold-key
+// batch probes then trip the empty-batch backoff, and the run finishes with
+// zero remote cache hits.
+//
+// So the budget is split into two progress-based bounds plus an absolute
+// ceiling:
+//
+//   - indexHeaderBudget bounds the wait for response headers (connect, TLS,
+//     server think time) across the one bounded retry. A hung server is
+//     still abandoned in seconds.
+//   - indexStallTimeout bounds the gap between successive body chunks. A
+//     transfer that keeps delivering bytes keeps going, however large; one
+//     that goes silent is abandoned.
+//   - indexFetchCeiling caps the whole load regardless of progress, so even
+//     a pathological trickle cannot stall daemon start indefinitely.
+//
+// On exhaustion of any of them the backend proceeds with the disk-cached or
+// empty key set, which is non-authoritative — batch probing stays enabled and
+// the run recovers hits the index could not advertise. All three are vars so
+// tests can shrink them.
+var (
+	indexHeaderBudget = 10 * time.Second
+	indexStallTimeout = 10 * time.Second
+	indexFetchCeiling = 60 * time.Second
+)
 
 const indexFetchRetries = 1
 
@@ -73,8 +100,10 @@ func (b *WebBackend) loadOrFetchIndex() (set.Set[string], bool) {
 	path := b.indexCachePath()
 	diskBlob, diskKeys, diskETag := b.readDiskIndex(path)
 
-	// One short budget covers the whole load — see indexFetchBudget.
-	ctx, cancel := context.WithTimeout(context.Background(), indexFetchBudget)
+	// The absolute ceiling covers the whole load (conditional GET plus the
+	// rare unconditional refetch); each fetch additionally enforces the
+	// header and stall budgets. See the budget vars above.
+	ctx, cancel := context.WithTimeout(context.Background(), indexFetchCeiling)
 	defer cancel()
 
 	blob, status, err := b.fetchIndexBlob(ctx, diskETag)
@@ -133,6 +162,30 @@ func (b *WebBackend) readDiskIndex(path string) ([]byte, set.Set[string], string
 //	                                  so the caller can classify it)
 //	nil,  0, err                      for any transport failure
 func (b *WebBackend) fetchIndexBlob(ctx context.Context, ifNoneMatch string) ([]byte, int, error) {
+	// Progress watchdog: it starts armed for indexHeaderBudget (waiting for
+	// response headers) and is re-armed for indexStallTimeout before every
+	// body read, so a transfer that keeps delivering bytes is never cut off
+	// while one that goes silent is. Firing cancels the request context,
+	// which surfaces as a read error and unwinds the fetch.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var timedOut atomic.Bool
+	watchdog := time.AfterFunc(indexHeaderBudget, func() {
+		timedOut.Store(true)
+		cancel()
+	})
+	defer watchdog.Stop()
+
+	// wrapErr labels an error the watchdog caused, so the log line says the
+	// fetch made no progress rather than the bare "context canceled".
+	wrapErr := func(err error) error {
+		if timedOut.Load() {
+			return fmt.Errorf("abandoned: no progress within the index fetch budget (headers %v, stall %v): %w",
+				indexHeaderBudget, indexStallTimeout, err)
+		}
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET", b.endpoint+"/"+b.bucket+"/_index", nil)
 	if err != nil {
 		return nil, 0, err
@@ -147,14 +200,14 @@ func (b *WebBackend) fetchIndexBlob(ctx context.Context, ifNoneMatch string) ([]
 	}
 	resp, err := b.doRetryGETN(req, retries)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, wrapErr(err)
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(&stallGuardedReader{r: resp.Body, watchdog: watchdog, window: indexStallTimeout})
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, wrapErr(err)
 		}
 		return body, http.StatusOK, nil
 	case http.StatusNotModified:
@@ -163,6 +216,23 @@ func (b *WebBackend) fetchIndexBlob(ctx context.Context, ifNoneMatch string) ([]
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(body))
 	}
+}
+
+// stallGuardedReader re-arms a watchdog timer before every read, turning an
+// absolute deadline into a per-chunk stall deadline: the transfer may take as
+// long as it needs as long as it keeps making progress. Firing the watchdog
+// cancels the request, so the pending Read returns an error and the transfer
+// unwinds. A Reset that races an already-fired watchdog is harmless — the
+// context is cancelled either way and the read fails.
+type stallGuardedReader struct {
+	r        io.Reader
+	watchdog *time.Timer
+	window   time.Duration
+}
+
+func (s *stallGuardedReader) Read(p []byte) (int, error) {
+	s.watchdog.Reset(s.window)
+	return s.r.Read(p)
 }
 
 // writeIndexBlob persists a GBCI v1 blob via tmp file + atomic rename.
