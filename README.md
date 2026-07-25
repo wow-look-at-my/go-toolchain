@@ -13,7 +13,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Near-duplicate detection** — scans Go source for structurally similar functions using AST comparison
 - **File length checks** — warns at 500 lines, errors at 750 lines; generated files (canonical `// Code generated ... DO NOT EDIT.` header marker) are auto-exempted unless `--count-generated` is passed
 - **Auto-fix / CI check** — locally (`CI` unset) it fixes linter violations and the migrations below in place; on CI (`CI` set) the very same checks run read-only and a tree that isn't already canonical is a hard build failure (listing the offending files and the local remedy), so CI can never pass green on something the local autofixer would have rewritten
-- **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` and ordering (`Greater`/`GreaterOrEqual`/`Less`/`LessOrEqual`) operands so cross-type numeric comparisons the fork's loose comparisons accepted keep compiling and passing against upstream (which is type-strict on both paths — its ordering assertions fail cross-kind operands with "Elements should be the same type") — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`, and `assert.Greater(t, v, 0)` with `v int16` becomes `assert.Greater(t, v, int16(0))`. The conversion is type-aware (only inserted when sound) and idempotent, and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
+- **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` and ordering (`Greater`/`GreaterOrEqual`/`Less`/`LessOrEqual`) operands so cross-type numeric comparisons the fork's loose comparisons accepted keep compiling and passing against upstream (which is type-strict on both paths — its ordering assertions fail cross-kind operands with "Elements should be the same type") — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`, and `assert.Greater(t, v, 0)` with `v int16` becomes `assert.Greater(t, v, int16(0))`. The conversion is type-aware (only inserted when sound), idempotent, and adds any import the spelled type needs (an `os.FileMode` operand yields a `fs.FileMode(...)` cast — io/fs is the alias's origin — so `io/fs` is added when missing), and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
 - **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot. A failed submission fails the build with an actionable error (missing token, missing `contents: write` permission); opt out with `GO_TOOLCHAIN_NO_DEP_SUBMISSION=1`
@@ -46,6 +46,7 @@ permissions:
   security-events: write   # required for CodeQL SARIF upload (see CodeQL note below)
   actions: read            # required: the all-builds guard scans the run's jobs and fails closed without it
   checks: read             # required: same guard, the head commit's check runs (see guard note below)
+  deployments: write       # optional: buildhost autorelease registers a GitHub Deployment — warns and skips without it
 
 jobs:
   build:
@@ -78,7 +79,7 @@ To opt out, pass `codeql: 'false'`.
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
 | `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved |
+| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; with `deployments: write` also registers a GitHub Deployment (warns and skips it otherwise) |
 | `autorelease_args`  | string   | `''`       | Extra publish options forwarded to the buildhost publish, as whitespace/comma-separated `key=value` pairs. Recognized: `create_service=true\|false` (the published binary runs as a background service; each download format materializes it — brew `service do` block, auto-enabled systemd user unit in generated debs). Unknown keys fail the build; empty forwards nothing |
 | `allow-source-build` | string  | `false`    | Allow building go-toolchain from source when the buildhost binary is unavailable; when `false`, the build fails fast instead of silently falling back |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
@@ -89,10 +90,15 @@ To opt out, pass `codeql: 'false'`.
 
 Every action run ends by handing the `build/` outputs off to later jobs in the
 same workflow run via `wow-look-at-my/actions@cache-upload#latest`. The
-authoritative hand-off name is `go-build-<job id>` (cache key
-`cache-xfer-<run_id>-go-build-<job>-<run_attempt>`) -- distinct per calling
-job, so two concurrent go-toolchain jobs in one run cannot collide on a shared
-key. Downstream jobs download it nameless: `cache-download` with no `name`
+authoritative hand-off name is `go-build-<job id>` -- or, when the calling job
+is a matrix job, `go-build-<job id>.m<job-index>` per leg (cache key
+`cache-xfer-<run_id>-<name>-<run_attempt>`) -- distinct per calling job AND
+per matrix leg, so concurrent go-toolchain jobs in one run, including the legs
+of one matrix job, cannot collide on a shared key. `<job-index>` is the leg's
+`strategy.job-index`: 0-based position in the matrix expansion (definition
+order), identical across re-run attempts of the same leg. Non-matrix jobs are
+unaffected -- their name is byte-identical to before the matrix suffix
+existed. Downstream jobs download it nameless: `cache-download` with no `name`
 self-discovers the current run's hand-off via the run-scoped key prefix and
 emits a `::notice` naming what it picked, so consumers never need to know the
 producing job's id:
@@ -107,15 +113,16 @@ Nameless discovery is only clean when the run's hand-off set is unambiguous
 at download time (exact ambiguity semantics are the `cache-download`
 action's -- see its docs; note the deprecated bare `go-build` alias below is
 itself a second saved name until it is removed). If a run saves several
-distinct hand-offs (multiple go-toolchain jobs, or extra `cache-upload`
-hand-offs alongside the build outputs -- this repo's own CI is such a case),
-keep an explicit `name: go-build-<uploader job id>` for exactly those
-downloads:
+distinct hand-offs (multiple go-toolchain jobs, a matrix go-toolchain job --
+whose legs each save their own name -- or extra `cache-upload` hand-offs
+alongside the build outputs; this repo's own CI is such a case), keep an
+explicit `name: go-build-<uploader job id>` (or, for one leg of a matrix
+producer, `go-build-<uploader job id>.m<index>`) for exactly those downloads:
 
 ```yaml
 - uses: wow-look-at-my/actions@cache-download#latest
   with:
-    name: go-build-linux   # go-build-<uploader job id>
+    name: go-build-linux   # go-build-<uploader job id>[.m<index> for a matrix leg]
     path: dist
 ```
 
@@ -123,8 +130,9 @@ A deprecated bare `go-build` alias is still saved on every run (tolerated,
 non-authoritative; a `::notice` deprecation annotation accompanies it) for the
 consumers that currently download that name -- webhook-runner, buildhost,
 api-cli, github-state-mirror and the publish-ghcr.yml callers. In runs with
-more than one go-toolchain job the bare key is inherently racy (first finisher
-wins; the second save's conflict is absorbed, never the job's failure), so
+more than one go-toolchain invocation -- several jobs, or the legs of one
+matrix job -- the bare key is inherently racy (first finisher wins; the
+second save's conflict is absorbed, never the job's failure), so
 migrate downloads to nameless self-discovery (or, where ambiguous, the
 explicit `go-build-<uploader job id>`). For consumers that go nameless the
 alias question mostly dissolves -- they stop referencing any hand-off name at
@@ -577,10 +585,10 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 
 1. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
 2. Checks for outdated dependencies (auto-updates same-org deps)
-3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts)
+3. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts). The replaces are transient — removed before the run ends — and the CI dirty-tree check evaluates the tree as it will be restored, so the toolchain's own go.mod/go.sum mutation never fails CI while any real uncommitted change still does
 4. Runs `go mod tidy`
 5. Detects and runs `//go:generate` directives (if present)
-6. Runs `go vet`: custom analyzers normalize assertions, migrate `gotest.tools`/fork-testify imports to upstream `stretchr/testify`, and insert explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` and `Greater`/`Less`-family operands (resyncing the vendor tree afterward). Locally these fixes are applied in place; on CI (`CI` set) they run read-only and any change they would make is a hard failure instead — so importing the removed `wow-look-at-my/testify` fork fails CI rather than passing green
+6. Runs `go vet`: custom analyzers normalize assertions, migrate `gotest.tools`/fork-testify imports to upstream `stretchr/testify`, and insert explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` and `Greater`/`Less`-family operands, adding any import the conversion's type needs (resyncing the vendor tree afterward). Locally these fixes are applied in place; on CI (`CI` set) they run read-only and any change they would make is a hard failure instead — so importing the removed `wow-look-at-my/testify` fork fails CI rather than passing green
 7. Checks for near-duplicate code blocks (warnings only)
 8. Checks file lengths (warns at 500 lines, errors at 750). Generated files — detected by the canonical `^// Code generated .* DO NOT EDIT\.$` header marker (the same rule used by `go help generate`/gofmt/x/tools) — are auto-exempted from both the warning and the hard fail, and a single `File length check: skipped N generated file(s)` notice is printed for transparency. Pass `--count-generated` to subject generated files to the check like any other file
 9. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). The local tier is a FUSE virtual filesystem backed by append-only pack files (see [docs/CACHE.md](docs/CACHE.md)); a cache hit returns a `DiskPath` into the mount and the kernel serves the body on demand from a pack, so no per-entry loose files or sidecars are written. Remote fetches route through the server's batch GET endpoint with prefetch — one coalesced round-trip serves many concurrent requests and the server also returns temporally related entries from the same build, proactively populating the local cache; keys the server's fresh index reports absent miss instantly with no round-trip (a failed index fetch keeps probing enabled as the recovery path). PUTs are LZ4-compressed and coalesced: instead of one HTTP PUT per object (a storm of thousands that saturates the cache server's admission control on a large build), buffered uploads are shipped as a single `/_batch/put` tar request — mirroring the batch GET coalescer — so a whole batch takes one server slot. The batch is retried as a whole on a `503` admission shed (honoring `Retry-After`), a per-object server error rolls back only that object's optimistic index claim, and the client falls back to individual PUTs against a cache server that does not support the batch endpoint. A key the server 404s despite being index-listed is re-uploaded on the next PUT instead of being skipped as already-present. Each object is tagged with metadata describing what it is (sent as `X-Cache-Meta-*` headers on an individual PUT, or as per-entry manifest metadata in a batch):
