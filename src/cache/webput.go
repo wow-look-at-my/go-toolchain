@@ -84,7 +84,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	if act, ok := buildIDMatchesAction(actionID, raw); !ok {
 		b.PutRefusedBuildID.Increment()
 		markSpanMiss(span, "buildid_mismatch")
-		logger.Warn("cacheprog: web put %s: refusing upload, build-id action mismatch (want action=%s, got action=%s); object does not belong under this key",
+		logger.WarnInfra("cacheprog: web put %s: refusing upload, build-id action mismatch (want action=%s, got action=%s); object does not belong under this key",
 			shortID(actionID), expectedBuildIDAction(actionID), act)
 		return nil
 	}

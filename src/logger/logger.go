@@ -131,24 +131,14 @@ func (l *Logger) isGHA() bool {
 
 // Warn emits a message to Stderr (or a GHA ::warning annotation) when
 // level <= LevelWarn. Every emitted warning increments the process-wide
-// warning counter (see WarnCount).
+// warning counter (see WarnCount) and therefore counts against the build's
+// warnings budget — use it only for conditions the project being built can
+// actually fix in its own tree. For infrastructure conditions (see
+// WarnInfra), use WarnInfra instead.
 func (l *Logger) Warn(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.opts.Level > LevelWarn {
-		return
-	}
-	warnCount.Add(1)
-	msg := l.format(format, args...)
-	if l.isGHA() {
-		EmitGHAWarning(l.opts.Stdout, "", msg)
-		return
-	}
-	if l.opts.Colors {
-		fmt.Fprintf(l.opts.Stderr, "  \033[38;2;255;255;0mWARNING: %s\033[0m\n", msg)
-	} else {
-		fmt.Fprintf(l.opts.Stderr, "  WARNING: %s\n", msg)
-	}
+	l.warn("", true, format, args...)
 }
 
 // WarnFile emits a file-annotated warning (GHA: file=<file>::<msg>,
@@ -157,10 +147,41 @@ func (l *Logger) Warn(format string, args ...any) {
 func (l *Logger) WarnFile(file, format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.warn(file, true, format, args...)
+}
+
+// WarnInfra emits a warning that is printed exactly like Warn but does NOT
+// count against the build's warnings budget (see WarnCount).
+//
+// It is for INFRASTRUCTURE conditions: the shared build cache degrading, a
+// remote endpoint being slow or unreachable, a cache object being refused and
+// re-fetched, a FUSE mount being unavailable. Those messages are diagnostics
+// about the machine and the network, not about the source tree being built:
+//
+//   - They are not actionable by the project — no edit to its code makes them
+//     go away.
+//   - They are nondeterministic. Counting them makes the warnings gate flaky:
+//     the same commit passes or fails depending on network weather, which is
+//     exactly the kind of dishonest signal the gate exists to prevent.
+//
+// The message is still printed in full (and still annotates in GitHub
+// Actions) — it is demoted from the budget, not hidden.
+func (l *Logger) WarnInfra(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.warn("", false, format, args...)
+}
+
+// warn is the shared emit path for Warn, WarnFile, and WarnInfra. budgeted
+// selects whether the message counts against the warnings budget.
+// Callers must hold l.mu.
+func (l *Logger) warn(file string, budgeted bool, format string, args ...any) {
 	if l.opts.Level > LevelWarn {
 		return
 	}
-	warnCount.Add(1)
+	if budgeted {
+		warnCount.Add(1)
+	}
 	msg := l.format(format, args...)
 	if l.isGHA() {
 		EmitGHAWarning(l.opts.Stdout, file, msg)

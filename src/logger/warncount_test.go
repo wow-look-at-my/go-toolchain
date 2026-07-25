@@ -62,3 +62,38 @@ func TestResetWarnCount(t *testing.T) {
 	ResetWarnCount()
 	assert.Equal(t, int64(0), WarnCount())
 }
+
+// TestWarnInfraIsPrintedButNotCounted pins the split between the two warning
+// kinds. An infrastructure warning must be just as visible as a normal one --
+// same "WARNING:" line locally, same ::warning annotation in GitHub Actions --
+// while staying out of the warnings budget, so a slow cache server or a flaky
+// network can never fail a build that has nothing wrong with it.
+func TestWarnInfraIsPrintedButNotCounted(t *testing.T) {
+	ResetWarnCount()
+
+	l, _, errBuf := captureLogger(LevelInfo, false)
+	l.WarnInfra("cache server unreachable")
+	assert.Contains(t, errBuf.String(), "WARNING: cache server unreachable")
+	assert.Equal(t, int64(0), WarnCount(), "infrastructure warnings must not consume the budget")
+
+	gha, out, _ := captureLogger(LevelInfo, true)
+	gha.WarnInfra("annotated infra warning")
+	assert.Contains(t, out.String(), "::warning ::annotated infra warning")
+	assert.Equal(t, int64(0), WarnCount())
+
+	// Budgeted warnings still count, alongside the uncounted ones.
+	l.Warn("your code has a problem")
+	assert.Equal(t, int64(1), WarnCount())
+}
+
+// TestWarnInfraRespectsLevelFilter verifies WarnInfra honors the level filter
+// exactly like Warn.
+func TestWarnInfraRespectsLevelFilter(t *testing.T) {
+	ResetWarnCount()
+
+	l, out, errBuf := captureLogger(LevelError, false)
+	l.WarnInfra("suppressed")
+	assert.Equal(t, 0, out.Len())
+	assert.Equal(t, 0, errBuf.Len())
+	assert.Equal(t, int64(0), WarnCount())
+}

@@ -99,7 +99,7 @@ func (l *httpErrLogger) Record(op string, status int, id, body string) {
 		if body != "" {
 			msg += fmt.Sprintf(": %s", body)
 		}
-		logger.Warn("%s", msg)
+		logger.WarnInfra("%s", msg)
 		return
 	}
 	if l.tracer.Enabled() {

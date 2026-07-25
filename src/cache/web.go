@@ -297,7 +297,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	if b.indexAuthoritative {
 		logger.Info("cacheprog: web index: %d keys", b.keys.Len())
 	} else {
-		logger.Warn("cacheprog: web index: fetch failed; using %d cached keys (batch probing enabled)", b.keys.Len())
+		logger.WarnInfra("cacheprog: web index: fetch failed; using %d cached keys (batch probing enabled)", b.keys.Len())
 	}
 	return b, nil
 }

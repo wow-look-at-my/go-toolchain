@@ -221,10 +221,10 @@ func TestLoadOrFetchIndex_WarmCache304(t *testing.T) {
 	require.Equal(t, int32(1), f.hits200.Load(), "200 count should not have grown")
 }
 
-// TestLoadOrFetchIndex_SlowServerBounded pins the startup budget: a
-// slow-but-answering index endpoint must not hold NewWebBackend (and the
-// daemon start) hostage — the fetch is abandoned within indexFetchBudget and
-// the backend proceeds with a non-authoritative (probing-enabled) key set.
+// TestLoadOrFetchIndex_SlowServerBounded pins the startup budget: an index
+// endpoint that never answers must not hold NewWebBackend (and the daemon
+// start) hostage — the fetch is abandoned within indexHeaderBudget and the
+// backend proceeds with a non-authoritative (probing-enabled) key set.
 func TestLoadOrFetchIndex_SlowServerBounded(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 
@@ -241,9 +241,7 @@ func TestLoadOrFetchIndex_SlowServerBounded(t *testing.T) {
 	defer srv.Close()
 	defer close(release)
 
-	orig := indexFetchBudget
-	indexFetchBudget = 150 * time.Millisecond
-	defer func() { indexFetchBudget = orig }()
+	defer shrinkIndexBudgets(150*time.Millisecond, 150*time.Millisecond, 5*time.Second)()
 
 	start := time.Now()
 	b, err := NewWebBackend(WebConfig{

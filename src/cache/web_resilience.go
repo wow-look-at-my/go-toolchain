@@ -58,7 +58,7 @@ func (b *WebBackend) noteBatchEntries(n int) {
 	if b.consecutiveEmptyBatches.Add(1) >= int64(b.emptyBatchBackoffThreshold) {
 		if b.batchProbingDisabled.CompareAndSwap(false, true) {
 			b.batchBackoffLogOnce.Do(func() {
-				logger.Warn("cacheprog: remote returned %d empty batches; "+
+				logger.WarnInfra("cacheprog: remote returned %d empty batches; "+
 					"disabling further batch probes for this run (endpoint=%s)",
 					b.emptyBatchBackoffThreshold, b.endpoint)
 			})
@@ -140,7 +140,8 @@ func (b *WebBackend) doRetryGET(req *http.Request) (*http.Response, error) {
 
 // doRetryGETN issues an idempotent GET with up to maxRetries retries — the
 // index fetch caps its retries below the configured policy so a slow server
-// cannot stall daemon startup (see indexFetchBudget / indexFetchRetries).
+// cannot stall daemon startup (see the index fetch budgets in web_index.go /
+// indexFetchRetries).
 func (b *WebBackend) doRetryGETN(req *http.Request, maxRetries int) (*http.Response, error) {
 	return b.doRetry(req, maxRetries)
 }

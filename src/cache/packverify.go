@@ -44,7 +44,7 @@ func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
 		// This is the FUSE serve path: a GET response already promised this
 		// DiskPath to the toolchain, and the eviction turns its next open
 		// into ENOENT. Deliberate poison-refusal trade-off; make it visible.
-		logger.Warn("cacheprog: local pack: refusing corrupt body for output %s; evicted (a previously promised DiskPath for it will now open as ENOENT)",
+		logger.WarnInfra("cacheprog: local pack: refusing corrupt body for output %s; evicted (a previously promised DiskPath for it will now open as ENOENT)",
 			shortID(outputID))
 		return packLoc{}, false
 	}

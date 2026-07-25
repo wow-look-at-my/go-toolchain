@@ -40,7 +40,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissNetwork.Increment()
 		markSpanErr(span, "network", err)
 		markSpanMiss(span, "network")
-		logger.Warn("cacheprog: web get %s: %v", shortID(actionID), err)
+		logger.WarnInfra("cacheprog: web get %s: %v", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
@@ -77,7 +77,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.Pool.Release()
 		b.MissNoOutputID.Increment()
 		markSpanMiss(span, "no_outputid")
-		logger.Warn("cacheprog: web get %s: missing outputid metadata", shortID(actionID))
+		logger.WarnInfra("cacheprog: web get %s: missing outputid metadata", shortID(actionID))
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -91,7 +91,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissReadBody.Increment()
 		markSpanErr(span, "read_body", err)
 		markSpanMiss(span, "read_body")
-		logger.Warn("cacheprog: web get %s: read body: %v", shortID(actionID), err)
+		logger.WarnInfra("cacheprog: web get %s: read body: %v", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -104,7 +104,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissDecompress.Increment()
 		markSpanErr(span, "decompress", err)
 		markSpanMiss(span, "decompress")
-		logger.Warn("cacheprog: web get %s: decompress: %v", shortID(actionID), err)
+		logger.WarnInfra("cacheprog: web get %s: decompress: %v", shortID(actionID), err)
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
@@ -120,7 +120,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.Stats.Corrupt.Increment()
 		markSpanMiss(span, "checksum")
 		b.removeClaimed(key)
-		logger.Warn("cacheprog: web get %s: body checksum mismatch (want outputid=%s, got sha256=%s, len=%d); evicting and treating as miss",
+		logger.WarnInfra("cacheprog: web get %s: body checksum mismatch (want outputid=%s, got sha256=%s, len=%d); evicting and treating as miss",
 			shortID(actionID), shortID(outputID), shortID(got), len(decompressed))
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -137,7 +137,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.Stats.Corrupt.Increment()
 		markSpanMiss(span, "buildid_mismatch")
 		b.removeClaimed(key)
-		logger.Warn("cacheprog: web get %s: build-id action mismatch (want action=%s, got action=%s, len=%d); evicting and treating as miss",
+		logger.WarnInfra("cacheprog: web get %s: build-id action mismatch (want action=%s, got action=%s, len=%d); evicting and treating as miss",
 			shortID(actionID), expectedBuildIDAction(actionID), act, len(decompressed))
 		return "", nil, 0, time.Time{}, true, nil
 	}
@@ -153,7 +153,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		b.MissModuleIndex.Increment()
 		markSpanMiss(span, "module_index")
 		b.removeClaimed(key)
-		logger.Warn("cacheprog: web get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss",
+		logger.WarnInfra("cacheprog: web get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss",
 			shortID(actionID), len(decompressed))
 		return "", nil, 0, time.Time{}, true, nil
 	}

@@ -199,7 +199,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	if err != nil {
 		b.Pool.Release()
 		markSpanErr(span, "network", err)
-		logger.Warn("cacheprog: web batch get: %v", err)
+		logger.WarnInfra("cacheprog: web batch get: %v", err)
 		respondAllMiss(&b.MissNetwork)
 		return
 	}
@@ -234,7 +234,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	b.Pool.Release()
 	if err != nil {
 		markSpanErr(span, "parse response", err)
-		logger.Warn("cacheprog: web batch get: parse: %v", err)
+		logger.WarnInfra("cacheprog: web batch get: parse: %v", err)
 		respondAllMiss(&b.MissReadBody)
 		return
 	}
@@ -295,7 +295,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			b.MissNoOutputID.Increment()
 			markSpanMiss(itemSpan, "no_outputid")
 			itemSpan.End()
-			logger.Warn("cacheprog: web batch get %s: missing outputid metadata", shortID(r.actionID))
+			logger.WarnInfra("cacheprog: web batch get %s: missing outputid metadata", shortID(r.actionID))
 			r.resp <- batchResp{miss: true}
 			continue
 		}
@@ -304,7 +304,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			markSpanErr(itemSpan, "decompress", err)
 			markSpanMiss(itemSpan, "decompress")
 			itemSpan.End()
-			logger.Warn("cacheprog: web batch get %s: decompress: %v", shortID(r.actionID), err)
+			logger.WarnInfra("cacheprog: web batch get %s: decompress: %v", shortID(r.actionID), err)
 			r.resp <- batchResp{miss: true}
 			continue
 		}
@@ -318,7 +318,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			b.Stats.Corrupt.Increment()
 			markSpanMiss(itemSpan, "checksum")
 			itemSpan.End()
-			logger.Warn("cacheprog: web batch get %s: body checksum mismatch (want outputid=%s, got sha256=%s, len=%d); treating as miss",
+			logger.WarnInfra("cacheprog: web batch get %s: body checksum mismatch (want outputid=%s, got sha256=%s, len=%d); treating as miss",
 				shortID(r.actionID), shortID(e.OutputID), shortID(got), len(decompressed))
 			r.resp <- batchResp{miss: true}
 			continue
@@ -332,7 +332,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			b.Stats.Corrupt.Increment()
 			markSpanMiss(itemSpan, "buildid_mismatch")
 			itemSpan.End()
-			logger.Warn("cacheprog: web batch get %s: build-id action mismatch (want action=%s, got action=%s, len=%d); treating as miss",
+			logger.WarnInfra("cacheprog: web batch get %s: build-id action mismatch (want action=%s, got action=%s, len=%d); treating as miss",
 				shortID(r.actionID), expectedBuildIDAction(r.actionID), act, len(decompressed))
 			r.resp <- batchResp{miss: true}
 			continue
@@ -344,7 +344,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			b.MissModuleIndex.Increment()
 			markSpanMiss(itemSpan, "module_index")
 			itemSpan.End()
-			logger.Warn("cacheprog: web batch get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss",
+			logger.WarnInfra("cacheprog: web batch get %s: refusing module-index blob (unverifiable under this key, len=%d); treating as miss",
 				shortID(r.actionID), len(decompressed))
 			r.resp <- batchResp{miss: true}
 			continue

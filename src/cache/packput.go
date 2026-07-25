@@ -281,7 +281,7 @@ func (s *PackStore) appendRaw(hdr, body []byte, pre func() bool, commit func(id 
 				// The active pack keeps growing past maxPackBytes until a
 				// later rotation succeeds — functional, but silent failure
 				// here previously let it grow unbounded with no trace.
-				logger.Warn("cacheprog: pack rotation to %d failed: %v (active pack keeps growing)", id+1, err)
+				logger.WarnInfra("cacheprog: pack rotation to %d failed: %v (active pack keeps growing)", id+1, err)
 			}
 		}
 		s.wmu.Unlock()

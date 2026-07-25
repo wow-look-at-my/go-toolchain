@@ -105,7 +105,7 @@ func NewLocalStore(dir string) (LocalStore, error) {
 		return fc, nil
 	}
 	if !errors.Is(err, errFuseUnsupported) && !errors.Is(err, errFuseBusy) {
-		logger.Warn("cacheprog: FUSE cache unavailable (%v); using loose-file cache", err)
+		logger.WarnInfra("cacheprog: FUSE cache unavailable (%v); using loose-file cache", err)
 	}
 	return NewLocalCache(dir)
 }

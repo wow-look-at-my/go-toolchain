@@ -121,7 +121,7 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 		delete(c.verified, actionID)
 		c.vmu.Unlock()
 		c.Stats.Corrupt.Increment()
-		logger.Warn("cacheprog: local cache: evicting %s: %s; treating as miss", shortID(actionID), reason)
+		logger.WarnInfra("cacheprog: local cache: evicting %s: %s; treating as miss", shortID(actionID), reason)
 		return CacheMeta{}, true
 	}
 	// Serve the verified byte count as the size — never the raw stat size,

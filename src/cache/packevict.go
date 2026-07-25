@@ -41,7 +41,7 @@ func (s *PackStore) evictPacksToBudget(ids []int, total int64) []int {
 		if err := os.Remove(path); err != nil {
 			// Cannot delete (permissions, races): stop rather than spin. The
 			// store still works, just over budget; say so below.
-			logger.Warn("cacheprog: pack eviction: remove %s: %v", path, err)
+			logger.WarnInfra("cacheprog: pack eviction: remove %s: %v", path, err)
 			break
 		}
 		s.verified.dropPack(id)
@@ -55,7 +55,7 @@ func (s *PackStore) evictPacksToBudget(ids []int, total int64) []int {
 			evicted, freed>>20, len(kept))
 	}
 	if total > packResetBytes {
-		logger.Warn("cacheprog: pack cache still over budget after eviction (%d MiB; the newest pack is never evicted)", total>>20)
+		logger.WarnInfra("cacheprog: pack cache still over budget after eviction (%d MiB; the newest pack is never evicted)", total>>20)
 	}
 	return kept
 }

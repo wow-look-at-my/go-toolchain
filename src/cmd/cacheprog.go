@@ -99,10 +99,10 @@ func parseBuildCacheConfig() cache.WebConfig {
 		deprecated = append(deprecated, "region (ignored; the cache server is not S3)")
 	}
 	if len(deprecated) > 0 {
-		cacheProgLog.Warn("GO_BUILDCACHE_CONFIG: deprecated S3-style field(s): %s; these will be removed in a future release", strings.Join(deprecated, ", "))
+		cacheProgLog.WarnInfra("GO_BUILDCACHE_CONFIG: deprecated S3-style field(s): %s; these will be removed in a future release", strings.Join(deprecated, ", "))
 	}
 	if username == "" || password == "" {
-		cacheProgLog.Warn("GO_BUILDCACHE_CONFIG: missing username or password")
+		cacheProgLog.WarnInfra("GO_BUILDCACHE_CONFIG: missing username or password")
 		return cache.WebConfig{}
 	}
 	bucket := cfg.Bucket

@@ -190,7 +190,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	tarBytes, err := buildPutTar(reqs)
 	if err != nil {
 		markSpanErr(span, "build tar", err)
-		logger.Warn("cacheprog: web batch put: build tar: %v", err)
+		logger.WarnInfra("cacheprog: web batch put: build tar: %v", err)
 		for _, r := range reqs {
 			b.removeClaimed(r.key)
 		}
@@ -216,7 +216,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	if err != nil {
 		b.Pool.Release()
 		markSpanErr(span, "network", err)
-		logger.Warn("cacheprog: web batch put: %v", err)
+		logger.WarnInfra("cacheprog: web batch put: %v", err)
 		for _, r := range reqs {
 			b.removeClaimed(r.key)
 		}
@@ -235,7 +235,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 		span.SetAttributes(attribute.Bool("cacheprog.batch.fallback_single", true))
 		for _, r := range reqs {
 			if perr := b.putSingle(r); perr != nil && !isLoggedErr(perr) {
-				logger.Warn("cacheprog: web put %s: %v", shortID(r.actionID), perr)
+				logger.WarnInfra("cacheprog: web put %s: %v", shortID(r.actionID), perr)
 			}
 		}
 		return
@@ -258,7 +258,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	b.Pool.Release()
 	if err != nil {
 		markSpanErr(span, "read response", err)
-		logger.Warn("cacheprog: web batch put: read response: %v", err)
+		logger.WarnInfra("cacheprog: web batch put: read response: %v", err)
 		for _, r := range reqs {
 			b.removeClaimed(r.key)
 		}
@@ -268,7 +268,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	var parsed batchPutResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		markSpanErr(span, "parse response", err)
-		logger.Warn("cacheprog: web batch put: parse response: %v", err)
+		logger.WarnInfra("cacheprog: web batch put: parse response: %v", err)
 		for _, r := range reqs {
 			b.removeClaimed(r.key)
 		}
@@ -299,7 +299,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 			// unaffected.
 			b.removeClaimed(r.key)
 			if res.Message != "" {
-				logger.Warn("cacheprog: web batch put %s: server error: %s", shortID(r.actionID), res.Message)
+				logger.WarnInfra("cacheprog: web batch put %s: server error: %s", shortID(r.actionID), res.Message)
 			}
 		}
 	}

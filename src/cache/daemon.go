@@ -165,7 +165,7 @@ func (d *Daemon) Close() {
 	// in-flight compiler read can hit a closed FUSE mount or pack handle).
 	if d.local != nil {
 		if err := d.local.Close(); err != nil {
-			logger.Warn("cacheprog: local cache close: %v", err)
+			logger.WarnInfra("cacheprog: local cache close: %v", err)
 		}
 	}
 	// Close the stats connection AFTER remote.Close() so that batch flush

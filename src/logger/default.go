@@ -102,6 +102,11 @@ func Warn(format string, args ...any) { Default().Warn(format, args...) }
 // WarnFile emits a file-annotated warning on the default logger.
 func WarnFile(file, format string, args ...any) { Default().WarnFile(file, format, args...) }
 
+// WarnInfra emits an infrastructure warning on the default logger: printed
+// like Warn, but excluded from the build's warnings budget. See
+// (*Logger).WarnInfra for when to use it.
+func WarnInfra(format string, args ...any) { Default().WarnInfra(format, args...) }
+
 // Error emits an Error message on the default logger.
 func Error(format string, args ...any) { Default().Error(format, args...) }
 

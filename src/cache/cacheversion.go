@@ -56,7 +56,7 @@ const fuseLockName = ".fuse.lock"
 // stderr line is printed only when data was actually removed.
 func EnsureLocalCacheVersion(root string) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		logger.Warn("cacheprog: local cache: version check: %v", err)
+		logger.WarnInfra("cacheprog: local cache: version check: %v", err)
 		return
 	}
 	stamp := filepath.Join(root, localCacheVersionFile)
@@ -80,12 +80,12 @@ func EnsureLocalCacheVersion(root string) {
 	purged, err := purgeLocalCacheData(root)
 	if err != nil {
 		// Leave the stamp unwritten so the next run retries the purge.
-		logger.Warn("cacheprog: local cache: version %d -> %d purge: %v (will retry next run)",
+		logger.WarnInfra("cacheprog: local cache: version %d -> %d purge: %v (will retry next run)",
 			stored, currentLocalCacheVersion, err)
 		return
 	}
 	if err := writeLocalCacheVersion(stamp); err != nil {
-		logger.Warn("cacheprog: local cache: writing version stamp: %v", err)
+		logger.WarnInfra("cacheprog: local cache: writing version stamp: %v", err)
 		return
 	}
 	if purged {
