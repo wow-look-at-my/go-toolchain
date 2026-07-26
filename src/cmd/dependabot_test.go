@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -259,7 +260,9 @@ func TestMaybeSubmitDeps_Success(t *testing.T) {
 	setGithubAPIBase(srv.URL)
 	defer setGithubAPIBase(oldBase)
 
-	t.Setenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION", "")
+	cwd, err := os.Getwd()
+	require.Nil(t, err)
+	t.Setenv("GITHUB_WORKSPACE", cwd)
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "abc123")
@@ -279,13 +282,15 @@ func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
 	setGithubAPIBase(srv.URL)
 	defer setGithubAPIBase(oldBase)
 
-	t.Setenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION", "")
+	cwd, err := os.Getwd()
+	require.Nil(t, err)
+	t.Setenv("GITHUB_WORKSPACE", cwd)
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_TOKEN", "test-token")
 
-	err := maybeSubmitDeps()
+	err = maybeSubmitDeps()
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "HTTP 403")
 	assert.Contains(t, err.Error(), "contents: write")
@@ -297,7 +302,7 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	t.Setenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION", "")
+	t.Setenv("GITHUB_WORKSPACE", dir)
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "abc123")
@@ -307,7 +312,12 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 	assert.Contains(t, err.Error(), "dependency snapshot failed")
 }
 
-func TestMaybeSubmitDeps_OptOut(t *testing.T) {
+// A pipeline driven inside a throwaway module outside the checkout (this repo's
+// own smoke jobs do exactly that under RUNNER_TEMP) must not submit: the
+// snapshot would publish the fixture's dependencies as the repository's
+// dependency graph. This replaced an opt-out env var, so it must stay a
+// property of where the build runs -- not something a caller can set.
+func TestMaybeSubmitDeps_SkipsModuleOutsideWorkspace(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -319,12 +329,55 @@ func TestMaybeSubmitDeps_OptOut(t *testing.T) {
 	setGithubAPIBase(srv.URL)
 	defer setGithubAPIBase(oldBase)
 
-	t.Setenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION", "1")
+	// Workspace and build directory are siblings, as on a real runner where the
+	// checkout is under GITHUB_WORKSPACE and the fixture under RUNNER_TEMP.
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	elsewhere := filepath.Join(root, "smokemod")
+	require.Nil(t, os.MkdirAll(workspace, 0o755))
+	require.Nil(t, os.MkdirAll(elsewhere, 0o755))
+
+	origDir, _ := os.Getwd()
+	require.Nil(t, os.Chdir(elsewhere))
+	defer os.Chdir(origDir)
+
+	t.Setenv("GITHUB_WORKSPACE", workspace)
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_TOKEN", "test-token")
 
 	require.Nil(t, maybeSubmitDeps())
-	assert.Equal(t, 0, requests)
+	assert.Equal(t, 0, requests, "a module outside the checkout must not be submitted as the repository's dependency graph")
+}
+
+// The guard must not swing the other way: a real build, in the checkout, submits.
+func TestMaybeSubmitDeps_SubmitsRepoWorkspace(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	workspace := t.TempDir()
+	require.Nil(t, os.WriteFile(filepath.Join(workspace, "go.mod"),
+		[]byte("module example.com/inrepo\n\ngo 1.25\n"), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.Nil(t, os.Chdir(workspace))
+	defer os.Chdir(origDir)
+
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	require.Nil(t, maybeSubmitDeps())
+	assert.Equal(t, 1, requests, "a build in the repository's own checkout must submit")
 }

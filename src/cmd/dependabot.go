@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/mod/modfile"
@@ -185,22 +186,51 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 	return nil
 }
 
-// depSubmissionDisabled reports whether GO_TOOLCHAIN_NO_DEP_SUBMISSION=1
-// disables dependency-graph submission. The supported opt-out for pipelines
-// that run in CI without a usable GitHub token (e.g. this repo's own smoke
-// jobs, which drive the full pipeline inside synthetic throwaway modules),
-// now that a failed submission fails the build.
-func depSubmissionDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION") == "1" }
+// buildingRepoWorkspace reports whether the module being built is the checked-out
+// repository's own -- that is, whether the working directory is inside
+// GITHUB_WORKSPACE.
+//
+// A snapshot describes GITHUB_REPOSITORY at GITHUB_SHA, so it is only meaningful
+// for that repository's own module. A pipeline driven inside a synthetic
+// throwaway module elsewhere on the runner (this repo's smoke jobs build one
+// under RUNNER_TEMP) would otherwise publish the fixture's dependencies as the
+// repository's dependency graph -- worse than publishing nothing, since it is
+// wrong data in the surface Dependabot and vulnerability alerts read.
+//
+// This is deliberately a property of what is being built rather than a switch.
+// There is no opt-out env var: submission is part of building in CI, and any
+// knob that turned it off would eventually be set and left set, leaving a
+// repository silently absent from vulnerability scanning while its builds
+// stayed green.
+func buildingRepoWorkspace() bool {
+	workspace := os.Getenv("GITHUB_WORKSPACE")
+	if workspace == "" {
+		return false
+	}
+	absWorkspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return false
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absWorkspace, cwd)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
 
-// maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions.
-// A failed snapshot or submission fails the build; opt out entirely with
-// GO_TOOLCHAIN_NO_DEP_SUBMISSION=1.
+// maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions
+// against the repository's own checkout. A failed snapshot or submission fails
+// the build.
 func maybeSubmitDeps() error {
-	if depSubmissionDisabled() {
-		logger.Debug("=> Dependency submission disabled (GO_TOOLCHAIN_NO_DEP_SUBMISSION=1)")
+	if os.Getenv("CI") == "" || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GITHUB_SHA") == "" {
 		return nil
 	}
-	if os.Getenv("CI") == "" || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GITHUB_SHA") == "" {
+	if !buildingRepoWorkspace() {
+		logger.Debug("=> Dependency submission skipped: not building the repository's own workspace")
 		return nil
 	}
 
