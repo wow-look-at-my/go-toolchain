@@ -17,6 +17,12 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   slot artifacts are APEs that self-assimilate on first exec.
 - Suites run serially (`dats test dats`, no `-j`) so the report is
   byte-deterministic and staged APE copies never race their first exec.
+- dats runs each command in the **module root**, and go-toolchain deletes the
+  module's build outputs on any run that does not succeed. A test that execs
+  a pipeline command must therefore `cd` into a throwaway directory first, or
+  it deletes the binaries the pipeline just built (`d="$(mktemp -d)"; cd "$d";
+  …`). Tests that only exec `$GO_TOOLCHAIN_DATS_BUILD_DIR` copies with `--help`
+  or `version` are unaffected — neither reaches the pipeline.
 - Snapshot goldens live in `<suite>.snapshots/` next to the suite (e.g.
   `dats/cli.snapshots/` for `dats/cli.dats`) and are committed. Regenerate
   after intentional CLI changes with `dats --update test dats` and review the
