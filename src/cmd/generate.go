@@ -247,14 +247,25 @@ func executeDirective(d generateDirective, quiet bool) error {
 	cmd.Dir = dir
 	cmd.Env = env
 
-	var combined bytes.Buffer
-	cmd.Stdout = &combined
-	cmd.Stderr = &combined
+	// Stream the child's output line by line as it arrives. Buffering it until
+	// exit hid every byte from the output watchdog, which monitors fd 1/2: a
+	// directive like `go run <tool>@latest` is silent for tens of seconds while
+	// it downloads modules, so the watchdog reported the build as STALLED once a
+	// second for the whole run. Stdout and Stderr share one writer, so os/exec
+	// hands the child a single pipe and the interleaving stays in order.
+	// Quiet mode still buffers: it must print nothing on success.
+	stream := &streamPrefixWriter{}
+	var buffered bytes.Buffer
+	if quiet {
+		cmd.Stdout, cmd.Stderr = &buffered, &buffered
+	} else {
+		cmd.Stdout, cmd.Stderr = stream, stream
+	}
 
 	err = cmd.Run()
-	output := combined.String()
+	stream.Flush()
 
-	prefixed := prefixOutput(output)
+	prefixed := prefixOutput(buffered.String())
 
 	if err != nil {
 		logger.Error("\t%s", d.Command)
@@ -262,10 +273,6 @@ func executeDirective(d generateDirective, quiet bool) error {
 			logger.Error("%s", strings.TrimSuffix(prefixed, "\n"))
 		}
 		return fmt.Errorf("generate failed in %s:%d: %w", d.File, d.Line, err)
-	}
-
-	if !quiet && prefixed != "" {
-		logger.Info("%s", prefixed)
 	}
 
 	return nil
@@ -365,6 +372,45 @@ func prefixOutput(output string) string {
 	}
 
 	return result.String()
+}
+
+// maxPendingLine bounds the partial line held while waiting for a newline, so a
+// child that never emits one (a \r progress bar) cannot grow the buffer without
+// limit or stay invisible to the watchdog.
+const maxPendingLine = 32 << 10
+
+// streamPrefixWriter logs each complete line it receives, prefixed like
+// prefixOutput. It is the live counterpart of prefixOutput: generate directives
+// write through it so their output reaches the console (and the output watchdog)
+// while the command is still running.
+type streamPrefixWriter struct {
+	pending []byte
+}
+
+func (w *streamPrefixWriter) Write(p []byte) (int, error) {
+	for _, b := range p {
+		if b == '\n' {
+			w.emit()
+			continue
+		}
+		w.pending = append(w.pending, b)
+		if len(w.pending) >= maxPendingLine {
+			w.emit()
+		}
+	}
+	return len(p), nil
+}
+
+// Flush emits a trailing line the child left unterminated.
+func (w *streamPrefixWriter) Flush() {
+	if len(w.pending) > 0 {
+		w.emit()
+	}
+}
+
+func (w *streamPrefixWriter) emit() {
+	logger.Info("\t> %s", strings.TrimSuffix(string(w.pending), "\r"))
+	w.pending = w.pending[:0]
 }
 
 // guessPackage attempts to determine the package name from a file path.
