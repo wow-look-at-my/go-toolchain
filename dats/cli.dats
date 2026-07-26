@@ -62,7 +62,6 @@ tests:
       env:
         CLAUDECODE: "1"
         GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-        GO_TOOLCHAIN_NO_DEP_SUBMISSION: "1"
     outputs:
       stderr:
         - "refused to run"
@@ -83,7 +82,6 @@ tests:
       env:
         CLAUDECODE: "1"
         GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-        GO_TOOLCHAIN_NO_DEP_SUBMISSION: "1"
     outputs:
       stdout:
         - "GUARD-DELETED-BINARY"
