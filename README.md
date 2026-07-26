@@ -17,7 +17,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
 - **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot. A failed submission fails the build with an actionable error (missing token, missing `contents: write` permission). There is no opt-out: submission is part of building in CI. Building outside your checkout is not a way to skip either -- it is a hard error naming the problem, for every repository except go-toolchain itself, whose smoke jobs must drive the pipeline inside a synthetic throwaway module
-- **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Defers to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is a per-deploy kill switch); disable injection entirely with `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`
+- **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Injection is unconditional — there is no build-time off switch; opting out is a run-time decision, deferring to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is the per-deploy kill switch)
 - **Output stall watchdog** — the build's stdout/stderr are routed through an in-process watchdog that prints a loud `STALLED: no output for Ns` warning (with the current step name) whenever the pipeline goes silent for 5+ seconds. Disable it with `GO_TOOLCHAIN_NO_WATCHDOG=1` — the build then runs on its real stdio (useful when debugging output plumbing, since the watchdog works by dup2-redirecting fd 1/2 through pipes)
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
@@ -504,10 +504,10 @@ If a repository committed the guard under an older go-toolchain, the cleanup
 deletes those files from the working tree on the next run (without failing the
 build); commit that deletion once to drop the stale files for good.
 
-```bash
-# Build-time: disable injection (default is on)
-export GO_TOOLCHAIN_AUTO_MEMLIMIT=off
-```
+Injection is unconditional — there is no build-time flag or environment variable
+to turn it off. Opting out is a run-time decision instead, via the variables
+below, which is the layer that actually knows whether a given deployment wants
+the cap.
 
 The following are read by the built program **when it starts**, not at build time:
 
@@ -591,15 +591,12 @@ allocate until the kernel OOM-kills it.
 
 The guard is dependency-free (no `go.mod`/`go.sum` changes), carries the standard
 `// Code generated ... DO NOT EDIT.` marker (so it is excluded from coverage), and
-is a no-op when no cgroup limit is found, including on non-Linux systems. Commit
-the generated files so plain `go build` embeds the guard too; injection is
-idempotent, and in CI a missing or stale guard surfaces as a dirty tree with a
-message to run go-toolchain locally and commit.
-
-```bash
-# Build-time: disable injection (default is on)
-export GO_TOOLCHAIN_AUTO_MEMLIMIT=off
-```
+is a no-op when no cgroup limit is found, including on non-Linux systems. The
+guard is a transient build artifact: it is written just before the build and
+removed right after, so it never lingers in the working tree. Injection is
+idempotent and unconditional — there is no build-time flag or environment
+variable to turn it off. Opting out is a run-time decision instead, via the
+variables below.
 
 The following are read by the built program **when it starts**, not at build time:
 
@@ -680,7 +677,7 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 12. Runs `go test` across non-generated packages with coverage profiling
 13. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%). A module with no coverable statements at all (e.g. one that only embeds assets or declares constants/types) passes this check vacuously with a note; a module that has coverable statements but produced no test results fails with a pointer to add `*_test.go` files; and a run where tests executed over coverable code yet no statements were measured aborts loudly — that means the coverage profile itself is missing or broken
 14. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-15. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`) — first listing it in the clone-local `.git/info/exclude` so `git status`, and with it Go's build-time version stamping, never sees the transient file (binaries stamp clean provenance instead of `+dirty`) — builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
+15. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package — first listing it in the clone-local `.git/info/exclude` so `git status`, and with it Go's build-time version stamping, never sees the transient file (binaries stamp clean provenance instead of `+dirty`) — builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
 16. Automatically adds `build/` to `.gitignore` (if in a git repo)
 17. Runs benchmarks and compares against previously stored results
 18. Runs the module's dats CLI test suites (non-hidden `*.dats` files under `dats/`) against throwaway copies of the just-built binaries, exported to suites as `GO_TOOLCHAIN_DATS_BUILD_DIR`; a failing suite fails the build (see [CLI test suites (dats)](#cli-test-suites-dats)). Skipped silently when the module has no suites

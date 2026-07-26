@@ -1,3 +1,13 @@
+//go:build linux || cosmo
+
+// The symbols under test (inspectFD, procCommPPID, isAncestorPID,
+// pipePeerName, isTerminal) live in claudeguard_proc.go and
+// claudeguard_tty_{linux,cosmo}.go, all constrained to `linux || cosmo`. This
+// file must carry the same constraint or it fails to compile on darwin and
+// windows, where those definitions are absent. claudeguard_buildtags_test.go
+// (which pins the classifier's own constraints) skips _test.go files, so it is
+// unaffected and still runs everywhere.
+
 package cmd
 
 import (

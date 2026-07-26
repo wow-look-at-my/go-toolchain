@@ -151,7 +151,6 @@ func TestInjectAllThenCleanupAllRoundTrip(t *testing.T) {
 	require.Equal(t, injected, removed)
 }
 
-
 func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, rel)

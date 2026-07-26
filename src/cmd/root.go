@@ -15,7 +15,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
@@ -339,32 +338,6 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	return nil
 }
 
-// memLimitEnvVar gates injection of the cgroup→GOMEMLIMIT startup guard into
-// every built main package. Injection is on by default; set it to a falsey
-// value (0/false/no/off) to disable it for a build.
-const memLimitEnvVar = "GO_TOOLCHAIN_AUTO_MEMLIMIT"
-
-// injectMemLimitGuard writes the GOMEMLIMIT startup guard into every main
-// package before the build compiles them, so each binary caps the Go heap at
-// the container's cgroup memory limit instead of allocating until it is
-// OOM-killed. Injection is idempotent; in CI a missing or stale guard surfaces
-// as a dirty tree through checkDirtyInCI, which tells the developer to run
-// go-toolchain locally and commit the generated files.
-func injectMemLimitGuard(quiet bool) error {
-	if v, ok := os.LookupEnv(memLimitEnvVar); ok && !envTruthy(v) {
-		return nil
-	}
-	changed, err := memlimit.InjectAll()
-	if err != nil {
-		return fmt.Errorf("injecting GOMEMLIMIT guard: %w", err)
-	}
-	if len(changed) > 0 && !quiet {
-		fmt.Printf("  GOMEMLIMIT guard written to %d package(s): %s\n",
-			len(changed), strings.Join(changed, ", "))
-	}
-	return nil
-}
-
 // runBuildPhase builds every target and runs benchmarks. It also returns the
 // built artifacts so the dats phase can stage host-runnable copies for suites.
 func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArtifact, error) {
@@ -384,7 +357,6 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 	// The guard is a build-time-only artifact; remove it once the build below
 	// has compiled it in, so it never lingers in the working tree.
 	defer cleanupMemLimitGuards()
-
 
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
