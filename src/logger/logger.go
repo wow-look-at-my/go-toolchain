@@ -131,15 +131,16 @@ func (l *Logger) isGHA() bool {
 
 // Warn emits a message to Stderr (or a GHA ::warning annotation) when
 // level <= LevelWarn. Every emitted warning increments the process-wide
-// warning counter (see WarnCount).
+// warning counter and is retained for the gate's recap (see WarnCount,
+// EmittedWarnings).
 func (l *Logger) Warn(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.opts.Level > LevelWarn {
 		return
 	}
-	warnCount.Add(1)
 	msg := l.format(format, args...)
+	recordWarn(msg)
 	if l.isGHA() {
 		EmitGHAWarning(l.opts.Stdout, "", msg)
 		return
@@ -153,15 +154,21 @@ func (l *Logger) Warn(format string, args ...any) {
 
 // WarnFile emits a file-annotated warning (GHA: file=<file>::<msg>,
 // locally: same as Warn). level <= LevelWarn required. Every emitted warning
-// increments the process-wide warning counter (see WarnCount).
+// increments the process-wide warning counter and is retained for the gate's
+// recap, prefixed with the file so the recap keeps the annotation's location
+// (see WarnCount, EmittedWarnings).
 func (l *Logger) WarnFile(file, format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.opts.Level > LevelWarn {
 		return
 	}
-	warnCount.Add(1)
 	msg := l.format(format, args...)
+	if file != "" {
+		recordWarn(file + ": " + msg)
+	} else {
+		recordWarn(msg)
+	}
 	if l.isGHA() {
 		EmitGHAWarning(l.opts.Stdout, file, msg)
 		return
