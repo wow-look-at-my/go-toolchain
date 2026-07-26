@@ -48,8 +48,14 @@ tests:
   # stdout (dats always captures) must refuse to run before doing any work.
   # CLAUDECODE=1 also guarantees the pipeline can never actually start here,
   # so this test never recurses into a nested build.
+  #
+  # Run from an EMPTY throwaway directory, not the module root: a guard abort
+  # deletes the module's build outputs (src/cmd/staleoutputs.go), which here
+  # would delete the very binaries this pipeline just built. With no go.mod
+  # there are no targets to delete, so this stays a pure guard assertion —
+  # the deletion itself is asserted by the next test.
   - desc: claude output guard refuses a captured pipeline run
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"'
+    cmd: 'd="$(mktemp -d)"; cd "$d"; "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; rc=$?; cd /; rm -rf "$d"; exit $rc'
     exit: 1
     timeout: 60s
     inputs:
@@ -62,6 +68,29 @@ tests:
         - "refused to run"
       "!stdout":
         - "Build successful"
+
+  # Refusing to run is not enough on its own: the invocation that hides the
+  # output typically ignores the exit code too, and a binary left at
+  # build/<target> by an earlier run would be executed as proof of a build
+  # that never happened. The abort must delete it (src/cmd/staleoutputs.go)
+  # and say so, while leaving non-binary outputs alone. A throwaway module
+  # with a planted binary: the guard aborts long before anything is compiled.
+  - desc: claude output guard deletes the module's build outputs
+    cmd: 'd="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d"; exit $rc'
+    exit: 1
+    timeout: 60s
+    inputs:
+      env:
+        CLAUDECODE: "1"
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+        GO_TOOLCHAIN_NO_DEP_SUBMISSION: "1"
+    outputs:
+      stdout:
+        - "GUARD-DELETED-BINARY"
+        - "GUARD-KEPT-CHECKSUMS"
+      stderr:
+        - "refused to run"
+        - "have been DELETED"
 
   - desc: root help prints usage
     cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" --help'

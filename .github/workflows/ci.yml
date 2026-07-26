@@ -274,11 +274,20 @@ jobs:
           # once shipped as a `_linux.go` no-op while unit tests stayed green).
           # CLAUDECODE is set per-command ONLY: the other smoke steps run the
           # real pipeline with runner-pipe stdout and must stay inert.
+          # The previous step ran the full pipeline here, so the module's
+          # binary is present: the guard must DELETE it. Discarding the output
+          # and the exit code is exactly the case where a stale binary would
+          # otherwise be run as proof of a build that never happened.
+          [ -f build/apesmoke ]
           rc=0
           CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" > /dev/null 2> guard-err.txt || rc=$?
           cat guard-err.txt
           [ "$rc" -eq 1 ]
           grep -q "refused to run" guard-err.txt
+          # Asserted in the SHIPPED artifact, like the guard itself: the
+          # deletion runs on the same linux||cosmo path (see staleoutputs.go).
+          [ ! -e build/apesmoke ]
+          grep -q "have been DELETED" guard-err.txt
           # The version exemption must stay intact.
           CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" version > /dev/null
 
