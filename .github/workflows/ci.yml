@@ -472,6 +472,10 @@ jobs:
       contents: read
       actions: write
       deployments: write
+      # buildhost-publish records every artifact it uploaded on the org's
+      # linked artifacts page; that recording is part of publishing, not
+      # optional, so the publish fails without this.
+      artifact-metadata: write
     steps:
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
