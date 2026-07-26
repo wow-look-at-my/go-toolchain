@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/mod/modfile"
@@ -185,22 +186,67 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 	return nil
 }
 
-// depSubmissionDisabled reports whether GO_TOOLCHAIN_NO_DEP_SUBMISSION=1
-// disables dependency-graph submission. The supported opt-out for pipelines
-// that run in CI without a usable GitHub token (e.g. this repo's own smoke
-// jobs, which drive the full pipeline inside synthetic throwaway modules),
-// now that a failed submission fails the build.
-func depSubmissionDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_DEP_SUBMISSION") == "1" }
+// selfRepository is the one repository whose builds may legitimately run outside
+// their own checkout: this one. Its smoke jobs drive the full pipeline inside a
+// synthetic throwaway module under RUNNER_TEMP to prove the shipped binary works
+// end to end, and a snapshot from there would publish the fixture's dependencies
+// as this repository's dependency graph.
+//
+// The carve-out is pinned to this exact name so it cannot become a general
+// opt-out. Every other repository submits or fails; there is no arrangement of
+// working directory, environment, or flags that lets one skip quietly.
+const selfRepository = "wow-look-at-my/go-toolchain"
 
-// maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions.
-// A failed snapshot or submission fails the build; opt out entirely with
-// GO_TOOLCHAIN_NO_DEP_SUBMISSION=1.
+// insideWorkspace reports whether the working directory is inside
+// GITHUB_WORKSPACE, i.e. the module being built is the checked-out repository's
+// own. A snapshot describes GITHUB_REPOSITORY at GITHUB_SHA, so it is only
+// meaningful for that repository's module.
+func insideWorkspace() bool {
+	workspace := os.Getenv("GITHUB_WORKSPACE")
+	if workspace == "" {
+		return false
+	}
+	absWorkspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return false
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absWorkspace, cwd)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions
+// against the repository's own checkout. A failed snapshot or submission fails
+// the build.
+//
+// Building outside the checkout is NOT a way to skip. It is refused for every
+// repository except this one, because "run the build somewhere else" is exactly
+// the shape the removed GO_TOOLCHAIN_NO_DEP_SUBMISSION knob had: cheap to reach
+// for, invisible afterwards, and it leaves a repository out of vulnerability
+// scanning while its builds stay green. A repository that genuinely must build a
+// module outside its checkout gets a loud failure telling it so, never silence.
 func maybeSubmitDeps() error {
-	if depSubmissionDisabled() {
-		logger.Debug("=> Dependency submission disabled (GO_TOOLCHAIN_NO_DEP_SUBMISSION=1)")
+	if os.Getenv("CI") == "" || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GITHUB_SHA") == "" {
 		return nil
 	}
-	if os.Getenv("CI") == "" || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GITHUB_SHA") == "" {
+	if !insideWorkspace() {
+		repo := os.Getenv("GITHUB_REPOSITORY")
+		if repo != selfRepository {
+			cwd, _ := os.Getwd()
+			return fmt.Errorf(
+				"refusing to submit a dependency snapshot: building %q, which is outside GITHUB_WORKSPACE (%q). "+
+					"A snapshot describes %s at %s, so submitting this module would publish its dependencies as that "+
+					"repository's dependency graph. Run go-toolchain from within the checkout. Building elsewhere is not "+
+					"a supported way to skip submission",
+				cwd, os.Getenv("GITHUB_WORKSPACE"), repo, os.Getenv("GITHUB_SHA"))
+		}
+		logger.Debug("=> Dependency submission skipped: " + selfRepository + " smoke fixture built outside the checkout")
 		return nil
 	}
 
