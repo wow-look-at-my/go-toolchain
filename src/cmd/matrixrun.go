@@ -16,8 +16,20 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-func runReleaseWithRunner(r runner.CommandRunner) error {
+func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	setupCGOEnvironment()
+	// Same contract as the default pipeline (see staleoutputs.go): delete the
+	// artifacts up front so nothing runnable survives a failure, and delete
+	// them again if the run goes red after the builds wrote them.
+	if err := clearBuildOutputs(r); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			discardBuildOutputs()
+		}
+	}()
+
 	platforms, err := resolveMatrixPlatforms()
 	if err != nil {
 		return err
