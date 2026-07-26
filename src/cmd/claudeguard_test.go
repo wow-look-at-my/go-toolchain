@@ -30,13 +30,13 @@ func TestIsHarnessCapturePath(t *testing.T) {
 }
 
 func TestClaudeOutputMessageVariants(t *testing.T) {
-	pipe := claudeOutputMessage(outputSink{kind: sinkPipe, detail: "head"})
+	pipe := claudeOutputMessage(outputSink{kind: sinkPipe, detail: "head"}, nil)
 	assert.Contains(t, pipe, "piped into `head`")
 
-	file := claudeOutputMessage(outputSink{kind: sinkFile, detail: "/tmp/x.log"})
+	file := claudeOutputMessage(outputSink{kind: sinkFile, detail: "/tmp/x.log"}, nil)
 	assert.Contains(t, file, "redirected to the file `/tmp/x.log`")
 
-	discard := claudeOutputMessage(outputSink{kind: sinkDiscard, detail: "/dev/null"})
+	discard := claudeOutputMessage(outputSink{kind: sinkDiscard, detail: "/dev/null"}, nil)
 	assert.Contains(t, discard, "discarded to `/dev/null`")
 
 	for _, m := range []string{pipe, file, discard} {
@@ -44,7 +44,17 @@ func TestClaudeOutputMessageVariants(t *testing.T) {
 		assert.Contains(t, m, "with nothing after it")
 		// The fix is to run it plainly — never to redirect to a file.
 		assert.NotContains(t, m, "write the full output to a file")
+		// Nothing was deleted, so the message must not claim otherwise.
+		assert.NotContains(t, m, "DELETED")
 	}
+
+	// When the abort deleted the previous run's binaries, it says so and names
+	// them — otherwise the missing build/<target> looks like a different bug.
+	deleted := claudeOutputMessage(outputSink{kind: sinkPipe, detail: "cat"},
+		[]string{"/repo/build/mytool", "/repo/build/mytool_linux_amd64"})
+	assert.Contains(t, deleted, "DELETED")
+	assert.Contains(t, deleted, "/repo/build/mytool")
+	assert.Contains(t, deleted, "/repo/build/mytool_linux_amd64")
 }
 
 func TestClaudeOutputViolation(t *testing.T) {
