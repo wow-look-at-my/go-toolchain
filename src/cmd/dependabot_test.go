@@ -312,12 +312,11 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 	assert.Contains(t, err.Error(), "dependency snapshot failed")
 }
 
-// A pipeline driven inside a throwaway module outside the checkout (this repo's
-// own smoke jobs do exactly that under RUNNER_TEMP) must not submit: the
-// snapshot would publish the fixture's dependencies as the repository's
-// dependency graph. This replaced an opt-out env var, so it must stay a
-// property of where the build runs -- not something a caller can set.
-func TestMaybeSubmitDeps_SkipsModuleOutsideWorkspace(t *testing.T) {
+// This repo's own smoke jobs drive the full pipeline inside a throwaway module
+// under RUNNER_TEMP; submitting there would publish the fixture's dependencies
+// as this repository's dependency graph. That carve-out exists for exactly one
+// repository -- see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
+func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -343,12 +342,52 @@ func TestMaybeSubmitDeps_SkipsModuleOutsideWorkspace(t *testing.T) {
 
 	t.Setenv("GITHUB_WORKSPACE", workspace)
 	t.Setenv("CI", "true")
-	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_REPOSITORY", selfRepository)
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_TOKEN", "test-token")
 
 	require.Nil(t, maybeSubmitDeps())
-	assert.Equal(t, 0, requests, "a module outside the checkout must not be submitted as the repository's dependency graph")
+	assert.Equal(t, 0, requests, "the smoke fixture must not be submitted as this repository's dependency graph")
+}
+
+// The load-bearing one. "Build somewhere other than the checkout" must not
+// become the opt-out that GO_TOOLCHAIN_NO_DEP_SUBMISSION was: for every
+// repository but this one it is a hard failure, never a quiet skip. Without
+// this, any repo could dodge dependency submission by cd-ing to a temp dir and
+// stay green while dropping out of vulnerability scanning.
+func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	elsewhere := filepath.Join(root, "smokemod")
+	require.Nil(t, os.MkdirAll(workspace, 0o755))
+	require.Nil(t, os.MkdirAll(elsewhere, 0o755))
+
+	origDir, _ := os.Getwd()
+	require.Nil(t, os.Chdir(elsewhere))
+	defer os.Chdir(origDir)
+
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "someone/else")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	err := maybeSubmitDeps()
+	require.NotNil(t, err, "building outside the checkout must fail, not silently skip")
+	assert.Contains(t, err.Error(), "refusing to submit")
+	assert.Contains(t, err.Error(), "not a supported way to skip submission")
+	assert.Equal(t, 0, requests, "the fixture's dependencies must never be posted as another repository's graph")
 }
 
 // The guard must not swing the other way: a real build, in the checkout, submits.
