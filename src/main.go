@@ -65,6 +65,10 @@ func main() {
 	if needsGo() {
 		if err := cmd.EnsureGoVersion(); err != nil {
 			cmd.ReportUpdateCheck()
+			// Nothing was built, so nothing in build/ describes this run:
+			// drop the previous run's binaries rather than leave them to be
+			// executed as its result (see src/cmd/staleoutputs.go).
+			cmd.DiscardBuildOutputs()
 			logger.Error("go bootstrap: %v", err)
 			os.Exit(1)
 		}
