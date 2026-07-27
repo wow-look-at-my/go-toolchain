@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 func init() {
@@ -65,7 +65,11 @@ func main() {
 	if needsGo() {
 		if err := cmd.EnsureGoVersion(); err != nil {
 			cmd.ReportUpdateCheck()
-			fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
+			// Nothing was built, so nothing in build/ describes this run:
+			// drop the previous run's binaries rather than leave them to be
+			// executed as its result (see src/cmd/staleoutputs.go).
+			cmd.DiscardBuildOutputs()
+			logger.Error("go bootstrap: %v", err)
 			os.Exit(1)
 		}
 	}

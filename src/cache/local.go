@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // LocalCache is a filesystem-based build cache. Objects are stored in a
@@ -19,6 +21,11 @@ type LocalCache struct {
 
 	vmu      sync.RWMutex
 	verified map[string]looseVerified // actionID -> verified (outputID, size)
+
+	// plocks stripes per-action write locks: Put and PutIfAbsent for the same
+	// action serialize on one stripe, making the if-absent check atomic with
+	// the write it guards.
+	plocks [64]sync.Mutex
 }
 
 // NewLocalCache creates a local cache rooted at dir. It pre-creates 256
@@ -114,7 +121,7 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 		delete(c.verified, actionID)
 		c.vmu.Unlock()
 		c.Stats.Corrupt.Increment()
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: evicting %s: %s; treating as miss\n", shortID(actionID), reason)
+		logger.Warn("cacheprog: local cache: evicting %s: %s; treating as miss", shortID(actionID), reason)
 		return CacheMeta{}, true
 	}
 	// Serve the verified byte count as the size — never the raw stat size,
@@ -131,7 +138,47 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 
 // Put writes body to the local cache under actionID and stores the metadata
 // sidecar. Returns the absolute disk path to the cached object.
+//
+// Writes for the same action are serialized on a striped per-action lock so
+// PutIfAbsent's existence check cannot interleave with a concurrent Put — a
+// prefetched body must never land on top of an entry the local cmd/go just
+// stored (see LocalStore.PutIfAbsent).
 func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, error) {
+	l := c.plock(actionID)
+	l.Lock()
+	defer l.Unlock()
+	return c.putLocked(actionID, outputID, body)
+}
+
+// PutIfAbsent stores body only if actionID is not already cached — see
+// LocalStore.PutIfAbsent. The existence check and the write happen under the
+// same per-action lock Put uses, so the two cannot interleave.
+func (c *LocalCache) PutIfAbsent(actionID, outputID string, body io.Reader) (bool, error) {
+	l := c.plock(actionID)
+	l.Lock()
+	defer l.Unlock()
+	// Peek semantics: a present-and-servable entry blocks the store; a corrupt
+	// one was just evicted by the check and is fair game to fill.
+	if _, miss := c.get(actionID, false); !miss {
+		return false, nil
+	}
+	if _, err := c.putLocked(actionID, outputID, body); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// plock returns the striped write lock for actionID (allocation-free FNV-1a).
+func (c *LocalCache) plock(actionID string) *sync.Mutex {
+	h := uint32(2166136261)
+	for i := 0; i < len(actionID); i++ {
+		h ^= uint32(actionID[i])
+		h *= 16777619
+	}
+	return &c.plocks[h%uint32(len(c.plocks))]
+}
+
+func (c *LocalCache) putLocked(actionID, outputID string, body io.Reader) (string, error) {
 	dataPath := c.dataPath(actionID)
 
 	// Atomic write: temp file in same directory, then rename.

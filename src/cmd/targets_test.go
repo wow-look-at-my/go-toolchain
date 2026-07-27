@@ -1,13 +1,10 @@
 package cmd
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/build"
 )
 
 func TestParseTargetList(t *testing.T) {
@@ -75,6 +72,69 @@ func TestParseTargetList(t *testing.T) {
 			name:    "cosmo with arch is rejected",
 			entries: []string{"cosmo/amd64"},
 			wantErr: "always one fat APE",
+		},
+		{
+			name:    "wasm targets canonical spelling",
+			entries: []string{"wasm/js", "wasm/wasip1"},
+			want: []buildPlatform{
+				{OS: "js", Arch: "wasm"},
+				{OS: "wasip1", Arch: "wasm"},
+			},
+		},
+		{
+			// The GOOS-order spellings are a quiet compatibility alias
+			// (already shipped in released consumers) and normalize to the
+			// same internal targets as the canonical wasm/js form.
+			name:    "wasm targets GOOS-order alias",
+			entries: []string{"js/wasm", "wasip1/wasm"},
+			want: []buildPlatform{
+				{OS: "js", Arch: "wasm"},
+				{OS: "wasip1", Arch: "wasm"},
+			},
+		},
+		{
+			// Mixing the canonical spelling and its alias dedupes to ONE
+			// target — they are the same platform after normalization.
+			name:    "wasm spellings dedupe to one target",
+			entries: []string{"wasm/js", "js/wasm", "wasip1/wasm", "wasm/wasip1"},
+			want: []buildPlatform{
+				{OS: "js", Arch: "wasm"},
+				{OS: "wasip1", Arch: "wasm"},
+			},
+		},
+		{
+			name:    "identical wasm entry twice is still a duplicate",
+			entries: []string{"wasm/js", "wasm/js"},
+			wantErr: "duplicate target",
+		},
+		{
+			name:    "wasm with a non-wasm flavor is rejected",
+			entries: []string{"wasm/amd64"},
+			wantErr: "wasm targets are wasm/js or wasm/wasip1",
+		},
+		{
+			name:    "wasm mixed with native and cosmo",
+			entries: []string{"cosmo", "linux/amd64", "js/wasm"},
+			want: []buildPlatform{
+				{OS: "cosmo", Arch: "fat"},
+				{OS: "linux", Arch: "amd64"},
+				{OS: "js", Arch: "wasm"},
+			},
+		},
+		{
+			name:    "js without wasm arch is rejected",
+			entries: []string{"js/amd64"},
+			wantErr: "only builds WebAssembly",
+		},
+		{
+			name:    "wasip1 without wasm arch is rejected",
+			entries: []string{"wasip1/arm64"},
+			wantErr: "only builds WebAssembly",
+		},
+		{
+			name:    "wasm arch without wasm os is rejected",
+			entries: []string{"linux/wasm"},
+			wantErr: "needs GOOS js or wasip1",
 		},
 		{
 			name:    "duplicate pair",
@@ -149,6 +209,16 @@ func TestParseCosmoSlots(t *testing.T) {
 			wantErr: "not a slot",
 		},
 		{
+			name:    "wasm is not a slot",
+			entries: []string{"js/wasm"},
+			wantErr: "not a wasm binary",
+		},
+		{
+			name:    "canonical wasm spelling is not a slot either",
+			entries: []string{"wasm/js"},
+			wantErr: "not a wasm binary",
+		},
+		{
 			name:    "unknown arch",
 			entries: []string{"linux/amd65"},
 			wantErr: "unknown architecture",
@@ -221,171 +291,114 @@ func TestResolveMatrixPlatformsRejectsCosmoOS(t *testing.T) {
 	assert.Contains(t, err.Error(), "--targets cosmo")
 }
 
-func TestCopyCosmoSlots(t *testing.T) {
-	tmpDir := t.TempDir()
-	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
+func TestResolveMatrixPlatformsRejectsWasmInCartesian(t *testing.T) {
+	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
+	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
+	matrixTargets = nil
 
-	fatPath := filepath.Join(tmpDir, "mytool_cosmo_fat")
-	require.NoError(t, os.WriteFile(fatPath, []byte("FAT-APE-BYTES"), 0755))
-
-	slots, err := parseCosmoSlots(DefaultCosmoSlots)
-	require.NoError(t, err)
-
-	created, replacedFat, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
-	require.NoError(t, err)
-
-	wantNames := []string{"mytool_linux_amd64", "mytool_linux_arm64", "mytool_windows_amd64.exe"}
-	require.Len(t, created, len(wantNames))
-	for i, name := range wantNames {
-		path := filepath.Join(tmpDir, name)
-		assert.Equal(t, path, created[i])
-
-		// Real regular files (never symlinks), byte-identical to the APE,
-		// with the executable bit carried over.
-		info, err := os.Lstat(path)
-		require.NoError(t, err)
-		assert.True(t, info.Mode().IsRegular(), "%s must be a regular file, not a symlink", name)
-		assert.NotZero(t, info.Mode().Perm()&0111, "%s must be executable", name)
-		data, err := os.ReadFile(path)
-		require.NoError(t, err)
-		assert.Equal(t, "FAT-APE-BYTES", string(data))
-	}
-
-	// The fat name survives locally as a SYMLINK to the first slot copy
-	// (buildhost rejects os=cosmo uploads; publish skips symlinks) and is
-	// reported as replaced so checksums cover real files only.
-	assert.Equal(t, []string{fatPath}, replacedFat)
-	info, err := os.Lstat(fatPath)
-	require.NoError(t, err)
-	assert.Equal(t, os.ModeSymlink, info.Mode()&os.ModeSymlink, "fat name must be a symlink after slot mapping")
-	linkTarget, err := os.Readlink(fatPath)
-	require.NoError(t, err)
-	assert.Equal(t, "mytool_linux_amd64", linkTarget)
-	data, err := os.ReadFile(fatPath) // follows the link
-	require.NoError(t, err)
-	assert.Equal(t, "FAT-APE-BYTES", string(data))
-}
-
-func TestCopyCosmoSlotsDropsFatInCI(t *testing.T) {
-	tmpDir := t.TempDir()
-	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
-
-	fatPath := filepath.Join(tmpDir, "mytool_cosmo_fat")
-	require.NoError(t, os.WriteFile(fatPath, []byte("FAT-APE-BYTES"), 0755))
-
-	slots, err := parseCosmoSlots([]string{"linux/amd64"})
-	require.NoError(t, err)
-
-	var created, replacedFat []string
-	output := captureStdout(func() {
-		created, replacedFat, err = copyCosmoSlots(targets, tmpDir, slots, nil, true)
-	})
-	require.NoError(t, err)
-	require.Len(t, created, 1)
-	assert.Equal(t, []string{fatPath}, replacedFat)
-
-	// dropFat removes the fat name entirely: upload-artifact dereferences
-	// symlinks, so only removal keeps a publish-breaking os=cosmo artifact
-	// out of the uploaded build/ directory.
-	_, err = os.Lstat(fatPath)
-	assert.True(t, os.IsNotExist(err), "fat name must be removed in CI")
-	assert.Contains(t, output, "DROP mytool_cosmo_fat")
-	data, err := os.ReadFile(filepath.Join(tmpDir, "mytool_linux_amd64"))
-	require.NoError(t, err)
-	assert.Equal(t, "FAT-APE-BYTES", string(data))
-}
-
-func TestCopyCosmoSlotsAllSlotsCollidedKeepsFat(t *testing.T) {
-	tmpDir := t.TempDir()
-	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
-
-	fatPath := filepath.Join(tmpDir, "mytool_cosmo_fat")
-	require.NoError(t, os.WriteFile(fatPath, []byte("FAT"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "mytool_linux_amd64"), []byte("NATIVE"), 0755))
-
-	slots, err := parseCosmoSlots([]string{"linux/amd64"})
-	require.NoError(t, err)
-
-	nativeBuilt := map[string]bool{"mytool_linux_amd64": true}
-	var created, replacedFat []string
-	output := captureStdout(func() {
-		created, replacedFat, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt, false)
-	})
-	require.NoError(t, err)
-	assert.Empty(t, created)
-	assert.Empty(t, replacedFat)
-
-	// With no surviving slot copy there is nothing to link to: the real fat
-	// file is kept (and cannot be published to buildhost until the server
-	// accepts os=cosmo).
-	info, err := os.Lstat(fatPath)
-	require.NoError(t, err)
-	assert.True(t, info.Mode().IsRegular(), "fat must stay a real file when no slot copy exists")
-	assert.Contains(t, output, "KEEP mytool_cosmo_fat")
-}
-
-func TestCopyCosmoSlotsNativeCollisionWins(t *testing.T) {
-	tmpDir := t.TempDir()
-	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
-
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "mytool_cosmo_fat"), []byte("FAT"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "mytool_linux_amd64"), []byte("NATIVE"), 0755))
-
-	slots, err := parseCosmoSlots([]string{"linux/amd64", "linux/arm64"})
-	require.NoError(t, err)
-
-	nativeBuilt := map[string]bool{"mytool_linux_amd64": true}
-	var created []string
-	output := captureStdout(func() {
-		created, _, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt, false)
-	})
-	require.NoError(t, err)
-
-	// The collided slot is skipped (native bytes survive) and not reported
-	// as created; the other slot is copied.
-	require.Len(t, created, 1)
-	assert.Equal(t, filepath.Join(tmpDir, "mytool_linux_arm64"), created[0])
-	data, err := os.ReadFile(filepath.Join(tmpDir, "mytool_linux_amd64"))
-	require.NoError(t, err)
-	assert.Equal(t, "NATIVE", string(data))
-	assert.Contains(t, output, "SKIP mytool_linux_amd64")
-
-	// The fat symlink must point at the first slot copy actually CREATED
-	// (linux/arm64), not the collided first slot.
-	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool_cosmo_fat"))
-	require.NoError(t, err)
-	assert.Equal(t, "mytool_linux_arm64", linkTarget)
-}
-
-func TestCopyCosmoSlotsMissingFatAPE(t *testing.T) {
-	tmpDir := t.TempDir()
-	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
-	slots := []buildPlatform{{OS: "linux", Arch: "amd64"}}
-
-	_, _, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
+	// GOOS js/wasip1 through --os point at the os=wasm pairing (and the
+	// canonical --targets spelling).
+	matrixOS, matrixArch = []string{"js"}, []string{"amd64"}
+	_, err := resolveMatrixPlatforms()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mytool_cosmo_fat")
+	assert.Contains(t, err.Error(), "--os wasm --arch js")
+	assert.Contains(t, err.Error(), "--targets wasm/js")
+
+	matrixOS, matrixArch = []string{"wasip1"}, []string{"amd64"}
+	_, err = resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--os wasm --arch wasip1")
+	assert.Contains(t, err.Error(), "--targets wasm/wasip1")
+
+	// GOARCH "wasm" is spelled as the OS in the wasm pairing.
+	matrixOS, matrixArch = []string{"linux"}, []string{"wasm"}
+	_, err = resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--os wasm --arch js")
+	assert.Contains(t, err.Error(), "--targets wasm/js")
 }
 
-func TestCopyCosmoSlotsReplacesStaleSymlink(t *testing.T) {
-	tmpDir := t.TempDir()
-	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
+func TestResolveMatrixPlatformsWasmCartesian(t *testing.T) {
+	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
+	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
+	matrixTargets = nil
 
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "mytool_cosmo_fat"), []byte("FAT"), 0755))
-	// A stale symlink from a previous run must be replaced by a real file,
-	// not written through.
-	other := filepath.Join(tmpDir, "other_file")
-	require.NoError(t, os.WriteFile(other, []byte("OTHER"), 0644))
-	require.NoError(t, os.Symlink(other, filepath.Join(tmpDir, "mytool_linux_amd64")))
+	// --os wasm --arch js: same normalized target as --targets wasm/js.
+	matrixOS, matrixArch = []string{"wasm"}, []string{"js"}
+	got, err := resolveMatrixPlatforms()
+	require.NoError(t, err)
+	assert.Equal(t, []buildPlatform{{OS: "js", Arch: "wasm"}}, got)
+	fromTargets, err := parseTargetList([]string{"wasm/js"})
+	require.NoError(t, err)
+	assert.Equal(t, fromTargets, got, "--os wasm --arch js must equal --targets wasm/js")
 
-	slots := []buildPlatform{{OS: "linux", Arch: "amd64"}}
-	_, _, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
+	// Both flavors at once.
+	matrixOS, matrixArch = []string{"wasm"}, []string{"js", "wasip1"}
+	got, err = resolveMatrixPlatforms()
 	require.NoError(t, err)
+	assert.Equal(t, []buildPlatform{
+		{OS: "js", Arch: "wasm"},
+		{OS: "wasip1", Arch: "wasm"},
+	}, got)
 
-	info, err := os.Lstat(filepath.Join(tmpDir, "mytool_linux_amd64"))
+	// MIXED list: impossible cross combinations (wasm x native arch, native
+	// os x wasm flavor) are skipped with one aggregate warning; the possible
+	// ones build.
+	matrixOS, matrixArch = []string{"linux", "wasm"}, []string{"amd64", "js"}
+	var warnOut string
+	warnOut = captureCombinedOutput(func() {
+		got, err = resolveMatrixPlatforms()
+	})
 	require.NoError(t, err)
-	assert.True(t, info.Mode().IsRegular())
-	data, err := os.ReadFile(other)
+	assert.Equal(t, []buildPlatform{
+		{OS: "linux", Arch: "amd64"},
+		{OS: "js", Arch: "wasm"},
+	}, got)
+	assert.Contains(t, warnOut, "linux/js")
+	assert.Contains(t, warnOut, "wasm/amd64")
+
+	// os=wasm with no wasm flavor arch anywhere: nothing satisfiable, fail
+	// fast with the exact-pairing error.
+	matrixOS, matrixArch = []string{"wasm"}, []string{"amd64"}
+	_, err = resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no buildable os/arch combinations")
+	assert.Contains(t, err.Error(), "--os wasm --arch js")
+
+	// A wasm flavor arch with no os=wasm in the list: error with the fix.
+	matrixOS, matrixArch = []string{"linux"}, []string{"js"}
+	_, err = resolveMatrixPlatforms()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--os wasm --arch js")
+	assert.Contains(t, err.Error(), "--targets wasm/js")
+
+	// Mixed list where the wasm os gets no flavor: the native combos build,
+	// the wasm ones are skipped with the warning.
+	matrixOS, matrixArch = []string{"linux", "wasm"}, []string{"amd64"}
+	warnOut = captureCombinedOutput(func() {
+		got, err = resolveMatrixPlatforms()
+	})
 	require.NoError(t, err)
-	assert.Equal(t, "OTHER", string(data), "symlink target must not be overwritten")
+	assert.Equal(t, []buildPlatform{{OS: "linux", Arch: "amd64"}}, got)
+	assert.Contains(t, warnOut, "wasm/amd64")
+}
+
+func TestBuildPlatformPredicates(t *testing.T) {
+	cosmo := buildPlatform{OS: "cosmo", Arch: "fat"}
+	js := buildPlatform{OS: "js", Arch: "wasm"}
+	wasip1 := buildPlatform{OS: "wasip1", Arch: "wasm"}
+	linux := buildPlatform{OS: "linux", Arch: "amd64"}
+
+	assert.True(t, cosmo.IsCosmo())
+	assert.False(t, cosmo.IsWasm())
+	assert.True(t, js.IsWasm())
+	assert.True(t, wasip1.IsWasm())
+	assert.False(t, linux.IsWasm())
+
+	// The fork toolchain builds cosmo and wasm; everything else uses the go
+	// on PATH.
+	assert.True(t, cosmo.NeedsForkToolchain())
+	assert.True(t, js.NeedsForkToolchain())
+	assert.True(t, wasip1.NeedsForkToolchain())
+	assert.False(t, linux.NeedsForkToolchain())
 }

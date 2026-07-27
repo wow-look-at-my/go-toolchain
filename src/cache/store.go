@@ -2,9 +2,10 @@ package cache
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // LocalStore is the process-local cache tier that sits in front of the remote
@@ -39,6 +40,14 @@ type LocalStore interface {
 	// Put stores body under actionID/outputID and returns a DiskPath that the
 	// Go toolchain can open.
 	Put(actionID, outputID string, body io.Reader) (string, error)
+	// PutIfAbsent stores body under actionID/outputID only if the action is
+	// not already cached, atomically with respect to concurrent Puts, and
+	// reports whether this call stored it. It is the primitive the web
+	// prefetch population uses: a web-originated body must never displace a
+	// locally-originated entry (a plain check-then-Put can lose that race and
+	// silently replace what the local cmd/go just stored — the module-index
+	// trust model in verify.go forbids exactly that).
+	PutIfAbsent(actionID, outputID string, body io.Reader) (stored bool, err error)
 	// StatsPtr returns the live hit/put counters for this store.
 	StatsPtr() *CacheStats
 	// Close releases resources. For FuseCache this unmounts the filesystem.
@@ -87,16 +96,16 @@ func NewLocalStore(dir string) (LocalStore, error) {
 	// operator sidestep the FUSE tier wholesale if a mount misbehaves in some
 	// environment, without code changes.
 	if os.Getenv("GOCACHE_NO_FUSE") == "1" {
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: loose-file (GOCACHE_NO_FUSE=1)\n")
+		logger.Info("cacheprog: local cache: loose-file (GOCACHE_NO_FUSE=1)")
 		return NewLocalCache(dir)
 	}
 	fc, err := newFuseCache(dir)
 	if err == nil {
-		fmt.Fprintf(os.Stderr, "cacheprog: local cache: FUSE virtual filesystem (%s)\n", fc.mountInfo())
+		logger.Info("cacheprog: local cache: FUSE virtual filesystem (%s)", fc.mountInfo())
 		return fc, nil
 	}
 	if !errors.Is(err, errFuseUnsupported) && !errors.Is(err, errFuseBusy) {
-		fmt.Fprintf(os.Stderr, "cacheprog: FUSE cache unavailable (%v); using loose-file cache\n", err)
+		logger.Warn("cacheprog: FUSE cache unavailable (%v); using loose-file cache", err)
 	}
 	return NewLocalCache(dir)
 }

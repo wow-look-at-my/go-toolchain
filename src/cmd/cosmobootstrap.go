@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Environment variables controlling gosmopolitan toolchain resolution.
@@ -84,7 +85,7 @@ func EnsureCosmoToolchain() (string, error) {
 		if verErr != nil {
 			return "", fmt.Errorf("cached gosmopolitan toolchain at %s is broken: %w (delete it to re-download, or set %s to a local build)", goRoot, verErr, cosmoGorootEnv)
 		}
-		fmt.Fprintf(os.Stderr, "cosmo-bootstrap: using cached %s from %s (%s)\n", key, goRoot, ver)
+		logger.Info("cosmo-bootstrap: using cached %s from %s (%s)", key, goRoot, ver)
 		return goRoot, nil
 	}
 
@@ -96,7 +97,7 @@ func EnsureCosmoToolchain() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("downloaded gosmopolitan toolchain at %s failed its version probe: %w", goRoot, err)
 	}
-	fmt.Fprintf(os.Stderr, "cosmo-bootstrap: using %s from %s (%s)\n", key, goRoot, ver)
+	logger.Info("cosmo-bootstrap: using %s from %s (%s)", key, goRoot, ver)
 	return goRoot, nil
 }
 
@@ -110,7 +111,7 @@ func useLocalCosmoGoroot(root string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s=%s: %w", cosmoGorootEnv, root, err)
 	}
-	fmt.Fprintf(os.Stderr, "cosmo-bootstrap: using %s=%s (%s)\n", cosmoGorootEnv, root, ver)
+	logger.Info("cosmo-bootstrap: using %s=%s (%s)", cosmoGorootEnv, root, ver)
 	return root, nil
 }
 
@@ -136,13 +137,15 @@ func cosmoGoVersion(root string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// cosmoCacheKey derives the cache directory name for a toolchain download.
+// cosmoCacheKey derives the cache directory name for a buildhost download.
 // buildhost's dl endpoint redirects to a static URL whose query carries the
 // resolved release version (v=<N>); that version makes a stable, collision
 // free cache key (v<N>). When the redirect cannot be probed or parsed, the
 // key falls back to the branch name: that copy is downloaded once and then
-// reused as long as it exists (no staleness detection) rather than paying an
-// ~80 MB download on every run.
+// reused as long as it exists (no staleness detection) rather than paying a
+// large download on every run. Shared keying: both the gosmopolitan
+// toolchain bootstrap (this file) and the dats bootstrap (datsbootstrap.go)
+// key their caches with it — keep changes compatible with both.
 func cosmoCacheKey(dlURL, branch string) string {
 	if v := probeCosmoVersion(dlURL); v != "" {
 		return "v" + v
@@ -153,6 +156,8 @@ func cosmoCacheKey(dlURL, branch string) string {
 // probeCosmoVersion issues one redirect-stopping HEAD request against the dl
 // endpoint and extracts the release version from the Location's v query
 // parameter. Any failure returns "" (callers fall back to branch keying).
+// Used for every buildhost dl endpoint, not just gosmopolitan — the dats
+// bootstrap probes through it too (via cosmoCacheKey).
 func probeCosmoVersion(dlURL string) string {
 	client := &http.Client{
 		Timeout: cosmoProbeTimeout,
@@ -202,17 +207,19 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "cosmo-bootstrap: downloading %s", dlURL)
+	// Mid-line progress fragment (completed below on the same line):
+	// bypasses the logger via rawStderr, see logging.go.
+	fmt.Fprintf(rawStderr, "cosmo-bootstrap: downloading %s", dlURL)
 	dlStart := time.Now()
 	client := &http.Client{Timeout: cosmoDownloadTimeout}
 	resp, err := client.Get(dlURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(rawStderr, "\n")
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(rawStderr, "\n")
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
@@ -225,7 +232,7 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	if err := extractTarGz(resp.Body, tmpDir); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, " %s\n", fmtDuration(time.Since(dlStart)))
+	fmt.Fprintf(rawStderr, " %s\n", fmtDuration(time.Since(dlStart)))
 
 	if _, err := os.Stat(filepath.Join(tmpDir, "go", "bin", "go")); err != nil {
 		return fmt.Errorf("downloaded archive does not contain go/bin/go: %w", err)

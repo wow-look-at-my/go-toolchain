@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/mod/modfile"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 type depSnapshot struct {
@@ -139,7 +142,7 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 		token = os.Getenv("GH_TOKEN")
 	}
 	if token == "" {
-		return fmt.Errorf("GITHUB_TOKEN or GH_TOKEN required")
+		return fmt.Errorf("GITHUB_TOKEN or GH_TOKEN required — in GitHub Actions pass GITHUB_TOKEN: ${{ github.token }} in the step's env (the go-toolchain action does this automatically)")
 	}
 
 	repo := os.Getenv("GITHUB_REPOSITORY")
@@ -169,6 +172,9 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 
 	if resp.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusForbidden {
+			return fmt.Errorf("dependency submission failed (HTTP %d): %s — the workflow token lacks contents: write; add \"permissions: contents: write\" to the calling workflow job", resp.StatusCode, string(respBody))
+		}
 		return fmt.Errorf("dependency submission failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
 
@@ -176,23 +182,77 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 	for _, m := range snapshot.Manifests {
 		total += len(m.Resolved)
 	}
-	fmt.Printf("=> Submitted %d dependencies to GitHub Dependency Graph\n", total)
+	logger.Info("=> Submitted %d dependencies to GitHub Dependency Graph", total)
 	return nil
 }
 
-// maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions.
-// Errors are logged but don't fail the build.
-func maybeSubmitDeps() {
+// selfRepository is the one repository whose builds may legitimately run outside
+// their own checkout: this one. Its smoke jobs drive the full pipeline inside a
+// synthetic throwaway module under RUNNER_TEMP to prove the shipped binary works
+// end to end, and a snapshot from there would publish the fixture's dependencies
+// as this repository's dependency graph.
+//
+// The carve-out is pinned to this exact name so it cannot become a general
+// opt-out. Every other repository submits or fails; there is no arrangement of
+// working directory, environment, or flags that lets one skip quietly.
+const selfRepository = "wow-look-at-my/go-toolchain"
+
+// insideWorkspace reports whether the working directory is inside
+// GITHUB_WORKSPACE, i.e. the module being built is the checked-out repository's
+// own. A snapshot describes GITHUB_REPOSITORY at GITHUB_SHA, so it is only
+// meaningful for that repository's module.
+func insideWorkspace() bool {
+	workspace := os.Getenv("GITHUB_WORKSPACE")
+	if workspace == "" {
+		return false
+	}
+	absWorkspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return false
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absWorkspace, cwd)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// maybeSubmitDeps submits a dependency snapshot when running in GitHub Actions
+// against the repository's own checkout. A failed snapshot or submission fails
+// the build.
+//
+// Building outside the checkout is NOT a way to skip. It is refused for every
+// repository except this one, because "run the build somewhere else" is exactly
+// the shape the removed GO_TOOLCHAIN_NO_DEP_SUBMISSION knob had: cheap to reach
+// for, invisible afterwards, and it leaves a repository out of vulnerability
+// scanning while its builds stay green. A repository that genuinely must build a
+// module outside its checkout gets a loud failure telling it so, never silence.
+func maybeSubmitDeps() error {
 	if os.Getenv("CI") == "" || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GITHUB_SHA") == "" {
-		return
+		return nil
+	}
+	if !insideWorkspace() {
+		repo := os.Getenv("GITHUB_REPOSITORY")
+		if repo != selfRepository {
+			cwd, _ := os.Getwd()
+			return fmt.Errorf(
+				"refusing to submit a dependency snapshot: building %q, which is outside GITHUB_WORKSPACE (%q). "+
+					"A snapshot describes %s at %s, so submitting this module would publish its dependencies as that "+
+					"repository's dependency graph. Run go-toolchain from within the checkout. Building elsewhere is not "+
+					"a supported way to skip submission",
+				cwd, os.Getenv("GITHUB_WORKSPACE"), repo, os.Getenv("GITHUB_SHA"))
+		}
+		logger.Debug("=> Dependency submission skipped: " + selfRepository + " smoke fixture built outside the checkout")
+		return nil
 	}
 
 	snapshot, err := buildDepSnapshot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "=> Warning: dependency snapshot failed: %v\n", err)
-		return
+		return fmt.Errorf("dependency snapshot failed: %w", err)
 	}
-	if err := postDepSnapshot(snapshot); err != nil {
-		fmt.Fprintf(os.Stderr, "=> Warning: dependency submission failed: %v\n", err)
-	}
+	return postDepSnapshot(snapshot)
 }

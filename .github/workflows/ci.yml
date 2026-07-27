@@ -7,14 +7,16 @@ permissions:
   contents: write
   id-token: write
   security-events: write
+  actions: read
+  checks: read
 
 jobs:
-  build:
+  host-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
           cache: false
@@ -86,8 +88,8 @@ jobs:
         # build/ in THIS job is the host-built native linux/amd64 binary from
         # `go run ./src` above -- never the cosmo APE -- so executing it here is
         # safe (APEs self-assimilate on exec; the APE artifacts are built in
-        # action-test and only ever executed as throwaway copies in the smoke
-        # jobs below).
+        # the `build` job and only ever executed as throwaway copies in the
+        # smoke jobs below).
         env:
           # The second build re-invokes go-toolchain, which also submits the
           # dependency snapshot; give it the same token so it succeeds rather
@@ -101,25 +103,19 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          if [ "$elapsed" -gt 30 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 30s)"
+          # Limit raised 30s -> 45s when the dats phase landed: the second
+          # build now also runs the repo's CLI suite (~3-5s on top of a 26s
+          # baseline); a broken cache still blows way past 45s.
+          if [ "$elapsed" -gt 45 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 45s)"
             exit 1
           fi
 
-      - name: Upload binary
-        uses: actions/upload-artifact@v7
+      - name: Upload host binary
+        uses: wow-look-at-my/actions@cache-upload#latest
         with:
-          name: go-toolchain-binary
+          name: host-go-toolchain
           path: build/go-toolchain
-          if-no-files-found: error
-
-      - name: Upload profiles
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-profiles
-          path: /tmp/go-toolchain-profile/
-          if-no-files-found: ignore
 
   # Build + test via the composite action, exercising the cosmo fat-APE target
   # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
@@ -135,17 +131,38 @@ jobs:
   # job below is the single publish path, gated on the three smoke jobs that
   # actually EXECUTE the APE artifacts on linux, macOS and Windows runners --
   # a broken APE can fail loudly but can never be released.
-  action-test:
-    needs: build
+  build:
+    needs: host-build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
           cache: false
+
+      # Explicit name (host-build's "Upload host binary" hand-off): the strict
+      # cache-download hard-fails a nameless pick whenever the RUN holds
+      # several hand-offs, and on re-run attempts the go-build-* hand-offs
+      # from an earlier attempt's `./` action step already coexist with
+      # host-go-toolchain (run-scoped keys with cross-attempt fallback), so
+      # "only one saved at this point" only ever held on attempt 1.
+      - name: Download host binary
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: host-go-toolchain
+          path: build
+
+      # The go-toolchain action itself cache-uploads build/ under the per-job
+      # name `go-build-<job id>` on every run (unconditional) -- here that is
+      # `go-build-build`, which the smoke-linux/macos/windows and publish
+      # jobs below cache-download. The job id in the name keeps concurrent
+      # same-run invocations (in other repos: the linux + darwin two-job
+      # pattern) from colliding on one run-scoped key; there is no standalone
+      # upload step here.
       - uses: ./
         with:
+          binary: build/go-toolchain
           targets: 'cosmo,darwin/amd64,darwin/arm64,windows/arm64'
           autorelease: 'false'
           # The cosmo target additionally downloads + extracts the gosmopolitan
@@ -153,25 +170,26 @@ jobs:
           # too tight for a cold runner.
           timeout: '15'
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-output
-          path: build/
-
-  # Cross-OS smoke of the actual release artifacts: download the `go-build`
-  # artifact (what `publish` will ship) and RUN the APE on each host OS. APEs
-  # self-assimilate on first exec -- they rewrite their own header in place to
-  # the host's native format -- so every job runs a throwaway copy, never the
-  # artifact file itself.
+  # Cross-OS smoke of the actual release artifacts: download the build-output
+  # hand-off the `build` job uploaded (exactly what `publish` will ship) and RUN
+  # the APE on each host OS. APEs self-assimilate on first exec -- they
+  # rewrite their own header in place to the host's native format -- so every
+  # job runs a throwaway copy, never the downloaded file itself. These jobs
+  # have no checkout, so build/ lands in an otherwise empty workspace.
   smoke-linux:
-    needs: action-test
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v8
+      # Explicit name on purpose: by this point the run holds SEVERAL
+      # hand-offs (host-go-toolchain from host-build, the per-job
+      # go-build-build, and the deprecated bare go-build alias), so a
+      # nameless self-discovering download would be ambiguous here. Same
+      # for smoke-macos/smoke-windows/publish below.
+      - name: Download build outputs hand-off
+        uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build
+          name: go-build-build
           path: dist
 
       - name: Run the APE (linux/amd64 slot)
@@ -189,7 +207,7 @@ jobs:
           # The smoke module is a synthetic consumer WITHOUT the org cache
           # credentials (no secret-server step here on purpose); this documented
           # knob downgrades the in-CI "caching not configured" error to a
-          # warning. The repo's own build/action-test jobs keep the shared cache.
+          # warning. The repo's own host-build/build jobs keep the shared cache.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
@@ -240,6 +258,36 @@ jobs:
           # runner's is too old, then tidy/vet/test/coverage/build.
           "$RUNNER_TEMP/gt-ape"
 
+      - name: Claude output guard fires in the shipped APE
+        run: |
+          set -euo pipefail
+          # Fresh throwaway copy: APEs self-assimilate on first exec, so never
+          # run dist/ artifacts in place.
+          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-guard"
+          chmod +x "$RUNNER_TEMP/gt-guard"
+          cd "$RUNNER_TEMP/smokemod"
+          # The released binaries ARE the cosmo APE, so the guard must fire in
+          # THIS artifact — a GOOS=linux unit test cannot prove that (the guard
+          # once shipped as a `_linux.go` no-op while unit tests stayed green).
+          # CLAUDECODE is set per-command ONLY: the other smoke steps run the
+          # real pipeline with runner-pipe stdout and must stay inert.
+          # The previous step ran the full pipeline here, so the module's
+          # binary is present: the guard must DELETE it. Discarding the output
+          # and the exit code is exactly the case where a stale binary would
+          # otherwise be run as proof of a build that never happened.
+          [ -f build/apesmoke ]
+          rc=0
+          CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" > /dev/null 2> guard-err.txt || rc=$?
+          cat guard-err.txt
+          [ "$rc" -eq 1 ]
+          grep -q "refused to run" guard-err.txt
+          # Asserted in the SHIPPED artifact, like the guard itself: the
+          # deletion runs on the same linux||cosmo path (see staleoutputs.go).
+          [ ! -e build/apesmoke ]
+          grep -q "have been DELETED" guard-err.txt
+          # The version exemption must stay intact.
+          CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" version > /dev/null
+
   # macos-latest is arm64. Two things are asserted here:
   #
   # 1. The NATIVE darwin/arm64 binary (what ARM64 macs are actually served --
@@ -264,13 +312,15 @@ jobs:
   #    working for the surface it still serves, and guards the day the fork
   #    fix restores the darwin/arm64 APE slot.
   smoke-macos:
-    needs: action-test
+    needs: build
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v8
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
+      - name: Download build outputs hand-off
+        uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build
+          name: go-build-build
           path: dist
 
       - name: Check slot formats + run the APE
@@ -368,13 +418,15 @@ jobs:
           "$RUNNER_TEMP/gt-native"
 
   smoke-windows:
-    needs: action-test
+    needs: build
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v8
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
+      - name: Download build outputs hand-off
+        uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build
+          name: go-build-build
           path: dist
 
       - name: Run the APE PE payload (windows/amd64 slot)
@@ -387,6 +439,14 @@ jobs:
           mkdir -p smoke
           cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
+          # Smoke contract (owner-ruled): gt must resolve the machine's
+          # EXISTING Go (windows-latest ships an image-default Go) via its
+          # own exec.LookPath on the NT side and bootstrap it -- broken
+          # pre-gosmopolitan#63 (unix-style ':' PATH walk with no .exe
+          # suffixing on NT hosts), fixed in fork v237+. Do NOT provision Go
+          # in this job (no setup-go -- that bypasses the bootstrap
+          # requirement); do NOT exempt commands from the bootstrap. If the
+          # image drops Go, the red is honest -- escalate to the owner.
           ./smoke/gt-ape.exe --help
           # The full pipeline is deliberately NOT run on Windows: gobootstrap
           # downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
@@ -395,15 +455,29 @@ jobs:
 
   # The single publish path. Gated on the cross-OS smoke jobs above so a build
   # whose APE cannot actually run on linux/macOS/Windows is never released.
-  # buildhost-publish self-serves the `go-build` artifact of the current run
-  # (hence actions: read) and authenticates to buildhost with a GHA OIDC token
-  # (hence id-token: write).
+  # Downloads the same build-output hand-off the smoke jobs ran and publishes
+  # build/ straight to buildhost (no GHA artifact involved), authenticating
+  # with a GHA OIDC token (hence id-token: write).
   publish:
     needs: [smoke-linux, smoke-macos, smoke-windows]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
-      actions: read
+      actions: write
+      deployments: write
+      artifact-metadata: write
     steps:
+      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
+      - name: Download build outputs hand-off
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: go-build-build
+          path: build/
+
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
+        with:
+          path: build
+
+      - uses: wow-look-at-my/actions@cache-cleanup#latest
+        if: always()

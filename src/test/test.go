@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -39,199 +38,6 @@ type TimelineRecorder interface {
 
 var coverageRe = regexp.MustCompile(`coverage: (\d+\.?\d*)% of statements`)
 
-// shortPkg returns the last path segment of a package name.
-func shortPkg(pkg string) string {
-	if i := strings.LastIndex(pkg, "/"); i >= 0 {
-		return pkg[i+1:]
-	}
-	return pkg
-}
-
-// coverageHandler extracts coverage percentages from test output events
-type coverageHandler struct {
-	coverage       map[string]float32
-	verbose        bool
-	out            io.Writer
-	testOutput     map[string][]string // buffer output per test/package until we know pass/fail
-	failedTest     map[string]bool     // tests/packages that failed
-	timedOut       map[string]bool     // tests that timed out
-	onOutput       func()              // called before the first visible output
-	stderrLines    []string            // build errors and panics from stderr
-	testCases      []TestCaseResult    // per-test results for CI summary
-	packageStart   map[string]time.Time // first event time per package
-	packageTimings []PackageTiming      // per-package wall-clock timings
-	timeline       TimelineRecorder     // pipeline timeline for per-test spans
-	fastCount      int
-	fastElapsed    float64
-}
-
-func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
-	// Track per-package start time from the first event we see for each package
-	if event.Package != "" && h.packageStart != nil {
-		if _, seen := h.packageStart[event.Package]; !seen {
-			h.packageStart[event.Package] = event.Time
-		}
-	}
-
-	// Record per-package timing on package-level terminal events
-	if event.Package != "" && event.Test == "" && event.Action.IsTerminal() {
-		if start, ok := h.packageStart[event.Package]; ok {
-			end := start.Add(time.Duration(event.Elapsed * float64(time.Second)))
-			h.packageTimings = append(h.packageTimings, PackageTiming{
-				Package: event.Package,
-				Start:   start,
-				End:     end,
-				Failed:  event.Action == testjson.ActionFail,
-			})
-		}
-	}
-
-	if event.Action == testjson.ActionOutput && event.Output != "" {
-		if h.verbose {
-			fmt.Print(event.Output)
-		}
-		// Buffer output per-test/package for later (if test/package fails)
-		if !h.verbose && h.testOutput != nil {
-			key := event.Package
-			if event.Test != "" {
-				key += "/" + event.Test
-			}
-			h.testOutput[key] = append(h.testOutput[key], event.Output)
-		}
-		// Detect test timeout from panic output
-		if event.Test != "" && strings.Contains(event.Output, "panic: test timed out") {
-			key := event.Package + "/" + event.Test
-			h.timedOut[key] = true
-		}
-		if matches := coverageRe.FindStringSubmatch(event.Output); len(matches) == 2 {
-			cov, _ := strconv.ParseFloat(matches[1], 32)
-			h.coverage[event.Package] = float32(cov)
-		}
-	}
-	// Track failed tests and packages
-	if event.Action == testjson.ActionFail && h.failedTest != nil {
-		key := event.Package
-		if event.Test != "" {
-			key += "/" + event.Test
-		}
-		h.failedTest[key] = true
-	}
-
-	// Capture per-test results for CI summary
-	if event.Test != "" {
-		now := time.Now()
-		switch event.Action {
-		case testjson.ActionPass:
-			h.testCases = append(h.testCases, TestCaseResult{
-				Package: event.Package, Test: event.Test,
-				Status: "pass", Elapsed: event.Elapsed, End: now,
-			})
-		case testjson.ActionFail:
-			h.testCases = append(h.testCases, TestCaseResult{
-				Package: event.Package, Test: event.Test,
-				Status: "fail", Elapsed: event.Elapsed, End: now,
-			})
-		case testjson.ActionSkip:
-			h.testCases = append(h.testCases, TestCaseResult{
-				Package: event.Package, Test: event.Test,
-				Status: "skip", Elapsed: event.Elapsed, End: now,
-			})
-		}
-
-		// Record per-test timeline entries for OTEL trace spans
-		if h.timeline != nil && event.Elapsed >= 0.1 {
-			switch event.Action {
-			case testjson.ActionPass, testjson.ActionFail, testjson.ActionSkip:
-				end := time.Now()
-				start := end.Add(-time.Duration(event.Elapsed * float64(time.Second)))
-				label := shortPkg(event.Package) + "." + event.Test
-				h.timeline.Record(label, "test", start, end, event.Action == testjson.ActionFail)
-			}
-		}
-	}
-
-	// Real-time test status (non-verbose only)
-	if !h.verbose && event.Test != "" {
-		pkg := shortPkg(event.Package)
-		switch event.Action {
-		case testjson.ActionPass:
-			if event.Elapsed >= 0.1 {
-				if h.onOutput != nil {
-					h.onOutput()
-				}
-				fmt.Fprintf(h.out, "  %s.%s... %sdone.%s %s%.2fs%s\n", pkg, event.Test, clrGreen, colorReset, colorDimCyan, event.Elapsed, colorReset)
-			} else {
-				h.fastCount++
-				h.fastElapsed += event.Elapsed
-			}
-		case testjson.ActionFail:
-			if h.onOutput != nil {
-				h.onOutput()
-			}
-			key := event.Package + "/" + event.Test
-			status := "failed!"
-			if h.timedOut[key] {
-				status = "timed out!"
-			}
-			elapsed := event.Elapsed
-			if elapsed < 0 {
-				elapsed = testTimeout.Seconds()
-			}
-			fmt.Fprintf(h.out, "  %s.%s... %s%s%s %s%.2fs%s\n", pkg, event.Test, clrFail, status, colorReset, colorDimCyan, elapsed, colorReset)
-		case testjson.ActionSkip:
-			if event.Elapsed >= 0.1 {
-				if h.onOutput != nil {
-					h.onOutput()
-				}
-				fmt.Fprintf(h.out, "  %s.%s... %sskipped.%s %s%.2fs%s\n", pkg, event.Test, clrYellow, colorReset, colorDimCyan, event.Elapsed, colorReset)
-			} else {
-				h.fastCount++
-				h.fastElapsed += event.Elapsed
-			}
-		}
-	}
-
-	return nil
-}
-
-func (h *coverageHandler) printFastSummary() {
-	if h.fastCount == 0 || h.verbose {
-		return
-	}
-	if h.onOutput != nil {
-		h.onOutput()
-	}
-	label := "fast tests"
-	if h.fastCount == 1 {
-		label = "fast test"
-	}
-	fmt.Fprintf(h.out, "  [%d %s]... %s%.2fs%s\n", h.fastCount, label, colorDimCyan, h.fastElapsed, colorReset)
-	h.fastCount = 0
-	h.fastElapsed = 0
-}
-
-func (h *coverageHandler) FailureOutput() string {
-	var result string
-	// Include stderr (build errors, panics) first
-	for _, line := range h.stderrLines {
-		result += line + "\n"
-	}
-	// Then include buffered test/package output for failed items
-	for key, lines := range h.testOutput {
-		if h.failedTest[key] {
-			for _, line := range lines {
-				result += line
-			}
-		}
-	}
-	return result
-}
-
-func (h *coverageHandler) Err(text string) error {
-	h.stderrLines = append(h.stderrLines, text)
-	return nil
-}
-
 // TestCaseResult captures per-test data for CI summary tables.
 type TestCaseResult struct {
 	Package string
@@ -241,20 +47,11 @@ type TestCaseResult struct {
 	End     time.Time // wall-clock time when the result was received
 }
 
-// PackageTiming records the wall-clock start and end time of a test package's execution.
-type PackageTiming struct {
-	Package string
-	Start   time.Time
-	End     time.Time
-	Failed  bool
-}
-
 // TestResult contains the results of running tests
 type TestResult struct {
-	Coverage       Report
-	FailureOutput  string
-	TestCases      []TestCaseResult
-	PackageTimings []PackageTiming
+	Coverage      Report
+	FailureOutput string
+	TestCases     []TestCaseResult
 }
 
 // readModulePath reads the module path from go.mod in the current directory.
@@ -359,15 +156,14 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	// Parse test output using testjson
 	pkgCoverage := make(map[string]float32)
 	handler := &coverageHandler{
-		coverage:     pkgCoverage,
-		verbose:      verbose,
-		out:          os.Stdout,
-		testOutput:   make(map[string][]string),
-		failedTest:   make(map[string]bool),
-		timedOut:     make(map[string]bool),
-		onOutput:     onOutput,
-		packageStart: make(map[string]time.Time),
-		timeline:     timeline,
+		coverage:   pkgCoverage,
+		verbose:    verbose,
+		out:        os.Stdout,
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+		timedOut:   make(map[string]bool),
+		onOutput:   onOutput,
+		timeline:   timeline,
 	}
 
 	execution, err := testjson.ScanTestOutput(testjson.ScanConfig{
@@ -526,8 +322,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 			Packages: packages,
 			Files:    files,
 		},
-		FailureOutput:  handler.FailureOutput(),
-		TestCases:      handler.testCases,
-		PackageTimings: handler.packageTimings,
+		FailureOutput: handler.FailureOutput(),
+		TestCases:     handler.testCases,
 	}, waitErr
 }

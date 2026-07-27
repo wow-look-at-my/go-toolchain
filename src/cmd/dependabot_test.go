@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -109,6 +110,8 @@ func TestPostDepSnapshot_MissingToken(t *testing.T) {
 	err := postDepSnapshot(&depSnapshot{})
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "GITHUB_TOKEN")
+	// The error must tell the user how to wire the token up.
+	assert.Contains(t, err.Error(), "github.token")
 }
 
 func TestPostDepSnapshot_MissingRepo(t *testing.T) {
@@ -202,22 +205,218 @@ func TestPostDepSnapshot_APIError(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "HTTP 403")
 	assert.Contains(t, err.Error(), "Resource not accessible")
+	// 403 means the token lacks the required permission; the error must say
+	// which one and how to grant it.
+	assert.Contains(t, err.Error(), "contents: write")
+}
+
+func TestPostDepSnapshot_APIErrorNon403(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"message":"boom"}`))
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+
+	err := postDepSnapshot(&depSnapshot{Manifests: map[string]depManifest{}})
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "HTTP 500")
+	assert.Contains(t, err.Error(), "boom")
+	// The permissions guidance is 403-specific.
+	assert.NotContains(t, err.Error(), "contents: write")
 }
 
 func TestMaybeSubmitDeps_NotCI(t *testing.T) {
 	t.Setenv("CI", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoRepo(t *testing.T) {
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoSHA(t *testing.T) {
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "")
-	maybeSubmitDeps()
+	assert.Nil(t, maybeSubmitDeps())
+}
+
+func TestMaybeSubmitDeps_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	cwd, err := os.Getwd()
+	require.Nil(t, err)
+	t.Setenv("GITHUB_WORKSPACE", cwd)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	require.Nil(t, maybeSubmitDeps())
+}
+
+func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	cwd, err := os.Getwd()
+	require.Nil(t, err)
+	t.Setenv("GITHUB_WORKSPACE", cwd)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	err = maybeSubmitDeps()
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "HTTP 403")
+	assert.Contains(t, err.Error(), "contents: write")
+}
+
+func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	t.Setenv("GITHUB_WORKSPACE", dir)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+
+	err := maybeSubmitDeps()
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "dependency snapshot failed")
+}
+
+// This repo's own smoke jobs drive the full pipeline inside a throwaway module
+// under RUNNER_TEMP; submitting there would publish the fixture's dependencies
+// as this repository's dependency graph. That carve-out exists for exactly one
+// repository -- see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
+func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	// Workspace and build directory are siblings, as on a real runner where the
+	// checkout is under GITHUB_WORKSPACE and the fixture under RUNNER_TEMP.
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	elsewhere := filepath.Join(root, "smokemod")
+	require.Nil(t, os.MkdirAll(workspace, 0o755))
+	require.Nil(t, os.MkdirAll(elsewhere, 0o755))
+
+	origDir, _ := os.Getwd()
+	require.Nil(t, os.Chdir(elsewhere))
+	defer os.Chdir(origDir)
+
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", selfRepository)
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	require.Nil(t, maybeSubmitDeps())
+	assert.Equal(t, 0, requests, "the smoke fixture must not be submitted as this repository's dependency graph")
+}
+
+// The load-bearing one. "Build somewhere other than the checkout" must not
+// become the opt-out that GO_TOOLCHAIN_NO_DEP_SUBMISSION was: for every
+// repository but this one it is a hard failure, never a quiet skip. Without
+// this, any repo could dodge dependency submission by cd-ing to a temp dir and
+// stay green while dropping out of vulnerability scanning.
+func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	elsewhere := filepath.Join(root, "smokemod")
+	require.Nil(t, os.MkdirAll(workspace, 0o755))
+	require.Nil(t, os.MkdirAll(elsewhere, 0o755))
+
+	origDir, _ := os.Getwd()
+	require.Nil(t, os.Chdir(elsewhere))
+	defer os.Chdir(origDir)
+
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "someone/else")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	err := maybeSubmitDeps()
+	require.NotNil(t, err, "building outside the checkout must fail, not silently skip")
+	assert.Contains(t, err.Error(), "refusing to submit")
+	assert.Contains(t, err.Error(), "not a supported way to skip submission")
+	assert.Equal(t, 0, requests, "the fixture's dependencies must never be posted as another repository's graph")
+}
+
+// The guard must not swing the other way: a real build, in the checkout, submits.
+func TestMaybeSubmitDeps_SubmitsRepoWorkspace(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	oldBase := githubAPIBase
+	setGithubAPIBase(srv.URL)
+	defer setGithubAPIBase(oldBase)
+
+	workspace := t.TempDir()
+	require.Nil(t, os.WriteFile(filepath.Join(workspace, "go.mod"),
+		[]byte("module example.com/inrepo\n\ngo 1.25\n"), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.Nil(t, os.Chdir(workspace))
+	defer os.Chdir(origDir)
+
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_TOKEN", "test-token")
+
+	require.Nil(t, maybeSubmitDeps())
+	assert.Equal(t, 1, requests, "a build in the repository's own checkout must submit")
 }

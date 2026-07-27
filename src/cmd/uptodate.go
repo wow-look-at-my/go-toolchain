@@ -15,6 +15,7 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -28,8 +29,9 @@ func fingerprintFile() string {
 }
 
 // computeFingerprint hashes all inputs that affect a go-toolchain run:
-// all .go files (including tests), go.mod, go.sum, Go version, CGO flag, and
-// every file pulled in by a //go:embed directive (resolved via go list).
+// all .go files (including tests), go.mod, go.sum, .dats suites and their
+// .golden snapshots, Go version, CGO flag, and every file pulled in by a
+// //go:embed directive (resolved via go list).
 func computeFingerprint(r runner.CommandRunner) (string, error) {
 	h := sha256.New()
 
@@ -54,7 +56,17 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 			return nil
 		}
 		name := d.Name()
-		if strings.HasSuffix(name, ".go") || name == "go.mod" || name == "go.sum" {
+		// .dats suites and their .golden snapshot files are pipeline inputs
+		// (the dats phase runs them), so editing one must bust the
+		// fingerprint or the "Up to date" fast-exit would skip the re-run.
+		// action.yml is one too: tests read it as data (handoffname_test.go
+		// asserts the hand-off name templates), and it is not reachable by
+		// //go:embed from a package two directories down, so without this an
+		// action.yml edit fast-exits "Up to date" and its assertions never
+		// re-run locally -- a false green until CI catches it.
+		if strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".dats") ||
+			strings.HasSuffix(name, ".golden") || name == "go.mod" || name == "go.sum" ||
+			name == "action.yml" || name == "action.yaml" {
 			files = append(files, path)
 		}
 		return nil
@@ -207,11 +219,11 @@ func isUpToDate(r runner.CommandRunner) bool {
 func saveFingerprint(r runner.CommandRunner) {
 	current, err := computeFingerprint(r)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⇒ Warning: failed to compute fingerprint: %v\n", err)
+		logger.Warn("⇒ Warning: failed to compute fingerprint: %v", err)
 		return
 	}
 	fp := fingerprintFile()
 	if err := os.WriteFile(fp, []byte(current), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "⇒ Warning: failed to save fingerprint: %v\n", err)
+		logger.Warn("⇒ Warning: failed to save fingerprint: %v", err)
 	}
 }

@@ -44,124 +44,6 @@ func main() { fmt.Println("hi") }
 	}
 }
 
-func TestDetermineAssertionNotInit(t *testing.T) {
-	// Test with init that's not an AssignStmt
-	ifStmt := &ast.IfStmt{
-		Init: &ast.ExprStmt{X: &ast.Ident{Name: "x"}},
-		Cond: &ast.BinaryExpr{
-			X:  &ast.Ident{Name: "err"},
-			Op: token.NEQ,
-			Y:  &ast.Ident{Name: "nil"},
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun: &ast.SelectorExpr{
-							X:   &ast.Ident{Name: "t"},
-							Sel: &ast.Ident{Name: "Error"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	pkg, fn := determineAssertion(ifStmt)
-	assert.Equal(t, "assert", pkg)
-	assert.Equal(t, "Nil", fn)
-}
-
-func TestDetermineAssertionInitMultipleLhs(t *testing.T) {
-	// Test with init that has multiple LHS
-	ifStmt := &ast.IfStmt{
-		Init: &ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "x"}, &ast.Ident{Name: "err"}},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "doSomething"}}},
-		},
-		Cond: &ast.BinaryExpr{
-			X:  &ast.Ident{Name: "err"},
-			Op: token.NEQ,
-			Y:  &ast.Ident{Name: "nil"},
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun: &ast.SelectorExpr{
-							X:   &ast.Ident{Name: "t"},
-							Sel: &ast.Ident{Name: "Error"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	pkg, fn := determineAssertion(ifStmt)
-	assert.Equal(t, "assert", pkg)
-	// Not NoError because init has multiple LHS
-	assert.Equal(t, "Nil", fn)
-}
-
-func TestDetermineAssertionCondNotBinary(t *testing.T) {
-	// Test with init where cond is not binary
-	ifStmt := &ast.IfStmt{
-		Init: &ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "ok"}},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "check"}}},
-		},
-		Cond: &ast.Ident{Name: "ok"},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun: &ast.SelectorExpr{
-							X:   &ast.Ident{Name: "t"},
-							Sel: &ast.Ident{Name: "Error"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	pkg, fn := determineAssertion(ifStmt)
-	assert.Equal(t, "assert", pkg)
-	assert.Equal(t, "False", fn)
-}
-
-func TestDeterminePositiveAssertFuncNEQ(t *testing.T) {
-	// Test NotEqual
-	cond := &ast.BinaryExpr{
-		X:  &ast.Ident{Name: "x"},
-		Op: token.NEQ,
-		Y:  &ast.Ident{Name: "y"},
-	}
-	assert.Equal(t, "NotEqual", determinePositiveAssertFunc(cond))
-}
-
-func TestDetermineNegativeAssertFuncComparisons(t *testing.T) {
-	tests := []struct {
-		op       token.Token
-		expected string
-	}{
-		{token.LEQ, "Greater"},
-		{token.GEQ, "Less"},
-	}
-
-	for _, tt := range tests {
-		cond := &ast.BinaryExpr{
-			X:  &ast.Ident{Name: "x"},
-			Op: tt.op,
-			Y:  &ast.Ident{Name: "y"},
-		}
-		assert.Equal(t, tt.expected, determineNegativeAssertFunc(cond))
-	}
-}
-
 func TestGenerateReplacementFallback(t *testing.T) {
 	// Test the fallback path with a complex expression
 	dir := t.TempDir()
@@ -208,166 +90,6 @@ func main() {
 
 	_, err := Run(false)
 	assert.Nil(t, err)
-}
-
-func TestDetermineAssertionInitNotDefine(t *testing.T) {
-	// Test with init that uses = instead of :=
-	ifStmt := &ast.IfStmt{
-		Init: &ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "err"}},
-			Tok: token.ASSIGN, // = not :=
-			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "doSomething"}}},
-		},
-		Cond: &ast.BinaryExpr{
-			X:  &ast.Ident{Name: "err"},
-			Op: token.NEQ,
-			Y:  &ast.Ident{Name: "nil"},
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun: &ast.SelectorExpr{
-							X:   &ast.Ident{Name: "t"},
-							Sel: &ast.Ident{Name: "Error"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	pkg, fn := determineAssertion(ifStmt)
-	assert.Equal(t, "assert", pkg)
-	assert.Equal(t, "Nil", fn) // Not NoError because not :=
-}
-
-func TestDetermineAssertionCondVarMismatch(t *testing.T) {
-	// Test where condition variable doesn't match init variable
-	ifStmt := &ast.IfStmt{
-		Init: &ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "err"}},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "doSomething"}}},
-		},
-		Cond: &ast.BinaryExpr{
-			X:  &ast.Ident{Name: "otherErr"}, // Different variable
-			Op: token.NEQ,
-			Y:  &ast.Ident{Name: "nil"},
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun: &ast.SelectorExpr{
-							X:   &ast.Ident{Name: "t"},
-							Sel: &ast.Ident{Name: "Error"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	pkg, fn := determineAssertion(ifStmt)
-	assert.Equal(t, "assert", pkg)
-	assert.Equal(t, "Nil", fn) // Not NoError
-}
-
-func TestDetermineAssertionCondNotNil(t *testing.T) {
-	// Test where condition Y is not nil
-	ifStmt := &ast.IfStmt{
-		Init: &ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "err"}},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "doSomething"}}},
-		},
-		Cond: &ast.BinaryExpr{
-			X:  &ast.Ident{Name: "err"},
-			Op: token.NEQ,
-			Y:  &ast.Ident{Name: "someValue"}, // Not nil
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun: &ast.SelectorExpr{
-							X:   &ast.Ident{Name: "t"},
-							Sel: &ast.Ident{Name: "Error"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	pkg, fn := determineAssertion(ifStmt)
-	assert.Equal(t, "assert", pkg)
-	assert.Equal(t, "Equal", fn) // Not NoError
-}
-
-func TestDetermineAssertionCondEQL(t *testing.T) {
-	// Test where condition is == instead of !=
-	ifStmt := &ast.IfStmt{
-		Init: &ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "err"}},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "doSomething"}}},
-		},
-		Cond: &ast.BinaryExpr{
-			X:  &ast.Ident{Name: "err"},
-			Op: token.EQL, // == instead of !=
-			Y:  &ast.Ident{Name: "nil"},
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun: &ast.SelectorExpr{
-							X:   &ast.Ident{Name: "t"},
-							Sel: &ast.Ident{Name: "Error"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	pkg, fn := determineAssertion(ifStmt)
-	assert.Equal(t, "assert", pkg)
-	assert.Equal(t, "NotNil", fn) // Not NoError
-}
-
-func TestDetermineAssertionCondXNotIdent(t *testing.T) {
-	// Test where condition X is not an Ident
-	ifStmt := &ast.IfStmt{
-		Init: &ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "err"}},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.Ident{Name: "doSomething"}}},
-		},
-		Cond: &ast.BinaryExpr{
-			X:  &ast.CallExpr{Fun: &ast.Ident{Name: "getErr"}}, // Not an Ident
-			Op: token.NEQ,
-			Y:  &ast.Ident{Name: "nil"},
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ExprStmt{
-					X: &ast.CallExpr{
-						Fun: &ast.SelectorExpr{
-							X:   &ast.Ident{Name: "t"},
-							Sel: &ast.Ident{Name: "Error"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	pkg, fn := determineAssertion(ifStmt)
-	assert.Equal(t, "assert", pkg)
-	assert.Equal(t, "Nil", fn) // Fallback
 }
 
 func TestVetSemanticWithDiagnostics(t *testing.T) {
@@ -450,261 +172,67 @@ func TestFoo(t *testing.T) {
 	assert.Contains(t, string(content), "assert.Equal")
 }
 
-func TestFixFileUnusedRangeVars_NoRangeStatements(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	os.WriteFile(src, []byte("package main\n\nfunc main() {\n\tx := 1\n\t_ = x\n}\n"), 0644)
-
-	fixed, err := fixFileUnusedRangeVars(src)
-	assert.Nil(t, err)
-	assert.False(t, fixed)
-}
-
-func TestFixFileUnusedRangeVars_UnusedKey(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	code := `package main
-
-func main() {
-	s := []int{1, 2, 3}
-	for i, v := range s {
-		println(v)
-		_ = i
-	}
-}
-`
-	// The 'i' is only used as _ = i, but the range key 'i' IS referenced
-	// in the body, so it should NOT be replaced.
-	os.WriteFile(src, []byte(code), 0644)
-
-	fixed, err := fixFileUnusedRangeVars(src)
-	assert.Nil(t, err)
-	// 'i' is used in `_ = i`, so it counts as referenced
-	assert.False(t, fixed)
-}
-
-func TestFixFileUnusedRangeVars_TrulyUnusedKey(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	code := `package main
-
-func main() {
-	s := []int{1, 2, 3}
-	for i, v := range s {
-		println(v)
-	}
-	_ = i
-}
-`
-	// Note: 'i' is used OUTSIDE the range body (which means the code wouldn't
-	// compile, but the AST analysis only looks inside the range body).
-	// But this actually won't compile. Let me use a version that will parse.
-	code = `package main
-
-func main() {
-	s := []int{1, 2, 3}
-	for k := range s {
-		println(s[0])
-	}
-	_ = k
-}
-`
-	// Actually k is used outside the loop body so AST-wise it's not used inside.
-	// But this code wouldn't compile either. Let me just test the core:
-	// range key not used inside body → replaced with _
-	code = `package main
-
-func foo() {
-	s := []string{"a", "b"}
-	for idx, val := range s {
-		println(val)
-	}
-	_ = idx
-}
-`
-	// This won't compile cleanly but we're only parsing AST, not compiling.
-	os.WriteFile(src, []byte(code), 0644)
-
-	fixed, err := fixFileUnusedRangeVars(src)
-	assert.Nil(t, err)
-	assert.True(t, fixed)
-
-	result, _ := os.ReadFile(src)
-	assert.Contains(t, string(result), "for _, val := range")
-}
-
-func TestFixFileUnusedRangeVars_UnusedValue(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	code := `package main
-
-func foo() {
-	m := map[string]int{"a": 1}
-	for key, val := range m {
-		println(key)
-	}
-	_ = val
-}
-`
-	os.WriteFile(src, []byte(code), 0644)
-
-	fixed, err := fixFileUnusedRangeVars(src)
-	assert.Nil(t, err)
-	assert.True(t, fixed)
-
-	result, _ := os.ReadFile(src)
-	assert.Contains(t, string(result), "for key, _ := range")
-}
-
-func TestFixFileUnusedRangeVars_BothUsed(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	code := `package main
-
-func foo() {
-	s := []string{"a", "b"}
-	for i, v := range s {
-		println(i, v)
-	}
-}
-`
-	os.WriteFile(src, []byte(code), 0644)
-
-	fixed, err := fixFileUnusedRangeVars(src)
-	assert.Nil(t, err)
-	assert.False(t, fixed)
-}
-
-func TestFixFileUnusedRangeVars_AlreadyUnderscore(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	code := `package main
-
-func foo() {
-	s := []string{"a", "b"}
-	for _, v := range s {
-		println(v)
-	}
-}
-`
-	os.WriteFile(src, []byte(code), 0644)
-
-	fixed, err := fixFileUnusedRangeVars(src)
-	assert.Nil(t, err)
-	assert.False(t, fixed)
-}
-
-func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "bad.go")
-	os.WriteFile(src, []byte("this is not valid go {{{"), 0644)
-
-	_, err := fixFileUnusedRangeVars(src)
-	assert.NotNil(t, err)
-}
-
-func TestCheckFileCommittedExec_Clean(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	os.WriteFile(src, []byte("package main\n"), 0644)
-	initGitRepo(t, dir)
-
-	err := checkFileCommittedExec(src)
-	assert.NoError(t, err)
-}
-
-func TestCheckFileCommittedExec_Dirty(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	os.WriteFile(src, []byte("package main\n"), 0644)
-	initGitRepo(t, dir)
-
-	// Modify the file after commit
-	os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644)
-
-	err := checkFileCommittedExec(src)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "uncommitted changes")
-}
-
-func TestCheckFileCommittedExec_NotARepo(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	os.WriteFile(src, []byte("package main\n"), 0644)
-
-	err := checkFileCommittedExec(src)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "git status failed")
-}
-
-func TestCheckFileCommittedGoGit_Clean(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	os.WriteFile(src, []byte("package main\n"), 0644)
-	initGitRepo(t, dir)
-
-	err := checkFileCommittedGoGit(src)
-	assert.NoError(t, err)
-}
-
-func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	os.WriteFile(src, []byte("package main\n"), 0644)
-	initGitRepo(t, dir)
-
-	os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644)
-
-	err := checkFileCommittedGoGit(src)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "uncommitted changes")
-}
-
-// TestCheckFileCommittedByName_ManyFilesIndex pins support for repos whose
-// index was written under feature.manyFiles. On git >= 2.40 feature.manyFiles
-// implies index.skipHash, which writes .git/index with an all-zero trailer
-// hash; go-git v5 cannot read such an index (Status fails with "invalid
-// checksum" — the upstream fix, go-git#2181, is merged on the v6/main line
-// only and unreleased), so on modern git this exercises the
-// go-git-fails -> git-CLI-fallback path of checkFileCommittedByName end to
-// end: that fallback is the load-bearing support for feature.manyFiles.
-// index.skipHash is ALSO set explicitly: manyFiles is the user's real config,
-// and the explicit key guarantees the zero-hash trailer on any git >= 2.40
-// regardless of how the feature macro expands. On older gits that know
-// neither key the index stays normal and go-git succeeds directly — the
-// production contract asserted here holds either way.
-func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	require.NoError(t, os.WriteFile(src, []byte("package main\n"), 0644))
-	initGitRepoWithConfig(t, dir, [][2]string{
-		{"feature.manyFiles", "true"},
-		{"index.skipHash", "true"},
-	})
-
-	// Clean repo: the committed check must pass.
-	assert.NoError(t, checkFileCommittedByName(src))
-
-	// Dirty the file: the check must report uncommitted changes.
-	require.NoError(t, os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644))
-	err := checkFileCommittedByName(src)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "uncommitted changes")
-}
-
-func TestCheckFileCommittedFallback(t *testing.T) {
-	// checkFileCommitted should succeed even in a repo where go-git might struggle,
-	// as long as git CLI works. We test the happy path here — both paths agree.
-	dir := t.TempDir()
-	src := filepath.Join(dir, "main.go")
-	os.WriteFile(src, []byte("package main\n"), 0644)
-	initGitRepo(t, dir)
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, src, nil, 0)
+// TestVetSemanticCastAddsMissingImport is a regression test for the testify
+// cast fixer wedging a tree: converting a bare permission literal compared
+// against an os.FileMode operand inserts fs.FileMode(...) — os.FileMode is an
+// alias for io/fs.FileMode, so the conversion is spelled with the io/fs
+// package even when the file only imports os. The fixer must add the io/fs
+// import alongside the cast; without it the rewritten file fails to load
+// (undefined: fs) and every later vet run — including the fix's own verify
+// re-run — dies at the type-check with a package load error before any fixer
+// runs, so the tree can never converge.
+func TestVetSemanticCastAddsMissingImport(t *testing.T) {
+	// Resolve upstream testify to the local stub so the fixture type-checks
+	// hermetically (same pattern as TestVetSemanticWithFixRecursive).
+	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
 	require.NoError(t, err)
 
-	fixes := &ASTFixes{File: file, Fset: fset}
-	err = checkFileCommitted(fixes)
-	assert.NoError(t, err)
+	dir := t.TempDir()
+
+	// info.Mode() is declared in io/fs (fs.FileInfo's method), so the operand's
+	// type is the origin io/fs.FileMode — not the os.FileMode alias — and the
+	// conversion must be spelled through the io/fs package.
+	code := `package main
+
+import (
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestMode(t *testing.T) {
+	info, _ := os.Stat(".")
+	assert.NotEqual(t, 0, info.Mode()&os.ModeSymlink)
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644))
+	// go 1.24 matches the stub module's go directive: the fixture imports
+	// testify from the start, so the strict (compiled/test) package load already
+	// needs the stub's module graph — an older go directive here fails the load
+	// with "updates to go.mod needed" before the analyzer ever runs.
+	gomod := "module testmod\n\ngo 1.24\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	initGitRepo(t, dir)
+
+	// First run rewrites the literal; its internal verify re-run must load the
+	// rewritten file cleanly (this used to fail with "undefined: fs").
+	changed, err := vetSemantic("./...", NewEditor(true), nil)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	content, err := os.ReadFile(filepath.Join(dir, "main_test.go"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "assert.NotEqual(t, fs.FileMode(0), info.Mode()&os.ModeSymlink)")
+	assert.Contains(t, string(content), `"io/fs"`)
+
+	// Second run: the rewritten tree is canonical — it must load and no-op.
+	changed, err = vetSemantic("./...", NewEditor(true), nil)
+	require.NoError(t, err)
+	assert.False(t, changed)
 }

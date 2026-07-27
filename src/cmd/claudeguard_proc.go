@@ -1,4 +1,15 @@
-//go:build linux
+//go:build linux || cosmo
+
+// This file is the Claude output guard's real classifier. It MUST build for
+// GOOS=cosmo as well as GOOS=linux: every released "linux" binary is a
+// GOOS=cosmo fat-APE slot copy, and cosmo matches the `unix` build tag but
+// not `linux` — a `_linux.go` filename (or a bare `//go:build linux`) would
+// compile the guard out of every shipped binary while the GOOS=linux unit
+// tests stay green (that was a real bug; claudeguard_buildtags_test.go pins
+// the constraints). Everything here needs only /proc + stdlib, which work
+// under cosmo on linux hosts; on a darwin host the APE has no /proc, so
+// inspectFD fails open to sinkVisible. isTerminal is the one piece needing a
+// platform ioctl and lives in claudeguard_tty_{linux,cosmo}.go.
 
 package cmd
 
@@ -6,8 +17,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
-	"golang.org/x/sys/unix"
 )
 
 // claudeProcessAncestor reports whether any ancestor process is the Claude
@@ -165,10 +174,4 @@ func pipePeerName(target string) (comm string, pid int, ok bool) {
 		}
 	}
 	return "", 0, false
-}
-
-// isTerminal reports whether fd refers to a terminal.
-func isTerminal(fd uintptr) bool {
-	_, err := unix.IoctlGetTermios(int(fd), unix.TCGETS)
-	return err == nil
 }

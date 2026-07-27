@@ -3,7 +3,6 @@ package cache
 import (
 	"bufio"
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +53,20 @@ type IBackend interface {
 	GetStats() *CacheStats
 }
 
+// staleKeyForgetter is the optional backend capability the PUT replace path
+// uses: when a fresh cmd/go PUT overwrites a local entry whose outputID
+// disagreed (a mis-keyed or stale body), the remote's optimistic "already
+// present" claim for that key is stale too — the object the server holds (or
+// that this client believes it holds) is NOT the content cmd/go just
+// computed. Forgetting the claim lets the immediately following remote Put
+// actually upload the fresh body instead of skipping it as known
+// (put-skipped: known), so the shared tier self-heals alongside the local
+// one. Module indexes still never upload (webput's content guard), which is
+// correct — they are refused on every read path too.
+type staleKeyForgetter interface {
+	ForgetStale(actionID string)
+}
+
 // StatEvent is a single counter increment sent over the stats socket.
 type StatEvent struct {
 	LocalHit  uint32 `json:"lh,omitempty"`
@@ -90,17 +103,21 @@ const lockShards = 256
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
-	local     LocalStore
-	remote    IBackend // nil if no remote backend configured
-	locks     [lockShards]sync.Mutex
-	wg        sync.WaitGroup // tracks in-flight async remote puts
-	putSem    chan struct{}  // semaphore bounding concurrent remote puts
-	Misses    AtomicCounter
-	batch     BatchStats
-	Latency   LatencyStats
-	statsConn net.Conn // persistent connection to parent's stats socket
-	statsMu   sync.Mutex
-	debug     bool // log hits/misses to stderr
+	local  LocalStore
+	remote IBackend // nil if no remote backend configured
+	// keyNamespace, when non-empty, is appended to every derived action key
+	// (see actionKey and KeyNamespaceEnv). Set via SetKeyNamespace before Run;
+	// only the standalone cacheprog path sets it — the daemon's per-connection
+	// Servers must never (the daemon serves unnamespaced clients).
+	keyNamespace string
+	locks        [lockShards]sync.Mutex
+	wg           sync.WaitGroup // tracks in-flight async remote puts
+	putSem       chan struct{}  // semaphore bounding concurrent remote puts
+	Misses       AtomicCounter
+	batch        BatchStats
+	Latency      LatencyStats
+	statsConn    net.Conn // persistent connection to parent's stats socket
+	statsMu      sync.Mutex
 }
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
@@ -114,7 +131,6 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 		local:  local,
 		remote: remote,
 		putSem: make(chan struct{}, maxConcurrentPuts),
-		debug:  os.Getenv("GOCACHE_DEBUG") == "1",
 	}
 	// Wire sub-operation latency tracking and batch callbacks for standalone
 	// mode (direct WebBackend) only. In daemon mode the remote is wrapped in
@@ -163,8 +179,8 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if actionID == e.Key {
 				continue // unexpected key format; skip
 			}
-			if _, miss := local.Get(actionID); !miss {
-				continue // already cached
+			if _, miss := local.Peek(actionID); !miss {
+				continue // already cached (Peek: prefetch is not a cache hit)
 			}
 			// The data from the server is LZ4-compressed (same as individual GETs).
 			decompressed, err := decompressData(e.Data)
@@ -197,7 +213,19 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if isGoModuleIndex(decompressed) {
 				continue
 			}
-			local.Put(actionID, e.OutputID, bytes.NewReader(decompressed))
+			// PutIfAbsent, never Put: the Peek above is only an optimization,
+			// and this callback runs on the batch coalescer's goroutine with no
+			// per-action serialization against the GET/PUT RPC handlers. A
+			// plain Put here could race a concurrent cmd/go PUT for the same
+			// action and — depending on which side committed last — replace a
+			// locally-computed body with this web-originated one, either in the
+			// live index or (worse) only in the pack file's replay order, where
+			// the poison surfaces on the NEXT build as "corrupt index". The
+			// atomic if-absent store makes the local cmd/go's data always win.
+			stored, err := local.PutIfAbsent(actionID, e.OutputID, bytes.NewReader(decompressed))
+			if err != nil || !stored {
+				continue
+			}
 			populated++
 		}
 		if populated > 0 {
@@ -387,6 +415,31 @@ loop:
 	return readErr
 }
 
+// SetKeyNamespace scopes every action key this Server derives to the given
+// namespace (canonicalized via CanonicalKeyNamespace; "" means no namespace,
+// keys byte-identical to historic behavior). Must be called before Run. See
+// KeyNamespaceEnv for the design and why the namespace is a key suffix.
+func (s *Server) SetKeyNamespace(namespace string) {
+	s.keyNamespace = CanonicalKeyNamespace(namespace)
+}
+
+// actionKey derives the store key for a request's raw ActionID: the
+// hex-encoded ID, plus the key namespace as a suffix when one is set. This is
+// the SINGLE choke point where a protocol ActionID becomes a store key — every
+// downstream consumer (local Get/Peek/Put/PutIfAbsent, remote Get/Put, the
+// batch GET coalescer, prefetch population, web index membership, knownMiss
+// claims, ForgetStale) receives this derived string, so no cache path can
+// bypass the namespace. Stat events deliberately keep the RAW ActionID (see
+// withAction): the per-action build profile joins cmd/go's actiongraph dumps
+// on cmd/go's own IDs.
+func (s *Server) actionKey(rawActionID []byte) string {
+	key := fmt.Sprintf("%x", rawActionID)
+	if s.keyNamespace != "" {
+		key += s.keyNamespace
+	}
+	return key
+}
+
 // lock returns the shard mutex for key. Distinct keys may share a shard
 // (coarser serialization on a collision — always safe); the same key always
 // maps to the same mutex. Allocation-free inline FNV-1a.
@@ -411,195 +464,4 @@ func (s *Server) flushLatency() {
 		snap.Pool = wb.Pool.Snapshot()
 	}
 	s.sendStat(StatEvent{Latency: &snap})
-}
-
-func (s *Server) handleGet(req Request) Response {
-	start := time.Now()
-	actionID := fmt.Sprintf("%x", req.ActionID)
-	mu := s.lock(actionID)
-
-	lockStart := time.Now()
-	mu.Lock()
-	s.Latency.LockWait.Record(time.Since(lockStart))
-	defer mu.Unlock()
-
-	// Check local cache first.
-	localStart := time.Now()
-	meta, miss := s.local.Get(actionID)
-	s.Latency.LocalGet.Record(time.Since(localStart))
-
-	if !miss {
-		s.sendStat(withAction(StatEvent{LocalHit: 1}, req.ActionID, "get", "hit-local", meta.Size, time.Since(start)))
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: HIT local  %s output=%s size=%d\n", actionID, shortID(meta.OutputID), meta.Size)
-		}
-		t := meta.Time
-		return Response{
-			ID:       req.ID,
-			OutputID: hexToBytes(meta.OutputID),
-			DiskPath: meta.DiskPath,
-			Size:     meta.Size,
-			Time:     &t,
-		}
-	}
-
-	// Try remote backend.
-	if s.remote == nil {
-		s.Misses.Increment()
-		s.sendStat(withAction(StatEvent{Miss: 1}, req.ActionID, "get", "miss", 0, time.Since(start)))
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
-		}
-		return Response{ID: req.ID, Miss: true}
-	}
-
-	remoteStart := time.Now()
-	outputID, body, size, t, remoteMiss, err := s.remote.Get(actionID)
-
-	if err != nil || remoteMiss {
-		s.Misses.Increment()
-		s.sendStat(withAction(StatEvent{Miss: 1}, req.ActionID, "get", "miss", 0, time.Since(start)))
-		if s.debug {
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "cache: MISS       %s (remote error: %v)\n", actionID, err)
-			} else {
-				fmt.Fprintf(os.Stderr, "cache: MISS       %s\n", actionID)
-			}
-		}
-		return Response{ID: req.ID, Miss: true}
-	}
-	s.Latency.RemoteGet.Record(time.Since(remoteStart))
-	s.sendStat(withAction(StatEvent{RemoteHit: 1}, req.ActionID, "get", "hit-remote", size, time.Since(start)))
-	defer body.Close()
-
-	// Write to local cache for future hits. A remote body reaching this Put
-	// has already passed the web ingestion guards (sha256 vs outputID,
-	// build-id action, module-index refusal — web.go / batch.go): that is
-	// load-bearing, because the local tier SERVES module indexes on the trust
-	// that only local cmd/go ever stores one (see verify.go). A web-originated
-	// index must never be materialized here.
-	localPutStart := time.Now()
-	diskPath, err := s.local.Put(actionID, outputID, body)
-	s.Latency.LocalPut.Record(time.Since(localPutStart))
-
-	if err != nil {
-		return Response{ID: req.ID, Miss: true}
-	}
-
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: HIT remote %s [%s] output=%s\n", actionID, describeFile(diskPath), shortID(outputID))
-	}
-
-	return Response{
-		ID:       req.ID,
-		OutputID: hexToBytes(outputID),
-		DiskPath: diskPath,
-		Size:     fileSize(diskPath),
-		Time:     &t,
-	}
-}
-
-func (s *Server) handlePut(req Request) Response {
-	start := time.Now()
-	actionID := fmt.Sprintf("%x", req.ActionID)
-	outputID := fmt.Sprintf("%x", req.OutputID)
-	mu := s.lock(actionID)
-
-	lockStart := time.Now()
-	mu.Lock()
-	s.Latency.LockWait.Record(time.Since(lockStart))
-	defer mu.Unlock()
-
-	// Dedup check: already cached locally? Peek, not Get — serving the entry
-	// the caller just recomputed is not a cache hit, and counting it inflated
-	// the hit rate on warm rebuilds.
-	localStart := time.Now()
-	meta, miss := s.local.Peek(actionID)
-	s.Latency.LocalGet.Record(time.Since(localStart))
-
-	if !miss {
-		if s.debug {
-			fmt.Fprintf(os.Stderr, "cache: PUT  dedup  %s output=%s\n", actionID, shortID(meta.OutputID))
-		}
-		return Response{ID: req.ID, DiskPath: meta.DiskPath, Size: meta.Size}
-	}
-
-	body := bytes.NewReader(req.Body)
-
-	localPutStart := time.Now()
-	diskPath, err := s.local.Put(actionID, outputID, body)
-	s.Latency.LocalPut.Record(time.Since(localPutStart))
-
-	if err != nil {
-		return Response{ID: req.ID, Err: err.Error()}
-	}
-	s.sendStat(withAction(StatEvent{LocalPut: 1}, req.ActionID, "put", "put", int64(len(req.Body)), time.Since(start)))
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "cache: PUT  new    %s [%s] size=%d\n", actionID, describeData(req.Body), len(req.Body))
-	}
-	// Async write to remote. The semaphore bounds concurrency to avoid
-	// connection churn — each goroutine reuses a pooled HTTP connection
-	// instead of creating (and discarding) a new TCP+TLS connection.
-	//
-	// req.Body is handed to the goroutine WITHOUT copying: it is a
-	// per-request buffer allocated by the body decoder (readPutBody), the
-	// read loop never reuses it, and the local.Put above consumed it through
-	// a fresh bytes.Reader — nothing mutates or aliases it after this point.
-	// The old defensive copy doubled transient memory during PUT bursts.
-	if s.remote != nil {
-		data := req.Body
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			semStart := time.Now()
-			s.putSem <- struct{}{} // acquire
-			s.Latency.SemWait.Record(time.Since(semStart))
-			defer func() { <-s.putSem }() // release
-			remotePutStart := time.Now()
-			err := s.remote.Put(actionID, outputID, bytes.NewReader(data), int64(len(data)))
-			s.Latency.RemotePut.Record(time.Since(remotePutStart))
-			if err != nil {
-				if !errors.Is(err, errLogged) {
-					fmt.Fprintf(os.Stderr, "cacheprog: remote put: %v\n", err)
-				}
-			} else {
-				s.sendStat(StatEvent{RemotePut: 1})
-			}
-		}()
-	}
-
-	return Response{
-		ID:       req.ID,
-		DiskPath: diskPath,
-	}
-}
-
-func hexToBytes(h string) []byte {
-	// hex.DecodeString, not 32 reflective fmt.Sscanf calls per GET-hit
-	// response. On malformed input it returns the bytes decoded so far,
-	// matching the old best-effort behavior.
-	b, _ := hex.DecodeString(h)
-	return b
-}
-
-func fileSize(path string) int64 {
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return info.Size()
-}
-
-// describeFile reads the first 1024 bytes of a cached object on disk and
-// returns a human-readable label via describeData. Used in debug logs to
-// decode what a given actionID actually represents.
-func describeFile(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return "unknown"
-	}
-	defer f.Close()
-	header := make([]byte, 1024)
-	n, _ := f.Read(header)
-	return describeData(header[:n])
 }

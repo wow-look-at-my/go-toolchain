@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 const (
@@ -143,11 +144,11 @@ func checkFileLength(root string) error {
 	})
 
 	if nWarn > 0 || nErr > 0 {
-		fmt.Println()
+		logger.Info("")
 	}
 
 	if nSkipped > 0 {
-		fmt.Printf("  File length check: skipped %d generated file(s)\n", nSkipped)
+		logger.Info("  File length check: skipped %d generated file(s)", nSkipped)
 	}
 
 	if nErr > 0 {

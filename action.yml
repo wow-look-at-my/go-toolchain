@@ -40,17 +40,25 @@ inputs:
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically publish to buildhost on every branch push (requires id-token: write and actions: read permissions)'
+    description: 'Automatically publish to buildhost on every branch push (requires id-token: write, plus deployments: write and artifact-metadata: write -- the publish registers a GitHub Deployment and posts an artifact storage record as part of publishing, with no opt-out, and fails the build without either grant)'
     required: false
     default: 'true'
+  autorelease_args:
+    description: >-
+      Extra publish options forwarded to the buildhost publish, as
+      whitespace- or comma-separated key=value pairs (e.g.
+      "create_service=true"). Recognized keys: create_service (true|false --
+      declare that the published binary runs as a background service; each
+      download format materializes it, e.g. brew formulas gain a `service do`
+      block and generated debs ship an auto-enabled systemd user unit).
+      Unknown keys fail the build. Empty (the default) forwards nothing --
+      the publish request is byte-identical to before this input existed.
+    required: false
+    default: ''
   allow-source-build:
     description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
     default: 'false'
-  upload-artifacts:
-    description: 'Upload build/ directory as a GitHub Actions artifact after building'
-    required: false
-    default: 'true'
   timeout:
     description: 'Timeout in minutes for the go-toolchain build step'
     required: false
@@ -67,26 +75,15 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Refuse jobs named all-builds
+      uses: wow-look-at-my/actions@no-all-builds-job#latest
+
     - uses: wow-look-at-my/actions@secret-server#latest
 
     - name: Configure git for private repos
       if: env.PRIVATE_ORG_REPO_READ != ''
       shell: bash
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-    - name: Download go-toolchain from build artifact
-      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
-      uses: actions/download-artifact@v8
-      with:
-        name: go-toolchain-binary
-        path: /tmp/go-toolchain-artifact
-
-    - name: Install go-toolchain from build artifact
-      if: inputs.binary == '' && github.repository == 'wow-look-at-my/go-toolchain'
-      shell: bash
-      run: |
-        chmod +x /tmp/go-toolchain-artifact/go-toolchain
-        sudo cp /tmp/go-toolchain-artifact/go-toolchain /usr/local/bin/go-toolchain
 
     - name: Wait for go-toolchain CI to finish
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain' && inputs.wait-ci == 'true'
@@ -205,50 +202,19 @@ runs:
     - name: Verify autorelease permissions
       if: inputs.autorelease == 'true'
       uses: wow-look-at-my/actions@typescript#latest
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
       with:
         script: |
-          // Probe the artifacts endpoint to verify actions: read.
-          // A 403 means the workflow is missing the permission.
-          // The typescript action's auto-derived `github` context carries no
-          // token, and composite actions don't propagate GITHUB_TOKEN to
-          // sub-action processes, so pass it explicitly via the step env above
-          // and build the client from process.env.
-          const token = process.env.GITHUB_TOKEN;
-          if (!token) {
-            // Top-level `return` is rejected by the typescript action's tsc
-            // validation (the script is type-checked as a module); throwing
-            // fails the step with this message via the action's catch handler.
-            throw new Error("autorelease permission check needs GITHUB_TOKEN, but it is empty -- the action passes github.token via step env; ensure the workflow grants at least 'contents: read'.");
-          }
-          const oct = getOctokit(token);
-          let actionsReadOk = false;
-          try {
-            await oct.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.runId,
-            });
-            actionsReadOk = true;
-          } catch (e: any) {
-            if (e.status !== 403) throw e;
-            core.setFailed("autorelease is enabled but this workflow lacks 'actions: read', needed to download build artifacts for buildhost publishing. Add 'permissions: { actions: read }' (and 'id-token: write'), or pass autorelease: 'false' to disable publishing.");
-          }
-          if (actionsReadOk) {
-            core.info('actions: read confirmed');
-            // Verify id-token: write via OIDC environment variables.
-            // On external fork PRs GitHub withholds OIDC regardless of
-            // declared permissions; skip rather than fail spuriously.
-            const isForkPr = context.eventName === 'pull_request' &&
-              (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
-            if (isForkPr) {
-              core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
-            } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
-              core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }' (and 'actions: read'), or pass autorelease: 'false' to disable publishing.");
-            } else {
-              core.info('id-token: write confirmed (OIDC environment variables present)');
-            }
+          // Verify id-token: write via OIDC environment variables. On external
+          // fork PRs GitHub withholds OIDC regardless of declared permissions;
+          // skip rather than fail spuriously.
+          const isForkPr = context.eventName === 'pull_request' &&
+            (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+          if (isForkPr) {
+            core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
+          } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+            core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }', or pass autorelease: 'false' to disable publishing.");
+          } else {
+            core.info('id-token: write confirmed (OIDC environment variables present)');
           }
 
     - name: Initialize CodeQL
@@ -292,19 +258,95 @@ runs:
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
+    # Hand the build/ outputs off to later jobs in the same run via the org
+    # cache-upload action (artifact-free replacement for actions/upload-artifact;
+    # cache storage is free, artifact storage is billed). This runs on EVERY
+    # go-toolchain run. The name carries the calling job's id, so the cache key
+    # (cache-xfer-<run_id>-go-build-<job>-<run_attempt>) is distinct per job and
+    # concurrent jobs in one run (the standard linux + darwin pattern) can no
+    # longer collide -- the old shared `go-build` name made the second finisher
+    # fail its save with a 409 Conflict. github.job alone does NOT distinguish
+    # matrix legs, so for matrix jobs the name additionally carries the leg's
+    # strategy.job-index as `.m<index>` (the matrix and strategy contexts ARE
+    # evaluable inside composite steps -- the runner's action-manifest schema
+    # allows both in step expressions, and for a non-matrix job `matrix` is
+    # null, so the suffix collapses to the empty string and the non-matrix
+    # name stays byte-identical to before). The dot makes the suffix
+    # collision-proof against job ids: job ids cannot contain dots, so
+    # `go-build-<jobA>.m<i>` can never equal -- or restore-prefix-shadow --
+    # any `go-build-<jobB>`. job-index is 0-based in matrix definition order
+    # and identical across re-run attempts of the same leg, which keeps
+    # cache-download's cross-attempt fallback working. Downstream jobs
+    # cache-download with NO name (nameless self-discovery of the current
+    # run's hand-off -- the preferred mode when the run saves only one
+    # hand-off; no need to know the producing job's id), or with an explicit
+    # `go-build-<uploader job id>` / `go-build-<uploader job id>.m<index>`
+    # (e.g. go-build-linux, go-build-build.m2) when the run carries several
+    # hand-offs and discovery would be ambiguous -- a matrix producer is
+    # always such a case, since each leg saves its own name.
+    - name: Hand off build outputs (go-build-<job>)
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}
+        path: ${{ inputs.working-directory }}/build
+
+    - name: Deprecation notice (legacy go-build alias)
+      shell: bash
+      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
+
+    # Legacy alias: single-producer consumers (webhook-runner, buildhost,
+    # api-cli, github-state-mirror, publish-ghcr callers) download the bare
+    # name go-build; keep saving it until they migrate to
+    # go-build-<uploader job id>. In multi-producer runs -- several
+    # go-toolchain jobs, or the legs of one matrix job -- this bare key is
+    # inherently racy (the second save hits an existing entry), so this step
+    # tolerates failure instead of failing the job -- the collision-free
+    # per-job/per-leg hand-off above is the authoritative one. Remove this
+    # step once the named consumers migrate.
+    - name: Hand off build outputs (legacy go-build alias)
+      continue-on-error: true
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build
+        path: ${{ inputs.working-directory }}/build
+
     - name: Analyze with CodeQL
       if: inputs.codeql == 'true'
       uses: github/codeql-action/analyze@v4
       with:
         category: /language:go
 
-    - name: Upload build artifacts
-      if: inputs.upload-artifacts == 'true'
-      uses: actions/upload-artifact@v7
+    # Composite `with:` blocks are static YAML, so autorelease_args cannot be
+    # spread into the publish step dynamically: each recognized key is parsed
+    # here into a step output and mapped onto an explicit buildhost-publish
+    # input below. Unknown keys fail loudly (a typo must never be silently
+    # ignored); an empty input leaves every output empty, and buildhost-publish
+    # treats empty inputs as absent, so the publish stays byte-identical.
+    - name: Parse autorelease_args
+      if: inputs.autorelease == 'true'
+      id: autorelease_args
+      uses: wow-look-at-my/actions@typescript#latest
       with:
-        name: go-build
-        path: ${{ inputs.working-directory }}/build/
+        script: |
+          const raw: string = "${{ inputs.autorelease_args }}";
+          const known: string[] = ["create_service"];
+          const out: Record<string, string> = {};
+          for (const key of known) out[key] = "";
+          for (const pair of raw.split(/[\s,]+/).filter((p: string) => p.length > 0)) {
+            const eq = pair.indexOf("=");
+            const key = eq < 0 ? pair : pair.slice(0, eq);
+            const value = eq < 0 ? "" : pair.slice(eq + 1);
+            if (!known.includes(key) || value === "") {
+              core.setFailed(`autorelease_args: unrecognized or valueless entry '${pair}' (known keys: ${known.join(", ")}; form: key=value)`);
+              return;
+            }
+            out[key] = value;
+          }
+          for (const key of known) core.setOutput(key, out[key]);
 
     - name: Auto-release to buildhost
       if: inputs.autorelease == 'true'
       uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
+      with:
+        path: ${{ inputs.working-directory }}/build
+        create_service: ${{ steps.autorelease_args.outputs.create_service }}

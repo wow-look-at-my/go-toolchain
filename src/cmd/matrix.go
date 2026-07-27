@@ -2,20 +2,11 @@ package cmd
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"runtime"
-	"slices"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/wow-look-at-my/go-toolchain/src/build"
-	"github.com/wow-look-at-my/go-toolchain/src/codeql"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
-	"github.com/wow-look-at-my/go-toolchain/src/profile"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
@@ -47,7 +38,19 @@ Actually Portable Executable built with the gosmopolitan Go fork, covering
 Linux, macOS and Windows in a single binary (artifact <name>_cosmo_fat). After
 a cosmo build the fat APE is also copied to the per-platform artifact names
 listed in --cosmo-slots, so per-platform consumers keep working; an explicit
-native target in --targets wins over a slot copy of the same name.`,
+native target in --targets wins over a slot copy of the same name.
+
+The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
+also built with the gosmopolitan fork toolchain (it carries the org's wasm
+runtime fixes); the GOOS-order spellings js/wasm and wasip1/wasm are accepted
+as compatibility aliases for the same targets, and the cartesian flags accept
+the pairing too (--os wasm combines only with --arch js/wasip1 and yields the
+identical targets). Their artifacts use
+buildhost's publishable wasm naming (<name>_wasm_js, <name>_wasm_wasip1 —
+os=wasm with arch=js/wasip1, no file extension); publishing them requires a
+buildhost with wasm artifact support. Set GO_TOOLCHAIN_WASM_PUBLISH=0 to use
+the excluded <name>_<goos>_wasm.wasm naming instead, which never reaches the
+buildhost publish upload set.`,
 		SilenceUsage: true,
 		RunE:         runRelease,
 	}
@@ -65,7 +68,7 @@ native target in --targets wins over a slot copy of the same name.`,
 func addMatrixTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
 	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
-	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
+	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. wasm/js and wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
 	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
 }
 
@@ -75,9 +78,19 @@ type buildJob struct {
 	srcPath    string
 	outputPath string
 	ldflags    string
-	// cosmoGoroot is the gosmopolitan toolchain GOROOT for GOOS=cosmo fat-APE
-	// jobs; empty for normal jobs, which build with the go on PATH.
-	cosmoGoroot string
+	// forkGoroot is the gosmopolitan toolchain GOROOT for jobs built with the
+	// fork: GOOS=cosmo fat-APE jobs and wasm (js/wasm, wasip1/wasm) jobs.
+	// Empty for normal jobs, which build with the go on PATH.
+	forkGoroot string
+	// cacheNamespace is the cache key namespace for fork-toolchain jobs — a
+	// content hash of the toolchain at forkGoroot (forkToolchainCacheNamespace),
+	// exported to the build as GO_TOOLCHAIN_CACHE_NAMESPACE so its cacheprog
+	// scopes every cache key to this exact toolchain build. REQUIRED whenever
+	// forkGoroot is set (runBuild refuses a fork job without it): an
+	// un-namespaced fork build would share action keys with other fork
+	// toolchain builds and reopen cross-build cache poisoning. Empty for
+	// normal jobs, whose toolchains have properly version-keyed tool IDs.
+	cacheNamespace string
 }
 
 type buildResult struct {
@@ -100,24 +113,24 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	maybeSubmitDeps()
+	if err := maybeSubmitDeps(); err != nil {
+		return err
+	}
 
 	// Write GitHub Step Summary with timeline
 	if tl := GetTimeline(); tl != nil {
 		sd.Timeline = tl.Entries()
 		if writeErr := summary.Write(&sd); writeErr != nil {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: failed to write step summary: %v\n", writeErr)
+			logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 		}
 
 		// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := gotrace.Export(ctx, sd.Timeline); err != nil {
-			fmt.Fprintf(os.Stderr, "⇒ Warning: failed to export traces: %v\n", err)
+			logger.Warn("⇒ Warning: failed to export traces: %v", err)
 		}
 	}
-	return nil
-}
 
 func runReleaseWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 	setupCGOEnvironment()
@@ -333,7 +346,10 @@ func runReleaseWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error
 		}
 	}
 
-	return nil
+	// Warnings budget: fail the run — after every phase has completed and
+	// every warning has been printed — when it emitted more than maxWarnings
+	// warnings (same gate as the default pipeline).
+	return checkWarningsGate()
 }
 
 func createHostSymlinks(targets []build.Target, outDir string) error {

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"testifycast/modes"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,11 +19,17 @@ func getFloat64() float64 { return 0 }
 func getInt() int         { return 0 }
 func getInt64() int64     { return 0 }
 func getInt32() int32     { return 0 }
+func getInt16() int16     { return 0 }
 func getUint() uint       { return 0 }
 
 // getDuration returns a named numeric type defined in another package, so the
 // conversion must be spelled with the file's import qualifier (time.Duration).
 func getDuration() time.Duration { return 0 }
+
+// getMode returns a named numeric type from a package that notimported.go
+// (which asserts on it) does NOT import — the conversion inserted there must
+// also add the modes import.
+func getMode() modes.Mode { return 0 }
 
 // Celsius is a numeric named type (same kind as float64).
 type Celsius float64
@@ -96,6 +104,59 @@ func CaseNamedStringLiteralExpected(t *testing.T) {
 // qualifier (time.Duration), exercising the alias-resolution path.
 func CaseCrossPackageType(t *testing.T) {
 	assert.Equal(t, 0, getDuration())
+}
+
+// --- Ordering assertions (Greater/Less family): upstream compareTwoValues
+// fails cross-kind operands with "Elements should be the same type", so they
+// need the same conversions as Equal. These mirror real misses in
+// go-font-renderer (ttf.TestParseHhea, hinter.TestSuperRoundNegative). ---
+
+// int16 field vs untyped 0 -> wrap the literal in int16(...).
+func CaseGreaterInt16VsLiteral(t *testing.T) {
+	assert.Greater(t, getInt16(), 0)
+}
+
+// float64 result vs untyped 0 -> wrap the literal in float64(...).
+func CaseLessFloatVsLiteral(t *testing.T) {
+	assert.Less(t, getFloat64(), 0)
+}
+
+// GreaterOrEqual with typed width mismatch -> wrap e1 in int64(...).
+func CaseGreaterOrEqualWidths(t *testing.T) {
+	assert.GreaterOrEqual(t, getInt32(), getInt64())
+}
+
+// require package form.
+func CaseRequireLess(t *testing.T) {
+	require.Less(t, getInt16(), 100)
+}
+
+// f-variant: format string and args untouched.
+func CaseLessfFormatArgs(t *testing.T) {
+	k := 3
+	require.Lessf(t, getFloat64(), 1, "x=%d", k)
+}
+
+// Method form on *assert.Assertions (no leading t).
+func CaseGreaterMethodForm(t *testing.T) {
+	a := assert.New(t)
+	a.Greater(getInt16(), 0)
+}
+
+// Identical default types -> no change (untyped 0 defaults to int).
+func CaseGreaterIdenticalTypes(t *testing.T) {
+	assert.Greater(t, getInt(), 0)
+}
+
+// Constant not representable in the operand's type -> no change (casting
+// 1e9 to int16 would not compile / would change the comparison).
+func CaseGreaterOverflow(t *testing.T) {
+	assert.Greater(t, getInt16(), 1000000000)
+}
+
+// Idempotency: already-converted ordering operands must not be re-wrapped.
+func CaseGreaterAlreadyCast(t *testing.T) {
+	assert.Greater(t, getInt16(), int16(0))
 }
 
 // Element-comparison with a type-mismatched numeric element: the analyzer

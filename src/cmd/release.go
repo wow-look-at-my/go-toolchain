@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -168,9 +169,12 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 
 	// Interactive confirmation when not in CI
 	if os.Getenv("CI") == "" {
-		fmt.Fprintf(os.Stderr, "Release: %s\n", tag)
-		fmt.Fprintf(os.Stderr, "Commits: %d\n", len(commits))
-		fmt.Fprintf(os.Stderr, "Are you sure you want to tag and push %s? [y/N] ", tag)
+		// Interactive confirmation prompt: must reach the real stderr at any
+		// log level, and the final line awaits input mid-line (no trailing
+		// newline) -- bypasses the logger via rawStderr, see logging.go.
+		fmt.Fprintf(rawStderr, "Release: %s\n", tag)
+		fmt.Fprintf(rawStderr, "Commits: %d\n", len(commits))
+		fmt.Fprintf(rawStderr, "Are you sure you want to tag and push %s? [y/N] ", tag)
 
 		scanner := bufio.NewScanner(stdin)
 		if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {
@@ -194,7 +198,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 		return fmt.Errorf("failed to push latest tag: %w", err)
 	}
 
-	fmt.Printf("⇒ Tagged and pushed %s\n", tag)
+	logger.Output("⇒ Tagged and pushed %s", tag)
 	return nil
 }
 

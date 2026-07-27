@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -92,15 +93,28 @@ func claudeOutputViolation() (outputSink, bool) {
 // go-toolchain is running under Claude and its output is being hidden — piped,
 // redirected to a file, or discarded — instead of shown in the transcript. It
 // is a no-op in every other situation.
+// claudeGuardOut is a deliberate logger bypass: the abort message below MUST
+// always reach the real stderr and must never become a stdout GHA annotation,
+// because the guard fires precisely when stdout is redirected or captured (the
+// smoke-linux CI step asserts the "refused to run" text on stderr). Held in a
+// variable, which the bannedoutput analyzer deliberately permits.
+var claudeGuardOut io.Writer = os.Stderr
+
 func guardAgainstClaudeOutputCapture() {
 	if s, bad := claudeOutputViolation(); bad {
-		fmt.Fprint(os.Stderr, claudeOutputMessage(s))
+		// Refusing to run is not enough on its own. The invocation that hides
+		// the output typically ignores the exit code too, and a binary from an
+		// earlier successful run is still sitting at build/<target>, ready to
+		// be executed as proof of a build that never happened. Delete it: an
+		// aborted run must leave nothing runnable behind (see staleoutputs.go).
+		fmt.Fprint(claudeGuardOut, claudeOutputMessage(s, discardBuildOutputsFromCWD()))
 		os.Exit(1)
 	}
 }
 
-// claudeOutputMessage renders the abort message for the given sink.
-func claudeOutputMessage(s outputSink) string {
+// claudeOutputMessage renders the abort message for the given sink, listing
+// the build outputs the abort deleted (if any).
+func claudeOutputMessage(s outputSink, removed []string) string {
 	var what string
 	switch s.kind {
 	case sinkPipe:
@@ -126,5 +140,13 @@ func claudeOutputMessage(s outputSink) string {
 	b.WriteString("a `$(...)` capture, or `/dev/null` — truncates or hides exactly what matters.\n\n")
 	b.WriteString("Run go-toolchain on its own, with nothing after it, and read the whole thing:\n")
 	b.WriteString("    go-toolchain\n")
+	if len(removed) > 0 {
+		b.WriteString("\nThe build outputs of the previous run have been DELETED, so an old binary\n")
+		b.WriteString("cannot stand in for a build you did not run:\n")
+		for _, path := range removed {
+			fmt.Fprintf(&b, "    %s\n", path)
+		}
+		b.WriteString("Run go-toolchain as shown above to build them again.\n")
+	}
 	return b.String()
 }

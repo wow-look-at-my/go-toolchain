@@ -16,6 +16,8 @@ import (
 
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/tools/go/analysis/checker"
 	"golang.org/x/tools/go/packages"
 )
@@ -29,6 +31,7 @@ func Analyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		AssertLintAnalyzer,
 		AssertNormAnalyzer,
+		BannedOutputAnalyzer,
 		RedundantCastAnalyzer,
 		TestifyCastAnalyzer,
 	}
@@ -71,6 +74,37 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were applied.
 func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error) {
 	return vetSemantic(pattern, NewEditor(fix), progress)
+}
+
+// loadErrorMessages collects the packages' load errors, dropping two kinds of
+// noise that make a real failure hard to read.
+//
+// Go version mismatch warnings are skipped outright: they occur when
+// go-toolchain was built with an older Go than the target project declares in
+// go.mod, and the embedded go/packages can still analyze the code correctly --
+// the go directive is a minimum version, not a syntax gate.
+//
+// The rest are deduplicated, because a directory's test variants (`p`,
+// `p [p.test]`, `p.test`) are separate root packages carrying the same Errors,
+// so one broken file printed its error two to four times.
+func loadErrorMessages(pkgs []*packages.Package) []string {
+	var msgs []string
+	seen := make(map[string]bool)
+	for _, pkg := range pkgs {
+		for _, e := range pkg.Errors {
+			msg := e.Error()
+			if strings.Contains(msg, "package requires newer Go version") ||
+				strings.Contains(msg, "source-processing packages") {
+				continue
+			}
+			if seen[msg] {
+				continue
+			}
+			seen[msg] = true
+			msgs = append(msgs, msg)
+		}
+	}
+	return msgs
 }
 
 // vetSemantic runs type-aware analysis using go/packages and the analysis
@@ -118,7 +152,10 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	// Load packages for analysis.
 	report("type-check")
 	cfg := &packages.Config{
-		Mode:  packages.LoadSyntax,
+		// NeedModule populates pkg.Module -> pass.Module, which the
+		// bannedoutput analyzer uses to scope its ban to the go-toolchain
+		// module (consumer projects must keep their fmt.Println).
+		Mode:  packages.LoadSyntax | packages.NeedModule,
 		Tests: true,
 	}
 	var nParsed int
@@ -143,24 +180,10 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 			nPkgs++
 			return true
 		}, nil)
-		fmt.Fprintf(os.Stderr, "vet: loaded %d packages (%d files parsed) in %v\n", nPkgs, nParsed, loadDur.Round(time.Millisecond))
+		logger.Info("vet: loaded %d packages (%d files parsed) in %v", nPkgs, nParsed, loadDur.Round(time.Millisecond))
 	}
 
-	// Check for load errors, filtering out Go version mismatch warnings.
-	// These occur when go-toolchain was built with an older Go than the target
-	// project declares in go.mod. The embedded go/packages can still analyze
-	// the code correctly — the go directive is a minimum version, not a syntax gate.
-	var loadErrors []string
-	for _, pkg := range pkgs {
-		for _, e := range pkg.Errors {
-			msg := e.Error()
-			if strings.Contains(msg, "package requires newer Go version") ||
-				strings.Contains(msg, "source-processing packages") {
-				continue
-			}
-			loadErrors = append(loadErrors, msg)
-		}
-	}
+	loadErrors := loadErrorMessages(pkgs)
 
 	if len(loadErrors) > 0 {
 		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))

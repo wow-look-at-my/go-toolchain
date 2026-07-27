@@ -2,120 +2,16 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"golang.org/x/mod/modfile"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestParseVanityModulesFromSum(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	gosum := `github.com/spf13/cobra v1.10.2 h1:abc123=
-github.com/spf13/cobra v1.10.2/go.mod h1:def456=
-gotest.tools/gotestsum v1.13.0 h1:aaa=
-gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
-modernc.org/sqlite v1.45.0 h1:ccc=
-modernc.org/sqlite v1.45.0/go.mod h1:ddd=
-dario.cat/mergo v1.0.0 h1:eee=
-golang.org/x/mod v0.30.0 h1:fff=
-gopkg.in/yaml.v3 v3.0.1 h1:ggg=
-`
-	os.WriteFile("go.sum", []byte(gosum), 0644)
-
-	modules, err := parseVanityModulesFromSum()
-	require.Nil(t, err)
-
-	// Should include vanity hosts: gotest.tools, modernc.org, dario.cat
-	// Should exclude: github.com, golang.org, gopkg.in
-	assert.Equal(t, 3, len(modules))
-
-	hosts := map[string]bool{}
-	for _, m := range modules {
-		hosts[m.Host] = true
-	}
-	assert.True(t, hosts["gotest.tools"])
-	assert.True(t, hosts["modernc.org"])
-	assert.True(t, hosts["dario.cat"])
-}
-
-func TestParseVanityModulesFromSumNoFile(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	modules, err := parseVanityModulesFromSum()
-	assert.NotNil(t, err)
-	assert.True(t, os.IsNotExist(err))
-	assert.Nil(t, modules)
-}
-
-func TestParseVanityModulesFromSumDedup(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	// Same module appears in both hash and go.mod hash lines
-	gosum := `gotest.tools/gotestsum v1.13.0 h1:aaa=
-gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
-`
-	os.WriteFile("go.sum", []byte(gosum), 0644)
-
-	modules, err := parseVanityModulesFromSum()
-	require.Nil(t, err)
-	assert.Equal(t, 1, len(modules))
-	assert.Equal(t, "gotest.tools/gotestsum", modules[0].Path)
-	assert.Equal(t, "v1.13.0", modules[0].Version)
-}
-
-func TestVcsURLToModulePath(t *testing.T) {
-	tests := []struct {
-		url  string
-		want string
-	}{
-		{"https://github.com/gotestyourself/gotestsum", "github.com/gotestyourself/gotestsum"},
-		{"https://github.com/foo/bar.git", "github.com/foo/bar"},
-		{"http://github.com/foo/bar", "github.com/foo/bar"},
-		{"github.com/foo/bar", "github.com/foo/bar"},
-	}
-	for _, tc := range tests {
-		assert.Equal(t, tc.want, vcsURLToModulePath(tc.url))
-	}
-}
-
-func TestParseGoImportMeta(t *testing.T) {
-	html := `<!DOCTYPE html>
-<html><head>
-<meta name="go-import" content="gotest.tools/gotestsum git https://github.com/gotestyourself/gotestsum">
-</head></html>`
-
-	url, prefix, err := parseGoImportMeta(html, "gotest.tools/gotestsum")
-	require.Nil(t, err)
-	assert.Equal(t, "https://github.com/gotestyourself/gotestsum", url)
-	assert.Equal(t, "gotest.tools/gotestsum", prefix)
-}
-
-func TestParseGoImportMetaPrefixMatch(t *testing.T) {
-	// Module path is longer than the prefix in the meta tag
-	html := `<meta name="go-import" content="gotest.tools git https://github.com/gotestyourself/gotest.tools">`
-
-	url, prefix, err := parseGoImportMeta(html, "gotest.tools/v3")
-	require.Nil(t, err)
-	assert.Equal(t, "https://github.com/gotestyourself/gotest.tools", url)
-	assert.Equal(t, "gotest.tools", prefix)
-}
-
-func TestParseGoImportMetaNotFound(t *testing.T) {
-	html := `<html><head><title>Nothing here</title></head></html>`
-	_, _, err := parseGoImportMeta(html, "example.com/foo")
-	assert.NotNil(t, err)
-}
 
 func TestInjectVanityReplacesNoGoSum(t *testing.T) {
 	dir := t.TempDir()
@@ -444,36 +340,9 @@ func TestInjectVanityReplacesSkipsNonDirectHost(t *testing.T) {
 	assert.NotContains(t, string(data), "replace")
 	assert.NotContains(t, string(data), "go.googlesource.com")
 }
-
 func TestRemoveVanityReplacesEmpty(t *testing.T) {
 	err := removeVanityReplaces(nil)
 	assert.Nil(t, err)
-}
-
-func TestWellKnownHostsExcluded(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	gosum := `github.com/foo/bar v1.0.0 h1:aaa=
-gitlab.com/baz/qux v2.0.0 h1:bbb=
-golang.org/x/mod v0.30.0 h1:ccc=
-gopkg.in/yaml.v3 v3.0.1 h1:ddd=
-bitbucket.org/test/repo v0.1.0 h1:eee=
-google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 h1:fff=
-google.golang.org/grpc v1.80.0 h1:ggg=
-`
-	os.WriteFile("go.sum", []byte(gosum), 0644)
-
-	// google.golang.org is a well-known host: its modules (genproto, grpc,
-	// protobuf, ...) always resolve via the Go proxy, so they must never be
-	// treated as rewritable vanity modules. Treating them as vanity caused a
-	// stale build to mis-rewrite them onto GitHub mirrors when a slow network
-	// made the reachability probe time out.
-	modules, err := parseVanityModulesFromSum()
-	require.Nil(t, err)
-	assert.Equal(t, 0, len(modules))
 }
 
 func TestInjectVanityReplacesPreservesExistingGoMod(t *testing.T) {
@@ -529,4 +398,113 @@ replace example.com/existing => example.com/replacement v1.0.0
 	// Existing replace preserved, vanity replace removed
 	assert.Contains(t, content, "example.com/existing")
 	assert.NotContains(t, content, "gotestyourself")
+}
+
+// runVanityTestGit runs a git command in the current directory, failing the
+// test with the command's combined output on error.
+func runVanityTestGit(t *testing.T, args ...string) {
+	t.Helper()
+	out, err := exec.Command("git", args...).CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+}
+
+// TestCheckDirtyInCIWithVanityRestored pins the invariant that broke
+// github-state-mirror run 29791671090: while vanity replaces are active (a
+// vanity host was unreachable, so go.mod carries injected replace directives
+// and go mod tidy rewrote go.sum onto the mirror paths), the post-vet CI
+// dirty check must pass on a canonically tidy tree — the mutation is the
+// toolchain's own and is removed before the run ends — while real
+// uncommitted changes still fail, the active mirror state survives the check
+// for the phases behind it, and the final cleanup leaves the committed tree
+// byte-identical.
+func TestCheckDirtyInCIWithVanityRestored(t *testing.T) {
+	// Hermetic git: host/user config must not leak into the test repo.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	dir := t.TempDir()
+	// Best-effort cwd restore, matching this file's other tests: a prior test
+	// in the package can leave the process cwd deleted, making Getwd fail.
+	origDir, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	require.NoError(t, os.Chdir(dir))
+
+	// Commit go.mod in modfile-canonical form so removeVanityReplaces's
+	// parse→drop→format round trip restores the committed bytes exactly.
+	parsed, err := modfile.Parse("go.mod", []byte("module test\ngo 1.21\nrequire gotest.tools/gotestsum v1.13.0\n"), nil)
+	require.NoError(t, err)
+	gomod, err := parsed.Format()
+	require.NoError(t, err)
+	gosum := "gotest.tools/gotestsum v1.13.0 h1:aaa=\ngotest.tools/gotestsum v1.13.0/go.mod h1:bbb=\n"
+	require.NoError(t, os.WriteFile("go.mod", gomod, 0644))
+	require.NoError(t, os.WriteFile("go.sum", []byte(gosum), 0644))
+	require.NoError(t, os.WriteFile("main.go", []byte("package main\n"), 0644))
+	runVanityTestGit(t, "init", "-q")
+	runVanityTestGit(t, "add", ".")
+	runVanityTestGit(t, "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-q", "-m", "init")
+
+	t.Setenv("CI", "true")
+
+	oldChecker := vanityHostChecker
+	vanityHostChecker = func(string) bool { return false }
+	defer func() { vanityHostChecker = oldChecker }()
+	oldResolver := vanityVCSResolver
+	vanityVCSResolver = func(modulePath, _ string) (string, string, error) {
+		return "https://github.com/gotestyourself/gotestsum", modulePath, nil
+	}
+	defer func() { vanityVCSResolver = oldResolver }()
+	oldJSON := jsonOutput
+	jsonOutput = true
+	defer func() { jsonOutput = oldJSON }()
+
+	// No vanity state degrades to the plain check: the committed tree is clean.
+	require.NoError(t, checkDirtyInCIWithVanityRestored(nil))
+
+	state, err := injectVanityReplaces()
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	// Simulate go mod tidy while the replace is active: go.sum is rewritten
+	// onto the mirror path.
+	tidiedGoSum := "github.com/gotestyourself/gotestsum v1.13.0 h1:xxx=\n"
+	require.NoError(t, os.WriteFile("go.sum", []byte(tidiedGoSum), 0644))
+	activeGoMod, err := os.ReadFile("go.mod")
+	require.NoError(t, err)
+	require.Contains(t, string(activeGoMod), "replace gotest.tools/gotestsum")
+
+	// The defect this pins: the PLAIN check sees the transient injected state
+	// as dirt (the github-state-mirror run 29791671090 failure mode)...
+	require.Error(t, checkDirtyInCI())
+
+	// ...while the headline invariant holds: go.mod/go.sum differ from HEAD
+	// only by the toolchain's own transient vanity mutation, so the
+	// restore-aware CI dirty check passes.
+	require.NoError(t, checkDirtyInCIWithVanityRestored(state))
+
+	// The active mirror state must survive the check so tidy's resolution
+	// keeps holding for the test and build phases.
+	afterGoMod, err := os.ReadFile("go.mod")
+	require.NoError(t, err)
+	assert.Equal(t, string(activeGoMod), string(afterGoMod))
+	afterGoSum, err := os.ReadFile("go.sum")
+	require.NoError(t, err)
+	assert.Equal(t, tidiedGoSum, string(afterGoSum))
+
+	// Real dirt in an unrelated file still fails while vanity is active.
+	require.NoError(t, os.WriteFile("main.go", []byte("package main // edited\n"), 0644))
+	assert.Error(t, checkDirtyInCIWithVanityRestored(state))
+	runVanityTestGit(t, "checkout", "-q", "--", "main.go")
+
+	// A go.mod change beyond the injected replaces (what tidy makes of an
+	// untidy tree) survives the restore and still fails.
+	withExtra := append([]byte{}, activeGoMod...)
+	withExtra = append(withExtra, []byte("\nrequire example.com/extra v1.0.0\n")...)
+	require.NoError(t, os.WriteFile("go.mod", withExtra, 0644))
+	assert.Error(t, checkDirtyInCIWithVanityRestored(state))
+	require.NoError(t, os.WriteFile("go.mod", activeGoMod, 0644))
+
+	// The deferred cleanup then leaves the committed tree byte-identical.
+	require.NoError(t, removeVanityReplaces(state))
+	out, err := exec.Command("git", "status", "--porcelain").Output()
+	require.NoError(t, err)
+	assert.Empty(t, strings.TrimSpace(string(out)))
 }
