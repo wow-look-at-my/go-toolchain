@@ -132,7 +132,11 @@ func runDatsPhase(r runner.CommandRunner, quiet bool, artifacts []datsArtifact) 
 	// runs `go ...` cannot spawn cacheprog children of THIS binary against
 	// the outer daemon (stats pollution, stdout pipe stalls) — the same
 	// clearing the bench runner and embeddedFiles do.
-	cmd := runner.Cmd(datsBin, "test", datsSuiteDir).
+	// --no-sandbox: dats v49+ defaults to an "auto" sandbox (bwrap or Docker).
+	// go-toolchain stages the test binaries into a host-side temp dir exposed
+	// via $GO_TOOLCHAIN_DATS_BUILD_DIR, which is not mounted into any container.
+	// Run directly on the host so the staged binaries are reachable.
+	cmd := runner.Cmd(datsBin, "test", "--no-sandbox", datsSuiteDir).
 		WithEnv(datsBuildDirEnv, buildDir).
 		WithEnv("GOCACHEPROG", "").
 		WithEnv("GOCACHE_STATS_SOCK", "")
