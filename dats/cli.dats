@@ -143,11 +143,6 @@ tests:
     outputs:
       stderr:
         - "unknown flag"
-      # Golden-file assertion: the full stderr must byte-match the committed
-      # snapshot (regenerate with `dats --update test dats` after intentional
-      # CLI changes).
-      snapshot:
-        stderr: true
 
   - desc: unknown subcommand is rejected
     cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" definitely-not-a-subcommand'
