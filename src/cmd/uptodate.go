@@ -59,8 +59,14 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 		// .dats suites and their .golden snapshot files are pipeline inputs
 		// (the dats phase runs them), so editing one must bust the
 		// fingerprint or the "Up to date" fast-exit would skip the re-run.
+		// action.yml is one too: tests read it as data (handoffname_test.go
+		// asserts the hand-off name templates), and it is not reachable by
+		// //go:embed from a package two directories down, so without this an
+		// action.yml edit fast-exits "Up to date" and its assertions never
+		// re-run locally -- a false green until CI catches it.
 		if strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".dats") ||
-			strings.HasSuffix(name, ".golden") || name == "go.mod" || name == "go.sum" {
+			strings.HasSuffix(name, ".golden") || name == "go.mod" || name == "go.sum" ||
+			name == "action.yml" || name == "action.yaml" {
 			files = append(files, path)
 		}
 		return nil
