@@ -209,9 +209,6 @@ jobs:
           # knob downgrades the in-CI "caching not configured" error to a
           # warning. The repo's own host-build/build jobs keep the shared cache.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
-          # Tokenless synthetic consumer: must not attempt dependency submission
-          # (now fatal on failure). Explicit opt-out, not GITHUB_* blanking.
-          GO_TOOLCHAIN_NO_DEP_SUBMISSION: '1'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/smokemod"
@@ -274,11 +271,20 @@ jobs:
           # once shipped as a `_linux.go` no-op while unit tests stayed green).
           # CLAUDECODE is set per-command ONLY: the other smoke steps run the
           # real pipeline with runner-pipe stdout and must stay inert.
+          # The previous step ran the full pipeline here, so the module's
+          # binary is present: the guard must DELETE it. Discarding the output
+          # and the exit code is exactly the case where a stale binary would
+          # otherwise be run as proof of a build that never happened.
+          [ -f build/apesmoke ]
           rc=0
           CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" > /dev/null 2> guard-err.txt || rc=$?
           cat guard-err.txt
           [ "$rc" -eq 1 ]
           grep -q "refused to run" guard-err.txt
+          # Asserted in the SHIPPED artifact, like the guard itself: the
+          # deletion runs on the same linux||cosmo path (see staleoutputs.go).
+          [ ! -e build/apesmoke ]
+          grep -q "have been DELETED" guard-err.txt
           # The version exemption must stay intact.
           CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" version > /dev/null
 
@@ -359,9 +365,6 @@ jobs:
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
-          # Tokenless synthetic consumer: must not attempt dependency submission
-          # (now fatal on failure). Explicit opt-out, not GITHUB_* blanking.
-          GO_TOOLCHAIN_NO_DEP_SUBMISSION: '1'
         run: |
           set -euo pipefail
           # Native Mach-O binaries do not self-assimilate, but run a copy
@@ -462,6 +465,8 @@ jobs:
       id-token: write
       contents: read
       actions: write
+      deployments: write
+      artifact-metadata: write
     steps:
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off

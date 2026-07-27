@@ -40,7 +40,7 @@ inputs:
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically publish to buildhost on every branch push (requires id-token: write permission)'
+    description: 'Automatically publish to buildhost on every branch push (requires id-token: write, plus deployments: write and artifact-metadata: write -- the publish registers a GitHub Deployment and posts an artifact storage record as part of publishing, with no opt-out, and fails the build without either grant)'
     required: false
     default: 'true'
   autorelease_args:
