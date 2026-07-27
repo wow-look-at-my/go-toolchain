@@ -5,6 +5,7 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 func init() {
@@ -55,6 +56,13 @@ func needsGo() bool {
 }
 
 func main() {
+	// Install the elapsed-duration pipeline for all stdout/stderr lines.
+	// Skipped for the GOCACHEPROG subprocess — its stdout is a JSON protocol
+	// pipe that the Go toolchain parses and must stay undecorated.
+	if !isCacheProgInvocation() {
+		logx.Install()
+	}
+
 	// Kick off a non-blocking background check for a newer go-toolchain on
 	// buildhost. It runs while the real work happens and is surfaced (or killed)
 	// by ReportUpdateCheck on every exit path — it never blocks or delays.
@@ -70,11 +78,13 @@ func main() {
 			// executed as its result (see src/cmd/staleoutputs.go).
 			cmd.DiscardBuildOutputs()
 			logger.Error("go bootstrap: %v", err)
+			logx.Flush()
 			os.Exit(1)
 		}
 	}
 	err := cmd.Execute()
 	cmd.ReportUpdateCheck()
+	logx.Flush()
 	if err != nil {
 		os.Exit(1)
 	}
