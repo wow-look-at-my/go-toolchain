@@ -54,6 +54,27 @@ func TestComputeFingerprintIncludesGoSum(t *testing.T) {
 	assert.NotEqual(t, fp1, fp2)
 }
 
+// action.yml is test data (handoffname_test.go asserts its hand-off name
+// templates) that no //go:embed can reach from src/cmd, so editing it has to
+// bust the fingerprint -- otherwise the run fast-exits "Up to date" and those
+// assertions never re-run locally.
+func TestComputeFingerprintIncludesActionYML(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Chdir(dir))
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+	os.WriteFile("action.yml", []byte("name: x\nruns:\n  using: composite\n"), 0644)
+
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	os.WriteFile("action.yml", []byte("name: y\nruns:\n  using: composite\n"), 0644)
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "an action.yml edit must bust the fingerprint")
+}
+
 func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.Chdir(dir))
