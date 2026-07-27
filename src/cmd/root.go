@@ -117,8 +117,19 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
-func run(cmd *cobra.Command, args []string) error {
+func run(cmd *cobra.Command, args []string) (err error) {
 	InitTimeline()
+
+	// A red run must not leave a runnable binary behind — including a failure
+	// AFTER the build phase wrote one (a failing dats suite, the warnings
+	// gate). Registered first so it runs last, once every phase has reported
+	// and printed. The outputs were already deleted before the pipeline
+	// started; this covers the window in which the build re-created them.
+	defer func() {
+		if err != nil {
+			discardBuildOutputs()
+		}
+	}()
 
 	if cacheMisses {
 		tracker := newCacheMissTracker(os.Stderr)
@@ -258,6 +269,13 @@ func findGoModules() []string {
 
 func runWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 	setupCGOEnvironment()
+	// Delete this module's build outputs BEFORE any phase runs. From here on
+	// the only thing that can put a binary back at build/<target> is a build
+	// that actually happened, so a run that dies anywhere — a failing test, a
+	// crash, a kill — cannot leave one behind to be mistaken for its result.
+	if err := clearBuildOutputs(r); err != nil {
+		return err
+	}
 	return runWithRunnerOnce(r, false, sd)
 }
 

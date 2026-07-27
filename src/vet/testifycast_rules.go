@@ -1,8 +1,12 @@
 package vet
 
 import (
+	"bytes"
 	"go/ast"
 	"go/constant"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"go/types"
 	"math"
 	"os"
@@ -11,6 +15,7 @@ import (
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/ast/astutil"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -171,6 +176,45 @@ func (c *CastEdits) rendered(src []byte) []byte {
 	return out
 }
 
+// neededImports returns the sorted union of the import paths the edits require
+// (recorded per edit when a conversion names a package the file doesn't import).
+func (c *CastEdits) neededImports() []string {
+	seen := make(map[string]bool)
+	var paths []string
+	for _, e := range c.Edits {
+		for _, p := range e.AddImports {
+			if !seen[p] {
+				seen[p] = true
+				paths = append(paths, p)
+			}
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// addImportsToSource returns src with the given import paths added to its
+// import declaration. Without the import an inserted conversion like
+// fs.FileMode(0) would not compile, and the load error would block every
+// subsequent vet run. This reprints the whole file (parse, astutil.AddImport,
+// go/printer), so like every AST-reprinting fixer it emits through
+// canonicalizeGoSource.
+func addImportsToSource(src []byte, filename string, paths []string) ([]byte, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range paths {
+		astutil.AddImport(fset, f, p)
+	}
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, f); err != nil {
+		return nil, err
+	}
+	return canonicalizeGoSource(buf.Bytes()), nil
+}
+
 // Apply routes the file with all edits applied through ed: a fix-mode editor
 // rewrites it on disk (and a fix line is printed per edit), a check-mode (CI)
 // editor records a violation. testifycast emits no analyzer diagnostic of its
@@ -180,7 +224,14 @@ func (c *CastEdits) Apply(ed Editor) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	wrote, err := ed.Require(c.Filename, c.rendered(src), "testify Equal/NotEqual/Greater/Less needs explicit type conversions for upstream testify")
+	want := c.rendered(src)
+	if paths := c.neededImports(); len(paths) > 0 {
+		want, err = addImportsToSource(want, c.Filename, paths)
+		if err != nil {
+			return false, err
+		}
+	}
+	wrote, err := ed.Require(c.Filename, want, "testify Equal/NotEqual/Greater/Less needs explicit type conversions for upstream testify")
 	if err != nil {
 		return false, err
 	}
