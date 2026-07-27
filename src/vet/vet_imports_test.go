@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/tools/go/packages"
 )
 
 func TestImportName(t *testing.T) {
@@ -110,6 +111,31 @@ func main() {
 	_, err := vetSemantic("./...", NewEditor(false), nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "package load errors")
+}
+
+func TestLoadErrorMessages(t *testing.T) {
+	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
+	embed := perr("oci.go:26:12", "pattern x: no matching files found")
+
+	// A directory's test variants are separate root packages carrying the same
+	// Errors, so the same broken file reports two to four times.
+	pkgs := []*packages.Package{
+		{PkgPath: "m/api", Errors: []packages.Error{embed}},
+		{PkgPath: "m/api [m/api.test]", Errors: []packages.Error{embed}},
+		{PkgPath: "m/api.test", Errors: []packages.Error{
+			embed,
+			perr("-", "m/api: package requires newer Go version 1.99"),
+			perr("-", "packages being source-processing packages"),
+			perr("other.go:3:1", "undefined: Nope"),
+		}},
+	}
+
+	assert.Equal(t, []string{
+		"oci.go:26:12: pattern x: no matching files found",
+		"other.go:3:1: undefined: Nope",
+	}, loadErrorMessages(pkgs))
+
+	assert.Nil(t, loadErrorMessages(nil))
 }
 
 func TestGenerateBinaryReplacementCompound(t *testing.T) {

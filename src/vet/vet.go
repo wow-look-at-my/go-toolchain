@@ -77,6 +77,37 @@ func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error)
 	return vetSemantic(pattern, NewEditor(fix), progress)
 }
 
+// loadErrorMessages collects the packages' load errors, dropping two kinds of
+// noise that make a real failure hard to read.
+//
+// Go version mismatch warnings are skipped outright: they occur when
+// go-toolchain was built with an older Go than the target project declares in
+// go.mod, and the embedded go/packages can still analyze the code correctly --
+// the go directive is a minimum version, not a syntax gate.
+//
+// The rest are deduplicated, because a directory's test variants (`p`,
+// `p [p.test]`, `p.test`) are separate root packages carrying the same Errors,
+// so one broken file printed its error two to four times.
+func loadErrorMessages(pkgs []*packages.Package) []string {
+	var msgs []string
+	seen := make(map[string]bool)
+	for _, pkg := range pkgs {
+		for _, e := range pkg.Errors {
+			msg := e.Error()
+			if strings.Contains(msg, "package requires newer Go version") ||
+				strings.Contains(msg, "source-processing packages") {
+				continue
+			}
+			if seen[msg] {
+				continue
+			}
+			seen[msg] = true
+			msgs = append(msgs, msg)
+		}
+	}
+	return msgs
+}
+
 // vetSemantic runs type-aware analysis using go/packages and the analysis
 // framework, routing every fix through ed (apply locally / report on CI).
 // Returns (filesChanged, error) where filesChanged indicates if any fixes were
@@ -153,21 +184,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 		logger.Info("vet: loaded %d packages (%d files parsed) in %v", nPkgs, nParsed, loadDur.Round(time.Millisecond))
 	}
 
-	// Check for load errors, filtering out Go version mismatch warnings.
-	// These occur when go-toolchain was built with an older Go than the target
-	// project declares in go.mod. The embedded go/packages can still analyze
-	// the code correctly — the go directive is a minimum version, not a syntax gate.
-	var loadErrors []string
-	for _, pkg := range pkgs {
-		for _, e := range pkg.Errors {
-			msg := e.Error()
-			if strings.Contains(msg, "package requires newer Go version") ||
-				strings.Contains(msg, "source-processing packages") {
-				continue
-			}
-			loadErrors = append(loadErrors, msg)
-		}
-	}
+	loadErrors := loadErrorMessages(pkgs)
 
 	if len(loadErrors) > 0 {
 		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
