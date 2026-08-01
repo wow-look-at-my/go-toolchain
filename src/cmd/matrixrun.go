@@ -332,7 +332,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 			name:       datsArtifactName(t.OutputName, hostos.GOOS()),
 		})
 	}
-	if err := runDatsPhase(r, false, hostArtifacts); err != nil {
+	if err := runDatsPhase(false, hostArtifacts); err != nil {
 		return err
 	}
 

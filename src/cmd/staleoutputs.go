@@ -27,7 +27,7 @@ import (
 //     crash, or a kill — leaves nothing runnable behind;
 //   - when the run fails AFTER the build phase already wrote them (a red dats
 //     suite, the coverage or warnings gate);
-//   - when the Claude output guard refuses to run at all. That is the case
+//   - when the agent output guard refuses to run at all. That is the case
 //     this exists for: no phase executes, so only the deletion stands between
 //     a hidden failure and a false "build successful".
 //
@@ -196,7 +196,7 @@ func discardBuildOutputs() {
 
 // discardBuildOutputsFromCWD deletes the build artifacts of the module in the
 // current directory on an exit path that never entered the pipeline — the
-// Claude output guard's abort and a failed Go bootstrap. It returns what it
+// agent output guard's abort and a failed Go bootstrap. It returns what it
 // removed so the caller can say so, and is silent and best-effort: the exit
 // message is the priority, and a project with no resolvable targets simply has
 // nothing to delete.
