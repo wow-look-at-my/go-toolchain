@@ -67,11 +67,11 @@ var rootCmd = &cobra.Command{
 		if skipCache(cmd) {
 			return nil
 		}
-		// Abort before doing any work if Claude is hiding our output — piping
-		// it, redirecting it to a file, or discarding it — instead of letting
-		// the coverage report and build/test failures print where it can read
-		// them.
-		guardAgainstClaudeOutputCapture()
+		// Abort before doing any work if the agent running us is hiding our
+		// output — piping it, redirecting it to a file, or discarding it —
+		// instead of letting the coverage report and build/test failures print
+		// where it can read them.
+		guardAgainstAgentOutputCapture()
 		if cmd.Parent() == nil && isUpToDate(runner.New()) {
 			logger.Output("⇒ Up to date, nothing to do")
 			ReportUpdateCheck()
@@ -325,7 +325,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	// After the build phase so the transient memlimit guard is already
 	// cleaned up; an error here fails the run before saveFingerprint, so a
 	// failing suite is never stamped up-to-date.
-	if err := runDatsPhase(r, quiet, builtArtifacts); err != nil {
+	if err := runDatsPhase(quiet, builtArtifacts); err != nil {
 		return err
 	}
 

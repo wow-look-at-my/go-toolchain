@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -24,21 +25,80 @@ type outputSink struct {
 	detail string // peer command name (pipe) or path (file/discard)
 }
 
-// runningUnderClaude reports whether go-toolchain is executing underneath the
-// Claude agent. Detection is primarily by process ancestry — an ancestor whose
-// process name begins with "claude" (see claudeProcessAncestor) — and
-// additionally by the CLAUDECODE marker the Claude Code CLI exports into the
-// environment of every child. The env fallback keeps the guard working when the
-// process name is unavailable (e.g. a non-Linux host where the ancestry walk is
-// a no-op, or a renamed launcher).
-func runningUnderClaude() bool {
-	if claudeProcessAncestor() {
-		return true
+// agentHarness describes one AI coding agent go-toolchain can run under. Every
+// listed agent reads a command's output through its own transcript, so hiding
+// that output hides it from the agent — the guard treats them identically.
+type agentHarness struct {
+	name    string   // shown in the abort message
+	envVars []string // markers the agent exports into every child's environment
+	procs   []string // process-name prefixes of the agent process itself
+	pidVars []string // env vars holding the agent process's own PID
+}
+
+// agentHarnesses is the guard's roster. procs are matched as prefixes against
+// /proc comm (kernel-truncated to 15 bytes), both to detect the agent in this
+// process's ancestry and to recognize the agent as the legitimate reader of our
+// stdout pipe — an agent that spawns commands with piped stdout (grok,
+// opencode) would otherwise trip the guard on every invocation. An agent whose
+// binary is renamed beyond these prefixes and exports no pidVar fails closed.
+var agentHarnesses = []agentHarness{
+	{name: "Claude", envVars: []string{"CLAUDECODE"}, procs: []string{"claude"}},
+	{name: "grok build", envVars: []string{"GROK_AGENT"}, procs: []string{"grok", "xai-grok-pager"}},
+	{name: "opencode", envVars: []string{"OPENCODE"}, procs: []string{"opencode"}, pidVars: []string{"OPENCODE_PID"}},
+}
+
+// harnessForProcess returns the agent whose process-name prefix matches comm.
+func harnessForProcess(comm string) (string, bool) {
+	for _, h := range agentHarnesses {
+		for _, p := range h.procs {
+			if strings.HasPrefix(comm, p) {
+				return h.name, true
+			}
+		}
 	}
-	if v := os.Getenv("CLAUDECODE"); v != "" && v != "0" {
-		return true
+	return "", false
+}
+
+// isHarnessPID reports whether pid is an agent process that named itself in the
+// environment (opencode exports OPENCODE_PID). This covers an agent running
+// from a JS/other runtime, where the process name is the runtime's rather than
+// the agent's.
+func isHarnessPID(pid int) bool {
+	for _, h := range agentHarnesses {
+		for _, v := range h.pidVars {
+			if s := os.Getenv(v); s != "" {
+				if p, err := strconv.Atoi(s); err == nil && p == pid {
+					return true
+				}
+			}
+		}
 	}
 	return false
+}
+
+// runningUnderAgent reports the agent go-toolchain is executing underneath, if
+// any. Detection is primarily by process ancestry (see agentProcessAncestor)
+// and additionally by the environment markers each agent exports into every
+// child. The env fallback keeps the guard working when the process name is
+// unavailable (e.g. a non-Linux host where the ancestry walk is a no-op, or a
+// renamed launcher).
+func runningUnderAgent() (string, bool) {
+	if name, ok := agentProcessAncestor(); ok {
+		return name, true
+	}
+	return agentFromEnv()
+}
+
+// agentFromEnv returns the agent whose environment marker is set.
+func agentFromEnv() (string, bool) {
+	for _, h := range agentHarnesses {
+		for _, v := range h.envVars {
+			if val := os.Getenv(v); val != "" && val != "0" {
+				return h.name, true
+			}
+		}
+	}
+	return "", false
 }
 
 // isHarnessCapturePath reports whether path is the Claude Code harness's own
@@ -62,59 +122,60 @@ func isHarnessCapturePath(path string) bool {
 	return strings.HasSuffix(lower, ".output") && strings.Contains(lower, "claude")
 }
 
-// Indirection seams: claudeOutputViolation calls these rather than the
+// Indirection seams: agentOutputViolation calls these rather than the
 // detectors directly, so a test can drive every branch deterministically
-// without a real Claude ancestor process or a captured stdout descriptor. They
+// without a real agent ancestor process or a captured stdout descriptor. They
 // are unexported, default to the real implementations, and are reassigned only
 // from tests in this package. They are NOT a bypass: there is no environment
 // variable, flag, or any other runtime knob that disables the guard.
 var (
-	runningUnderClaudeFn = runningUnderClaude
-	inspectStdoutFn      = inspectStdout
+	runningUnderAgentFn = runningUnderAgent
+	inspectStdoutFn     = inspectStdout
 )
 
-// claudeOutputViolation reports the offending sink and true when go-toolchain is
-// running under Claude with its output captured, redirected, or discarded
-// instead of printed where the agent will read it. It is a no-op (returns
-// false) only when go-toolchain is not running under Claude. The guard is
-// unconditional: there is deliberately no way to opt out of it.
-func claudeOutputViolation() (outputSink, bool) {
-	if !runningUnderClaudeFn() {
-		return outputSink{}, false
+// agentOutputViolation reports the agent, the offending sink and true when
+// go-toolchain is running under an agent with its output captured, redirected,
+// or discarded instead of printed where the agent will read it. It is a no-op
+// (returns false) only when go-toolchain is not running under an agent. The
+// guard is unconditional: there is deliberately no way to opt out of it.
+func agentOutputViolation() (string, outputSink, bool) {
+	agent, ok := runningUnderAgentFn()
+	if !ok {
+		return "", outputSink{}, false
 	}
 	s := inspectStdoutFn()
 	if s.kind == sinkVisible {
-		return s, false
+		return agent, s, false
 	}
-	return s, true
+	return agent, s, true
 }
 
-// guardAgainstClaudeOutputCapture aborts the process immediately (exit 1) when
-// go-toolchain is running under Claude and its output is being hidden — piped,
-// redirected to a file, or discarded — instead of shown in the transcript. It
-// is a no-op in every other situation.
-// claudeGuardOut is a deliberate logger bypass: the abort message below MUST
+// guardAgainstAgentOutputCapture aborts the process immediately (exit 1) when
+// go-toolchain is running under an agent and its output is being hidden —
+// piped, redirected to a file, or discarded — instead of shown in the
+// transcript. It is a no-op in every other situation.
+// agentGuardOut is a deliberate logger bypass: the abort message below MUST
 // always reach the real stderr and must never become a stdout GHA annotation,
 // because the guard fires precisely when stdout is redirected or captured (the
 // smoke-linux CI step asserts the "refused to run" text on stderr). Held in a
 // variable, which the bannedoutput analyzer deliberately permits.
-var claudeGuardOut io.Writer = os.Stderr
+var agentGuardOut io.Writer = os.Stderr
 
-func guardAgainstClaudeOutputCapture() {
-	if s, bad := claudeOutputViolation(); bad {
+func guardAgainstAgentOutputCapture() {
+	if agent, s, bad := agentOutputViolation(); bad {
 		// Refusing to run is not enough on its own. The invocation that hides
 		// the output typically ignores the exit code too, and a binary from an
 		// earlier successful run is still sitting at build/<target>, ready to
 		// be executed as proof of a build that never happened. Delete it: an
 		// aborted run must leave nothing runnable behind (see staleoutputs.go).
-		fmt.Fprint(claudeGuardOut, claudeOutputMessage(s, discardBuildOutputsFromCWD()))
+		fmt.Fprint(agentGuardOut, agentOutputMessage(agent, s, discardBuildOutputsFromCWD()))
 		os.Exit(1)
 	}
 }
 
-// claudeOutputMessage renders the abort message for the given sink, listing
-// the build outputs the abort deleted (if any).
-func claudeOutputMessage(s outputSink, removed []string) string {
+// agentOutputMessage renders the abort message for the given agent and sink,
+// listing the build outputs the abort deleted (if any).
+func agentOutputMessage(agent string, s outputSink, removed []string) string {
 	var what string
 	switch s.kind {
 	case sinkPipe:
@@ -133,7 +194,7 @@ func claudeOutputMessage(s outputSink, removed []string) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n%s✗ go-toolchain refused to run: its output is being %s.%s\n\n", colorBoldRed, what, colorReset)
-	b.WriteString("You are running under Claude, where go-toolchain's FULL output must land in\n")
+	fmt.Fprintf(&b, "You are running under %s, where go-toolchain's FULL output must land in\n", agent)
 	b.WriteString("your transcript so you actually read it — the \"Coverage targets\" list, the\n")
 	b.WriteString("total-coverage line, and any test or build failures. Capturing it instead —\n")
 	b.WriteString("a pipe (head/tail/grep/sed/awk/cat/tee/…), a `> file` or `>> file` redirect,\n")
