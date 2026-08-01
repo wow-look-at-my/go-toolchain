@@ -196,9 +196,9 @@ coverage.
   on every request of every session — so the largest entries were moved out VERBATIM, each leaving a one-line pointer: `docs/CMD.md`, `docs/CACHE.md`,
   `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, alongside the existing `docs/DATS-PHASE.md`, `docs/AGENT-OUTPUT-GUARD.md` and
   `docs/WARNINGS-GATE.md`. Add depth to the doc, never to the bullet: an entry needing more than two or three lines wants a `docs/` file.
-  Near-duplicate bullets had accumulated for `src/cmd/`, `action.yml` and `ci.yml` (two, three and three copies) — every copy was preserved in the
-  extraction rather than merged, since deciding which is current needs someone who knows. Lines are hard-wrapped at 150 columns so an edit shows up as
-  a reviewable diff.
+  Near-duplicate bullets had accumulated for `src/cmd/`, `action.yml` and `ci.yml` (two, three and three copies — successive generations of one
+  bullet, not separate topics); each set is now MERGED into its doc, with every disagreement resolved against the source and the resolution recorded
+  in a provenance footer. Lines are hard-wrapped at 150 columns so an edit shows up as a reviewable diff.
 
 ## Known Issues
 

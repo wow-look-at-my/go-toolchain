@@ -1,11 +1,96 @@
 # action.yml — the composite GitHub Action
 
-Extracted verbatim from CLAUDE.md (1.85x over its 40,000-character budget). THREE
-near-duplicate `action.yml` bullets had accumulated there; all three are kept below in
-file order rather than merged, for the same reason as docs/CMD.md.
+What `wow-look-at-my/go-toolchain@v1` does, in order, and what a consuming
+workflow has to grant it.
 
-- `action.yml` — composite GitHub Action (first step runs the org all-builds shadow guard `wow-look-at-my/actions@no-all-builds-job#latest`, failing the job if any workflow job is named `all-builds`; then fetches secrets via OIDC, builds with go-toolchain; ends every run by cache-uploading `build/` as the per-job hand-off `go-build-${{ github.job }}` -- key `cache-xfer-go-build-<job>-<run_id>-<run_attempt>`, distinct per job so two concurrent go-toolchain jobs in one run no longer 409 on a shared key, then a deprecated bare `go-build` alias save for the download-only consumers (webhook-runner, buildhost, api-cli, github-state-mirror, publish-ghcr callers) that still restore the bare name -- preceded by a `::notice` deprecation annotation, `continue-on-error` because the bare key is inherently racy in multi-producer runs (first finisher wins, the second save's conflict is absorbed; the strict per-job save stays the sole authoritative one), proposed removal after 2026-08-01 once the named consumers migrate to `go-build-<uploader job id>`; autorelease publishes the workspace `build/` directly to buildhost via `wow-look-at-my/buildhost`'s buildhost-publish action's local `path` input — needing only `id-token: write`, no `actions: read` and no GHA artifact; the publish also registers a GitHub Deployment and posts an artifact storage record via `github.token`, so a consumer that autoreleases MUST grant `deployments: write` + `artifact-metadata: write` -- neither has an opt-out and each fails the build without its grant)
+## 1. The all-builds shadow guard
 
-- `action.yml` — composite GitHub Action (first step runs the org all-builds shadow guard `wow-look-at-my/actions@no-all-builds-job#latest`, failing the job if any workflow job is named `all-builds` — since no-all-builds-job#3 (2026-07-20) the guard scans the run's jobs (Actions API) and the head commit's check runs (Checks API) and FAILS CLOSED when it cannot scan, so the calling workflow's token must grant `actions: read` + `checks: read` (private repos 403 without them; public-repo reads pass scope-less; the documented consumer permissions block carries both); then fetches secrets via OIDC, builds with go-toolchain; ends every run by cache-uploading `build/` as the per-job hand-off `go-build-${{ github.job }}` -- key `cache-xfer-go-build-<job>-<run_id>-<run_attempt>`, distinct per job so two concurrent go-toolchain jobs in one run no longer 409 on a shared key, then a deprecated bare `go-build` alias save for the download-only consumers (webhook-runner, buildhost, api-cli, github-state-mirror, publish-ghcr callers) that still restore the bare name -- preceded by a `::notice` deprecation annotation, `continue-on-error` because the bare key is inherently racy in multi-producer runs (first finisher wins, the second save's conflict is absorbed; the strict per-job save stays the sole authoritative one), proposed removal after 2026-08-01 once the named consumers migrate to `go-build-<uploader job id>`; autorelease publishes the workspace `build/` directly to buildhost via `wow-look-at-my/buildhost`'s buildhost-publish action's local `path` input — the publish step itself needing only `id-token: write` and no GHA artifact, plus the mandatory `deployments: write` + `artifact-metadata: write` buildhost-publish needs to register the Deployment and post the storage record (no opt-out; missing either fails the build); the `actions: read` in the consumer block is the guard's requirement above, not autorelease's)
+The first step runs `wow-look-at-my/actions@no-all-builds-job#latest`, which
+fails the job if any workflow job is named `all-builds`. That name belongs to
+the org's required status, posted by the required-builds-manager app; a job
+wearing it cannot satisfy the gate and only shadows the real status in the UI.
 
-- `action.yml` — composite GitHub Action (first step runs the org all-builds shadow guard `wow-look-at-my/actions@no-all-builds-job#latest`, failing the job if any workflow job is named `all-builds` — since no-all-builds-job#3 (2026-07-20) the guard scans the run's jobs (Actions API) and the head commit's check runs (Checks API) and FAILS CLOSED when it cannot scan, so the calling workflow's token must grant `actions: read` + `checks: read` (private repos 403 without them; public-repo reads pass scope-less; the documented consumer permissions block carries both); then fetches secrets via OIDC, builds with go-toolchain; ends every run by cache-uploading `build/` as the per-job hand-off `go-build-${{ github.job }}` -- plus, for a matrix job, a `.m<strategy.job-index>` suffix per leg (the matrix/strategy contexts ARE evaluable inside composite steps -- the runner's manifest schema allows both -- and `matrix` is null for non-matrix jobs, so their name stays byte-identical; the dot makes the suffix collision-proof against job ids, which cannot contain dots, and job-index is stable across re-run attempts so cross-attempt restore fallback keeps working) -- key `cache-xfer-<run_id>-go-build-<job>[.m<idx>]-<run_attempt>`, distinct per job and per matrix leg so concurrent go-toolchain saves in one run (two jobs, or the legs of one matrix job) no longer 409 on a shared key, then a deprecated bare `go-build` alias save for the download-only consumers (webhook-runner, buildhost, api-cli, github-state-mirror, publish-ghcr callers) that still restore the bare name -- preceded by a `::notice` deprecation annotation, `continue-on-error` because the bare key is inherently racy in multi-producer runs (first finisher wins, the second save's conflict is absorbed; the strict per-job/per-leg save stays the sole authoritative one), proposed removal after 2026-08-01 once the named consumers migrate to `go-build-<uploader job id>`; autorelease publishes the workspace `build/` directly to buildhost via `wow-look-at-my/buildhost`'s buildhost-publish action's local `path` input — the publish step itself needing only `id-token: write` and no GHA artifact; the `actions: read` in the consumer block is the guard's requirement above, not autorelease's)
+Since `no-all-builds-job#3` the guard scans **the run's jobs** (Actions API) and
+**the head commit's check runs** (Checks API), and it **fails closed** when it
+cannot scan. The calling workflow's token therefore has to grant
+`actions: read` and `checks: read` — private repos 403 without them; public-repo
+reads pass scope-less. Both are in the documented consumer permissions block.
+
+That `actions: read` is the guard's requirement, not autorelease's.
+
+## 2. Secrets, then the build
+
+Fetches secrets over OIDC, then runs go-toolchain.
+
+## 3. Handing off `build/`
+
+Every run ends by cache-uploading `build/` for downstream jobs.
+
+**Per-job name** — `go-build-${{ github.job }}`, plus `.m<strategy.job-index>`
+for a matrix job:
+
+```
+name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}
+key:  cache-xfer-<run_id>-go-build-<job>[.m<idx>]-<run_attempt>
+```
+
+The matrix and strategy contexts *are* evaluable inside composite steps (the
+runner's manifest schema allows both), and `matrix` is null for a non-matrix
+job, so those names stay byte-identical to what they were. The dot makes the
+suffix collision-proof against job ids, which cannot contain dots, and
+`job-index` is stable across re-run attempts, so cross-attempt restore fallback
+keeps working.
+
+Being distinct per job *and* per matrix leg is the point: concurrent
+go-toolchain saves in one run — two jobs, or the legs of one matrix job — used
+to 409 on a shared key.
+
+**Legacy bare alias** — a second save under the bare name `go-build`, for
+download-only consumers that still restore it (webhook-runner, buildhost,
+api-cli, github-state-mirror, publish-ghcr callers). It is preceded by a
+`::notice` deprecation annotation and marked `continue-on-error`, because a bare
+key is inherently racy in a multi-producer run: first finisher wins and the
+second save's conflict is absorbed. The strict per-job/per-leg save stays the
+sole authoritative one. Proposed for removal once those consumers migrate to
+`go-build-<uploader job id>`.
+
+## 4. Autorelease, and the permissions it needs
+
+`autorelease` (on by default) publishes the workspace `build/` **directly** to
+buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its
+local `path` input — no GitHub Actions artifact is involved.
+
+The publish step itself needs only `id-token: write`. But publishing also
+**registers a GitHub Deployment and posts an artifact storage record**, and
+neither has an opt-out, so a job that autoreleases must additionally grant:
+
+```yaml
+permissions:
+  id-token: write
+  deployments: write        # the publish registers a GitHub Deployment
+  artifact-metadata: write  # the publish posts an artifact storage record
+```
+
+Each fails the build without its grant — the build runs to completion and then
+dies on `Resource not accessible by integration`. Job-level `permissions:`
+blocks REPLACE the workflow-level one, so a job declaring its own must list
+these alongside everything else it needs.
+
+> **Known doc conflict.** `README.md`'s inputs table says `deployments: write`
+> merely "registers a GitHub Deployment (warns and skips it otherwise)", while
+> `action.yml`'s own input description and the Autorelease permissions note both
+> say it fails the build. `action.yml` and this repo's `ci.yml` (which grants
+> both) are the sources followed here; the table row looks stale, but confirming
+> that needs someone who knows which behaviour shipped.
+
+---
+
+*Provenance: assembled from three near-duplicate `action.yml` bullets that had
+accumulated in CLAUDE.md — the shape a file takes when every visitor appends.
+They were not three topics but three generations of one, and merging them meant
+resolving where they disagreed rather than keeping all three. The newest had the
+current cache key (verified against `action.yml`) but had **dropped** the
+`deployments: write` / `artifact-metadata: write` requirement the previous one
+stated as mandatory; that requirement is real (`action.yml:43`, `README.md`, and
+this repo's own `ci.yml` grants both) and is restored above. The oldest predated
+the guard's API-scanning permissions entirely.*
