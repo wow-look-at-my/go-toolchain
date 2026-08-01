@@ -165,7 +165,7 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "/fake/dats", calls[0].Name)
-	assert.Equal(t, []string{"test", "dats"}, calls[0].Args)
+	assert.Equal(t, []string{"test", "--no-sandbox", "dats"}, calls[0].Args)
 
 	buildDir, ok := calls[0].Env.Get(datsBuildDirEnv)
 	require.True(t, ok, "dats must receive %s", datsBuildDirEnv)
@@ -187,7 +187,7 @@ func TestRunDatsPhaseFailureFailsBuild(t *testing.T) {
 	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
 
 	mock := runner.NewMock()
-	mock.SetResponse("/fake/dats", []string{"test", "dats"}, nil, fmt.Errorf("exit status 1"))
+	mock.SetResponse("/fake/dats", []string{"test", "--no-sandbox", "dats"}, nil, fmt.Errorf("exit status 1"))
 
 	err := runDatsPhase(mock, false, nil)
 	require.Error(t, err)
