@@ -10,7 +10,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
-	github.com/wow-look-at-my/dats v0.0.0-20260801175938-5de677172f3b
+	github.com/wow-look-at-my/dats v0.0.0-20260801180457-d7115e1ca5ef
 	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
 	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9
 	go.opentelemetry.io/otel v1.44.0
