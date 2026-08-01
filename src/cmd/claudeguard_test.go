@@ -20,24 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
-
-func TestIsHarnessCapturePath(t *testing.T) {
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "SID-abc-123")
-	// Path embedding this session's id is the harness capture — allowed.
-	assert.True(t, isHarnessCapturePath("/tmp/claude-0/-home-user/SID-abc-123/tasks/q1.output"))
-	// Structural fallback: ends in .output under a path mentioning claude.
-	assert.True(t, isHarnessCapturePath("/tmp/claude-0/other/tasks/q1.output"))
-	// Ordinary agent redirects are NOT the capture file.
-	assert.False(t, isHarnessCapturePath("/tmp/gt.log"))
-	assert.False(t, isHarnessCapturePath("/home/user/out.txt"))
-
-	// With no session id, only the structural fallback applies.
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
-	assert.True(t, isHarnessCapturePath("/var/run/claude/tasks/x.output"))
-	assert.False(t, isHarnessCapturePath("/home/user/build.output")) // .output but no "claude"
-	assert.False(t, isHarnessCapturePath("/tmp/SID-abc-123/x.log"))
-}
 
 func TestAgentOutputMessageVariants(t *testing.T) {
 	pipe := agentOutputMessage("Claude", outputSink{kind: sinkPipe, detail: "head"}, nil)
@@ -49,11 +33,13 @@ func TestAgentOutputMessageVariants(t *testing.T) {
 	discard := agentOutputMessage("Claude", outputSink{kind: sinkDiscard, detail: "/dev/null"}, nil)
 	assert.Contains(t, discard, "discarded to `/dev/null`")
 
-	// The agent that hid the output is named back at it.
-	for _, agent := range []string{"Claude", "grok build", "opencode"} {
+	// The agent that hid the output is named back at it -- every agent the
+	// roster knows, so an agent added upstream is covered here without an
+	// edit.
+	for _, a := range agent.Roster() {
 		assert.Contains(t,
-			agentOutputMessage(agent, outputSink{kind: sinkPipe, detail: "head"}, nil),
-			"running under "+agent)
+			agentOutputMessage(a.Name, outputSink{kind: sinkPipe, detail: "head"}, nil),
+			"running under "+a.Name)
 	}
 
 	for _, m := range []string{pipe, file, discard} {
@@ -97,91 +83,33 @@ func TestAgentOutputViolation(t *testing.T) {
 	// with the agent's name and its sink. There is no env var or flag that can
 	// turn this off.
 	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkPipe, detail: "head"} }
-	for _, h := range agentHarnesses {
-		runningUnderAgentFn = func() (string, bool) { return h.name, true }
-		agent, s, bad := agentOutputViolation()
-		assert.True(t, bad, "captured output under %s is a violation", h.name)
-		assert.Equal(t, h.name, agent)
+	for _, a := range agent.Roster() {
+		runningUnderAgentFn = func() (string, bool) { return a.Name, true }
+		name, s, bad := agentOutputViolation()
+		assert.True(t, bad, "captured output under %s is a violation", a.Name)
+		assert.Equal(t, a.Name, name)
 		assert.Equal(t, sinkPipe, s.kind)
 		assert.Equal(t, "head", s.detail)
 	}
 }
 
-func TestAgentFromEnvMarkers(t *testing.T) {
-	// Every roster agent's marker must be detected on its own. (Tested through
-	// agentFromEnv rather than runningUnderAgent so the result does not depend
-	// on which agent, if any, is running the test suite.)
-	for _, h := range agentHarnesses {
-		for _, v := range h.envVars {
-			t.Run(v, func(t *testing.T) {
-				for _, other := range agentHarnesses {
-					for _, ov := range other.envVars {
-						t.Setenv(ov, "")
-					}
-				}
-				t.Setenv(v, "1")
-				name, ok := agentFromEnv()
-				require.True(t, ok, "%s=1 must be detected", v)
-				assert.Equal(t, h.name, name)
-
-				// "0" and empty are not markers.
-				t.Setenv(v, "0")
-				_, ok = agentFromEnv()
-				assert.False(t, ok, "%s=0 must not be detected", v)
-			})
-		}
+func TestDetectAgentNamesTheAgent(t *testing.T) {
+	// go-toolchain's adapter over the library: whatever the roster answers,
+	// the guard needs the agent's NAME for its message.
+	for _, v := range agent.Roster()[0].EnvVars {
+		t.Setenv(v, "")
 	}
-}
-
-func TestHarnessForProcess(t *testing.T) {
-	for name, comm := range map[string]string{
-		"Claude":     "claude",
-		"grok build": "grok",
-		"opencode":   "opencode",
-	} {
-		got, ok := harnessForProcess(comm)
-		require.True(t, ok, "%q must identify an agent", comm)
-		assert.Equal(t, name, got)
+	if _, underAgent := agent.ProcessAncestor(); underAgent {
+		t.Skip("this test process is under an agent; ancestry answers before the marker")
 	}
-	// The grok binary also ships under its build artifact name.
-	got, ok := harnessForProcess("xai-grok-pager")
+	name, ok := detectAgent()
+	assert.False(t, ok, "no agent, no name")
+	assert.Empty(t, name)
+
+	t.Setenv(agent.Roster()[0].EnvVars[0], "1")
+	name, ok = detectAgent()
 	require.True(t, ok)
-	assert.Equal(t, "grok build", got)
-
-	_, ok = harnessForProcess("bash")
-	assert.False(t, ok, "a shell is not an agent")
-	_, ok = harnessForProcess("head")
-	assert.False(t, ok, "a filter is not an agent")
-}
-
-func TestIsHarnessPID(t *testing.T) {
-	t.Setenv("OPENCODE_PID", strconv.Itoa(os.Getpid()))
-	assert.True(t, isHarnessPID(os.Getpid()), "the pid opencode exported is the agent")
-	assert.False(t, isHarnessPID(os.Getpid()+1))
-
-	t.Setenv("OPENCODE_PID", "")
-	assert.False(t, isHarnessPID(os.Getpid()))
-}
-
-func TestProcCommPPIDSelf(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("procCommPPID needs /proc (linux)")
-	}
-	comm, ppid, ok := procCommPPID(os.Getpid())
-	require.True(t, ok)
-	assert.NotEmpty(t, comm)
-	assert.Greater(t, ppid, 0)
-
-	_, _, ok = procCommPPID(0) // PID 0 has no /proc entry
-	assert.False(t, ok)
-}
-
-func TestIsAncestorPID(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("isAncestorPID needs /proc (linux)")
-	}
-	assert.True(t, isAncestorPID(os.Getppid()), "direct parent is an ancestor")
-	assert.False(t, isAncestorPID(os.Getpid()), "self is not its own ancestor")
+	assert.Equal(t, agent.Roster()[0].Name, name)
 }
 
 func TestPipePeerNameDetectsConsumer(t *testing.T) {
@@ -214,27 +142,18 @@ func TestPipePeerNameDetectsConsumer(t *testing.T) {
 	assert.Equal(t, cmd.Process.Pid, pid)
 }
 
-func TestIsHarnessPipeReader(t *testing.T) {
+func TestPipeReaderAllowanceThroughTheGuard(t *testing.T) {
+	// The allowance the sink classifier depends on: an agent reading our pipe
+	// is the agent capturing our output, a filter is not. The rule itself is
+	// the library's; this pins that the guard still gets the answer it needs.
 	if runtime.GOOS != "linux" {
-		t.Skip("isHarnessPipeReader needs /proc (linux)")
+		t.Skip("needs /proc (linux)")
 	}
 	parent := os.Getppid()
 
-	// An agent-named ancestor reading our stdout is the harness capturing it —
-	// the normal path under grok and opencode, which always pipe.
-	assert.True(t, isHarnessPipeReader("opencode", parent))
-	assert.True(t, isHarnessPipeReader("grok", parent))
-
-	// A shell (a `$(...)` capture) or a filter is never the harness, even when
-	// it is an ancestor.
-	assert.False(t, isHarnessPipeReader("bash", parent))
-	assert.False(t, isHarnessPipeReader("head", parent))
-
-	// An agent running from a JS runtime is recognized by the pid it exports.
-	t.Setenv("OPENCODE_PID", strconv.Itoa(parent))
-	assert.True(t, isHarnessPipeReader("bun", parent))
-	// ...but only for a process that is actually an ancestor.
-	assert.False(t, isHarnessPipeReader("opencode", os.Getpid()), "self is not an ancestor")
+	assert.True(t, agent.IsPipeReader("opencode", parent))
+	assert.False(t, agent.IsPipeReader("head", parent), "a filter is not the harness")
+	assert.False(t, agent.IsPipeReader("opencode", os.Getpid()), "self is not an ancestor")
 }
 
 func TestInspectFDClassification(t *testing.T) {
