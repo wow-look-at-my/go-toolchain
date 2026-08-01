@@ -81,15 +81,16 @@ const datsStageDir = ".dats-stage"
 // needed it.
 //
 // The staging dir must be INSIDE the module root, and the path handed to dats
-// absolute. dats sandboxes every test command, and only the working directory
-// survives into the sandbox intact: the docker backend mounts it (and nothing
-// else of the host) at its own path with `-v <workdir>:<workdir>:ro -w
-// <workdir>`, and the bwrap backend, which binds the whole host read-only,
-// overlays `--tmpfs /tmp` — so a staging dir under $TMPDIR is invisible to
-// BOTH, and every suite fails its setup command instead of running. An
+// absolute. dats sandboxes every test command, and of the host a sandboxed
+// command reaches only the working directory (mounted read-only) plus the
+// paths the run declares — a staging dir under $TMPDIR is invisible to every
+// backend, and every suite fails its setup command instead of running. An
 // absolute path under the working directory resolves identically inside and
-// outside all three backends. Do not "fix" a sandbox-reachability failure by
-// passing --no-sandbox: that turns off the isolation for every suite command.
+// outside all three backends, and runDatsPhase declares this dir writable
+// (`--writable`) because an APE slot artifact rewrites its own file on first
+// exec and cannot start from a read-only mount. Do not "fix" a
+// sandbox-reachability failure by passing --no-sandbox: that turns the
+// isolation off for every suite command in every consuming repo.
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -157,7 +158,13 @@ func runDatsPhase(r runner.CommandRunner, quiet bool, artifacts []datsArtifact) 
 	// runs `go ...` cannot spawn cacheprog children of THIS binary against
 	// the outer daemon (stats pollution, stdout pipe stalls) — the same
 	// clearing the bench runner and embeddedFiles do.
-	cmd := runner.Cmd(datsBin, "test", datsSuiteDir).
+	// --writable <staging dir>: dats mounts the working directory READ-ONLY,
+	// and a staged binary may have to write to itself to run at all -- a cosmo
+	// slot artifact is an APE whose loader rewrites its own file on first exec
+	// and exits 121 on a read-only filesystem. The staging dir is the
+	// toolchain's own, so the toolchain declares it; a suite cannot be
+	// expected to know a path it was only handed through the environment.
+	cmd := runner.Cmd(datsBin, "test", "--writable", buildDir, datsSuiteDir).
 		WithEnv(datsBuildDirEnv, buildDir).
 		WithEnv("GOCACHEPROG", "").
 		WithEnv("GOCACHE_STATS_SOCK", "")
