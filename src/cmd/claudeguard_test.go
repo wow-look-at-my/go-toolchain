@@ -290,3 +290,36 @@ func TestIsTerminalOnPipeIsFalse(t *testing.T) {
 	defer w.Close()
 	assert.False(t, isTerminal(w.Fd()), "a pipe is not a terminal")
 }
+
+// TestInspectStdoutIgnoresStdoutVariableReassignment guards against a real
+// regression: logx.Install() (see src/logx) reassigns the os.Stdout variable
+// to its own internal pipe very early in main(), before Cobra -- and thus the
+// guard -- ever runs. If inspectStdout classified by os.Stdout.Fd() instead
+// of the real descriptor 1, it would see logx's drain pipe instead, whose
+// reader is a goroutine in THIS SAME process and therefore invisible to
+// pipePeerName's cross-process /proc scan -- misclassifying it as a hidden,
+// peer-less sinkPipe and refusing to run under every real agent, even when
+// the shell's actual fd 1 is a terminal or the harness's own capture file.
+//
+// This swaps os.Stdout to a decoy temp file with a distinctive name and
+// asserts inspectStdout's result carries no trace of it -- which would only
+// be possible if inspectStdout inspects fd 1 directly rather than following
+// the (potentially reassigned) os.Stdout variable.
+func TestInspectStdoutIgnoresStdoutVariableReassignment(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("inspectStdout needs /proc (linux)")
+	}
+	origStdout := os.Stdout
+	f, err := os.CreateTemp(t.TempDir(), "decoy-stdout-*.log")
+	require.NoError(t, err)
+	os.Stdout = f
+	t.Cleanup(func() {
+		os.Stdout = origStdout
+		_ = f.Close()
+	})
+
+	s := inspectStdout()
+	assert.NotEqual(t, sinkFile, s.kind, "must not classify by the decoy os.Stdout file")
+	assert.NotContains(t, s.detail, "decoy-stdout",
+		"inspectStdout must inspect the real fd 1, not whatever os.Stdout currently points to")
+}
