@@ -149,7 +149,17 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	modules := findGoModules()
 	if len(modules) == 0 {
-		return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
+		// A repo with no go.mod can still own dats suites -- the CLI a suite
+		// exercises does not have to be Go, and dats is linked in here rather
+		// than distributed separately. Refusing outright pushed those repos
+		// into fetching a standalone dats binary and wiring their own CI step,
+		// which is this toolchain's job and a version skew waiting to happen.
+		// There is nothing to tidy, vet, cover or build, so the suites ARE the
+		// run.
+		if hasDatsSuites(".") {
+			return runDatsOnly()
+		}
+		return fmt.Errorf("no go.mod and no dats/ suites found — initialize a module with: go mod init <module-path>")
 	}
 
 	r := runner.New()
