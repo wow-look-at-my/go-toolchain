@@ -107,18 +107,95 @@ func computeUpdateWarning(ctx context.Context) string {
 		return ""
 	}
 
+	return fmt.Sprintf("%s⇒ go-toolchain is out of date: %s.%s\n"+
+		"  Update from buildhost: https://dl.pazer.build/go-toolchain "+
+		"(or `brew upgrade`, `npm update`, `apt upgrade`).",
+		colorYellow, describeStaleness(ctx, myCommit, time.Unix(myTs, 0), latest, latestTime), colorReset,
+	)
+}
+
+// describeStaleness renders the half of the warning a reader actually decides
+// on: how far behind this binary is, with both sides expressed the same way.
+//
+// The old wording gave the latest release's version and age, but described THIS
+// binary as a git hash and a calendar date -- so neither axis could be compared
+// without stopping to do arithmetic, and the hash answered a question nobody
+// asked. What matters is: which version am I, which is current, and how far
+// apart are they.
+//
+// This binary does not know its own version number (buildhost assigns it at
+// publish time, after the build), so it is looked up by commit among the recent
+// releases. That lookup is best-effort: when it fails, or when this build was
+// never published at all, the message falls back to comparing ages -- and only
+// then names the commit, because then it is the only identity there is.
+func describeStaleness(ctx context.Context, myCommit string, myTime time.Time, latest *buildhostRelease, latestTime time.Time) string {
+	latestPart := fmt.Sprintf("latest is v%s (%s old)", latest.Version, formatDuration(time.Since(latestTime)))
+	mineAge := formatDuration(time.Since(myTime))
+
+	if mine, behind, ok := findOwnRelease(ctx, myCommit); ok {
+		return fmt.Sprintf("you have v%s (%s old), %s -- %s behind",
+			mine.Version, mineAge, latestPart, plural(behind, "release"))
+	}
+
 	short := myCommit
 	if len(short) > 7 {
 		short = short[:7]
 	}
-	return fmt.Sprintf(
-		"%s⇒ go-toolchain is out of date: latest is v%s (published %s ago); "+
-			"you are running %s from %s.%s\n"+
-			"  Update from buildhost: https://dl.pazer.build/go-toolchain "+
-			"(or `brew upgrade`, `npm update`, `apt upgrade`).",
-		colorYellow, latest.Version, formatDuration(time.Since(latestTime)),
-		short, time.Unix(myTs, 0).UTC().Format("2006-01-02"), colorReset,
-	)
+	return fmt.Sprintf("your build is %s old (commit %s, not a published release), %s",
+		mineAge, short, latestPart)
+}
+
+// plural renders a count with its noun, pluralized.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// findOwnRelease locates this binary's own release among buildhost's recent
+// ones and reports how many published releases are newer than it. The listing
+// is newest-first, so that count is simply the index. Bounded on purpose: a
+// binary older than the window is old enough that the exact number adds
+// nothing the age has not already said.
+func findOwnRelease(ctx context.Context, myCommit string) (rel *buildhostRelease, behind int, ok bool) {
+	releases, err := fetchBuildhostReleases(ctx, ownReleaseLookupLimit)
+	if err != nil {
+		return nil, 0, false
+	}
+	for i := range releases {
+		if commitsMatch(releases[i].GitCommit, myCommit) {
+			return &releases[i], i, true
+		}
+	}
+	return nil, 0, false
+}
+
+// ownReleaseLookupLimit bounds the release listing fetched to identify this
+// binary. It is a background request that is cancelled the moment the build
+// finishes, so the cost is usually zero -- but it should not be unbounded.
+const ownReleaseLookupLimit = 200
+
+// fetchBuildhostReleases lists a project's releases, newest first.
+func fetchBuildhostReleases(ctx context.Context, limit int) ([]buildhostRelease, error) {
+	url := fmt.Sprintf("%s/api/v1/projects/%s/releases?limit=%d", buildhostAPIBase, buildhostProject, limit)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("buildhost returned HTTP %d", resp.StatusCode)
+	}
+	var releases []buildhostRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, err
+	}
+	return releases, nil
 }
 
 // buildhostRelease is the subset of buildhost's release JSON the check needs.

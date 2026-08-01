@@ -32,12 +32,27 @@ func withMockBuildhost(t *testing.T, server *httptest.Server) func() {
 // releaseServer serves rel at /releases/latest and 404s elsewhere.
 func releaseServer(t *testing.T, rel buildhostRelease) *httptest.Server {
 	t.Helper()
+	return releaseServerWithList(t, rel, nil)
+}
+
+// releaseServerWithList serves both endpoints the check uses: the latest
+// release, and the newest-first listing it identifies THIS binary from. A nil
+// list answers 404, which is the "lookup failed" path.
+func releaseServerWithList(t *testing.T, rel buildhostRelease, list []buildhostRelease) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			_ = json.NewEncoder(w).Encode(rel)
+		case strings.HasSuffix(r.URL.Path, "/releases"):
+			if list == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(list)
+		default:
 			w.WriteHeader(http.StatusNotFound)
-			return
 		}
-		_ = json.NewEncoder(w).Encode(rel)
 	}))
 }
 
@@ -101,7 +116,45 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 	msg := computeUpdateWarning(context.Background())
 	assert.Contains(t, msg, "out of date")
 	assert.Contains(t, msg, "v202")
-	assert.Contains(t, msg, "0000000") // short form of our commit
+	// With no listing to identify this build, the commit is the only identity
+	// left -- and the message says so rather than presenting a hash as if it
+	// answered "should I update".
+	assert.Contains(t, msg, "0000000")
+	assert.Contains(t, msg, "not a published release")
+}
+
+// TestComputeUpdateWarning_NamesBothVersionsAndTheGap pins what the warning is
+// FOR: deciding whether to update. That needs this binary's version and the
+// latest one, both ages in the same units, and how far apart they are -- not a
+// git hash and a calendar date the reader has to convert.
+func TestComputeUpdateWarning_NamesBothVersionsAndTheGap(t *testing.T) {
+	const myCommit = "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	defer setVCS(t, myCommit, "2024-01-01T00:00:00Z")()
+
+	pub := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	latest := buildhostRelease{
+		Version: "202", VersionNum: 202, GitCommit: "ffffff222222222222222222222222222222ffff",
+		Published: true, PublishedAt: &pub,
+	}
+	// Newest first: latest, one in between, then ours -- two releases behind.
+	mid := buildhostRelease{Version: "201", GitCommit: "aaaa1111", Published: true, PublishedAt: &pub}
+	mine := buildhostRelease{Version: "200", GitCommit: myCommit, Published: true, PublishedAt: &pub}
+
+	srv := releaseServerWithList(t, latest, []buildhostRelease{latest, mid, mine})
+	defer srv.Close()
+	defer withMockBuildhost(t, srv)()
+
+	msg := computeUpdateWarning(context.Background())
+	assert.Contains(t, msg, "you have v200", "the reader's own version must be named")
+	assert.Contains(t, msg, "latest is v202")
+	assert.Contains(t, msg, "2 releases behind", "the gap is the decision")
+	assert.NotContains(t, msg, "0000000", "a hash is noise once the version is known")
+}
+
+func TestPlural(t *testing.T) {
+	assert.Equal(t, "1 release", plural(1, "release"))
+	assert.Equal(t, "2 releases", plural(2, "release"))
+	assert.Equal(t, "0 releases", plural(0, "release"))
 }
 
 func TestComputeUpdateWarning_AheadOfPublished(t *testing.T) {
