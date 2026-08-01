@@ -23,11 +23,13 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   fails its setup command. `build/` is gitignored in every repo go-toolchain
   builds, so staging there never dirties the tree.
 - Suites are **sandboxed** — the phase does not pass `--no-sandbox`, and it is
-  not the toolchain's call to make. A suite whose commands genuinely need the
-  host declares it per file (`sandbox: false`), and a suite that needs
-  something specific of the docker backend declares that instead (an `image:`
-  that carries its tools, extra `writable:` host paths). See dats'
-  file-format docs.
+  not the toolchain's call to make. The handoff dir is READ-ONLY there, like
+  the rest of the working directory, and there is no way to declare otherwise:
+  a test whose binary must write (an APE rewrites its own file on first exec)
+  copies it into the private `/tmp` first and execs the copy — see
+  `cli.dats`. A suite whose commands genuinely need the host says so per file
+  (`sandbox: false`); one that needs something specific of the docker backend
+  names it (`image:`).
 - Suites run serially (`dats test dats`, no `-j`) so the report is
   byte-deterministic and staged APE copies never race their first exec.
 - dats runs each command in the **module root**, and go-toolchain deletes the

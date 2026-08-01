@@ -117,12 +117,6 @@ func swapEnsureDats(t *testing.T, fn func() (string, error)) {
 	t.Cleanup(func() { ensureDatsFunc = old })
 }
 
-// stagedHandoffDir is the staging path the phase hands to dats for a module
-// rooted at dir: build/.dats-stage, absolute.
-func stagedHandoffDir(dir string) string {
-	return filepath.Join(dir, outputDir, datsStageDir)
-}
-
 // chdirWithSuite creates a temp module dir containing dats/cli.dats and
 // chdirs into it for the duration of the test.
 func chdirWithSuite(t *testing.T) (dir string) {
@@ -172,7 +166,7 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "/fake/dats", calls[0].Name)
-	assert.Equal(t, []string{"test", "--writable", stagedHandoffDir(dir), "dats"}, calls[0].Args)
+	assert.Equal(t, []string{"test", "dats"}, calls[0].Args)
 
 	buildDir, ok := calls[0].Env.Get(datsBuildDirEnv)
 	require.True(t, ok, "dats must receive %s", datsBuildDirEnv)
@@ -202,11 +196,11 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 }
 
 func TestRunDatsPhaseFailureFailsBuild(t *testing.T) {
-	dir := chdirWithSuite(t)
+	chdirWithSuite(t)
 	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
 
 	mock := runner.NewMock()
-	mock.SetResponse("/fake/dats", []string{"test", "--writable", stagedHandoffDir(dir), "dats"}, nil, fmt.Errorf("exit status 1"))
+	mock.SetResponse("/fake/dats", []string{"test", "dats"}, nil, fmt.Errorf("exit status 1"))
 
 	err := runDatsPhase(mock, false, nil)
 	require.Error(t, err)

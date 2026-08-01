@@ -2,7 +2,13 @@
 # dats phase after every build (see dats/README.md for the conventions).
 #
 # $GO_TOOLCHAIN_DATS_BUILD_DIR holds throwaway copies of the binaries this
-# pipeline just built; every test execs the freshly built go-toolchain.
+# pipeline just built. It is READ-ONLY inside the sandbox (it lives under the
+# working directory), and the binary under test may be an APE, whose loader
+# rewrites its own file on first exec and exits 121 from a read-only path. So
+# every test copies it into the sandbox's private /tmp first
+# (`d="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"`)
+# and execs that copy. That is the general answer for a suite whose binary
+# needs to write: use the tmpfs, never a hole in the sandbox.
 # GO_TOOLCHAIN_BUILDHOST_URL points at an unreachable address on every test so
 # the background update check fails instantly and silently, keeping output
 # deterministic regardless of what buildhost has published.
@@ -21,14 +27,15 @@ sandbox:
   image: golang:1.25
 
 setup:
-  # Sanity: the staged binary exists and executes. `version raw` is the
-  # cheapest invocation — no Go bootstrap, no update check, no network.
+  # Sanity: the staged binary exists and executes from a writable copy.
+  # `version raw` is the cheapest invocation — no Go bootstrap, no update
+  # check, no network.
   - test -x "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"
-  - '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" version raw'
+  - 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
 
 tests:
   - desc: version reports the build stamp
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" version'
+    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version'
     timeout: 30s
     inputs:
       env:
@@ -43,7 +50,7 @@ tests:
   # `version raw` skips the staleness footer's GitHub query entirely, so this
   # exemption test is fully offline (the whole version subtree is exempt).
   - desc: version stays exempt from the agent output guard
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" version raw'
+    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
     timeout: 30s
     inputs:
       env:
@@ -64,7 +71,7 @@ tests:
   # there are no targets to delete, so this stays a pure guard assertion —
   # the deletion itself is asserted by the next test.
   - desc: agent output guard refuses a captured pipeline run
-    cmd: 'd="$(mktemp -d)"; cd "$d"; "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; rc=$?; cd /; rm -rf "$d"; exit $rc'
+    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
     exit: 1
     timeout: 60s
     inputs:
@@ -84,7 +91,7 @@ tests:
   # and say so, while leaving non-binary outputs alone. A throwaway module
   # with a planted binary: the guard aborts long before anything is compiled.
   - desc: agent output guard deletes the module's build outputs
-    cmd: 'd="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d"; exit $rc'
+    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; "$b/gt"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d" "$b"; exit $rc'
     exit: 1
     timeout: 60s
     inputs:
@@ -100,7 +107,7 @@ tests:
         - "have been DELETED"
 
   - desc: root help prints usage
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" --help'
+    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" --help'
     timeout: 60s
     inputs:
       env:
@@ -117,7 +124,7 @@ tests:
   # (locally the warning goes to stderr; in GitHub Actions it becomes a
   # ::warning annotation on stdout).
   - desc: update check is silent when buildhost is unreachable
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" --help'
+    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" --help'
     timeout: 60s
     inputs:
       env:
@@ -131,7 +138,7 @@ tests:
         - "out of date"
 
   - desc: subcommand help
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {matrix.sub} --help'
+    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" {matrix.sub} --help'
     timeout: 60s
     matrix:
       sub: [matrix, bench, lint, release, version]
@@ -146,7 +153,7 @@ tests:
   # binary bootstraps the Go version go.mod demands, and a bootstrap that has
   # to download prints progress to stderr -- straight into the snapshot.
   - desc: unknown flag is rejected
-    cmd: 'd="$(mktemp -d)"; cd "$d"; "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d"; exit $rc'
+    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
     exit: 1
     timeout: 60s
     inputs:
@@ -162,7 +169,7 @@ tests:
         stderr: true
 
   - desc: unknown subcommand is rejected
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" definitely-not-a-subcommand'
+    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" definitely-not-a-subcommand'
     exit: 1
     timeout: 60s
     inputs:
@@ -182,7 +189,7 @@ tests:
   # ancestry outranks the env marker, so running this suite from inside a
   # different agent's session would legitimately name that agent instead.
   - desc: agent output guard refuses a captured pipeline run under {matrix.marker}
-    cmd: 'd="$(mktemp -d)"; cd "$d"; env {matrix.marker}=1 "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; rc=$?; cd /; rm -rf "$d"; exit $rc'
+    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; env {matrix.marker}=1 "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
     exit: 1
     timeout: 60s
     matrix:
@@ -198,7 +205,7 @@ tests:
 
   # version stays exempt under every agent, not only Claude.
   - desc: version stays exempt under {matrix.marker}
-    cmd: 'env {matrix.marker}=1 "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" version raw'
+    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw'
     timeout: 30s
     matrix:
       marker: [GROK_AGENT, OPENCODE]

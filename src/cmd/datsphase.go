@@ -86,11 +86,16 @@ const datsStageDir = ".dats-stage"
 // paths the run declares — a staging dir under $TMPDIR is invisible to every
 // backend, and every suite fails its setup command instead of running. An
 // absolute path under the working directory resolves identically inside and
-// outside all three backends, and runDatsPhase declares this dir writable
-// (`--writable`) because an APE slot artifact rewrites its own file on first
-// exec and cannot start from a read-only mount. Do not "fix" a
-// sandbox-reachability failure by passing --no-sandbox: that turns the
-// isolation off for every suite command in every consuming repo.
+// outside all three backends.
+//
+// The staged binaries are READABLE there, not writable -- the sandbox exposes
+// the working directory read-only and offers no way to declare otherwise. A
+// binary that rewrites itself on first exec (a cosmo slot artifact is an APE,
+// whose loader does exactly that and exits 121 on a read-only filesystem) must
+// therefore be copied into the sandbox's own writable temp space by the suite
+// that runs it -- one `cp` into `$(mktemp -d)`, which is what dats/README.md
+// tells suites to do. Do not "fix" any of this by passing --no-sandbox: that
+// turns the isolation off for every suite command in every consuming repo.
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -158,13 +163,7 @@ func runDatsPhase(r runner.CommandRunner, quiet bool, artifacts []datsArtifact) 
 	// runs `go ...` cannot spawn cacheprog children of THIS binary against
 	// the outer daemon (stats pollution, stdout pipe stalls) — the same
 	// clearing the bench runner and embeddedFiles do.
-	// --writable <staging dir>: dats mounts the working directory READ-ONLY,
-	// and a staged binary may have to write to itself to run at all -- a cosmo
-	// slot artifact is an APE whose loader rewrites its own file on first exec
-	// and exits 121 on a read-only filesystem. The staging dir is the
-	// toolchain's own, so the toolchain declares it; a suite cannot be
-	// expected to know a path it was only handed through the environment.
-	cmd := runner.Cmd(datsBin, "test", "--writable", buildDir, datsSuiteDir).
+	cmd := runner.Cmd(datsBin, "test", datsSuiteDir).
 		WithEnv(datsBuildDirEnv, buildDir).
 		WithEnv("GOCACHEPROG", "").
 		WithEnv("GOCACHE_STATS_SOCK", "")
