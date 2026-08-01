@@ -534,6 +534,16 @@ runs the module's command-line test suites written in
 - **Convention** — suites are non-hidden `*.dats` files under `dats/` at the
   module root. No `dats/` directory (or no suites in it) means the phase is a
   silent no-op: zero downloads, zero output.
+- **Repos with no `go.mod`** — a shell or TypeScript project whose CLI is worth
+  testing this way still gets its suites run: in a directory with `dats/` but no
+  module, `go-toolchain` prints `⇒ No go.mod; running dats suites only`, runs
+  them, and exits. Nothing is tidied, vetted, covered or built, so there are no
+  artifacts and `GO_TOOLCHAIN_DATS_BUILD_DIR` is an empty directory — such a
+  suite exercises what is already in the tree. Staging still happens under
+  `build/` (the sandbox exposes only the working directory), but a `build/`
+  created solely for it is removed again, so a non-Go repo is not left holding
+  one it does not gitignore. A directory with neither a module nor suites is
+  still an error.
 - **Built binaries** — `GO_TOOLCHAIN_DATS_BUILD_DIR` is exported to dats: a
   throwaway dir with copies of the just-built binaries, named by bare output
   name (plus `.exe` on windows hosts). Exec them through it, never `build/`.
