@@ -53,6 +53,10 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   is compiled for linux||cosmo and is a documented no-op on native
   darwin/windows — the same scoping as the smoke-linux guard gate in CI
   (which is the only CI leg that runs this repo's pipeline on the repo).
+- CI provisions **bubblewrap** before running the pipeline (`.github/workflows/ci.yml`,
+  `host-build` and `build`), so suites run under the native Linux sandbox rather than
+  the docker fallback, and an unusable bwrap fails the job instead of silently
+  degrading to it.
 - The suite pins `sandbox: image: golang:1.25`. Every go-toolchain invocation
   past `version` bootstraps a Go toolchain, so under the docker backend (what
   CI falls back to when bwrap is unavailable) an image without Go would make
