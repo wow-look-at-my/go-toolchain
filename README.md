@@ -265,6 +265,23 @@ platform as an explicit native target (e.g. `--targets cosmo,linux/amd64`),
 the native build wins that filename and the copy is skipped with a warning —
 explicit beats mapped.
 
+**Spawnable APEs (`--cosmo-shebang`).** `execve` recognizes an ELF magic and
+a `#!` line, nothing else, so a freshly built APE cannot be *spawned* on unix:
+the kernel answers ENOEXEC and the caller sees "exec format error" until
+something runs the file through a shell once. `--cosmo-shebang` heads the APE
+with `#!/bin/sh` instead (gosmopolitan's `GOCOSMOSHEBANG`), so the kernel's
+script loader does that first run — and since the APE assimilates itself into
+a native ELF as it boots, only that one exec involves a shell at all. Use it
+for binaries something else launches: hooks, language servers, `./mytool`.
+
+The cost is the MZ magic, and with it Windows — one signature fits at offset
+0, so directly-executable-on-unix and loadable-by-Windows are mutually
+exclusive. A windows cosmo slot would therefore publish an artifact that runs
+nowhere, so the combination is refused; pass `--cosmo-slots` without a windows
+platform (or `none`). A fork toolchain predating `GOCOSMOSHEBANG` ignores the
+request, so the build also verifies the artifact really is shebang-headed and
+fails naming the toolchain if it is not.
+
 **The fat name after mapping.** Once at least one slot copy exists, the
 `<name>_cosmo_fat` artifact itself is replaced: buildhost validates `os` on
 artifact upload and rejects `os=cosmo` (`400 invalid os`), and a single

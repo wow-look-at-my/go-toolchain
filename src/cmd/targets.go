@@ -187,6 +187,28 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 	return out, nil
 }
 
+// checkCosmoShebangSlots refuses --cosmo-shebang when a slot would publish
+// the APE under a windows artifact name.
+//
+// The shebang heading replaces the MZ magic, which is the DOS signature
+// Windows loads the same file through -- one signature fits at offset 0, so
+// an APE is either directly executable on unix or loadable by Windows, never
+// both. A windows slot copy of a shebang APE is an artifact that runs
+// nowhere, published under a name promising it runs there. Refuse rather than
+// warn: the failure otherwise surfaces on someone else's machine, long after
+// the build that could have caught it.
+func checkCosmoShebangSlots(shebang bool, slots []buildPlatform) error {
+	if !shebang {
+		return nil
+	}
+	for _, s := range slots {
+		if s.OS == "windows" {
+			return fmt.Errorf("--cosmo-shebang cannot be combined with the %s/%s cosmo slot: the shebang heading replaces the MZ magic Windows loads the APE through, so that slot's artifact would not run at all (drop the windows slots, or drop --cosmo-shebang)", s.OS, s.Arch)
+		}
+	}
+	return nil
+}
+
 // parseCosmoSlots parses the --cosmo-slots flag: the os/arch artifact names
 // that receive a copy of the cosmo fat APE. The single value "none" disables
 // slot mapping (returns an empty list).

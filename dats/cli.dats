@@ -179,6 +179,27 @@ tests:
       stderr:
         - "unknown command"
 
+  # --cosmo-shebang trades the APE's MZ magic -- the signature Windows loads
+  # it through -- for a heading execve() will spawn, so it is refused when a
+  # cosmo slot would publish the binary under a windows artifact name. Help
+  # output is where a user meets that trade, so it is a contract, not prose.
+  #
+  # The REFUSAL itself is a unit test (TestCheckCosmoShebangSlots) and cannot
+  # move here: it happens inside the command's RunE, and every path to RunE
+  # goes through the agent output guard, which aborts a `matrix` run whose
+  # stdout is captured -- which is exactly what a dats case does. Help output
+  # is reachable because cobra answers --help before the hooks run.
+  - desc: matrix --help documents the cosmo shebang flag and its trade
+    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" matrix --help'
+    timeout: 60s
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stdout:
+        - "--cosmo-shebang"
+        - "drops Windows support"
+
   # The guard covers every agent on the roster, each detected by its own
   # environment marker: grok build (GROK_AGENT) and opencode (OPENCODE). Both
   # pipe a command's stdout back to themselves, exactly as dats captures here.
