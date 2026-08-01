@@ -23,6 +23,23 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
+      # The dats phase sandboxes every suite command (dats' default), and the
+      # backend it picks decides what those commands can reach. Without
+      # bubblewrap it falls back to docker, which runs them in a container --
+      # no host Go for the bootstrap, and a ~350ms + image-pull tax per
+      # command. Installing it is what dats' own error message tells you to do
+      # on Linux, and the sysctl is the ubuntu-24.04 default that denies an
+      # unprivileged user namespace (silently, until bwrap fails its probe).
+      # The last line is the gate: an unusable bwrap fails the job here, with
+      # its own error, instead of degrading to the fallback unnoticed.
+      - name: Provision the sandbox backend (bubblewrap)
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --ro-bind-try /usr /usr --ro-bind-try /bin /bin --ro-bind-try /lib /lib \
+            --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
+            --dev /dev --proc /proc --tmpfs /tmp --chdir / --unshare-pid --die-with-parent true
+
       - name: Configure Go proxy
         run: |
           if [ -n "$GO_PROXY_CONFIG" ]; then
@@ -141,6 +158,23 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
+      # The dats phase sandboxes every suite command (dats' default), and the
+      # backend it picks decides what those commands can reach. Without
+      # bubblewrap it falls back to docker, which runs them in a container --
+      # no host Go for the bootstrap, and a ~350ms + image-pull tax per
+      # command. Installing it is what dats' own error message tells you to do
+      # on Linux, and the sysctl is the ubuntu-24.04 default that denies an
+      # unprivileged user namespace (silently, until bwrap fails its probe).
+      # The last line is the gate: an unusable bwrap fails the job here, with
+      # its own error, instead of degrading to the fallback unnoticed.
+      - name: Provision the sandbox backend (bubblewrap)
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --ro-bind-try /usr /usr --ro-bind-try /bin /bin --ro-bind-try /lib /lib \
+            --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
+            --dev /dev --proc /proc --tmpfs /tmp --chdir / --unshare-pid --die-with-parent true
+
       # Explicit name (host-build's "Upload host binary" hand-off): the strict
       # cache-download hard-fails a nameless pick whenever the RUN holds
       # several hand-offs, and on re-run attempts the go-build-* hand-offs
@@ -258,7 +292,7 @@ jobs:
           # runner's is too old, then tidy/vet/test/coverage/build.
           "$RUNNER_TEMP/gt-ape"
 
-      - name: Claude output guard fires in the shipped APE
+      - name: agent output guard fires in the shipped APE
         run: |
           set -euo pipefail
           # Fresh throwaway copy: APEs self-assimilate on first exec, so never
