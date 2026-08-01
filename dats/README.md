@@ -26,7 +26,9 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 - Snapshot goldens live in `<suite>.snapshots/` next to the suite (e.g.
   `dats/cli.snapshots/` for `dats/cli.dats`) and are committed. Regenerate
   after intentional CLI changes with `dats --update test dats` and review the
-  diff. A stale golden is a red run.
+  diff. A stale golden is a red run. The golden's filename carries the test's
+  INDEX, so inserting a test above a snapshot test renames its golden — add
+  new tests at the end of the suite, or regenerate.
 
 ## Notes specific to this repo's suite
 
@@ -34,7 +36,7 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   the background update check fails instantly and silently, keeping output
   deterministic. Consumer suites that exec go-toolchain itself should do the
   same.
-- The claude-output-guard tests assume a **linux host**: the guard classifier
+- The agent-output-guard tests assume a **linux host**: the guard classifier
   is compiled for linux||cosmo and is a documented no-op on native
   darwin/windows — the same scoping as the smoke-linux guard gate in CI
   (which is the only CI leg that runs this repo's pipeline on the repo).

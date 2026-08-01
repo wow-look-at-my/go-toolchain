@@ -7,7 +7,7 @@
 # the background update check fails instantly and silently, keeping output
 # deterministic regardless of what buildhost has published.
 #
-# NOTE: the claude-output-guard tests assume a linux host — the guard
+# NOTE: the agent-output-guard tests assume a linux host — the guard
 # classifier is compiled for linux||cosmo and is a documented no-op on native
 # darwin/windows (the same scoping as the smoke-linux guard gate in CI).
 
@@ -33,7 +33,7 @@ tests:
 
   # `version raw` skips the staleness footer's GitHub query entirely, so this
   # exemption test is fully offline (the whole version subtree is exempt).
-  - desc: version stays exempt from the claude output guard
+  - desc: version stays exempt from the agent output guard
     cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" version raw'
     timeout: 30s
     inputs:
@@ -54,7 +54,7 @@ tests:
   # would delete the very binaries this pipeline just built. With no go.mod
   # there are no targets to delete, so this stays a pure guard assertion —
   # the deletion itself is asserted by the next test.
-  - desc: claude output guard refuses a captured pipeline run
+  - desc: agent output guard refuses a captured pipeline run
     cmd: 'd="$(mktemp -d)"; cd "$d"; "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; rc=$?; cd /; rm -rf "$d"; exit $rc'
     exit: 1
     timeout: 60s
@@ -74,7 +74,7 @@ tests:
   # that never happened. The abort must delete it (src/cmd/staleoutputs.go)
   # and say so, while leaving non-binary outputs alone. A throwaway module
   # with a planted binary: the guard aborts long before anything is compiled.
-  - desc: claude output guard deletes the module's build outputs
+  - desc: agent output guard deletes the module's build outputs
     cmd: 'd="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d"; exit $rc'
     exit: 1
     timeout: 60s
@@ -159,3 +159,40 @@ tests:
     outputs:
       stderr:
         - "unknown command"
+
+  # The guard covers every agent on the roster, each detected by its own
+  # environment marker: grok build (GROK_AGENT) and opencode (OPENCODE). Both
+  # pipe a command's stdout back to themselves, exactly as dats captures here.
+  # These tests live at the END of the file: their position fixes the snapshot
+  # test's index, which names the committed golden file above.
+  #
+  # The message's agent NAME is asserted by unit tests, not here: process
+  # ancestry outranks the env marker, so running this suite from inside a
+  # different agent's session would legitimately name that agent instead.
+  - desc: agent output guard refuses a captured pipeline run under {matrix.marker}
+    cmd: 'd="$(mktemp -d)"; cd "$d"; env {matrix.marker}=1 "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; rc=$?; cd /; rm -rf "$d"; exit $rc'
+    exit: 1
+    timeout: 60s
+    matrix:
+      marker: [GROK_AGENT, OPENCODE]
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stderr:
+        - "refused to run"
+      "!stdout":
+        - "Build successful"
+
+  # version stays exempt under every agent, not only Claude.
+  - desc: version stays exempt under {matrix.marker}
+    cmd: 'env {matrix.marker}=1 "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" version raw'
+    timeout: 30s
+    matrix:
+      marker: [GROK_AGENT, OPENCODE]
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      "!stderr":
+        - "refused to run"

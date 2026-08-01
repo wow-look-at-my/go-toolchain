@@ -258,7 +258,7 @@ jobs:
           # runner's is too old, then tidy/vet/test/coverage/build.
           "$RUNNER_TEMP/gt-ape"
 
-      - name: Claude output guard fires in the shipped APE
+      - name: agent output guard fires in the shipped APE
         run: |
           set -euo pipefail
           # Fresh throwaway copy: APEs self-assimilate on first exec, so never

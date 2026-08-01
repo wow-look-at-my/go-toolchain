@@ -66,11 +66,11 @@ var rootCmd = &cobra.Command{
 		if skipCache(cmd) {
 			return nil
 		}
-		// Abort before doing any work if Claude is hiding our output — piping
-		// it, redirecting it to a file, or discarding it — instead of letting
-		// the coverage report and build/test failures print where it can read
-		// them.
-		guardAgainstClaudeOutputCapture()
+		// Abort before doing any work if the agent running us is hiding our
+		// output — piping it, redirecting it to a file, or discarding it —
+		// instead of letting the coverage report and build/test failures print
+		// where it can read them.
+		guardAgainstAgentOutputCapture()
 		if cmd.Parent() == nil && isUpToDate(runner.New()) {
 			logger.Output("⇒ Up to date, nothing to do")
 			ReportUpdateCheck()
