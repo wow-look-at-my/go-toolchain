@@ -11,6 +11,15 @@
 # classifier is compiled for linux||cosmo and is a documented no-op on native
 # darwin/windows (the same scoping as the smoke-linux guard gate in CI).
 
+# Sandboxed like every other suite (dats' default). The one adjustment: under
+# the docker backend the commands run in the IMAGE's filesystem, and every
+# go-toolchain invocation past `version` bootstraps a Go toolchain — with no Go
+# in the image it would download one per command. A Go-bearing image gives the
+# bootstrap something to find. bwrap and seatbelt ignore `image` (they run on
+# the host's own filesystem, where the pipeline's Go already is).
+sandbox:
+  image: golang:1.25
+
 setup:
   # Sanity: the staged binary exists and executes. `version raw` is the
   # cheapest invocation — no Go bootstrap, no update check, no network.

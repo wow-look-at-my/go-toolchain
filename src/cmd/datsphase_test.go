@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -165,13 +166,25 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "/fake/dats", calls[0].Name)
-	assert.Equal(t, []string{"test", "--no-sandbox", "dats"}, calls[0].Args)
+	assert.Equal(t, []string{"test", "dats"}, calls[0].Args)
 
 	buildDir, ok := calls[0].Env.Get(datsBuildDirEnv)
 	require.True(t, ok, "dats must receive %s", datsBuildDirEnv)
 	assert.NotEmpty(t, buildDir)
 	assert.NoDirExists(t, buildDir, "handoff dir must be cleaned up after the run")
 	require.NotEmpty(t, stagedBinary)
+
+	// The handoff dir MUST be an absolute path inside the module root: dats
+	// sandboxes suite commands, and only the working directory is bind-mounted
+	// into the sandbox (docker mounts nothing else; bwrap overlays a private
+	// /tmp over the host it binds). A staging dir under $TMPDIR is invisible
+	// to both, and every suite fails its setup command.
+	assert.True(t, filepath.IsAbs(buildDir), "handoff dir must be absolute, got %q", buildDir)
+	rel, relErr := filepath.Rel(dir, buildDir)
+	require.NoError(t, relErr)
+	assert.False(t, strings.HasPrefix(rel, ".."),
+		"handoff dir %q must live inside the module root %q, or the sandbox cannot see it", buildDir, dir)
+	assert.Equal(t, filepath.Join(outputDir, datsStageDir), rel)
 
 	// The cacheprog plumbing must be cleared for suite commands.
 	v, ok := calls[0].Env.Get("GOCACHEPROG")
@@ -187,7 +200,7 @@ func TestRunDatsPhaseFailureFailsBuild(t *testing.T) {
 	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
 
 	mock := runner.NewMock()
-	mock.SetResponse("/fake/dats", []string{"test", "--no-sandbox", "dats"}, nil, fmt.Errorf("exit status 1"))
+	mock.SetResponse("/fake/dats", []string{"test", "dats"}, nil, fmt.Errorf("exit status 1"))
 
 	err := runDatsPhase(mock, false, nil)
 	require.Error(t, err)

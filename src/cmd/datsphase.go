@@ -66,16 +66,41 @@ func hasDatsSuites(dir string) bool {
 	return found
 }
 
-// stageDatsArtifacts copies built binaries into a fresh temp dir (the caller
+// datsStageDir is the staging directory the built binaries are copied into,
+// relative to the module root. It lives UNDER the build output dir, which
+// go-toolchain keeps gitignored in every repo it builds (see
+// ensureBuildDirInGitignore), so staging never dirties the tree.
+const datsStageDir = ".dats-stage"
+
+// stageDatsArtifacts copies built binaries into a staging dir (the caller
 // removes it) for suites to exec. Copy-then-exec is mandatory: matrix cosmo
 // slot artifacts are fat APEs that self-assimilate (rewrite their own file)
 // on first exec, so nothing may ever execute a build/ artifact in place. A
 // missing source (e.g. a cross-only build with no host-runnable artifact) is
 // skipped with a debug log — the suite still runs and fails honestly if it
 // needed it.
+//
+// The staging dir must be INSIDE the module root, and the path handed to dats
+// absolute. dats sandboxes every test command, and only the working directory
+// survives into the sandbox intact: the docker backend mounts it (and nothing
+// else of the host) at its own path with `-v <workdir>:<workdir>:ro -w
+// <workdir>`, and the bwrap backend, which binds the whole host read-only,
+// overlays `--tmpfs /tmp` — so a staging dir under $TMPDIR is invisible to
+// BOTH, and every suite fails its setup command instead of running. An
+// absolute path under the working directory resolves identically inside and
+// outside all three backends. Do not "fix" a sandbox-reachability failure by
+// passing --no-sandbox: that turns off the isolation for every suite command.
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
-	dir, err := os.MkdirTemp("", "go-toolchain-dats-")
+	root, err := os.Getwd()
 	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(root, outputDir, datsStageDir)
+	// A killed run leaves the dir behind; start from a clean one.
+	if err := os.RemoveAll(dir); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	for _, a := range artifacts {
@@ -132,11 +157,7 @@ func runDatsPhase(r runner.CommandRunner, quiet bool, artifacts []datsArtifact) 
 	// runs `go ...` cannot spawn cacheprog children of THIS binary against
 	// the outer daemon (stats pollution, stdout pipe stalls) — the same
 	// clearing the bench runner and embeddedFiles do.
-	// --no-sandbox: dats v49+ defaults to an "auto" sandbox (bwrap or Docker).
-	// go-toolchain stages the test binaries into a host-side temp dir exposed
-	// via $GO_TOOLCHAIN_DATS_BUILD_DIR, which is not mounted into any container.
-	// Run directly on the host so the staged binaries are reachable.
-	cmd := runner.Cmd(datsBin, "test", "--no-sandbox", datsSuiteDir).
+	cmd := runner.Cmd(datsBin, "test", datsSuiteDir).
 		WithEnv(datsBuildDirEnv, buildDir).
 		WithEnv("GOCACHEPROG", "").
 		WithEnv("GOCACHE_STATS_SOCK", "")

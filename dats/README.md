@@ -15,6 +15,19 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   output name (`go-toolchain` here; plus `.exe` on windows hosts). Tests exec
   binaries through it — never out of `build/` directly, because matrix cosmo
   slot artifacts are APEs that self-assimilate on first exec.
+- That directory is `build/.dats-stage/` **inside the module root**, and it is
+  there for a reason: dats sandboxes every command, and only the working
+  directory survives into the sandbox (docker mounts it and nothing else of
+  the host; bwrap binds the whole host read-only but overlays a private
+  `/tmp`). A staging dir under `$TMPDIR` is invisible to both, and every suite
+  fails its setup command. `build/` is gitignored in every repo go-toolchain
+  builds, so staging there never dirties the tree.
+- Suites are **sandboxed** — the phase does not pass `--no-sandbox`, and it is
+  not the toolchain's call to make. A suite whose commands genuinely need the
+  host declares it per file (`sandbox: false`), and a suite that needs
+  something specific of the docker backend declares that instead (an `image:`
+  that carries its tools, extra `writable:` host paths). See dats'
+  file-format docs.
 - Suites run serially (`dats test dats`, no `-j`) so the report is
   byte-deterministic and staged APE copies never race their first exec.
 - dats runs each command in the **module root**, and go-toolchain deletes the
@@ -40,5 +53,10 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   is compiled for linux||cosmo and is a documented no-op on native
   darwin/windows — the same scoping as the smoke-linux guard gate in CI
   (which is the only CI leg that runs this repo's pipeline on the repo).
+- The suite pins `sandbox: image: golang:1.25`. Every go-toolchain invocation
+  past `version` bootstraps a Go toolchain, so under the docker backend (what
+  CI falls back to when bwrap is unavailable) an image without Go would make
+  each command download one. bwrap and seatbelt ignore `image` and use the
+  host's Go.
 - `version`'s staleness footer varies with GitHub reachability, so tests
   assert only the stable `Version:`/`Commit:` lines.
