@@ -387,3 +387,57 @@ func TestOnOutputCallbackInSkip(t *testing.T) {
 	require.NoError(t, h.Event(event, nil))
 	assert.True(t, called, "onOutput should be called on skip")
 }
+
+// TestFailureOutputKeepsBuildDiagnostics is the regression test for a build
+// failure that printed as "FAIL <pkg> [build failed]" and nothing else. The
+// compiler's diagnostics arrive as "build-output" events carrying ImportPath
+// and an EMPTY Package, so they belonged to no per-package buffer and were
+// dropped -- leaving a summary of an error nobody could see.
+func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		testOutput: make(map[string][]string),
+		failedTest: make(map[string]bool),
+		timedOut:   make(map[string]bool),
+		out:        &bytes.Buffer{},
+	}
+
+	// What `go test -json` really emits for a package that will not compile.
+	build := []testjson.TestEvent{
+		{Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "# example.com/pkg\n"},
+		{Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "./broken.go:7:2: undefined: nope\n"},
+	}
+	for _, e := range build {
+		require.NoError(t, h.Event(e, nil))
+	}
+	// ...followed by the package summary, which is all that used to survive.
+	require.NoError(t, h.Event(testjson.TestEvent{
+		Action:  testjson.ActionOutput,
+		Package: "example.com/pkg",
+		Output:  "FAIL\texample.com/pkg [build failed]\n",
+	}, nil))
+	require.NoError(t, h.Event(testjson.TestEvent{
+		Action:  testjson.ActionFail,
+		Package: "example.com/pkg",
+	}, nil))
+
+	out := h.FailureOutput()
+	assert.Contains(t, out, "undefined: nope", "the compiler diagnostic must survive")
+	assert.Contains(t, out, "# example.com/pkg")
+	assert.Contains(t, out, "[build failed]")
+
+	// Order is the point: the error, then the summary of it.
+	assert.Less(t, strings.Index(out, "undefined: nope"), strings.Index(out, "[build failed]"),
+		"the summary must not precede the error it summarizes")
+}
+
+func TestFailureOutputOrdersBuildErrorsBeforeStderr(t *testing.T) {
+	h := &coverageHandler{coverage: make(map[string]float32), out: &bytes.Buffer{}}
+	require.NoError(t, h.Event(testjson.TestEvent{
+		Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "./x.go:1:1: syntax error\n",
+	}, nil))
+	require.NoError(t, h.Err("go: some later complaint"))
+
+	out := h.FailureOutput()
+	assert.Less(t, strings.Index(out, "syntax error"), strings.Index(out, "later complaint"))
+}
