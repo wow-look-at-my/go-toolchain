@@ -64,7 +64,7 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 		}
 
 		// General case: extract init statement
-		newNodes := []ast.Node{ifStmt.Init, assertStmt}
+		newNodes := []ast.Node{hoistableInit(pass, ifStmt), assertStmt}
 		prepareFixNodes(newNodes, ifStmt.Pos())
 		return &ASTFix{
 			OldNode:  ifStmt,
@@ -79,6 +79,54 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 		OldNode:  ifStmt,
 		NewNodes: newNodes,
 	}
+}
+
+// hoistableInit returns the if statement's init clause in a form that is legal
+// OUTSIDE the if.
+//
+// An init clause declares into the if's own scope, so `if _, err := f();` is
+// legal even where an `err` already exists -- it shadows it. Lift that same
+// statement into the enclosing block verbatim and the shadowing is gone: Go
+// answers "no new variables on left side of :=" and the package no longer
+// compiles. The fixer wrote that into two files of a repo it was asked to
+// tidy, and the run died on its OWN output, after printing thirty green
+// "fixed:" lines.
+//
+// So when every name being defined already exists in an enclosing scope, the
+// hoisted statement assigns instead of defining. When ANY name is new, `:=`
+// stays correct (Go needs just one new variable on the left) and the statement
+// is returned untouched.
+//
+// The conversion means the outer variable is now written rather than shadowed.
+// That is inherent to flattening the if -- the assertion below it has to see
+// the value -- and it is what a person writes by hand when they make this same
+// edit.
+func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
+	assign, ok := ifStmt.Init.(*ast.AssignStmt)
+	if !ok || assign.Tok != token.DEFINE {
+		return ifStmt.Init
+	}
+	// Scopes[ifStmt] is the scope the init declares into; its parent is where
+	// the statement is about to land.
+	ifScope := pass.TypesInfo.Scopes[ifStmt]
+	if ifScope == nil || ifScope.Parent() == nil {
+		return ifStmt.Init // no type info: leave it exactly as it was
+	}
+	for _, lhs := range assign.Lhs {
+		ident, ok := lhs.(*ast.Ident)
+		if !ok {
+			return ifStmt.Init // not a plain name list; do not touch it
+		}
+		if ident.Name == "_" {
+			continue
+		}
+		if _, obj := ifScope.Parent().LookupParent(ident.Name, ifStmt.Pos()); obj == nil {
+			return ifStmt.Init // at least one new name, so := is legal
+		}
+	}
+	hoisted := *assign
+	hoisted.Tok = token.ASSIGN
+	return &hoisted
 }
 
 // makeSelector creates a pkg.method selector expression.
