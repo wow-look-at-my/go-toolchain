@@ -17,88 +17,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
-
-// agentProcessAncestor returns the agent (see agentHarnesses) owning an
-// ancestor process, identified by its process name. It walks the parent-PID
-// chain via /proc, stopping at PID 1 or after a bounded number of hops
-// (defensive against pid-reuse races).
-func agentProcessAncestor() (string, bool) {
-	pid := os.Getppid()
-	for hops := 0; pid > 1 && hops < 64; hops++ {
-		comm, ppid, ok := procCommPPID(pid)
-		if !ok {
-			return "", false
-		}
-		if name, ok := harnessForProcess(comm); ok {
-			return name, true
-		}
-		pid = ppid
-	}
-	return "", false
-}
-
-// isHarnessPipeReader reports whether the process reading our stdout pipe is
-// the agent itself capturing our output (allowed) rather than a filter in a
-// shell pipeline or the shell of a `$(...)` capture (refused). grok and
-// opencode always pipe a command's stdout back to themselves, so this is the
-// path every ordinary run under them takes. A filter is a sibling and a
-// `$(...)` reader is a shell, so neither is an agent-named ancestor.
-func isHarnessPipeReader(comm string, pid int) bool {
-	if !isAncestorPID(pid) {
-		return false
-	}
-	if _, ok := harnessForProcess(comm); ok {
-		return true
-	}
-	return isHarnessPID(pid)
-}
-
-// isAncestorPID reports whether target is somewhere in this process's
-// parent-PID chain.
-func isAncestorPID(target int) bool {
-	pid := os.Getppid()
-	for hops := 0; pid > 1 && hops < 64; hops++ {
-		if pid == target {
-			return true
-		}
-		_, ppid, ok := procCommPPID(pid)
-		if !ok {
-			return false
-		}
-		pid = ppid
-	}
-	return pid == target
-}
-
-// procCommPPID reads /proc/<pid>/stat and returns the process's comm (the
-// executable base name, truncated to 15 bytes by the kernel) and its parent
-// PID. ok is false if the entry cannot be read or parsed.
-func procCommPPID(pid int) (comm string, ppid int, ok bool) {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return "", 0, false
-	}
-	s := string(data)
-	// Field layout: "<pid> (<comm>) <state> <ppid> ...". comm may itself
-	// contain spaces and parentheses, so anchor on the LAST ')' rather than
-	// splitting the whole line into fields.
-	open := strings.IndexByte(s, '(')
-	closeParen := strings.LastIndexByte(s, ')')
-	if open < 0 || closeParen < open {
-		return "", 0, false
-	}
-	comm = s[open+1 : closeParen]
-	fields := strings.Fields(s[closeParen+1:]) // [state, ppid, ...]
-	if len(fields) < 2 {
-		return "", 0, false
-	}
-	ppid, err = strconv.Atoi(fields[1])
-	if err != nil {
-		return "", 0, false
-	}
-	return comm, ppid, true
-}
 
 // inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
 // guard can refuse to run when the agent is hiding the output. It runs before the
@@ -120,7 +41,7 @@ func inspectFD(fd uintptr) outputSink {
 		// A pipe is the agent hiding output (| head, | cat, $(...)) — UNLESS the
 		// reader is the harness itself capturing our stdout.
 		if name, pid, ok := pipePeerName(target); ok {
-			if isHarnessPipeReader(name, pid) {
+			if agent.IsPipeReader(name, pid) {
 				return outputSink{kind: sinkVisible}
 			}
 			return outputSink{kind: sinkPipe, detail: name}
@@ -133,7 +54,7 @@ func inspectFD(fd uintptr) outputSink {
 	// A path: classify by file type.
 	fi, statErr := os.Stat(target)
 	if statErr != nil {
-		if isHarnessCapturePath(target) {
+		if agent.IsCapturePath(target) {
 			return outputSink{kind: sinkVisible}
 		}
 		return outputSink{kind: sinkFile, detail: target}
@@ -148,7 +69,7 @@ func inspectFD(fd uintptr) outputSink {
 	case mode&os.ModeNamedPipe != 0:
 		return outputSink{kind: sinkPipe}
 	case mode.IsRegular():
-		if isHarnessCapturePath(target) {
+		if agent.IsCapturePath(target) {
 			return outputSink{kind: sinkVisible} // the harness's own transcript capture
 		}
 		return outputSink{kind: sinkFile, detail: target}
@@ -181,7 +102,7 @@ func pipePeerName(target string) (comm string, pid int, ok bool) {
 			if err != nil || link != target {
 				continue
 			}
-			if c, _, ok := procCommPPID(p); ok {
+			if c, _, ok := agent.CommPPID(p); ok {
 				return c, p, true
 			}
 			return "", p, true
