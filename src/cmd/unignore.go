@@ -19,7 +19,7 @@ var unignoreCmd = &cobra.Command{
 }
 
 // unignorePreRun confirms the removal interactively, after chaining to the
-// root command's PersistentPreRunE (Claude output guard + cacheprog setup,
+// root command's PersistentPreRunE (agent output guard + cacheprog setup,
 // which defining a hook here would otherwise shadow). The chain must go
 // through unignoreCmd's OWN parent, not cmd.Parent(): cobra invokes the
 // nearest hook with cmd = the executed SUBcommand (e.g. "coverage"), whose
