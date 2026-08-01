@@ -47,9 +47,6 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		if err != nil {
 			return err
 		}
-		if err := checkCosmoShebangSlots(cosmoShebang, slotPlatforms); err != nil {
-			return err
-		}
 		if cgoEnabled {
 			logger.Warn("⇒ Warning: --cgo has no effect on the cosmo target (cosmopolitan has no cgo; CGO_ENABLED=0 is forced)")
 		}
@@ -154,7 +151,6 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 				job.cacheNamespace = forkCacheNamespace
 			}
 			if p.IsCosmo() {
-				job.cosmoShebang = cosmoShebang
 				// A previous local run leaves <name>_cosmo_fat as a symlink to
 				// a slot copy (see copyCosmoSlots). Remove it before building:
 				// `go build -o` follows symlinks, so it would otherwise write

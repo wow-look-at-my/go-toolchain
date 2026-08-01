@@ -92,17 +92,9 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		// see cache.KeyNamespaceEnv), because the fork's constant version
 		// stamp would otherwise collide its action IDs with every other fork
 		// toolchain build's.
-		// GOCOSMOSHEBANG is set explicitly either way, like GOCOSMOFAT: an
-		// inherited =1 must not silently emit APEs no Windows host can load,
-		// and an inherited =0 must not silently undo --cosmo-shebang.
-		shebang := ""
-		if job.cosmoShebang {
-			shebang = "1"
-		}
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").
-			WithEnv("GOCOSMOSHEBANG", shebang).
 			WithEnv("GOTOOLCHAIN", "local").
 			WithEnv("GOROOT", job.forkGoroot).
 			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
@@ -157,34 +149,6 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 			return fmt.Errorf("%w\n%s", err, stderr)
 		}
 		return err
-	}
-	return verifyCosmoShebang(job)
-}
-
-// verifyCosmoShebang checks that a --cosmo-shebang build actually produced a
-// shebang-headed APE.
-//
-// A fork toolchain older than the GOCOSMOSHEBANG flag IGNORES the environment
-// variable and writes an ordinary MZ APE. Without this check that failure is
-// invisible until the artifact reaches a machine that tries to spawn it --
-// and the whole point of asking for the heading is that the caller cannot run
-// a shell first. Fail at the build instead.
-func verifyCosmoShebang(job buildJob) error {
-	if !job.cosmoShebang {
-		return nil
-	}
-	f, err := os.Open(job.outputPath)
-	if err != nil {
-		return fmt.Errorf("verifying --cosmo-shebang: %w", err)
-	}
-	defer f.Close()
-	head := make([]byte, 2)
-	if _, err := io.ReadFull(f, head); err != nil {
-		return fmt.Errorf("verifying --cosmo-shebang: reading %s: %w", job.outputPath, err)
-	}
-	if string(head) != "#!" {
-		return fmt.Errorf("--cosmo-shebang was requested but %s starts with %q, not a shebang: the gosmopolitan toolchain at %s predates GOCOSMOSHEBANG and ignored it (upgrade the fork toolchain, or drop --cosmo-shebang)",
-			filepath.Base(job.outputPath), head, job.forkGoroot)
 	}
 	return nil
 }

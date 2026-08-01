@@ -17,7 +17,6 @@ var (
 	matrixArch      []string
 	matrixTargets   []string
 	cosmoSlots      []string
-	cosmoShebang    bool
 	releaseParallel int
 )
 
@@ -71,7 +70,6 @@ func addMatrixTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
 	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. wasm/js and wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
 	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
-	cmd.Flags().BoolVar(&cosmoShebang, "cosmo-shebang", false, `Head the cosmo fat APE with "#!/bin/sh" so execve() can spawn it; drops Windows support, so it is refused when --cosmo-slots names a windows platform`)
 }
 
 type buildJob struct {
@@ -93,9 +91,6 @@ type buildJob struct {
 	// toolchain builds and reopen cross-build cache poisoning. Empty for
 	// normal jobs, whose toolchains have properly version-keyed tool IDs.
 	cacheNamespace string
-	// cosmoShebang heads the fat APE with "#!/bin/sh" (--cosmo-shebang) so
-	// the kernel will spawn it. Cosmo jobs only.
-	cosmoShebang bool
 }
 
 type buildResult struct {
