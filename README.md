@@ -541,14 +541,15 @@ runs the module's command-line test suites written in
   filtering, selection, or skip mechanism (dats has none by design either).
 - **Failures fail the build**, exactly like unit tests; suite and `.golden`
   snapshot edits also invalidate the "Up to date" fast-exit.
-- **Bootstrap** — the dats binary comes from `GO_TOOLCHAIN_DATS_BIN` (local
-  override) or a cached buildhost download; `GO_TOOLCHAIN_DATS_BRANCH`
-  (default `master`) selects the buildhost branch.
+- **No bootstrap** — dats is a Go library and go-toolchain links it, so suites
+  run in-process. Nothing is downloaded, cached, or exec'd, and the dats
+  version is whatever this binary was built against.
+- **Sandboxed** — suite commands run in dats' default sandbox (bubblewrap,
+  then seatbelt, then docker). Whether a suite needs the host is the suite's
+  own declaration (`sandbox: false`), never the toolchain's.
 
 | Environment variable | Meaning |
 |---|---|
-| `GO_TOOLCHAIN_DATS_BIN` | Path to a local dats binary (no download; health-probed with `dats version`) |
-| `GO_TOOLCHAIN_DATS_BRANCH` | buildhost branch for the dats download (default `master`) |
 | `GO_TOOLCHAIN_DATS_BUILD_DIR` | Set *by* go-toolchain *for* suites: dir of staged built binaries |
 
 See `dats/README.md` in this repo for suite-authoring conventions and this

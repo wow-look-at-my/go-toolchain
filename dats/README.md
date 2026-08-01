@@ -8,6 +8,9 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 
 - Suites are non-hidden `*.dats` files under `dats/` at the module root.
   When the directory has none, the phase is a silent no-op.
+- go-toolchain **links the dats library** and runs suites in-process: there is
+  no dats binary to install and no version to keep in step. The dats a build
+  runs is the one go-toolchain was compiled against.
 - The phase always runs **every** discovered test — there is no filtering,
   selection, or skip mechanism, by design (dats itself has none either).
 - `$GO_TOOLCHAIN_DATS_BUILD_DIR` is exported to dats: a throwaway directory
@@ -16,12 +19,12 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   binaries through it — never out of `build/` directly, because matrix cosmo
   slot artifacts are APEs that self-assimilate on first exec.
 - That directory is `build/.dats-stage/` **inside the module root**, and it is
-  there for a reason: dats sandboxes every command, and only the working
-  directory survives into the sandbox (docker mounts it and nothing else of
-  the host; bwrap binds the whole host read-only but overlays a private
-  `/tmp`). A staging dir under `$TMPDIR` is invisible to both, and every suite
-  fails its setup command. `build/` is gitignored in every repo go-toolchain
-  builds, so staging there never dirties the tree.
+  there for a reason: dats sandboxes every command, and of the host a
+  sandboxed command reaches only the working directory (docker mounts it and
+  nothing else; bwrap binds the OS tool tree plus the cwd, with a private
+  `/tmp` over it). A staging dir under `$TMPDIR` is invisible to both, and
+  every suite fails its setup command. `build/` is gitignored in every repo
+  go-toolchain builds, so staging there never dirties the tree.
 - Suites are **sandboxed** — the phase does not pass `--no-sandbox`, and it is
   not the toolchain's call to make. The handoff dir is READ-ONLY there, like
   the rest of the working directory, and there is no way to declare otherwise:

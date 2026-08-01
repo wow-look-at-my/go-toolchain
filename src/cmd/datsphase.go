@@ -1,21 +1,30 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	dats "github.com/wow-look-at-my/dats"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 // datsSuiteDir is the directory (relative to the module root) where a
 // module's .dats command-line test suites live.
 const datsSuiteDir = "dats"
 
-// datsBuildDirEnv is exported to the dats child process: a throwaway
+// datsRunFunc is the dats library entry point. dats is LINKED IN, not
+// downloaded and exec'd: the suites run in this process, so there is no
+// binary to resolve, no version to keep in step with, and no host that can
+// be missing one. Swapped in tests.
+var datsRunFunc = dats.Run
+
+// datsBuildDirEnv is handed to every suite command: a throwaway
 // directory holding copies of the module's built binaries, named by their
 // bare output name (plus .exe on windows hosts). Suites exec the binaries
 // through it, e.g. `"$GO_TOOLCHAIN_DATS_BUILD_DIR/mytool" --help`.
@@ -124,13 +133,32 @@ func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	return dir, nil
 }
 
+// noteFirstWrite calls note once, before the first byte reaches w. It is how
+// the in-process dats report terminates the step's "..." line at exactly the
+// moment a subprocess's first output used to.
+type noteFirstWrite struct {
+	w    io.Writer
+	note func()
+	once sync.Once
+}
+
+func (n *noteFirstWrite) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		n.once.Do(n.note)
+	}
+	return n.w.Write(p)
+}
+
 // runDatsPhase runs the module's dats suites (if any) against the binaries
-// just built. The dats binary is resolved (env override or buildhost
-// download) only after the suite-presence gate passes, so modules without a
-// dats/ directory pay zero network and see zero output. dats itself always
-// runs every discovered test — there is deliberately no filtering, selection,
-// or skip mechanism at either layer. Failures fail the build.
-func runDatsPhase(r runner.CommandRunner, quiet bool, artifacts []datsArtifact) error {
+// just built, in this process: go-toolchain links the dats library, so the
+// suite-presence gate is the only thing standing between a module and its
+// suites — no download, no cache, no dats version to drift from this one.
+// Modules without a dats/ directory pay nothing and print nothing.
+//
+// dats itself always runs every discovered test — there is deliberately no
+// filtering, selection, or skip mechanism at either layer. Failures fail the
+// build.
+func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 	if !hasDatsSuites(".") {
 		return nil
 	}
@@ -146,41 +174,48 @@ func runDatsPhase(r runner.CommandRunner, quiet bool, artifacts []datsArtifact) 
 		return fmt.Errorf("dats suites failed: %w", err)
 	}
 
-	datsBin, err := ensureDatsFunc()
-	if err != nil {
-		return fail(err)
-	}
-
 	buildDir, err := stageDatsArtifacts(artifacts)
 	if err != nil {
 		return fail(err)
 	}
 	defer os.RemoveAll(buildDir)
 
-	// Serial on purpose (no -j): the report stays byte-deterministic, and
-	// staged APE copies never race their first-exec self-assimilation.
-	// GOCACHEPROG and GOCACHE_STATS_SOCK are cleared so a suite command that
-	// runs `go ...` cannot spawn cacheprog children of THIS binary against
-	// the outer daemon (stats pollution, stdout pipe stalls) — the same
-	// clearing the bench runner and embeddedFiles do.
-	cmd := runner.Cmd(datsBin, "test", datsSuiteDir).
-		WithEnv(datsBuildDirEnv, buildDir).
-		WithEnv("GOCACHEPROG", "").
-		WithEnv("GOCACHE_STATS_SOCK", "")
-	if st != nil {
-		cmd = cmd.WithOnFirstOutput(st.noteOutput)
-	}
+	// The report goes to stdout, except under --json where stdout carries the
+	// JSON coverage payload — then it goes to stderr so it stays visible
+	// without corrupting it. Held writers, deliberately (see logging.go).
+	out := rawStdout
 	if quiet {
-		// --json mode: stdout carries the JSON coverage payload. Route the
-		// dats report to stderr so it stays visible without corrupting it.
-		cmd.StdoutWriter = os.Stderr
+		out = rawStderr
 	}
-	proc, err := cmd.Run(r)
+	if st != nil {
+		out = &noteFirstWrite{w: out, note: st.noteOutput}
+	}
+
+	// Jobs stays 0 (serial) on purpose: the report is byte-deterministic and
+	// staged APE copies never race their first-exec self-assimilation. The
+	// sandbox is dats' default (auto) — whether a suite needs the host is the
+	// SUITE's declaration to make, never the toolchain's.
+	//
+	// GOCACHEPROG and GOCACHE_STATS_SOCK are cleared for every suite command
+	// so one that runs `go ...` cannot spawn cacheprog children of THIS binary
+	// against the outer daemon (stats pollution, stdout pipe stalls) — the
+	// same clearing the bench runner and embeddedFiles do.
+	res, err := datsRunFunc(context.Background(), dats.Options{
+		Paths:  []string{datsSuiteDir},
+		Output: out,
+		Env: []string{
+			datsBuildDirEnv + "=" + buildDir,
+			"GOCACHEPROG=",
+			"GOCACHE_STATS_SOCK=",
+		},
+	})
 	if err != nil {
 		return fail(err)
 	}
-	if err := proc.Wait(); err != nil {
-		return fail(err)
+	if !res.Ok() {
+		// dats already printed which tests failed and why; this is the line
+		// that fails the build.
+		return fail(fmt.Errorf("%d of %d tests failed", res.Failed, res.Passed+res.Failed))
 	}
 	if st != nil {
 		st.done()

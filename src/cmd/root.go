@@ -320,7 +320,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	// After the build phase so the transient memlimit guard is already
 	// cleaned up; an error here fails the run before saveFingerprint, so a
 	// failing suite is never stamped up-to-date.
-	if err := runDatsPhase(r, quiet, builtArtifacts); err != nil {
+	if err := runDatsPhase(quiet, builtArtifacts); err != nil {
 		return err
 	}
 

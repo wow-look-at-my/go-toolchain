@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	dats "github.com/wow-look-at-my/dats"
+	datsrunner "github.com/wow-look-at-my/dats/runner"
 )
 
 func TestHasDatsSuites(t *testing.T) {
@@ -109,12 +112,28 @@ func TestStageDatsArtifacts(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "missing"))
 }
 
-// swapEnsureDats replaces the dats bootstrap seam for one test.
-func swapEnsureDats(t *testing.T, fn func() (string, error)) {
+// datsCall records what the phase asked the dats library to do.
+type datsCall struct {
+	opts dats.Options
+}
+
+// swapDatsRun replaces the dats library seam for one test, returning the
+// recorded calls.
+func swapDatsRun(t *testing.T, res *dats.Result, err error) *[]datsCall {
 	t.Helper()
-	old := ensureDatsFunc
-	ensureDatsFunc = fn
-	t.Cleanup(func() { ensureDatsFunc = old })
+	calls := &[]datsCall{}
+	old := datsRunFunc
+	datsRunFunc = func(_ context.Context, opts dats.Options) (*dats.Result, error) {
+		*calls = append(*calls, datsCall{opts: opts})
+		return res, err
+	}
+	t.Cleanup(func() { datsRunFunc = old })
+	return calls
+}
+
+// okResult is a green run of n tests.
+func okResult(n int) *dats.Result {
+	return &dats.Result{Passed: n, Files: []*datsrunner.FileResult{{Passed: n}}}
 }
 
 // chdirWithSuite creates a temp module dir containing dats/cli.dats and
@@ -130,55 +149,60 @@ func chdirWithSuite(t *testing.T) (dir string) {
 
 func TestRunDatsPhaseNoSuitesIsNoOp(t *testing.T) {
 	t.Chdir(t.TempDir())
-	swapEnsureDats(t, func() (string, error) {
-		t.Fatal("ensureDatsFunc must not be called when no suites exist")
-		return "", nil
-	})
+	calls := swapDatsRun(t, okResult(0), nil)
 
-	mock := runner.NewMock()
-	require.NoError(t, runDatsPhase(mock, false, nil))
-	assert.Empty(t, mock.Calls(), "no dats process may be spawned without suites")
+	require.NoError(t, runDatsPhase(false, nil))
+	assert.Empty(t, *calls, "no suites means dats is never invoked at all")
 }
 
 func TestRunDatsPhaseRunsSuites(t *testing.T) {
 	dir := chdirWithSuite(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "build"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "build", "mytool"), []byte("bin"), 0o755))
-	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
 
-	mock := runner.NewMock()
-	// Inspect the staged handoff dir DURING the call — it is removed once the
-	// phase returns.
+	// Inspect the staged handoff dir DURING the call -- it is removed once
+	// the phase returns.
 	var stagedBinary string
-	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if buildDir, ok := cfg.Env.Get(datsBuildDirEnv); ok {
-			stagedBinary = filepath.Join(buildDir, "mytool")
-			_, err := os.Stat(stagedBinary)
-			assert.Nil(t, err)
-
-		}
-		return nil, nil // fall through to the default empty-success response
+	old := datsRunFunc
+	datsRunFunc = func(_ context.Context, opts dats.Options) (*dats.Result, error) {
+		buildDir := datsEnvValue(t, opts.Env, datsBuildDirEnv)
+		stagedBinary = filepath.Join(buildDir, "mytool")
+		_, err := os.Stat(stagedBinary)
+		assert.NoError(t, err)
+		return okResult(1), nil
 	}
+	t.Cleanup(func() { datsRunFunc = old })
 
 	artifacts := []datsArtifact{{sourcePath: filepath.Join(dir, "build", "mytool"), name: "mytool"}}
-	require.NoError(t, runDatsPhase(mock, false, artifacts))
-
-	calls := mock.Calls()
-	require.Len(t, calls, 1)
-	assert.Equal(t, "/fake/dats", calls[0].Name)
-	assert.Equal(t, []string{"test", "dats"}, calls[0].Args)
-
-	buildDir, ok := calls[0].Env.Get(datsBuildDirEnv)
-	require.True(t, ok, "dats must receive %s", datsBuildDirEnv)
-	assert.NotEmpty(t, buildDir)
-	assert.NoDirExists(t, buildDir, "handoff dir must be cleaned up after the run")
+	require.NoError(t, runDatsPhase(false, artifacts))
 	require.NotEmpty(t, stagedBinary)
+	assert.NoFileExists(t, stagedBinary, "handoff dir must be cleaned up after the run")
+}
+
+func TestRunDatsPhaseOptions(t *testing.T) {
+	dir := chdirWithSuite(t)
+	calls := swapDatsRun(t, okResult(1), nil)
+	require.NoError(t, runDatsPhase(false, nil))
+
+	require.Len(t, *calls, 1)
+	opts := (*calls)[0].opts
+	assert.Equal(t, []string{datsSuiteDir}, opts.Paths)
+
+	// Serial on purpose: a deterministic report, and no concurrent first-exec
+	// self-assimilation of staged APE copies.
+	assert.Zero(t, opts.Jobs)
+
+	// The sandbox is dats' default (auto). Passing SandboxNone here would
+	// unsandbox every suite command in every consuming repo -- whether a
+	// suite needs the host is the SUITE's declaration to make.
+	assert.Equal(t, dats.Sandbox{}, opts.Sandbox)
 
 	// The handoff dir MUST be an absolute path inside the module root: dats
-	// sandboxes suite commands, and only the working directory is bind-mounted
-	// into the sandbox (docker mounts nothing else; bwrap overlays a private
-	// /tmp over the host it binds). A staging dir under $TMPDIR is invisible
-	// to both, and every suite fails its setup command.
+	// sandboxes suite commands, and only the working directory is visible in
+	// the sandbox (docker mounts nothing else; bwrap binds the tool tree plus
+	// the cwd, with a private /tmp over it). A staging dir under $TMPDIR is
+	// invisible to every backend, and every suite fails its setup command.
+	buildDir := datsEnvValue(t, opts.Env, datsBuildDirEnv)
 	assert.True(t, filepath.IsAbs(buildDir), "handoff dir must be absolute, got %q", buildDir)
 	rel, relErr := filepath.Rel(dir, buildDir)
 	require.NoError(t, relErr)
@@ -187,48 +211,83 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 	assert.Equal(t, filepath.Join(outputDir, datsStageDir), rel)
 
 	// The cacheprog plumbing must be cleared for suite commands.
-	v, ok := calls[0].Env.Get("GOCACHEPROG")
-	require.True(t, ok)
-	assert.Empty(t, v)
-	v, ok = calls[0].Env.Get("GOCACHE_STATS_SOCK")
-	require.True(t, ok)
-	assert.Empty(t, v)
+	assert.Equal(t, "", datsEnvValue(t, opts.Env, "GOCACHEPROG"))
+	assert.Equal(t, "", datsEnvValue(t, opts.Env, "GOCACHE_STATS_SOCK"))
 }
 
-func TestRunDatsPhaseFailureFailsBuild(t *testing.T) {
+// datsEnvValue returns the value of key in a dats Options.Env list, failing
+// the test when the entry is absent.
+func datsEnvValue(t *testing.T, env []string, key string) string {
+	t.Helper()
+	for _, e := range env {
+		if name, value, ok := strings.Cut(e, "="); ok && name == key {
+			return value
+		}
+	}
+	t.Fatalf("dats must receive %s (env: %v)", key, env)
+	return ""
+}
+
+func TestRunDatsPhaseFailingTestsFailBuild(t *testing.T) {
 	chdirWithSuite(t)
-	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
+	// A red suite is a Result, not an error, from the library -- the phase is
+	// what turns it into a failed build.
+	swapDatsRun(t, &dats.Result{
+		Passed: 2,
+		Failed: 1,
+		Files:  []*datsrunner.FileResult{{Passed: 2, Failed: 1}},
+	}, nil)
 
-	mock := runner.NewMock()
-	mock.SetResponse("/fake/dats", []string{"test", "dats"}, nil, fmt.Errorf("exit status 1"))
-
-	err := runDatsPhase(mock, false, nil)
+	err := runDatsPhase(false, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dats suites failed")
+	assert.Contains(t, err.Error(), "1 of 3 tests failed")
 }
 
-func TestRunDatsPhaseBootstrapFailureFailsBuild(t *testing.T) {
+func TestRunDatsPhaseTeardownFailureFailsBuild(t *testing.T) {
 	chdirWithSuite(t)
-	swapEnsureDats(t, func() (string, error) { return "", fmt.Errorf("download blew up") })
+	// Ok() is not Failed == 0: a file whose teardown failed fails the run even
+	// with every test green.
+	swapDatsRun(t, &dats.Result{
+		Passed: 1,
+		Files: []*datsrunner.FileResult{{
+			Passed:           1,
+			TeardownFailures: []datsrunner.CommandFailure{{Command: "cleanup", Detail: "exit code 3"}},
+		}},
+	}, nil)
 
-	mock := runner.NewMock()
-	err := runDatsPhase(mock, false, nil)
+	require.Error(t, runDatsPhase(false, nil))
+}
+
+func TestRunDatsPhaseHardErrorFailsBuild(t *testing.T) {
+	chdirWithSuite(t)
+	swapDatsRun(t, nil, fmt.Errorf("no usable sandbox backend"))
+
+	err := runDatsPhase(false, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dats suites failed")
-	assert.Contains(t, err.Error(), "download blew up")
-	assert.Empty(t, mock.Calls())
+	assert.Contains(t, err.Error(), "no usable sandbox backend")
 }
 
-func TestRunDatsPhaseQuietRoutesStdoutToStderr(t *testing.T) {
+func TestRunDatsPhaseQuietRoutesReportToStderr(t *testing.T) {
 	chdirWithSuite(t)
-	swapEnsureDats(t, func() (string, error) { return "/fake/dats", nil })
+	calls := swapDatsRun(t, okResult(1), nil)
 
-	mock := runner.NewMock()
-	require.NoError(t, runDatsPhase(mock, true, nil))
-
-	calls := mock.Calls()
-	require.Len(t, calls, 1)
+	require.NoError(t, runDatsPhase(true, nil))
+	require.Len(t, *calls, 1)
 	// --json mode: stdout carries the JSON payload, so the dats report must
-	// be routed to stderr instead.
-	assert.Equal(t, os.Stderr, calls[0].StdoutWriter)
+	// go to stderr instead -- and unwrapped, since quiet prints no step line
+	// to terminate.
+	assert.Equal(t, rawStderr, (*calls)[0].opts.Output)
+}
+
+func TestRunDatsPhaseOutputTerminatesTheStepLine(t *testing.T) {
+	chdirWithSuite(t)
+	var noted int
+	w := &noteFirstWrite{w: &bytes.Buffer{}, note: func() { noted++ }}
+
+	_, _ = w.Write([]byte("first"))
+	_, _ = w.Write([]byte("second"))
+	_, _ = w.Write(nil)
+	assert.Equal(t, 1, noted, "the step line is terminated exactly once, on the first real byte")
 }
