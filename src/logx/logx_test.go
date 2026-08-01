@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -59,7 +60,32 @@ var durSuffixRE = regexp.MustCompile(` \d+\.\d{2}s\n$`)
 // durLineRE matches a single line (no trailing newline) that ends with a duration.
 var durLineRE = regexp.MustCompile(` \d+\.\d{2}s$`)
 
-func TestInstallAppendsDurationToStderr(t *testing.T) {
+// withMinDuration lowers minDurationToShow for the duration of a test, so
+// tests can exercise the "line was slow enough to time" path without
+// actually sleeping for a real second.
+func withMinDuration(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := minDurationToShow
+	minDurationToShow = d
+	t.Cleanup(func() { minDurationToShow = old })
+}
+
+func TestInstallOmitsDurationOnFastStderrLine(t *testing.T) {
+	got := stripANSI(captureInstalled(t, func() {
+		fmt.Fprintln(os.Stderr, "hello stderr")
+	}))
+	require.Equal(t, "hello stderr\n", got)
+}
+
+func TestInstallOmitsDurationOnFastStdoutLine(t *testing.T) {
+	got := stripANSI(captureInstalled(t, func() {
+		fmt.Fprintln(os.Stdout, "hello stdout")
+	}))
+	require.Equal(t, "hello stdout\n", got)
+}
+
+func TestInstallAppendsDurationToSlowStderrLine(t *testing.T) {
+	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stderr, "hello stderr")
 	}))
@@ -67,7 +93,8 @@ func TestInstallAppendsDurationToStderr(t *testing.T) {
 	require.True(t, durSuffixRE.MatchString(got))
 }
 
-func TestInstallAppendsDurationToStdout(t *testing.T) {
+func TestInstallAppendsDurationToSlowStdoutLine(t *testing.T) {
+	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stdout, "hello stdout")
 	}))
@@ -101,7 +128,15 @@ func TestInstallSkipsAlreadyTimedLines(t *testing.T) {
 	require.False(t, doubleRE.MatchString(got))
 }
 
-func TestInstallAppendsDurationToEachLine(t *testing.T) {
+func TestInstallOmitsDurationOnEachFastLine(t *testing.T) {
+	got := stripANSI(captureInstalled(t, func() {
+		fmt.Fprintf(os.Stderr, "one\ntwo\nthree\n")
+	}))
+	require.Equal(t, "one\ntwo\nthree\n", got)
+}
+
+func TestInstallAppendsDurationToEachSlowLine(t *testing.T) {
+	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "one\ntwo\nthree\n")
 	}))
@@ -113,7 +148,16 @@ func TestInstallAppendsDurationToEachLine(t *testing.T) {
 	}
 }
 
-func TestPartialLineAtFlushIsEmitted(t *testing.T) {
+func TestPartialLineAtFlushIsEmittedWithoutDurationWhenFast(t *testing.T) {
+	got := stripANSI(captureInstalled(t, func() {
+		fmt.Fprintf(os.Stderr, "no newline yet")
+		// No newline — Flush should still deliver it.
+	}))
+	require.Equal(t, "no newline yet\n", got)
+}
+
+func TestPartialLineAtFlushIsEmittedWithDurationWhenSlow(t *testing.T) {
+	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "no newline yet")
 		// No newline — Flush should still deliver it.
@@ -123,6 +167,7 @@ func TestPartialLineAtFlushIsEmitted(t *testing.T) {
 }
 
 func TestConcurrentWritesDoNotInterleaveMidLine(t *testing.T) {
+	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		var wg sync.WaitGroup
 		for i := 0; i < 50; i++ {

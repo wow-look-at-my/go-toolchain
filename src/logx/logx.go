@@ -5,12 +5,15 @@
 //
 // Install() swaps os.Stdout and os.Stderr for pipe write-ends and starts
 // goroutines that read each complete line and forward it to the real stream
-// with an elapsed-time suffix (e.g. " 0.19s").
+// with an elapsed-time suffix (e.g. " 0.19s") — but only for lines that took
+// at least a second to appear. Faster lines print unchanged, so the suffix
+// marks the handful of lines actually worth timing instead of cluttering
+// every line with a "0.01s".
 //
 // With Install() active, every line emitted by this process — from our own
 // logger calls, from subprocess output inherited via the pipe, from anywhere
-// — arrives on the real terminal with a duration suffix. Call sites don't
-// change.
+// — arrives on the real terminal, timed if it was slow to appear. Call sites
+// don't change.
 //
 // # When not to install
 //
@@ -118,14 +121,23 @@ var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // adding another duration in that case.
 var alreadyTimedRE = regexp.MustCompile(` \d+\.\d{2}s$`)
 
+// minDurationToShow is the minimum elapsed time before drain appends a
+// duration suffix to a line. Most lines (progress messages, help text,
+// ordinary log output) appear well under a second apart; stamping every one
+// of them would bury the few durations that actually matter under noise, so
+// faster lines print unchanged. A var, not a const, so tests can lower it
+// instead of sleeping for real.
+var minDurationToShow = time.Second
+
 // drain reads lines from r and writes them to w with an elapsed-duration
 // suffix (the wall-clock gap since the previous line, formatted by
-// FmtDuration).
+// FmtDuration) — but only when that gap is at least minDurationToShow.
+// Faster lines are written unchanged.
 //
 // Lines that already end with a " X.XXs" duration (after stripping ANSI
-// color codes) are passed through unchanged, so we don't double-stamp
-// output from step.finish or other places that already format timing
-// via fmtDuration.
+// color codes) are always passed through unchanged, regardless of elapsed
+// time, so we don't double-stamp output from step.finish or other places
+// that already format timing via fmtDuration.
 //
 // Partial content at EOF (no trailing newline) is emitted with an
 // appended newline so nothing is lost.
@@ -139,10 +151,10 @@ func drain(r *os.File, w io.Writer) {
 		if len(line) > 0 {
 			content := strings.TrimRight(line, "\n")
 			stripped := ansiRE.ReplaceAllString(content, "")
-			if alreadyTimedRE.MatchString(stripped) {
+			elapsed := time.Since(lineStart)
+			if alreadyTimedRE.MatchString(stripped) || elapsed < minDurationToShow {
 				fmt.Fprintln(w, content)
 			} else {
-				elapsed := time.Since(lineStart)
 				fmt.Fprintf(w, "%s %s\n", content, FmtDuration(elapsed))
 			}
 			lineStart = time.Now()
