@@ -142,8 +142,11 @@ tests:
       stdout:
         - "Usage:"
 
+  # From a throwaway directory, not the module root: in the module root the
+  # binary bootstraps the Go version go.mod demands, and a bootstrap that has
+  # to download prints progress to stderr -- straight into the snapshot.
   - desc: unknown flag is rejected
-    cmd: '"$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" --definitely-not-a-flag'
+    cmd: 'd="$(mktemp -d)"; cd "$d"; "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d"; exit $rc'
     exit: 1
     timeout: 60s
     inputs:
