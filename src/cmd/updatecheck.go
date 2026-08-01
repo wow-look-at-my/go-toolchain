@@ -107,68 +107,49 @@ func computeUpdateWarning(ctx context.Context) string {
 		return ""
 	}
 
-	return fmt.Sprintf("%s⇒ go-toolchain is out of date: %s.%s\n"+
-		"  Update from buildhost: https://dl.pazer.build/go-toolchain "+
-		"(or `brew upgrade`, `npm update`, `apt upgrade`).",
-		colorYellow, describeStaleness(ctx, myCommit, time.Unix(myTs, 0), latest, latestTime), colorReset,
+	return fmt.Sprintf("%s⇒ go-toolchain is %s out of date: %s < v%s%s",
+		colorYellow, formatDuration(latestTime.Sub(time.Unix(myTs, 0))),
+		ownVersion(ctx, myCommit), latest.Version, colorReset,
 	)
 }
 
-// describeStaleness renders the half of the warning a reader actually decides
-// on: how far behind this binary is, with both sides expressed the same way.
+// ownVersion identifies THIS binary as compactly as the warning can: its
+// buildhost version when that is knowable, else its short commit.
 //
-// The old wording gave the latest release's version and age, but described THIS
-// binary as a git hash and a calendar date -- so neither axis could be compared
-// without stopping to do arithmetic, and the hash answered a question nobody
-// asked. What matters is: which version am I, which is current, and how far
-// apart are they.
+// The warning has one job -- letting a reader decide whether to update -- so it
+// carries exactly the two versions and the distance between them. An earlier
+// wording gave the latest release's version and age but described this binary
+// as a git hash and a calendar date, so neither axis could be compared without
+// stopping to do arithmetic.
 //
-// This binary does not know its own version number (buildhost assigns it at
-// publish time, after the build), so it is looked up by commit among the recent
-// releases. That lookup is best-effort: when it fails, or when this build was
-// never published at all, the message falls back to comparing ages -- and only
-// then names the commit, because then it is the only identity there is.
-func describeStaleness(ctx context.Context, myCommit string, myTime time.Time, latest *buildhostRelease, latestTime time.Time) string {
-	latestPart := fmt.Sprintf("latest is v%s (%s old)", latest.Version, formatDuration(time.Since(latestTime)))
-	mineAge := formatDuration(time.Since(myTime))
-
-	if mine, behind, ok := findOwnRelease(ctx, myCommit); ok {
-		return fmt.Sprintf("you have v%s (%s old), %s -- %s behind",
-			mine.Version, mineAge, latestPart, plural(behind, "release"))
+// The version is not stamped in: buildhost assigns it at publish time, after
+// the build. It is looked up by commit among the recent releases, best-effort
+// -- a failed lookup, or a build that was never published, falls back to the
+// commit, which is then the only identity there is.
+func ownVersion(ctx context.Context, myCommit string) string {
+	if mine, ok := findOwnRelease(ctx, myCommit); ok {
+		return "v" + mine.Version
 	}
-
-	short := myCommit
-	if len(short) > 7 {
-		short = short[:7]
+	if len(myCommit) > 7 {
+		return myCommit[:7]
 	}
-	return fmt.Sprintf("your build is %s old (commit %s, not a published release), %s",
-		mineAge, short, latestPart)
-}
-
-// plural renders a count with its noun, pluralized.
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
+	return myCommit
 }
 
 // findOwnRelease locates this binary's own release among buildhost's recent
-// ones and reports how many published releases are newer than it. The listing
-// is newest-first, so that count is simply the index. Bounded on purpose: a
-// binary older than the window is old enough that the exact number adds
-// nothing the age has not already said.
-func findOwnRelease(ctx context.Context, myCommit string) (rel *buildhostRelease, behind int, ok bool) {
+// ones. Bounded on purpose: a binary older than that window is old enough that
+// its exact version adds nothing the age has not already said.
+func findOwnRelease(ctx context.Context, myCommit string) (*buildhostRelease, bool) {
 	releases, err := fetchBuildhostReleases(ctx, ownReleaseLookupLimit)
 	if err != nil {
-		return nil, 0, false
+		return nil, false
 	}
 	for i := range releases {
 		if commitsMatch(releases[i].GitCommit, myCommit) {
-			return &releases[i], i, true
+			return &releases[i], true
 		}
 	}
-	return nil, 0, false
+	return nil, false
 }
 
 // ownReleaseLookupLimit bounds the release listing fetched to identify this

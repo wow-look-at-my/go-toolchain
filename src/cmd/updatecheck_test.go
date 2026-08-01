@@ -113,48 +113,44 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 	defer srv.Close()
 	defer withMockBuildhost(t, srv)()
 
+	// With no listing to identify this build, its commit stands in for the
+	// version it cannot know.
 	msg := computeUpdateWarning(context.Background())
 	assert.Contains(t, msg, "out of date")
-	assert.Contains(t, msg, "v202")
-	// With no listing to identify this build, the commit is the only identity
-	// left -- and the message says so rather than presenting a hash as if it
-	// answered "should I update".
-	assert.Contains(t, msg, "0000000")
-	assert.Contains(t, msg, "not a published release")
+	assert.Contains(t, msg, "0000000 < v202")
 }
 
-// TestComputeUpdateWarning_NamesBothVersionsAndTheGap pins what the warning is
-// FOR: deciding whether to update. That needs this binary's version and the
-// latest one, both ages in the same units, and how far apart they are -- not a
-// git hash and a calendar date the reader has to convert.
-func TestComputeUpdateWarning_NamesBothVersionsAndTheGap(t *testing.T) {
+// TestComputeUpdateWarning_IsOneLineWithBothVersions pins the whole message:
+// how far behind, mine, latest. Nothing else -- a reader deciding whether to
+// update needs the two versions and the distance, and every extra word is one
+// they have to skip past on every build.
+func TestComputeUpdateWarning_IsOneLineWithBothVersions(t *testing.T) {
 	const myCommit = "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	defer setVCS(t, myCommit, "2024-01-01T00:00:00Z")()
+	built := time.Date(2024, 5, 29, 0, 0, 0, 0, time.UTC)
+	defer setVCS(t, myCommit, built.Format(time.RFC3339))()
 
-	pub := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	pub := built.Add(3 * 24 * time.Hour) // exactly three days newer
 	latest := buildhostRelease{
-		Version: "202", VersionNum: 202, GitCommit: "ffffff222222222222222222222222222222ffff",
+		Version: "345", VersionNum: 345, GitCommit: "ffffff222222222222222222222222222222ffff",
 		Published: true, PublishedAt: &pub,
 	}
-	// Newest first: latest, one in between, then ours -- two releases behind.
-	mid := buildhostRelease{Version: "201", GitCommit: "aaaa1111", Published: true, PublishedAt: &pub}
-	mine := buildhostRelease{Version: "200", GitCommit: myCommit, Published: true, PublishedAt: &pub}
+	mine := buildhostRelease{Version: "123", GitCommit: myCommit, Published: true, PublishedAt: &built}
 
-	srv := releaseServerWithList(t, latest, []buildhostRelease{latest, mid, mine})
+	srv := releaseServerWithList(t, latest, []buildhostRelease{latest, mine})
 	defer srv.Close()
 	defer withMockBuildhost(t, srv)()
 
-	msg := computeUpdateWarning(context.Background())
-	assert.Contains(t, msg, "you have v200", "the reader's own version must be named")
-	assert.Contains(t, msg, "latest is v202")
-	assert.Contains(t, msg, "2 releases behind", "the gap is the decision")
-	assert.NotContains(t, msg, "0000000", "a hash is noise once the version is known")
+	msg := stripANSI(computeUpdateWarning(context.Background()))
+	assert.Equal(t, "⇒ go-toolchain is 3 days out of date: v123 < v345", msg)
 }
 
-func TestPlural(t *testing.T) {
-	assert.Equal(t, "1 release", plural(1, "release"))
-	assert.Equal(t, "2 releases", plural(2, "release"))
-	assert.Equal(t, "0 releases", plural(0, "release"))
+// stripANSI removes the color escapes so a test can assert the exact line a
+// reader sees.
+func stripANSI(s string) string {
+	for _, code := range []string{colorYellow, colorReset} {
+		s = strings.ReplaceAll(s, code, "")
+	}
+	return s
 }
 
 func TestComputeUpdateWarning_AheadOfPublished(t *testing.T) {
