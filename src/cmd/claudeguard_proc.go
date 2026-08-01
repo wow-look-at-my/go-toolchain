@@ -1,6 +1,6 @@
 //go:build linux || cosmo
 
-// This file is the Claude output guard's real classifier. It MUST build for
+// This file is the agent output guard's real classifier. It MUST build for
 // GOOS=cosmo as well as GOOS=linux: every released "linux" binary is a
 // GOOS=cosmo fat-APE slot copy, and cosmo matches the `unix` build tag but
 // not `linux` — a `_linux.go` filename (or a bare `//go:build linux`) would
@@ -19,23 +19,39 @@ import (
 	"strings"
 )
 
-// claudeProcessAncestor reports whether any ancestor process is the Claude
-// agent, identified by a process name beginning with "claude". It walks the
-// parent-PID chain via /proc, stopping at PID 1 or after a bounded number of
-// hops (defensive against pid-reuse races).
-func claudeProcessAncestor() bool {
+// agentProcessAncestor returns the agent (see agentHarnesses) owning an
+// ancestor process, identified by its process name. It walks the parent-PID
+// chain via /proc, stopping at PID 1 or after a bounded number of hops
+// (defensive against pid-reuse races).
+func agentProcessAncestor() (string, bool) {
 	pid := os.Getppid()
 	for hops := 0; pid > 1 && hops < 64; hops++ {
 		comm, ppid, ok := procCommPPID(pid)
 		if !ok {
-			return false
+			return "", false
 		}
-		if strings.HasPrefix(comm, "claude") {
-			return true
+		if name, ok := harnessForProcess(comm); ok {
+			return name, true
 		}
 		pid = ppid
 	}
-	return false
+	return "", false
+}
+
+// isHarnessPipeReader reports whether the process reading our stdout pipe is
+// the agent itself capturing our output (allowed) rather than a filter in a
+// shell pipeline or the shell of a `$(...)` capture (refused). grok and
+// opencode always pipe a command's stdout back to themselves, so this is the
+// path every ordinary run under them takes. A filter is a sibling and a
+// `$(...)` reader is a shell, so neither is an agent-named ancestor.
+func isHarnessPipeReader(comm string, pid int) bool {
+	if !isAncestorPID(pid) {
+		return false
+	}
+	if _, ok := harnessForProcess(comm); ok {
+		return true
+	}
+	return isHarnessPID(pid)
 }
 
 // isAncestorPID reports whether target is somewhere in this process's
@@ -85,7 +101,7 @@ func procCommPPID(pid int) (comm string, ppid int, ok bool) {
 }
 
 // inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
-// guard can refuse to run when Claude is hiding the output. It runs before the
+// guard can refuse to run when the agent is hiding the output. It runs before the
 // output watchdog rewires fd 1, so it sees the real descriptor the shell set up.
 func inspectStdout() outputSink {
 	return inspectFD(os.Stdout.Fd())
@@ -102,11 +118,9 @@ func inspectFD(fd uintptr) outputSink {
 	switch {
 	case strings.HasPrefix(target, "pipe:"):
 		// A pipe is the agent hiding output (| head, | cat, $(...)) — UNLESS the
-		// reader is the harness itself capturing our stdout, i.e. an ancestor
-		// process named "claude". A filter in a shell pipeline is a sibling, and
-		// a `$(...)` reader is a shell, so neither is an ancestor named claude.
+		// reader is the harness itself capturing our stdout.
 		if name, pid, ok := pipePeerName(target); ok {
-			if strings.HasPrefix(name, "claude") && isAncestorPID(pid) {
+			if isHarnessPipeReader(name, pid) {
 				return outputSink{kind: sinkVisible}
 			}
 			return outputSink{kind: sinkPipe, detail: name}
