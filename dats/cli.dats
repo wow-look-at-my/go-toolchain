@@ -152,6 +152,12 @@ tests:
   # From a throwaway directory, not the module root: in the module root the
   # binary bootstraps the Go version go.mod demands, and a bootstrap that has
   # to download prints progress to stderr -- straight into the snapshot.
+  #
+  # The byte-exact snapshot assertion below relies on logx's minDurationToShow
+  # threshold: this error prints instantly during flag parsing (no I/O), well
+  # under the 1s floor, so logx never appends a timing suffix and the golden
+  # stays stable. If logx's threshold ever drops low enough for this line to
+  # get timed, this assertion is the first thing that goes red.
   - desc: unknown flag is rejected
     cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
     exit: 1
@@ -162,6 +168,11 @@ tests:
     outputs:
       stderr:
         - "unknown flag"
+      # Golden-file assertion: the full stderr must byte-match the committed
+      # snapshot (regenerate with `dats --update test dats` after intentional
+      # CLI changes).
+      snapshot:
+        stderr: true
 
   - desc: unknown subcommand is rejected
     cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" definitely-not-a-subcommand'
