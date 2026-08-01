@@ -107,18 +107,76 @@ func computeUpdateWarning(ctx context.Context) string {
 		return ""
 	}
 
-	short := myCommit
-	if len(short) > 7 {
-		short = short[:7]
-	}
-	return fmt.Sprintf(
-		"%s⇒ go-toolchain is out of date: latest is v%s (published %s ago); "+
-			"you are running %s from %s.%s\n"+
-			"  Update from buildhost: https://dl.pazer.build/go-toolchain "+
-			"(or `brew upgrade`, `npm update`, `apt upgrade`).",
-		colorYellow, latest.Version, formatDuration(time.Since(latestTime)),
-		short, time.Unix(myTs, 0).UTC().Format("2006-01-02"), colorReset,
+	return fmt.Sprintf("%s⇒ go-toolchain is %s out of date: %s < v%s%s",
+		colorYellow, formatDuration(latestTime.Sub(time.Unix(myTs, 0))),
+		ownVersion(ctx, myCommit), latest.Version, colorReset,
 	)
+}
+
+// ownVersion identifies THIS binary as compactly as the warning can: its
+// buildhost version when that is knowable, else its short commit.
+//
+// The warning has one job -- letting a reader decide whether to update -- so it
+// carries exactly the two versions and the distance between them. An earlier
+// wording gave the latest release's version and age but described this binary
+// as a git hash and a calendar date, so neither axis could be compared without
+// stopping to do arithmetic.
+//
+// The version is not stamped in: buildhost assigns it at publish time, after
+// the build. It is looked up by commit among the recent releases, best-effort
+// -- a failed lookup, or a build that was never published, falls back to the
+// commit, which is then the only identity there is.
+func ownVersion(ctx context.Context, myCommit string) string {
+	if mine, ok := findOwnRelease(ctx, myCommit); ok {
+		return "v" + mine.Version
+	}
+	if len(myCommit) > 7 {
+		return myCommit[:7]
+	}
+	return myCommit
+}
+
+// findOwnRelease locates this binary's own release among buildhost's recent
+// ones. Bounded on purpose: a binary older than that window is old enough that
+// its exact version adds nothing the age has not already said.
+func findOwnRelease(ctx context.Context, myCommit string) (*buildhostRelease, bool) {
+	releases, err := fetchBuildhostReleases(ctx, ownReleaseLookupLimit)
+	if err != nil {
+		return nil, false
+	}
+	for i := range releases {
+		if commitsMatch(releases[i].GitCommit, myCommit) {
+			return &releases[i], true
+		}
+	}
+	return nil, false
+}
+
+// ownReleaseLookupLimit bounds the release listing fetched to identify this
+// binary. It is a background request that is cancelled the moment the build
+// finishes, so the cost is usually zero -- but it should not be unbounded.
+const ownReleaseLookupLimit = 200
+
+// fetchBuildhostReleases lists a project's releases, newest first.
+func fetchBuildhostReleases(ctx context.Context, limit int) ([]buildhostRelease, error) {
+	url := fmt.Sprintf("%s/api/v1/projects/%s/releases?limit=%d", buildhostAPIBase, buildhostProject, limit)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("buildhost returned HTTP %d", resp.StatusCode)
+	}
+	var releases []buildhostRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, err
+	}
+	return releases, nil
 }
 
 // buildhostRelease is the subset of buildhost's release JSON the check needs.

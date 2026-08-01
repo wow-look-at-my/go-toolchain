@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
+
+	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
 // sinkKind classifies where go-toolchain's stdout is going.
@@ -25,102 +26,14 @@ type outputSink struct {
 	detail string // peer command name (pipe) or path (file/discard)
 }
 
-// agentHarness describes one AI coding agent go-toolchain can run under. Every
-// listed agent reads a command's output through its own transcript, so hiding
-// that output hides it from the agent — the guard treats them identically.
-type agentHarness struct {
-	name    string   // shown in the abort message
-	envVars []string // markers the agent exports into every child's environment
-	procs   []string // process-name prefixes of the agent process itself
-	pidVars []string // env vars holding the agent process's own PID
-}
-
-// agentHarnesses is the guard's roster. procs are matched as prefixes against
-// /proc comm (kernel-truncated to 15 bytes), both to detect the agent in this
-// process's ancestry and to recognize the agent as the legitimate reader of our
-// stdout pipe — an agent that spawns commands with piped stdout (grok,
-// opencode) would otherwise trip the guard on every invocation. An agent whose
-// binary is renamed beyond these prefixes and exports no pidVar fails closed.
-var agentHarnesses = []agentHarness{
-	{name: "Claude", envVars: []string{"CLAUDECODE"}, procs: []string{"claude"}},
-	{name: "grok build", envVars: []string{"GROK_AGENT"}, procs: []string{"grok", "xai-grok-pager"}},
-	{name: "opencode", envVars: []string{"OPENCODE"}, procs: []string{"opencode"}, pidVars: []string{"OPENCODE_PID"}},
-}
-
-// harnessForProcess returns the agent whose process-name prefix matches comm.
-func harnessForProcess(comm string) (string, bool) {
-	for _, h := range agentHarnesses {
-		for _, p := range h.procs {
-			if strings.HasPrefix(comm, p) {
-				return h.name, true
-			}
-		}
-	}
-	return "", false
-}
-
-// isHarnessPID reports whether pid is an agent process that named itself in the
-// environment (opencode exports OPENCODE_PID). This covers an agent running
-// from a JS/other runtime, where the process name is the runtime's rather than
-// the agent's.
-func isHarnessPID(pid int) bool {
-	for _, h := range agentHarnesses {
-		for _, v := range h.pidVars {
-			if s := os.Getenv(v); s != "" {
-				if p, err := strconv.Atoi(s); err == nil && p == pid {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-// runningUnderAgent reports the agent go-toolchain is executing underneath, if
-// any. Detection is primarily by process ancestry (see agentProcessAncestor)
-// and additionally by the environment markers each agent exports into every
-// child. The env fallback keeps the guard working when the process name is
-// unavailable (e.g. a non-Linux host where the ancestry walk is a no-op, or a
-// renamed launcher).
-func runningUnderAgent() (string, bool) {
-	if name, ok := agentProcessAncestor(); ok {
-		return name, true
-	}
-	return agentFromEnv()
-}
-
-// agentFromEnv returns the agent whose environment marker is set.
-func agentFromEnv() (string, bool) {
-	for _, h := range agentHarnesses {
-		for _, v := range h.envVars {
-			if val := os.Getenv(v); val != "" && val != "0" {
-				return h.name, true
-			}
-		}
-	}
-	return "", false
-}
-
-// isHarnessCapturePath reports whether path is the Claude Code harness's own
-// per-task stdout capture file — the file the Bash tool redirects a command's
-// stdout to and streams verbatim into the transcript. That is the ONE redirect
-// that does not hide output (it IS how the agent sees it), so it must be
-// allowed. Every agent-introduced redirect (`> out.log`, `> /dev/null`, …)
-// targets something else and is refused.
+// Which agents exist, what they look like, and how to recognize one from a
+// process tree live in github.com/wow-look-at-my/is-this-an-agent. Keeping
+// that roster here meant every other tool needing the same answer wrote its
+// own -- and go-toolchain's stopped at the agents it happened to know.
 //
-// The capture path embeds this session's id (a UUID) and ends in ".output"
-// under a ".../tasks/" directory, e.g.
-// /tmp/claude-0/-home-user/<CLAUDE_CODE_SESSION_ID>/tasks/<id>.output. Matching
-// the session id is the strong signal; the ".output"+"claude" structural match
-// is a fallback so a minor change to the harness path scheme cannot wedge the
-// guard into blocking every normal run.
-func isHarnessCapturePath(path string) bool {
-	if sid := os.Getenv("CLAUDE_CODE_SESSION_ID"); sid != "" && strings.Contains(path, sid) {
-		return true
-	}
-	lower := strings.ToLower(path)
-	return strings.HasSuffix(lower, ".output") && strings.Contains(lower, "claude")
-}
+// What stays here is the part that is go-toolchain's own: classifying where
+// stdout went, and refusing to run when the answer means the agent will never
+// read it.
 
 // Indirection seams: agentOutputViolation calls these rather than the
 // detectors directly, so a test can drive every branch deterministically
@@ -129,9 +42,16 @@ func isHarnessCapturePath(path string) bool {
 // from tests in this package. They are NOT a bypass: there is no environment
 // variable, flag, or any other runtime knob that disables the guard.
 var (
-	runningUnderAgentFn = runningUnderAgent
+	runningUnderAgentFn = detectAgent
 	inspectStdoutFn     = inspectStdout
 )
+
+// detectAgent names the agent go-toolchain is running under, if any:
+// ancestry first, then the environment markers each agent exports.
+func detectAgent() (string, bool) {
+	a, ok := agent.Detect()
+	return a.Name, ok
+}
 
 // agentOutputViolation reports the agent, the offending sink and true when
 // go-toolchain is running under an agent with its output captured, redirected,
