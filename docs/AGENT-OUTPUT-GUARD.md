@@ -12,21 +12,21 @@ other than the harness transcript or a terminal — i.e. any pipe, a `> file` /
 
 ## The agent roster
 
-`agentHarnesses` (claudeguard.go) is the single list of agents the guard knows,
-each with the environment markers it exports into every child and the process
-name prefixes it runs under:
+The roster is NOT here. Which agents exist, what environment markers they
+export, what process names they run under, and how to recognize one from a
+process tree all live in
+[`github.com/wow-look-at-my/is-this-an-agent`](https://github.com/wow-look-at-my/is-this-an-agent),
+because go-toolchain is not the only thing that needs the answer — and while it
+kept its own list, the list stopped at the agents go-toolchain happened to know.
 
-| Agent | Env markers | Process prefixes | PID vars |
-|---|---|---|---|
-| Claude | `CLAUDECODE` | `claude` | — |
-| grok build | `GROK_AGENT` | `grok`, `xai-grok-pager` | — |
-| opencode | `OPENCODE` | `opencode` | `OPENCODE_PID` |
+Add an agent THERE and every consumer gets it, this guard included. What lives
+here is go-toolchain's own half: classifying where stdout went, and refusing to
+run when the answer means the agent will never read the output.
 
-`runningUnderAgent` checks process ancestry first (`agentProcessAncestor`, the
-nearest matching ancestor wins and names the agent in the abort message), then
-falls back to `agentFromEnv` — which keeps the guard working where the ancestry
-walk is a no-op (non-Linux hosts) or the launcher was renamed. A marker of `0`
-or empty does not count.
+`detectAgent` (claudeguard.go) is the whole adapter: `agent.Detect()` for the
+agent, `.Name` for the abort message. Detection checks process ancestry first
+and environment markers second; a marker of `0` or empty does not count. The
+library's own docs carry the reasoning.
 
 Adding an agent is one row in `agentHarnesses`; nothing else in the guard is
 agent-specific.
@@ -68,9 +68,12 @@ flag to disable it.
 
 ## Tests
 
-- `src/cmd/claudeguard_test.go` — the roster (env markers, process prefixes,
-  exported pid), sink classification, the pipe-reader rule, and the abort
-  message naming the agent that hid the output.
+- `src/cmd/claudeguard_test.go` — sink classification, the pipe-reader
+  allowance as the classifier consumes it, and the abort message naming the
+  agent that hid the output (looped over `agent.Roster()`, so an agent added
+  upstream is covered here without an edit). The roster's own behavior — env
+  markers, process prefixes, exported pid, the ancestry walk — is tested in
+  is-this-an-agent.
 - `dats/cli.dats` — the shipped binary refusing a captured run under each
   agent's marker, the `version` exemption, and the build-output deletion. The
   suite does not assert WHICH agent the message names: ancestry outranks the env
