@@ -291,3 +291,50 @@ func TestRunDatsPhaseOutputTerminatesTheStepLine(t *testing.T) {
 	_, _ = w.Write(nil)
 	assert.Equal(t, 1, noted, "the step line is terminated exactly once, on the first real byte")
 }
+
+// A repo with suites but no go.mod runs them. Before this, go-toolchain exited
+// on "no go.mod found" before doing anything, so shell and TypeScript repos
+// with a CLI worth testing had to fetch a standalone dats and wire their own CI
+// step -- duplicating what this binary already links in, at a version free to
+// drift from it.
+func TestRunDatsOnlyRunsSuitesWithoutAModule(t *testing.T) {
+	dir := chdirWithSuite(t)
+	calls := swapDatsRun(t, okResult(2), nil)
+
+	require.NoError(t, runDatsOnly())
+
+	require.Len(t, *calls, 1, "the suites are the whole run")
+	assert.Equal(t, []string{datsSuiteDir}, (*calls)[0].opts.Paths)
+	assert.NoFileExists(t, filepath.Join(dir, "go.mod"), "no module was needed")
+}
+
+// Staging has to live under the working directory for the sandbox to see it,
+// but a non-Go repo does not gitignore build/ and never asked for one.
+func TestRunDatsOnlyLeavesNoStrayBuildDir(t *testing.T) {
+	dir := chdirWithSuite(t)
+	swapDatsRun(t, okResult(1), nil)
+
+	require.NoError(t, runDatsOnly())
+	assert.NoDirExists(t, filepath.Join(dir, outputDir),
+		"an empty build/ created purely for staging must be taken back out")
+}
+
+// ...but a build/ that was already there is the repo's, not ours to delete.
+func TestRunDatsOnlyKeepsAPreexistingBuildDir(t *testing.T) {
+	dir := chdirWithSuite(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, outputDir), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, outputDir, "keep.txt"), []byte("mine"), 0o644))
+	swapDatsRun(t, okResult(1), nil)
+
+	require.NoError(t, runDatsOnly())
+	assert.FileExists(t, filepath.Join(dir, outputDir, "keep.txt"))
+}
+
+// A failing suite still fails the run -- the point of running them at all.
+func TestRunDatsOnlyPropagatesFailure(t *testing.T) {
+	chdirWithSuite(t)
+	swapDatsRun(t, &dats.Result{Passed: 1, Failed: 1,
+		Files: []*datsrunner.FileResult{{Passed: 1, Failed: 1}}}, nil)
+
+	require.Error(t, runDatsOnly())
+}

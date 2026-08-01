@@ -149,6 +149,37 @@ func (n *noteFirstWrite) Write(p []byte) (int, error) {
 	return n.w.Write(p)
 }
 
+// runDatsOnly is the whole run for a repo that has dats suites but no go.mod:
+// a shell or TypeScript project whose CLI is still worth testing this way.
+// Refusing those outright pushed them into fetching a standalone dats binary
+// and wiring a CI step by hand -- work this toolchain already does, and a
+// version skew waiting to happen, since the dats linked in here is the one
+// that would drift from it.
+//
+// Nothing was built, so there are no artifacts to hand over: such a suite
+// exercises what is already in the tree, and $GO_TOOLCHAIN_DATS_BUILD_DIR is
+// an empty directory rather than a missing one.
+//
+// Staging still goes under the build output dir, because the sandbox exposes
+// only the working directory -- but the empty parent is removed afterwards, so
+// a non-Go repo is not left holding a stray build/ it never asked for and does
+// not gitignore.
+func runDatsOnly() error {
+	logger.Info("⇒ No go.mod; running dats suites only")
+
+	_, statErr := os.Stat(outputDir)
+	preexisting := statErr == nil
+
+	err := runDatsPhase(false, nil)
+
+	if !preexisting {
+		if entries, readErr := os.ReadDir(outputDir); readErr == nil && len(entries) == 0 {
+			os.Remove(outputDir)
+		}
+	}
+	return err
+}
+
 // runDatsPhase runs the module's dats suites (if any) against the binaries
 // just built, in this process: go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
