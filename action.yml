@@ -75,6 +75,28 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    # A caller writing @latest or @master gets a frozen orphan tag, not a
+    # moving pointer -- and the default branch is v1, so neither name tracks
+    # anything. Nothing about that is visible from the calling workflow: the
+    # build simply runs old code, and an input only newer versions declare is
+    # dropped as an unknown `with:` key, which GitHub reports as a warning
+    # nobody reads. One repo built against a months-old action that way and
+    # only noticed when a `targets:` input silently did nothing.
+    #
+    # Refusing here turns that into a first-step failure naming the fix. A SHA
+    # pin, v1, or a local ./ reference (empty action_ref) all pass.
+    - name: Refuse a frozen ref
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        case "$ACTION_REF" in
+          latest|master|main)
+            echo "::error::go-toolchain was resolved from @${ACTION_REF}, a frozen tag that does not track development. Use 'wow-look-at-my/go-toolchain@v1' (the default branch) or pin a commit SHA."
+            exit 1
+            ;;
+        esac
+
     - name: Refuse jobs named all-builds
       uses: wow-look-at-my/actions@no-all-builds-job#latest
 
