@@ -10,6 +10,33 @@ Builds go-toolchain from source into a host-native binary. Its cache-validation
 step execs `build/go-toolchain` directly, which is safe only because this job
 never builds the APE — an APE rewrites its own header on first exec.
 
+**Build-log duration regression guard.** The "Build and test" step
+(`go run ./src`) tees its output to `$RUNNER_TEMP/build-log.txt` (`set -euo
+pipefail` — GHA's default `bash -e {0}` has no `pipefail`, so a plain `cmd |
+tee file` would let a real build/test failure hide behind `tee`'s own exit
+code). This job's `cache: false` setup-go guarantees a cold module cache, so
+`go mod tidy -v`'s verbose `go: downloading X` / `go: found X` lines always
+fire — exactly the output where a real bug shipped once: a wrapper stamped
+even sub-second lines with a duration (`go: downloading X 0.00s`), because it
+forgot to gate on a minimum elapsed time (see `src/logx/logx.go`'s
+`minDurationToShow` and `src/cmd/console.go`'s `timedLineWriter` /
+`timedLineMinDuration`, both fixed to require >= 1s before stamping).
+
+Two follow-up steps check the capture. First, `ansifilter` (not this repo's
+own `ansiRE`, so a bug in that regex can't also blind the test verifying it)
+strips ANSI color codes — but only after a sanity check that raw ANSI codes
+were actually present, guarding against the tee pipe (or some future isatty
+gate) silently breaking color output and making the duration check pass for
+the wrong reason. Then a TypeScript step asserts no `go: `-prefixed line (cmd/go's
+own messages, which never carry a duration themselves — any stamp there was
+added by us) carries a duration under 1s, and separately asserts at least one
+`go: downloading` line was captured at all, so the check can't silently pass
+by verifying nothing. It is deliberately scoped to `go: ` lines rather than
+"any duration under 1s anywhere in the log": go-toolchain's own named
+step/test timers (e.g. `vet: gofmt 0.17s`) are intentionally unconditional — a
+named operation's own time is always worth reporting — and must not be
+flagged.
+
 ## build
 
 Runs the composite action (`uses: ./`) with
