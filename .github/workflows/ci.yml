@@ -58,7 +58,71 @@ jobs:
           # not inherit one, so pass it explicitly. Without it, submission can't
           # authenticate and fails loudly -- this is what wires the feature up.
           GITHUB_TOKEN: ${{ github.token }}
-        run: go run ./src
+        run: |
+          set -euo pipefail
+          # Piped through tee so the steps below can verify no line printed a
+          # sub-1s duration stamp (logx / timedLineWriter regression guard).
+          # pipefail is REQUIRED: GitHub Actions' default bash invocation
+          # (`bash -e {0}`) does NOT set it, so `cmd | tee file` would
+          # otherwise report success from tee alone even if `go run ./src`
+          # failed the actual build or tests.
+          go run ./src 2>&1 | tee "$RUNNER_TEMP/build-log.txt"
+
+      # This job's runner starts with an empty module cache (setup-go above
+      # has cache: false), so the build above is guaranteed to cold-fetch
+      # this repo's dependencies and print `go mod tidy -v`'s verbose
+      # "go: downloading X"/"go: found X" lines -- exactly the CI output
+      # where the bug this guards against was actually observed (a fast
+      # burst line stamped "0.00s" by a wrapper that forgot to skip lines
+      # under a second). ansifilter (not our own ansiRE/alreadyTimedRE regex)
+      # does the stripping, so this check can't pass just because the same
+      # buggy regex that shipped the bug also verified it.
+      - name: Strip ANSI from the captured build log
+        run: |
+          set -euo pipefail
+          # go-toolchain's duration coloring (logx, timedLineWriter, step
+          # timers) is unconditional -- it never checks isatty -- so piping
+          # through tee above must not have stripped it. Assert that BEFORE
+          # ansifilter runs: if there were no ANSI codes to strip, the sub-1s
+          # check below would trivially pass for the wrong reason (nothing to
+          # strip looks identical to "everything already came out clean").
+          grep -qP '\x1b\[[0-9;]*m' "$RUNNER_TEMP/build-log.txt" || {
+            echo "::error::captured build log has no ANSI escape codes at all -- either color output broke, or the tee pipe stripped them"
+            exit 1
+          }
+          sudo apt-get update -y
+          sudo apt-get install -y ansifilter
+          ansifilter "$RUNNER_TEMP/build-log.txt" > "$RUNNER_TEMP/build-log.clean.txt"
+
+      - name: Verify no sub-1s duration stamps on go tool output
+        uses: wow-look-at-my/actions@typescript#latest
+        with:
+          script: |
+            // cmd/go's own diagnostic lines ("go: downloading X", "go: found
+            // X", "go: added X", ...) always start with "go: " and NEVER
+            // carry a duration themselves -- so any "X.XXs" suffix on one of
+            // these lines was appended by OUR wrapping (logx's drain(), or
+            // timedLineWriter). Both are supposed to skip lines faster than a
+            // second (src/logx/logx.go, src/cmd/console.go) -- that's the
+            // regression this guards against. Deliberately narrower than "any
+            // duration under 1s anywhere in the log": go-toolchain's own
+            // named step/test timers (e.g. "vet: gofmt 0.17s") are
+            // intentionally unconditional -- a named operation's own time is
+            // always worth reporting -- and this check must not flag those.
+            const text = fs.readFileSync(process.env.RUNNER_TEMP + '/build-log.clean.txt', 'utf-8');
+            const goLines = text.split('\n').filter(l => l.startsWith('go: '));
+            const downloadLines = goLines.filter(l => l.includes('go: downloading'));
+            if (downloadLines.length === 0) {
+              core.setFailed('no "go: downloading" lines were captured -- the module cache may not have been cold this run, so this check verified nothing. Investigate before trusting a green run here.');
+            }
+            const bad = goLines.filter(l => {
+              const m = l.match(/(\d+\.\d{2})s\s*$/);
+              return m && parseFloat(m[1]) < 1.0;
+            });
+            core.info(`checked ${goLines.length} "go: " line(s) (${downloadLines.length} downloads) for sub-1s duration stamps`);
+            if (bad.length > 0) {
+              core.setFailed(`found ${bad.length} "go: " line(s) stamped with a sub-1s duration -- these must never be timed:\n${bad.join('\n')}`);
+            }
 
       - name: Check build profile
         uses: wow-look-at-my/actions@typescript#latest
