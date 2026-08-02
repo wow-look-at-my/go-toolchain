@@ -215,3 +215,38 @@ tests:
     outputs:
       "!stderr":
         - "refused to run"
+
+  # A directory with neither a module nor suites is the one case that still
+  # refuses, and the message has to name both halves -- "no go.mod found" alone
+  # sent people off to `go mod init` a shell repo that only wanted its suites
+  # run.
+  #
+  # The POSITIVE case (suites present, no go.mod, they run) is a Go unit test,
+  # not a case here: asserting it from a suite means go-toolchain starting dats
+  # inside a command dats is already sandboxing, and nested bwrap is not a
+  # thing worth depending on for coverage the unit tests already give.
+  - desc: no module and no suites names both halves
+    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+    exit: 1
+    timeout: 60s
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+        # Every other full-pipeline test here SETS an agent marker, because it
+        # is asserting the guard. This is the first that needs the guard OFF,
+        # and the markers leak in from the host: inside a Claude Code session
+        # CLAUDE_CODE_SESSION_ID alone makes the guard refuse before the module
+        # check is ever reached, so the assertion would pass in CI and fail on
+        # a developer's machine. Empty reads as not-an-agent (the detector
+        # treats "" and "0" as unset).
+        CLAUDECODE: ""
+        CLAUDE_CODE_SESSION_ID: ""
+        GROK_AGENT: ""
+        OPENCODE: ""
+        OPENCODE_PID: ""
+        GEMINI_CLI: ""
+        CODEX_SANDBOX: ""
+        CODEX_SANDBOX_NETWORK_DISABLED: ""
+    outputs:
+      stderr:
+        - "no go.mod and no dats/ suites found"

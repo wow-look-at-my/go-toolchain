@@ -8,6 +8,12 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 
 - Suites are non-hidden `*.dats` files under `dats/` at the module root.
   When the directory has none, the phase is a silent no-op.
+- A repo with **no `go.mod`** still gets its suites run: go-toolchain reports
+  `No go.mod; running dats suites only`, and the suites are the entire run.
+  Nothing was built, so `$GO_TOOLCHAIN_DATS_BUILD_DIR` is an empty directory
+  and such a suite exercises what is already in the tree. This is how a shell
+  or TypeScript repo uses dats without fetching a standalone binary and
+  hand-wiring a CI step, at a version free to drift from the one linked here.
 - go-toolchain **links the dats library** and runs suites in-process: there is
   no dats binary to install and no version to keep in step. The dats a build
   runs is the one go-toolchain was compiled against.
