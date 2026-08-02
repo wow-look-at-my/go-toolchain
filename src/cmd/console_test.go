@@ -141,7 +141,38 @@ func TestLogStepFailedSilent(t *testing.T) {
 	assert.NotContains(t, output, "...\n")
 }
 
-func TestTimedLineWriter(t *testing.T) {
+// withTimedLineMinDuration lowers timedLineMinDuration for the duration of a
+// test, so tests can exercise the "line was slow enough to time" path
+// without actually sleeping for a real second.
+func withTimedLineMinDuration(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := timedLineMinDuration
+	timedLineMinDuration = d
+	t.Cleanup(func() { timedLineMinDuration = old })
+}
+
+func TestTimedLineWriterFastLinesOmitDuration(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTimedLineWriter(&buf)
+
+	w.Write([]byte("go: downloading foo v1.0\n"))
+	// Content is written immediately, but the newline is deferred.
+	assert.Equal(t, "go: downloading foo v1.0", buf.String())
+	assert.NotContains(t, buf.String(), "\n")
+
+	w.Write([]byte("go: downloading bar v2.0\n"))
+	// First line closes with a bare newline: it took well under a second.
+	output := buf.String()
+	assert.Contains(t, output, "go: downloading foo v1.0\n")
+	assert.NotContains(t, output, colorDimCyan)
+
+	w.Flush()
+	output = buf.String()
+	assert.Equal(t, "go: downloading foo v1.0\ngo: downloading bar v2.0\n", output)
+}
+
+func TestTimedLineWriterSlowLinesGetDuration(t *testing.T) {
+	withTimedLineMinDuration(t, 0)
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
 
@@ -168,6 +199,7 @@ func TestTimedLineWriter(t *testing.T) {
 }
 
 func TestTimedLineWriterPartialWrites(t *testing.T) {
+	withTimedLineMinDuration(t, 0)
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
 
@@ -197,6 +229,7 @@ func TestTimedLineWriterFlushPartial(t *testing.T) {
 }
 
 func TestTimedLineWriterClosesOnPartialContent(t *testing.T) {
+	withTimedLineMinDuration(t, 0)
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
 
