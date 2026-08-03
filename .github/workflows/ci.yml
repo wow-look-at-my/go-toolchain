@@ -451,6 +451,28 @@ jobs:
           # tidy/vet/test/coverage/build.
           "$RUNNER_TEMP/gt-native"
 
+      - name: agent output guard fires in the native darwin/arm64 binary
+        run: |
+          set -euo pipefail
+          # darwin has no /proc, so this is the one platform where the guard
+          # could compile clean and still be a silent no-op at runtime — a
+          # GOOS=darwin unit test proves nothing about the actual binary
+          # running on actual darwin (see docs/AGENT-OUTPUT-GUARD.md).
+          cd "$RUNNER_TEMP/nativemod"
+          # The previous step ran the full pipeline here, so the module's
+          # binary is present: the guard must DELETE it, same as smoke-linux.
+          [ -f build/nativesmoke ]
+          rc=0
+          OPENCODE=1 timeout 120 "$RUNNER_TEMP/gt-native" 2>&1 | cat > guard-out.txt || rc=$?
+          cat guard-out.txt
+          [ "$rc" -eq 1 ]
+          grep -q "refused to run" guard-out.txt
+          grep -qi "opencode" guard-out.txt
+          [ ! -e build/nativesmoke ]
+          grep -q "have been DELETED" guard-out.txt
+          # The version exemption must stay intact.
+          OPENCODE=1 timeout 120 "$RUNNER_TEMP/gt-native" version > /dev/null
+
   smoke-windows:
     needs: build
     runs-on: windows-latest

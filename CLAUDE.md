@@ -75,8 +75,9 @@ coverage.
   dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and the `version` exemption, and the
   update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
-  so version tests assert only the stable `Version:`/`Commit:` lines). The guard tests assume a linux host (classifier is linux||cosmo; native
-  darwin/windows are documented no-ops — same scoping as the smoke-linux guard gate, the only CI leg running this repo's pipeline on the repo).
+  so version tests assert only the stable `Version:`/`Commit:` lines). The guard tests assume a linux host (classifiers: linux||cosmo via
+  `claudeguard_proc.go`, native darwin via `claudeguard_darwin.go`; only windows stays a documented no-op) — same scoping as the smoke-linux guard
+  gate, the only CI leg running this repo's pipeline on the repo).
   `.dats` + `.golden` files feed `computeFingerprint` (uptodate.go), so suite/golden edits bust the "Up to date" fast-exit
 - `src/test/` — test runner, coverage parsing, watermark logic. The watermark's storage backend is platform-split: `xattr_unix.go` (`unix && !cosmo`,
   x/sys/unix xattrs; `isXattrNotFound` in the `_linux`/`_darwin` files), `xattr_windows.go` (NTFS ADS), and `xattr_cosmo.go` — GOOS=cosmo has no xattr
