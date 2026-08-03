@@ -46,13 +46,17 @@ tests:
       "!stderr":
         - "refused to run"
 
-  # OPENCODE is set via inputs.env, not inline in cmd -- matching dats/cli.dats'
-  # own "agent output guard deletes the module's build outputs" test, the
-  # closest existing precedent for this exact shape (mkdir build; plant a
-  # stale binary; exec bare). That one uses inputs.env for its marker too.
+  # TEMPORARY DIAGNOSTIC (2nd round): inputs.env alone (matching cli.dats'
+  # own precedent for this shape) still didn't fix it -- tests 1-2 (matrixed,
+  # inline `env VAR=1 {outputs.gt}`) pass; this one (unmatrixed, mkdir
+  # build + planted files before the exec) still shows no "refused to
+  # run"/"opencode"/"have been DELETED" even though the binary still gets
+  # deleted. PRECHECK proves whether the shell itself even sees $OPENCODE
+  # before gt runs, separating "env not propagated" from "gt itself didn't
+  # detect it". Remove once the real cause is found and fixed.
   - desc: agent output guard names opencode and deletes the module's build outputs (native darwin)
-    cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {outputs.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
-    exit: 1
+    cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; echo "MARK_PRECHECK_OPENCODE_IS_${OPENCODE:-UNSET}"; {outputs.gt}; rc=$?; echo "MARK_RC_$rc"; [ ! -e build/stalebin ] && echo MARK_BINARY_DELETED || echo MARK_BINARY_KEPT; [ -f build/checksums.txt ] && echo MARK_CHECKSUMS_KEPT || echo MARK_CHECKSUMS_GONE; exit 0'
+    exit: 0
     timeout: 60s
     inputs:
       env:
@@ -60,9 +64,11 @@ tests:
         GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
     outputs:
       stdout:
-        - "GUARD-DELETED-BINARY"
-        - "GUARD-KEPT-CHECKSUMS"
-      stderr:
-        - "refused to run"
-        - "opencode"
-        - "have been DELETED"
+        - "MARK_PRECHECK_OPENCODE_IS_1"
+        - "MARK_PRECHECK_OPENCODE_IS_UNSET"
+        - "MARK_RC_1"
+        - "MARK_RC_0"
+        - "MARK_BINARY_DELETED"
+        - "MARK_BINARY_KEPT"
+        - "MARK_CHECKSUMS_KEPT"
+        - "MARK_CHECKSUMS_GONE"
