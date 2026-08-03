@@ -215,6 +215,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Only for the dats fixture .github/dats-fixtures/*.dats copied in
+      # below -- this job otherwise runs entirely off the downloaded release
+      # artifact.
+      - uses: actions/checkout@v7
+
       # Explicit name on purpose: by this point the run holds SEVERAL
       # hand-offs (host-go-toolchain from host-build, the per-job
       # go-build-build, and the deprecated bare go-build alias), so a
@@ -288,82 +293,16 @@ jobs:
           # toolchain before dispatching any root-command invocation, and on a
           # runner without Go on PATH that needs a go.mod to pick a version.
           "$RUNNER_TEMP/gt-ape" --help
-          # The agent output guard regression lives as a dats suite (see
-          # smoke-macos), not hand-rolled bash: the released binaries ARE the
-          # cosmo APE, so the guard must fire in THIS artifact -- a GOOS=linux
-          # unit test cannot prove that (the guard once shipped as a
-          # `_linux.go` no-op while unit tests stayed green). Staged inside the
-          # module root so dats' sandbox (bwrap) can reach it, same reasoning
-          # as smoke-macos. Scratch space is `{outputs.X}`, dats' own writable
-          # per-test directory -- NOT `mktemp -d`: that only "just works" under
-          # bwrap because it privatizes the whole /tmp namespace, but seatbelt
-          # (macOS) restricts writes to this exact directory and nothing else,
-          # so the same idiom silently fails there (see smoke-macos).
+          # The agent output guard regression lives as a committed dats
+          # fixture (see smoke-macos), not hand-rolled bash: the released
+          # binaries ARE the cosmo APE, so the guard must fire in THIS
+          # artifact -- a GOOS=linux unit test cannot prove that (the guard
+          # once shipped as a `_linux.go` no-op while unit tests stayed
+          # green). Staged inside the module root so dats' sandbox (bwrap)
+          # can reach it, same reasoning as smoke-macos.
           cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
           mkdir -p dats
-          cat > dats/agent-output-guard.dats <<'EOF'
-          sandbox:
-            image: golang:1.25
-
-          tests:
-            - desc: agent output guard refuses a captured pipeline run under {matrix.marker} (shipped APE)
-              cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; env {matrix.marker}=1 {outputs.gt}; rc=$?; exit $rc'
-              exit: 1
-              timeout: 60s
-              matrix:
-                marker: [GROK_AGENT, OPENCODE]
-              inputs:
-                env:
-                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-              outputs:
-                stderr:
-                  - "refused to run"
-                "!stdout":
-                  - "Build successful"
-
-            - desc: version stays exempt under {matrix.marker} (shipped APE)
-              cmd: 'cp ./gt-under-test {outputs.gt}; env {matrix.marker}=1 {outputs.gt} version raw'
-              timeout: 30s
-              matrix:
-                marker: [GROK_AGENT, OPENCODE]
-              inputs:
-                env:
-                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-              outputs:
-                "!stderr":
-                  - "refused to run"
-
-            - desc: agent output guard names opencode and deletes the module's build outputs (shipped APE)
-              cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; OPENCODE=1 {outputs.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
-              exit: 1
-              timeout: 60s
-              inputs:
-                env:
-                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-              outputs:
-                stdout:
-                  - "GUARD-DELETED-BINARY"
-                  - "GUARD-KEPT-CHECKSUMS"
-                stderr:
-                  - "refused to run"
-                  - "opencode"
-                  - "have been DELETED"
-
-            # The other three tests all hit the pipe allowance; CLAUDECODE
-            # discarding to /dev/null exercises the DIFFERENT sinkDiscard path
-            # (this is what the original hand-rolled bash step tested) so
-            # converting to dats does not silently drop that coverage.
-            - desc: agent output guard refuses a discarded run under CLAUDECODE (shipped APE)
-              cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; CLAUDECODE=1 {outputs.gt} > /dev/null 2> {outputs.err.txt}; rc=$?; cat {outputs.err.txt} >&2; exit $rc'
-              exit: 1
-              timeout: 60s
-              inputs:
-                env:
-                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-              outputs:
-                stderr:
-                  - "refused to run"
-          EOF
+          cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-linux-agent-output-guard.dats" dats/agent-output-guard.dats
           # Full default pipeline: bootstraps an official Go toolchain if the
           # runner's is too old, then tidy/vet/test/coverage/build, then the
           # dats phase above.
@@ -397,6 +336,11 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
+      # Only for the dats fixture .github/dats-fixtures/*.dats copied in
+      # below -- this job otherwise runs entirely off the downloaded release
+      # artifact.
+      - uses: actions/checkout@v7
+
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
@@ -509,16 +453,13 @@ jobs:
           	require.Equal(t, "hello, mac", got)
           }
           EOF
-          # The agent output guard regression lives as a dats suite, not
-          # hand-rolled bash here, matching this repo's own dats/cli.dats
-          # convention. go-toolchain links dats in and runs any dats/ suite
-          # found (recursively) in the module it is building -- there is no
-          # separate suite-running step, which is exactly why this suite is
-          # written inline (like go.mod/main.go above) rather than checked
-          # in under this repo's OWN dats/: this job never runs
-          # actions/checkout (it only downloads the dist/ artifact above), so
-          # $GITHUB_WORKSPACE has no repo tree to copy a template out of --
-          # and even if it did, a suite referencing a native darwin binary
+          # The agent output guard regression lives as a committed dats
+          # fixture (.github/dats-fixtures/smoke-macos-agent-output-guard.dats),
+          # not hand-rolled bash: go-toolchain links dats in and runs any
+          # dats/ suite found (recursively) in the module it is building --
+          # there is no separate suite-running step, which is exactly why
+          # this fixture is copied in rather than checked in under this
+          # repo's OWN dats/: a suite referencing a native darwin binary
           # would also run (and fail) during this repo's own linux
           # build/host-build jobs, which discover every dats/ suite
           # recursively with no filtering. dats sandboxes every command to
@@ -527,77 +468,7 @@ jobs:
           # as dats/README.md's build/.dats-stage/ staging).
           cp "$RUNNER_TEMP/gt-native" ./gt-under-test
           mkdir -p dats
-          cat > dats/agent-output-guard.dats <<'EOF'
-          # Scratch space is `{outputs.X}`, dats' own writable per-test
-          # directory -- NOT `mktemp -d`. seatbelt (macOS's sandbox backend)
-          # restricts writes to exactly that directory and nothing else, so a
-          # bare `mktemp -d` (which lands in the ambient $TMPDIR, a SIBLING of
-          # that directory, not inside it) is silently denied there -- unlike
-          # linux's bwrap, which privatizes the whole /tmp namespace and so
-          # tolerates it. `{outputs.X}` is documented to work identically
-          # across every sandbox backend (see dats' file-format.md).
-          sandbox:
-            image: golang:1.25
-
-          tests:
-            - desc: agent output guard refuses a captured pipeline run under {matrix.marker} (native darwin)
-              cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; env {matrix.marker}=1 {outputs.gt}; rc=$?; exit $rc'
-              exit: 1
-              timeout: 60s
-              matrix:
-                marker: [GROK_AGENT, OPENCODE]
-              inputs:
-                env:
-                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-              outputs:
-                stderr:
-                  - "refused to run"
-                "!stdout":
-                  - "Build successful"
-
-            - desc: version stays exempt under {matrix.marker} (native darwin)
-              cmd: 'cp ./gt-under-test {outputs.gt}; env {matrix.marker}=1 {outputs.gt} version raw'
-              timeout: 30s
-              matrix:
-                marker: [GROK_AGENT, OPENCODE]
-              inputs:
-                env:
-                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-              outputs:
-                "!stderr":
-                  - "refused to run"
-
-            # TEMPORARY DIAGNOSTIC: the real assertions failed on this test
-            # alone (tests 1-4, same staging, passed) with none of
-            # "refused to run"/"opencode"/"have been DELETED" appearing even
-            # though the binary was still deleted -- these markers narrow down
-            # why by elimination, since dats' failure report doesn't dump raw
-            # captured output. Remove once the real cause is found and fixed.
-            - desc: agent output guard names opencode and deletes the module's build outputs (native darwin)
-              cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; OPENCODE=1 {outputs.gt} > {outputs.stdout.txt} 2> {outputs.stderr.txt}; rc=$?; echo "MARK_RC_$rc"; [ ! -e build/stalebin ] && echo MARK_BINARY_DELETED || echo MARK_BINARY_KEPT; [ -f build/checksums.txt ] && echo MARK_CHECKSUMS_KEPT || echo MARK_CHECKSUMS_GONE; grep -q "refused to run" {outputs.stderr.txt} && echo MARK_GUARD_FIRED || echo MARK_GUARD_DID_NOT_FIRE; grep -qi "go-bootstrap\|go bootstrap" {outputs.stderr.txt} {outputs.stdout.txt} && echo MARK_BOOTSTRAP_ATTEMPTED || echo MARK_NO_BOOTSTRAP_MENTION; grep -qi "permission denied" {outputs.stderr.txt} {outputs.stdout.txt} && echo MARK_PERMISSION_DENIED; grep -qi "no such file" {outputs.stderr.txt} {outputs.stdout.txt} && echo MARK_NO_SUCH_FILE; [ -s {outputs.stderr.txt} ] && echo MARK_STDERR_NONEMPTY || echo MARK_STDERR_EMPTY; [ -s {outputs.stdout.txt} ] && echo MARK_STDOUT_NONEMPTY || echo MARK_STDOUT_EMPTY; exit 0'
-              exit: 0
-              timeout: 60s
-              inputs:
-                env:
-                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-              outputs:
-                stdout:
-                  - "MARK_RC_1"
-                  - "MARK_BINARY_DELETED"
-                  - "MARK_BINARY_KEPT"
-                  - "MARK_CHECKSUMS_KEPT"
-                  - "MARK_CHECKSUMS_GONE"
-                  - "MARK_GUARD_FIRED"
-                  - "MARK_GUARD_DID_NOT_FIRE"
-                  - "MARK_BOOTSTRAP_ATTEMPTED"
-                  - "MARK_NO_BOOTSTRAP_MENTION"
-                  - "MARK_PERMISSION_DENIED"
-                  - "MARK_NO_SUCH_FILE"
-                  - "MARK_STDERR_NONEMPTY"
-                  - "MARK_STDERR_EMPTY"
-                  - "MARK_STDOUT_NONEMPTY"
-                  - "MARK_STDOUT_EMPTY"
-          EOF
+          cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-macos-agent-output-guard.dats" dats/agent-output-guard.dats
           # Full default pipeline: reuses the Go toolchain the APE gate above
           # already bootstrapped (shared ~/.cache/go-toolchain), then
           # tidy/vet/test/coverage/build, then the dats phase above.
