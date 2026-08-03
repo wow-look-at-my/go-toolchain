@@ -567,21 +567,36 @@ jobs:
                 "!stderr":
                   - "refused to run"
 
+            # TEMPORARY DIAGNOSTIC: the real assertions failed on this test
+            # alone (tests 1-4, same staging, passed) with none of
+            # "refused to run"/"opencode"/"have been DELETED" appearing even
+            # though the binary was still deleted -- these markers narrow down
+            # why by elimination, since dats' failure report doesn't dump raw
+            # captured output. Remove once the real cause is found and fixed.
             - desc: agent output guard names opencode and deletes the module's build outputs (native darwin)
-              cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; OPENCODE=1 {outputs.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
-              exit: 1
+              cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; OPENCODE=1 {outputs.gt} > {outputs.stdout.txt} 2> {outputs.stderr.txt}; rc=$?; echo "MARK_RC_$rc"; [ ! -e build/stalebin ] && echo MARK_BINARY_DELETED || echo MARK_BINARY_KEPT; [ -f build/checksums.txt ] && echo MARK_CHECKSUMS_KEPT || echo MARK_CHECKSUMS_GONE; grep -q "refused to run" {outputs.stderr.txt} && echo MARK_GUARD_FIRED || echo MARK_GUARD_DID_NOT_FIRE; grep -qi "go-bootstrap\|go bootstrap" {outputs.stderr.txt} {outputs.stdout.txt} && echo MARK_BOOTSTRAP_ATTEMPTED || echo MARK_NO_BOOTSTRAP_MENTION; grep -qi "permission denied" {outputs.stderr.txt} {outputs.stdout.txt} && echo MARK_PERMISSION_DENIED; grep -qi "no such file" {outputs.stderr.txt} {outputs.stdout.txt} && echo MARK_NO_SUCH_FILE; [ -s {outputs.stderr.txt} ] && echo MARK_STDERR_NONEMPTY || echo MARK_STDERR_EMPTY; [ -s {outputs.stdout.txt} ] && echo MARK_STDOUT_NONEMPTY || echo MARK_STDOUT_EMPTY; exit 0'
+              exit: 0
               timeout: 60s
               inputs:
                 env:
                   GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
               outputs:
                 stdout:
-                  - "GUARD-DELETED-BINARY"
-                  - "GUARD-KEPT-CHECKSUMS"
-                stderr:
-                  - "refused to run"
-                  - "opencode"
-                  - "have been DELETED"
+                  - "MARK_RC_1"
+                  - "MARK_BINARY_DELETED"
+                  - "MARK_BINARY_KEPT"
+                  - "MARK_CHECKSUMS_KEPT"
+                  - "MARK_CHECKSUMS_GONE"
+                  - "MARK_GUARD_FIRED"
+                  - "MARK_GUARD_DID_NOT_FIRE"
+                  - "MARK_BOOTSTRAP_ATTEMPTED"
+                  - "MARK_NO_BOOTSTRAP_MENTION"
+                  - "MARK_PERMISSION_DENIED"
+                  - "MARK_NO_SUCH_FILE"
+                  - "MARK_STDERR_NONEMPTY"
+                  - "MARK_STDERR_EMPTY"
+                  - "MARK_STDOUT_NONEMPTY"
+                  - "MARK_STDOUT_EMPTY"
           EOF
           # Full default pipeline: reuses the Go toolchain the APE gate above
           # already bootstrapped (shared ~/.cache/go-toolchain), then
