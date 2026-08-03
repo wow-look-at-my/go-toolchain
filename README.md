@@ -17,7 +17,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
 - **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
 - **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot. A failed submission fails the build with an actionable error (missing token, missing `contents: write` permission). There is no opt-out: submission is part of building in CI. Building outside your checkout is not a way to skip either -- it is a hard error naming the problem, for every repository except go-toolchain itself, whose smoke jobs must drive the pipeline inside a synthetic throwaway module
-- **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Defers to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is a per-deploy kill switch); disable injection entirely with `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`
+- **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Injection is unconditional — there is no build-time off switch; opting out is a run-time decision, deferring to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is the per-deploy kill switch)
 - **Output stall watchdog** — the build's stdout/stderr are routed through an in-process watchdog that prints a loud `STALLED: no output for Ns` warning (with the current step name) whenever the pipeline goes silent for 5+ seconds. Disable it with `GO_TOOLCHAIN_NO_WATCHDOG=1` — the build then runs on its real stdio (useful when debugging output plumbing, since the watchdog works by dup2-redirecting fd 1/2 through pipes)
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
@@ -507,10 +507,10 @@ If a repository committed the guard under an older go-toolchain, the cleanup
 deletes those files from the working tree on the next run (without failing the
 build); commit that deletion once to drop the stale files for good.
 
-```bash
-# Build-time: disable injection (default is on)
-export GO_TOOLCHAIN_AUTO_MEMLIMIT=off
-```
+Injection is unconditional — there is no build-time flag or environment variable
+to turn it off. Opting out is a run-time decision instead, via the variables
+below, which is the layer that actually knows whether a given deployment wants
+the cap.
 
 The following are read by the built program **when it starts**, not at build time:
 
@@ -592,6 +592,38 @@ The result is emitted four ways at the end of the run:
 - **GitHub Step Summary**: a profile table (cache totals + top slowest actions) next to the existing pipeline Gantt.
 
 Actiongraph collection and the report are skipped with `--no-profile`, and skip cleanly on paths that never reach `go build`/`go test`. Parsing is defensive: a missing or malformed dump is skipped (with a warning) and can never fail the build.
+
+### Automatic GOMEMLIMIT (cgroup-aware memory limit)
+
+By default, go-toolchain injects a small, stdlib-only startup guard
+(`gomemlimit_gen.go`) into every `main` package it builds. When the resulting
+binary starts, the guard reads the container's cgroup memory limit (cgroup v2 or
+v1) and calls `runtime/debug.SetMemoryLimit` with 90% of it. This keeps the Go
+garbage collector under the cgroup ceiling — as the heap approaches the limit
+the GC works harder, trading CPU for memory, instead of letting the process
+allocate until the kernel OOM-kills it.
+
+The guard is dependency-free (no `go.mod`/`go.sum` changes), carries the standard
+`// Code generated ... DO NOT EDIT.` marker (so it is excluded from coverage), and
+is a no-op when no cgroup limit is found, including on non-Linux systems. The
+guard is a transient build artifact: it is written just before the build and
+removed right after, so it never lingers in the working tree. Injection is
+idempotent and unconditional — there is no build-time flag or environment
+variable to turn it off. Opting out is a run-time decision instead, via the
+variables below.
+
+The following are read by the built program **when it starts**, not at build time:
+
+```bash
+# Opt a single deployment out without rebuilding — Go's own variable wins
+export GOMEMLIMIT=off
+
+# ...or pin an explicit limit (the guard then does nothing)
+export GOMEMLIMIT=2GiB
+
+# Tune the headroom ratio (default 0.9); "off" also disables the guard
+export GO_TOOLCHAIN_MEMLIMIT_RATIO=0.8
+```
 
 ## OpenTelemetry Trace Export
 
