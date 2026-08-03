@@ -465,12 +465,19 @@ jobs:
           cp "$RUNNER_TEMP/gt-native" ./gt-under-test
           mkdir -p dats
           cat > dats/agent-output-guard.dats <<'EOF'
+          # Scratch dirs are staged under $PWD (captured before any cd), never
+          # bare `mktemp -d`: seatbelt (macOS's sandbox backend, unlike linux's
+          # bwrap) does not bind the system tmpdir into the sandboxed command,
+          # so a copy into system /tmp silently no-ops there and the later exec
+          # fails with 127 ("command not found") rather than the intended
+          # assertion. Staying under the module root keeps it inside the one
+          # tree seatbelt actually grants.
           sandbox:
             image: golang:1.25
 
           tests:
             - desc: agent output guard refuses a captured pipeline run under {matrix.marker} (native darwin)
-              cmd: 'b="$(mktemp -d)"; cp ./gt-under-test "$b/gt"; d="$(mktemp -d)"; cd "$d"; env {matrix.marker}=1 "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+              cmd: 'root="$PWD"; b="$(mktemp -d "$root/tmpXXXXXX")"; cp ./gt-under-test "$b/gt"; d="$(mktemp -d "$root/tmpXXXXXX")"; cd "$d"; env {matrix.marker}=1 "$b/gt"; rc=$?; cd "$root"; rm -rf "$d" "$b"; exit $rc'
               exit: 1
               timeout: 60s
               matrix:
@@ -485,7 +492,7 @@ jobs:
                   - "Build successful"
 
             - desc: version stays exempt under {matrix.marker} (native darwin)
-              cmd: 'd="$(mktemp -d)"; cp ./gt-under-test "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw'
+              cmd: 'root="$PWD"; d="$(mktemp -d "$root/tmpXXXXXX")"; cp ./gt-under-test "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw; rc=$?; rm -rf "$d"; exit $rc'
               timeout: 30s
               matrix:
                 marker: [GROK_AGENT, OPENCODE]
@@ -497,7 +504,7 @@ jobs:
                   - "refused to run"
 
             - desc: agent output guard names opencode and deletes the module's build outputs (native darwin)
-              cmd: 'b="$(mktemp -d)"; cp ./gt-under-test "$b/gt"; d="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; OPENCODE=1 "$b/gt"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d" "$b"; exit $rc'
+              cmd: 'root="$PWD"; b="$(mktemp -d "$root/tmpXXXXXX")"; cp ./gt-under-test "$b/gt"; d="$(mktemp -d "$root/tmpXXXXXX")"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; OPENCODE=1 "$b/gt"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd "$root"; rm -rf "$d" "$b"; exit $rc'
               exit: 1
               timeout: 60s
               inputs:
