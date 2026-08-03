@@ -462,8 +462,11 @@ jobs:
           # The previous step ran the full pipeline here, so the module's
           # binary is present: the guard must DELETE it, same as smoke-linux.
           [ -f build/nativesmoke ]
+          # No `timeout` here (unlike smoke-linux): it's GNU coreutils, absent
+          # from macOS runners by default, and the guard aborts near-instantly
+          # rather than running a build — nothing here can actually hang.
           rc=0
-          OPENCODE=1 timeout 120 "$RUNNER_TEMP/gt-native" 2>&1 | cat > guard-out.txt || rc=$?
+          OPENCODE=1 "$RUNNER_TEMP/gt-native" 2>&1 | cat > guard-out.txt || rc=$?
           cat guard-out.txt
           [ "$rc" -eq 1 ]
           grep -q "refused to run" guard-out.txt
@@ -471,7 +474,7 @@ jobs:
           [ ! -e build/nativesmoke ]
           grep -q "have been DELETED" guard-out.txt
           # The version exemption must stay intact.
-          OPENCODE=1 timeout 120 "$RUNNER_TEMP/gt-native" version > /dev/null
+          OPENCODE=1 "$RUNNER_TEMP/gt-native" version > /dev/null
 
   smoke-windows:
     needs: build
