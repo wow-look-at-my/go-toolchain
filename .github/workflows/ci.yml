@@ -486,6 +486,7 @@ jobs:
         if: failure()
         run: |
           set -x
+          set +e
           mkdir -p "$RUNNER_TEMP/debugmod/writable"
           cd "$RUNNER_TEMP/debugmod"
           printf 'module example.com/stalebin\n\ngo 1.24\n' > go.mod
