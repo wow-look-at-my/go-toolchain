@@ -103,14 +103,22 @@ flag to disable it.
   specifically). The roster's own behavior — env markers, process prefixes,
   exported pid, the ancestry walk — is tested in is-this-an-agent.
 - `src/cmd/claudeguard_darwin_test.go` (`//go:build darwin`) — the darwin
-  classifier's own sink classification, `fdPath`'s F_GETPATH recovery, and an
-  end-to-end subprocess run proving the built binary actually refuses a piped
-  run under `OPENCODE=1` on darwin. Only runs when built and executed ON
-  darwin — this repo's own CI has no darwin execution leg (only linux, per
-  the smoke-linux guard gate), so this test needs a real Mac (or darwin CI
-  runner) to execute, not just cross-compile.
+  classifier's own sink classification and `fdPath`'s F_GETPATH recovery.
+  Only runs when built and executed ON darwin — this repo's own CI never
+  builds+tests ITSELF on darwin (`build`/`host-build` are linux-only), so
+  this file needs a real Mac (or darwin CI runner) to execute, not just
+  cross-compile; it's a local-developer check, not a CI gate.
 - `dats/cli.dats` — the shipped binary refusing a captured run under each
-  agent's marker, the `version` exemption, and the build-output deletion. The
-  suite does not assert WHICH agent the message names: ancestry outranks the env
-  marker, so running the suite from inside another agent's session would
-  legitimately name that agent. Runs on linux only (see CLAUDE.md).
+  agent's marker, the `version` exemption, and the build-output deletion, for
+  the linux/cosmo classifier. The suite does not assert WHICH agent the
+  message names: ancestry outranks the env marker, so running the suite from
+  inside another agent's session would legitimately name that agent. Runs on
+  linux only (see CLAUDE.md).
+- `.github/workflows/testdata/smoke-macos-agent-output-guard.dats` — the
+  darwin classifier's CI gate: the smoke-macos job copies this template into
+  a throwaway module (alongside a copy of the real published darwin/arm64
+  binary, staged inside the module root so dats' sandbox can reach it) and
+  go-toolchain's own dats phase runs it as part of that job's normal pipeline
+  invocation. Mirrors `cli.dats`' marker-matrix/version-exemption/deletion
+  tests 1:1, and — unlike `claudeguard_darwin_test.go` — actually executes on
+  a real macOS runner on every push.

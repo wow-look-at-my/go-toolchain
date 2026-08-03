@@ -446,35 +446,25 @@ jobs:
           	require.Equal(t, "hello, mac", got)
           }
           EOF
+          # The agent output guard regression lives as a dats suite (see
+          # .github/workflows/testdata/smoke-macos-agent-output-guard.dats),
+          # not hand-rolled bash here, matching this repo's own dats/cli.dats
+          # convention. go-toolchain links dats in and runs any dats/ suite
+          # found (recursively) in the module it is building -- there is no
+          # separate suite-running step, which is exactly why this template
+          # does NOT live under this repo's OWN dats/: it would then also run
+          # during go-toolchain's own self-build (the linux build/host-build
+          # jobs), where ./gt-under-test does not exist. dats sandboxes every
+          # command to the module root, so the binary under test must live
+          # INSIDE it: $RUNNER_TEMP is invisible to a sandboxed command (same
+          # reasoning as dats/README.md's build/.dats-stage/ staging).
+          cp "$RUNNER_TEMP/gt-native" ./gt-under-test
+          mkdir -p dats
+          cp "$GITHUB_WORKSPACE/.github/workflows/testdata/smoke-macos-agent-output-guard.dats" dats/agent-output-guard.dats
           # Full default pipeline: reuses the Go toolchain the APE gate above
           # already bootstrapped (shared ~/.cache/go-toolchain), then
-          # tidy/vet/test/coverage/build.
+          # tidy/vet/test/coverage/build, then the dats phase above.
           "$RUNNER_TEMP/gt-native"
-
-      - name: agent output guard fires in the native darwin/arm64 binary
-        run: |
-          set -euo pipefail
-          # darwin has no /proc, so this is the one platform where the guard
-          # could compile clean and still be a silent no-op at runtime — a
-          # GOOS=darwin unit test proves nothing about the actual binary
-          # running on actual darwin (see docs/AGENT-OUTPUT-GUARD.md).
-          cd "$RUNNER_TEMP/nativemod"
-          # The previous step ran the full pipeline here, so the module's
-          # binary is present: the guard must DELETE it, same as smoke-linux.
-          [ -f build/nativesmoke ]
-          # No `timeout` here (unlike smoke-linux): it's GNU coreutils, absent
-          # from macOS runners by default, and the guard aborts near-instantly
-          # rather than running a build — nothing here can actually hang.
-          rc=0
-          OPENCODE=1 "$RUNNER_TEMP/gt-native" 2>&1 | cat > guard-out.txt || rc=$?
-          cat guard-out.txt
-          [ "$rc" -eq 1 ]
-          grep -q "refused to run" guard-out.txt
-          grep -qi "opencode" guard-out.txt
-          [ ! -e build/nativesmoke ]
-          grep -q "have been DELETED" guard-out.txt
-          # The version exemption must stay intact.
-          OPENCODE=1 "$RUNNER_TEMP/gt-native" version > /dev/null
 
   smoke-windows:
     needs: build
