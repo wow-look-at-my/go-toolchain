@@ -425,37 +425,38 @@ jobs:
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
-          # This is a dats test too, but the OUTER invocation below must NOT
-          # be the full pipeline: go-toolchain bootstraps Go in main(), before
-          # cobra dispatch, for any invocation whose args aren't exactly
-          # `version`/`cacheprog` (see needsGo() in src/main.go) -- so a BARE
-          # invocation with no go.mod anywhere is enough to exercise cold
-          # bootstrap (EnsureGoVersion's requiredGoVersion() no-go.mod case
-          # returns nil, a no-op, when there's nothing to read a version from
-          # at THIS level) while landing in go-toolchain's dats-only path
-          # (no go.mod + a dats/ suite -> runDatsOnly(), see src/cmd/root.go)
-          # instead of the full tidy/vet/test/build/bench pipeline, which
-          # WEDGES AT EXIT under the APE on macOS (see the big comment above
-          # this job). The dats test's OWN nested exec creates a fresh module
-          # with its own go.mod, so THAT invocation's bootstrap still resolves
-          # a version the same way the original bash step did.
-          mkdir -p "$RUNNER_TEMP/apegate"
-          cd "$RUNNER_TEMP/apegate"
-          cp "$RUNNER_TEMP/gt-ape" ./gt-ape-under-test
-          mkdir -p dats
-          cat > dats/help-gate.dats <<'EOF'
-          tests:
-            - desc: APE bootstraps Go and prints --help in a fresh module (native darwin host)
-              cmd: 'cp ./gt-ape-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/apesmoke\n\ngo 1.24\n" > go.mod; {outputs.gt} --help; rc=$?; exit $rc'
-              timeout: 120s
-              inputs:
-                env:
-                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-              outputs:
-                stdout:
-                  - "Usage:"
+          # NOT a dats test, and deliberately not one: `--help` is handled by
+          # cobra before RootCmd's RunE ever runs, so it never reaches the
+          # build phase that triggers go-toolchain's dats phase -- there is no
+          # hook to attach a suite to here. And unlike the guard suites below,
+          # this can't be worked around with a no-go.mod dats-only invocation
+          # either: macos-latest ships no Go on PATH at all, so main()'s
+          # EnsureGoVersion() calls bootstrapGo() (not the "already installed,
+          # proceed with what we have" branch), which genuinely needs a go.mod
+          # to know which version to fetch -- with none anywhere in the tree,
+          # bootstrap fails outright before dats-only mode is ever reached. A
+          # go.mod at this level would fix that but makes findGoModules() see
+          # a real build target, reintroducing the full pipeline that WEDGES
+          # AT EXIT under the APE on macOS (see the big comment above this
+          # job). This step's own go.mod-having module, with a plain `--help`
+          # invocation, is the only shape that bootstraps Go without touching
+          # that path.
+          mkdir -p "$RUNNER_TEMP/apemod"
+          cd "$RUNNER_TEMP/apemod"
+          cat > go.mod <<'EOF'
+          module example.com/apesmoke
+
+          go 1.24
           EOF
-          "$RUNNER_TEMP/gt-ape"
+          cat > main.go <<'EOF'
+          package main
+
+          func main() {}
+          EOF
+          # macos-latest has no Go on PATH; the bootstrap needs go.mod to pick
+          # a version, downloads the official darwin/arm64 toolchain from
+          # go.dev, extracts and probes it, and only then prints help.
+          "$RUNNER_TEMP/gt-ape" --help
 
       - name: Full pipeline with the native darwin/arm64 binary
         env:
