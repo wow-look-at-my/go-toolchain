@@ -80,3 +80,18 @@ tests:
     outputs:
       stderr:
         - "refused to run"
+
+  # dats/cli.dats already proves --help against the DEV build on an
+  # unsandboxed system Go; this proves it against the actual shipped APE, the
+  # artifact a consumer downloads. --help exits before the pipeline/dats phase
+  # (see docs/CI.md), so it carries no agent marker and needs no bootstrap
+  # timing -- Go is already cached from the pipeline run above.
+  - desc: shipped APE prints usage under --help
+    cmd: 'cp ./gt-under-test {outputs.gt}; {outputs.gt} --help'
+    timeout: 30s
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stdout:
+        - "Usage:"

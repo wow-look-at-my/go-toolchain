@@ -72,3 +72,18 @@ tests:
         - "refused to run"
         - "opencode"
         - "have been DELETED"
+
+  # dats/cli.dats proves --help against the dev build on linux/cosmo only;
+  # this proves it against the actual published native darwin/arm64 binary.
+  # --help exits before the pipeline/dats phase (see docs/CI.md), so it
+  # carries no agent marker and needs no bootstrap timing -- Go is already
+  # cached from the pipeline run above.
+  - desc: native darwin binary prints usage under --help
+    cmd: 'cp ./gt-under-test {outputs.gt}; {outputs.gt} --help'
+    timeout: 30s
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stdout:
+        - "Usage:"
