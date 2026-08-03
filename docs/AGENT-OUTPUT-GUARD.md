@@ -114,13 +114,18 @@ flag to disable it.
   message names: ancestry outranks the env marker, so running the suite from
   inside another agent's session would legitimately name that agent. Runs on
   linux only (see CLAUDE.md).
-- `.github/workflows/ci.yml`'s smoke-macos job ("Full pipeline with the
-  native darwin/arm64 binary") — the darwin classifier's CI gate. It writes a
-  dats suite inline (that job never runs `actions/checkout`, so there's no
-  repo tree to copy a template out of) into a throwaway module, alongside a
-  copy of the real published darwin/arm64 binary staged inside the module
-  root so dats' sandbox can reach it, and go-toolchain's own dats phase runs
-  it as part of that job's normal pipeline invocation. Mirrors `cli.dats`'
-  marker-matrix/version-exemption/deletion tests 1:1, and — unlike
-  `claudeguard_darwin_test.go` — actually executes on a real macOS runner on
-  every push.
+- `.github/workflows/ci.yml`'s smoke-linux and smoke-macos jobs — the CI gate
+  for the shipped artifacts (the cosmo APE and the native darwin/arm64
+  binary respectively). Each writes a dats suite inline (neither job runs
+  `actions/checkout`, so there's no repo tree to copy a checked-in template
+  out of) into a throwaway module, alongside a copy of the real shipped
+  binary, and go-toolchain's own dats phase runs it as part of that job's
+  normal pipeline invocation. Mirrors `cli.dats`' marker-matrix/
+  version-exemption/deletion tests (smoke-linux also covers the CLAUDECODE
+  sinkDiscard path the others don't), and — unlike `claudeguard_darwin_test.go`
+  — actually executes on the real runner on every push. Scratch space in
+  these suites is always `{outputs.X}` (dats' own writable per-test
+  directory), never `mktemp -d`: seatbelt (smoke-macos) restricts writes to
+  exactly that directory, while bwrap (smoke-linux) tolerates `mktemp -d`
+  only because it privatizes the whole /tmp namespace — `{outputs.X}` is the
+  one idiom documented to work identically on both.
