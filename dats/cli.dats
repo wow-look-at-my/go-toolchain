@@ -16,12 +16,14 @@
 # NOTE: the agent-output-guard tests below assume a linux host — this repo's
 # own self-build (the only thing that runs THIS suite) never runs on darwin.
 # darwin has its own real guard classifier (src/cmd/claudeguard_darwin.go),
-# covered by a sibling dats suite that a throwaway module runs instead:
-# .github/workflows/testdata/smoke-macos-agent-output-guard.dats, copied in by
-# the smoke-macos job. It cannot live in this repo's own dats/ — dats runs
-# every suite it finds recursively under dats/, so a suite referencing a
-# native darwin binary would also run (and fail) during this repo's own
-# linux build/host-build jobs.
+# covered by a sibling dats suite the smoke-macos job (.github/workflows/ci.yml)
+# writes inline into a throwaway module instead. It cannot live in this repo's
+# own dats/ — dats runs every suite it finds recursively under dats/, so a
+# suite referencing a native darwin binary would also run (and fail) during
+# this repo's own linux build/host-build jobs; it also can't be a checked-in
+# template copied in at CI time, because smoke-macos never runs
+# actions/checkout (only the release artifact download), so there is no repo
+# tree there to copy a template out of.
 
 # Sandboxed like every other suite (dats' default). The one adjustment: under
 # the docker backend the commands run in the IMAGE's filesystem, and every

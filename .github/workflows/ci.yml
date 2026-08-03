@@ -446,21 +446,72 @@ jobs:
           	require.Equal(t, "hello, mac", got)
           }
           EOF
-          # The agent output guard regression lives as a dats suite (see
-          # .github/workflows/testdata/smoke-macos-agent-output-guard.dats),
-          # not hand-rolled bash here, matching this repo's own dats/cli.dats
+          # The agent output guard regression lives as a dats suite, not
+          # hand-rolled bash here, matching this repo's own dats/cli.dats
           # convention. go-toolchain links dats in and runs any dats/ suite
           # found (recursively) in the module it is building -- there is no
-          # separate suite-running step, which is exactly why this template
-          # does NOT live under this repo's OWN dats/: it would then also run
-          # during go-toolchain's own self-build (the linux build/host-build
-          # jobs), where ./gt-under-test does not exist. dats sandboxes every
-          # command to the module root, so the binary under test must live
-          # INSIDE it: $RUNNER_TEMP is invisible to a sandboxed command (same
-          # reasoning as dats/README.md's build/.dats-stage/ staging).
+          # separate suite-running step, which is exactly why this suite is
+          # written inline (like go.mod/main.go above) rather than checked
+          # in under this repo's OWN dats/: this job never runs
+          # actions/checkout (it only downloads the dist/ artifact above), so
+          # $GITHUB_WORKSPACE has no repo tree to copy a template out of --
+          # and even if it did, a suite referencing a native darwin binary
+          # would also run (and fail) during this repo's own linux
+          # build/host-build jobs, which discover every dats/ suite
+          # recursively with no filtering. dats sandboxes every command to
+          # the module root, so the binary under test must live INSIDE it:
+          # $RUNNER_TEMP is invisible to a sandboxed command (same reasoning
+          # as dats/README.md's build/.dats-stage/ staging).
           cp "$RUNNER_TEMP/gt-native" ./gt-under-test
           mkdir -p dats
-          cp "$GITHUB_WORKSPACE/.github/workflows/testdata/smoke-macos-agent-output-guard.dats" dats/agent-output-guard.dats
+          cat > dats/agent-output-guard.dats <<'EOF'
+          sandbox:
+            image: golang:1.25
+
+          tests:
+            - desc: agent output guard refuses a captured pipeline run under {matrix.marker} (native darwin)
+              cmd: 'b="$(mktemp -d)"; cp ./gt-under-test "$b/gt"; d="$(mktemp -d)"; cd "$d"; env {matrix.marker}=1 "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+              exit: 1
+              timeout: 60s
+              matrix:
+                marker: [GROK_AGENT, OPENCODE]
+              inputs:
+                env:
+                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+              outputs:
+                stderr:
+                  - "refused to run"
+                "!stdout":
+                  - "Build successful"
+
+            - desc: version stays exempt under {matrix.marker} (native darwin)
+              cmd: 'd="$(mktemp -d)"; cp ./gt-under-test "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw'
+              timeout: 30s
+              matrix:
+                marker: [GROK_AGENT, OPENCODE]
+              inputs:
+                env:
+                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+              outputs:
+                "!stderr":
+                  - "refused to run"
+
+            - desc: agent output guard names opencode and deletes the module's build outputs (native darwin)
+              cmd: 'b="$(mktemp -d)"; cp ./gt-under-test "$b/gt"; d="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; OPENCODE=1 "$b/gt"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d" "$b"; exit $rc'
+              exit: 1
+              timeout: 60s
+              inputs:
+                env:
+                  GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+              outputs:
+                stdout:
+                  - "GUARD-DELETED-BINARY"
+                  - "GUARD-KEPT-CHECKSUMS"
+                stderr:
+                  - "refused to run"
+                  - "opencode"
+                  - "have been DELETED"
+          EOF
           # Full default pipeline: reuses the Go toolchain the APE gate above
           # already bootstrapped (shared ~/.cache/go-toolchain), then
           # tidy/vet/test/coverage/build, then the dats phase above.

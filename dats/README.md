@@ -66,10 +66,12 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   (`src/cmd/claudeguard_darwin.go`) and its own dats coverage, but that suite
   cannot live under this repo's `dats/` — every suite here runs during this
   repo's own linux self-build too, and a suite that execs a native darwin
-  binary would fail there. Instead it's a template
-  (`.github/workflows/testdata/smoke-macos-agent-output-guard.dats`) the
-  smoke-macos CI job copies into a throwaway module and runs against the
-  actual published darwin/arm64 binary — see that file's own header.
+  binary would fail there. Instead `.github/workflows/ci.yml`'s smoke-macos
+  job writes one inline (as a heredoc, like the throwaway module's own
+  go.mod/main.go) into a throwaway module and runs it against the actual
+  published darwin/arm64 binary — inline rather than a checked-in template,
+  because that job never runs `actions/checkout` (only a release-artifact
+  download), so there is no repo tree there to copy a template out of.
 - CI provisions **bubblewrap** before running the pipeline (`.github/workflows/ci.yml`,
   `host-build` and `build`), so suites run under the native Linux sandbox rather than
   the docker fallback, and an unusable bwrap fails the job instead of silently

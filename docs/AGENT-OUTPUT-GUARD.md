@@ -114,11 +114,13 @@ flag to disable it.
   message names: ancestry outranks the env marker, so running the suite from
   inside another agent's session would legitimately name that agent. Runs on
   linux only (see CLAUDE.md).
-- `.github/workflows/testdata/smoke-macos-agent-output-guard.dats` — the
-  darwin classifier's CI gate: the smoke-macos job copies this template into
-  a throwaway module (alongside a copy of the real published darwin/arm64
-  binary, staged inside the module root so dats' sandbox can reach it) and
-  go-toolchain's own dats phase runs it as part of that job's normal pipeline
-  invocation. Mirrors `cli.dats`' marker-matrix/version-exemption/deletion
-  tests 1:1, and — unlike `claudeguard_darwin_test.go` — actually executes on
-  a real macOS runner on every push.
+- `.github/workflows/ci.yml`'s smoke-macos job ("Full pipeline with the
+  native darwin/arm64 binary") — the darwin classifier's CI gate. It writes a
+  dats suite inline (that job never runs `actions/checkout`, so there's no
+  repo tree to copy a template out of) into a throwaway module, alongside a
+  copy of the real published darwin/arm64 binary staged inside the module
+  root so dats' sandbox can reach it, and go-toolchain's own dats phase runs
+  it as part of that job's normal pipeline invocation. Mirrors `cli.dats`'
+  marker-matrix/version-exemption/deletion tests 1:1, and — unlike
+  `claudeguard_darwin_test.go` — actually executes on a real macOS runner on
+  every push.
