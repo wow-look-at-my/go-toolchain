@@ -517,14 +517,23 @@ jobs:
           echo "--- stderr ---"
           cat "$WRITABLE/err.txt"
           echo "=== direct go list runtime under the same profile ==="
-          GOBIN_PATH="$(dirname "$(find "$HOME/Library/Caches/go-toolchain" -maxdepth 2 -name go -type f 2>/dev/null | head -1)")"
-          echo "resolved go bin dir: $GOBIN_PATH"
-          PATH="$GOBIN_PATH:$PATH" GOTOOLCHAIN=local sandbox-exec -p "$PROFILE" bash -c 'cd "$TMPDIR" 2>/dev/null || cd /tmp; go list runtime' > "$WRITABLE/list_out.txt" 2> "$WRITABLE/list_err.txt"
+          GOROOT_PATH="$(find "$HOME/Library/Caches/go-toolchain" -maxdepth 3 -name go -type f 2>/dev/null | head -1 | xargs -I{} dirname {} | xargs -I{} dirname {})"
+          echo "resolved GOROOT: $GOROOT_PATH"
+          PATH="$GOROOT_PATH/bin:$PATH" GOROOT="$GOROOT_PATH" GOTOOLCHAIN=local sandbox-exec -p "$PROFILE" bash -c 'cd "$TMPDIR" 2>/dev/null || cd /tmp; go list runtime' > "$WRITABLE/list_out.txt" 2> "$WRITABLE/list_err.txt"
           echo "exit=$?"
           echo "--- go list stdout ---"
           cat "$WRITABLE/list_out.txt"
           echo "--- go list stderr ---"
           cat "$WRITABLE/list_err.txt"
+          echo "=== can the sandbox read GOROOT/src/runtime at all? ==="
+          sandbox-exec -p "$PROFILE" ls "$GOROOT_PATH/src/runtime" > "$WRITABLE/ls_out.txt" 2> "$WRITABLE/ls_err.txt"
+          echo "exit=$?"
+          echo "--- ls stdout (first 5) ---"
+          head -5 "$WRITABLE/ls_out.txt"
+          echo "--- ls stderr ---"
+          cat "$WRITABLE/ls_err.txt"
+          echo "=== unsandboxed comparison ls ==="
+          ls "$GOROOT_PATH/src/runtime" | head -5
 
   smoke-windows:
     needs: build
