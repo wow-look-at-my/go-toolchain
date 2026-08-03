@@ -90,3 +90,29 @@ tests:
     outputs:
       stdout:
         - "Usage:"
+
+  # The macOS carve-out ships a native Mach-O darwin/arm64 slot (tested
+  # above), but the linux/cosmo slots are still the fat APE, and the APE's
+  # polyglot format is ALSO a valid macOS executable -- ARM64 mac users who
+  # grab a linux artifact by mistake, or a script that always fetches the
+  # linux slot, still need it to run. ./gt-ape-under-test is a copy of that
+  # same published binary, staged by the CI step alongside gt-under-test.
+  # Only --help is exercised here, never the full pipeline: running the APE
+  # slot through go-toolchain's full tidy/vet/test/build pipeline on a macOS
+  # host hits a known exit-time deadlock in the cosmopolitan runtime (see
+  # docs/CI.md) -- --help returns long before that pipeline ever starts.
+  # Go is already cached from the earlier test in this file, same reasoning
+  # as the native --help test above -- proving a truly cold, nothing-cached
+  # bootstrap works is already covered there (bootstrapGo has no per-slot
+  # branching, so a native-binary bootstrap proves the APE's too); this test
+  # exists to prove the polyglot format itself loads and dispatches on macOS.
+  - desc: APE (cosmo) binary prints usage under --help on a macOS host
+    cmd: 'cp ./gt-ape-under-test {outputs.gt}; mkdir -p {outputs.gocache}; {outputs.gt} --help'
+    timeout: 30s
+    inputs:
+      env:
+        GOCACHE: "{outputs.gocache}"
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stdout:
+        - "Usage:"

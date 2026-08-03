@@ -41,18 +41,19 @@ consumer's own build would.
 **macOS** — asserts the darwin/arm64 slot is native Mach-O (`cffaedfe`) and runs
 the FULL pipeline with that native binary; this is the consumer-critical mac
 gate, and it carries the darwin sibling of the linux guard fixture
-(`smoke-macos-agent-output-guard.dats`) the same way. The APE gate on this host
-is REDUCED (magic on a linux slot + `version` + `--help` inside a module =
-official-Go bootstrap under the APE loader) because the pipeline WEDGES AT EXIT
-under the APE on macOS. Root-caused from SIGQUIT dumps (run 28742069477; issue
-#276) to the fork running unix-socket fds blocking/netpoller-less on darwin
-hosts, so the cache daemon's `Listener.Close` deadlocks. All pipeline PHASES
-are green under the APE now that `cacheProgCommand` wraps the GOCACHEPROG
-self-exec in a sh script — only the exit-time deadlock remains, which is
-exactly why this gate stays reduced rather than running the full pipeline (and
-therefore dats) under the APE: dats only runs from inside a completed build,
-so testing this step's `--help` bootstrap that way would hit the same
-exit deadlock and wedge the job for its full 15-minute timeout on every run.
+(`smoke-macos-agent-output-guard.dats`) the same way. That fixture also covers
+the APE (cosmo) slot's `--help` on a macOS host, execing a staged copy of the
+linux/amd64 artifact as a nested command from inside the native binary's own
+dats phase. The APE's OWN full pipeline still can't run on this host: it WEDGES
+AT EXIT under the APE on macOS. Root-caused from SIGQUIT dumps (run
+28742069477; issue #276) to the fork running unix-socket fds
+blocking/netpoller-less on darwin hosts, so the cache daemon's `Listener.Close`
+deadlocks. All pipeline PHASES are green under the APE now that
+`cacheProgCommand` wraps the GOCACHEPROG self-exec in a sh script — only the
+exit-time deadlock remains, and it fires strictly during a full pipeline's own
+exit path, never during `--help` (which returns long before that path is
+reached) — which is why the dats `--help` sub-test is safe but the APE's full
+pipeline stays untested on macOS.
 
 **Windows** — `version` and `--help` only: gobootstrap downloads
 `go<version>.<os>-<arch>.tar.gz`, and go.dev serves no windows variant (windows

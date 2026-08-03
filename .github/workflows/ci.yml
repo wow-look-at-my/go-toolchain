@@ -363,45 +363,6 @@ jobs:
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
 
-      - name: 'APE reduced gate: bootstrap + --help in a tiny module'
-        env:
-          # See smoke-linux: synthetic consumer without org cache credentials.
-          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
-        run: |
-          set -euo pipefail
-          # NOT a dats test, and deliberately not one: `--help` is handled by
-          # cobra before RootCmd's RunE ever runs, so it never reaches the
-          # build phase that triggers go-toolchain's dats phase -- there is no
-          # hook to attach a suite to here. And unlike the guard suites below,
-          # this can't be worked around with a no-go.mod dats-only invocation
-          # either: macos-latest ships no Go on PATH at all, so main()'s
-          # EnsureGoVersion() calls bootstrapGo() (not the "already installed,
-          # proceed with what we have" branch), which genuinely needs a go.mod
-          # to know which version to fetch -- with none anywhere in the tree,
-          # bootstrap fails outright before dats-only mode is ever reached. A
-          # go.mod at this level would fix that but makes findGoModules() see
-          # a real build target, reintroducing the full pipeline that WEDGES
-          # AT EXIT under the APE on macOS (see the big comment above this
-          # job). This step's own go.mod-having module, with a plain `--help`
-          # invocation, is the only shape that bootstraps Go without touching
-          # that path.
-          mkdir -p "$RUNNER_TEMP/apemod"
-          cd "$RUNNER_TEMP/apemod"
-          cat > go.mod <<'EOF'
-          module example.com/apesmoke
-
-          go 1.24
-          EOF
-          cat > main.go <<'EOF'
-          package main
-
-          func main() {}
-          EOF
-          # macos-latest has no Go on PATH; the bootstrap needs go.mod to pick
-          # a version, downloads the official darwin/arm64 toolchain from
-          # go.dev, extracts and probes it, and only then prints help.
-          "$RUNNER_TEMP/gt-ape" --help
-
       - name: Full pipeline with the native darwin/arm64 binary
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
@@ -467,11 +428,13 @@ jobs:
           # $RUNNER_TEMP is invisible to a sandboxed command (same reasoning
           # as dats/README.md's build/.dats-stage/ staging).
           cp "$RUNNER_TEMP/gt-native" ./gt-under-test
+          cp "$RUNNER_TEMP/gt-ape" ./gt-ape-under-test
           mkdir -p dats
           cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-macos-agent-output-guard.dats" dats/agent-output-guard.dats
-          # Full default pipeline: reuses the Go toolchain the APE gate above
-          # already bootstrapped (shared ~/.cache/go-toolchain), then
-          # tidy/vet/test/coverage/build, then the dats phase above.
+          # Full default pipeline: macos-latest has no Go on PATH, so this is
+          # the job's first real bootstrap (downloads, extracts and probes
+          # go 1.24 from go.dev), then tidy/vet/test/coverage/build, then the
+          # dats phase above.
           "$RUNNER_TEMP/gt-native"
 
   smoke-windows:
