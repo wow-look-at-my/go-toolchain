@@ -54,9 +54,20 @@ tests:
   # of the expected message individually (not the whole phrase) to localize
   # exactly where matching breaks -- whole message, partial corruption, or
   # genuinely empty. Remove once the real cause is found and fixed.
+  # The planted module declares `go 1.24`, matching the outer pipeline's own
+  # go.mod (see the "Full pipeline" CI step): EnsureGoVersion finds that
+  # version already bootstrapped and cached, so it never needs to download a
+  # toolchain from inside this dats test. `go 1.21` (cli.dats' own version,
+  # which works fine on linux/bwrap) forced a FRESH bootstrap here, and
+  # writing the newly downloaded toolchain to ~/.cache/go-toolchain/ -- a
+  # path outside seatbelt's writable set ({outputs.X} only, unlike bwrap's
+  # broader access) -- failed before main() ever reached Execute()/the
+  # guard, so the process exited via the bootstrap error path instead of the
+  # agent-output guard: same exit code and build-output cleanup (both paths
+  # delete build/<target> on any unsuccessful run), but no guard message.
   - desc: agent output guard names opencode and deletes the module's build outputs (native darwin)
-    cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {outputs.gt} 2> {outputs.stderr.txt}; n=$(wc -c < {outputs.stderr.txt} | tr -d " "); if [ "$n" = "0" ]; then echo MARK_STDERR_ZERO_BYTES; elif [ "$n" -lt 50 ]; then echo MARK_STDERR_UNDER_50_BYTES; elif [ "$n" -lt 500 ]; then echo MARK_STDERR_50_TO_500_BYTES; else echo MARK_STDERR_OVER_500_BYTES; fi; grep -q "refused" {outputs.stderr.txt} && echo MARK_HAS_refused || echo MARK_NO_refused; grep -qi "opencode" {outputs.stderr.txt} && echo MARK_HAS_opencode || echo MARK_NO_opencode; grep -q "DELETED" {outputs.stderr.txt} && echo MARK_HAS_DELETED || echo MARK_NO_DELETED; grep -q "WARNING" {outputs.stderr.txt} && echo MARK_HAS_WARNING || echo MARK_NO_WARNING; grep -q "panic" {outputs.stderr.txt} && echo MARK_HAS_panic || echo MARK_NO_panic; grep -q "go-bootstrap" {outputs.stderr.txt} && echo MARK_HAS_bootstrap || echo MARK_NO_bootstrap; exit 0'
-    exit: 0
+    cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {outputs.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
+    exit: 1
     timeout: 60s
     inputs:
       env:
@@ -64,19 +75,9 @@ tests:
         GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
     outputs:
       stdout:
-        - "MARK_STDERR_ZERO_BYTES"
-        - "MARK_STDERR_UNDER_50_BYTES"
-        - "MARK_STDERR_50_TO_500_BYTES"
-        - "MARK_STDERR_OVER_500_BYTES"
-        - "MARK_HAS_refused"
-        - "MARK_NO_refused"
-        - "MARK_HAS_opencode"
-        - "MARK_NO_opencode"
-        - "MARK_HAS_DELETED"
-        - "MARK_NO_DELETED"
-        - "MARK_HAS_WARNING"
-        - "MARK_NO_WARNING"
-        - "MARK_HAS_panic"
-        - "MARK_NO_panic"
-        - "MARK_HAS_bootstrap"
-        - "MARK_NO_bootstrap"
+        - "GUARD-DELETED-BINARY"
+        - "GUARD-KEPT-CHECKSUMS"
+      stderr:
+        - "refused to run"
+        - "opencode"
+        - "have been DELETED"
