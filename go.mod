@@ -4,13 +4,13 @@ go 1.25.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/go-git/go-git/v5 v5.19.1
+	github.com/go-git/go-git/v5 v5.19.2
 	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
-	github.com/wow-look-at-my/dats v0.0.0-20260801180457-d7115e1ca5ef
+	github.com/wow-look-at-my/dats v0.0.1777263999
 	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
 	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260801190332-7c5c88e9d790
