@@ -77,12 +77,15 @@ tests:
   # this proves it against the actual published native darwin/arm64 binary.
   # --help exits before the pipeline/dats phase (see docs/CI.md), so it
   # carries no agent marker and needs no bootstrap timing -- Go is already
-  # cached from the pipeline run above.
+  # cached from the pipeline run above. This test runs from the module root
+  # (dats' default cwd), which has its own go.mod, so it hits the same
+  # verifyGoToolchain/GOCACHE requirement as the deletion test above.
   - desc: native darwin binary prints usage under --help
-    cmd: 'cp ./gt-under-test {outputs.gt}; {outputs.gt} --help'
+    cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.gocache}; {outputs.gt} --help'
     timeout: 30s
     inputs:
       env:
+        GOCACHE: "{outputs.gocache}"
         GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
     outputs:
       stdout:
