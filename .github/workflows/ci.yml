@@ -534,6 +534,20 @@ jobs:
           cat "$WRITABLE/ls_err.txt"
           echo "=== unsandboxed comparison ls ==="
           ls "$GOROOT_PATH/src/runtime" | head -5
+          echo "=== what does go itself think GOROOT is, under the sandbox? ==="
+          PATH="$GOROOT_PATH/bin:$PATH" GOROOT="$GOROOT_PATH" GOTOOLCHAIN=local sandbox-exec -p "$PROFILE" bash -c 'go env GOROOT; go version' > "$WRITABLE/env_out.txt" 2> "$WRITABLE/env_err.txt"
+          echo "exit=$?"
+          echo "--- go env/version stdout ---"
+          cat "$WRITABLE/env_out.txt"
+          echo "--- go env/version stderr ---"
+          cat "$WRITABLE/env_err.txt"
+          echo "=== does a FULLY PERMISSIVE sandbox (no deny rules at all) still fail? ==="
+          PATH="$GOROOT_PATH/bin:$PATH" GOROOT="$GOROOT_PATH" GOTOOLCHAIN=local sandbox-exec -p '(version 1)(allow default)' bash -c 'cd "$TMPDIR" 2>/dev/null || cd /tmp; go list runtime' > "$WRITABLE/permissive_out.txt" 2> "$WRITABLE/permissive_err.txt"
+          echo "exit=$?"
+          echo "--- permissive stdout ---"
+          cat "$WRITABLE/permissive_out.txt"
+          echo "--- permissive stderr ---"
+          cat "$WRITABLE/permissive_err.txt"
 
   smoke-windows:
     needs: build
