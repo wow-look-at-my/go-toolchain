@@ -46,16 +46,16 @@ tests:
       "!stderr":
         - "refused to run"
 
-  # TEMPORARY DIAGNOSTIC (2nd round): inputs.env alone (matching cli.dats'
-  # own precedent for this shape) still didn't fix it -- tests 1-2 (matrixed,
-  # inline `env VAR=1 {outputs.gt}`) pass; this one (unmatrixed, mkdir
-  # build + planted files before the exec) still shows no "refused to
-  # run"/"opencode"/"have been DELETED" even though the binary still gets
-  # deleted. PRECHECK proves whether the shell itself even sees $OPENCODE
-  # before gt runs, separating "env not propagated" from "gt itself didn't
-  # detect it". Remove once the real cause is found and fixed.
+  # TEMPORARY DIAGNOSTIC (3rd round): confirmed via round 2 -- $OPENCODE is
+  # "1" in the shell before the exec, exit code is 1, the binary is deleted
+  # and checksums kept, ALL matching the guard's expected side effects
+  # exactly. Yet no stderr assertion for the guard's own message text has
+  # ever matched. This round captures stderr to a file and tests fragments
+  # of the expected message individually (not the whole phrase) to localize
+  # exactly where matching breaks -- whole message, partial corruption, or
+  # genuinely empty. Remove once the real cause is found and fixed.
   - desc: agent output guard names opencode and deletes the module's build outputs (native darwin)
-    cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; echo "MARK_PRECHECK_OPENCODE_IS_${OPENCODE:-UNSET}"; {outputs.gt}; rc=$?; echo "MARK_RC_$rc"; [ ! -e build/stalebin ] && echo MARK_BINARY_DELETED || echo MARK_BINARY_KEPT; [ -f build/checksums.txt ] && echo MARK_CHECKSUMS_KEPT || echo MARK_CHECKSUMS_GONE; exit 0'
+    cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {outputs.gt} 2> {outputs.stderr.txt}; n=$(wc -c < {outputs.stderr.txt} | tr -d " "); if [ "$n" = "0" ]; then echo MARK_STDERR_ZERO_BYTES; elif [ "$n" -lt 50 ]; then echo MARK_STDERR_UNDER_50_BYTES; elif [ "$n" -lt 500 ]; then echo MARK_STDERR_50_TO_500_BYTES; else echo MARK_STDERR_OVER_500_BYTES; fi; grep -q "refused" {outputs.stderr.txt} && echo MARK_HAS_refused || echo MARK_NO_refused; grep -qi "opencode" {outputs.stderr.txt} && echo MARK_HAS_opencode || echo MARK_NO_opencode; grep -q "DELETED" {outputs.stderr.txt} && echo MARK_HAS_DELETED || echo MARK_NO_DELETED; grep -q "WARNING" {outputs.stderr.txt} && echo MARK_HAS_WARNING || echo MARK_NO_WARNING; grep -q "panic" {outputs.stderr.txt} && echo MARK_HAS_panic || echo MARK_NO_panic; grep -q "go-bootstrap" {outputs.stderr.txt} && echo MARK_HAS_bootstrap || echo MARK_NO_bootstrap; exit 0'
     exit: 0
     timeout: 60s
     inputs:
@@ -64,11 +64,19 @@ tests:
         GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
     outputs:
       stdout:
-        - "MARK_PRECHECK_OPENCODE_IS_1"
-        - "MARK_PRECHECK_OPENCODE_IS_UNSET"
-        - "MARK_RC_1"
-        - "MARK_RC_0"
-        - "MARK_BINARY_DELETED"
-        - "MARK_BINARY_KEPT"
-        - "MARK_CHECKSUMS_KEPT"
-        - "MARK_CHECKSUMS_GONE"
+        - "MARK_STDERR_ZERO_BYTES"
+        - "MARK_STDERR_UNDER_50_BYTES"
+        - "MARK_STDERR_50_TO_500_BYTES"
+        - "MARK_STDERR_OVER_500_BYTES"
+        - "MARK_HAS_refused"
+        - "MARK_NO_refused"
+        - "MARK_HAS_opencode"
+        - "MARK_NO_opencode"
+        - "MARK_HAS_DELETED"
+        - "MARK_NO_DELETED"
+        - "MARK_HAS_WARNING"
+        - "MARK_NO_WARNING"
+        - "MARK_HAS_panic"
+        - "MARK_NO_panic"
+        - "MARK_HAS_bootstrap"
+        - "MARK_NO_bootstrap"
