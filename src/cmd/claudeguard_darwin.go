@@ -4,17 +4,24 @@
 // src/compat/go-isatty), and F_GETPATH recovers a regular file's path -- the
 // one thing fstat cannot give, needed for agent.IsCapturePath.
 //
-// A pipe's reader cannot be identified here (that needs libproc, not
+// A FIFO's reader cannot be identified here (that needs libproc, not
 // implemented): unlike linux/cosmo, an agent piping its own subprocess's
-// stdout back to itself is indistinguishable from `| grep` doing the same, so
-// every pipe fails CLOSED here -- the same fail-closed rule already applied
-// to an agent renamed beyond its roster prefixes.
+// stdout back to itself through a named/anonymous pipe is indistinguishable
+// from `| grep` doing the same, so every FIFO fails CLOSED here -- the same
+// fail-closed rule already applied to an agent renamed beyond its roster
+// prefixes. A UNIX-domain socket is different: getsockopt(SOL_LOCAL,
+// LOCAL_PEERPID) gives the exact pid on the far end directly from the kernel,
+// no libproc needed, so a socket DOES get the same peer-identification
+// chance a pipe gets on linux -- this is what a coding agent's own
+// tool-execution plumbing actually is (a Node/Bun child_process typically
+// wires a child's stdio through a socketpair, not a bare pipe).
 
 //go:build darwin
 
 package cmd
 
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/mattn/go-isatty"
@@ -43,6 +50,15 @@ func inspectFD(fd uintptr) outputSink {
 		// on darwin, so every pipe is treated as hiding the output.
 		return outputSink{kind: sinkPipe}
 	case unix.S_IFSOCK:
+		if pid, ok := socketPeerPID(fd); ok {
+			if comm, _, cok := agent.CommPPID(pid); cok {
+				if agent.IsPipeReader(comm, pid) {
+					return outputSink{kind: sinkVisible}
+				}
+				return outputSink{kind: sinkHidden, detail: comm}
+			}
+			return outputSink{kind: sinkHidden, detail: fmt.Sprintf("pid %d", pid)}
+		}
 		return outputSink{kind: sinkHidden}
 	case unix.S_IFCHR:
 		if isTerminal(fd) {
@@ -82,10 +98,22 @@ func fdPath(fd uintptr) string {
 	return string(buf)
 }
 
-// pipePeerName cannot identify a pipe's reader without libproc (unimplemented
-// here), so it always answers unknown. The symbol exists so
-// claudeguard_test.go compiles on every platform --
-// TestPipePeerNameDetectsConsumer skips itself outside linux.
+// pipePeerName cannot identify a FIFO's reader without libproc (unimplemented
+// here), so it always answers unknown -- sockets use socketPeerPID instead,
+// which needs no libproc. The symbol exists so claudeguard_test.go compiles on
+// every platform -- TestPipePeerNameDetectsConsumer skips itself outside linux.
 func pipePeerName(string) (comm string, pid int, ok bool) {
 	return "", 0, false
+}
+
+// socketPeerPID returns the pid on the other end of a connected UNIX-domain
+// socket fd, via getsockopt(SOL_LOCAL, LOCAL_PEERPID) -- a kernel-provided
+// answer, not a guess, and the one piece of peer identification darwin gives
+// for free without libproc.
+func socketPeerPID(fd uintptr) (pid int, ok bool) {
+	p, err := unix.GetsockoptInt(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERPID)
+	if err != nil {
+		return 0, false
+	}
+	return p, true
 }
