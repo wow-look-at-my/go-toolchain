@@ -134,6 +134,26 @@ jobs:
           name: host-go-toolchain
           path: build/go-toolchain
 
+      # socketharness reproduces a coding agent's own tool-execution plumbing
+      # (a socketpair for a child's stdio, not a bare pipe -- see
+      # docs/AGENT-OUTPUT-GUARD.md) so smoke-linux/smoke-macos can prove the
+      # actual reported bug against the real shipped binaries. Cross-compiled
+      # here (this job already has Go set up) rather than via `setup-go` on
+      # smoke-macos, which would put Go on that runner's PATH before the
+      # "Full pipeline" step and quietly defeat the whole point of that job:
+      # proving go-toolchain's OWN bootstrap works on a genuinely Go-less mac.
+      - name: Cross-compile socketharness
+        run: |
+          mkdir -p harness
+          GOOS=linux GOARCH=amd64 go build -o harness/socketharness-linux-amd64 .github/dats-fixtures/socketharness.go
+          GOOS=darwin GOARCH=arm64 go build -o harness/socketharness-darwin-arm64 .github/dats-fixtures/socketharness.go
+
+      - name: Upload socketharness binaries
+        uses: wow-look-at-my/actions@cache-upload#latest
+        with:
+          name: socketharness-build
+          path: harness
+
   # Build + test via the composite action, exercising the cosmo fat-APE target
   # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
   # (go-toolchain_cosmo_fat) and copies it onto the linux/amd64, linux/arm64
@@ -231,6 +251,19 @@ jobs:
           name: go-build-build
           path: dist
 
+      # socketharness reproduces a coding agent's own tool-execution plumbing
+      # (a socketpair for a child's stdio, not a bare pipe -- see
+      # docs/AGENT-OUTPUT-GUARD.md) so the guard fixture below can prove the
+      # actual reported bug against the real shipped APE, not a unit test's
+      # in-process fake. Cross-compiled in host-build (which already has Go
+      # set up) rather than via setup-go here -- see smoke-macos, where
+      # installing Go on that runner would defeat the point of that job.
+      - name: Download socketharness hand-off
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: socketharness-build
+          path: harness
+
       - name: Run the APE (linux/amd64 slot)
         run: |
           set -euo pipefail
@@ -301,6 +334,8 @@ jobs:
           # green). Staged inside the module root so dats' sandbox (bwrap)
           # can reach it, same reasoning as smoke-macos.
           cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
+          cp "$GITHUB_WORKSPACE/harness/socketharness-linux-amd64" ./socketharness-under-test
+          chmod +x ./socketharness-under-test
           mkdir -p dats
           cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-linux-agent-output-guard.dats" dats/agent-output-guard.dats
           # Full default pipeline: bootstraps an official Go toolchain if the
@@ -347,6 +382,15 @@ jobs:
         with:
           name: go-build-build
           path: dist
+
+      # See smoke-linux for why this is a download, not a local build: no
+      # setup-go here, deliberately -- this job's whole point is proving
+      # go-toolchain's OWN bootstrap works with NO Go on this runner's PATH.
+      - name: Download socketharness hand-off
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: socketharness-build
+          path: harness
 
       - name: Check slot formats + run the APE
         run: |
@@ -429,6 +473,8 @@ jobs:
           # as dats/README.md's build/.dats-stage/ staging).
           cp "$RUNNER_TEMP/gt-native" ./gt-under-test
           cp "$RUNNER_TEMP/gt-ape" ./gt-ape-under-test
+          cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" ./socketharness-under-test
+          chmod +x ./socketharness-under-test
           mkdir -p dats
           cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-macos-agent-output-guard.dats" dats/agent-output-guard.dats
           # Full default pipeline: macos-latest has no Go on PATH, so this is
