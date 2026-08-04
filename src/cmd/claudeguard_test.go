@@ -24,6 +24,52 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// TestMain intercepts a re-exec of this test binary playing the "child" side
+// of a socketpair connection created by the parent (the real go-toolchain/
+// opencode topology). SO_PEERCRED only resolves the creator's pid when
+// queried from a genuinely separate process that inherited the fd via
+// fork/exec — a same-process socketpair can't reproduce that, so the
+// socket_* subtests below spawn a real second process instead of faking one.
+func TestMain(m *testing.M) {
+	if os.Getenv("CLAUDEGUARD_TEST_HELPER") == "inspect_fd1" {
+		s := inspectFD(1)
+		os.Stderr.WriteString("HELPER_KIND=" + strconv.Itoa(int(s.kind)) + " HELPER_DETAIL=" + s.detail + "\n")
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// runSocketPeerHelper creates a real AF_UNIX socketpair, re-execs this test
+// binary with one end as its stdout (closing our own copy immediately, like
+// opencode/Node do, rather than after Wait — see socketharness.go), and
+// returns what the helper's inspectFD(1) classified that fd as.
+func runSocketPeerHelper(t *testing.T, extraEnv ...string) (sinkKind, string) {
+	t.Helper()
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	require.NoError(t, err)
+	readerEnd := os.NewFile(uintptr(fds[0]), "reader")
+	childStdout := os.NewFile(uintptr(fds[1]), "writer")
+	defer readerEnd.Close()
+
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(append([]string{}, os.Environ()...), append(extraEnv, "CLAUDEGUARD_TEST_HELPER=inspect_fd1")...)
+	cmd.Stdout = childStdout
+	var errBuf strings.Builder
+	cmd.Stderr = &errBuf
+	require.NoError(t, cmd.Start())
+	childStdout.Close()
+	require.NoError(t, cmd.Wait())
+
+	out := strings.TrimSpace(errBuf.String())
+	rest, ok := strings.CutPrefix(out, "HELPER_KIND=")
+	require.True(t, ok, "unexpected helper output: %q", out)
+	kindStr, detail, ok := strings.Cut(rest, " HELPER_DETAIL=")
+	require.True(t, ok, "unexpected helper output: %q", out)
+	k, err := strconv.Atoi(kindStr)
+	require.NoError(t, err)
+	return sinkKind(k), detail
+}
+
 func TestAgentOutputMessageVariants(t *testing.T) {
 	pipe := agentOutputMessage("Claude", outputSink{kind: sinkPipe, detail: "head"}, nil)
 	assert.Contains(t, pipe, "piped into `head`")
@@ -226,25 +272,27 @@ func TestInspectFDClassification(t *testing.T) {
 	// plumbing actually is (a socketpair for a child's stdio, not a bare
 	// pipe; see claudeguard_darwin.go's file header for why that matters on
 	// darwin too), so it now gets the exact same chance a pipe gets.
-	t.Run("socket_to_filter_is_blocked_with_peer_name", func(t *testing.T) {
-		if _, err := exec.LookPath("sleep"); err != nil {
-			t.Skip("sleep not on PATH")
-		}
-		fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-		require.NoError(t, err)
-		w := os.NewFile(uintptr(fds[0]), "socket-writer")
-		defer w.Close()
-		r := os.NewFile(uintptr(fds[1]), "socket-reader")
+	t.Run("socket_reader_that_is_not_an_agent_is_blocked", func(t *testing.T) {
+		// The peer resolved via SO_PEERCRED is this test binary's own parent
+		// invocation (the creator of the socketpair) — not a recognized agent
+		// by name, and no PID var claims it — so the guard must still refuse.
+		kind, detail := runSocketPeerHelper(t)
+		assert.Equal(t, sinkHidden, kind)
+		assert.NotEmpty(t, detail, "refusal message must name the unrecognized reader, not go silent")
+	})
 
-		cmd := exec.Command("sleep", "30")
-		cmd.ExtraFiles = []*os.File{r}
-		require.NoError(t, cmd.Start())
-		r.Close()
-		defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	t.Run("socket_reader_recognized_via_pid_var_is_allowed", func(t *testing.T) {
+		// The real opencode/Node case: the parent process (the creator SO_PEERCRED
+		// resolves to) names its own pid via OPENCODE_PID in the child's env.
+		kind, _ := runSocketPeerHelper(t, "OPENCODE=1", "OPENCODE_PID="+strconv.Itoa(os.Getpid()))
+		assert.Equal(t, sinkVisible, kind)
+	})
 
-		s := inspectFD(w.Fd())
-		assert.Equal(t, sinkHidden, s.kind)
-		assert.Equal(t, "sleep", s.detail)
+	t.Run("socket_reader_with_wrong_pid_var_is_still_blocked", func(t *testing.T) {
+		// A PID var naming some OTHER pid must not fool the guard — SO_PEERCRED
+		// is the kernel's own record and cannot be spoofed by the child's env.
+		kind, _ := runSocketPeerHelper(t, "OPENCODE=1", "OPENCODE_PID=1")
+		assert.Equal(t, sinkHidden, kind)
 	})
 }
 

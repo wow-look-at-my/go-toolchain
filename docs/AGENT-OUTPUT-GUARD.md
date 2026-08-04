@@ -49,12 +49,19 @@ platform that can actually introspect a file descriptor. A third platform
   is a shell, so neither is an agent-named ancestor. An agent whose binary is
   renamed beyond its roster prefixes and exports no pid var fails closed.
 - **Socket / anon-inode** — gets the exact same `isHarnessPipeReader` chance a
-  pipe gets, via the same `pipePeerName` (it matches on the fd's
-  `/proc/self/fd` target string, not a `pipe:`-specific format). This closed a
-  real gap: opencode's bash tool wires a spawned child's stdio through a
-  socketpair, not a bare pipe, so a plain, unpiped `go-toolchain` invocation
-  was refused as "captured instead of printed to the terminal" — the pipe
-  allowance existed, but sockets never got to use it.
+  pipe gets, but NOT via `pipePeerName`: the two ends of an AF_UNIX
+  `socketpair()` are separate sockets with different inodes (unlike a `pipe()`,
+  where both ends share one), so an fd-target string match can never find the
+  other end. `socketPeerPID` uses `getsockopt(SOL_SOCKET, SO_PEERCRED)` on the
+  fd instead — the kernel's own record of the connection's creator, fixed at
+  `socketpair()` time, so it still resolves after that creator (opencode/Node)
+  closes its own copy of the child's fd, which real child_process plumbing
+  does immediately. `pipePeerName`'s inode scan is kept only as a fallback for
+  a target that SO_PEERCRED can't resolve. This closed a real gap: opencode's
+  bash tool wires a spawned child's stdio through a socketpair, not a bare
+  pipe, so a plain, unpiped `go-toolchain` invocation was refused as "captured
+  instead of printed to the terminal" — the pipe allowance existed, but
+  sockets never got a mechanism that could actually resolve their peer.
 - **Regular file** — allowed only if its path is the harness capture
   (`isHarnessCapturePath`: contains `CLAUDE_CODE_SESSION_ID`, or ends `.output`
   under a `claude` path).

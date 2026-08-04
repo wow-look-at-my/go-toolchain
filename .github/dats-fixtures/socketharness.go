@@ -53,8 +53,19 @@ func main() {
 	cmd.Stderr = &errBuf
 	cmd.Env = append(os.Environ(), "OPENCODE=1", "OPENCODE_PID="+strconv.Itoa(readerPID))
 
-	runErr := cmd.Run()
+	startErr := cmd.Start()
+	// Close our copy of the child's end the moment the fork/dup2 has happened,
+	// the way opencode/Node's child_process really does -- keeping it open
+	// until after Wait() would let a same-inode /proc scan "find" our own
+	// leftover duplicate instead of genuinely resolving the child's peer via
+	// SO_PEERCRED, silently passing a case the real plumbing would fail.
 	childStdout.Close()
+	var runErr error
+	if startErr != nil {
+		runErr = startErr
+	} else {
+		runErr = cmd.Wait()
+	}
 	readerEnd.Close()
 
 	exitCode := 0
