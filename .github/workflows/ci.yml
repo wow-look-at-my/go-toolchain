@@ -215,6 +215,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Only for the dats fixture .github/dats-fixtures/*.dats copied in
+      # below -- this job otherwise runs entirely off the downloaded release
+      # artifact.
+      - uses: actions/checkout@v7
+
       # Explicit name on purpose: by this point the run holds SEVERAL
       # hand-offs (host-go-toolchain from host-build, the per-job
       # go-build-build, and the deprecated bare go-build alias), so a
@@ -288,39 +293,20 @@ jobs:
           # toolchain before dispatching any root-command invocation, and on a
           # runner without Go on PATH that needs a go.mod to pick a version.
           "$RUNNER_TEMP/gt-ape" --help
+          # The agent output guard regression lives as a committed dats
+          # fixture (see smoke-macos), not hand-rolled bash: the released
+          # binaries ARE the cosmo APE, so the guard must fire in THIS
+          # artifact -- a GOOS=linux unit test cannot prove that (the guard
+          # once shipped as a `_linux.go` no-op while unit tests stayed
+          # green). Staged inside the module root so dats' sandbox (bwrap)
+          # can reach it, same reasoning as smoke-macos.
+          cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
+          mkdir -p dats
+          cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-linux-agent-output-guard.dats" dats/agent-output-guard.dats
           # Full default pipeline: bootstraps an official Go toolchain if the
-          # runner's is too old, then tidy/vet/test/coverage/build.
+          # runner's is too old, then tidy/vet/test/coverage/build, then the
+          # dats phase above.
           "$RUNNER_TEMP/gt-ape"
-
-      - name: agent output guard fires in the shipped APE
-        run: |
-          set -euo pipefail
-          # Fresh throwaway copy: APEs self-assimilate on first exec, so never
-          # run dist/ artifacts in place.
-          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-guard"
-          chmod +x "$RUNNER_TEMP/gt-guard"
-          cd "$RUNNER_TEMP/smokemod"
-          # The released binaries ARE the cosmo APE, so the guard must fire in
-          # THIS artifact — a GOOS=linux unit test cannot prove that (the guard
-          # once shipped as a `_linux.go` no-op while unit tests stayed green).
-          # CLAUDECODE is set per-command ONLY: the other smoke steps run the
-          # real pipeline with runner-pipe stdout and must stay inert.
-          # The previous step ran the full pipeline here, so the module's
-          # binary is present: the guard must DELETE it. Discarding the output
-          # and the exit code is exactly the case where a stale binary would
-          # otherwise be run as proof of a build that never happened.
-          [ -f build/apesmoke ]
-          rc=0
-          CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" > /dev/null 2> guard-err.txt || rc=$?
-          cat guard-err.txt
-          [ "$rc" -eq 1 ]
-          grep -q "refused to run" guard-err.txt
-          # Asserted in the SHIPPED artifact, like the guard itself: the
-          # deletion runs on the same linux||cosmo path (see staleoutputs.go).
-          [ ! -e build/apesmoke ]
-          grep -q "have been DELETED" guard-err.txt
-          # The version exemption must stay intact.
-          CLAUDECODE=1 timeout 120 "$RUNNER_TEMP/gt-guard" version > /dev/null
 
   # macos-latest is arm64. Two things are asserted here:
   #
@@ -350,6 +336,11 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
+      # Only for the dats fixture .github/dats-fixtures/*.dats copied in
+      # below -- this job otherwise runs entirely off the downloaded release
+      # artifact.
+      - uses: actions/checkout@v7
+
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
@@ -371,29 +362,6 @@ jobs:
           cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
-
-      - name: 'APE reduced gate: bootstrap + --help in a tiny module'
-        env:
-          # See smoke-linux: synthetic consumer without org cache credentials.
-          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/apemod"
-          cd "$RUNNER_TEMP/apemod"
-          cat > go.mod <<'EOF'
-          module example.com/apesmoke
-
-          go 1.24
-          EOF
-          cat > main.go <<'EOF'
-          package main
-
-          func main() {}
-          EOF
-          # macos-latest has no Go on PATH; the bootstrap needs go.mod to pick
-          # a version, downloads the official darwin/arm64 toolchain from
-          # go.dev, extracts and probes it, and only then prints help.
-          "$RUNNER_TEMP/gt-ape" --help
 
       - name: Full pipeline with the native darwin/arm64 binary
         env:
@@ -446,9 +414,27 @@ jobs:
           	require.Equal(t, "hello, mac", got)
           }
           EOF
-          # Full default pipeline: reuses the Go toolchain the APE gate above
-          # already bootstrapped (shared ~/.cache/go-toolchain), then
-          # tidy/vet/test/coverage/build.
+          # The agent output guard regression lives as a committed dats
+          # fixture (.github/dats-fixtures/smoke-macos-agent-output-guard.dats),
+          # not hand-rolled bash: go-toolchain links dats in and runs any
+          # dats/ suite found (recursively) in the module it is building --
+          # there is no separate suite-running step, which is exactly why
+          # this fixture is copied in rather than checked in under this
+          # repo's OWN dats/: a suite referencing a native darwin binary
+          # would also run (and fail) during this repo's own linux
+          # build/host-build jobs, which discover every dats/ suite
+          # recursively with no filtering. dats sandboxes every command to
+          # the module root, so the binary under test must live INSIDE it:
+          # $RUNNER_TEMP is invisible to a sandboxed command (same reasoning
+          # as dats/README.md's build/.dats-stage/ staging).
+          cp "$RUNNER_TEMP/gt-native" ./gt-under-test
+          cp "$RUNNER_TEMP/gt-ape" ./gt-ape-under-test
+          mkdir -p dats
+          cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-macos-agent-output-guard.dats" dats/agent-output-guard.dats
+          # Full default pipeline: macos-latest has no Go on PATH, so this is
+          # the job's first real bootstrap (downloads, extracts and probes
+          # go 1.24 from go.dev), then tidy/vet/test/coverage/build, then the
+          # dats phase above.
           "$RUNNER_TEMP/gt-native"
 
   smoke-windows:
