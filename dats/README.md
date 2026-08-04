@@ -60,10 +60,17 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   the background update check fails instantly and silently, keeping output
   deterministic. Consumer suites that exec go-toolchain itself should do the
   same.
-- The agent-output-guard tests assume a **linux host**: the guard classifier
-  is compiled for linux||cosmo and is a documented no-op on native
-  darwin/windows — the same scoping as the smoke-linux guard gate in CI
-  (which is the only CI leg that runs this repo's pipeline on the repo).
+- The agent-output-guard tests in `cli.dats` assume a **linux host**, because
+  this suite only runs when this repo builds ITSELF, which only happens on
+  linux (`build`/`host-build`). darwin has its own real guard classifier
+  (`src/cmd/claudeguard_darwin.go`) and its own dats coverage, but that suite
+  cannot live under this repo's `dats/` — every suite here runs during this
+  repo's own linux self-build too, and a suite that execs a native darwin
+  binary would fail there. Instead it's a committed fixture,
+  `.github/dats-fixtures/smoke-macos-agent-output-guard.dats` (with a linux
+  sibling for the shipped APE), that the smoke-macos/smoke-linux jobs
+  (`.github/workflows/ci.yml`) run `actions/checkout` just to copy into a
+  throwaway module and run against the actual published binary.
 - CI provisions **bubblewrap** before running the pipeline (`.github/workflows/ci.yml`,
   `host-build` and `build`), so suites run under the native Linux sandbox rather than
   the docker fallback, and an unusable bwrap fails the job instead of silently
