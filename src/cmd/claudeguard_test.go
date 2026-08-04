@@ -21,7 +21,54 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	agent "github.com/wow-look-at-my/is-this-an-agent"
+	"golang.org/x/sys/unix"
 )
+
+// TestMain intercepts a re-exec of this test binary playing the "child" side
+// of a socketpair connection created by the parent (the real go-toolchain/
+// opencode topology). SO_PEERCRED only resolves the creator's pid when
+// queried from a genuinely separate process that inherited the fd via
+// fork/exec — a same-process socketpair can't reproduce that, so the
+// socket_* subtests below spawn a real second process instead of faking one.
+func TestMain(m *testing.M) {
+	if os.Getenv("CLAUDEGUARD_TEST_HELPER") == "inspect_fd1" {
+		s := inspectFD(1)
+		os.Stderr.WriteString("HELPER_KIND=" + strconv.Itoa(int(s.kind)) + " HELPER_DETAIL=" + s.detail + "\n")
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// runSocketPeerHelper creates a real AF_UNIX socketpair, re-execs this test
+// binary with one end as its stdout (closing our own copy immediately, like
+// opencode/Node do, rather than after Wait — see socketharness.go), and
+// returns what the helper's inspectFD(1) classified that fd as.
+func runSocketPeerHelper(t *testing.T, extraEnv ...string) (sinkKind, string) {
+	t.Helper()
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	require.NoError(t, err)
+	readerEnd := os.NewFile(uintptr(fds[0]), "reader")
+	childStdout := os.NewFile(uintptr(fds[1]), "writer")
+	defer readerEnd.Close()
+
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(append([]string{}, os.Environ()...), append(extraEnv, "CLAUDEGUARD_TEST_HELPER=inspect_fd1")...)
+	cmd.Stdout = childStdout
+	var errBuf strings.Builder
+	cmd.Stderr = &errBuf
+	require.NoError(t, cmd.Start())
+	childStdout.Close()
+	require.NoError(t, cmd.Wait())
+
+	out := strings.TrimSpace(errBuf.String())
+	rest, ok := strings.CutPrefix(out, "HELPER_KIND=")
+	require.True(t, ok, "unexpected helper output: %q", out)
+	kindStr, detail, ok := strings.Cut(rest, " HELPER_DETAIL=")
+	require.True(t, ok, "unexpected helper output: %q", out)
+	k, err := strconv.Atoi(kindStr)
+	require.NoError(t, err)
+	return sinkKind(k), detail
+}
 
 func TestAgentOutputMessageVariants(t *testing.T) {
 	pipe := agentOutputMessage("Claude", outputSink{kind: sinkPipe, detail: "head"}, nil)
@@ -32,6 +79,18 @@ func TestAgentOutputMessageVariants(t *testing.T) {
 
 	discard := agentOutputMessage("Claude", outputSink{kind: sinkDiscard, detail: "/dev/null"}, nil)
 	assert.Contains(t, discard, "discarded to `/dev/null`")
+
+	// sinkHidden (socket/anon-inode) previously fell through to the generic
+	// "captured instead of printed" line with detail silently dropped, even
+	// though the classifier always computed it -- the diagnostic gap that
+	// made this scenario (opencode's socket-based bash tool) look identical
+	// to every other capture in the refusal message.
+	hiddenWithDetail := agentOutputMessage("opencode", outputSink{kind: sinkHidden, detail: "node"}, nil)
+	assert.Contains(t, hiddenWithDetail, "reader: `node`")
+
+	hiddenNoDetail := agentOutputMessage("opencode", outputSink{kind: sinkHidden}, nil)
+	assert.Contains(t, hiddenNoDetail, "captured instead of printed to the terminal")
+	assert.NotContains(t, hiddenNoDetail, "reader:")
 
 	// The agent that hid the output is named back at it -- every agent the
 	// roster knows, so an agent added upstream is covered here without an
@@ -206,6 +265,34 @@ func TestInspectFDClassification(t *testing.T) {
 		defer f.Close()
 		s := inspectFD(f.Fd())
 		assert.Equal(t, sinkDiscard, s.kind)
+	})
+
+	// A socket looked hardcoded-hidden before, with no attempt at peer
+	// identification at all -- this is what an agent's own tool-execution
+	// plumbing actually is (a socketpair for a child's stdio, not a bare
+	// pipe; see claudeguard_darwin.go's file header for why that matters on
+	// darwin too), so it now gets the exact same chance a pipe gets.
+	t.Run("socket_reader_that_is_not_an_agent_is_blocked", func(t *testing.T) {
+		// The peer resolved via SO_PEERCRED is this test binary's own parent
+		// invocation (the creator of the socketpair) — not a recognized agent
+		// by name, and no PID var claims it — so the guard must still refuse.
+		kind, detail := runSocketPeerHelper(t)
+		assert.Equal(t, sinkHidden, kind)
+		assert.NotEmpty(t, detail, "refusal message must name the unrecognized reader, not go silent")
+	})
+
+	t.Run("socket_reader_recognized_via_pid_var_is_allowed", func(t *testing.T) {
+		// The real opencode/Node case: the parent process (the creator SO_PEERCRED
+		// resolves to) names its own pid via OPENCODE_PID in the child's env.
+		kind, _ := runSocketPeerHelper(t, "OPENCODE=1", "OPENCODE_PID="+strconv.Itoa(os.Getpid()))
+		assert.Equal(t, sinkVisible, kind)
+	})
+
+	t.Run("socket_reader_with_wrong_pid_var_is_still_blocked", func(t *testing.T) {
+		// A PID var naming some OTHER pid must not fool the guard — SO_PEERCRED
+		// is the kernel's own record and cannot be spoofed by the child's env.
+		kind, _ := runSocketPeerHelper(t, "OPENCODE=1", "OPENCODE_PID=1")
+		assert.Equal(t, sinkHidden, kind)
 	})
 }
 

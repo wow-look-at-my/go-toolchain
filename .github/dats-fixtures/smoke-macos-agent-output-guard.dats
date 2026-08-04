@@ -116,3 +116,36 @@ tests:
     outputs:
       stdout:
         - "Usage:"
+
+  # ./socketharness-under-test reproduces a coding agent's own tool-execution
+  # plumbing: it wires the native binary's stdout through a socketpair (what a
+  # Node/Bun child_process actually uses on macOS too, not a FIFO) and exports
+  # OPENCODE_PID naming itself as the reader -- the real shape of the bug
+  # report this fixture exists to catch (see docs/AGENT-OUTPUT-GUARD.md): a
+  # completely unpiped, unredirected go-toolchain run under opencode on
+  # macOS was refused as "captured instead of printed to the terminal"
+  # because darwin's socket case failed closed unconditionally, with no peer
+  # check at all -- unlike the FIFO case, a socket's peer pid is directly
+  # available via getsockopt(LOCAL_PEERPID), no libproc needed. No go.mod in
+  # {outputs.rundir} means EnsureGoVersion takes the already-cached-Go fast
+  # path before ever reaching the version-integrity probe, so this does not
+  # need the GOCACHE workaround the tests above do.
+  - desc: agent output guard allows a plain run when the socket reader is the agent itself (native darwin)
+    cmd: 'cp ./socketharness-under-test {outputs.harness}; cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness} {outputs.gt}'
+    timeout: 60s
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stdout:
+        - "HARNESS_GUARD_REFUSED=false"
+
+  - desc: agent output guard still refuses a socket whose reader is not the agent (native darwin)
+    cmd: 'cp ./socketharness-under-test {outputs.harness}; cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness} --wrong-reader {outputs.gt}'
+    timeout: 60s
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stdout:
+        - "HARNESS_GUARD_REFUSED=true"
