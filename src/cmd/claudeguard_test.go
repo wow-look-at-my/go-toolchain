@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	agent "github.com/wow-look-at-my/is-this-an-agent"
+	"golang.org/x/sys/unix"
 )
 
 func TestAgentOutputMessageVariants(t *testing.T) {
@@ -32,6 +33,18 @@ func TestAgentOutputMessageVariants(t *testing.T) {
 
 	discard := agentOutputMessage("Claude", outputSink{kind: sinkDiscard, detail: "/dev/null"}, nil)
 	assert.Contains(t, discard, "discarded to `/dev/null`")
+
+	// sinkHidden (socket/anon-inode) previously fell through to the generic
+	// "captured instead of printed" line with detail silently dropped, even
+	// though the classifier always computed it -- the diagnostic gap that
+	// made this scenario (opencode's socket-based bash tool) look identical
+	// to every other capture in the refusal message.
+	hiddenWithDetail := agentOutputMessage("opencode", outputSink{kind: sinkHidden, detail: "node"}, nil)
+	assert.Contains(t, hiddenWithDetail, "reader: `node`")
+
+	hiddenNoDetail := agentOutputMessage("opencode", outputSink{kind: sinkHidden}, nil)
+	assert.Contains(t, hiddenNoDetail, "captured instead of printed to the terminal")
+	assert.NotContains(t, hiddenNoDetail, "reader:")
 
 	// The agent that hid the output is named back at it -- every agent the
 	// roster knows, so an agent added upstream is covered here without an
@@ -206,6 +219,32 @@ func TestInspectFDClassification(t *testing.T) {
 		defer f.Close()
 		s := inspectFD(f.Fd())
 		assert.Equal(t, sinkDiscard, s.kind)
+	})
+
+	// A socket looked hardcoded-hidden before, with no attempt at peer
+	// identification at all -- this is what an agent's own tool-execution
+	// plumbing actually is (a socketpair for a child's stdio, not a bare
+	// pipe; see claudeguard_darwin.go's file header for why that matters on
+	// darwin too), so it now gets the exact same chance a pipe gets.
+	t.Run("socket_to_filter_is_blocked_with_peer_name", func(t *testing.T) {
+		if _, err := exec.LookPath("sleep"); err != nil {
+			t.Skip("sleep not on PATH")
+		}
+		fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+		require.NoError(t, err)
+		w := os.NewFile(uintptr(fds[0]), "socket-writer")
+		defer w.Close()
+		r := os.NewFile(uintptr(fds[1]), "socket-reader")
+
+		cmd := exec.Command("sleep", "30")
+		cmd.ExtraFiles = []*os.File{r}
+		require.NoError(t, cmd.Start())
+		r.Close()
+		defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+
+		s := inspectFD(w.Fd())
+		assert.Equal(t, sinkHidden, s.kind)
+		assert.Equal(t, "sleep", s.detail)
 	})
 }
 

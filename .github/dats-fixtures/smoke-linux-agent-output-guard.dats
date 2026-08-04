@@ -95,3 +95,31 @@ tests:
     outputs:
       stdout:
         - "Usage:"
+
+  # ./socketharness-under-test reproduces a coding agent's own tool-execution
+  # plumbing: it wires the shipped APE's stdout through a socketpair (what a
+  # Node/Bun child_process actually uses, not a bare pipe) and exports
+  # OPENCODE_PID naming itself as the reader -- the real shape of the bug
+  # report this fixture exists to catch (see docs/AGENT-OUTPUT-GUARD.md): a
+  # completely unpiped, unredirected go-toolchain run was refused as
+  # "captured instead of printed to the terminal" because sockets never got
+  # the peer-identification chance a pipe gets.
+  - desc: agent output guard allows a plain run when the socket reader is the agent itself
+    cmd: 'cp ./socketharness-under-test {outputs.harness}; cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness} {outputs.gt}'
+    timeout: 60s
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stdout:
+        - "HARNESS_GUARD_REFUSED=false"
+
+  - desc: agent output guard still refuses a socket whose reader is not the agent
+    cmd: 'cp ./socketharness-under-test {outputs.harness}; cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness} --wrong-reader {outputs.gt}'
+    timeout: 60s
+    inputs:
+      env:
+        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+    outputs:
+      stdout:
+        - "HARNESS_GUARD_REFUSED=true"

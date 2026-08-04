@@ -48,6 +48,13 @@ platform that can actually introspect a file descriptor. A third platform
   under them. A filter in a shell pipeline is a sibling, and a `$(...)` reader
   is a shell, so neither is an agent-named ancestor. An agent whose binary is
   renamed beyond its roster prefixes and exports no pid var fails closed.
+- **Socket / anon-inode** — gets the exact same `isHarnessPipeReader` chance a
+  pipe gets, via the same `pipePeerName` (it matches on the fd's
+  `/proc/self/fd` target string, not a `pipe:`-specific format). This closed a
+  real gap: opencode's bash tool wires a spawned child's stdio through a
+  socketpair, not a bare pipe, so a plain, unpiped `go-toolchain` invocation
+  was refused as "captured instead of printed to the terminal" — the pipe
+  allowance existed, but sockets never got to use it.
 - **Regular file** — allowed only if its path is the harness capture
   (`isHarnessCapturePath`: contains `CLAUDE_CODE_SESSION_ID`, or ends `.output`
   under a `claude` path).
@@ -56,13 +63,25 @@ platform that can actually introspect a file descriptor. A third platform
 **`claudeguard_darwin.go`** (`//go:build darwin`) classifies fd 1 without
 `/proc`, which darwin does not have:
 
-- **Pipe** — darwin has no cheap way to identify the reader on the far end of
-  a pipe (that needs `libproc`, not implemented here), so every pipe fails
-  CLOSED — unlike linux/cosmo, there is no "the agent is reading its own pipe"
-  allowance. This was the actual bug this file fixes: without ANY darwin
-  classifier, `inspectStdout` fell through to the `!linux && !cosmo` no-op
-  stub below, so a piped run under any agent, on real macOS, was never
-  refused at all.
+- **FIFO (named/anonymous pipe)** — darwin has no cheap way to identify the
+  reader on the far end of a FIFO (that needs `libproc`, not implemented
+  here), so every FIFO fails CLOSED — unlike linux/cosmo, there is no "the
+  agent is reading its own pipe" allowance. This was the actual bug this file
+  fixes: without ANY darwin classifier, `inspectStdout` fell through to the
+  `!linux && !cosmo` no-op stub below, so a piped run under any agent, on real
+  macOS, was never refused at all.
+- **UNIX-domain socket** — unlike a FIFO, `getsockopt(SOL_LOCAL,
+  LOCAL_PEERPID)` gives the exact peer pid straight from the kernel, no
+  `libproc` needed, so a socket DOES get the same allowance a pipe gets on
+  linux (`socketPeerPID` + `agent.CommPPID`, the latter now backed by
+  `sysctl(KERN_PROC)` in is-this-an-agent's `proc_darwin.go` rather than the
+  `!linux && !cosmo && !darwin` stub every darwin build used before). This
+  matters because a coding agent's own tool-execution plumbing (a Node/Bun
+  `child_process`'s stdio) is typically a socketpair, not a bare FIFO — the
+  real bug this closed was a plain, unpiped `go-toolchain` run under
+  opencode on macOS still being refused as "captured instead of printed to
+  the terminal", because the socket case used to fail closed unconditionally
+  with no peer check at all.
 - **Regular file** — mode bits come from `unix.Fstat` (no path needed); the
   path itself (needed for `agent.IsCapturePath`) comes from the `F_GETPATH`
   fcntl, darwin's one substitute for `/proc/self/fd`'s readlink.
@@ -103,7 +122,11 @@ flag to disable it.
   specifically). The roster's own behavior — env markers, process prefixes,
   exported pid, the ancestry walk — is tested in is-this-an-agent.
 - `src/cmd/claudeguard_darwin_test.go` (`//go:build darwin`) — the darwin
-  classifier's own sink classification and `fdPath`'s F_GETPATH recovery.
+  classifier's own sink classification, `fdPath`'s F_GETPATH recovery,
+  `socketPeerPID`'s raw getsockopt call against a real socketpair, and an
+  end-to-end subprocess test that reproduces opencode's actual plumbing (a
+  socketpair standing in for stdio, `OPENCODE_PID` naming the reader) proving
+  a recognized reader is let through while an unrecognized one still isn't.
   Only runs when built and executed ON darwin — this repo's own CI never
   builds+tests ITSELF on darwin (`build`/`host-build` are linux-only), so
   this file needs a real Mac (or darwin CI runner) to execute, not just

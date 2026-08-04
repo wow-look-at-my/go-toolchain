@@ -14,7 +14,7 @@ require (
 	github.com/wow-look-at-my/dats v0.0.0-20260801180457-d7115e1ca5ef
 	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
 	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9
-	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260801190332-7c5c88e9d790
+	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804044114-9bec061bb451
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0

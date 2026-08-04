@@ -48,6 +48,20 @@ func inspectFD(fd uintptr) outputSink {
 		}
 		return outputSink{kind: sinkPipe}
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
+		// A coding agent's own tool-execution plumbing (e.g. a socketpair for a
+		// spawned child's stdio, which is what opencode's bash tool uses) looks
+		// identical to a pipe from here — give it the same peer-identification
+		// chance a pipe gets, rather than assuming hidden outright. detail always
+		// carries something to show: the peer's name when resolved, else the raw
+		// fd target, so the refusal message is never left with nothing to say.
+		if name, pid, ok := pipePeerName(target); ok {
+			if agent.IsPipeReader(name, pid) {
+				return outputSink{kind: sinkVisible}
+			}
+			if name != "" {
+				return outputSink{kind: sinkHidden, detail: name}
+			}
+		}
 		return outputSink{kind: sinkHidden, detail: target}
 	}
 
