@@ -5,10 +5,15 @@ package cmd
 import (
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
+
+	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
 // Mirrors TestInspectFDClassification (claudeguard_test.go, linux-only): same
@@ -87,6 +92,120 @@ func TestFDPathEmptyOnPipe(t *testing.T) {
 	defer r.Close()
 	defer w.Close()
 	assert.Empty(t, fdPath(w.Fd()))
+}
+
+// TestSocketPeerPID pins the raw getsockopt mechanism: both ends of a
+// socketpair belong to this same test process, so the peer pid it reports
+// must be our own.
+func TestSocketPeerPID(t *testing.T) {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	require.NoError(t, err)
+	defer unix.Close(fds[0])
+	defer unix.Close(fds[1])
+
+	pid, ok := socketPeerPID(uintptr(fds[0]))
+	require.True(t, ok)
+	assert.Equal(t, os.Getpid(), pid)
+}
+
+func TestSocketPeerPIDOnNonSocketFails(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "notasocket-*")
+	require.NoError(t, err)
+	defer f.Close()
+	_, ok := socketPeerPID(f.Fd())
+	assert.False(t, ok)
+}
+
+// TestPipeReaderAllowanceThroughTheGuardDarwin mirrors
+// TestPipeReaderAllowanceThroughTheGuard (claudeguard_test.go, linux) against
+// the sysctl-backed CommPPID this package now gets from is-this-an-agent:
+// os.Getppid() as both the ancestry target and the walk's start makes the
+// ancestry check trivially true, isolating the assertion to name/pid
+// matching -- proof the darwin lookup answers the same real questions the
+// linux one does, not just that it compiles.
+func TestPipeReaderAllowanceThroughTheGuardDarwin(t *testing.T) {
+	parent := os.Getppid()
+	assert.True(t, agent.IsPipeReader("opencode", parent))
+	assert.False(t, agent.IsPipeReader("head", parent), "a filter is not the harness")
+	assert.False(t, agent.IsPipeReader("opencode", os.Getpid()), "self is not an ancestor")
+}
+
+// TestInspectFDSocketClassification exercises the socket branch inspectFD
+// added: a socket whose peer resolves but names neither a known agent's comm
+// nor a registered agent pid is still blocked, with detail populated (this is
+// the diagnostic gap that shipped originally -- sinkHidden carried a detail
+// field nothing ever printed).
+func TestInspectFDSocketClassification(t *testing.T) {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	require.NoError(t, err)
+	defer unix.Close(fds[1])
+	f := os.NewFile(uintptr(fds[0]), "socket")
+	defer f.Close()
+
+	s := inspectFD(f.Fd())
+	assert.Equal(t, sinkHidden, s.kind)
+	assert.NotEmpty(t, s.detail, "detail must name the peer, not be silently empty")
+}
+
+// TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself is the actual
+// bug fix, end to end: opencode's own bash tool wires a child's stdout
+// through a socketpair (not a bare pipe), so a completely unpiped, unredirected
+// `go-toolchain` invocation was refused with "captured instead of printed to
+// the terminal" even though the reader IS the very agent that will show the
+// output to the user. Reproduces that exact plumbing -- this test process
+// holds the socket's other end and is the child's real parent, and the
+// child's OPENCODE_PID names this test process as opencode's own pid, the
+// same way opencode really exports it to its bash tool's children.
+func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) {
+	bin, err := exec.LookPath("go-toolchain")
+	if err != nil {
+		t.Skip("go-toolchain not on PATH; build it first")
+	}
+
+	runWithSocketStdout := func(t *testing.T, recognizedPID bool) (exitErr error, stderr string) {
+		fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+		require.NoError(t, err)
+		readerEnd := os.NewFile(uintptr(fds[0]), "socket-reader")
+		defer readerEnd.Close()
+		childStdout := os.NewFile(uintptr(fds[1]), "socket-writer")
+		defer childStdout.Close()
+
+		pidVar := "OPENCODE_PID=0"
+		if recognizedPID {
+			pidVar = "OPENCODE_PID=" + strconv.Itoa(os.Getpid())
+		}
+		// A bare invocation (no subcommand) is what actually reaches the
+		// guard; run it from an empty dir so no real build is attempted --
+		// with no go.mod, EnsureGoVersion proceeds with whatever Go is
+		// already on PATH and control reaches the guard immediately after.
+		// Any failure past that point (no go.mod to build) is expected and
+		// irrelevant here; only the guard's own refusal is under test.
+		cmd := exec.Command(bin)
+		cmd.Dir = t.TempDir()
+		cmd.Stdout = childStdout
+		var errBuf strings.Builder
+		cmd.Stderr = &errBuf
+		cmd.Env = append(os.Environ(),
+			"OPENCODE=1", pidVar,
+			"GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1",
+		)
+		err = cmd.Run()
+		childStdout.Close()
+		return err, errBuf.String()
+	}
+
+	t.Run("recognized_pid_is_allowed_through", func(t *testing.T) {
+		err, errOut := runWithSocketStdout(t, true)
+		assert.NotContains(t, errOut, "refused to run", "the agent reading its own socket must not be refused; stderr: %s", errOut)
+		_ = err // may still fail/exit non-zero for unrelated reasons (no go.mod); only the guard's own refusal is under test
+	})
+
+	t.Run("unrecognized_pid_is_still_refused", func(t *testing.T) {
+		err, errOut := runWithSocketStdout(t, false)
+		require.Error(t, err)
+		assert.Contains(t, errOut, "refused to run")
+		assert.Contains(t, errOut, "opencode")
+	})
 }
 
 // End-to-end: the actual built binary, run as a real subprocess so its stdout
