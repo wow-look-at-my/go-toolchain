@@ -26,12 +26,14 @@ Fetches secrets over OIDC, then runs go-toolchain.
 
 Every run ends by cache-uploading `build/` for downstream jobs.
 
-**Per-job name** — `go-build-${{ github.job }}`, plus `.m<strategy.job-index>`
+**Per-job name** — {% raw %}`go-build-${{ github.job }}`{% endraw %}, plus `.m<strategy.job-index>`
 for a matrix job:
 
 ```
+{% raw %}
 name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}
 key:  cache-xfer-<run_id>-go-build-<job>[.m<idx>]-<run_attempt>
+{% endraw %}
 ```
 
 The matrix and strategy contexts *are* evaluable inside composite steps (the
