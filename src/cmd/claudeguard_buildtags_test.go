@@ -19,12 +19,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// claudeGuardTagSets are the two release-relevant build contexts: the
-// from-source GOOS=linux build (CI `build` job, dev machines) and the
-// GOOS=cosmo fat APE that every published "linux"/"windows" slot actually is.
+// claudeGuardTagSets are the release-relevant build contexts: the from-source
+// GOOS=linux build (CI `build` job, dev machines), the GOOS=cosmo fat APE
+// that every published "linux"/"windows" slot actually is, and native darwin
+// -- which has no /proc and so gets its own real classifier rather than
+// sharing linux/cosmo's.
 var claudeGuardTagSets = map[string]map[string]bool{
-	"linux": {"linux": true, "unix": true, "amd64": true},
-	"cosmo": {"cosmo": true, "unix": true, "amd64": true},
+	"linux":  {"linux": true, "unix": true, "amd64": true},
+	"cosmo":  {"cosmo": true, "unix": true, "amd64": true},
+	"darwin": {"darwin": true, "unix": true, "amd64": true},
 }
 
 // knownGOOSSuffix lists GOOS values whose `_<goos>.go` filename suffix
@@ -99,36 +102,41 @@ func claudeGuardSourceFiles(t *testing.T) []string {
 	return files
 }
 
-func TestClaudeGuardClassifierBuildsForLinuxAndCosmo(t *testing.T) {
-	// Locate the real classifier by content — the file defining inspectFD —
-	// rather than by filename, so a rename cannot dodge the assertion.
-	var classifier string
+// TestClaudeGuardClassifierBuildsForEachPlatform locates every claudeguard*.go
+// file defining inspectFD -- the real classifier -- by content rather than by
+// filename, so a rename cannot dodge the assertion. darwin and linux/cosmo
+// each get their own classifier file (darwin has no /proc), so this checks
+// per platform that EXACTLY ONE of them is selected -- neither zero (the
+// guard silently no-ops) nor two (an ambiguous build).
+func TestClaudeGuardClassifierBuildsForEachPlatform(t *testing.T) {
+	var classifiers []string
 	for _, f := range claudeGuardSourceFiles(t) {
 		data, err := os.ReadFile(f)
 		require.NoError(t, err)
 		if strings.Contains(string(data), "func inspectFD(") {
-			require.Empty(t, classifier, "inspectFD defined in both %s and %s", classifier, f)
-			classifier = f
+			classifiers = append(classifiers, f)
 		}
 	}
-	require.NotEmpty(t, classifier, "no claudeguard*.go file defines inspectFD")
+	require.NotEmpty(t, classifiers, "no claudeguard*.go file defines inspectFD")
 
-	line := buildTagLine(t, classifier)
 	for goos, tags := range claudeGuardTagSets {
-		if fg := filenameGOOS(classifier); fg != "" {
-			assert.Equal(t, goos, fg,
-				"classifier %s has a filename GOOS suffix that excludes it from GOOS=%s builds — released binaries are GOOS=cosmo APEs, so the guard would be a no-op in every release",
-				classifier, goos)
+		var selected []string
+		for _, f := range classifiers {
+			if fg := filenameGOOS(f); fg != "" && fg != goos {
+				continue // filename suffix ties it to a different GOOS
+			}
+			if line := buildTagLine(t, f); line != "" && !evalTagLine(t, line, tags) {
+				continue // //go:build line excludes this platform
+			}
+			selected = append(selected, f)
 		}
-		if line != "" {
-			assert.True(t, evalTagLine(t, line, tags),
-				"classifier %s constraint %q must be satisfied for GOOS=%s — released binaries are GOOS=cosmo APEs, so the guard would be a no-op in every release",
-				classifier, line, goos)
-		}
+		assert.Len(t, selected, 1,
+			"GOOS=%s must select exactly one real classifier defining inspectFD, got %v — released binaries would either lack the guard or fail to build ambiguously",
+			goos, selected)
 	}
 }
 
-func TestClaudeGuardStubExcludedForLinuxAndCosmo(t *testing.T) {
+func TestClaudeGuardStubExcludedForRealClassifierPlatforms(t *testing.T) {
 	const stub = "claudeguard_other.go"
 	require.FileExists(t, stub)
 	line := buildTagLine(t, stub)
