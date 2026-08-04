@@ -68,6 +68,7 @@ subprocess it spawns (`go vet`, `go test`, `go build`, ...) is pointed at a thin
 is loaded once and the local cache is shared.
 
 ```mermaid
+{% raw %}
 flowchart TB
     subgraph go["go subprocesses (vet, test, build)"]
         g1["go 1 to gotoolchain cacheprog"]
@@ -90,6 +91,7 @@ flowchart TB
     W -- "HTTPS: GET/PUT,<br/>/_index, /_batch/get" --> S3["go-s3-server<br/>(shared cache)"]
 
     M -. "kernel serves read()<br/>from PackStore" .-> g1
+{% endraw %}
 ```
 
 The two tiers:
