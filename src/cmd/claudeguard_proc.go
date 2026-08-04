@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
-	"golang.org/x/sys/unix"
 )
 
 // inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
@@ -108,21 +107,16 @@ func inspectFD(fd uintptr) outputSink {
 	return outputSink{kind: sinkVisible} // unknown disposition — don't block
 }
 
-// socketPeerPID returns the pid the kernel recorded as the other end of the
-// AF_UNIX socket at fd, via SO_PEERCRED. For a socketpair(), that credential is
-// fixed at creation time — the pid of whichever process called socketpair(),
-// i.e. the real reader — so it still resolves after that process closes its
-// own copy of the fd it handed the child (the normal thing for a coding
-// agent's child_process to do, and why pipePeerName's inode match cannot see
-// it). ok is false for anything that isn't a SOCK_STREAM/SOCK_DGRAM AF_UNIX
-// socket, e.g. an anon_inode fd — never treated as a match.
-func socketPeerPID(fd uintptr) (pid int, ok bool) {
-	ucred, err := unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	if err != nil {
-		return 0, false
-	}
-	return int(ucred.Pid), true
-}
+// socketPeerPID (declared per-platform: claudeguard_sockpeer_linux.go uses
+// golang.org/x/sys/unix, claudeguard_sockpeer_cosmo.go a raw syscall, since
+// x/sys/unix has no cosmo port) returns the pid the kernel recorded as the
+// other end of the AF_UNIX socket at fd, via SO_PEERCRED. For a socketpair(),
+// that credential is fixed at creation time — the pid of whichever process
+// called socketpair(), i.e. the real reader — so it still resolves after that
+// process closes its own copy of the fd it handed the child (the normal thing
+// for a coding agent's child_process to do, and why pipePeerName's inode match
+// cannot see it). ok is false for anything that isn't a SOCK_STREAM/SOCK_DGRAM
+// AF_UNIX socket, e.g. an anon_inode fd — never treated as a match.
 
 // pipePeerName returns the comm and pid of another process holding the same
 // pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends of
