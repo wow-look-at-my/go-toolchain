@@ -108,6 +108,12 @@ func agentOutputMessage(agent string, s outputSink, removed []string) string {
 		what = fmt.Sprintf("redirected to the file `%s`", s.detail)
 	case sinkDiscard:
 		what = fmt.Sprintf("discarded to `%s`", s.detail)
+	case sinkHidden:
+		if s.detail != "" {
+			what = fmt.Sprintf("captured instead of printed to the terminal (reader: `%s`)", s.detail)
+		} else {
+			what = "captured instead of printed to the terminal"
+		}
 	default:
 		what = "captured instead of printed to the terminal"
 	}

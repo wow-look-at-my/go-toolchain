@@ -48,6 +48,36 @@ func inspectFD(fd uintptr) outputSink {
 		}
 		return outputSink{kind: sinkPipe}
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
+		// A coding agent's own tool-execution plumbing (e.g. a socketpair for a
+		// spawned child's stdio, which is what opencode's bash tool uses) looks
+		// identical to a pipe from here — give it the same peer-identification
+		// chance a pipe gets, rather than assuming hidden outright. detail always
+		// carries something to show: the peer's name when resolved, else the raw
+		// fd target, so the refusal message is never left with nothing to say.
+		//
+		// Unlike a pipe(), the two ends of an AF_UNIX socketpair are separate
+		// sockets with DIFFERENT inodes — an fd-target string match can never
+		// find the other end. SO_PEERCRED gives the kernel's own record of who
+		// is on the other side, fixed at connection time, so it still resolves
+		// after the parent (opencode/Node) closes its copy of the child's fd.
+		if pid, ok := socketPeerPID(fd); ok {
+			name, _, _ := agent.CommPPID(pid)
+			if agent.IsPipeReader(name, pid) {
+				return outputSink{kind: sinkVisible}
+			}
+			if name != "" {
+				return outputSink{kind: sinkHidden, detail: name}
+			}
+			return outputSink{kind: sinkHidden, detail: target}
+		}
+		if name, pid, ok := pipePeerName(target); ok {
+			if agent.IsPipeReader(name, pid) {
+				return outputSink{kind: sinkVisible}
+			}
+			if name != "" {
+				return outputSink{kind: sinkHidden, detail: name}
+			}
+		}
 		return outputSink{kind: sinkHidden, detail: target}
 	}
 
@@ -76,6 +106,17 @@ func inspectFD(fd uintptr) outputSink {
 	}
 	return outputSink{kind: sinkVisible} // unknown disposition — don't block
 }
+
+// socketPeerPID (declared per-platform: claudeguard_sockpeer_linux.go uses
+// golang.org/x/sys/unix, claudeguard_sockpeer_cosmo.go a raw syscall, since
+// x/sys/unix has no cosmo port) returns the pid the kernel recorded as the
+// other end of the AF_UNIX socket at fd, via SO_PEERCRED. For a socketpair(),
+// that credential is fixed at creation time — the pid of whichever process
+// called socketpair(), i.e. the real reader — so it still resolves after that
+// process closes its own copy of the fd it handed the child (the normal thing
+// for a coding agent's child_process to do, and why pipePeerName's inode match
+// cannot see it). ok is false for anything that isn't a SOCK_STREAM/SOCK_DGRAM
+// AF_UNIX socket, e.g. an anon_inode fd — never treated as a match.
 
 // pipePeerName returns the comm and pid of another process holding the same
 // pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends of
