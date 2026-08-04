@@ -31,21 +31,29 @@ They EXECUTE throwaway copies of the artifacts in `dist/`, never the downloaded
 file itself.
 
 **linux** — APE magic `MZqFpD` on the linux/amd64 slot, then `version`,
-`--help`, and the FULL default pipeline in a tiny module under the APE. Plus an
-agent-output-guard assertion on a fresh throwaway APE copy: per-command
-`CLAUDECODE=1` — never job-wide, the other smoke steps must stay inert — with
-stdout to `/dev/null` must exit 1 with the "refused to run" message, and
-`version` must stay exempt.
+`--help`, and the FULL default pipeline in a tiny module under the APE. The
+agent-output-guard regression is a committed dats fixture
+(`.github/dats-fixtures/smoke-linux-agent-output-guard.dats`), copied into that
+module's `dats/` dir and run automatically by the pipeline's dats phase — not
+hand-rolled bash, so it exercises the real released APE the same way a
+consumer's own build would.
 
 **macOS** — asserts the darwin/arm64 slot is native Mach-O (`cffaedfe`) and runs
 the FULL pipeline with that native binary; this is the consumer-critical mac
-gate. The APE gate on this host is REDUCED (magic on a linux slot + `version` +
-`--help` inside a module = official-Go bootstrap under the APE loader) because
-the pipeline WEDGES AT EXIT under the APE on macOS. Root-caused from SIGQUIT
-dumps (run 28742069477; issue #276) to the fork running unix-socket fds
+gate, and it carries the darwin sibling of the linux guard fixture
+(`smoke-macos-agent-output-guard.dats`) the same way. That fixture also covers
+the APE (cosmo) slot's `--help` on a macOS host, execing a staged copy of the
+linux/amd64 artifact as a nested command from inside the native binary's own
+dats phase. The APE's OWN full pipeline still can't run on this host: it WEDGES
+AT EXIT under the APE on macOS. Root-caused from SIGQUIT dumps (run
+28742069477; issue #276) to the fork running unix-socket fds
 blocking/netpoller-less on darwin hosts, so the cache daemon's `Listener.Close`
 deadlocks. All pipeline PHASES are green under the APE now that
-`cacheProgCommand` wraps the GOCACHEPROG self-exec in a sh script.
+`cacheProgCommand` wraps the GOCACHEPROG self-exec in a sh script — only the
+exit-time deadlock remains, and it fires strictly during a full pipeline's own
+exit path, never during `--help` (which returns long before that path is
+reached) — which is why the dats `--help` sub-test is safe but the APE's full
+pipeline stays untested on macOS.
 
 **Windows** — `version` and `--help` only: gobootstrap downloads
 `go<version>.<os>-<arch>.tar.gz`, and go.dev serves no windows variant (windows

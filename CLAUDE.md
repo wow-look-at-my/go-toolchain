@@ -85,8 +85,12 @@ coverage.
   dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and the `version` exemption, and the
   update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
-  so version tests assert only the stable `Version:`/`Commit:` lines). The guard tests assume a linux host (classifier is linux||cosmo; native
-  darwin/windows are documented no-ops — same scoping as the smoke-linux guard gate, the only CI leg running this repo's pipeline on the repo).
+  so version tests assert only the stable `Version:`/`Commit:` lines). These guard tests assume a linux host, because this suite only runs when this
+  repo builds ITSELF (`build`/`host-build`, linux-only). The darwin classifier (`claudeguard_darwin.go`) has its own CI-enforced sibling suite instead:
+  smoke-macos (`.github/workflows/ci.yml`, which runs `actions/checkout` for exactly this) copies
+  `.github/dats-fixtures/smoke-macos-agent-output-guard.dats` into a throwaway module and runs it against
+  the real published darwin/arm64 binary — since a suite exec'ing a native darwin binary can't live under
+  this repo's own `dats/` (every suite there runs during this repo's own linux self-build too). Only windows stays a documented no-op.
   `.dats` + `.golden` files feed `computeFingerprint` (uptodate.go), so suite/golden edits bust the "Up to date" fast-exit
 - `src/test/` — test runner, coverage parsing, watermark logic. The watermark's storage backend is platform-split: `xattr_unix.go` (`unix && !cosmo`,
   x/sys/unix xattrs; `isXattrNotFound` in the `_linux`/`_darwin` files), `xattr_windows.go` (NTFS ADS), and `xattr_cosmo.go` — GOOS=cosmo has no xattr
@@ -140,22 +144,24 @@ coverage.
   all skip e.g. `src/compat/go-isatty`, whose files belong to their own module and must stay byte-identical to upstream (a nested module's packages
   are not import paths of the outer module, so listing them fails `go test`/`go build` with `no required module provides package ...`)
 - `src/memlimit/` — injects a stdlib-only cgroup→GOMEMLIMIT startup guard into every main package built (discovered via `gomod.FindMainPackages`,
-  which
-  honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package) (`gomemlimit_gen.go`,
-  embedded verbatim from `testdata/guard.go`), so each binary caps the Go heap at the container's cgroup memory limit instead of being OOM-killed;
-  runs at the start of the build phase, gated by `GO_TOOLCHAIN_AUTO_MEMLIMIT` (on by default). The guard is a **transient** build artifact, not a
-  committed file: `InjectAll` writes it just before the build and `CleanupAll` deletes it right after (wired as `defer cleanupMemLimitGuards()` in
-  `runBuildPhase` and the matrix/release path in `runReleaseWithRunner`), so it never lingers in the working tree. `checkDirtyInCI` excludes
-  `gomemlimit_gen.go` in every git state (added/modified/deleted, via `dirtyFilesExcludingGuard`), so the in-flight guard never counts as a dirty tree
-  and a repo migrating off an older *committed* guard sheds it cleanly — `CleanupAll` deletes the committed copies and the resulting deletion is
-  ignored by the check (the developer commits it once to finalize). Note the guard is deliberately **not** gitignored: the dirty-check exclusion
-  handles it, and adding a `.gitignore` line would itself dirty the tree across multiple go-toolchain invocations in one CI job. That exclusion is
-  invisible to the go command though, and Go 1.24+ main-module version stamping runs `git status --porcelain` while the guard exists — which used to
-  stamp every built binary's `Main.Version` "+dirty" on clean checkouts (false provenance in consumer /version endpoints). So `injectMemLimitGuard`
-  first calls `ensureGuardExcluded` (src/cmd/memlimitguard.go): it idempotently appends `gomemlimit_gen.go` to the repo's clone-local
-  `.git/info/exclude` (resolved via `git rev-parse --git-path`, correct in linked worktrees) — under `.git/`, OUTSIDE the working tree, so unlike a
-  `.gitignore` line the write cannot itself dirty anything. The entry is left in place (clone-local; also hides a stale guard from an interrupted
-  build). Best-effort: no git / not a repo / write failure all silently degrade to the old `+dirty` behavior, never a failed build
+  which honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package)
+  (`gomemlimit_gen.go`, embedded verbatim from `testdata/guard.go`), so each binary caps the Go heap at the container's cgroup memory limit instead of
+  being OOM-killed; runs at the start of the build phase, unconditionally — there is deliberately NO flag or environment variable to disable injection
+  (the old `GO_TOOLCHAIN_AUTO_MEMLIMIT` kill switch was removed: a build-time knob would eventually be set and left set, silently shipping binaries
+  that allocate until the kernel OOM-kills them, and the run-time `GOMEMLIMIT`/`GOMEMLIMIT=off` escape hatch the guard already honors is the layer
+  that actually knows whether a deployment wants the cap). The guard is a **transient** build artifact, not a committed file: `InjectAll` writes it
+  just before the build and `CleanupAll` deletes it right after (wired as `defer cleanupMemLimitGuards()` in `runBuildPhase` and the matrix/release
+  path in `runReleaseWithRunner`), so it never lingers in the working tree. `checkDirtyInCI` excludes `gomemlimit_gen.go` in every git state
+  (added/modified/deleted, via `dirtyFilesExcludingGuard`), so the in-flight guard never counts as a dirty tree and a repo migrating off an older
+  *committed* guard sheds it cleanly — `CleanupAll` deletes the committed copies and the resulting deletion is ignored by the check (the developer
+  commits it once to finalize). Note the guard is deliberately **not** gitignored: the dirty-check exclusion handles it, and adding a `.gitignore`
+  line would itself dirty the tree across multiple go-toolchain invocations in one CI job. That exclusion is invisible to the go command though, and
+  Go 1.24+ main-module version stamping runs `git status --porcelain` while the guard exists — which used to stamp every built binary's `Main.Version`
+  "+dirty" on clean checkouts (false provenance in consumer /version endpoints). So `injectMemLimitGuard` first calls `ensureGuardExcluded`
+  (src/cmd/memlimitguard.go): it idempotently appends `gomemlimit_gen.go` to the repo's clone-local `.git/info/exclude` (resolved via `git rev-parse
+  --git-path`, correct in linked worktrees) — under `.git/`, OUTSIDE the working tree, so unlike a `.gitignore` line the write cannot itself dirty
+  anything. The entry is left in place (clone-local; also hides a stale guard from an interrupted build). Best-effort: no git / not a repo / write
+  failure all silently degrade to the old `+dirty` behavior, never a failed build
 - `src/cache/` — GOCACHEPROG protocol server, local + web backends, batch GET/PUT, the FUSE pack store and the stats daemon. Depth: `docs/CACHE.md`
 - `src/profile/` — the **per-action build profile**: joins cmd/go's `-debug-actiongraph` dumps with the cacheprog's per-action outcome events into
   "what
@@ -232,13 +238,12 @@ coverage.
 - When adding a new flag, add it to the appropriate flags table (persistent or command-specific).
 - When changing action.yml inputs, update the Action Usage section accordingly.
 - When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
-- **This file is an index; the depth lives in `docs/`.** It reached 74,061 characters — 1.85x the 40,000 an instruction file gets, all of it re-sent
-  on every request of every session — so the largest entries were moved out VERBATIM, each leaving a one-line pointer: `docs/CMD.md`, `docs/CACHE.md`,
-  `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, alongside the existing `docs/DATS-PHASE.md`, `docs/AGENT-OUTPUT-GUARD.md` and
-  `docs/WARNINGS-GATE.md`. Add depth to the doc, never to the bullet: an entry needing more than two or three lines wants a `docs/` file.
-  Near-duplicate bullets had accumulated for `src/cmd/`, `action.yml` and `ci.yml` (two, three and three copies — successive generations of one
-  bullet, not separate topics); each set is now MERGED into its doc, with every disagreement resolved against the source and the resolution recorded
-  in a provenance footer. Lines are hard-wrapped at 150 columns so an edit shows up as a reviewable diff.
+- **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
+  wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
+  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`). Each entry appears exactly once — editing a bullet means updating it in place, never
+  appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an edit shows up as a reviewable diff. A literal
+  double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's
+  Liquid engine (wrap it with raw/endraw tags) or `pages build and deployment` hard-fails parsing it as a template tag on unbalanced braces.
 
 ## Known Issues
 
