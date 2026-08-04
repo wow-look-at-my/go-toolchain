@@ -144,16 +144,15 @@ jobs:
       # proving go-toolchain's OWN bootstrap works on a genuinely Go-less mac.
       - name: Cross-compile socketharness
         run: |
-          GOOS=linux GOARCH=amd64 go build -o socketharness-linux-amd64 .github/dats-fixtures/socketharness.go
-          GOOS=darwin GOARCH=arm64 go build -o socketharness-darwin-arm64 .github/dats-fixtures/socketharness.go
+          mkdir -p harness
+          GOOS=linux GOARCH=amd64 go build -o harness/socketharness-linux-amd64 .github/dats-fixtures/socketharness.go
+          GOOS=darwin GOARCH=arm64 go build -o harness/socketharness-darwin-arm64 .github/dats-fixtures/socketharness.go
 
       - name: Upload socketharness binaries
         uses: wow-look-at-my/actions@cache-upload#latest
         with:
           name: socketharness-build
-          path: |
-            socketharness-linux-amd64
-            socketharness-darwin-arm64
+          path: harness
 
   # Build + test via the composite action, exercising the cosmo fat-APE target
   # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
