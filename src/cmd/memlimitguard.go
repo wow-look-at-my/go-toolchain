@@ -11,23 +11,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
-// memLimitEnvVar gates injection of the cgroup→GOMEMLIMIT startup guard into
-// every built main package. Injection is on by default; set it to a falsey
-// value (0/false/no/off) to disable it for a build.
-const memLimitEnvVar = "GO_TOOLCHAIN_AUTO_MEMLIMIT"
-
-// envTruthy reports whether an environment variable value should be treated as
-// "on". Any non-empty value other than an explicit falsey literal counts, so
-// GO_TOOLCHAIN_AUTO_MEMLIMIT=0 (or false/no/off) disables it.
-func envTruthy(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "", "0", "false", "no", "off":
-		return false
-	default:
-		return true
-	}
-}
-
 // injectMemLimitGuard writes the GOMEMLIMIT startup guard into every main
 // package before the build compiles them, so each binary caps the Go heap at
 // the container's cgroup memory limit instead of allocating until it is
@@ -37,11 +20,13 @@ func envTruthy(v string) bool {
 // committed under an older go-toolchain) never fails the dirty-tree check.
 // ensureGuardExcluded (called first) additionally hides the guard from git
 // itself, so the go command's VCS stamping never sees it either.
-// Injection is idempotent.
+// Injection is idempotent and unconditional: there is deliberately no flag or
+// environment variable to disable it. A knob here would eventually be set and
+// left set, shipping binaries that allocate until the kernel OOM-kills them,
+// and the guard already defers to an explicit GOMEMLIMIT at run time
+// (GOMEMLIMIT=off is the per-deployment kill switch), which is the correct
+// layer for that decision.
 func injectMemLimitGuard(quiet bool) error {
-	if v, ok := os.LookupEnv(memLimitEnvVar); ok && !envTruthy(v) {
-		return nil
-	}
 	// Exclude BEFORE writing the guard, so no git status taken during the
 	// build window can ever see it — Go's version stamping in particular.
 	ensureGuardExcluded()
@@ -112,12 +97,9 @@ func ensureGuardExcluded() {
 // injectMemLimitGuard wrote, once the build has compiled them in. This is what
 // keeps the generated files from littering the working tree (and from failing
 // the dirty-tree check). It is best-effort: a failed removal is reported but
-// never fails the build. It honors the same kill switch as injection, so
-// disabling the feature leaves the working tree untouched.
+// never fails the build. Like injection it is unconditional, so it also sheds a
+// stale guard a repo committed under an older go-toolchain.
 func cleanupMemLimitGuards() {
-	if v, ok := os.LookupEnv(memLimitEnvVar); ok && !envTruthy(v) {
-		return
-	}
 	if _, err := memlimit.CleanupAll(); err != nil {
 		logger.Warn("  warning: failed to remove GOMEMLIMIT guard: %v", err)
 	}
