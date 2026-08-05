@@ -31,6 +31,11 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		return false, nil, err
 	}
 
+	// Re-resolve any dependency pinned to follow a branch (see depsbranch.go)
+	if _, err := UpdateTrackedBranchDeps(r); err != nil {
+		return false, nil, err
+	}
+
 	// Handle vanity-URL modules: inject replace directives for unreachable hosts
 	vanity, vanityErr := injectVanityReplaces()
 	if vanityErr != nil {

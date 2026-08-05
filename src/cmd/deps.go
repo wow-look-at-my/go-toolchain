@@ -119,6 +119,14 @@ func (dc *DepChecker) run() {
 			continue
 		}
 
+		// A dependency pinned to follow a branch is owned by
+		// UpdateTrackedBranchDeps (depsbranch.go); comparing it against the
+		// proxy's @latest here would silently drag it back onto the
+		// module's default branch on the next auto-update.
+		if dep.Branch != "" {
+			continue
+		}
+
 		update, needsUpdate, err := dc.checkDep(dep.Path, dep.Version)
 		if err != nil {
 			continue // Skip on error, don't fail the whole check
@@ -255,6 +263,7 @@ func escapePath(path string) (string, error) {
 type depInfo struct {
 	Path    string
 	Version string
+	Branch  string // set when the require line carries a go-toolchain:branch comment
 }
 
 // findGoMod walks up from the current directory to find go.mod.
@@ -296,7 +305,7 @@ func listDirectDeps() ([]depInfo, error) {
 		if req.Indirect {
 			continue
 		}
-		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version})
+		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version, Branch: trackedBranch(req)})
 	}
 	return deps, nil
 }

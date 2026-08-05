@@ -67,13 +67,21 @@ func FixBogusDepsVersions(r runner.CommandRunner) error {
 	return nil
 }
 
-// resolveLatestVersionViaGit fetches the latest commit from a git repo and
-// constructs a proper pseudo-version with the correct timestamp.
+// resolveLatestVersionViaGit fetches the latest commit from a git repo's
+// default branch and constructs a proper pseudo-version with the correct
+// timestamp.
 func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, error) {
+	return resolveVersionViaGit(r, mod, "HEAD")
+}
+
+// resolveVersionViaGit fetches the commit ref points at (a branch, "HEAD",
+// or any other ref git ls-remote accepts) and constructs a proper
+// pseudo-version with the correct timestamp.
+func resolveVersionViaGit(r runner.CommandRunner, mod, ref string) (string, error) {
 	gitURL := "https://" + mod
 
-	// Get HEAD commit hash via ls-remote
-	proc, err := runner.Cmd("git", "ls-remote", gitURL, "HEAD").WithQuiet().Run(r)
+	// Get the ref's commit hash via ls-remote
+	proc, err := runner.Cmd("git", "ls-remote", gitURL, ref).WithQuiet().Run(r)
 	if err != nil {
 		return "", fmt.Errorf("git ls-remote failed: %w", err)
 	}
@@ -84,7 +92,7 @@ func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, err
 
 	fields := strings.Fields(string(output))
 	if len(fields) < 1 {
-		return "", fmt.Errorf("no HEAD ref found")
+		return "", fmt.Errorf("no ref %q found for %s", ref, mod)
 	}
 	fullHash := fields[0]
 	if len(fullHash) < 12 {
