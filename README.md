@@ -83,7 +83,7 @@ To opt out, pass `codeql: 'false'`.
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
 | `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; with `deployments: write` also registers a GitHub Deployment (warns and skips it otherwise) |
+| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; also registers a GitHub Deployment and posts an artifact storage record, so it additionally requires `deployments: write` + `artifact-metadata: write` and fails the build without either (see [autorelease permissions](#github-action-usage)) |
 | `autorelease_args`  | string   | `''`       | Extra publish options forwarded to the buildhost publish, as whitespace/comma-separated `key=value` pairs. Recognized: `create_service=true\|false` (the published binary runs as a background service; each download format materializes it — brew `service do` block, auto-enabled systemd user unit in generated debs). Unknown keys fail the build; empty forwards nothing |
 | `allow-source-build` | string  | `false`    | Allow building go-toolchain from source when the buildhost binary is unavailable; when `false`, the build fails fast instead of silently falling back |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
@@ -594,38 +594,6 @@ The result is emitted four ways at the end of the run:
 - **GitHub Step Summary**: a profile table (cache totals + top slowest actions) next to the existing pipeline Gantt.
 
 Actiongraph collection and the report are skipped with `--no-profile`, and skip cleanly on paths that never reach `go build`/`go test`. Parsing is defensive: a missing or malformed dump is skipped (with a warning) and can never fail the build.
-
-### Automatic GOMEMLIMIT (cgroup-aware memory limit)
-
-By default, go-toolchain injects a small, stdlib-only startup guard
-(`gomemlimit_gen.go`) into every `main` package it builds. When the resulting
-binary starts, the guard reads the container's cgroup memory limit (cgroup v2 or
-v1) and calls `runtime/debug.SetMemoryLimit` with 90% of it. This keeps the Go
-garbage collector under the cgroup ceiling — as the heap approaches the limit
-the GC works harder, trading CPU for memory, instead of letting the process
-allocate until the kernel OOM-kills it.
-
-The guard is dependency-free (no `go.mod`/`go.sum` changes), carries the standard
-`// Code generated ... DO NOT EDIT.` marker (so it is excluded from coverage), and
-is a no-op when no cgroup limit is found, including on non-Linux systems. The
-guard is a transient build artifact: it is written just before the build and
-removed right after, so it never lingers in the working tree. Injection is
-idempotent and unconditional — there is no build-time flag or environment
-variable to turn it off. Opting out is a run-time decision instead, via the
-variables below.
-
-The following are read by the built program **when it starts**, not at build time:
-
-```bash
-# Opt a single deployment out without rebuilding — Go's own variable wins
-export GOMEMLIMIT=off
-
-# ...or pin an explicit limit (the guard then does nothing)
-export GOMEMLIMIT=2GiB
-
-# Tune the headroom ratio (default 0.9); "off" also disables the guard
-export GO_TOOLCHAIN_MEMLIMIT_RATIO=0.8
-```
 
 ## OpenTelemetry Trace Export
 
