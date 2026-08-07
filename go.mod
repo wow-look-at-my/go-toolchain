@@ -11,7 +11,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
-	github.com/wow-look-at-my/dats v0.0.0-20260801180457-d7115e1ca5ef
+	github.com/wow-look-at-my/dats v0.0.0-20260806230332-4c230290704b // go-toolchain:branch=master
 	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
 	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804044114-9bec061bb451
@@ -59,6 +59,7 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/wow-look-at-my/yaml-fixed v0.0.0-20260805093941-e292557560df // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
