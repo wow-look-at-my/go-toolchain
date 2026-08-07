@@ -13,9 +13,17 @@
 # the background update check fails instantly and silently, keeping output
 # deterministic regardless of what buildhost has published.
 #
-# NOTE: the agent-output-guard tests assume a linux host — the guard
-# classifier is compiled for linux||cosmo and is a documented no-op on native
-# darwin/windows (the same scoping as the smoke-linux guard gate in CI).
+# NOTE: the agent-output-guard tests below assume a linux host — this repo's
+# own self-build (the only thing that runs THIS suite) never runs on darwin.
+# darwin has its own real guard classifier (src/cmd/claudeguard_darwin.go),
+# covered by a sibling dats suite the smoke-macos job (.github/workflows/ci.yml)
+# writes inline into a throwaway module instead. It cannot live in this repo's
+# own dats/ — dats runs every suite it finds recursively under dats/, so a
+# suite referencing a native darwin binary would also run (and fail) during
+# this repo's own linux build/host-build jobs; it also can't be a checked-in
+# template copied in at CI time, because smoke-macos never runs
+# actions/checkout (only the release artifact download), so there is no repo
+# tree there to copy a template out of.
 
 # Sandboxed like every other suite (dats' default). The one adjustment: under
 # the docker backend the commands run in the IMAGE's filesystem, and every
@@ -24,229 +32,229 @@
 # bootstrap something to find. bwrap and seatbelt ignore `image` (they run on
 # the host's own filesystem, where the pipeline's Go already is).
 sandbox:
-  image: golang:1.25
+	image: golang:1.25
 
 setup:
-  # Sanity: the staged binary exists and executes from a writable copy.
-  # `version raw` is the cheapest invocation — no Go bootstrap, no update
-  # check, no network.
-  - test -x "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"
-  - 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
+	# Sanity: the staged binary exists and executes from a writable copy.
+	# `version raw` is the cheapest invocation — no Go bootstrap, no update
+	# check, no network.
+	- test -x "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"
+	- 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
 
 tests:
-  - desc: version reports the build stamp
-    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version'
-    timeout: 30s
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stdout:
-        - "Version:"
-        - "Commit:"
-      "!stderr":
-        - "panic"
+	- desc: version reports the build stamp
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version'
+	  timeout: 30s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "Version:"
+			- "Commit:"
+		"!stderr":
+			- "panic"
 
-  # `version raw` skips the staleness footer's GitHub query entirely, so this
-  # exemption test is fully offline (the whole version subtree is exempt).
-  - desc: version stays exempt from the agent output guard
-    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
-    timeout: 30s
-    inputs:
-      env:
-        CLAUDECODE: "1"
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      "!stderr":
-        - "refused to run"
+	# `version raw` skips the staleness footer's GitHub query entirely, so this
+	# exemption test is fully offline (the whole version subtree is exempt).
+	- desc: version stays exempt from the agent output guard
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
+	  timeout: 30s
+	  inputs:
+		env:
+			CLAUDECODE: "1"
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		"!stderr":
+			- "refused to run"
 
-  # The guard-positive case: a bare pipeline run under Claude with captured
-  # stdout (dats always captures) must refuse to run before doing any work.
-  # CLAUDECODE=1 also guarantees the pipeline can never actually start here,
-  # so this test never recurses into a nested build.
-  #
-  # Run from an EMPTY throwaway directory, not the module root: a guard abort
-  # deletes the module's build outputs (src/cmd/staleoutputs.go), which here
-  # would delete the very binaries this pipeline just built. With no go.mod
-  # there are no targets to delete, so this stays a pure guard assertion —
-  # the deletion itself is asserted by the next test.
-  - desc: agent output guard refuses a captured pipeline run
-    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
-    exit: 1
-    timeout: 60s
-    inputs:
-      env:
-        CLAUDECODE: "1"
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stderr:
-        - "refused to run"
-      "!stdout":
-        - "Build successful"
+	# The guard-positive case: a bare pipeline run under Claude with captured
+	# stdout (dats always captures) must refuse to run before doing any work.
+	# CLAUDECODE=1 also guarantees the pipeline can never actually start here,
+	# so this test never recurses into a nested build.
+	#
+	# Run from an EMPTY throwaway directory, not the module root: a guard abort
+	# deletes the module's build outputs (src/cmd/staleoutputs.go), which here
+	# would delete the very binaries this pipeline just built. With no go.mod
+	# there are no targets to delete, so this stays a pure guard assertion —
+	# the deletion itself is asserted by the next test.
+	- desc: agent output guard refuses a captured pipeline run
+	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  exit: 1
+	  timeout: 60s
+	  inputs:
+		env:
+			CLAUDECODE: "1"
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stderr:
+			- "refused to run"
+		"!stdout":
+			- "Build successful"
 
-  # Refusing to run is not enough on its own: the invocation that hides the
-  # output typically ignores the exit code too, and a binary left at
-  # build/<target> by an earlier run would be executed as proof of a build
-  # that never happened. The abort must delete it (src/cmd/staleoutputs.go)
-  # and say so, while leaving non-binary outputs alone. A throwaway module
-  # with a planted binary: the guard aborts long before anything is compiled.
-  - desc: agent output guard deletes the module's build outputs
-    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; "$b/gt"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d" "$b"; exit $rc'
-    exit: 1
-    timeout: 60s
-    inputs:
-      env:
-        CLAUDECODE: "1"
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stdout:
-        - "GUARD-DELETED-BINARY"
-        - "GUARD-KEPT-CHECKSUMS"
-      stderr:
-        - "refused to run"
-        - "have been DELETED"
+	# Refusing to run is not enough on its own: the invocation that hides the
+	# output typically ignores the exit code too, and a binary left at
+	# build/<target> by an earlier run would be executed as proof of a build
+	# that never happened. The abort must delete it (src/cmd/staleoutputs.go)
+	# and say so, while leaving non-binary outputs alone. A throwaway module
+	# with a planted binary: the guard aborts long before anything is compiled.
+	- desc: agent output guard deletes the module's build outputs
+	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; "$b/gt"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d" "$b"; exit $rc'
+	  exit: 1
+	  timeout: 60s
+	  inputs:
+		env:
+			CLAUDECODE: "1"
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "GUARD-DELETED-BINARY"
+			- "GUARD-KEPT-CHECKSUMS"
+		stderr:
+			- "refused to run"
+			- "have been DELETED"
 
-  - desc: root help prints usage
-    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" --help'
-    timeout: 60s
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stdout:
-        - "Usage:"
-        - "matrix"
-        - "bench"
-        - "lint"
+	- desc: root help prints usage
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" --help'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "Usage:"
+			- "matrix"
+			- "bench"
+			- "lint"
 
-  # The background update check is documented as silent on any error: with an
-  # unreachable buildhost, no staleness warning may appear on either stream
-  # (locally the warning goes to stderr; in GitHub Actions it becomes a
-  # ::warning annotation on stdout).
-  - desc: update check is silent when buildhost is unreachable
-    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" --help'
-    timeout: 60s
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stdout:
-        - "Usage:"
-      "!stdout":
-        - "out of date"
-      "!stderr":
-        - "out of date"
+	# The background update check is documented as silent on any error: with an
+	# unreachable buildhost, no staleness warning may appear on either stream
+	# (locally the warning goes to stderr; in GitHub Actions it becomes a
+	# ::warning annotation on stdout).
+	- desc: update check is silent when buildhost is unreachable
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" --help'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "Usage:"
+		"!stdout":
+			- "out of date"
+		"!stderr":
+			- "out of date"
 
-  - desc: subcommand help
-    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" {matrix.sub} --help'
-    timeout: 60s
-    matrix:
-      sub: [matrix, bench, lint, release, version]
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stdout:
-        - "Usage:"
+	- desc: subcommand help
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" {matrix.sub} --help'
+	  timeout: 60s
+	  matrix:
+		sub: [matrix, bench, lint, release, version]
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "Usage:"
 
-  # From a throwaway directory, not the module root: in the module root the
-  # binary bootstraps the Go version go.mod demands, and a bootstrap that has
-  # to download prints progress to stderr -- straight into the snapshot.
-  - desc: unknown flag is rejected
-    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
-    exit: 1
-    timeout: 60s
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stderr:
-        - "unknown flag"
-      # Golden-file assertion: the full stderr must byte-match the committed
-      # snapshot (regenerate with `dats --update test dats` after intentional
-      # CLI changes).
-      snapshot:
-        stderr: true
+	# From a throwaway directory, not the module root: in the module root the
+	# binary bootstraps the Go version go.mod demands, and a bootstrap that has
+	# to download prints progress to stderr -- straight into the snapshot.
+	- desc: unknown flag is rejected
+	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  exit: 1
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stderr:
+			- "unknown flag"
+		# Golden-file assertion: the full stderr must byte-match the committed
+		# snapshot (regenerate with `dats --update test dats` after intentional
+		# CLI changes).
+		snapshot:
+			stderr: true
 
-  - desc: unknown subcommand is rejected
-    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" definitely-not-a-subcommand'
-    exit: 1
-    timeout: 60s
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stderr:
-        - "unknown command"
+	- desc: unknown subcommand is rejected
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" definitely-not-a-subcommand'
+	  exit: 1
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stderr:
+			- "unknown command"
 
-  # The guard covers every agent on the roster, each detected by its own
-  # environment marker: grok build (GROK_AGENT) and opencode (OPENCODE). Both
-  # pipe a command's stdout back to themselves, exactly as dats captures here.
-  # These tests live at the END of the file: their position fixes the snapshot
-  # test's index, which names the committed golden file above.
-  #
-  # The message's agent NAME is asserted by unit tests, not here: process
-  # ancestry outranks the env marker, so running this suite from inside a
-  # different agent's session would legitimately name that agent instead.
-  - desc: agent output guard refuses a captured pipeline run under {matrix.marker}
-    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; env {matrix.marker}=1 "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
-    exit: 1
-    timeout: 60s
-    matrix:
-      marker: [GROK_AGENT, OPENCODE]
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      stderr:
-        - "refused to run"
-      "!stdout":
-        - "Build successful"
+	# The guard covers every agent on the roster, each detected by its own
+	# environment marker: grok build (GROK_AGENT) and opencode (OPENCODE). Both
+	# pipe a command's stdout back to themselves, exactly as dats captures here.
+	# These tests live at the END of the file: their position fixes the snapshot
+	# test's index, which names the committed golden file above.
+	#
+	# The message's agent NAME is asserted by unit tests, not here: process
+	# ancestry outranks the env marker, so running this suite from inside a
+	# different agent's session would legitimately name that agent instead.
+	- desc: agent output guard refuses a captured pipeline run under {matrix.marker}
+	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; env {matrix.marker}=1 "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  exit: 1
+	  timeout: 60s
+	  matrix:
+		marker: [GROK_AGENT, OPENCODE]
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stderr:
+			- "refused to run"
+		"!stdout":
+			- "Build successful"
 
-  # version stays exempt under every agent, not only Claude.
-  - desc: version stays exempt under {matrix.marker}
-    cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw'
-    timeout: 30s
-    matrix:
-      marker: [GROK_AGENT, OPENCODE]
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-    outputs:
-      "!stderr":
-        - "refused to run"
+	# version stays exempt under every agent, not only Claude.
+	- desc: version stays exempt under {matrix.marker}
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw'
+	  timeout: 30s
+	  matrix:
+		marker: [GROK_AGENT, OPENCODE]
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		"!stderr":
+			- "refused to run"
 
-  # A directory with neither a module nor suites is the one case that still
-  # refuses, and the message has to name both halves -- "no go.mod found" alone
-  # sent people off to `go mod init` a shell repo that only wanted its suites
-  # run.
-  #
-  # The POSITIVE case (suites present, no go.mod, they run) is a Go unit test,
-  # not a case here: asserting it from a suite means go-toolchain starting dats
-  # inside a command dats is already sandboxing, and nested bwrap is not a
-  # thing worth depending on for coverage the unit tests already give.
-  - desc: no module and no suites names both halves
-    cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
-    exit: 1
-    timeout: 60s
-    inputs:
-      env:
-        GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-        # Every other full-pipeline test here SETS an agent marker, because it
-        # is asserting the guard. This is the first that needs the guard OFF,
-        # and the markers leak in from the host: inside a Claude Code session
-        # CLAUDE_CODE_SESSION_ID alone makes the guard refuse before the module
-        # check is ever reached, so the assertion would pass in CI and fail on
-        # a developer's machine. Empty reads as not-an-agent (the detector
-        # treats "" and "0" as unset).
-        CLAUDECODE: ""
-        CLAUDE_CODE_SESSION_ID: ""
-        GROK_AGENT: ""
-        OPENCODE: ""
-        OPENCODE_PID: ""
-        GEMINI_CLI: ""
-        CODEX_SANDBOX: ""
-        CODEX_SANDBOX_NETWORK_DISABLED: ""
-    outputs:
-      stderr:
-        - "no go.mod and no dats/ suites found"
+	# A directory with neither a module nor suites is the one case that still
+	# refuses, and the message has to name both halves -- "no go.mod found" alone
+	# sent people off to `go mod init` a shell repo that only wanted its suites
+	# run.
+	#
+	# The POSITIVE case (suites present, no go.mod, they run) is a Go unit test,
+	# not a case here: asserting it from a suite means go-toolchain starting dats
+	# inside a command dats is already sandboxing, and nested bwrap is not a
+	# thing worth depending on for coverage the unit tests already give.
+	- desc: no module and no suites names both halves
+	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  exit: 1
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			# Every other full-pipeline test here SETS an agent marker, because it
+			# is asserting the guard. This is the first that needs the guard OFF,
+			# and the markers leak in from the host: inside a Claude Code session
+			# CLAUDE_CODE_SESSION_ID alone makes the guard refuse before the module
+			# check is ever reached, so the assertion would pass in CI and fail on
+			# a developer's machine. Empty reads as not-an-agent (the detector
+			# treats "" and "0" as unset).
+			CLAUDECODE: ""
+			CLAUDE_CODE_SESSION_ID: ""
+			GROK_AGENT: ""
+			OPENCODE: ""
+			OPENCODE_PID: ""
+			GEMINI_CLI: ""
+			CODEX_SANDBOX: ""
+			CODEX_SANDBOX_NETWORK_DISABLED: ""
+	  outputs:
+		stderr:
+			- "no go.mod and no dats/ suites found"
