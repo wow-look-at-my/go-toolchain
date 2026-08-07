@@ -534,6 +534,8 @@ runs the module's command-line test suites written in
 - **Convention** — suites are non-hidden `*.dats` files under `dats/` at the
   module root. No `dats/` directory (or no suites in it) means the phase is a
   silent no-op: zero downloads, zero output.
+- **Indent with tabs** — dats' YAML parser rejects space indentation; spaces
+  only align after a tab. See `dats/README.md` for the shape.
 - **Repos with no `go.mod`** — a shell or TypeScript project whose CLI is worth
   testing this way still gets its suites run: in a directory with `dats/` but no
   module, `go-toolchain` prints `⇒ No go.mod; running dats suites only`, runs
