@@ -10,11 +10,11 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12
+	github.com/wow-look-at-my/ansi-writer v0.0.0-20260218162455-f5112b042a12 // go-toolchain:branch=master
 	github.com/wow-look-at-my/dats v0.0.0-20260806230332-4c230290704b // go-toolchain:branch=master
-	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d
-	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9
-	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804044114-9bec061bb451
+	github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d // go-toolchain:branch=master
+	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9 // go-toolchain:branch=master
+	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804061705-e9f1ff93f151 // go-toolchain:branch=master
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
