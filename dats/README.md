@@ -8,6 +8,22 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 
 - Suites are non-hidden `*.dats` files under `dats/` at the module root.
   When the directory has none, the phase is a silent no-op.
+- **Indent with tabs.** dats parses with `wow-look-at-my/yaml-fixed`, which
+  inverts stock YAML: a space in the leading indentation is a parse error
+  (`spaces cannot be used for indentation`), and spaces may only align after a
+  tab. So a sequence item's sibling keys line up under the content after its
+  `- ` marker — one tab of depth plus two spaces of alignment:
+
+  ```
+  tests:
+  → - desc: something
+  → ··cmd: echo hi
+  → ··outputs:
+  → → stdout:
+  → → → - hi
+  ```
+
+  (`→` a tab, `·` a space.)
 - A repo with **no `go.mod`** still gets its suites run: go-toolchain reports
   `No go.mod; running dats suites only`, and the suites are the entire run.
   Nothing was built, so `$GO_TOOLCHAIN_DATS_BUILD_DIR` is an empty directory
