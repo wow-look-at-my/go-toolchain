@@ -18,7 +18,10 @@ pseudo-version (`vX.Y.Z-<timestamp>-<12-hex-hash>`).
 
 Every run asynchronously checks each direct dependency's pseudo-version against
 `$GOPROXY/<module>/@latest`. For git-based (untagged) dependencies this proxy endpoint always
-resolves to the module's **default branch**. Any outdated dependency sharing the current module's
+resolves to the module's **default branch**. A module that carries *any* semver tag resolves to
+the highest such tag instead, which for a dependency tracked as a pseudo-version can point at an
+older commit than the branch itself — `go get -u <module>@latest` then moves the require line
+backwards. Branch tracking (below) is the supported way off that path. Any outdated dependency sharing the current module's
 `host/org/` prefix (its own org — "trusted") is auto-updated in place via `go get -u` + `go mod
 tidy`; anything else is only reported, with a `go get -u` hint.
 
