@@ -131,8 +131,8 @@ github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804044114-9bec061bb451 h1
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804044114-9bec061bb451/go.mod h1:mNwJ1GNTJYpiYf0Q6+UKGVdceA+ioKKxjdWZkt0YjB0=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb h1:kLSElPimf1wjuunb+noAlkV/xzrE65BzqnQr3Xr31u4=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb/go.mod h1:xlD/Hz0iizP83KvPMWiQ8dbEvfjRGQ2A5qsK+GBq9do=
-github.com/wow-look-at-my/yaml-fixed v0.0.0-20260805093941-e292557560df h1:F8UE35ZDc0KovZfY5TV8FHQTn4nZyt4Pq21XaJMbURA=
-github.com/wow-look-at-my/yaml-fixed v0.0.0-20260805093941-e292557560df/go.mod h1:2bR7Z7TOq+iM32ZCpIgJcoJ0iqZQcEAu/h0nzPBh7mk=
+github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 h1:XQ7cCH5Ow4ZinZ20jBJCXvp91C9H6G74oeDFd9BBrnc=
+github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1/go.mod h1:2bR7Z7TOq+iM32ZCpIgJcoJ0iqZQcEAu/h0nzPBh7mk=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
 github.com/xanzy/ssh-agent v0.3.3/go.mod h1:6dzNDKs0J9rVPHPhaGCukekBHKqfl+L3KghI1Bc68Uw=
 gitlab.com/cznic/cc/v4 v4.27.3 h1:r/bFvZWN3cxpGfBvAL/wrbjZ6qZ6x1mUKiqoj7wq7e0=
