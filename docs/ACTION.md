@@ -78,12 +78,12 @@ dies on `Resource not accessible by integration`. Job-level `permissions:`
 blocks REPLACE the workflow-level one, so a job declaring its own must list
 these alongside everything else it needs.
 
-> **Known doc conflict.** `README.md`'s inputs table says `deployments: write`
-> merely "registers a GitHub Deployment (warns and skips it otherwise)", while
-> `action.yml`'s own input description and the Autorelease permissions note both
-> say it fails the build. `action.yml` and this repo's `ci.yml` (which grants
-> both) are the sources followed here; the table row looks stale, but confirming
-> that needs someone who knows which behaviour shipped.
+The one case that does not register is a publish whose target server is
+loopback or plain http (buildhost's own e2e spawns one on
+`http://localhost:18080`): a deployment asserts "this publish is live at
+`<environment_url>`", which is false for a server nothing outside the runner
+can reach. That is a property of the target, not an opt-out — every publish to
+a real https server registers, and a failure there is fatal.
 
 ---
 
