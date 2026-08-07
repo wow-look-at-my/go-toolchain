@@ -8,6 +8,22 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 
 - Suites are non-hidden `*.dats` files under `dats/` at the module root.
   When the directory has none, the phase is a silent no-op.
+- **Indent with tabs.** dats parses with `wow-look-at-my/yaml-fixed`, which
+  inverts stock YAML: a space in the leading indentation is a parse error
+  (`spaces cannot be used for indentation`), and spaces may only align after a
+  tab. So a sequence item's sibling keys line up under the content after its
+  `- ` marker — one tab of depth plus two spaces of alignment:
+
+  ```
+  tests:
+  → - desc: something
+  → ··cmd: echo hi
+  → ··outputs:
+  → → stdout:
+  → → → - hi
+  ```
+
+  (`→` a tab, `·` a space.)
 - A repo with **no `go.mod`** still gets its suites run: go-toolchain reports
   `No go.mod; running dats suites only`, and the suites are the entire run.
   Nothing was built, so `$GO_TOOLCHAIN_DATS_BUILD_DIR` is an empty directory
@@ -60,10 +76,17 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   the background update check fails instantly and silently, keeping output
   deterministic. Consumer suites that exec go-toolchain itself should do the
   same.
-- The agent-output-guard tests assume a **linux host**: the guard classifier
-  is compiled for linux||cosmo and is a documented no-op on native
-  darwin/windows — the same scoping as the smoke-linux guard gate in CI
-  (which is the only CI leg that runs this repo's pipeline on the repo).
+- The agent-output-guard tests in `cli.dats` assume a **linux host**, because
+  this suite only runs when this repo builds ITSELF, which only happens on
+  linux (`build`/`host-build`). darwin has its own real guard classifier
+  (`src/cmd/claudeguard_darwin.go`) and its own dats coverage, but that suite
+  cannot live under this repo's `dats/` — every suite here runs during this
+  repo's own linux self-build too, and a suite that execs a native darwin
+  binary would fail there. Instead it's a committed fixture,
+  `.github/dats-fixtures/smoke-macos-agent-output-guard.dats` (with a linux
+  sibling for the shipped APE), that the smoke-macos/smoke-linux jobs
+  (`.github/workflows/ci.yml`) run `actions/checkout` just to copy into a
+  throwaway module and run against the actual published binary.
 - CI provisions **bubblewrap** before running the pipeline (`.github/workflows/ci.yml`,
   `host-build` and `build`), so suites run under the native Linux sandbox rather than
   the docker fallback, and an unusable bwrap fails the job instead of silently
