@@ -79,8 +79,8 @@ coverage.
   update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
   so version tests assert only the stable `Version:`/`Commit:` lines). These guard tests assume a linux host, because this suite only runs when this
-  repo builds ITSELF (`build`/`host-build`, linux-only). The darwin classifier (`claudeguard_darwin.go`) has its own CI-enforced sibling suite instead:
-  smoke-macos (`.github/workflows/ci.yml`, which runs `actions/checkout` for exactly this) copies
+  repo builds ITSELF (`build`/`host-build`, linux-only). The darwin classifier (`claudeguard_darwin.go`) has its own CI-enforced sibling suite
+  instead: smoke-macos (`.github/workflows/ci.yml`, which runs `actions/checkout` for exactly this) copies
   `.github/dats-fixtures/smoke-macos-agent-output-guard.dats` into a throwaway module and runs it against
   the real published darwin/arm64 binary — since a suite exec'ing a native darwin binary can't live under
   this repo's own `dats/` (every suite there runs during this repo's own linux self-build too). Only windows stays a documented no-op.
