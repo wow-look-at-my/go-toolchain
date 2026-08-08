@@ -226,9 +226,7 @@ runs:
       uses: wow-look-at-my/actions@typescript#latest
       with:
         script: |
-          // Verify id-token: write via OIDC environment variables. On external
-          // fork PRs GitHub withholds OIDC regardless of declared permissions;
-          // skip rather than fail spuriously.
+          // GitHub withholds OIDC on external fork PRs whatever the workflow declares, so a fork PR skips this rather than failing spuriously.
           const isForkPr = context.eventName === 'pull_request' &&
             (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
           if (isForkPr) {
