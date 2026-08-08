@@ -18,6 +18,20 @@ three native carve-outs — and `autorelease: false`. The cosmo bootstrap
 downloads the gosmopolitan toolchain from its default `?branch=master` and
 cold-compiles its stdlib, hence the raised `timeout: 15`.
 
+### The build-profile assertions
+
+The `Check build profile` step reads the FIRST build's `build/profile.json` and
+fails on two shapes:
+
+1. **Poison tripwires** — the remote SERVED an object a client-side integrity
+   guard had to refuse (checksum, build-id action, or module index). Any nonzero
+   value means the shared cache is carrying poison and needs inspecting.
+   `put_refused_modindex` is deliberately NOT gated: refusing to UPLOAD module
+   indexes is normal, and large on every cold run.
+2. **Dead-remote signature** — a populated advertised index (>1000 keys)
+   yielding ZERO web hits on a fresh runner's first build, i.e. the remote tier
+   is serving nothing.
+
 ## The three smoke jobs
 
 Each is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
