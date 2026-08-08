@@ -64,7 +64,7 @@ jobs:
         uses: wow-look-at-my/actions@typescript#latest
         with:
           script: |
-            // Gates poison tripwires and the dead-remote signature; see docs/CI.md for what each one means.
+            // Assert on the first build's per-action profile.
             const path = 'build/profile.json';
             if (!fs.existsSync(path)) {
               core.setFailed(`${path} missing — the build profile did not run`);
@@ -80,10 +80,12 @@ jobs:
                 core.info(`web: hits=${web.hits} puts=${web.puts} index_keys=${web.index_keys} ` +
                   `authoritative=${web.index_authoritative} put_refused_modindex=${web.put_refused_modindex}`);
                 core.info(`tripwires: checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}`);
+                // Any nonzero tripwire means the remote SERVED an object a client-side integrity guard had to refuse (checksum, build-id action, or module index), so the shared cache is carrying poison and needs inspecting. put_refused_modindex is deliberately NOT gated: refusing to UPLOAD module indexes is normal, and large on every cold run.
                 if (web.miss_checksum > 0 || web.miss_buildid > 0 || web.miss_modindex > 0) {
                   core.setFailed(`cache poison tripwire: the remote served objects that failed integrity gates ` +
                     `(checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}) — inspect the cache server`);
                 }
+                // A populated advertised index yielding ZERO web hits on a fresh runner's first build is the dead-remote signature: the tier is serving nothing.
                 if (web.index_keys > 1000 && web.hits === 0) {
                   core.setFailed(`dead-remote signature: ${web.index_keys} advertised index keys but zero web hits ` +
                     `on the first build — the remote cache tier is serving nothing`);
