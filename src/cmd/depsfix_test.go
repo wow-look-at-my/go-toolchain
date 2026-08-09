@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -240,48 +241,80 @@ func TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError(t *testing
 	assert.ErrorIs(t, err, os.ErrNotExist, "the real subprocess error must survive, not render as %!w(<nil>)")
 }
 
-func TestGitRemoteURL(t *testing.T) {
-	cases := []struct {
-		name string
-		mod  string
-		want string
-	}{
-		{
-			name: "github module at repo root",
-			mod:  "github.com/wow-look-at-my/agentic-loop",
-			want: "https://github.com/wow-look-at-my/agentic-loop",
-		},
-		{
-			name: "github module in a subdirectory of its repo",
-			mod:  "github.com/wow-look-at-my/agentic-loop/go",
-			want: "https://github.com/wow-look-at-my/agentic-loop",
-		},
-		{
-			name: "github module several directories deep",
-			mod:  "github.com/wow-look-at-my/agentic-loop/go/internal",
-			want: "https://github.com/wow-look-at-my/agentic-loop",
-		},
-		{
-			name: "bitbucket module in a subdirectory",
-			mod:  "bitbucket.org/owner/repo/sub",
-			want: "https://bitbucket.org/owner/repo",
-		},
-		{
-			name: "gitlab is left untouched -- nested subgroups are indistinguishable from a module subdirectory",
-			mod:  "gitlab.com/group/subgroup/repo",
-			want: "https://gitlab.com/group/subgroup/repo",
-		},
-		{
-			name: "an unrecognized host is passed through unchanged",
-			mod:  "example.com/owner/repo/sub",
-			want: "https://example.com/owner/repo/sub",
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, gitRemoteURL(c.mod))
-		})
-	}
+func TestResolveGitURLAndRef(t *testing.T) {
+	t.Run("module at repo root resolves on the first try", func(t *testing.T) {
+		mock := runner.NewMock()
+		mock.SetResponse("git", []string{"ls-remote", "https://github.com/wow-look-at-my/agentic-loop", "HEAD"},
+			[]byte("abc123\tHEAD\n"), nil)
+
+		url, output, err := resolveGitURLAndRef(mock, "github.com/wow-look-at-my/agentic-loop", "HEAD")
+		require.NoError(t, err)
+		assert.Equal(t, "https://github.com/wow-look-at-my/agentic-loop", url)
+		assert.Contains(t, string(output), "abc123")
+		assert.Len(t, mock.Calls(), 1, "the repo-root case must not try any shorter prefix")
+	})
+
+	t.Run("module in a subdirectory backs off to the repo root", func(t *testing.T) {
+		mock := runner.NewMock()
+		mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+			require.True(t, cfg.IsCmd("git", "ls-remote"))
+			switch cfg.Args[1] {
+			case "https://github.com/wow-look-at-my/agentic-loop/go":
+				return runner.MockProcess(nil, errors.New("exit status 128")), nil
+			case "https://github.com/wow-look-at-my/agentic-loop":
+				return runner.MockProcess([]byte("abc123\tHEAD\n"), nil), nil
+			}
+			t.Fatalf("unexpected ls-remote URL %q", cfg.Args[1])
+			return nil, nil
+		}
+
+		url, _, err := resolveGitURLAndRef(mock, "github.com/wow-look-at-my/agentic-loop/go", "HEAD")
+		require.NoError(t, err)
+		assert.Equal(t, "https://github.com/wow-look-at-my/agentic-loop", url)
+	})
+
+	// No hardcoded host table means a nested GitLab subgroup resolves the
+	// same way a GitHub owner/repo does: the deepest prefix that IS a real
+	// repository wins, found by trying, not by knowing GitLab's shape.
+	t.Run("a nested gitlab subgroup resolves without knowing gitlab's shape in advance", func(t *testing.T) {
+		mock := runner.NewMock()
+		mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+			switch cfg.Args[1] {
+			case "https://gitlab.com/group/subgroup/repo/sub":
+				return runner.MockProcess(nil, errors.New("exit status 128")), nil
+			case "https://gitlab.com/group/subgroup/repo":
+				return runner.MockProcess([]byte("abc123\tHEAD\n"), nil), nil
+			}
+			t.Fatalf("unexpected ls-remote URL %q", cfg.Args[1])
+			return nil, nil
+		}
+
+		url, _, err := resolveGitURLAndRef(mock, "gitlab.com/group/subgroup/repo/sub", "HEAD")
+		require.NoError(t, err)
+		assert.Equal(t, "https://gitlab.com/group/subgroup/repo", url)
+	})
+
+	t.Run("a repo that exists but lacks the ref stops immediately instead of guessing shorter prefixes", func(t *testing.T) {
+		mock := runner.NewMock()
+		mock.SetResponse("git", []string{"ls-remote", "https://github.com/owner/repo", "refs/heads/nonexistent"},
+			[]byte(""), nil)
+
+		url, output, err := resolveGitURLAndRef(mock, "github.com/owner/repo", "refs/heads/nonexistent")
+		require.NoError(t, err)
+		assert.Equal(t, "https://github.com/owner/repo", url)
+		assert.Empty(t, output)
+		assert.Len(t, mock.Calls(), 1, "a successful-but-empty result must not trigger backoff")
+	})
+
+	t.Run("no prefix resolves", func(t *testing.T) {
+		mock := runner.NewMock()
+		mock.Handler = func(runner.Config) (runner.IProcess, error) {
+			return runner.MockProcess(nil, errors.New("exit status 128")), nil
+		}
+
+		_, _, err := resolveGitURLAndRef(mock, "example.com/a/b/c", "HEAD")
+		assert.Error(t, err)
+	})
 }
 
 // TestResolveVersionViaGit_SubdirectoryModule is the exact reported failure:
@@ -291,18 +324,22 @@ func TestGitRemoteURL(t *testing.T) {
 // "https://github.com/wow-look-at-my/agentic-loop/go".
 func TestResolveVersionViaGit_SubdirectoryModule(t *testing.T) {
 	const mod = "github.com/wow-look-at-my/agentic-loop/go"
+	const repoRoot = "https://github.com/wow-look-at-my/agentic-loop"
 	fullHash := "82fff4e9411d179f66b298a6549311698a096122"
 
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("git", "ls-remote") {
-			require.Equal(t, "https://github.com/wow-look-at-my/agentic-loop", cfg.Args[1],
-				"ls-remote must target the repo root, not the module's subdirectory")
+			if cfg.Args[1] == "https://"+mod {
+				// The full import path is not a repository -- the exact 403
+				// this bug reproduced.
+				return runner.MockProcess(nil, errors.New("exit status 128")), nil
+			}
+			require.Equal(t, repoRoot, cfg.Args[1], "ls-remote must fall back to the repo root")
 			return runner.MockProcess([]byte(fullHash+"\trefs/heads/master\n"), nil), nil
 		}
 		if cfg.IsCmd("git", "fetch") {
-			require.Equal(t, "https://github.com/wow-look-at-my/agentic-loop", cfg.Args[3],
-				"fetch must target the repo root too")
+			require.Equal(t, repoRoot, cfg.Args[3], "fetch must target the repo root too")
 			return runner.MockProcess(nil, nil), nil
 		}
 		for _, arg := range cfg.Args {
