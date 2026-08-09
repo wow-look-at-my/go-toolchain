@@ -223,3 +223,100 @@ func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
 	assert.NotNil(t, err)
 }
+
+// TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError guards the
+// error-wrapping bug this exact scenario shipped with: mock.SetResponse's err
+// surfaces from the PROCESS's Wait(), not from Run() itself (see mock.go) --
+// exactly how a real failing git subprocess behaves. The buggy code wrapped
+// the stale, already-nil err from Run() instead, so every one of these
+// failures rendered as the meaningless "git ls-remote failed: %!w(<nil>)"
+// instead of naming what actually went wrong.
+func TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError(t *testing.T) {
+	mock := runner.NewMock()
+	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
+
+	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, os.ErrNotExist, "the real subprocess error must survive, not render as %!w(<nil>)")
+}
+
+func TestGitRemoteURL(t *testing.T) {
+	cases := []struct {
+		name string
+		mod  string
+		want string
+	}{
+		{
+			name: "github module at repo root",
+			mod:  "github.com/wow-look-at-my/agentic-loop",
+			want: "https://github.com/wow-look-at-my/agentic-loop",
+		},
+		{
+			name: "github module in a subdirectory of its repo",
+			mod:  "github.com/wow-look-at-my/agentic-loop/go",
+			want: "https://github.com/wow-look-at-my/agentic-loop",
+		},
+		{
+			name: "github module several directories deep",
+			mod:  "github.com/wow-look-at-my/agentic-loop/go/internal",
+			want: "https://github.com/wow-look-at-my/agentic-loop",
+		},
+		{
+			name: "bitbucket module in a subdirectory",
+			mod:  "bitbucket.org/owner/repo/sub",
+			want: "https://bitbucket.org/owner/repo",
+		},
+		{
+			name: "gitlab is left untouched -- nested subgroups are indistinguishable from a module subdirectory",
+			mod:  "gitlab.com/group/subgroup/repo",
+			want: "https://gitlab.com/group/subgroup/repo",
+		},
+		{
+			name: "an unrecognized host is passed through unchanged",
+			mod:  "example.com/owner/repo/sub",
+			want: "https://example.com/owner/repo/sub",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, gitRemoteURL(c.mod))
+		})
+	}
+}
+
+// TestResolveVersionViaGit_SubdirectoryModule is the exact reported failure:
+// github.com/wow-look-at-my/agentic-loop/go, a Go module living in the go/
+// subdirectory of the agentic-loop repo. Before the fix, ls-remote and fetch
+// were both issued against the unclonable
+// "https://github.com/wow-look-at-my/agentic-loop/go".
+func TestResolveVersionViaGit_SubdirectoryModule(t *testing.T) {
+	const mod = "github.com/wow-look-at-my/agentic-loop/go"
+	fullHash := "82fff4e9411d179f66b298a6549311698a096122"
+
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("git", "ls-remote") {
+			require.Equal(t, "https://github.com/wow-look-at-my/agentic-loop", cfg.Args[1],
+				"ls-remote must target the repo root, not the module's subdirectory")
+			return runner.MockProcess([]byte(fullHash+"\trefs/heads/master\n"), nil), nil
+		}
+		if cfg.IsCmd("git", "fetch") {
+			require.Equal(t, "https://github.com/wow-look-at-my/agentic-loop", cfg.Args[3],
+				"fetch must target the repo root too")
+			return runner.MockProcess(nil, nil), nil
+		}
+		for _, arg := range cfg.Args {
+			if arg == "init" {
+				return runner.MockProcess(nil, nil), nil
+			}
+			if arg == "log" {
+				return runner.MockProcess([]byte("1754706071\n"), nil), nil
+			}
+		}
+		return nil, nil
+	}
+
+	version, err := resolveVersionViaGit(mock, mod, "refs/heads/master")
+	require.NoError(t, err)
+	assert.Contains(t, version, fullHash[:12])
+}

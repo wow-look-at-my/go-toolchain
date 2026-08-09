@@ -74,11 +74,35 @@ func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, err
 	return resolveVersionViaGit(r, mod, "HEAD")
 }
 
+// twoLevelHosts are code-hosting domains whose repository root is always
+// exactly two path segments below the host (owner/repo), with no subgroup
+// nesting to account for. gitlab.com is deliberately excluded: it permits
+// arbitrarily nested subgroups, so counting path segments cannot tell a
+// subgroup from a module living in a subdirectory of its repo.
+var twoLevelHosts = map[string]bool{
+	"github.com":    true,
+	"bitbucket.org": true,
+}
+
+// gitRemoteURL returns the git clone URL for a Go module path. A module
+// living in a subdirectory of its repository (agentic-loop's go/ submodule is
+// exactly this shape -- the repo also has a ts/ directory) still has that
+// repository as its git remote: everything past the repo root is a path
+// INSIDE the repo, not part of the clone URL. Naively using the full import
+// path as the URL 404s the moment a module isn't at its repo's root.
+func gitRemoteURL(mod string) string {
+	parts := strings.SplitN(mod, "/", 4)
+	if len(parts) == 4 && twoLevelHosts[parts[0]] {
+		mod = strings.Join(parts[:3], "/")
+	}
+	return "https://" + mod
+}
+
 // resolveVersionViaGit fetches the commit ref points at (a branch, "HEAD",
 // or any other ref git ls-remote accepts) and constructs a proper
 // pseudo-version with the correct timestamp.
 func resolveVersionViaGit(r runner.CommandRunner, mod, ref string) (string, error) {
-	gitURL := "https://" + mod
+	gitURL := gitRemoteURL(mod)
 
 	// Get the ref's commit hash via ls-remote
 	proc, err := runner.Cmd("git", "ls-remote", gitURL, ref).WithQuiet().Run(r)
@@ -86,8 +110,8 @@ func resolveVersionViaGit(r runner.CommandRunner, mod, ref string) (string, erro
 		return "", fmt.Errorf("git ls-remote failed: %w", err)
 	}
 	output, _ := io.ReadAll(proc.Stdout())
-	if proc.Wait() != nil {
-		return "", fmt.Errorf("git ls-remote failed: %w", err)
+	if waitErr := proc.Wait(); waitErr != nil {
+		return "", fmt.Errorf("git ls-remote failed: %w", waitErr)
 	}
 
 	fields := strings.Fields(string(output))
@@ -112,16 +136,16 @@ func resolveVersionViaGit(r runner.CommandRunner, mod, ref string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("git init failed: %w", err)
 	}
-	if proc.Wait() != nil {
-		return "", fmt.Errorf("git init failed: %w", err)
+	if waitErr := proc.Wait(); waitErr != nil {
+		return "", fmt.Errorf("git init failed: %w", waitErr)
 	}
 
 	proc, err = runner.Cmd("git", "-C", tmpDir, "fetch", "--depth=1", gitURL, fullHash).WithQuiet().Run(r)
 	if err != nil {
 		return "", fmt.Errorf("git fetch failed: %w", err)
 	}
-	if proc.Wait() != nil {
-		return "", fmt.Errorf("git fetch failed: %w", err)
+	if waitErr := proc.Wait(); waitErr != nil {
+		return "", fmt.Errorf("git fetch failed: %w", waitErr)
 	}
 
 	// Get commit timestamp in UTC (use Unix epoch and convert)
@@ -130,8 +154,8 @@ func resolveVersionViaGit(r runner.CommandRunner, mod, ref string) (string, erro
 		return "", fmt.Errorf("git log failed: %w", err)
 	}
 	tsOutput, _ := io.ReadAll(proc.Stdout())
-	if proc.Wait() != nil {
-		return "", fmt.Errorf("git log failed: %w", err)
+	if waitErr := proc.Wait(); waitErr != nil {
+		return "", fmt.Errorf("git log failed: %w", waitErr)
 	}
 
 	epochStr := strings.TrimSpace(string(tsOutput))
