@@ -15,7 +15,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Auto-fix / CI check** — locally (`CI` unset) it fixes linter violations and the migrations below in place; on CI (`CI` set) the very same checks run read-only and a tree that isn't already canonical is a hard build failure (listing the offending files and the local remedy), so CI can never pass green on something the local autofixer would have rewritten
 - **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` and ordering (`Greater`/`GreaterOrEqual`/`Less`/`LessOrEqual`) operands so cross-type numeric comparisons the fork's loose comparisons accepted keep compiling and passing against upstream (which is type-strict on both paths — its ordering assertions fail cross-kind operands with "Elements should be the same type") — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`, and `assert.Greater(t, v, 0)` with `v int16` becomes `assert.Greater(t, v, int16(0))`. The conversion is type-aware (only inserted when sound), idempotent, and adds any import the spelled type needs (an `os.FileMode` operand yields a `fs.FileMode(...)` cast — io/fs is the alias's origin — so `io/fs` is added when missing), and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
-- **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
+- **Dependency checking** — detects outdated dependencies and auto-updates same-org deps; a dependency can instead be pinned to follow a specific branch with a `// go-toolchain:branch=<name>` comment. See [docs/DEPS.md](docs/DEPS.md)
 - **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot. A failed submission fails the build with an actionable error (missing token, missing `contents: write` permission). There is no opt-out: submission is part of building in CI. Building outside your checkout is not a way to skip either -- it is a hard error naming the problem, for every repository except go-toolchain itself, whose smoke jobs must drive the pipeline inside a synthetic throwaway module
 - **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Injection is unconditional — there is no build-time off switch; opting out is a run-time decision, deferring to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is the per-deploy kill switch)
 - **Output stall watchdog** — the build's stdout/stderr are routed through an in-process watchdog that prints a loud `STALLED: no output for Ns` warning (with the current step name) whenever the pipeline goes silent for 5+ seconds. Disable it with `GO_TOOLCHAIN_NO_WATCHDOG=1` — the build then runs on its real stdio (useful when debugging output plumbing, since the watchdog works by dup2-redirecting fd 1/2 through pipes)
@@ -83,7 +83,7 @@ To opt out, pass `codeql: 'false'`.
 | `arch`              | string   | `amd64,arm64` | Comma-separated target architectures; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
 | `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; with `deployments: write` also registers a GitHub Deployment (warns and skips it otherwise) |
+| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; also registers a GitHub Deployment and posts an artifact storage record, so it additionally requires `deployments: write` + `artifact-metadata: write` and fails the build without either (see [autorelease permissions](#github-action-usage)) |
 | `autorelease_args`  | string   | `''`       | Extra publish options forwarded to the buildhost publish, as whitespace/comma-separated `key=value` pairs. Recognized: `create_service=true\|false` (the published binary runs as a background service; each download format materializes it — brew `service do` block, auto-enabled systemd user unit in generated debs). Unknown keys fail the build; empty forwards nothing |
 | `allow-source-build` | string  | `false`    | Allow building go-toolchain from source when the buildhost binary is unavailable; when `false`, the build fails fast instead of silently falling back |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
@@ -534,6 +534,8 @@ runs the module's command-line test suites written in
 - **Convention** — suites are non-hidden `*.dats` files under `dats/` at the
   module root. No `dats/` directory (or no suites in it) means the phase is a
   silent no-op: zero downloads, zero output.
+- **Indent with tabs** — dats' YAML parser rejects space indentation; spaces
+  only align after a tab. See `dats/README.md` for the shape.
 - **Repos with no `go.mod`** — a shell or TypeScript project whose CLI is worth
   testing this way still gets its suites run: in a directory with `dats/` but no
   module, `go-toolchain` prints `⇒ No go.mod; running dats suites only`, runs
@@ -593,38 +595,6 @@ The result is emitted four ways at the end of the run:
 
 Actiongraph collection and the report are skipped with `--no-profile`, and skip cleanly on paths that never reach `go build`/`go test`. Parsing is defensive: a missing or malformed dump is skipped (with a warning) and can never fail the build.
 
-### Automatic GOMEMLIMIT (cgroup-aware memory limit)
-
-By default, go-toolchain injects a small, stdlib-only startup guard
-(`gomemlimit_gen.go`) into every `main` package it builds. When the resulting
-binary starts, the guard reads the container's cgroup memory limit (cgroup v2 or
-v1) and calls `runtime/debug.SetMemoryLimit` with 90% of it. This keeps the Go
-garbage collector under the cgroup ceiling — as the heap approaches the limit
-the GC works harder, trading CPU for memory, instead of letting the process
-allocate until the kernel OOM-kills it.
-
-The guard is dependency-free (no `go.mod`/`go.sum` changes), carries the standard
-`// Code generated ... DO NOT EDIT.` marker (so it is excluded from coverage), and
-is a no-op when no cgroup limit is found, including on non-Linux systems. The
-guard is a transient build artifact: it is written just before the build and
-removed right after, so it never lingers in the working tree. Injection is
-idempotent and unconditional — there is no build-time flag or environment
-variable to turn it off. Opting out is a run-time decision instead, via the
-variables below.
-
-The following are read by the built program **when it starts**, not at build time:
-
-```bash
-# Opt a single deployment out without rebuilding — Go's own variable wins
-export GOMEMLIMIT=off
-
-# ...or pin an explicit limit (the guard then does nothing)
-export GOMEMLIMIT=2GiB
-
-# Tune the headroom ratio (default 0.9); "off" also disables the guard
-export GO_TOOLCHAIN_MEMLIMIT_RATIO=0.8
-```
-
 ## OpenTelemetry Trace Export
 
 go-toolchain can export build pipeline timings as OpenTelemetry traces, enabling visualization in Grafana Tempo or any OTLP-compatible backend.
@@ -656,7 +626,7 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 
 1. Deletes the build outputs of every target in `build/`, so nothing runnable survives a run that never reaches the build step below (see [Build output lifetime](#build-output-lifetime))
 2. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
-3. Checks for outdated dependencies (auto-updates same-org deps)
+3. Checks for outdated dependencies (auto-updates same-org deps) and repairs/re-resolves any dependency's pseudo-version, including branch-tracked ones (see [docs/DEPS.md](docs/DEPS.md))
 4. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts). The replaces are transient — removed before the run ends — and the CI dirty-tree check evaluates the tree as it will be restored, so the toolchain's own go.mod/go.sum mutation never fails CI while any real uncommitted change still does
 5. Runs `go mod tidy`
 6. Detects and runs `//go:generate` directives (if present)

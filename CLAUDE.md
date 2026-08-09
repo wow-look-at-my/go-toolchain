@@ -74,6 +74,9 @@ coverage.
   command must `cd "$(mktemp -d)"` first or it deletes the binaries the pipeline just built (this bit `dats/cli.dats`'s guard test — see
   dats/README.md)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
+- `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
+  deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same require line.
+  Depth: `docs/DEPS.md`
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see
@@ -86,8 +89,8 @@ coverage.
   update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
   so version tests assert only the stable `Version:`/`Commit:` lines). These guard tests assume a linux host, because this suite only runs when this
-  repo builds ITSELF (`build`/`host-build`, linux-only). The darwin classifier (`claudeguard_darwin.go`) has its own CI-enforced sibling suite instead:
-  smoke-macos (`.github/workflows/ci.yml`, which runs `actions/checkout` for exactly this) copies
+  repo builds ITSELF (`build`/`host-build`, linux-only). The darwin classifier (`claudeguard_darwin.go`) has its own CI-enforced sibling suite
+  instead: smoke-macos (`.github/workflows/ci.yml`, which runs `actions/checkout` for exactly this) copies
   `.github/dats-fixtures/smoke-macos-agent-output-guard.dats` into a throwaway module and runs it against
   the real published darwin/arm64 binary — since a suite exec'ing a native darwin binary can't live under
   this repo's own `dats/` (every suite there runs during this repo's own linux self-build too). Only windows stays a documented no-op.
@@ -240,8 +243,9 @@ coverage.
 - When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
 - **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
   wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
-  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`). Each entry appears exactly once — editing a bullet means updating it in place, never
-  appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an edit shows up as a reviewable diff. A literal
+  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`). Each entry appears exactly once — editing a bullet means
+  updating it in place, never appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an
+  edit shows up as a reviewable diff. A literal
   double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's
   Liquid engine (wrap it with raw/endraw tags) or `pages build and deployment` hard-fails parsing it as a template tag on unbalanced braces.
 
