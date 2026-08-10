@@ -172,6 +172,43 @@ func ensureDirectFallback(goproxy string) string {
 // proxyEnvVars are the Go environment variables that configureGoEnv manages.
 var proxyEnvVars = []string{"GOPROXY", "GOSUMDB", "GONOSUMDB", "GONOSUMCHECK"}
 
+// PublicSumDB is the checksum database this toolchain refuses to talk to.
+const PublicSumDB = "sum.golang.org"
+
+// usesPublicSumDB reports whether a GOSUMDB value would have Go contact the
+// public checksum database ITSELF.
+//
+// GOSUMDB is "<name>", "<name>+<key>", or "<name>+<key> <url>". Only the
+// last form redirects the lookups somewhere else, so a value naming
+// sum.golang.org WITH a proxy URL — the standard "<proxy>/sumdb/<name>"
+// mirror — is fine and stays allowed: the request goes to the org's proxy,
+// nothing is disclosed to a third party. What is refused is the bare name,
+// or a URL that points back at the public host anyway.
+func usesPublicSumDB(gosumdb string) bool {
+	fields := strings.Fields(gosumdb)
+	if len(fields) == 0 {
+		return false
+	}
+	name, _, _ := strings.Cut(fields[0], "+")
+	if name != PublicSumDB {
+		// A URL pointing at the public host counts even under another name.
+		return len(fields) > 1 && sumDBURLHost(fields[1]) == PublicSumDB
+	}
+	if len(fields) == 1 {
+		return true // bare name: Go contacts sum.golang.org directly
+	}
+	return sumDBURLHost(fields[1]) == PublicSumDB
+}
+
+// sumDBURLHost extracts the host from a GOSUMDB proxy URL, which may or may
+// not carry a scheme.
+func sumDBURLHost(raw string) string {
+	s := strings.TrimPrefix(strings.TrimPrefix(raw, "https://"), "http://")
+	host, _, _ := strings.Cut(s, "/")
+	host, _, _ = strings.Cut(host, ":")
+	return host
+}
+
 func configureGoEnv() {
 	proxyLog := logger.WithSubsystem("proxy")
 	defer func() {
@@ -207,6 +244,19 @@ func configureGoEnv() {
 	// GOSUMDB: use configured value (full "<key> <url>" form or short name),
 	// or disable sumdb phone-home.
 	if gosumdb != "" {
+		// The PUBLIC checksum database is never an option here. It cannot
+		// contain a private module, so it can only ever fail on one; and
+		// asking it about a module announces that module's path to a third
+		// party, which for a private path is the leak itself. Refused
+		// LOUDLY rather than silently ignored: a build that quietly did
+		// something other than the configured thing is how a setting gets
+		// believed for months.
+		if usesPublicSumDB(gosumdb) {
+			proxyLog.Error("GOSUMDB=%q names the public checksum database directly.", gosumdb)
+			proxyLog.Error("sum.golang.org can never hold a private module, and querying it discloses the module path.")
+			proxyLog.Error("Point GOSUMDB at the org proxy's /sumdb/ mirror, or leave it unset to disable sumdb entirely.")
+			os.Exit(1)
+		}
 		os.Setenv("GOSUMDB", gosumdb)
 		os.Unsetenv("GONOSUMDB")
 		os.Unsetenv("GONOSUMCHECK")
