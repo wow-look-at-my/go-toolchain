@@ -127,8 +127,8 @@ github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d h1:kN
 github.com/wow-look-at-my/go-containers v0.0.0-20260324103618-d5200d58948d/go.mod h1:AGGzFZheJSooQmBf0LdfoAGXr7jSGxsn7N1NrOdhmIs=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9 h1:par9Tv9kLcWCCy8Z0ciMaeyHfx8kbiLiB45n2fmjTqI=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9/go.mod h1:JM0y3LYD27uGHE34wamVHIaIvYx/vugAaqE20bsLvqs=
-github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804044114-9bec061bb451 h1:AnK6FEVwwCodoR6qxGb34Z3DFKVwbUr+lQSXmuh6N1w=
-github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804044114-9bec061bb451/go.mod h1:mNwJ1GNTJYpiYf0Q6+UKGVdceA+ioKKxjdWZkt0YjB0=
+github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804061705-e9f1ff93f151 h1:bu0Z/jtKHcUx8Jft3MiVK+MfirF/cr8hGMjInC0zjts=
+github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260804061705-e9f1ff93f151/go.mod h1:mNwJ1GNTJYpiYf0Q6+UKGVdceA+ioKKxjdWZkt0YjB0=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb h1:kLSElPimf1wjuunb+noAlkV/xzrE65BzqnQr3Xr31u4=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb/go.mod h1:xlD/Hz0iizP83KvPMWiQ8dbEvfjRGQ2A5qsK+GBq9do=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
