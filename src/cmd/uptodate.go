@@ -277,6 +277,16 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
+	// A dependency tracking a branch has an input the fingerprint cannot see:
+	// that branch's HEAD, which lives on a remote. Everything else this run
+	// consumes is a file, so hashing the tree is a complete answer for it --
+	// but a tracked require whose branch has moved is stale on a tree that has
+	// not changed at all, and the fast exit then skips the update whose whole
+	// job is to notice.
+	if trackedBranchDepsMoved(r) {
+		return false
+	}
+
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return false

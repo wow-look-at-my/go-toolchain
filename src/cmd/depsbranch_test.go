@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -220,4 +221,77 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 
 	_, err := UpdateTrackedBranchDeps(mock)
 	assert.Error(t, err)
+}
+
+// gitLsRemoteMock answers ls-remote with one commit and the plumbing the
+// pseudo-version derivation needs, so a test can say "the branch is HERE now".
+func gitLsRemoteMock(t *testing.T, fullHash string) *runner.Mock {
+	t.Helper()
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("git", "ls-remote") {
+			return runner.MockProcess([]byte(fullHash+"\trefs/heads/v1\n"), nil), nil
+		}
+		for _, arg := range cfg.Args {
+			if arg == "init" || arg == "fetch" {
+				return runner.MockProcess(nil, nil), nil
+			}
+			if arg == "log" {
+				return runner.MockProcess([]byte("1700000000\n"), nil), nil
+			}
+		}
+		return nil, nil
+	}
+	return mock
+}
+
+func writeTrackedGoMod(t *testing.T, version string) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	gomod := "module test\ngo 1.21\n\nrequire github.com/wow-look-at-my/foo " + version +
+		" // go-toolchain:branch=v1\n"
+	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
+}
+
+// The up-to-date fast exit hashes files, and a tracked branch's HEAD is not
+// one. Without this check a moved dependency was invisible: the tree was
+// unchanged, so the run exited before the updater that exists to notice.
+func TestTrackedBranchDepsMovedSeesAMovedBranchOnAnUnchangedTree(t *testing.T) {
+	writeTrackedGoMod(t, "v0.0.0-20200101000000-000000000000")
+	moved := gitLsRemoteMock(t, "abc123def456789012345678901234567890abcd")
+	assert.True(t, trackedBranchDepsMoved(moved))
+}
+
+func TestTrackedBranchDepsMovedIsFalseWhenTheBranchIsWhereGoModSaysItIs(t *testing.T) {
+	const hash = "abc123def456789012345678901234567890abcd"
+	writeTrackedGoMod(t, "v0.0.0-20231114221320-"+hash[:12])
+	assert.False(t, trackedBranchDepsMoved(gitLsRemoteMock(t, hash)))
+}
+
+// An unreachable remote must not read as "everything changed": that would turn
+// a network blip into a full rebuild, which is the opposite of what a cache
+// check is for. The real run reports the failure.
+func TestTrackedBranchDepsMovedIsFalseWhenItCannotTell(t *testing.T) {
+	writeTrackedGoMod(t, "v0.0.0-20200101000000-000000000000")
+	mock := runner.NewMock()
+	mock.Handler = func(runner.Config) (runner.IProcess, error) {
+		return runner.MockProcess(nil, errors.New("no network")), nil
+	}
+	assert.False(t, trackedBranchDepsMoved(mock))
+
+	t.Chdir(t.TempDir()) // no go.mod at all
+	assert.False(t, trackedBranchDepsMoved(mock))
+}
+
+// A repository with no tracked require must pay nothing for this check.
+func TestTrackedBranchDepsMovedMakesNoCallWithoutATrackedRequire(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile("go.mod",
+		[]byte("module test\ngo 1.21\n\nrequire github.com/wow-look-at-my/foo v1.2.3\n"), 0644))
+	mock := runner.NewMock()
+	mock.Handler = func(runner.Config) (runner.IProcess, error) {
+		t.Fatal("an untracked require must cost no ref resolution")
+		return nil, nil
+	}
+	assert.False(t, trackedBranchDepsMoved(mock))
 }

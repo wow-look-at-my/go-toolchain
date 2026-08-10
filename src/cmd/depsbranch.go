@@ -95,3 +95,40 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 
 	return true, nil
 }
+
+// trackedBranchDepsMoved reports whether any branch-tracking require now
+// resolves to a different commit than go.mod records. It is what lets the
+// up-to-date fast exit (uptodate.go) see the one input that is not a file.
+//
+// A repository with no tracked require pays nothing: the loop makes no call
+// at all. One that has them pays a ref resolution per tracked module, which
+// is the cost of the guarantee that opting into branch tracking bought.
+//
+// It answers FALSE when it cannot tell -- an unreadable or unparseable go.mod,
+// or a resolution that failed. Those are conditions for the real run to
+// report, and reporting them from inside a cache check would turn an
+// unreachable remote into a full rebuild rather than a network error.
+func trackedBranchDepsMoved(r runner.CommandRunner) bool {
+	data, err := os.ReadFile("go.mod")
+	if err != nil {
+		return false
+	}
+	f, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		return false
+	}
+	for _, req := range f.Require {
+		branch := trackedBranch(req)
+		if branch == "" || req.Indirect {
+			continue
+		}
+		version, err := resolveVersionViaGit(r, req.Mod.Path, "refs/heads/"+branch)
+		if err != nil {
+			continue
+		}
+		if version != req.Mod.Version {
+			return true
+		}
+	}
+	return false
+}
