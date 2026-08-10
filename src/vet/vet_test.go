@@ -33,6 +33,12 @@ func TestAssertNormAnalyzer(t *testing.T) {
 	analysistest.Run(t, dir, AssertNormAnalyzer, ".")
 }
 
+func TestDeadCodeAnalyzer(t *testing.T) {
+	testdata, err := filepath.Abs("testdata")
+	require.Nil(t, err)
+	analysistest.Run(t, testdata, DeadCodeAnalyzer, "deadcode")
+}
+
 func TestAnalyzers(t *testing.T) {
 	analyzers := Analyzers()
 	assert.NotEmpty(t, analyzers)
@@ -43,6 +49,7 @@ func TestAnalyzers(t *testing.T) {
 	}
 	assert.True(t, names["assertlint"])
 	assert.True(t, names["assertnorm"])
+	assert.True(t, names["deadcode"])
 	assert.True(t, names["redundantcast"])
 	assert.True(t, names["testifycast"])
 }
