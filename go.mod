@@ -27,6 +27,8 @@ require (
 	modernc.org/sqlite v1.50.0
 )
 
+require github.com/spf13/pflag v1.0.10
+
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -58,7 +60,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
