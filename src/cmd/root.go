@@ -112,6 +112,10 @@ func init() {
 	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
 
+	// The fingerprint covers the flags the run was invoked with; see
+	// flagFingerprint for why it cannot name rootCmd itself.
+	fingerprintFlags = rootCmd.Flags()
+
 	Register(rootCmd)
 }
 

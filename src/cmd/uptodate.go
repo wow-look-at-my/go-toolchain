@@ -48,6 +48,9 @@ func fingerprintEnv() []string {
 	return os.Environ()
 }
 
+// fingerprintFlags is the root command's flag set, wired up in root.go's init.
+var fingerprintFlags *pflag.FlagSet
+
 // volatileEnv names variables the shell rewrites on every command line, which
 // nothing in a build can read as configuration: `_` holds the previous
 // command's last argument, OLDPWD the previous directory, SHLVL the shell
@@ -60,9 +63,17 @@ var volatileEnv = map[string]bool{"_": true, "OLDPWD": true, "SHLVL": true}
 // file-length check fails on, --benchtime changes what the benchmarks measure.
 // Every flag is folded in rather than a hand-picked subset, so a flag added
 // later is covered without anyone remembering to add it here.
+//
+// The flag set arrives through fingerprintFlags, assigned in root.go's init,
+// rather than as a direct rootCmd reference: rootCmd's own initializer reaches
+// run -> saveFingerprint -> computeFingerprint, so naming rootCmd here closes
+// that into an initialization cycle.
 func flagFingerprint() string {
+	if fingerprintFlags == nil {
+		return ""
+	}
 	var lines []string
-	rootCmd.Flags().VisitAll(func(f *pflag.Flag) {
+	fingerprintFlags.VisitAll(func(f *pflag.Flag) {
 		lines = append(lines, f.Name+"="+f.Value.String())
 	})
 	sort.Strings(lines)
