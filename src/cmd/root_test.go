@@ -264,6 +264,78 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
+func TestIgnoreCoverage(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+	gotest.SetWatermark(".", 0)
+
+	err := runIgnoreCoverage(nil, nil)
+	assert.Nil(t, err)
+
+	wm, exists, _ := gotest.GetWatermark(".")
+	assert.True(t, exists)
+	assert.Equal(t, float32(0), wm)
+}
+
+func TestIgnoreCoverageAlreadyExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+	gotest.SetWatermark(".", 85.0)
+	err := runIgnoreCoverage(nil, nil)
+	assert.Nil(t, err)
+	// Verify watermark was NOT changed
+	wm, exists, _ := gotest.GetWatermark(".")
+	assert.True(t, exists)
+	assert.Equal(t, float32(85.0), wm)
+}
+
+func TestUnignoreCoverage(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+	gotest.SetWatermark(".", 90.0)
+	err := runUnignoreCoverage(nil, nil)
+	assert.Nil(t, err)
+	_, exists, _ := gotest.GetWatermark(".")
+	assert.False(t, exists)
+}
+
+func TestUnignoreCoverageNoWatermark(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+	err := runUnignoreCoverage(nil, nil)
+	assert.Nil(t, err)
+}
+
+func TestUnignoreConfirmationAbort(t *testing.T) {
+	oldStdin := os.Stdin
+	rIn, wIn, _ := os.Pipe()
+	wIn.WriteString("n\n")
+	wIn.Close()
+	os.Stdin = rIn
+	defer func() { os.Stdin = oldStdin }()
+	err := unignoreCmd.PersistentPreRunE(nil, nil)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "aborted")
+}
+
+func TestUnignoreConfirmationAccept(t *testing.T) {
+	oldStdin := os.Stdin
+	rIn, wIn, _ := os.Pipe()
+	wIn.WriteString("y\n")
+	wIn.Close()
+	os.Stdin = rIn
+	defer func() { os.Stdin = oldStdin }()
+	err := unignoreCmd.PersistentPreRunE(nil, nil)
+	assert.Nil(t, err)
+}
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -313,7 +385,6 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 		runWithRunner(mock, nil) //nolint
 	})
 }
-
 func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

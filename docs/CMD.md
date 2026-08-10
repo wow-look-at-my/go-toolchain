@@ -45,6 +45,42 @@ otherwise it cancels the in-flight request and moves on. The check never blocks
 the build and is silent on any error. It always runs — there is no opt-out;
 override the buildhost base URL (self-hosted) with `GO_TOOLCHAIN_BUILDHOST_URL`.
 
+## The up-to-date fingerprint
+
+`uptodate.go`: the root `PersistentPreRunE` exits 0 with "Up to date, nothing to
+do" when the stored fingerprint matches and every build output still exists. The
+fingerprint is a SHA-256 over the Go version, this binary's version, `outputDir`,
+the run's flags, the run's environment, and the content of every tracked file:
+`.go`, `go.mod`/`go.sum`, `.dats` suites and their `.golden` snapshots,
+`action.yml`, anything under a `testdata` directory, and every file `go list`
+reports for a `//go:embed` directive.
+
+Two of those inputs are not files, and both are there because leaving them out
+made the skip lie:
+
+- **The environment.** An env-gated test or benchmark switched on between two
+  runs is a pipeline the stored fingerprint never described; skipping it reported
+  a green run that never executed the thing that was turned on. Which variables a
+  project's tests read cannot be known from here, so the whole environment is
+  folded in except `volatileEnv` — `_`, `OLDPWD`, `SHLVL`, which the shell
+  rewrites on every command line and nothing can read as configuration. The
+  snapshot is taken by `captureRunEnv` at the top of `PersistentPreRunE`, ahead of
+  both `isUpToDate` and `saveFingerprint`: the pipeline sets variables of its own
+  as it goes (the cacheprog's socket paths carry the PID), so hashing
+  `os.Environ()` at save time would stamp a fingerprint no later run could match,
+  silently disabling the skip forever.
+- **The flags.** `--generate` executes go:generate directives, `--cgo` changes
+  what gets built, `--count-generated` changes what the file-length check fails
+  on. `flagFingerprint` folds in every root flag rather than a chosen subset, so a
+  flag added later is covered without anyone remembering to.
+
+There is deliberately no flag that bypasses the check. A skip that fires when
+something real changed is a bug in the fingerprint, and the fix is to track the
+input it missed — an override would only hide the next one.
+
+Still untracked: a file a test reads at run time that lives outside `testdata`
+and under no `//go:embed` directive.
+
 ## The agent output guard
 
 `claudeguard.go` (+ `claudeguard_proc.go` / `claudeguard_tty_*.go` /

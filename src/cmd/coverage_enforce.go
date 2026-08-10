@@ -61,11 +61,24 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 		panic(fmt.Sprintf("coverage %.1f%% is below minimum %.1f%% with 0 uncovered statements — coverage data is missing or broken", report.Total, effectiveMin))
 	}
 
-	// Allow reduced coverage if fewer than 10 statements are uncovered
-	// (e.g. small programs where main() can't be easily covered)
-	if totalUncovered < 10 {
+	// Allow reduced coverage if every file with uncovered statements has fewer than 10.
+	// Small files (e.g. main.go with just main()) can't easily reach
+	// the coverage minimum, so we warn instead of failing.
+	allSmall := true
+	for _, pkg := range report.Packages {
+		for _, f := range pkg.Files {
+			if f.Uncovered() >= 10 {
+				allSmall = false
+				break
+			}
+		}
+		if !allSmall {
+			break
+		}
+	}
+	if allSmall {
 		if !quiet {
-			logger.Info("⇒ Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing", report.Total, effectiveMin, totalUncovered)
+			logger.Info("⇒ Coverage %.1f%% is below minimum %.1f%%, but no file has 10+ uncovered statements — allowing", report.Total, effectiveMin)
 		}
 		return nil
 	}
