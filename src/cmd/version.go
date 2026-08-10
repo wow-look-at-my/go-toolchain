@@ -79,7 +79,6 @@ func resolvedTimestamp() (int64, bool) {
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 var githubAPIBase = "https://api.github.com"
 
-func setGithubRepo(repo string)    { githubRepo = repo }
 func setGithubAPIBase(base string) { githubAPIBase = base }
 
 func envOr(key, fallback string) string {
