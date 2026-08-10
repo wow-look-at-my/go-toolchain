@@ -24,6 +24,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 // Config is one set of build tags to run a phase under. A nil/empty Tags is the
@@ -77,7 +79,14 @@ var platformIdents = map[string]bool{
 // constraint idents. Sourced from `go tool dist list`; a value missing here is
 // treated as a user tag, which over-covers rather than under-covers.
 var knownOS = map[string]bool{
-	"aix": true, "android": true, "darwin": true, "dragonfly": true,
+	// cosmo is the gosmopolitan fork's GOOS, so `go tool dist list` does not
+	// name it. It is a build target all the same, and one this host cannot
+	// stand in for: a `-tags cosmo` load here still satisfies every _linux.go
+	// filename constraint, so each cosmo variant collides with its linux
+	// sibling ("socketPeerPID redeclared"). The GOOS=cosmo matrix job compiles
+	// these files with the fork's toolchain, which is where they are checkable.
+	"cosmo": true,
+	"aix":   true, "android": true, "darwin": true, "dragonfly": true,
 	"freebsd": true, "hurd": true, "illumos": true, "ios": true, "js": true,
 	"linux": true, "nacl": true, "netbsd": true, "openbsd": true, "plan9": true,
 	"solaris": true, "wasip1": true, "windows": true, "zos": true,
@@ -124,6 +133,15 @@ func Scan(dir string) (*Discovery, error) {
 		}
 		if d.IsDir() {
 			if path != dir && skipDir(d.Name()) {
+				return fs.SkipDir
+			}
+			// A nested module's packages are not import paths of this one, so
+			// a pattern naming one fails to load ("main module does not
+			// contain package ..."). Its tags are its own module's business:
+			// src/compat/go-isatty carries `appengine`, which showed up here
+			// as a configuration this module was then asked to vet itself
+			// under -- and could not.
+			if path != dir && gomod.IsNestedModule(path) {
 				return fs.SkipDir
 			}
 			return nil

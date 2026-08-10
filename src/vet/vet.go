@@ -215,12 +215,9 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	if arg := tagCfg.Arg(); arg != "" {
 		cfg.BuildFlags = []string{"-tags", arg}
 	}
-	var nParsed int
+	rec := &parseRecorder{files: analyzedFiles, root: moduleRoot()}
 	cfg.ParseFile = func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
-		nParsed++
-		if rel, err := filepath.Rel(moduleRoot(), filename); err == nil && !strings.HasPrefix(rel, "..") {
-			analyzedFiles[filepath.ToSlash(rel)] = true
-		}
+		rec.record(filename)
 		_, task := runtimetrace.NewTask(context.Background(), "parse/"+filepath.Base(filename))
 		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		task.End()
@@ -239,6 +236,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		nPkgs++
 		return true
 	}, nil)
+	nParsed := rec.count()
 	*nParsedTotal += nParsed
 	logger.Info("vet: loaded %d packages (%d files parsed) under tags %s in %v",
 		nPkgs, nParsed, tagCfg, loadDur.Round(time.Millisecond))
@@ -258,8 +256,18 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		return false, fmt.Errorf("analysis failed: %w", err)
 	}
 
+	deadCodeVariant := richestVariants(graph, DeadCodeAnalyzer.Name)
+
 	for action := range graph.All() {
 		if !action.IsRoot {
+			continue
+		}
+		// "unused within this package" has to mean the package WITH its tests:
+		// the plain variant holds no _test.go files, so a helper only a test
+		// calls looks dead there, and one genuinely dead gets reported by both
+		// variants. Only the richest variant of each path answers.
+		if action.Analyzer.Name == DeadCodeAnalyzer.Name &&
+			deadCodeVariant[action.Package.PkgPath] != action.Package.ID {
 			continue
 		}
 		for _, d := range action.Diagnostics {

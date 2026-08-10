@@ -28,6 +28,10 @@ func TestScanSeparatesUserTagsFromPlatform(t *testing.T) {
 	write(t, dir, "gated.go", "//go:build radvdiff")
 	write(t, dir, "win.go", "//go:build windows")
 	write(t, dir, "cgo.go", "//go:build cgo && go1.21")
+	// The gosmopolitan fork's GOOS. A `-tags cosmo` load on this host keeps
+	// every _linux.go file too, so each cosmo variant collides with its linux
+	// sibling; only the GOOS=cosmo build can check these.
+	write(t, dir, "ape.go", "//go:build cosmo")
 
 	d, err := Scan(dir)
 	require.NoError(t, err)
@@ -75,6 +79,7 @@ func TestUnknownIdentIsAUserTag(t *testing.T) {
 	assert.True(t, isPlatformIdent("linux"))
 	assert.True(t, isPlatformIdent("amd64"))
 	assert.True(t, isPlatformIdent("cgo"))
+	assert.True(t, isPlatformIdent("cosmo"))
 	assert.True(t, isPlatformIdent("go1.25"))
 }
 

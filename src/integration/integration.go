@@ -1,16 +1,18 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/wow-look-at-my/dats/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Run discovers and runs all .dats test files in the given directory.
 // Returns nil if no .dats files are found (graceful no-op).
-func Run(testsDir string) error {
+func Run(ctx context.Context, testsDir string) error {
 	files, err := filepath.Glob(filepath.Join(testsDir, "*.dats"))
 	if err != nil {
 		return fmt.Errorf("scanning for .dats files: %w", err)
@@ -20,7 +22,7 @@ func Run(testsDir string) error {
 		return nil
 	}
 
-	fmt.Printf("==> Running integration tests (%d file(s))\n", len(files))
+	logger.Info("==> Running integration tests (%d file(s))", len(files))
 
 	r := runner.NewRunner(os.Stdout, false, false, "")
 
@@ -28,7 +30,7 @@ func Run(testsDir string) error {
 	totalFailed := 0
 
 	for _, path := range files {
-		result, err := r.RunFile(path)
+		result, err := r.RunFile(ctx, path)
 		if err != nil {
 			return fmt.Errorf("running %s: %w", path, err)
 		}
@@ -37,11 +39,11 @@ func Run(testsDir string) error {
 	}
 
 	if len(files) > 1 {
-		fmt.Printf("\nIntegration total: %d/%d passed", totalPassed, totalPassed+totalFailed)
+		line := fmt.Sprintf("Integration total: %d/%d passed", totalPassed, totalPassed+totalFailed)
 		if totalFailed > 0 {
-			fmt.Printf(", %d failed", totalFailed)
+			line += fmt.Sprintf(", %d failed", totalFailed)
 		}
-		fmt.Println()
+		logger.Info("%s", line)
 	}
 
 	if totalFailed > 0 {
