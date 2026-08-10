@@ -123,26 +123,6 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 	assert.NotEqual(t, fp1, fp2, "a flag that changes what the run does must bust the fingerprint")
 }
 
-// --force decides whether the fingerprint is consulted, not what the run does:
-// folding it in would leave a forced run's fingerprint unmatchable by the
-// ordinary run after it, so the skip would never fire again.
-func TestForceFlagIsNotPartOfTheFingerprint(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-
-	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
-	os.WriteFile("main.go", []byte("package main\n"), 0644)
-
-	fp1, err := computeFingerprint(runner.NewMock())
-	require.NoError(t, err)
-
-	require.NoError(t, rootCmd.Flags().Set(forceFlag, "true"))
-	defer rootCmd.Flags().Set(forceFlag, "false")
-	fp2, err := computeFingerprint(runner.NewMock())
-	require.NoError(t, err)
-	assert.Equal(t, fp1, fp2)
-}
-
 // A testdata fixture is read at run time by the test that would now fail, and
 // no //go:embed covers it.
 func TestComputeFingerprintIncludesTestdata(t *testing.T) {

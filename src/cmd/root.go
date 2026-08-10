@@ -36,13 +36,7 @@ var (
 	lintMinNodes   int
 	cgoEnabled     bool
 	countGenerated bool
-	forceRun       bool
 )
-
-// forceFlag is the flag that bypasses the up-to-date fast-exit. It is named
-// here because the fingerprint has to leave it out of the flag hash — see
-// flagFingerprint.
-const forceFlag = "force"
 
 // skipCache reports whether cmd or any of its ancestors is a command tree
 // that should not enable GOCACHEPROG. Cobra passes the leaf command to
@@ -81,8 +75,8 @@ var rootCmd = &cobra.Command{
 		// instead of letting the coverage report and build/test failures print
 		// where it can read them.
 		guardAgainstAgentOutputCapture()
-		if cmd.Parent() == nil && !forceRun && isUpToDate(runner.New()) {
-			logger.Output("⇒ Up to date, nothing to do (--force runs it anyway)")
+		if cmd.Parent() == nil && isUpToDate(runner.New()) {
+			logger.Output("⇒ Up to date, nothing to do")
 			ReportUpdateCheck()
 			os.Exit(0)
 		}
@@ -103,7 +97,6 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&lintMinNodes, "min-nodes", lint.DefaultMinNodes, "Minimum AST node count for duplicate detection")
 	rootCmd.PersistentFlags().BoolVar(&cgoEnabled, "cgo", false, "Enable CGO (default: disabled for static binaries)")
 	rootCmd.PersistentFlags().BoolVar(&cacheMisses, "cache-misses", false, "Show packages that missed the build cache")
-	rootCmd.PersistentFlags().BoolVar(&forceRun, forceFlag, false, "Run the pipeline even when the fingerprint reports the tree unchanged")
 	rootCmd.PersistentFlags().BoolVar(&countGenerated, "count-generated", false, "Count generated files (Code generated ... DO NOT EDIT.) in the file length check instead of skipping them")
 	rootCmd.PersistentFlags().BoolVar(&noProfile, "no-profile", false, "Skip the per-action build profile (actiongraph collection, console section, and profile.json)")
 

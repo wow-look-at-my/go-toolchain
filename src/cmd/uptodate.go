@@ -60,16 +60,9 @@ var volatileEnv = map[string]bool{"_": true, "OLDPWD": true, "SHLVL": true}
 // file-length check fails on, --benchtime changes what the benchmarks measure.
 // Every flag is folded in rather than a hand-picked subset, so a flag added
 // later is covered without anyone remembering to add it here.
-//
-// forceFlag is the one exception: it decides whether the fingerprint is
-// consulted at all, so folding it in would leave a forced run's fingerprint
-// unmatchable by the ordinary run after it.
 func flagFingerprint() string {
 	var lines []string
 	rootCmd.Flags().VisitAll(func(f *pflag.Flag) {
-		if f.Name == forceFlag {
-			return
-		}
 		lines = append(lines, f.Name+"="+f.Value.String())
 	})
 	sort.Strings(lines)

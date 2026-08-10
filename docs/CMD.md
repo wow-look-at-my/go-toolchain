@@ -72,13 +72,11 @@ made the skip lie:
 - **The flags.** `--generate` executes go:generate directives, `--cgo` changes
   what gets built, `--count-generated` changes what the file-length check fails
   on. `flagFingerprint` folds in every root flag rather than a chosen subset, so a
-  flag added later is covered without anyone remembering to. `--force` is excluded
-  by name: it decides whether the fingerprint is consulted at all, so hashing it
-  would leave a forced run's fingerprint unmatchable by the ordinary run after it.
+  flag added later is covered without anyone remembering to.
 
-`--force` is the supported way to run anyway. Deleting `build/` also works,
-because the output-existence check fails — but that is a side effect, not the
-control, and it silently discards the previous run's binaries.
+There is deliberately no flag that bypasses the check. A skip that fires when
+something real changed is a bug in the fingerprint, and the fix is to track the
+input it missed — an override would only hide the next one.
 
 Still untracked: a file a test reads at run time that lives outside `testdata`
 and under no `//go:embed` directive.
