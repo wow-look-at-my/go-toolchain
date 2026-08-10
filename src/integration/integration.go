@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 
 // Run discovers and runs all .dats test files in the given directory.
 // Returns nil if no .dats files are found (graceful no-op).
-func Run(testsDir string) error {
+func Run(ctx context.Context, testsDir string) error {
 	files, err := filepath.Glob(filepath.Join(testsDir, "*.dats"))
 	if err != nil {
 		return fmt.Errorf("scanning for .dats files: %w", err)
@@ -28,7 +29,7 @@ func Run(testsDir string) error {
 	totalFailed := 0
 
 	for _, path := range files {
-		result, err := r.RunFile(path)
+		result, err := r.RunFile(ctx, path)
 		if err != nil {
 			return fmt.Errorf("running %s: %w", path, err)
 		}

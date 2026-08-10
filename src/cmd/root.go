@@ -335,7 +335,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		return err
 	}
 
-	if err := integration.Run("tests"); err != nil {
+	if err := integration.Run(cmd.Context(), "tests"); err != nil {
 		return err
 	}
 
