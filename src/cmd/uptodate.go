@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spf13/pflag"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -28,17 +29,83 @@ func fingerprintFile() string {
 	return filepath.Join(dir, hex.EncodeToString(h[:])+".sha256")
 }
 
-// computeFingerprint hashes all inputs that affect a go-toolchain run:
-// all .go files (including tests), go.mod, go.sum, .dats suites and their
-// .golden snapshots, Go version, CGO flag, and every file pulled in by a
-// //go:embed directive (resolved via go list).
+// runEnv is the process environment as it stood when the run started. The
+// pipeline sets variables of its own as it goes — the cacheprog's socket paths
+// carry the PID — so hashing os.Environ() at save time would stamp a
+// fingerprint no later run could ever match, silently disabling the skip.
+// captureRunEnv is called once, at the top of the root PersistentPreRunE,
+// ahead of both isUpToDate and saveFingerprint.
+var runEnv []string
+
+func captureRunEnv() { runEnv = os.Environ() }
+
+// fingerprintEnv returns the captured environment, falling back to the live one
+// for direct callers (tests) that never went through PersistentPreRunE.
+func fingerprintEnv() []string {
+	if runEnv != nil {
+		return runEnv
+	}
+	return os.Environ()
+}
+
+// fingerprintFlags is the root command's flag set, wired up in root.go's init.
+var fingerprintFlags *pflag.FlagSet
+
+// volatileEnv names variables the shell rewrites on every command line, which
+// nothing in a build can read as configuration: `_` holds the previous
+// command's last argument, OLDPWD the previous directory, SHLVL the shell
+// nesting depth. Without this every invocation would look different.
+var volatileEnv = map[string]bool{"_": true, "OLDPWD": true, "SHLVL": true}
+
+// flagFingerprint renders every root-command flag as name=value, sorted. A run
+// invoked differently is a different run: --generate executes go:generate
+// directives, --cgo changes what gets built, --count-generated changes what the
+// file-length check fails on, --benchtime changes what the benchmarks measure.
+// Every flag is folded in rather than a hand-picked subset, so a flag added
+// later is covered without anyone remembering to add it here.
+//
+// The flag set arrives through fingerprintFlags, assigned in root.go's init,
+// rather than as a direct rootCmd reference: rootCmd's own initializer reaches
+// run -> saveFingerprint -> computeFingerprint, so naming rootCmd here closes
+// that into an initialization cycle.
+func flagFingerprint() string {
+	if fingerprintFlags == nil {
+		return ""
+	}
+	var lines []string
+	fingerprintFlags.VisitAll(func(f *pflag.Flag) {
+		lines = append(lines, f.Name+"="+f.Value.String())
+	})
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
+}
+
+// computeFingerprint hashes all inputs that affect a go-toolchain run: all .go
+// files (including tests), go.mod, go.sum, .dats suites and their .golden
+// snapshots, everything under a testdata directory, Go version, the flags the
+// run was invoked with, the environment it was invoked in, and every file
+// pulled in by a //go:embed directive (resolved via go list).
 func computeFingerprint(r runner.CommandRunner) (string, error) {
 	h := sha256.New()
 
 	fmt.Fprintf(h, "go:%s\n", runtime.Version())
 	fmt.Fprintf(h, "toolchain:%s\n", buildVersion)
-	fmt.Fprintf(h, "cgo:%v\n", cgoEnabled)
 	fmt.Fprintf(h, "output:%s\n", outputDir)
+	fmt.Fprintf(h, "flags:%s\n", flagFingerprint())
+
+	// The environment decides what a run does as surely as the sources do: an
+	// env-gated test or benchmark you just switched on is a different pipeline,
+	// and skipping it reports a green run that never executed the thing you
+	// turned on. Which variables a project's tests read is unknowable from
+	// here, so everything is folded in except what the shell churns.
+	env := append([]string(nil), fingerprintEnv()...)
+	sort.Strings(env)
+	for _, kv := range env {
+		if name, _, ok := strings.Cut(kv, "="); ok && volatileEnv[name] {
+			continue
+		}
+		fmt.Fprintf(h, "env:%s\n", kv)
+	}
 
 	var files []string
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
@@ -64,9 +131,14 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 		// //go:embed from a package two directories down, so without this an
 		// action.yml edit fast-exits "Up to date" and its assertions never
 		// re-run locally -- a false green until CI catches it.
+		// Everything under a testdata directory is a test input by convention —
+		// the go command ignores those directories precisely so tests can read
+		// them at run time. No //go:embed covers them, so without this a
+		// changed golden or fixture leaves the run reporting "Up to date" and
+		// the test that would now fail never runs.
 		if strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".dats") ||
 			strings.HasSuffix(name, ".golden") || name == "go.mod" || name == "go.sum" ||
-			name == "action.yml" || name == "action.yaml" {
+			name == "action.yml" || name == "action.yaml" || underTestdata(path) {
 			files = append(files, path)
 		}
 		return nil
@@ -116,6 +188,16 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// underTestdata reports whether any directory component of path is "testdata".
+func underTestdata(path string) bool {
+	for dir := filepath.Dir(path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == "testdata" {
+			return true
+		}
+	}
+	return false
+}
+
 // embeddedFiles returns the absolute paths of every file referenced by a
 // //go:embed directive in the main module's packages, de-duplicated and sorted.
 //
@@ -129,9 +211,10 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 // cacheprog child that inherits stdout and stalls the io.ReadAll below (the
 // same precaution the benchmark runner takes).
 //
-// Note: only files covered by a //go:embed directive are tracked. A file a test
-// reads at runtime via os.ReadFile that no //go:embed covers is still not
-// tracked — that is a separate, broader gap.
+// Note: this covers only files a //go:embed directive names. A file a test
+// reads at run time is picked up by the walk above when it lives under a
+// testdata directory; one that lives anywhere else, under no embed directive,
+// is still untracked.
 func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	proc, err := runner.Cmd("go", "list", "-test", "-json", "./...").
 		WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
