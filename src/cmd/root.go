@@ -13,6 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/integration"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -331,6 +332,10 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 
 	br, builtArtifacts, err := runBuildPhase(r, quiet)
 	if err != nil {
+		return err
+	}
+
+	if err := integration.Run("tests"); err != nil {
 		return err
 	}
 
