@@ -75,6 +75,95 @@ func TestComputeFingerprintIncludesActionYML(t *testing.T) {
 	assert.NotEqual(t, fp1, fp2, "an action.yml edit must bust the fingerprint")
 }
 
+// The environment decides what a run does — an env-gated test switched on is a
+// pipeline the stored fingerprint never described — so the skip must not fire
+// across a changed variable.
+func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+
+	runEnv = []string{"PATH=/usr/bin", "RUN_INTEGRATION_TESTS="}
+	defer func() { runEnv = nil }()
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	runEnv = []string{"PATH=/usr/bin", "RUN_INTEGRATION_TESTS=1"}
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "enabling an env-gated test must force a run")
+
+	// Order is not a difference, and neither is a variable the shell rewrites
+	// on every command line.
+	runEnv = []string{"_=/usr/local/bin/go-toolchain", "RUN_INTEGRATION_TESTS=1", "SHLVL=3", "PATH=/usr/bin", "OLDPWD=/tmp"}
+	fp3, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.Equal(t, fp2, fp3, "shell-churned variables must not bust the fingerprint")
+}
+
+// --generate runs go:generate directives; a stored fingerprint from a plain run
+// does not describe that run, and skipping it reports success for generators
+// that never executed.
+func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	require.NoError(t, rootCmd.Flags().Set("generate", "deadbeef"))
+	defer rootCmd.Flags().Set("generate", "")
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "a flag that changes what the run does must bust the fingerprint")
+}
+
+// --force decides whether the fingerprint is consulted, not what the run does:
+// folding it in would leave a forced run's fingerprint unmatchable by the
+// ordinary run after it, so the skip would never fire again.
+func TestForceFlagIsNotPartOfTheFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	require.NoError(t, rootCmd.Flags().Set(forceFlag, "true"))
+	defer rootCmd.Flags().Set(forceFlag, "false")
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.Equal(t, fp1, fp2)
+}
+
+// A testdata fixture is read at run time by the test that would now fail, and
+// no //go:embed covers it.
+func TestComputeFingerprintIncludesTestdata(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+	require.NoError(t, os.MkdirAll(filepath.Join("pkg", "testdata"), 0o755))
+	fixture := filepath.Join("pkg", "testdata", "want.json")
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"n":1}`), 0o644))
+
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"n":2}`), 0o644))
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "a changed testdata fixture must force a run")
+}
+
 func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.Chdir(dir))

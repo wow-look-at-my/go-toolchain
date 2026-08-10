@@ -64,6 +64,9 @@ coverage.
   command must `cd "$(mktemp -d)"` first or it deletes the binaries the pipeline just built (this bit `dats/cli.dats`'s guard test — see
   dats/README.md)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
+- `src/cmd/uptodate.go` — the "Up to date, nothing to do" fingerprint. It covers the run's FLAGS and ENVIRONMENT as well as its files, because an
+  env-gated test or a `--generate` run that the skip swallowed reported green for work that never executed. `--force` runs the pipeline anyway;
+  deleting `build/` is a side effect, not the control. Depth: `docs/CMD.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
   deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same require line.
   Depth: `docs/DEPS.md`
