@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/wow-look-at-my/dats/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Run discovers and runs all .dats test files in the given directory.
@@ -21,7 +22,7 @@ func Run(ctx context.Context, testsDir string) error {
 		return nil
 	}
 
-	fmt.Printf("==> Running integration tests (%d file(s))\n", len(files))
+	logger.Info("==> Running integration tests (%d file(s))", len(files))
 
 	r := runner.NewRunner(os.Stdout, false, false, "")
 
@@ -38,11 +39,11 @@ func Run(ctx context.Context, testsDir string) error {
 	}
 
 	if len(files) > 1 {
-		fmt.Printf("\nIntegration total: %d/%d passed", totalPassed, totalPassed+totalFailed)
+		line := fmt.Sprintf("Integration total: %d/%d passed", totalPassed, totalPassed+totalFailed)
 		if totalFailed > 0 {
-			fmt.Printf(", %d failed", totalFailed)
+			line += fmt.Sprintf(", %d failed", totalFailed)
 		}
-		fmt.Println()
+		logger.Info("%s", line)
 	}
 
 	if totalFailed > 0 {
