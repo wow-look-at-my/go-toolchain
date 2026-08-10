@@ -372,3 +372,31 @@ func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 		require.Truef(t, isUpToDate(r), "after re-baseline, a no-op run on %s must report up to date", embed)
 	}
 }
+
+// The whole point of the tracked-branch check: the tree is BYTE-IDENTICAL to
+// the one that was fingerprinted, and the run must still not be skipped,
+// because the dependency's branch moved somewhere the fingerprint cannot see.
+// Without it a stale pin survives every subsequent run -- the tree never
+// changes, so the updater never gets to run.
+func TestIsUpToDateIsFalseWhenATrackedBranchMovedOnAnUnchangedTree(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	const pinned = "v0.0.0-20200101000000-000000000000"
+	gomod := "module example.com\n\ngo 1.21\n\nrequire github.com/wow-look-at-my/foo " +
+		pinned + " // go-toolchain:branch=v1\n"
+	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
+	require.NoError(t, os.MkdirAll("src", 0755))
+	require.NoError(t, os.WriteFile("src/main.go", []byte("package main\nfunc main() {}\n"), 0644))
+	require.NoError(t, os.MkdirAll("build", 0755))
+	require.NoError(t, os.WriteFile("build/example.com", []byte("binary"), 0755))
+
+	// A remote that reports the branch exactly where go.mod pins it: nothing
+	// has moved, so the fast exit is correct here.
+	still := gitLsRemoteMock(t, "0000000000000000000000000000000000000000")
+	saveFingerprint(still)
+	require.True(t, isUpToDate(still), "an unmoved branch must not defeat the fast exit")
+
+	// Same files, same fingerprint -- only the remote differs.
+	moved := gitLsRemoteMock(t, "abc123def456789012345678901234567890abcd")
+	assert.False(t, isUpToDate(moved))
+}
