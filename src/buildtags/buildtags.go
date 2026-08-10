@@ -24,6 +24,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 // Config is one set of build tags to run a phase under. A nil/empty Tags is the
@@ -124,6 +126,15 @@ func Scan(dir string) (*Discovery, error) {
 		}
 		if d.IsDir() {
 			if path != dir && skipDir(d.Name()) {
+				return fs.SkipDir
+			}
+			// A nested module's packages are not import paths of this one, so
+			// a pattern naming one fails to load ("main module does not
+			// contain package ..."). Its tags are its own module's business:
+			// src/compat/go-isatty carries `appengine`, which showed up here
+			// as a configuration this module was then asked to vet itself
+			// under -- and could not.
+			if path != dir && gomod.IsNestedModule(path) {
 				return fs.SkipDir
 			}
 			return nil
