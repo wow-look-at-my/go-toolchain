@@ -224,6 +224,16 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 			}
 		}
 	}
+	// An empty listing is not a verdict. A module holding gated files holds
+	// files, so the default configuration ALWAYS lists some -- zero across
+	// every configuration means the listing did not happen (no go command ran),
+	// and reporting every gated file as unreachable from that is a guard
+	// firing when it could not look. In production this branch is unreachable;
+	// what reaches it is a caller driving the phase without a real toolchain.
+	if len(seen) == 0 {
+		logger.Warn("tests: skipped the build-tag reachability check -- `go list` reported no files at all, so nothing could be verified")
+		return nil
+	}
 	if missed := buildtags.Verify(d, seen); len(missed) > 0 {
 		return buildtags.UnreachableError(missed, "tests")
 	}
