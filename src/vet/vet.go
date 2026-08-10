@@ -225,6 +225,29 @@ func (r *parseRecorder) count() int {
 	return r.n
 }
 
+// richestVariants maps each package path to the id of the loaded variant with
+// the most files, among the root actions of the named analyzer.
+//
+// packages.Config.Tests loads a package up to four ways: plain, the same code
+// recompiled with its internal _test.go files, the external _test package, and
+// the generated test main. They share a path and differ in what they can see,
+// so an analyzer whose question is about the whole package must be answered by
+// the variant that holds all of it.
+func richestVariants(graph *checker.Graph, analyzer string) map[string]string {
+	best := map[string]string{}
+	size := map[string]int{}
+	for action := range graph.All() {
+		if !action.IsRoot || action.Analyzer.Name != analyzer {
+			continue
+		}
+		p := action.Package
+		if n := len(p.Syntax); best[p.PkgPath] == "" || n > size[p.PkgPath] {
+			best[p.PkgPath], size[p.PkgPath] = p.ID, n
+		}
+	}
+	return best
+}
+
 // vetOneConfig loads and analyzes the module under a single build-tag
 // configuration, appending diagnostics and recording every file it actually
 // parsed into analyzedFiles (module-relative, slash separated) so Verify can
@@ -286,8 +309,18 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		return false, fmt.Errorf("analysis failed: %w", err)
 	}
 
+	deadCodeVariant := richestVariants(graph, DeadCodeAnalyzer.Name)
+
 	for action := range graph.All() {
 		if !action.IsRoot {
+			continue
+		}
+		// "unused within this package" has to mean the package WITH its tests:
+		// the plain variant holds no _test.go files, so a helper only a test
+		// calls looks dead there, and one genuinely dead gets reported by both
+		// variants. Only the richest variant of each path answers.
+		if action.Analyzer.Name == DeadCodeAnalyzer.Name &&
+			deadCodeVariant[action.Package.PkgPath] != action.Package.ID {
 			continue
 		}
 		for _, d := range action.Diagnostics {
