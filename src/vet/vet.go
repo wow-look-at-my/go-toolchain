@@ -195,6 +195,36 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	return finishSemantic(pattern, ed, progress, filesChanged, diagnostics)
 }
 
+// parseRecorder records every file a load actually parsed, module-relative and
+// slash separated, so Verify can prove no tagged file went unseen.
+//
+// It is locked because x/tools calls packages.Config.ParseFile from an
+// errgroup: one goroutine per file. Writing the map and the counter bare killed
+// the run with "fatal error: concurrent map writes", and the output watchdog's
+// pipes swallowed the panic, so CI showed a bare `exit status 2` with nothing
+// above it.
+type parseRecorder struct {
+	mu    sync.Mutex
+	files map[string]bool
+	root  string
+	n     int
+}
+
+func (r *parseRecorder) record(filename string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.n++
+	if rel, err := filepath.Rel(r.root, filename); err == nil && !strings.HasPrefix(rel, "..") {
+		r.files[filepath.ToSlash(rel)] = true
+	}
+}
+
+func (r *parseRecorder) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.n
+}
+
 // vetOneConfig loads and analyzes the module under a single build-tag
 // configuration, appending diagnostics and recording every file it actually
 // parsed into analyzedFiles (module-relative, slash separated) so Verify can
@@ -215,12 +245,9 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	if arg := tagCfg.Arg(); arg != "" {
 		cfg.BuildFlags = []string{"-tags", arg}
 	}
-	var nParsed int
+	rec := &parseRecorder{files: analyzedFiles, root: moduleRoot()}
 	cfg.ParseFile = func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
-		nParsed++
-		if rel, err := filepath.Rel(moduleRoot(), filename); err == nil && !strings.HasPrefix(rel, "..") {
-			analyzedFiles[filepath.ToSlash(rel)] = true
-		}
+		rec.record(filename)
 		_, task := runtimetrace.NewTask(context.Background(), "parse/"+filepath.Base(filename))
 		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		task.End()
@@ -239,6 +266,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		nPkgs++
 		return true
 	}, nil)
+	nParsed := rec.count()
 	*nParsedTotal += nParsed
 	logger.Info("vet: loaded %d packages (%d files parsed) under tags %s in %v",
 		nPkgs, nParsed, tagCfg, loadDur.Round(time.Millisecond))
