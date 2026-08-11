@@ -52,12 +52,12 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 		if kind == "" {
 			continue
 		}
-		defined[obj] = defInfo{pos: ident, name: ident.Name, kind: kind}
+		defined[canonicalize(obj)] = defInfo{pos: ident, name: ident.Name, kind: kind}
 	}
 
 	// Step 2: Remove everything that is referenced.
 	for _, obj := range pass.TypesInfo.Uses {
-		delete(defined, obj)
+		delete(defined, canonicalize(obj))
 	}
 
 	// Step 3: Remove methods that implement interfaces.
@@ -80,6 +80,20 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 	}
 
 	return []*ASTFixes(nil), nil
+}
+
+// canonicalize returns the identity an object should be tracked and matched
+// under. A generic type's own method calling a sibling method on the same
+// receiver (e.g. minNode called from Min) resolves through go/types as an
+// instantiated *types.Func distinct from the one recorded at the method's
+// declaration; Origin() maps it back to that declaration. Without this, the
+// Uses-side object for such a call never equals the Defs-side object, and
+// every private helper a generic type's own methods call looks dead.
+func canonicalize(obj types.Object) types.Object {
+	if fn, ok := obj.(*types.Func); ok {
+		return fn.Origin()
+	}
+	return obj
 }
 
 // shouldSkipDef returns true for definitions that should never be flagged.
