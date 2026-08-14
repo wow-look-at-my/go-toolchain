@@ -156,28 +156,40 @@ the seam ready (`hostSignalFunc`); wiring it is a one-line change. Both smoke
 jobs assert `version host` inside dats' sandbox and outside precisely so this
 stays visible until then.
 
-Closing the gap needs three things, and one of them is not in this repo:
+Closing the gap took three things. One is DONE; the ordering of the other two
+is the point, and it was got wrong once:
 
-1. **`wow-look-at-my/is-this-an-agent` (BLOCKER).** Its `proc.go` is
-   `linux || cosmo` and its sysctl-backed `proc_darwin.go` is `darwin`, so a
-   cosmo APE on a mac has no process lookup at all. Without it `agent.CommPPID`
-   cannot answer, and the SOCKET case — a coding agent's real stdio plumbing —
-   cannot tell "the agent is reading me" (allow) from "something else is
-   capturing" (refuse). Guessing either way is unacceptable: one leaves the
-   guard off, the other refuses every legitimate agent run on a mac. The fix is
-   a host-OS dispatch onto the sysctl path that repo already has.
-2. **Here.** `inspectFD` dispatches on `hostos.GOOS()` and runs the darwin
-   algorithm on a mac, SHARING `claudeguard_darwin.go`'s logic rather than
-   copying it. The cosmo build must supply four primitives `x/sys/unix` gives
-   only on `GOOS=darwin`: fstat mode bits, `getsockopt(SOL_LOCAL,
-   LOCAL_PEERPID)`, a TIOCGETA terminal test, and `fcntl(F_GETPATH)`.
-3. **`wow-look-at-my/gosmopolitan`.** Whether those four survive the fork's
-   darwin syscall dispatcher is unverified. Two specific risks: `SOL_LOCAL` is
-   level 0, which is `IPPROTO_IP` on Linux and may be mangled by a translating
-   dispatcher; and `F_GETPATH` is a VARIADIC fcntl, which that fork documents
-   (2026-07-26) must pass variadic arguments on the stack on arm64-apple or it
-   reads uninitialized memory — the same defect that silently broke FD_CLOEXEC
-   there.
+1. ~~**`wow-look-at-my/is-this-an-agent`.**~~ **MERGED.** Its `proc.go` was
+   `linux || cosmo` and its sysctl-backed `proc_darwin.go` was `darwin`, so a
+   cosmo APE on a mac had no process lookup; `agent.CommPPID` could not answer,
+   and the SOCKET case could not tell "the agent is reading me" (allow) from
+   "something else is capturing" (refuse). It now dispatches on the host and
+   shells out to `ps -o ppid=,ucomm=` there, the sysctl path being uncompilable
+   under cosmo.
+
+   **It moved none of the five failing tests, and could not have.** `inspectFD`
+   fails at its FIRST statement on a darwin host — the `/proc/self/fd` readlink
+   — and returns before `agent.CommPPID` is called at all; that call lives
+   inside the socket branch, downstream of the readlink. Necessary, not
+   sufficient. The tell in CI is that "an inoperative guard announces itself"
+   still passes: that banner only fires from the blind path.
+2. **`wow-look-at-my/gosmopolitan` — the real gate, and it comes FIRST.**
+   `F_GETPATH` and `SO_PEERCRED` for a cosmo binary on a darwin host, measured
+   on Apple hardware rather than read off an allowlist. Until that is on master,
+   item 3 cannot be written against anything runnable.
+3. **Here, and only after 2.** `inspectFD` dispatches on `hostos.GOOS()` and
+   runs the darwin algorithm on a mac, SHARING `claudeguard_darwin.go`'s logic
+   rather than copying it. Write it as ORDINARY Linux-shaped syscall code —
+   plain `syscall.Syscall(SYS_FCNTL, …)` and `getsockopt(SOL_SOCKET,
+   SO_PEERCRED)`. The fork's dispatcher translates and already applies the
+   arm64-apple variadic stack-passing fix internally, so there is no
+   hand-rolled ABI work here and no `SOL_LOCAL`/`LOCAL_PEERPID` spelling: level
+   0 is `IPPROTO_IP` on Linux and a blanket pass-through would silently turn an
+   `IP_TTL` query into a peer-pid one.
+
+Do not attempt item 3 against unmerged primitives. The choice there is a
+temporary ref pin (forbidden) or code that cannot be run, and a guessed
+syscall layer aimed at the owner's own machine is the worst place to find out.
 
 `smoke-macos` is the gate that found this and is the gate that will prove the
 fix: it runs the full pipeline under the real published APE on macos-latest.

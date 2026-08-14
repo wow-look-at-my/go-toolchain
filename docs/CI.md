@@ -71,37 +71,40 @@ Note which guard implementation the mac fixture now exercises. The APE reports
 NOT `claudeguard_darwin.go`. That file still builds for a native `go build` on a
 mac, but it no longer ships in any published artifact.
 
-### smoke-macos has two KNOWN reds, both blocked upstream
+### smoke-macos: 5 of 10, and what the failing five are waiting on
 
-Neither is worked around, and neither is a reason to weaken the job.
+The job is 5/10 (run 31827754447). Not worked around, and not a reason to
+weaken it — the gate was deliberately strengthened to run the full pipeline
+under the real published APE, which is what surfaced all of this.
 
-1. **The agent output guard does not fire under the APE on a Mac.** Blocked on
-   `wow-look-at-my/is-this-an-agent`, whose process lookup is `linux || cosmo`
-   for /proc and `darwin` for sysctl, so a cosmo APE on a Mac has neither. See
-   `docs/AGENT-OUTPUT-GUARD.md`.
-2. **`version host` reports linux on a Mac inside dats' sandbox.** Blocked on
-   gosmopolitan's `runtime.CosmoHostOS()`. `syscall.Uname` is ENOSYS there (no
-   SYS_UNAME case in the darwin dispatcher) and the filesystem probes are
-   denied, so detection falls to its `"linux"` default.
+**The five reds are the agent output guard.** `inspectFD` classifies stdout
+through `/proc/self/fd`, which a darwin host does not have, so it returns at
+its first statement and the guard never refuses. Closing that needs
+gosmopolitan's `F_GETPATH`/`SO_PEERCRED` on master, and then the darwin branch
+of `inspectFD` written here — in that order. `docs/AGENT-OUTPUT-GUARD.md` has
+the chain and why the ordering is not negotiable.
 
-Update, both settled by measurement on macos-latest (run 31825255540):
+Merging `is-this-an-agent`'s host dispatch moved NONE of the five, and could
+not have: `agent.CommPPID` is called inside the socket branch, downstream of
+the readlink that already failed. It was a real prerequisite for the socket
+cases, just not a sufficient one for any of them.
 
-- (2) is NOT happening. `version host` reports `host: darwin (via coreservices)`
-  outside the sandbox AND passes the same assertion inside dats' seatbelt, so
-  detection is a measurement there. seatbelt restricts writes, not reads of
-  system paths. `runtime.CosmoHostOS()` remains the improvement — it removes the
-  last filesystem dependency — but it blocks nothing, and `hostSignalFunc` is
-  the one-line seam for it. The assertions stay as regression cover: a stricter
-  sandbox or a changed runner image fails CI instead of silently answering
-  "linux" on a Mac.
-- The INOPERATIVE banner DOES fire ("an inoperative guard announces itself on a
-  macOS host" passes). Its earlier absence from the log was dats reporting a
-  failing test's unmet expectation rather than its actual stderr — not a third,
-  silent state.
+**The five greens are load-bearing, not incidental:**
 
-So smoke-macos has ONE known red, (1), and it is 5 of its 10 tests. Those five
-are the end-to-end proof for `is-this-an-agent`'s host dispatch plus the fork's
-SO_PEERCRED/F_GETPATH support, on real Apple hardware.
+- `version host` answers `host: darwin (via coreservices)` inside dats'
+  seatbelt sandbox and outside it, by measurement rather than by the `"linux"`
+  fallback — seatbelt restricts writes, not reads of system paths. So host
+  detection blocks nothing; `runtime.CosmoHostOS()` is an improvement that
+  removes the last filesystem dependency, with `hostSignalFunc` as its
+  one-line seam. Both assertions stay as regression cover, so a stricter
+  sandbox profile or a changed runner image fails CI instead of silently
+  answering "linux" on a Mac.
+- The INOPERATIVE banner fires. It is the only signal a human on that host
+  gets while the guard is blind, and dats reports a failing test's unmet
+  expectation rather than its actual stderr — so without a positive assertion
+  it could regress leaving no trace in any log.
+- `--help` and the two `version` exemptions prove the APE loads and dispatches
+  on macOS at all.
 
 **Windows** — `version` and `--help` only: gobootstrap downloads
 `go<version>.<os>-<arch>.tar.gz`, and go.dev serves no windows variant (windows
