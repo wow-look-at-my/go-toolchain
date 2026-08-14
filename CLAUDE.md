@@ -69,9 +69,11 @@ coverage.
   dats/README.md)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
-  deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same require line.
-  A tracked branch's HEAD is the one pipeline input that is not a file, so the up-to-date fast exit checks it too --
-  otherwise a dependency that moved is invisible on an unchanged tree and the pin never updates. Depth: `docs/DEPS.md`
+  deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same dependency.
+  The marker rides a require OR a replace line -- a fork keeps upstream's module path, so it is reached through a replace,
+  and the replacement's repo and version are what get resolved. A tracked branch's HEAD is the one pipeline input that is
+  not a file, so the up-to-date fast exit checks it too -- otherwise a dependency that moved is invisible on an unchanged
+  tree and the pin never updates. Depth: `docs/DEPS.md`
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see

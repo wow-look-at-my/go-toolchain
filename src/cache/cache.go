@@ -118,6 +118,14 @@ type Server struct {
 	Latency      LatencyStats
 	statsConn    net.Conn // persistent connection to parent's stats socket
 	statsMu      sync.Mutex
+
+	// IndexPutsRefused counts module-index PUTs answered from the sink instead
+	// of the store (see isGoModuleIndex). Large on any run; not a poison signal.
+	IndexPutsRefused AtomicCounter
+	// sinkDir holds the refused index bodies the DiskPath replies point at. It
+	// is created on the first refusal and removed when Run returns.
+	sinkMu  sync.Mutex
+	sinkDir string
 }
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
@@ -206,10 +214,6 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			// mis-keyed one seeded as a local hit breaks package loading
 			// ("package runtime is not in std" / "corrupt index"). cmd/go
 			// recomputes the index locally, so skipping the prefetch is free.
-			// This filter is LOAD-BEARING: the local tier serves module indexes
-			// on the trust that they are locally-originated (see verify.go), so
-			// no web-originated body may carry one into the local store — here,
-			// or on the individual/batch GET paths (web.go / batch.go).
 			if isGoModuleIndex(decompressed) {
 				continue
 			}
@@ -364,6 +368,7 @@ loop:
 			}
 			s.flushLatency()
 			s.closeStats()
+			s.removeIndexSink()
 			return nil
 
 		case CmdPut:
@@ -412,6 +417,7 @@ loop:
 	}
 	s.flushLatency()
 	s.closeStats()
+	s.removeIndexSink()
 	return readErr
 }
 

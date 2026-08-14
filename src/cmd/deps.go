@@ -300,12 +300,26 @@ func listDirectDeps() ([]depInfo, error) {
 		return nil, err
 	}
 
+	// A require replaced by a branch-tracked replacement is branch-tracked
+	// too: the version that ends up in the build is the replacement's, and
+	// UpdateTrackedBranchDeps owns it.
+	replacedBranch := map[string]string{}
+	for _, rep := range f.Replace {
+		if branch := trackedBranch(rep.Syntax); branch != "" {
+			replacedBranch[rep.Old.Path] = branch
+		}
+	}
+
 	var deps []depInfo
 	for _, req := range f.Require {
 		if req.Indirect {
 			continue
 		}
-		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version, Branch: trackedBranch(req)})
+		branch := trackedBranch(req.Syntax)
+		if branch == "" {
+			branch = replacedBranch[req.Mod.Path]
+		}
+		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version, Branch: branch})
 	}
 	return deps, nil
 }
