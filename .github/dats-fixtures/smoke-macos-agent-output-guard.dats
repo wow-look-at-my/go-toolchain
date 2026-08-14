@@ -42,14 +42,17 @@ tests:
 		"!stdout":
 			- "GUESSED"
 
-	# The banner is the ONLY thing that surfaces the inoperative guard to a
-	# human on this host, so it gets a positive assertion rather than being
-	# inferred from its absence elsewhere: dats reports a failing test's unmet
-	# EXPECTATION, never its actual stderr, so a banner that stopped firing
-	# would leave no trace in any log. This is the same run shape as the
-	# refusal tests below -- which fail on this host today -- but it asserts
-	# only what IS true here.
-	- desc: an inoperative guard announces itself on a macOS host
+	# The guard must CLASSIFY here, not fall back to announcing that it cannot
+	# see. Both halves matter and they fail independently of each other: losing
+	# the refusal means the guard stopped working, and gaining the INOPERATIVE
+	# banner means it went blind and said so. A blind guard ALLOWS, so a
+	# regression in the darwin classifier shows up as both at once.
+	#
+	# Stated as the inverse on purpose. This descriptor is a captured stdout,
+	# which fstat alone classifies, so it stays decidable no matter what the
+	# fork gains later -- unlike an assertion that the banner DOES fire, which
+	# would describe a state that disappears the moment the socket probes land.
+	- desc: the guard classifies on a macOS host rather than going blind
 	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; env OPENCODE=1 {outputs.gt}; rc=$?; exit $rc'
 	  exit: 1
 	  timeout: 60s
@@ -58,8 +61,9 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stderr:
+			- "refused to run"
+		"!stderr":
 			- "INOPERATIVE"
-			- "darwin"
 
 	- desc: agent output guard refuses a captured pipeline run under {matrix.marker} (APE on a macOS host)
 	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; env {matrix.marker}=1 {outputs.gt}; rc=$?; exit $rc'
