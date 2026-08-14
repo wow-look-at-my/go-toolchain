@@ -230,7 +230,7 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 		if isWasmGOOS(goos) {
 			return nil, fmt.Errorf("GOOS %q is the wasm FLAVOR in buildhost's model, not the os; use --os wasm --arch %s (or --targets %s/%s)", goos, goos, wasmArch, goos)
 		}
-		for _, goarch := range matrixArch {
+		for _, goarch := range arches {
 			switch {
 			case goos == wasmArch && isWasmGOOS(goarch):
 				// os=wasm, arch=js|wasip1: normalize to the internal
