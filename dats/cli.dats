@@ -154,6 +154,36 @@ tests:
 		stdout:
 			- "Usage:"
 
+	# From a throwaway directory, not the module root: in the module root the
+	# binary bootstraps the Go version go.mod demands, and a bootstrap that has
+	# to download prints progress to stderr -- straight into the snapshot.
+	- desc: unknown flag is rejected
+	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  exit: 1
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stderr:
+			- "unknown flag"
+		# Golden-file assertion: the full stderr must byte-match the committed
+		# snapshot (regenerate with `dats --update test dats` after intentional
+		# CLI changes).
+		snapshot:
+			stderr: true
+
+	- desc: unknown subcommand is rejected
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" definitely-not-a-subcommand'
+	  exit: 1
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stderr:
+			- "unknown command"
+
 	# Host detection, from inside the sandbox. hostos.Detect()'s filesystem
 	# probes are reads of absolute paths and its fallback is "linux", so a
 	# sandbox that denies them yields the right answer here for the WRONG
@@ -192,35 +222,6 @@ tests:
 			- "(default [linux,darwin,windows])"
 			- "(default [amd64,arm64])"
 
-	# From a throwaway directory, not the module root: in the module root the
-	# binary bootstraps the Go version go.mod demands, and a bootstrap that has
-	# to download prints progress to stderr -- straight into the snapshot.
-	- desc: unknown flag is rejected
-	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
-	  exit: 1
-	  timeout: 60s
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stderr:
-			- "unknown flag"
-		# Golden-file assertion: the full stderr must byte-match the committed
-		# snapshot (regenerate with `dats --update test dats` after intentional
-		# CLI changes).
-		snapshot:
-			stderr: true
-
-	- desc: unknown subcommand is rejected
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" definitely-not-a-subcommand'
-	  exit: 1
-	  timeout: 60s
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stderr:
-			- "unknown command"
 
 	# The guard covers every agent on the roster, each detected by its own
 	# environment marker: grok build (GROK_AGENT) and opencode (OPENCODE). Both

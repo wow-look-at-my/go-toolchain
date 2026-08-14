@@ -1,7 +1,10 @@
 package hostos
 
 import (
+	"bytes"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,6 +25,28 @@ func TestDetectReportsItsEvidence(t *testing.T) {
 		return
 	}
 	assert.Contains(t, []string{"uname", "coreservices", "procfs", "default"}, d.Method)
+}
+
+// A guessed host is wrong on every Mac and every consumer acts on it, so it
+// must announce itself rather than be returned quietly.
+func TestWarnGuessedHostAnnouncesOncePerRun(t *testing.T) {
+	var buf bytes.Buffer
+	old := hostosOut
+	hostosOut = &buf
+	guessedHostOnce = sync.Once{}
+	t.Cleanup(func() {
+		hostosOut = old
+		guessedHostOnce = sync.Once{}
+	})
+
+	d := Detection{OS: "linux", Method: "default"}
+	warnGuessedHost(d)
+	warnGuessedHost(d)
+
+	out := buf.String()
+	assert.Equal(t, 1, strings.Count(out, "could not determine"), "one banner per run, not one per call")
+	assert.Contains(t, out, "WRONG")
+	assert.Contains(t, out, "version host")
 }
 
 func TestDetectionGuessed(t *testing.T) {

@@ -71,6 +71,23 @@ Note which guard implementation the mac fixture now exercises. The APE reports
 NOT `claudeguard_darwin.go`. That file still builds for a native `go build` on a
 mac, but it no longer ships in any published artifact.
 
+### smoke-macos has two KNOWN reds, both blocked upstream
+
+Neither is worked around, and neither is a reason to weaken the job.
+
+1. **The agent output guard does not fire under the APE on a Mac.** Blocked on
+   `wow-look-at-my/is-this-an-agent`, whose process lookup is `linux || cosmo`
+   for /proc and `darwin` for sysctl, so a cosmo APE on a Mac has neither. See
+   `docs/AGENT-OUTPUT-GUARD.md`.
+2. **`version host` reports linux on a Mac inside dats' sandbox.** Blocked on
+   gosmopolitan's `runtime.CosmoHostOS()`. `syscall.Uname` is ENOSYS there (no
+   SYS_UNAME case in the darwin dispatcher) and the filesystem probes are
+   denied, so detection falls to its `"linux"` default.
+
+The `version host` assertions exist to keep (2) visible rather than to pass
+today. When `CosmoHostOS` lands, `hostSignalFunc` is wired to it and both the
+unsandboxed and sandboxed assertions go green without touching the tests.
+
 **Windows** — `version` and `--help` only: gobootstrap downloads
 `go<version>.<os>-<arch>.tar.gz`, and go.dev serves no windows variant (windows
 archives are `.zip`).

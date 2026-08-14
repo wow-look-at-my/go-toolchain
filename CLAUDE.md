@@ -90,12 +90,12 @@ coverage.
   dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and the `version` exemption, and the
   update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
-  so version tests assert only the stable `Version:`/`Commit:` lines). These guard tests assume a linux host, because this suite only runs when this
-  repo builds ITSELF (`build`/`host-build`, linux-only). The darwin classifier (`claudeguard_darwin.go`) has its own CI-enforced sibling suite
-  instead: smoke-macos (`.github/workflows/ci.yml`, which runs `actions/checkout` for exactly this) copies
-  `.github/dats-fixtures/smoke-macos-agent-output-guard.dats` into a throwaway module and runs it against
-  the real published darwin/arm64 binary — since a suite exec'ing a native darwin binary can't live under
-  this repo's own `dats/` (every suite there runs during this repo's own linux self-build too). Only windows stays a documented no-op.
+  so version tests assert only the stable `Version:`/`Commit:` lines), and that host detection is a MEASUREMENT rather than its linux fallback.
+  These guard tests assume a linux host, because this suite only runs when this repo builds ITSELF (`build`/`host-build`, linux-only). A macOS host
+  gets the sibling fixture `.github/dats-fixtures/smoke-macos-agent-output-guard.dats`, which smoke-macos (which runs `actions/checkout` for exactly
+  this) copies into a throwaway module and runs against the real published APE — a suite asserting darwin-host behavior cannot live under this repo's
+  own `dats/`, since every suite there runs during this repo's linux self-build too. Only windows stays a documented no-op. New tests go AFTER the
+  snapshot test: its INDEX names the committed golden file, so anything inserted before it renumbers the golden.
   `.dats` + `.golden` files feed `computeFingerprint` (uptodate.go), so suite/golden edits bust the "Up to date" fast-exit
 - `src/test/` — test runner, coverage parsing, watermark logic. The watermark's storage backend is platform-split: `xattr_unix.go` (`unix && !cosmo`,
   x/sys/unix xattrs; `isXattrNotFound` in the `_linux`/`_darwin` files), `xattr_windows.go` (NTFS ADS), and `xattr_cosmo.go` — GOOS=cosmo has no xattr
@@ -180,9 +180,14 @@ coverage.
   normal
   build; for a GOOS=cosmo fat APE — which reports `runtime.GOOS == "cosmo"` on Linux and macOS hosts (Windows runs the embedded native windows
   payload) — `hostos_cosmo.go` probes once: `syscall.Uname` (raw Linux syscall passes through on Linux hosts; the fork's darwin dispatcher returns
-  ENOSYS, no crash), then filesystem probes (`/System/Library/CoreServices` → darwin, `/proc/self` → linux), defaulting to linux. Consumers:
-  gobootstrap (go.dev archive name + `.exe` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host symlinks, root/uptodate in-docker
-  binary names. `runtime.GOARCH` needs no wrapper — a fat APE always runs the payload matching the host arch
+  ENOSYS — CONFIRMED: the dispatcher has no SYS_UNAME case at all), then filesystem probes (`/System/Library/CoreServices` → darwin, `/proc/self` →
+  linux), defaulting to linux. **KNOWN DEFECT: on a sandboxed macOS host every probe fails and this reports LINUX ON A MAC**, silently mis-picking
+  every host-specific choice. `Detect()` therefore returns the METHOD alongside the answer, a guessed answer prints a one-time banner, and
+  `go-toolchain version host` shows both; the smoke jobs assert it inside dats' sandbox and outside. The fix is upstream and approved
+  (`runtime.CosmoHostOS()`, from the runtime's own `__hostos` — unsandboxable, cannot ENOSYS): wire it to `hostSignalFunc` when it lands and keep the
+  probes as the fallback. Consumers: gobootstrap (go.dev archive name + `.exe` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host
+  symlinks, root/uptodate in-docker binary names, and the agent output guard's classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE
+  always runs the payload matching the host arch
 - `src/compat/go-isatty/` — nested module substituted for `github.com/mattn/go-isatty` via a root go.mod `replace`: upstream selects zero
   implementation
   files under GOOS=cosmo (empty package, breaking fatih/color ← gotestsum/testjson ← src/test), so this byte-identical copy of v0.0.20 adds one

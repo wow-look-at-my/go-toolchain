@@ -14,6 +14,13 @@ import (
 // change under a running process.
 var hostGOOS = sync.OnceValue(detectHostGOOS)
 
+// hostSignalFunc is the authoritative host signal when one exists, consulted
+// before any probe. An empty result means "no authoritative signal here" and
+// falls through to the probes. This is the seam runtime.CosmoHostOS() plugs
+// into — see the KNOWN DEFECT note in detection.go for why the probes alone
+// are not enough on a Mac.
+var hostSignalFunc func() string
+
 // GOOS returns the operating system of the host this cosmo binary is running
 // on: "linux" or "darwin". Never "windows" — on Windows hosts a fat APE
 // executes its embedded native GOOS=windows payload, which compiles the
@@ -26,6 +33,15 @@ func GOOS() string { return hostGOOS().OS }
 func Detect() Detection { return hostGOOS() }
 
 func detectHostGOOS() Detection {
+	// An authoritative signal, when the toolchain provides one, outranks every
+	// probe below: it cannot be denied by a sandbox and cannot ENOSYS. See the
+	// KNOWN DEFECT note in detection.go for why the probes are not enough.
+	if hostSignalFunc != nil {
+		if host := hostSignalFunc(); host != "" {
+			return Detection{OS: host, Method: "runtime"}
+		}
+	}
+
 	// uname(2) first: the fork's stdlib syscall exposes Uname for cosmo. On
 	// Linux hosts the raw (Linux-numbered) syscall passes straight through and
 	// Sysname is authoritative. On macOS hosts unemulated syscalls return
@@ -60,9 +76,13 @@ func detectHostGOOS() Detection {
 		return Detection{OS: "linux", Method: "procfs", Uname: sysname}
 	}
 	// Nothing answered. "linux" is the most common host and the safer guess
-	// for path conventions, but it is a GUESS: Method says so, and Guessed()
-	// lets a caller that must not act on a guess find out.
-	return Detection{OS: "linux", Method: "default", Uname: sysname}
+	// for path conventions, but it is a GUESS, it is wrong on every Mac, and
+	// consumers act on it — so it announces itself rather than being returned
+	// quietly. Method says so too, and Guessed() lets a caller that must not
+	// act on a guess find out.
+	d := Detection{OS: "linux", Method: "default", Uname: sysname}
+	warnGuessedHost(d)
+	return d
 }
 
 // cstring returns the string up to the first NUL in b (the whole slice if

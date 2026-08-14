@@ -141,13 +141,20 @@ fail-closed rule `claudeguard_darwin.go` already applies to a FIFO whose reader
 it cannot resolve. Keeping the two apart in the code is what makes that change
 a one-line edit in the right place instead of a rewrite.
 
-Note the difference matters for a THIRD reason: `hostos.GOOS()` decides which
-branch is taken, and its filesystem probes can be denied by a sandbox, whose
-fallback answer is `"linux"`. A wrong host there would route a Mac into the
-"looked and saw nothing" branch and lose even the banner. That is why both
-smoke jobs assert `version host` — inside dats' sandbox and outside it — and
-why `hostos.Detection` records the METHOD, so a measurement can be told from
-the fallback.
+Note the difference matters for a THIRD reason, and it is not hypothetical.
+`hostos.GOOS()` decides which branch is taken, and on a sandboxed Mac it
+currently answers `"linux"`: `syscall.Uname` is ENOSYS on darwin under the fork
+(the dispatcher has no SYS_UNAME case), and the two filesystem probes are reads
+a sandbox denies, leaving the documented `"linux"` default. That routes a Mac
+into the "looked and saw nothing" branch and loses even the banner.
+
+So the darwin dispatch must NOT be built on `hostos.GOOS()` as it stands. The
+fix is upstream and approved — `runtime.CosmoHostOS()`, backed by the runtime's
+own `__hostos`, which rt0 sets from the APE boot path and every syscall
+dispatches on, so it cannot be sandboxed away and cannot ENOSYS. `hostos` has
+the seam ready (`hostSignalFunc`); wiring it is a one-line change. Both smoke
+jobs assert `version host` inside dats' sandbox and outside precisely so this
+stays visible until then.
 
 Closing the gap needs three things, and one of them is not in this repo:
 
