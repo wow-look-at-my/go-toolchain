@@ -112,11 +112,21 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          # Limit raised 30s -> 45s when the dats phase landed: the second
-          # build now also runs the repo's CLI suite (~3-5s on top of a 26s
-          # baseline); a broken cache still blows way past 45s.
-          if [ "$elapsed" -gt 45 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 45s)"
+          # 60s is derived, not guessed. On an UNCHANGED build graph (1629
+          # actions, 98% cache-satisfied) this step measures 38-47s depending
+          # only on which runner it lands on -- a package the commit never
+          # touched swings 9.1s to 14.6s across those runs. A budget near 45s
+          # therefore fails on runner speed, and a gate that cries wolf stops
+          # being read on the run where the number is real.
+          # What this gate is for is a cache that has stopped serving, and that
+          # floor is far away: the cold first build in this same job is
+          # ~190-200s, so 60s still fails a broken cache by more than 3x.
+          # Before raising it again, check the two signals this job already
+          # prints -- cache-satisfied percentage and the poison tripwires. High
+          # and zero mean a slow runner, and the limit is the thing to re-derive
+          # from fresh numbers; a real cache failure does not look like this.
+          if [ "$elapsed" -gt 60 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 60s)"
             exit 1
           fi
 
