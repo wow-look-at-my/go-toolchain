@@ -42,6 +42,25 @@ tests:
 		"!stdout":
 			- "GUESSED"
 
+	# The banner is the ONLY thing that surfaces the inoperative guard to a
+	# human on this host, so it gets a positive assertion rather than being
+	# inferred from its absence elsewhere: dats reports a failing test's unmet
+	# EXPECTATION, never its actual stderr, so a banner that stopped firing
+	# would leave no trace in any log. This is the same run shape as the
+	# refusal tests below -- which fail on this host today -- but it asserts
+	# only what IS true here.
+	- desc: an inoperative guard announces itself on a macOS host
+	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; env OPENCODE=1 {outputs.gt}; rc=$?; exit $rc'
+	  exit: 1
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stderr:
+			- "INOPERATIVE"
+			- "darwin"
+
 	- desc: agent output guard refuses a captured pipeline run under {matrix.marker} (APE on a macOS host)
 	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; env {matrix.marker}=1 {outputs.gt}; rc=$?; exit $rc'
 	  exit: 1

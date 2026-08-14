@@ -7,25 +7,33 @@ import (
 	"sync"
 )
 
-// KNOWN DEFECT, tracked to its fix.
+// How much this answer can be trusted, measured rather than assumed.
 //
-// On a macOS host a cosmo APE currently cannot determine its host reliably.
-// `syscall.Uname` is a raw SYS_UNAME the fork's darwin dispatcher has no case
-// for, so it returns ENOSYS by design; that leaves the two filesystem probes,
-// which are reads of absolute paths a sandbox can deny. Under one that does,
-// nothing answers and Method is "default" — which reports LINUX ON A MAC.
+// On a cosmo APE the first probe is dead weight on macOS: `syscall.Uname` is a
+// raw SYS_UNAME the fork's darwin dispatcher has no case for, so it returns
+// ENOSYS by design. Detection therefore rests on the filesystem probes, which
+// are reads of absolute paths — and a sandbox can deny a read.
 //
-// Every consumer is then silently wrong: gobootstrap picks the wrong go.dev
-// archive, cgoenv the wrong brew prefix, codeql the wrong platform dir, and
-// the agent output guard the wrong classifier. So a guessed answer is not
-// returned quietly — warnGuessedHost says so, once, the same way the guard
-// announces a classifier that cannot see.
+// Measured on macos-latest: `/System/Library/CoreServices` IS readable both
+// under dats' seatbelt sandbox and outside it, so the answer is "darwin (via
+// coreservices)" in both, by measurement. seatbelt restricts WRITES, not
+// ordinary reads of system paths. The smoke jobs assert this on every run —
+// inside the sandbox and outside — so a runner image or sandbox profile that
+// ever does deny it fails CI instead of silently changing the answer.
 //
-// The fix is upstream and approved: the gosmopolitan runtime already knows the
-// host definitively via __hostos, set by rt0 from the APE boot path and used to
-// dispatch every syscall — it cannot be sandboxed away and cannot ENOSYS. It
+// That failure would be expensive and invisible, which is why the guard exists
+// at all: with no probe answering, Method is "default" and this reports LINUX
+// ON A MAC, and then gobootstrap picks the wrong go.dev archive, cgoenv the
+// wrong brew prefix, codeql the wrong platform dir, and the agent output guard
+// the wrong classifier. So a guessed answer is never returned quietly —
+// warnGuessedHost says so once, the way the guard announces a blind classifier.
+//
+// The standing improvement: the gosmopolitan runtime knows the host
+// definitively via __hostos, set by rt0 from the APE boot path and used to
+// dispatch every syscall, so it cannot be sandboxed away and cannot ENOSYS. It
 // is being exported as runtime.CosmoHostOS(). When it lands, set
-// hostSignalFunc to it; the probes stay only as the pre-CosmoHostOS fallback.
+// hostSignalFunc to it and the probes become the fallback. That removes the
+// last filesystem dependency here; it is not a prerequisite for anything.
 
 // The seam for that signal is hostSignalFunc, declared in hostos_cosmo.go
 // because only a cosmo build has a host to determine.
