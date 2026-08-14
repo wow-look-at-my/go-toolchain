@@ -141,38 +141,34 @@ func TestPackStore_GetVerifiedRefusesCrossContaminatedPackage(t *testing.T) {
 	require.True(t, ok, "a correctly-keyed package must still be served")
 }
 
-// TestPackStore_GetVerifiedServesLocalModuleIndex pins the local tier's
-// module-index policy: an index the local cmd/go stored is SERVED back, on both
-// decoupled read paths (the GET RPC and the FUSE Lookup byOutput path). Local
-// indexes are trustworthy by construction — every web->local ingestion path
-// refuses index blobs (web.go, batch.go, the prefetch filter in cache.go), so
-// only local cmd/go ever stores one here — and refusing them (as this tier once
-// did) created a permanent accept-at-Put/refuse-at-Get loop: guaranteed misses
-// for every index key on every build, plus unbounded duplicate-record append
-// churn in the packs. See verify.go's file-top comment.
-func TestPackStore_GetVerifiedServesLocalModuleIndex(t *testing.T) {
+// TestPackStore_GetVerifiedRefusesModuleIndex pins the pack tier's half of the
+// module-index policy: the GET RPC never serves one, so residue a binary that
+// predates the PUT refusal left in the packs cannot be handed back. An ordinary
+// body in the same pack is unaffected — the refusal is about the payload, not
+// about the store.
+func TestPackStore_GetVerifiedRefusesModuleIndex(t *testing.T) {
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
 	defer s.Close()
 
-	index := []byte("go index v2\n\x00\x00module-index payload the local tier must serve")
+	index := []byte("go index v2\n\x00\x00module-index payload from an older binary")
 	aid, oid := hexID(40), casID(index) // content-addressed, as cmd/go stores it
 	_, err = s.Put(aid, oid, bytes.NewReader(index))
 	require.Nil(t, err)
 
-	// GET RPC path.
-	loc, ok := s.GetVerified(aid)
-	require.True(t, ok, "a locally-stored module index must be served from the local pack")
+	_, ok := s.GetVerified(aid)
+	require.False(t, ok, "a stored module index must never be served from the local pack")
+
+	plain := []byte("an ordinary cached body sharing the pack")
+	paid, poid := hexID(41), casID(plain)
+	_, err = s.Put(paid, poid, bytes.NewReader(plain))
+	require.Nil(t, err)
+	loc, ok := s.GetVerified(paid)
+	require.True(t, ok, "an ordinary body must still be served")
 	data, err := s.ReadAll(loc)
 	require.Nil(t, err)
-	require.Equal(t, index, data)
-
-	// FUSE serve path (the bytes the compiler actually reads).
-	_, ok = s.GetByOutputVerified(oid)
-	require.True(t, ok, "a locally-stored module index must be served on the FUSE byOutput path")
-
-	require.Equal(t, uint32(0), s.Stats.Corrupt.Load(), "serving a local index must not count as corruption")
+	require.Equal(t, plain, data)
 }
 
 func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {

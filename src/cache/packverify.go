@@ -83,9 +83,8 @@ func (s *PackStore) getVerifiedCounted(actionID string, countHit bool) (packLoc,
 	// stamped for a different action is refused even on a memo hit. Any
 	// failure evicts the entry and reports a miss, so the toolchain recomputes
 	// clean data instead of being handed poison — the local-tier counterpart
-	// of the web ingestion guards. (Module indexes are deliberately served:
-	// web ingestion refuses them on every path, so a local one is
-	// locally-originated — see verify.go's file-top comment.)
+	// of the web ingestion guards. A module index fails the gate outright; with
+	// the PUT refusal in place, only an older binary's residue can reach it.
 	vi, ok := s.verifiedInfo(loc)
 	if !ok || !vi.servableForAction(actionID) {
 		s.evictCorrupt(actionID, loc)

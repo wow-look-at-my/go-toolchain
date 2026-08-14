@@ -11,6 +11,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 )
 
 // FixBogusDepsVersions detects dependencies with v0.0.0 versions in go.mod and
@@ -172,7 +173,15 @@ func resolveVersionViaGit(r runner.CommandRunner, mod, ref string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("invalid timestamp: %s", epochStr)
 	}
-	timestamp := time.Unix(epoch, 0).UTC().Format("20060102150405")
+	return pseudoVersionFor(mod, time.Unix(epoch, 0), shortHash), nil
+}
 
-	return fmt.Sprintf("v0.0.0-%s-%s", timestamp, shortHash), nil
+// pseudoVersionFor builds the pseudo-version for mod at a commit. The major
+// version comes from the module path: a "/vN" (or gopkg.in ".vN") suffix
+// demands a matching vN pseudo-version, and the go command rejects anything
+// else with `go.mod has post-v0 module path "..." at revision ...`. A path
+// with no suffix gets v0.
+func pseudoVersionFor(mod string, commitTime time.Time, shortHash string) string {
+	_, pathMajor, _ := module.SplitPathVersion(mod)
+	return module.PseudoVersion(module.PathMajorPrefix(pathMajor), "", commitTime, shortHash)
 }

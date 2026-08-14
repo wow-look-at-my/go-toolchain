@@ -46,4 +46,36 @@ still reviews and commits every version bump the same way they would a manual `g
 
 Only direct (non-`// indirect`) requires are tracked; an indirect line carrying the marker is
 skipped with a warning rather than silently ignored, since indirect dependencies are resolved
-transitively and a per-line branch pin on one would not mean what it looks like it means.
+transitively and a per-line branch pin on one would not mean what it looks like it means. The
+warning names the way that does work: a `replace` carrying the marker (see below) is main-module
+only, so it applies to direct and indirect requires alike and pins the version that actually
+reaches the build.
+
+### Tracking a fork through a `replace`
+
+A fork keeps upstream's module path — that is what makes it a drop-in — so it is consumed through a
+`replace`, and the `require` line still names *upstream*. The marker therefore goes on the replace
+line, where the version that actually reaches the build lives:
+
+```go
+require charm.land/bubbletea/v2 v2.0.8
+
+replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0-20260812203640-351d2159f8d8 // go-toolchain:branch=master
+```
+
+The branch is resolved against the **replacement's** repository (`github.com/wow-look-at-my/...`)
+and rewrites the **replacement's** version. Putting the marker on that require instead would track
+upstream's branch, which is never what anyone means by it. `listDirectDeps` excludes a require
+covered by a tracked replace from the org auto-update path as well, for the same reason it excludes
+a tracked require: the effective version is owned by branch tracking.
+
+A replacement into a local directory (`=> ../foo`, `=> ./foo`, or an absolute path) has no remote
+and carries no version, so there is no branch to resolve. A marker on one is skipped with a
+warning.
+
+### Pseudo-version majors
+
+The pseudo-version is built for the module path being resolved, so a `/vN` path suffix (or
+gopkg.in's `.vN`) produces a matching `vN.0.0-<timestamp>-<hash>`. A v0 pseudo-version on a post-v0
+path is not a valid version: the go command rejects it with
+`go.mod has post-v0 module path "..." at revision ...`.

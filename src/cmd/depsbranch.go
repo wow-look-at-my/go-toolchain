@@ -3,25 +3,32 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 )
 
-// branchMarkerPrefix is the trailing require-line comment that pins a
-// dependency to a branch instead of the module's default branch:
+// branchMarkerPrefix is the trailing comment that pins a dependency to a
+// branch instead of the module's default branch. It rides either the require
+// line or, for a fork consumed through a replacement, the replace line:
 //
 //	require github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:branch=v1
+//	replace upstream.example/foo => github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:branch=master
 const branchMarkerPrefix = "go-toolchain:branch="
 
-// trackedBranch returns the branch a require line is pinned to follow, or ""
+// trackedBranch returns the branch a go.mod line is pinned to follow, or ""
 // if it carries no branchMarkerPrefix comment. Matched by substring, not
 // prefix, so it still finds the marker on a line combined with an
 // "// indirect; ..." comment (see setIndirect in x/mod/modfile).
-func trackedBranch(req *modfile.Require) string {
-	for _, c := range req.Syntax.Suffix {
+func trackedBranch(line *modfile.Line) string {
+	if line == nil {
+		return ""
+	}
+	for _, c := range line.Suffix {
 		idx := strings.Index(c.Token, branchMarkerPrefix)
 		if idx == -1 {
 			continue
@@ -31,7 +38,17 @@ func trackedBranch(req *modfile.Require) string {
 	return ""
 }
 
-// UpdateTrackedBranchDeps re-resolves every require carrying a
+// isLocalReplacement reports whether a replacement points at a directory on
+// this filesystem rather than a module version: those carry no version and
+// have no remote to resolve a branch against.
+func isLocalReplacement(target module.Version) bool {
+	return target.Version == "" ||
+		strings.HasPrefix(target.Path, "./") ||
+		strings.HasPrefix(target.Path, "../") ||
+		filepath.IsAbs(target.Path)
+}
+
+// UpdateTrackedBranchDeps re-resolves every require and replace carrying a
 // go-toolchain:branch comment to that branch's current HEAD, rewriting its
 // pseudo-version in place. go.mod still always records one concrete,
 // go.sum-verified pseudo-version -- reproducibility is untouched -- this only
@@ -39,7 +56,8 @@ func trackedBranch(req *modfile.Require) string {
 // the module's default branch the way the org-deps auto-updater otherwise
 // would (checkDepLive in deps.go resolves against the proxy's @latest, which
 // is the default branch by construction; listDirectDeps excludes tracked
-// requires from that path so the two never fight over the same line).
+// lines -- and requires covered by a tracked replace -- from that path so the
+// two never fight over the same dependency).
 //
 // Returns whether go.mod changed, so the caller knows to re-run `go mod tidy`.
 func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
@@ -55,12 +73,13 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 
 	changed := false
 	for _, req := range f.Require {
-		branch := trackedBranch(req)
+		branch := trackedBranch(req.Syntax)
 		if branch == "" {
 			continue
 		}
 		if req.Indirect {
-			logger.Warn("%s tracks branch %q but is marked indirect; make it a direct dependency or drop the go-toolchain:branch comment", req.Mod.Path, branch)
+			logger.Warn("%s tracks branch %q but is marked indirect; make it a direct dependency, track it through a replace instead (replace %s => <repo> <version> // go-toolchain:branch=%s -- a replace is main-module-only, so it covers direct and indirect requires alike), or drop the go-toolchain:branch comment",
+				req.Mod.Path, branch, req.Mod.Path, branch)
 			continue
 		}
 
@@ -81,6 +100,36 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 		changed = true
 	}
 
+	// The replacement's own path and version are what get resolved: a fork
+	// keeps upstream's module path, so the require line names upstream and
+	// tracking its branch is never what the marker means.
+	for _, rep := range f.Replace {
+		branch := trackedBranch(rep.Syntax)
+		if branch == "" {
+			continue
+		}
+		if isLocalReplacement(rep.New) {
+			logger.Warn("%s is replaced by the local directory %s, which has no branch to track; drop the go-toolchain:branch comment", rep.Old.Path, rep.New.Path)
+			continue
+		}
+
+		version, err := resolveVersionViaGit(r, rep.New.Path, "refs/heads/"+branch)
+		if err != nil {
+			return changed, fmt.Errorf("failed to resolve %s@%s: %w", rep.New.Path, branch, err)
+		}
+		if version == rep.New.Version {
+			continue
+		}
+
+		if !jsonOutput {
+			logger.Info("⇒ Updating %s (tracking %s): %s -> %s", rep.New.Path, branch, rep.New.Version, version)
+		}
+		if err := f.AddReplace(rep.Old.Path, rep.Old.Version, rep.New.Path, version); err != nil {
+			return changed, fmt.Errorf("failed to update %s: %w", rep.New.Path, err)
+		}
+		changed = true
+	}
+
 	if !changed {
 		return false, nil
 	}
@@ -96,13 +145,14 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	return true, nil
 }
 
-// trackedBranchDepsMoved reports whether any branch-tracking require now
-// resolves to a different commit than go.mod records. It is what lets the
-// up-to-date fast exit (uptodate.go) see the one input that is not a file.
+// trackedBranchDepsMoved reports whether any branch-tracking require or
+// replace now resolves to a different commit than go.mod records. It is what
+// lets the up-to-date fast exit (uptodate.go) see the one input that is not a
+// file.
 //
-// A repository with no tracked require pays nothing: the loop makes no call
-// at all. One that has them pays a ref resolution per tracked module, which
-// is the cost of the guarantee that opting into branch tracking bought.
+// A repository with no tracked line pays nothing: the loops make no call at
+// all. One that has them pays a ref resolution per tracked module, which is
+// the cost of the guarantee that opting into branch tracking bought.
 //
 // It answers FALSE when it cannot tell -- an unreadable or unparseable go.mod,
 // or a resolution that failed. Those are conditions for the real run to
@@ -118,7 +168,7 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 		return false
 	}
 	for _, req := range f.Require {
-		branch := trackedBranch(req)
+		branch := trackedBranch(req.Syntax)
 		if branch == "" || req.Indirect {
 			continue
 		}
@@ -127,6 +177,19 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 			continue
 		}
 		if version != req.Mod.Version {
+			return true
+		}
+	}
+	for _, rep := range f.Replace {
+		branch := trackedBranch(rep.Syntax)
+		if branch == "" || isLocalReplacement(rep.New) {
+			continue
+		}
+		version, err := resolveVersionViaGit(r, rep.New.Path, "refs/heads/"+branch)
+		if err != nil {
+			continue
+		}
+		if version != rep.New.Version {
 			return true
 		}
 	}
