@@ -145,12 +145,13 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 }
 
 // trackedBranchDepsMoved reports whether any branch-tracking require or
-// replace now resolves to a different commit than go.mod records. It is what lets the
-// up-to-date fast exit (uptodate.go) see the one input that is not a file.
+// replace now resolves to a different commit than go.mod records. It is what
+// lets the up-to-date fast exit (uptodate.go) see the one input that is not a
+// file.
 //
-// A repository with no tracked require pays nothing: the loop makes no call
-// at all. One that has them pays a ref resolution per tracked module, which
-// is the cost of the guarantee that opting into branch tracking bought.
+// A repository with no tracked line pays nothing: the loops make no call at
+// all. One that has them pays a ref resolution per tracked module, which is
+// the cost of the guarantee that opting into branch tracking bought.
 //
 // It answers FALSE when it cannot tell -- an unreadable or unparseable go.mod,
 // or a resolution that failed. Those are conditions for the real run to
