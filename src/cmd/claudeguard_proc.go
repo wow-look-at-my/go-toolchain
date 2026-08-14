@@ -22,8 +22,8 @@ import (
 	"strings"
 	"sync"
 
-	agent "github.com/wow-look-at-my/is-this-an-agent"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
 // inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
