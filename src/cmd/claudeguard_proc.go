@@ -36,6 +36,14 @@ func inspectStdout() outputSink {
 // inspectFD is inspectStdout's logic, parameterized on the descriptor so it can
 // be tested against controlled pipes/files/devices.
 func inspectFD(fd uintptr) outputSink {
+	// A cosmo APE on a darwin host has no /proc and needs the darwin
+	// classifier instead. Decided on the HOST, not runtime.GOOS.
+	if sink, ok, handled := hostSpecificInspect(fd); handled {
+		if !ok {
+			return blindClassifierSink(hostos.GOOS())
+		}
+		return sink
+	}
 	target, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(fd), 10))
 	if err != nil {
 		return unclassifiableSink()

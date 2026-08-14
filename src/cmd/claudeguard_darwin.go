@@ -21,13 +21,10 @@
 package cmd
 
 import (
-	"fmt"
 	"unsafe"
 
 	"github.com/mattn/go-isatty"
 	"golang.org/x/sys/unix"
-
-	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
 // inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
@@ -37,43 +34,16 @@ func inspectStdout() outputSink {
 }
 
 // inspectFD is inspectStdout's logic, parameterized on the descriptor so it can
-// be tested against controlled pipes/files/devices.
+// be tested against controlled pipes/files/devices. The algorithm itself lives
+// in claudeguard_darwinhost.go, shared with the cosmo APE that runs on this
+// same host; a native build can always ask its probes, so the
+// could-not-ask outcome degenerates to the old never-block-on-uncertainty.
 func inspectFD(fd uintptr) outputSink {
-	var st unix.Stat_t
-	if err := unix.Fstat(int(fd), &st); err != nil {
-		return outputSink{kind: sinkVisible} // can't tell -- never block on uncertainty
+	sink, ok := inspectFDDarwinHost(fd)
+	if !ok {
+		return outputSink{kind: sinkVisible}
 	}
-
-	switch uint32(st.Mode) & unix.S_IFMT {
-	case unix.S_IFIFO:
-		// See the file header: the reader on the far end cannot be identified
-		// on darwin, so every pipe is treated as hiding the output.
-		return outputSink{kind: sinkPipe}
-	case unix.S_IFSOCK:
-		if pid, ok := socketPeerPID(fd); ok {
-			if comm, _, cok := agent.CommPPID(pid); cok {
-				if agent.IsPipeReader(comm, pid) {
-					return outputSink{kind: sinkVisible}
-				}
-				return outputSink{kind: sinkHidden, detail: comm}
-			}
-			return outputSink{kind: sinkHidden, detail: fmt.Sprintf("pid %d", pid)}
-		}
-		return outputSink{kind: sinkHidden}
-	case unix.S_IFCHR:
-		if isTerminal(fd) {
-			return outputSink{kind: sinkVisible} // a real terminal -- output is seen
-		}
-		return outputSink{kind: sinkDiscard, detail: fdPath(fd)} // /dev/null and friends
-	case unix.S_IFREG:
-		path := fdPath(fd)
-		if path != "" && agent.IsCapturePath(path) {
-			return outputSink{kind: sinkVisible} // the harness's own transcript capture
-		}
-		return outputSink{kind: sinkFile, detail: path}
-	default:
-		return outputSink{kind: sinkVisible} // unknown disposition -- don't block
-	}
+	return sink
 }
 
 // isTerminal reports whether fd is a real terminal, via the isatty package
