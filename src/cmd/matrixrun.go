@@ -41,10 +41,12 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	hasCosmo := slices.ContainsFunc(platforms, buildPlatform.IsCosmo)
 	hasWasm := slices.ContainsFunc(platforms, buildPlatform.IsWasm)
 	var forkGoroot string
-	var slotPlatforms []buildPlatform
+	var slotPlatforms, apePlatforms []buildPlatform
 	if hasCosmo {
-		slotPlatforms, err = parseCosmoSlots(cosmoSlots)
-		if err != nil {
+		if slotPlatforms, err = parseCosmoSlots(cosmoSlots); err != nil {
+			return err
+		}
+		if apePlatforms, err = parseCosmoPlatforms(cosmoPlatforms); err != nil {
 			return err
 		}
 		if cgoEnabled {
@@ -54,7 +56,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	if hasWasm && cgoEnabled {
 		logger.Warn("⇒ Warning: --cgo has no effect on wasm targets (WebAssembly has no cgo; CGO_ENABLED=0 is forced)")
 	}
-	var forkCacheNamespace string
+	var forkCacheNamespace, apePlatformsEnv string
 	if hasCosmo || hasWasm {
 		if forkGoroot, err = ensureCosmoToolchainFunc(); err != nil {
 			return err
@@ -68,6 +70,9 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		// namespace would ride the shared cache un-isolated.
 		if forkCacheNamespace, err = forkToolchainCacheNamespace(forkGoroot); err != nil {
 			return fmt.Errorf("fingerprinting the fork toolchain for cache isolation: %w", err)
+		}
+		if hasCosmo {
+			apePlatformsEnv = cosmoPlatformsEnvValue(forkGoroot, apePlatforms)
 		}
 	}
 
@@ -151,6 +156,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 				job.cacheNamespace = forkCacheNamespace
 			}
 			if p.IsCosmo() {
+				job.cosmoPlatforms = apePlatformsEnv
 				// A previous local run leaves <name>_cosmo_fat as a symlink to
 				// a slot copy (see copyCosmoSlots). Remove it before building:
 				// `go build -o` follows symlinks, so it would otherwise write
@@ -164,10 +170,13 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 	}
 
-	if len(matrixTargets) > 0 {
+	switch {
+	case len(matrixTargets) == 0 && len(matrixOS) == 0 && len(matrixArch) == 0:
+		logger.Info("⇒ Building %d fat APE(s) covering %s", len(jobs), platformList(apeCoverage(apePlatforms)))
+	case len(matrixTargets) > 0:
 		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
-	} else {
-		logger.Info("⇒ Building %d binaries (%d OS x %d arch)", len(jobs), len(matrixOS), len(matrixArch))
+	default:
+		logger.Info("⇒ Building %d binaries (%d platforms from --os x --arch)", len(jobs), len(platforms))
 	}
 	buildStart := time.Now()
 
@@ -237,7 +246,25 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// upload-artifact dereferences symlinks); locally it becomes a symlink to
 	// the first slot copy. Replaced fat paths leave builtFiles: checksums
 	// cover real files only.
+	// One APE is one artifact. Its identity is a platform SET, which the
+	// <binary>_<os>_<arch> filename grammar cannot spell, so it travels in a
+	// manifest buildhost-publish reads from the published directory: one
+	// upload, one artifact row, one download link for every platform it
+	// covers. Listing the file there also takes it out of that filename scan,
+	// which is what lets the APE keep its _cosmo_fat name.
+	if hasCosmo && len(slotPlatforms) == 0 {
+		entries, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
+		if err != nil {
+			return err
+		}
+		if _, err := writeBuildhostManifest(outputDir, entries); err != nil {
+			return err
+		}
+		logger.Info("  WRITE %s (%d APE artifact(s), platforms %s)", buildhostManifestName, len(entries), platformList(apeCoverage(apePlatforms)))
+	}
+
 	if hasCosmo && len(slotPlatforms) > 0 {
+		logger.Warn("⇒ Warning: --cosmo-slots copies the one fat APE onto %d per-platform names, so buildhost stores %d identical artifacts with %d download links instead of one. Drop the flag to publish the APE as a single multi-platform artifact.", len(slotPlatforms), len(slotPlatforms), len(slotPlatforms))
 		nativeBuilt := make(map[string]bool)
 		for _, job := range jobs {
 			if job.goos != cosmoOS {
@@ -328,7 +355,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	hostArtifacts := make([]datsArtifact, 0, len(hostTargets))
 	for _, t := range hostTargets {
 		hostArtifacts = append(hostArtifacts, datsArtifact{
-			sourcePath: filepath.Join(outputDir, build.BinaryName(t.OutputName, hostos.GOOS(), runtime.GOARCH)),
+			sourcePath: hostRunnableArtifact(t, outputDir),
 			name:       datsArtifactName(t.OutputName, hostos.GOOS()),
 		})
 	}

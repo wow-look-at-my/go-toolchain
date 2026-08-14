@@ -16,10 +16,14 @@ var (
 	matrixOS        []string
 	matrixArch      []string
 	matrixTargets   []string
+	cosmoPlatforms  []string
 	cosmoSlots      []string
 	releaseParallel int
 )
 
+// DefaultOS / DefaultArch fill in the half of the cartesian product the caller
+// left out. They are NOT the flags' defaults: an empty --os and --arch is what
+// selects the single-APE default (see resolveMatrixPlatforms).
 var (
 	DefaultOS   = []string{"linux", "darwin", "windows"}
 	DefaultArch = []string{"amd64", "arm64"}
@@ -29,16 +33,22 @@ func init() {
 	matrixCmd := &cobra.Command{
 		Use:   "matrix",
 		Short: "Cross-compile for multiple platforms",
-		Long: `Builds binaries for multiple GOOS/GOARCH combinations in parallel.
+		Long: `Builds ONE fat Actually Portable Executable covering several platforms, or
+binaries for multiple GOOS/GOARCH combinations in parallel.
 
-Targets are the cartesian product of --os and --arch, unless --targets is set,
-in which case exactly the listed targets are built. Each --targets entry is an
-os/arch pair (e.g. darwin/amd64) or the special value "cosmo": one fat
-Actually Portable Executable built with the gosmopolitan Go fork, covering
-Linux, macOS and Windows in a single binary (artifact <name>_cosmo_fat). After
-a cosmo build the fat APE is also copied to the per-platform artifact names
-listed in --cosmo-slots, so per-platform consumers keep working; an explicit
-native target in --targets wins over a slot copy of the same name.
+By default the matrix builds a single cosmo APE (artifact <name>_cosmo_fat)
+covering --cosmo-platforms: linux/amd64, darwin/arm64 and windows/amd64. One
+file runs on all three; there is no per-platform copy.
+
+--os and --arch bring back the cartesian product of native per-platform
+binaries; naming either one selects it. --targets replaces both with an exact
+list, each entry an os/arch pair (e.g. darwin/amd64) or the special value
+"cosmo" for the fat APE.
+
+--cosmo-slots copies the one APE onto per-platform artifact names, which is N
+identical files; it is empty by default and exists for consumers that still
+resolve a <name>_<os>_<arch> download. An explicit native target in --targets
+wins over a slot copy of the same name.
 
 The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
 also built with the gosmopolitan fork toolchain (it carries the org's wasm
@@ -66,10 +76,11 @@ buildhost publish upload set.`,
 // addMatrixTargetFlags registers the target-selection flags shared by the
 // matrix command and release --build.
 func addMatrixTargetFlags(cmd *cobra.Command) {
-	cmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
-	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
+	cmd.Flags().StringSliceVar(&matrixOS, "os", nil, "Target operating systems; naming either --os or --arch switches from the single-APE default to per-platform binaries (default linux,darwin,windows when only --arch is given)")
+	cmd.Flags().StringSliceVar(&matrixArch, "arch", nil, "Target architectures; naming either --os or --arch switches from the single-APE default to per-platform binaries (default amd64,arm64 when only --os is given)")
 	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. wasm/js and wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
-	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
+	cmd.Flags().StringSliceVar(&cosmoPlatforms, "cosmo-platforms", DefaultCosmoPlatforms, `Host platforms the cosmo fat APE must cover, as os/arch pairs ("all" covers every platform the fork can emit)`)
+	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a COPY of the cosmo fat APE — N identical files, empty by default ("none" is also accepted)`)
 }
 
 type buildJob struct {
@@ -91,6 +102,10 @@ type buildJob struct {
 	// toolchain builds and reopen cross-build cache poisoning. Empty for
 	// normal jobs, whose toolchains have properly version-keyed tool IDs.
 	cacheNamespace string
+	// cosmoPlatforms is the GOCOSMOPLATFORMS value for a fat-APE job: the
+	// host platforms the APE must cover. Empty leaves the variable unset,
+	// which is the fork's everything-default.
+	cosmoPlatforms string
 }
 
 type buildResult struct {

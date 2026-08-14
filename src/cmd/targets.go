@@ -55,19 +55,41 @@ func wasmArtifactName(name string, p buildPlatform) string {
 	return build.BinaryName(name, p.OS, p.Arch)
 }
 
-// DefaultCosmoSlots are the per-platform artifact names that receive a copy
-// of the cosmo fat APE (see copyCosmoSlots). darwin/arm64 is deliberately
-// absent even though the fat APE boots and builds fine on ARM64 macs: the
-// pipeline WEDGES at exit there (CI runs 28739021382/28739520377; SIGQUIT
-// dumps in run 28742069477), root-caused to the gosmopolitan runtime running
-// unix-socket fds in blocking mode with no netpoller on darwin hosts, so the
-// cache daemon's net.Listener.Close deadlocks against its own blocked Accept
-// — tracked in https://github.com/wow-look-at-my/go-toolchain/issues/276.
-// Macs keep getting a native binary by default until that runtime bug is
-// fixed. Also absent: darwin/amd64 (the cosmo darwin-Intel runtime is not
-// verified yet) and windows/arm64 (the APE's embedded PE payload is
-// amd64-only).
-var DefaultCosmoSlots = []string{"linux/amd64", "linux/arm64", "windows/amd64"}
+// DefaultCosmoSlots is empty: one APE is one artifact. A slot copy is a
+// byte-identical duplicate of the APE under a per-platform name, so a slot
+// list of length N publishes the same binary N times. Slots stay available
+// (--cosmo-slots) for a consumer that still resolves a <name>_<os>_<arch>
+// download and cannot yet ask for the APE itself.
+var DefaultCosmoSlots []string
+
+// DefaultCosmoPlatforms is the host platform set the fat APE covers by
+// default. The fork emits a payload per architecture and a boot path per host
+// OS, so every platform left out of this set is code the APE does not carry.
+var DefaultCosmoPlatforms = []string{"linux/amd64", "darwin/arm64", "windows/amd64"}
+
+// cosmoPlatformsAll is the --cosmo-platforms value that asks for every
+// platform the fork can emit: GOCOSMOPLATFORMS is then left unset, which is
+// the fork's own everything-default.
+const cosmoPlatformsAll = "all"
+
+// cosmoPlatformsEnv is the gosmopolitan variable naming the host platforms a
+// fat APE must cover. The fork is the authority on the value; it rejects a
+// token it cannot emit, which backstops the check below.
+const cosmoPlatformsEnv = "GOCOSMOPLATFORMS"
+
+// cosmoRuntimeStatus maps a platform the fork can name to why it is not
+// coverable, or to "" when the APE genuinely runs there. A platform whose
+// runtime is unverified is refused rather than quietly claimed: the published
+// artifact's platform set is what tells a consumer where the binary runs, and
+// a set that names an untested host is a promise the APE does not keep.
+var cosmoRuntimeStatus = map[buildPlatform]string{
+	{OS: "linux", Arch: "amd64"}:   "",
+	{OS: "linux", Arch: "arm64"}:   "",
+	{OS: "darwin", Arch: "arm64"}:  "",
+	{OS: "windows", Arch: "amd64"}: "",
+	{OS: "darwin", Arch: "amd64"}:  "the cosmo darwin-Intel runtime is unverified: the Mach-O image is structurally correct but its runtime bring-up has never executed on real hardware",
+	{OS: "windows", Arch: "arm64"}: "the APE's PE payload is amd64-only, and Windows-on-ARM x86-64 emulation fails to boot it",
+}
 
 // validGOOS / validGOARCH mirror the target lists of the Go distribution
 // (`go tool dist list`), plus cosmo which is handled specially. Used only to
@@ -217,9 +239,92 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 	return out, nil
 }
 
+// parseCosmoPlatforms parses --cosmo-platforms: the host platforms the fat APE
+// must cover, as os/arch pairs. The single value "all" asks for every platform
+// the fork can emit and returns a nil list, which leaves GOCOSMOPLATFORMS
+// unset.
+func parseCosmoPlatforms(entries []string) ([]buildPlatform, error) {
+	if len(entries) == 1 && strings.TrimSpace(entries[0]) == cosmoPlatformsAll {
+		return nil, nil
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("--cosmo-platforms requires at least one os/arch pair, or %q for every platform the fork can emit: an APE with no platforms would run nowhere", cosmoPlatformsAll)
+	}
+	seen := make(map[buildPlatform]bool, len(entries))
+	out := make([]buildPlatform, 0, len(entries))
+	for _, raw := range entries {
+		entry := strings.TrimSpace(raw)
+		if entry == "" || entry == cosmoPlatformsAll {
+			return nil, fmt.Errorf("invalid --cosmo-platforms entry %q: %q must be the only value", raw, cosmoPlatformsAll)
+		}
+		p, err := parsePlatformPair(entry, "--cosmo-platforms")
+		if err != nil {
+			return nil, err
+		}
+		if p.IsWasm() {
+			return nil, fmt.Errorf("invalid --cosmo-platforms entry %q: an APE covers native hosts, and wasm is not one", entry)
+		}
+		reason, known := cosmoRuntimeStatus[p]
+		if !known {
+			return nil, fmt.Errorf("invalid --cosmo-platforms entry %q: the fat APE covers %s", entry, strings.Join(coverableCosmoPlatforms(), ", "))
+		}
+		if reason != "" {
+			return nil, fmt.Errorf("invalid --cosmo-platforms entry %q: %s", entry, reason)
+		}
+		if seen[p] {
+			return nil, fmt.Errorf("duplicate --cosmo-platforms entry %q", entry)
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// coverableCosmoPlatforms lists the os/arch pairs a fat APE actually runs on,
+// sorted, for error messages.
+func coverableCosmoPlatforms() []string {
+	var out []string
+	for p, reason := range cosmoRuntimeStatus {
+		if reason == "" {
+			out = append(out, p.OS+"/"+p.Arch)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// apeCoverage returns the platforms a fat APE built with the given
+// --cosmo-platforms selection actually runs on. An empty selection is
+// "all", where the fork emits every payload it has: the coverage is then
+// every platform whose runtime is verified, never the unverified ones the
+// fork can also emit — a published set names where the binary RUNS.
+func apeCoverage(platforms []buildPlatform) []buildPlatform {
+	if len(platforms) > 0 {
+		return platforms
+	}
+	out := make([]buildPlatform, 0, len(cosmoRuntimeStatus))
+	for _, entry := range coverableCosmoPlatforms() {
+		goos, goarch, _ := strings.Cut(entry, "/")
+		out = append(out, buildPlatform{OS: goos, Arch: goarch})
+	}
+	return out
+}
+
+// platformList renders platforms as comma-separated os/arch pairs — the
+// GOCOSMOPLATFORMS wire form, and the form the publish manifest records.
+func platformList(platforms []buildPlatform) string {
+	parts := make([]string, 0, len(platforms))
+	for _, p := range platforms {
+		parts = append(parts, p.OS+"/"+p.Arch)
+	}
+	return strings.Join(parts, ",")
+}
+
 // resolveMatrixPlatforms turns the matrix flags into the list of platforms to
-// build: the validated --targets list when set, otherwise the historic
-// --os x --arch cartesian product.
+// build. With no target flags at all the answer is ONE cosmo fat APE: a single
+// binary covering --cosmo-platforms, rather than a per-platform binary each.
+// Naming --os or --arch selects the cartesian product of native binaries
+// instead, and --targets replaces both with an exact list.
 //
 // The cartesian product accepts the wasm pairing in buildhost's model:
 // --os wasm combines ONLY with --arch js / --arch wasip1 (the wasm flavors),
@@ -233,17 +338,29 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	if len(matrixTargets) > 0 {
 		// --targets replaces the cartesian product entirely; call out
-		// non-default --os/--arch values that are being ignored.
-		if !slices.Equal(matrixOS, DefaultOS) || !slices.Equal(matrixArch, DefaultArch) {
+		// --os/--arch values that are being ignored.
+		if len(matrixOS) > 0 || len(matrixArch) > 0 {
 			logger.Warn("⇒ Warning: --targets is set; ignoring --os/--arch")
 		}
 		return parseTargetList(matrixTargets)
 	}
-	if len(matrixOS) == 0 || len(matrixArch) == 0 {
-		return nil, fmt.Errorf("no platforms specified (need at least one --os and one --arch, or --targets)")
+	// No target flags: one APE, not a product. The cartesian product is opt-in
+	// because it costs one binary per platform for a binary that already runs
+	// on all of them.
+	if len(matrixOS) == 0 && len(matrixArch) == 0 {
+		return []buildPlatform{{OS: cosmoOS, Arch: cosmoFatArch}}, nil
 	}
-	hasWasmOS := slices.Contains(matrixOS, wasmArch)
-	for _, goarch := range matrixArch {
+	// Half a product is the other half's default: --arch arm64 alone still
+	// means "these arches, every OS I would have built anyway".
+	oses, arches := matrixOS, matrixArch
+	if len(oses) == 0 {
+		oses = DefaultOS
+	}
+	if len(arches) == 0 {
+		arches = DefaultArch
+	}
+	hasWasmOS := slices.Contains(oses, wasmArch)
+	for _, goarch := range arches {
 		if goarch == wasmArch {
 			return nil, fmt.Errorf("GOARCH %q is spelled as the OS in the wasm pairing (buildhost's os=wasm model); use --os wasm --arch js or --os wasm --arch wasip1 (or --targets %s/js, --targets %s/wasip1)", wasmArch, wasmArch, wasmArch)
 		}
@@ -253,7 +370,7 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	}
 	var out []buildPlatform
 	var skipped []string
-	for _, goos := range matrixOS {
+	for _, goos := range oses {
 		if goos == cosmoOS {
 			return nil, fmt.Errorf("GOOS %q cannot be built through --os/--arch: a cosmo build is one fat APE, not a per-arch matrix entry; use --targets %s instead", cosmoOS, cosmoOS)
 		}
