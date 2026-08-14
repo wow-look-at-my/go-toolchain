@@ -15,15 +15,12 @@
 #
 # NOTE: the agent-output-guard tests below assume a linux host — this repo's
 # own self-build (the only thing that runs THIS suite) never runs on darwin.
-# darwin has its own real guard classifier (src/cmd/claudeguard_darwin.go),
-# covered by a sibling dats suite the smoke-macos job (.github/workflows/ci.yml)
-# writes inline into a throwaway module instead. It cannot live in this repo's
-# own dats/ — dats runs every suite it finds recursively under dats/, so a
-# suite referencing a native darwin binary would also run (and fail) during
-# this repo's own linux build/host-build jobs; it also can't be a checked-in
-# template copied in at CI time, because smoke-macos never runs
-# actions/checkout (only the release artifact download), so there is no repo
-# tree there to copy a template out of.
+# A macOS host is covered by the sibling fixture
+# .github/dats-fixtures/smoke-macos-agent-output-guard.dats, which the
+# smoke-macos job copies into a throwaway module. It cannot live under this
+# repo's own dats/: dats runs every suite it finds recursively there, so a
+# suite asserting darwin-host behavior would also run (and fail) during this
+# repo's own linux build/host-build jobs.
 
 # Sandboxed like every other suite (dats' default). The one adjustment: under
 # the docker backend the commands run in the IMAGE's filesystem, and every
@@ -156,6 +153,26 @@ tests:
 	  outputs:
 		stdout:
 			- "Usage:"
+
+	# The default matrix builds ONE multi-platform APE; --os/--arch opt into a
+	# per-platform product. That is a promise made in --help, so pin it: the
+	# platform-set flag has to exist with the documented default, and --os/--arch
+	# must not carry defaults of their own (a default there would silently
+	# restore the cartesian product as the default build).
+	- desc: matrix --help documents the single-APE default
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" matrix --help'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "--cosmo-platforms"
+			- "linux/amd64,darwin/arm64,windows/amd64"
+			- "--cosmo-slots"
+		"!stdout":
+			- "(default [linux,darwin,windows])"
+			- "(default [amd64,arm64])"
 
 	# From a throwaway directory, not the module root: in the module root the
 	# binary bootstraps the Go version go.mod demands, and a bootstrap that has

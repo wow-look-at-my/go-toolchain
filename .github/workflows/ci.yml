@@ -146,20 +146,17 @@ jobs:
           name: socketharness-build
           path: harness
 
-  # Build + test via the composite action, exercising the cosmo fat-APE target
-  # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
-  # (go-toolchain_cosmo_fat) and copies it onto the linux/amd64, linux/arm64
-  # and windows/amd64 slot names; darwin/arm64, darwin/amd64 and windows/arm64
-  # stay native cross-compiles (deliberate carve-outs: the pipeline WEDGES
-  # under the APE on macos-arm64 -- runs 28739021382/28739520377, silent
-  # >28-min hangs of a step that takes 26s on ubuntu -- so ARM64 macs keep a
-  # native binary until that is fixed; the Intel-mac cosmo runtime is
-  # unverified; the APE's PE payload is amd64-only).
+  # Build + test via the composite action with NO target inputs, which is
+  # exactly what a consumer gets: ONE GOOS=cosmo fat APE
+  # (go-toolchain_cosmo_fat) covering linux/amd64, darwin/arm64 and
+  # windows/amd64, plus the buildhost-artifacts.json manifest that publishes it
+  # as a single multi-platform artifact. No per-platform copies, no native
+  # cross-compiles.
   #
   # Publishing is NOT done here (autorelease: false): the dedicated `publish`
   # job below is the single publish path, gated on the three smoke jobs that
-  # actually EXECUTE the APE artifacts on linux, macOS and Windows runners --
-  # a broken APE can fail loudly but can never be released.
+  # actually EXECUTE the APE on linux, macOS and Windows runners -- a broken
+  # APE can fail loudly but can never be released.
   build:
     needs: host-build
     runs-on: ubuntu-latest
@@ -209,12 +206,41 @@ jobs:
       - uses: ./
         with:
           binary: build/go-toolchain
-          targets: 'cosmo,darwin/amd64,darwin/arm64,windows/arm64'
           autorelease: 'false'
           # The cosmo target additionally downloads + extracts the gosmopolitan
           # toolchain and cold-compiles its stdlib; the default 10 minutes is
           # too tight for a cold runner.
           timeout: '15'
+
+      # One binary, one artifact row. The whole point of the default is that
+      # build/ holds ONE executable covering three platforms rather than one
+      # file per platform, so assert it here: a stray <name>_<os>_<arch> file
+      # would silently restore the N-downloads-of-one-binary shape the manifest
+      # exists to end.
+      - name: Assert one multi-platform artifact
+        uses: wow-look-at-my/actions@typescript#latest
+        with:
+          script: |
+            const dir = 'build';
+            const manifestPath = `${dir}/buildhost-artifacts.json`;
+            if (!fs.existsSync(manifestPath)) {
+              core.setFailed(`${manifestPath} missing -- the APE would publish under no platform set`);
+              return;
+            }
+            const m = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+            const want = ['linux/amd64', 'darwin/arm64', 'windows/amd64'];
+            if (m.schema !== 1) core.setFailed(`manifest schema ${m.schema}, want 1`);
+            if (m.artifacts?.length !== 1) core.setFailed(`manifest lists ${m.artifacts?.length} artifacts, want 1`);
+            const a = m.artifacts[0];
+            if (a.file !== 'go-toolchain_cosmo_fat') core.setFailed(`manifest file is ${a.file}`);
+            if (a.filename !== 'go-toolchain') core.setFailed(`manifest download filename is ${a.filename}, want go-toolchain`);
+            if (JSON.stringify(a.platforms) !== JSON.stringify(want)) {
+              core.setFailed(`manifest platforms ${JSON.stringify(a.platforms)}, want ${JSON.stringify(want)}`);
+            }
+            // Anything matching the per-platform grammar is a duplicate copy of the one APE.
+            const dupes = fs.readdirSync(dir).filter((f) => /_(?:linux|darwin|windows)_[a-z0-9]+(\.exe)?$/.test(f));
+            if (dupes.length > 0) core.setFailed(`per-platform duplicates of the APE in ${dir}: ${dupes.join(', ')}`);
+            core.info(`one APE covering ${a.platforms.join(', ')}; build/ holds ${fs.readdirSync(dir).join(', ')}`);
 
   # Cross-OS smoke of the actual release artifacts: download the build-output
   # hand-off the `build` job uploaded (exactly what `publish` will ship) and RUN
@@ -256,13 +282,12 @@ jobs:
           name: socketharness-build
           path: harness
 
-      - name: Run the APE (linux/amd64 slot)
+      - name: Run the APE
         run: |
           set -euo pipefail
-          # The linux/amd64 slot must BE the fat APE (magic MZqFpD), not a
-          # native ELF -- this is the consumer-visible contract of the migration.
-          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
-          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          # One artifact, and it must BE the fat APE (magic MZqFpD).
+          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
+          cp dist/go-toolchain_cosmo_fat "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
 
@@ -335,29 +360,18 @@ jobs:
           # dats phase above.
           "$RUNNER_TEMP/gt-ape"
 
-  # macos-latest is arm64. Two things are asserted here:
+  # macos-latest is arm64, and darwin/arm64 is in the APE's platform set, so
+  # the APE is what ARM64 macs download. This job therefore runs the FULL
+  # default pipeline under it -- the consumer-critical gate for mac users.
   #
-  # 1. The NATIVE darwin/arm64 binary (what ARM64 macs are actually served --
-  #    darwin/arm64 is a native carve-out, not an APE slot) runs the FULL
-  #    default pipeline. This is the consumer-critical gate for mac users.
-  #
-  # 2. The APE still EXECUTES on darwin/arm64 (magic + `version` + `--help`
-  #    from inside a module; the --help path bootstraps a real official Go
-  #    toolchain first: go.dev download + extract + version probe under the
-  #    APE loader). This is a REDUCED gate on purpose: the full pipeline
-  #    WEDGES AT EXIT under the APE on macOS. Root cause (SIGQUIT goroutine
-  #    dumps from the run-28742069477 debug job; see issue #276): the
-  #    gosmopolitan runtime runs unix-socket fds in blocking mode with no
-  #    netpoller on darwin hosts, so the cache daemon's Listener.Close
-  #    deadlocks forever against its own Accept, blocked in raw accept4(2),
-  #    which a close never wakes on XNU. Every pipeline phase (tidy/vet/test/
-  #    build/bench) is green under the APE now that the GOCACHEPROG self-exec
-  #    goes through a sh wrapper (the APE keeps its MZ magic on macOS -- no
-  #    self-assimilation there -- so cmd/go's direct fork/exec of it ENOEXECs;
-  #    fixed in cacheProgCommand). That exit deadlock is why darwin/arm64
-  #    reverted to a native slot; the APE gate here proves the APE keeps
-  #    working for the surface it still serves, and guards the day the fork
-  #    fix restores the darwin/arm64 APE slot.
+  # This gate is deliberately not reduced. It previously ran the full pipeline
+  # against a native darwin/arm64 carve-out because the pipeline wedged AT EXIT
+  # under the APE on macOS (issue #276): the gosmopolitan runtime ran
+  # unix-socket fds blocking with no netpoller on darwin hosts, so the cache
+  # daemon's Listener.Close deadlocked against its own Accept, blocked in raw
+  # accept4(2), which a close never wakes on XNU. The fork's darwin netpoller
+  # is a kqueue port now, so the deadlock should be gone; a red here is the
+  # honest answer that it is not, and the job's timeout bounds the hang.
   smoke-macos:
     needs: build
     runs-on: macos-latest
@@ -384,32 +398,22 @@ jobs:
           name: socketharness-build
           path: harness
 
-      - name: Check slot formats + run the APE
+      - name: Run the APE
         run: |
           set -euo pipefail
-          # The darwin/arm64 slot must be a NATIVE Mach-O arm64 binary (the
-          # macOS carve-out), NOT the APE.
-          [ "$(head -c 4 dist/go-toolchain_darwin_arm64 | xxd -p)" = "cffaedfe" ]
-          # The linux slots still carry the fat APE (magic MZqFpD); an APE is
-          # an APE regardless of slot name -- its loader picks the arm64
-          # payload at runtime -- so the linux/amd64 copy is what we execute
-          # here as a throwaway.
-          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
-          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          # The one artifact ARM64 macs download is the fat APE (magic MZqFpD);
+          # its loader picks the arm64 payload at runtime.
+          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
+          cp dist/go-toolchain_cosmo_fat "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
 
-      - name: Full pipeline with the native darwin/arm64 binary
+      - name: Full pipeline with the APE
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
-          # Native Mach-O binaries do not self-assimilate, but run a copy
-          # anyway for symmetry with the APE smoke steps (and because
-          # download-artifact drops the executable bit either way).
-          cp dist/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-native"
-          chmod +x "$RUNNER_TEMP/gt-native"
           mkdir -p "$RUNNER_TEMP/nativemod"
           cd "$RUNNER_TEMP/nativemod"
           cat > go.mod <<'EOF'
@@ -421,9 +425,8 @@ jobs:
           EOF
           cat > main.go <<'EOF'
           // Package main is a tiny module used to smoke-test the published
-          // native darwin/arm64 binary: the full go-toolchain pipeline
-          // (tidy/vet/test/build) must work when driven by the exact binary
-          // ARM64 mac users download.
+          // APE: the full go-toolchain pipeline (tidy/vet/test/build) must
+          // work when driven by the exact binary ARM64 mac users download.
           package main
 
           import "fmt"
@@ -456,15 +459,14 @@ jobs:
           # dats/ suite found (recursively) in the module it is building --
           # there is no separate suite-running step, which is exactly why
           # this fixture is copied in rather than checked in under this
-          # repo's OWN dats/: a suite referencing a native darwin binary
-          # would also run (and fail) during this repo's own linux
-          # build/host-build jobs, which discover every dats/ suite
-          # recursively with no filtering. dats sandboxes every command to
-          # the module root, so the binary under test must live INSIDE it:
-          # $RUNNER_TEMP is invisible to a sandboxed command (same reasoning
-          # as dats/README.md's build/.dats-stage/ staging).
-          cp "$RUNNER_TEMP/gt-native" ./gt-under-test
-          cp "$RUNNER_TEMP/gt-ape" ./gt-ape-under-test
+          # repo's OWN dats/: a suite asserting darwin-host behavior would
+          # also run (and fail) during this repo's own linux build/host-build
+          # jobs, which discover every dats/ suite recursively with no
+          # filtering. dats sandboxes every command to the module root, so the
+          # binary under test must live INSIDE it: $RUNNER_TEMP is invisible to
+          # a sandboxed command (same reasoning as dats/README.md's
+          # build/.dats-stage/ staging).
+          cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
           cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" ./socketharness-under-test
           chmod +x ./socketharness-under-test
           mkdir -p dats
@@ -473,7 +475,7 @@ jobs:
           # the job's first real bootstrap (downloads, extracts and probes
           # go 1.24 from go.dev), then tidy/vet/test/coverage/build, then the
           # dats phase above.
-          "$RUNNER_TEMP/gt-native"
+          "$RUNNER_TEMP/gt-ape"
 
   smoke-windows:
     needs: build
@@ -487,15 +489,17 @@ jobs:
           name: go-build-build
           path: dist
 
-      - name: Run the APE PE payload (windows/amd64 slot)
+      - name: Run the APE PE payload
         shell: bash
         run: |
           set -euo pipefail
-          # The windows/amd64 slot IS the fat APE: an APE is simultaneously a
-          # valid PE, whose embedded payload is a native windows/amd64 build.
-          [ "$(head -c 6 dist/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
+          # An APE is simultaneously a valid PE, whose embedded payload is a
+          # native windows/amd64 build. The .exe name is given here at copy
+          # time: NT dispatches on the extension, and the published artifact
+          # carries none.
+          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
           mkdir -p smoke
-          cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
+          cp dist/go-toolchain_cosmo_fat smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
           # Smoke contract (owner-ruled): gt must resolve the machine's
           # EXISTING Go (windows-latest ships an image-default Go) via its

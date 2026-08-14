@@ -24,15 +24,36 @@ inputs:
     required: false
     default: ''
   os:
-    description: 'Comma-separated list of target operating systems (e.g. linux,darwin,windows)'
+    description: >-
+      Comma-separated target operating systems (e.g. linux,darwin,windows).
+      Setting this OR arch switches from the default single multi-platform APE
+      to one native binary per platform. Empty (the default) builds the APE.
     required: false
-    default: 'linux,darwin,windows'
+    default: ''
   arch:
-    description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
+    description: >-
+      Comma-separated target architectures (e.g. amd64,arm64). Setting this OR
+      os switches from the default single multi-platform APE to one native
+      binary per platform. Empty (the default) builds the APE.
     required: false
-    default: 'amd64,arm64'
+    default: ''
   targets:
-    description: 'Comma-separated exact build targets, each an os/arch pair (e.g. darwin/amd64) or the special value "cosmo" (one fat APE built with the gosmopolitan toolchain, plus per-platform slot copies). When non-empty this replaces the os/arch inputs.'
+    description: 'Comma-separated exact build targets, each an os/arch pair (e.g. darwin/amd64) or the special value "cosmo" (one fat APE built with the gosmopolitan toolchain). When non-empty this replaces the os/arch inputs.'
+    required: false
+    default: ''
+  cosmo-platforms:
+    description: >-
+      Host platforms the fat APE must cover, as comma-separated os/arch pairs.
+      One binary runs on all of them and publishes as ONE artifact carrying the
+      whole set. "all" covers every platform the gosmopolitan fork can emit.
+    required: false
+    default: 'linux/amd64,darwin/arm64,windows/amd64'
+  cosmo-slots:
+    description: >-
+      Comma-separated per-platform artifact names that receive a COPY of the
+      fat APE (e.g. linux/amd64,windows/amd64). Each copy is the same binary
+      published again under another name, so this is empty by default; set it
+      only for a consumer that still resolves a <binary>_<os>_<arch> download.
     required: false
     default: ''
   cgo:
@@ -262,6 +283,8 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
+        # No targets and no os/arch is the default: ONE fat APE covering
+        # cosmo-platforms, published as one multi-platform artifact.
         if [ -n "${{ inputs.targets }}" ]; then
           # --targets replaces the --os x --arch matrix entirely.
           ARGS="$ARGS --targets ${{ inputs.targets }}"
@@ -272,6 +295,12 @@ runs:
           if [ -n "${{ inputs.arch }}" ]; then
             ARGS="$ARGS --arch ${{ inputs.arch }}"
           fi
+        fi
+        if [ -n "${{ inputs.cosmo-platforms }}" ]; then
+          ARGS="$ARGS --cosmo-platforms ${{ inputs.cosmo-platforms }}"
+        fi
+        if [ -n "${{ inputs.cosmo-slots }}" ]; then
+          ARGS="$ARGS --cosmo-slots ${{ inputs.cosmo-slots }}"
         fi
         if [ "${{ inputs.cgo }}" = "true" ]; then
           ARGS="$ARGS --cgo"

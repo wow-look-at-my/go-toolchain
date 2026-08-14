@@ -132,11 +132,39 @@ things split:
 
 ## The matrix cosmo target
 
-`targets.go` + `cosmobootstrap.go`: `matrix --targets` replaces the
-`--os`×`--arch` cartesian product with an exact, validated list of `os/arch`
-pairs plus the special entry `cosmo` — ONE `GOOS=cosmo` fat APE built with the
-gosmopolitan fork (artifact `<name>_cosmo_fat`, no `.exe`; `--os cosmo` is
-rejected with a pointer to `--targets`).
+`targets.go` + `cosmotargets.go` + `cosmobootstrap.go`. `matrix` resolves its
+platforms in three cases:
+
+- **No target flags — the default.** ONE `GOOS=cosmo` fat APE built with the
+  gosmopolitan fork (artifact `<name>_cosmo_fat`, no `.exe`), covering
+  `--cosmo-platforms`. One file, three platforms, one published artifact.
+- **`--os` or `--arch` named.** The `--os`×`--arch` cartesian product of native
+  per-platform binaries. Naming only one fills the other from `DefaultOS` /
+  `DefaultArch`, so `--arch arm64` alone still means "every OS, arm64".
+- **`--targets`.** An exact, validated list of `os/arch` pairs plus the special
+  entry `cosmo` (`--os cosmo` is rejected with a pointer to `--targets`).
+
+### --cosmo-platforms
+
+The host platforms the APE must cover, exported to the fork as
+`GOCOSMOPLATFORMS` so it skips building and merging the payloads nothing in the
+set needs. Default `linux/amd64,darwin/arm64,windows/amd64`; `all` leaves the
+variable unset, which is the fork's own everything-default.
+
+`cosmoRuntimeStatus` is the accepted set, and it is deliberately narrower than
+what the fork can emit: `darwin/amd64` (Intel-mac runtime never executed on real
+hardware) and `windows/arm64` (amd64-only PE payload, and WoA x86-64 emulation
+fails to boot it) are refused with their reason. The published platform set is
+what tells a consumer where the binary runs, so a platform whose runtime was
+never proven cannot be in it.
+
+An older fork ignores an unknown `GOCOSMO*` variable silently, which would emit
+a full-coverage APE while the run reported a slimmed one. `cosmoPlatformsEnvValue`
+(`cosmoplatforms.go`) therefore probes support first — `go env GOCOSMOPLATFORMS`
+with a sentinel value, which only an aware toolchain echoes back — and on an
+unaware one leaves the variable unset and emits ONE warning naming exactly what
+did not happen. The artifact is still correct there (a superset APE runs on
+every platform claimed); it is only larger than asked.
 
 The toolchain is resolved by `EnsureCosmoToolchain` (`cosmobootstrap.go`, seam
 `ensureCosmoToolchainFunc`), which runs BEFORE the test phase so config errors
@@ -167,37 +195,53 @@ failure fails the matrix run, and `runBuild` refuses a fork job whose
 `buildJob.cacheNamespace` is empty (last-chokepoint guard). Normal targets set
 no namespace and keep byte-identical cache behavior.
 
-## Cosmo slots, and replacing the fat name
+## Publishing one APE: the buildhost manifest
 
-After the build, `copyCosmoSlots` copies the APE — real files, never symlinks,
-because publish skips symlinks — onto the per-platform names in `--cosmo-slots`
-(default `linux/amd64,linux/arm64,windows/amd64`; the windows slot gets `.exe`
-because an APE IS a PE; `none` disables it).
+Depth: `docs/BUILDHOST-MANIFEST.md` — the wire contract, and why the filename
+grammar cannot carry a platform set.
 
-`darwin/arm64`, `darwin/amd64` and `windows/arm64` are deliberate native
-carve-outs: the pipeline WEDGES AT EXIT under the APE on macos-arm64 (the fork
-runs unix-socket fds blocking with no netpoller on darwin hosts, so the cache
-daemon's `Listener.Close` deadlocks against its own blocked `accept4` —
-root-caused via SIGQUIT dumps, run 28742069477, tracked in issue #276, see
-`DefaultCosmoSlots`), Intel-mac cosmo runtime is unverified, and the PE payload
-is amd64-only. An explicitly-built native target wins a colliding slot filename
-(the copy is skipped with a warning), and `checksums.txt` covers the copies.
+With no slots (the default), `apemanifest.go` writes `buildhost-artifacts.json`
+next to the APE, naming the file, its platform set, and the plain
+`<name>` the download is served under. buildhost-publish takes every listed file
+out of its `<binary>_<os>_<arch>` filename scan and uploads it once, as ONE
+artifact row carrying the whole set — which is also why the APE keeps its
+`_cosmo_fat` name without tripping buildhost's `os=cosmo` rejection.
 
-**The fat name is then replaced**, because buildhost validates os on upload and
-400-rejects `os=cosmo`, and one rejected artifact aborts the whole publish
-(evidence: go-regex-compiler run 28738513866):
+The manifest is an artifact of the build, not a survivor of it:
+`isOutputArtifact` matches it, so `clearBuildOutputs` and `discardBuildOutputs`
+delete it with the binaries. `apeManifestEntries` refuses to name a file that is
+not on disk, or an empty platform set.
+
+## Cosmo slots — the per-platform-copy escape hatch
+
+`--cosmo-slots` is EMPTY by default. Each slot is a byte-identical copy of the
+one APE under a per-platform name, so a list of length N publishes the same
+binary N times, with N download links. It exists for a consumer that still
+resolves a `<binary>_<os>_<arch>` download and cannot yet ask for the APE
+itself; setting it emits a warning saying exactly that.
+
+When slots ARE set, `copyCosmoSlots` writes them as real files (never symlinks —
+publish skips symlinks; the windows slot gets `.exe` because an APE IS a PE), no
+manifest is written, and the fat name is replaced, because buildhost validates
+os on upload and 400-rejects `os=cosmo` in the per-platform grammar:
 
 - **Locally**, `<name>_cosmo_fat` becomes a symlink to the first surviving slot
   copy. Publish skips symlinks, and matrix pre-removes a stale fat symlink
   before the next cosmo build so `go build -o` cannot write through it.
-- **In CI** it is removed outright: upload-artifact DEREFERENCES symlinks, so a
-  fat symlink would come back as a publish-breaking regular file inside the
-  downloaded artifact.
-- `checksums.txt` covers real files only.
+- **In CI** it is removed outright: a dereferenced symlink would come back as a
+  publish-breaking regular file.
+- An explicitly-built native target wins a colliding slot filename (the copy is
+  skipped with a warning), and `checksums.txt` covers real files only.
 
-With `--cosmo-slots=none`, or when every slot loses to a native collision, the
-real fat file is kept — unpublishable to buildhost until the server accepts
-`os=cosmo`. `release --build` registers the same flags.
+`release --build` registers the same flags.
+
+## The host-runnable artifact
+
+`hostRunnableArtifact` (`matrixbuild.go`) resolves what the dats phase and the
+local convenience symlinks point at: the native `<name>_<hostos>_<hostarch>`
+build when one exists, else the APE, which runs here by construction. Without
+the fallback a default run — one APE, no per-platform copies — would leave both
+with nothing to point at.
 
 > **APEs self-assimilate on exec.** Never execute matrix artifacts in `build/`
 > in place. The bench phase never execs artifacts, so the pipeline is safe;
