@@ -130,6 +130,28 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			}
 			filesChanged = false
 			err = nil
+		} else if isCorruptExportData(err) {
+			// A corrupt build-cache entry, not a source error. Recover once,
+			// deterministically: drop the shared cache tier and rebuild the
+			// damaged packages from source. Exactly one retry, and only when
+			// that tier was actually in play, so this cannot loop.
+			if !disableSharedBuildCache() {
+				return false, nil, corruptExportDataError(err, false)
+			}
+			logger.Warn("⇒ Warning: vet failed on CORRUPT BUILD CACHE data (%s), not on your source: %s. Disabling the shared build cache (GOCACHEPROG) for the rest of this run and rebuilding those packages from source. Repeated occurrences mean the shared cache tier is serving damaged entries and needs inspecting.",
+				invalidPackageNameMarker, strings.Join(corruptExportPackages(err), ", "))
+			if vetPhaseStep != nil {
+				vetPhaseStep.done()
+				vetPhaseStep = nil
+			}
+			vetPhaseStep = logSubStep("vet: retry without the shared build cache", "main")
+			filesChanged, err = vet.RunWithProgress(fix, vetProgress)
+			if err != nil {
+				if isCorruptExportData(err) {
+					return false, nil, corruptExportDataError(err, true)
+				}
+				return false, nil, fmt.Errorf("vet failed: %w", err)
+			}
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}
