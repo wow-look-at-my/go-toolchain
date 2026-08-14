@@ -288,7 +288,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 `
 	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
 
-	const fullHash = "351d2159f8d8f0e2c1a4b7d6e5f4a3b2c1d0e9f8"
+	const fullHash = "351d2159f8d8a85613aa2a6e98c8c63df3c98623"
 	mock, lsRemote := gitBranchMock(t, fullHash, "refs/heads/master", 1786567000)
 
 	changed, err := UpdateTrackedBranchDeps(mock)

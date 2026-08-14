@@ -381,7 +381,7 @@ func TestPseudoVersionForDerivesTheMajorFromTheModulePath(t *testing.T) {
 }
 
 func TestResolveVersionViaGitCarriesTheMajorThrough(t *testing.T) {
-	const fullHash = "351d2159f8d8f0e2c1a4b7d6e5f4a3b2c1d0e9f8"
+	const fullHash = "351d2159f8d8a85613aa2a6e98c8c63df3c98623"
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("git", "ls-remote") {
