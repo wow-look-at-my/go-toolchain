@@ -185,11 +185,12 @@ coverage.
   build; for a GOOS=cosmo fat APE — which reports `runtime.GOOS == "cosmo"` on Linux and macOS hosts (Windows runs the embedded native windows
   payload) — `hostos_cosmo.go` probes once: `syscall.Uname` (raw Linux syscall passes through on Linux hosts; the fork's darwin dispatcher returns
   ENOSYS — CONFIRMED: the dispatcher has no SYS_UNAME case at all), then filesystem probes (`/System/Library/CoreServices` → darwin, `/proc/self` →
-  linux), defaulting to linux. **KNOWN DEFECT: on a sandboxed macOS host every probe fails and this reports LINUX ON A MAC**, silently mis-picking
-  every host-specific choice. `Detect()` therefore returns the METHOD alongside the answer, a guessed answer prints a one-time banner, and
-  `go-toolchain version host` shows both; the smoke jobs assert it inside dats' sandbox and outside. The fix is upstream and approved
-  (`runtime.CosmoHostOS()`, from the runtime's own `__hostos` — unsandboxable, cannot ENOSYS): wire it to `hostSignalFunc` when it lands and keep the
-  probes as the fallback. Consumers: gobootstrap (go.dev archive name + `.exe` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host
+  linux), defaulting to linux. MEASURED on macos-latest (CI run 31825255540): CoreServices IS readable under dats' seatbelt and outside it, so the
+  answer is `darwin (via coreservices)` in both — seatbelt restricts writes, not reads. The `"linux"` default would be WRONG ON A MAC, so `Detect()`
+  returns the METHOD alongside the answer, a guessed answer prints a one-time banner, and `go-toolchain version host` shows both; the smoke jobs
+  assert it inside the sandbox and outside, so a stricter profile or a changed runner image fails CI instead of silently mis-picking every
+  host-specific choice. `runtime.CosmoHostOS()` (the runtime's own `__hostos` — unsandboxable, cannot ENOSYS) removes the last filesystem dependency:
+  wire it to `hostSignalFunc` when it lands. Consumers: gobootstrap (go.dev archive name + `.exe` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host
   symlinks, root/uptodate in-docker binary names, and the agent output guard's classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE
   always runs the payload matching the host arch
 - `src/compat/go-isatty/` — nested module substituted for `github.com/mattn/go-isatty` via a root go.mod `replace`: upstream selects zero

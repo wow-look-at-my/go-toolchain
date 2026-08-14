@@ -151,6 +151,12 @@ The host platforms the APE must cover, exported to the fork as
 set needs. Default `linux/amd64,darwin/arm64,windows/amd64`; `all` leaves the
 variable unset, which is the fork's own everything-default.
 
+Do not read this as a size knob. Payloads are per ARCHITECTURE, and the default
+set spans both — darwin/arm64 boots the arm64 image, linux/amd64 and
+windows/amd64 the amd64 one — so the measured saving for the default is 0%.
+Only a single-architecture set drops a payload (-46.9%). What the default buys
+is one artifact instead of six.
+
 `cosmoRuntimeStatus` is the accepted set, and it is deliberately narrower than
 what the fork can emit: `darwin/amd64` (Intel-mac runtime never executed on real
 hardware) and `windows/arm64` (amd64-only PE payload, and WoA x86-64 emulation
@@ -163,8 +169,9 @@ a full-coverage APE while the run reported a slimmed one. `cosmoPlatformsEnvValu
 (`cosmoplatforms.go`) therefore probes support first — `go env GOCOSMOPLATFORMS`
 with a sentinel value, which only an aware toolchain echoes back — and on an
 unaware one leaves the variable unset and emits ONE warning naming exactly what
-did not happen. The artifact is still correct there (a superset APE runs on
-every platform claimed); it is only larger than asked.
+did not happen. The artifact is still correct there: a superset APE runs on
+every platform claimed, and for the default set it is not even larger, since
+that set already needs every payload the fork emits.
 
 The toolchain is resolved by `EnsureCosmoToolchain` (`cosmobootstrap.go`, seam
 `ensureCosmoToolchainFunc`), which runs BEFORE the test phase so config errors

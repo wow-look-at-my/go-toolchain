@@ -259,9 +259,15 @@ go-toolchain matrix
 ```
 
 **Choosing the platforms.** `--cosmo-platforms` takes `os/arch` pairs and
-defaults to `linux/amd64,darwin/arm64,windows/amd64`. Every platform you leave
-out is code the binary does not carry, so a narrower set is a smaller file.
-`all` covers everything the fork can emit.
+defaults to `linux/amd64,darwin/arm64,windows/amd64`. `all` covers everything
+the fork can emit.
+
+A narrower set is **not** automatically a smaller binary, and the default set
+saves nothing: an APE carries one payload per ARCHITECTURE, and those three
+platforms still need both — darwin/arm64 boots the arm64 image, linux/amd64 and
+windows/amd64 the amd64 one. Measured saving for the default set: **0%**. Only
+collapsing to a single architecture drops a payload (**-46.9%**). The win of the
+default is one artifact instead of six, not fewer bytes.
 
 Accepted: `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`.
 `darwin/amd64` (Intel-mac runtime never proven on real hardware) and
