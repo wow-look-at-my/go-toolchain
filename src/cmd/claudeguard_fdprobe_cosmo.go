@@ -37,9 +37,12 @@ const pathMax = 1024
 
 // unsupportedErrno reports whether errno means "this build cannot ask that
 // question here", as opposed to a real negative answer about the descriptor.
+// ENOTSUP is not listed alongside EOPNOTSUPP: they are the same constant (95)
+// in the Linux-shaped errno space this build compiles against, and naming both
+// is a duplicate case the compiler rejects.
 func unsupportedErrno(errno syscall.Errno) bool {
 	switch errno {
-	case syscall.ENOSYS, syscall.ENOTSUP, syscall.EOPNOTSUPP, syscall.ENOPROTOOPT, syscall.EINVAL:
+	case syscall.ENOSYS, syscall.EOPNOTSUPP, syscall.ENOPROTOOPT, syscall.EINVAL:
 		return true
 	}
 	return false
