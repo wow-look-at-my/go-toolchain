@@ -109,12 +109,47 @@ aborts. `isTerminal` for linux/cosmo is split: `claudeguard_tty_linux.go`
 (x/sys/unix TCGETS) / `claudeguard_tty_cosmo.go` (stdlib `syscall.Ioctl` + a
 local TCGETS const — x/sys/unix has no cosmo port; only reachable on linux
 hosts). The `!linux && !cosmo && !darwin` stub (`claudeguard_other.go`,
-windows and anything else) stays a no-op. A cosmo APE actually executed on a
-darwin host still fails open (its classifier is gated `linux || cosmo`, which
-is satisfied at BUILD time by the cosmo target, but at RUNTIME on darwin
-`/proc` genuinely does not exist, so the readlink fails and `inspectFD` falls
-back to `sinkVisible`) — only a native `GOOS=darwin` build gets the real
-darwin classifier.
+windows and anything else) stays a no-op.
+
+## KNOWN GAP: the guard does not work under the APE on a darwin host
+
+Since `matrix` defaults to one multi-platform APE, macOS ARM64 downloads that
+APE rather than a native `GOOS=darwin` build — and the APE does not get the
+darwin classifier. Its build tag is satisfied at BUILD time by the cosmo
+target, but at RUNTIME on darwin `/proc` does not exist, the readlink fails,
+and every descriptor classifies as `sinkVisible`. The guard is engaged (the
+agent is still detected from its environment marker) and simply never refuses.
+
+`unclassifiableSink` makes that state LOUD: on a non-linux host it prints an
+"INOPERATIVE" banner, once per run, to the guard's own stderr writer. A guard
+that silently is not running is worse than one that is loudly absent. The
+banner is a notification, not a fix.
+
+Closing the gap needs three things, and one of them is not in this repo:
+
+1. **`wow-look-at-my/is-this-an-agent` (BLOCKER).** Its `proc.go` is
+   `linux || cosmo` and its sysctl-backed `proc_darwin.go` is `darwin`, so a
+   cosmo APE on a mac has no process lookup at all. Without it `agent.CommPPID`
+   cannot answer, and the SOCKET case — a coding agent's real stdio plumbing —
+   cannot tell "the agent is reading me" (allow) from "something else is
+   capturing" (refuse). Guessing either way is unacceptable: one leaves the
+   guard off, the other refuses every legitimate agent run on a mac. The fix is
+   a host-OS dispatch onto the sysctl path that repo already has.
+2. **Here.** `inspectFD` dispatches on `hostos.GOOS()` and runs the darwin
+   algorithm on a mac, SHARING `claudeguard_darwin.go`'s logic rather than
+   copying it. The cosmo build must supply four primitives `x/sys/unix` gives
+   only on `GOOS=darwin`: fstat mode bits, `getsockopt(SOL_LOCAL,
+   LOCAL_PEERPID)`, a TIOCGETA terminal test, and `fcntl(F_GETPATH)`.
+3. **`wow-look-at-my/gosmopolitan`.** Whether those four survive the fork's
+   darwin syscall dispatcher is unverified. Two specific risks: `SOL_LOCAL` is
+   level 0, which is `IPPROTO_IP` on Linux and may be mangled by a translating
+   dispatcher; and `F_GETPATH` is a VARIADIC fcntl, which that fork documents
+   (2026-07-26) must pass variadic arguments on the stack on arm64-apple or it
+   reads uninitialized memory — the same defect that silently broke FD_CLOEXEC
+   there.
+
+`smoke-macos` is the gate that found this and is the gate that will prove the
+fix: it runs the full pipeline under the real published APE on macos-latest.
 
 The guard is unconditional: there is deliberately no environment variable or
 flag to disable it.
