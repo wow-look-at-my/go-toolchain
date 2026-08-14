@@ -138,6 +138,39 @@ func TestLoadErrorMessages(t *testing.T) {
 	assert.Nil(t, loadErrorMessages(nil))
 }
 
+// TestLoadErrorMessagesReportsDependencyErrors: a package that fails to load
+// records the cause on ITS OWN Errors and still hands its importers a type
+// under whatever name go list reported, so the roots carry only the downstream
+// `undefined:` cascade. Reading roots alone dropped the one line that named the
+// broken package. A dependency reached by two paths reports once.
+func TestLoadErrorMessagesReportsDependencyErrors(t *testing.T) {
+	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
+
+	broken := &packages.Package{
+		PkgPath: "go.opentelemetry.io/otel/attribute",
+		Errors:  []packages.Error{perr("-", "could not import go.opentelemetry.io/otel/attribute (no export data)")},
+	}
+	mid := &packages.Package{
+		PkgPath: "go.opentelemetry.io/otel",
+		Imports: map[string]*packages.Package{"go.opentelemetry.io/otel/attribute": broken},
+	}
+	pkgs := []*packages.Package{
+		{
+			PkgPath: "m/trace",
+			Errors:  []packages.Error{perr("trace.go:9:2", "undefined: attribute.KeyValue")},
+			Imports: map[string]*packages.Package{
+				"go.opentelemetry.io/otel":           mid,
+				"go.opentelemetry.io/otel/attribute": broken,
+			},
+		},
+	}
+
+	assert.Equal(t, []string{
+		"trace.go:9:2: undefined: attribute.KeyValue",
+		"-: could not import go.opentelemetry.io/otel/attribute (no export data)",
+	}, loadErrorMessages(pkgs))
+}
+
 func TestGenerateBinaryReplacementCompound(t *testing.T) {
 	// Test for && and || operators
 	dir := t.TempDir()

@@ -79,21 +79,28 @@ func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error)
 	return vetSemantic(pattern, NewEditor(fix), progress)
 }
 
-// loadErrorMessages collects the packages' load errors, dropping two kinds of
-// noise that make a real failure hard to read.
+// loadErrorMessages collects load errors from the WHOLE import graph, dropping
+// two kinds of noise that make a real failure hard to read.
+//
+// The walk is the graph, not just the roots: a dependency that fails to load
+// records the cause on ITS OWN Errors ("no export data", "reading ...") and
+// hands the root a package typed under whatever name go list reported, so the
+// roots carry only the downstream `undefined:` cascade. Reading the roots alone
+// discarded the one message that named the broken package.
 //
 // Go version mismatch warnings are skipped outright: they occur when
 // go-toolchain was built with an older Go than the target project declares in
 // go.mod, and the embedded go/packages can still analyze the code correctly --
 // the go directive is a minimum version, not a syntax gate.
 //
-// The rest are deduplicated, because a directory's test variants (`p`,
-// `p [p.test]`, `p.test`) are separate root packages carrying the same Errors,
-// so one broken file printed its error two to four times.
+// The rest are deduplicated: packages.Visit already visits a diamond dependency
+// once, but a directory's test variants (`p`, `p [p.test]`, `p.test`) are
+// separate packages carrying the same Errors, so one broken file printed its
+// error two to four times.
 func loadErrorMessages(pkgs []*packages.Package) []string {
 	var msgs []string
 	seen := make(map[string]bool)
-	for _, pkg := range pkgs {
+	packages.Visit(pkgs, func(pkg *packages.Package) bool {
 		for _, e := range pkg.Errors {
 			msg := e.Error()
 			if strings.Contains(msg, "package requires newer Go version") ||
@@ -106,7 +113,8 @@ func loadErrorMessages(pkgs []*packages.Package) []string {
 			seen[msg] = true
 			msgs = append(msgs, msg)
 		}
-	}
+		return true
+	}, nil)
 	return msgs
 }
 

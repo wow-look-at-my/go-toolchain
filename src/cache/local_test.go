@@ -155,31 +155,28 @@ func TestLocalCache_RefusesCrossContaminatedPackage(t *testing.T) {
 	require.False(t, miss, "a correctly-keyed package must still be served")
 }
 
-// TestLocalCache_ServesLocalModuleIndex: the loose tier serves a Go module
-// index the local cmd/go stored, mirroring the pack store. Local indexes are
-// locally-originated by construction (the web ingestion paths refuse index
-// blobs before any local Put — see verify.go); refusing them here caused the
-// permanent store/refuse loop with an eviction log line per index key per
-// build.
-func TestLocalCache_ServesLocalModuleIndex(t *testing.T) {
+// TestLocalCache_RefusesStoredModuleIndex: the loose tier never serves a Go
+// module index, whatever put it there. An index key hashes no content, so no
+// gate can tell a right body from a wrong one under it, and a wrong one renames
+// a package at load time. Residue from a binary that predates the PUT refusal
+// is evicted on the way out, so the toolchain recomputes it.
+func TestLocalCache_RefusesStoredModuleIndex(t *testing.T) {
 	lc, err := NewLocalCache(t.TempDir())
 	require.Nil(t, err)
 
 	actionID := hexID(40)
-	index := []byte("go index v2\n\x00\x00module-index payload the local tier must serve")
+	index := []byte("go index v2\n\x00\x00module-index payload from an older binary")
 	diskPath, err := lc.Put(actionID, casID(index), bytes.NewReader(index))
 	require.Nil(t, err)
 
-	meta, miss := lc.Get(actionID)
-	require.False(t, miss, "a locally-stored module index must be served from the loose tier")
-	require.Equal(t, int64(len(index)), meta.Size)
-	require.Equal(t, uint32(0), lc.Stats.Corrupt.Load(), "serving a local index must not count as corruption")
+	_, miss := lc.Get(actionID)
+	require.True(t, miss, "a stored module index must never be served from the loose tier")
 
-	// No eviction: data and sidecar stay on disk.
+	// Evicted: data and sidecar are gone, so the residue cannot be re-offered.
 	_, err = os.Stat(diskPath)
-	require.Nil(t, err)
+	require.True(t, os.IsNotExist(err))
 	_, err = os.Stat(diskPath + ".meta")
-	require.Nil(t, err)
+	require.True(t, os.IsNotExist(err))
 }
 
 func TestLocalCache_SubdirCreation(t *testing.T) {
