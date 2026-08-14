@@ -154,6 +154,24 @@ tests:
 		stdout:
 			- "Usage:"
 
+	# Host detection, from inside the sandbox. hostos.Detect()'s filesystem
+	# probes are reads of absolute paths and its fallback is "linux", so a
+	# sandbox that denies them yields the right answer here for the WRONG
+	# reason. Asserting the method, not just the answer, is what catches that:
+	# under bwrap this must still be a measurement. The macOS fixture asserts
+	# the darwin direction under seatbelt.
+	- desc: host detection reports linux by measurement, not by fallback
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version host'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "host: linux"
+		"!stdout":
+			- "GUESSED"
+
 	# The default matrix builds ONE multi-platform APE; --os/--arch opt into a
 	# per-platform product. That is a promise made in --help, so pin it: the
 	# platform-set flag has to exist with the documented default, and --os/--arch

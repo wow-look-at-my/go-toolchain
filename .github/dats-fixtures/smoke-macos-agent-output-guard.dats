@@ -23,6 +23,25 @@ sandbox:
 	image: golang:1.25
 
 tests:
+	# Everything host-specific this binary does hangs off hostos.Detect(), whose
+	# filesystem probes are reads of absolute paths and whose fallback is
+	# "linux". Seatbelt is exactly the environment that can deny those reads, so
+	# assert the answer HERE, inside the sandbox, not only from the unsandboxed
+	# CI step. A "linux" answer on this runner would mean every dependent
+	# decision -- including the output guard's whole classifier -- is silently
+	# taking the wrong branch under the sandbox the guard tests run in.
+	- desc: the APE detects a darwin host from inside the sandbox
+	  cmd: 'cp ./gt-under-test {outputs.gt}; {outputs.gt} version host'
+	  timeout: 30s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "host: darwin"
+		"!stdout":
+			- "GUESSED"
+
 	- desc: agent output guard refuses a captured pipeline run under {matrix.marker} (APE on a macOS host)
 	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; env {matrix.marker}=1 {outputs.gt}; rc=$?; exit $rc'
 	  exit: 1

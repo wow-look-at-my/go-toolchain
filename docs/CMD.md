@@ -212,13 +212,19 @@ The manifest is an artifact of the build, not a survivor of it:
 delete it with the binaries. `apeManifestEntries` refuses to name a file that is
 not on disk, or an empty platform set.
 
-## Cosmo slots — the per-platform-copy escape hatch
+## Cosmo slots — the deprecated per-platform-copy escape hatch
 
-`--cosmo-slots` is EMPTY by default. Each slot is a byte-identical copy of the
-one APE under a per-platform name, so a list of length N publishes the same
-binary N times, with N download links. It exists for a consumer that still
-resolves a `<binary>_<os>_<arch>` download and cannot yet ask for the APE
-itself; setting it emits a warning saying exactly that.
+The org ships one APE covering every supported platform and no longer maintains
+or stores per-platform binaries. `--cosmo-slots` is therefore EMPTY by default
+and DEPRECATED for org use; nothing in this org's pipelines may depend on it.
+Each slot is a byte-identical copy of the one APE under a per-platform name, so
+a list of length N publishes the same binary N times, with N download links. It
+stays reachable for a consumer that still resolves a `<binary>_<os>_<arch>`
+download and cannot yet ask for the APE itself; setting it warns.
+
+The policy is enforced, not just documented: `.github/actions/assert-single-ape`
+fails if any file matching the per-platform grammar reaches either the build
+output or — the one that decides what is released — the publish payload.
 
 When slots ARE set, `copyCosmoSlots` writes them as real files (never symlinks —
 publish skips symlinks; the windows slot gets `.exe` because an APE IS a PE), no

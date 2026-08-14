@@ -239,6 +239,12 @@ Log routing: debug messages go to stderr and info to stdout; warnings and errors
 
 ### One binary for every platform (the default)
 
+> **Shipping policy.** The `wow-look-at-my` org ships **one APE covering every
+> supported platform**. Per-platform binaries have ended: the org no longer
+> maintains or stores them, and nothing in its pipelines produces them. The
+> cross-compilation flags below still work for consumers with a genuine need,
+> but they are not this org's shipping mode.
+
 `go-toolchain matrix` builds **one** file: a fat Actually Portable Executable,
 compiled with the [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan)
 Go fork (`GOOS=cosmo`). It runs natively on Linux x64, macOS ARM64 and Windows
@@ -268,10 +274,11 @@ platform set: one upload, one download link, one checksum, with an
 alongside the binary to say so — see
 [docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md).
 
-**Per-platform binaries instead.** Naming `--os` or `--arch` builds the
-cartesian product of native binaries; naming only one fills the other in
-(`--arch arm64` means every OS, arm64). `--targets` takes an exact list of
-`os/arch` pairs plus the entry `cosmo`, and mixes them freely:
+**Per-platform binaries instead** — supported, but not this org's shipping
+mode. Naming `--os` or `--arch` builds the cartesian product of native
+binaries; naming only one fills the other in (`--arch arm64` means every OS,
+arm64). `--targets` takes an exact list of `os/arch` pairs plus the entry
+`cosmo`, and mixes them freely:
 
 ```bash
 go-toolchain matrix --os linux,darwin --arch amd64,arm64
@@ -280,8 +287,9 @@ go-toolchain matrix --targets cosmo,windows/arm64
 
 **Per-platform *copies* of the APE.** `--cosmo-slots` copies the one APE onto
 `<name>_<os>_<arch>` names for a consumer that cannot yet resolve the APE
-itself. Each copy is the same binary published again under another name, so it
-is empty by default and warns when set. When slots are used the fat name is
+itself. Each copy is the same binary published again under another name. It is
+empty by default and **deprecated for org use** — the org does not store
+per-platform binaries — so setting it warns. When slots are used the fat name is
 replaced (locally a symlink to the first copy, in CI removed), because
 buildhost's per-platform upload grammar rejects `os=cosmo`.
 

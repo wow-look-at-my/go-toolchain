@@ -212,35 +212,15 @@ jobs:
           # too tight for a cold runner.
           timeout: '15'
 
-      # One binary, one artifact row. The whole point of the default is that
-      # build/ holds ONE executable covering three platforms rather than one
-      # file per platform, so assert it here: a stray <name>_<os>_<arch> file
-      # would silently restore the N-downloads-of-one-binary shape the manifest
-      # exists to end.
-      - name: Assert one multi-platform artifact
-        uses: wow-look-at-my/actions@typescript#latest
+      # This repo ships ONE APE covering every supported platform; per-platform
+      # binaries ended. Asserted on the build output here and again on the
+      # publish payload below -- only the second is what consumers receive.
+      - name: Assert one multi-platform APE
+        uses: ./.github/actions/assert-single-ape
         with:
-          script: |
-            const dir = 'build';
-            const manifestPath = `${dir}/buildhost-artifacts.json`;
-            if (!fs.existsSync(manifestPath)) {
-              core.setFailed(`${manifestPath} missing -- the APE would publish under no platform set`);
-              return;
-            }
-            const m = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-            const want = ['linux/amd64', 'darwin/arm64', 'windows/amd64'];
-            if (m.schema !== 1) core.setFailed(`manifest schema ${m.schema}, want 1`);
-            if (m.artifacts?.length !== 1) core.setFailed(`manifest lists ${m.artifacts?.length} artifacts, want 1`);
-            const a = m.artifacts[0];
-            if (a.file !== 'go-toolchain_cosmo_fat') core.setFailed(`manifest file is ${a.file}`);
-            if (a.filename !== 'go-toolchain') core.setFailed(`manifest download filename is ${a.filename}, want go-toolchain`);
-            if (JSON.stringify(a.platforms) !== JSON.stringify(want)) {
-              core.setFailed(`manifest platforms ${JSON.stringify(a.platforms)}, want ${JSON.stringify(want)}`);
-            }
-            // Anything matching the per-platform grammar is a duplicate copy of the one APE.
-            const dupes = fs.readdirSync(dir).filter((f) => /_(?:linux|darwin|windows)_[a-z0-9]+(\.exe)?$/.test(f));
-            if (dupes.length > 0) core.setFailed(`per-platform duplicates of the APE in ${dir}: ${dupes.join(', ')}`);
-            core.info(`one APE covering ${a.platforms.join(', ')}; build/ holds ${fs.readdirSync(dir).join(', ')}`);
+          path: build
+          binary: go-toolchain
+          platforms: linux/amd64,darwin/arm64,windows/amd64
 
   # Cross-OS smoke of the actual release artifacts: download the build-output
   # hand-off the `build` job uploaded (exactly what `publish` will ship) and RUN
@@ -290,6 +270,18 @@ jobs:
           cp dist/go-toolchain_cosmo_fat "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
+          # The other half of the host-detection gate (see smoke-macos): the
+          # same APE must answer linux here. Asserting both directions is what
+          # makes the answer evidence rather than a coincidence.
+          "$RUNNER_TEMP/gt-ape" version host
+          got=$("$RUNNER_TEMP/gt-ape" version host)
+          case "$got" in
+            *"host: linux"*) ;;
+            *) echo "::error::the APE detects the wrong host on ubuntu-latest: ${got}"; exit 1 ;;
+          esac
+          case "$got" in
+            *GUESSED*) echo "::error::host detection GUESSED on ubuntu-latest: ${got}"; exit 1 ;;
+          esac
 
       - name: Full pipeline in a tiny module
         env:
@@ -407,6 +399,27 @@ jobs:
           cp dist/go-toolchain_cosmo_fat "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
+
+      # One APE runs on several hosts, so everything host-specific it does --
+      # toolchain archives, brew paths, and the agent output guard's entire
+      # classifier -- hangs off hostos.Detect(). Its filesystem probes are
+      # reads of absolute paths, and its fallback is "linux", so a denied probe
+      # answers "linux" ON A MAC and every dependent decision is silently
+      # wrong. Assert it here, UNSANDBOXED; the dats fixture below asserts the
+      # same thing from inside dats' seatbelt sandbox, where the probes may not
+      # be allowed. Both must say darwin.
+      - name: Host detection (outside the sandbox)
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/gt-ape" version host
+          got=$("$RUNNER_TEMP/gt-ape" version host)
+          case "$got" in
+            *"host: darwin"*) ;;
+            *) echo "::error::the APE detects the wrong host on macos-latest: ${got}"; exit 1 ;;
+          esac
+          case "$got" in
+            *GUESSED*) echo "::error::host detection GUESSED on macos-latest: ${got}"; exit 1 ;;
+          esac
 
       - name: Full pipeline with the APE
         env:
@@ -531,11 +544,24 @@ jobs:
       artifact-metadata: write
     steps:
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
+      - uses: actions/checkout@v7
+
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
           name: go-build-build
           path: build/
+
+      # The gate that actually matters: this directory IS the publish payload.
+      # The identical check in `build` guards what was produced; this one
+      # guards what is released, and only the second can keep a per-platform
+      # binary off the registry.
+      - name: Assert one multi-platform APE
+        uses: ./.github/actions/assert-single-ape
+        with:
+          path: build
+          binary: go-toolchain
+          platforms: linux/amd64,darwin/arm64,windows/amd64
 
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
         with:

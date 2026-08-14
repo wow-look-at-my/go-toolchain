@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
@@ -103,6 +105,20 @@ func init() {
 		Use:   "json",
 		Short: "Print version info as JSON",
 		Run:   runVersionJSON,
+	})
+	// One APE runs on several hosts, so "which host does this binary think it
+	// is on, and how does it know" is a real question with a fallback answer
+	// that can be wrong. Printing the evidence makes it auditable from
+	// anywhere the binary runs -- including inside a sandbox, where the
+	// filesystem probes can be denied. No network, no Go bootstrap.
+	versionCmd.AddCommand(&cobra.Command{
+		Use:   "host",
+		Short: "Print the detected host OS and the evidence for it",
+		Run: func(cmd *cobra.Command, args []string) {
+			d := hostos.Detect()
+			logger.Output("%s", d)
+			logger.Output("goos: %s, goarch: %s", runtime.GOOS, runtime.GOARCH)
+		},
 	})
 	rootCmd.AddCommand(versionCmd)
 }

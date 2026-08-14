@@ -125,6 +125,30 @@ agent is still detected from its environment marker) and simply never refuses.
 that silently is not running is worse than one that is loudly absent. The
 banner is a notification, not a fix.
 
+### Two states that must not collapse into one
+
+| | meaning | today | once the host has a classifier |
+|---|---|---|---|
+| `unreadableDescriptorSink` | looked and saw nothing — /proc is there, this one fd would not read | allow, silently | unchanged |
+| `blindClassifierSink` | blind and knows it — no mechanism on this host at all | allow, with the banner | **refuse** |
+
+Both allow today, and that is deliberate: a classifier with no mechanism has
+not earned a refusal, because it cannot tell a captured run from a legitimate
+one and refusing would break every agent-driven run on that host. Once the
+primitives exist, a descriptor they cannot answer for is no longer "no
+mechanism" but a *failed probe* — and the honest reply is to refuse, the same
+fail-closed rule `claudeguard_darwin.go` already applies to a FIFO whose reader
+it cannot resolve. Keeping the two apart in the code is what makes that change
+a one-line edit in the right place instead of a rewrite.
+
+Note the difference matters for a THIRD reason: `hostos.GOOS()` decides which
+branch is taken, and its filesystem probes can be denied by a sandbox, whose
+fallback answer is `"linux"`. A wrong host there would route a Mac into the
+"looked and saw nothing" branch and lose even the banner. That is why both
+smoke jobs assert `version host` — inside dats' sandbox and outside it — and
+why `hostos.Detection` records the METHOD, so a measurement can be told from
+the fallback.
+
 Closing the gap needs three things, and one of them is not in this repo:
 
 1. **`wow-look-at-my/is-this-an-agent` (BLOCKER).** Its `proc.go` is
