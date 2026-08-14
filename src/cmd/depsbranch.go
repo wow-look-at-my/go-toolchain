@@ -78,7 +78,8 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 			continue
 		}
 		if req.Indirect {
-			logger.Warn("%s tracks branch %q but is marked indirect; make it a direct dependency or drop the go-toolchain:branch comment", req.Mod.Path, branch)
+			logger.Warn("%s tracks branch %q but is marked indirect; make it a direct dependency, track it through a replace instead (replace %s => <repo> <version> // go-toolchain:branch=%s -- a replace is main-module-only, so it covers direct and indirect requires alike), or drop the go-toolchain:branch comment",
+				req.Mod.Path, branch, req.Mod.Path, branch)
 			continue
 		}
 

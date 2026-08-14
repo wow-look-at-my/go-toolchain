@@ -46,7 +46,10 @@ still reviews and commits every version bump the same way they would a manual `g
 
 Only direct (non-`// indirect`) requires are tracked; an indirect line carrying the marker is
 skipped with a warning rather than silently ignored, since indirect dependencies are resolved
-transitively and a per-line branch pin on one would not mean what it looks like it means.
+transitively and a per-line branch pin on one would not mean what it looks like it means. The
+warning names the way that does work: a `replace` carrying the marker (see below) is main-module
+only, so it applies to direct and indirect requires alike and pins the version that actually
+reaches the build.
 
 ### Tracking a fork through a `replace`
 
