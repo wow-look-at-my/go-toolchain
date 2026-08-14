@@ -84,9 +84,24 @@ Neither is worked around, and neither is a reason to weaken the job.
    SYS_UNAME case in the darwin dispatcher) and the filesystem probes are
    denied, so detection falls to its `"linux"` default.
 
-The `version host` assertions exist to keep (2) visible rather than to pass
-today. When `CosmoHostOS` lands, `hostSignalFunc` is wired to it and both the
-unsandboxed and sandboxed assertions go green without touching the tests.
+Update, both settled by measurement on macos-latest (run 31825255540):
+
+- (2) is NOT happening. `version host` reports `host: darwin (via coreservices)`
+  outside the sandbox AND passes the same assertion inside dats' seatbelt, so
+  detection is a measurement there. seatbelt restricts writes, not reads of
+  system paths. `runtime.CosmoHostOS()` remains the improvement — it removes the
+  last filesystem dependency — but it blocks nothing, and `hostSignalFunc` is
+  the one-line seam for it. The assertions stay as regression cover: a stricter
+  sandbox or a changed runner image fails CI instead of silently answering
+  "linux" on a Mac.
+- The INOPERATIVE banner DOES fire ("an inoperative guard announces itself on a
+  macOS host" passes). Its earlier absence from the log was dats reporting a
+  failing test's unmet expectation rather than its actual stderr — not a third,
+  silent state.
+
+So smoke-macos has ONE known red, (1), and it is 5 of its 10 tests. Those five
+are the end-to-end proof for `is-this-an-agent`'s host dispatch plus the fork's
+SO_PEERCRED/F_GETPATH support, on real Apple hardware.
 
 **Windows** — `version` and `--help` only: gobootstrap downloads
 `go<version>.<os>-<arch>.tar.gz`, and go.dev serves no windows variant (windows
@@ -135,6 +150,26 @@ attempt and absence failing loud. A single-file upload (the `host-build`→`buil
 basename+exec-bit into the destination directory, where the action's `binary`
 input consumes it. The old debug-only `build-profiles` artifact is gone; the
 profile's home is the Step Summary table.
+
+## Vet self-heals against cache-served export-data damage
+
+`src/cmd/exportdataretry.go`. A damaged export-data entry from the shared
+GOCACHEPROG tier makes go/types report `invalid package name: ""` for the
+imported package, followed by a cascade of "redeclared in this block" and
+undefined symbols — in a package the change never touched. It reads exactly
+like a source error, which is why two runs in one session were re-run as flakes
+before the signature was recognized.
+
+`RunTestsWithCoverage` detects it, unsets `GOCACHEPROG` for the rest of the run
+so cmd/go falls back to its own on-disk cache, and retries the vet phase ONCE;
+the damaged packages then rebuild from source. It warns each time it fires,
+naming the packages, so a tier that is systematically serving bad entries shows
+up in logs instead of being absorbed. If the shared tier was not enabled, or the
+retry hits the same failure, the run stops with a message saying it is a corrupt
+cache and giving `go clean -cache`.
+
+Bounded by construction: `disableSharedBuildCache` reports whether it had
+anything to unset, so the retry can happen at most once.
 
 ## Tidy self-heals against cache-served module-index damage
 

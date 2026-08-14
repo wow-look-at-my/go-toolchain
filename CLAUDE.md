@@ -75,6 +75,10 @@ coverage.
   is empty by default. Depth: `docs/CMD.md`
 - `src/cmd/apemanifest.go` — `build/buildhost-artifacts.json`: names the APE, its platform SET and the plain filename the download is served
   under, so buildhost publishes it as ONE artifact row with one download link instead of one row per platform. Depth: `docs/BUILDHOST-MANIFEST.md`
+- `src/cmd/exportdataretry.go` — a damaged export-data entry from the shared build cache surfaces as `invalid package name: ""` plus a cascade of
+  undefined symbols in an untouched package, which reads as a source error and gets re-run as a flake. Vet detects it, drops `GOCACHEPROG` for the
+  rest of the run, retries ONCE so those packages rebuild from source, and warns each time; unrecoverable cases name `go clean -cache`. Sibling of
+  `modindexretry.go` (different signature, different cure). Depth: `docs/CI.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
   deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same require line.
   A tracked branch's HEAD is the one pipeline input that is not a file, so the up-to-date fast exit checks it too --
