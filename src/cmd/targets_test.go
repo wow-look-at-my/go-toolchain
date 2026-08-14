@@ -182,11 +182,15 @@ func TestParseCosmoSlots(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "defaults",
+			// The default is empty — one APE is one artifact — so an empty
+			// list is the no-mapping case, not an error.
+			name:    "empty default maps nothing",
 			entries: DefaultCosmoSlots,
-			// darwin/arm64 is intentionally NOT a default slot: the full
-			// pipeline wedges under the APE on macOS (see DefaultCosmoSlots),
-			// so macs get a native binary by default until that is fixed.
+			want:    []buildPlatform{},
+		},
+		{
+			name:    "explicit slots",
+			entries: []string{"linux/amd64", "linux/arm64", "windows/amd64"},
 			want: []buildPlatform{
 				{OS: "linux", Arch: "amd64"},
 				{OS: "linux", Arch: "arm64"},

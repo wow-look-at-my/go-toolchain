@@ -67,28 +67,47 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 		"pkg/tool/linux_amd64/link":    "fake link binary",
 	})
 
-	oldTargets, oldSlots := matrixTargets, cosmoSlots
+	oldTargets, oldSlots, oldPlatforms := matrixTargets, cosmoSlots, cosmoPlatforms
 	oldOS, oldArch := matrixOS, matrixArch
 	oldOutput, oldParallel, oldBench := outputDir, releaseParallel, noBenchmark
-	oldEnsure := ensureCosmoToolchainFunc
+	oldEnsure, oldSupported := ensureCosmoToolchainFunc, cosmoPlatformsSupportedFunc
 	matrixTargets = targets
 	cosmoSlots = DefaultCosmoSlots
-	matrixOS, matrixArch = DefaultOS, DefaultArch
+	cosmoPlatforms = DefaultCosmoPlatforms
+	matrixOS, matrixArch = nil, nil
 	outputDir = outDir
 	releaseParallel = 1
 	noBenchmark = true
 	ensureCosmoToolchainFunc = func() (string, error) { return fakeGoroot, nil }
+	// The fake GOROOT's bin/go is not executable, so the real probe would
+	// report "unsupported" and every cosmo test would carry its warning.
+	cosmoPlatformsSupportedFunc = func(string) bool { return true }
 	t.Cleanup(func() {
-		matrixTargets, cosmoSlots = oldTargets, oldSlots
+		matrixTargets, cosmoSlots, cosmoPlatforms = oldTargets, oldSlots, oldPlatforms
 		matrixOS, matrixArch = oldOS, oldArch
 		outputDir, releaseParallel, noBenchmark = oldOutput, oldParallel, oldBench
-		ensureCosmoToolchainFunc = oldEnsure
+		ensureCosmoToolchainFunc, cosmoPlatformsSupportedFunc = oldEnsure, oldSupported
 	})
 	return fakeGoroot, outDir
 }
 
+// legacyCosmoSlots are the per-platform names slot mapping used to produce by
+// default. Slots are now opt-in, so the tests that cover the mapping ask for
+// them explicitly.
+var legacyCosmoSlots = []string{"linux/amd64", "linux/arm64", "windows/amd64"}
+
+// useCosmoSlots opts a test into slot mapping, which duplicates the one APE
+// under per-platform artifact names.
+func useCosmoSlots(t *testing.T, slots ...string) {
+	t.Helper()
+	old := cosmoSlots
+	cosmoSlots = slots
+	t.Cleanup(func() { cosmoSlots = old })
+}
+
 func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo"})
+	useCosmoSlots(t, legacyCosmoSlots...)
 	// Pin the local (non-CI) shape: the fat name becomes a symlink to the
 	// first slot copy. The CI shape (fat dropped) is pinned separately below.
 	t.Setenv("CI", "")
@@ -107,16 +126,16 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	require.NoError(t, err)
 
-	// The fat APE name and its three default slot copies must exist,
-	// byte-identical; the fat name itself is a symlink to the first copy
-	// (buildhost rejects os=cosmo uploads, so only the slots are published).
-	// darwin/arm64 is NOT a default slot (macOS pipeline wedge — see
-	// DefaultCosmoSlots).
+	// Each requested slot holds a byte-identical copy of the APE, and the fat
+	// name becomes a symlink to the first copy. Slot mapping publishes through
+	// the per-platform filename grammar, so no manifest is written.
 	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
 	require.Len(t, fatMatches, 1, "expected exactly one fat APE in %s", outDir)
 	name := strings.TrimSuffix(filepath.Base(fatMatches[0]), "_cosmo_fat")
 	assert.NoFileExists(t, filepath.Join(outDir, name+"_darwin_arm64"),
-		"darwin/arm64 must not receive an APE slot copy by default")
+		"an unrequested slot must not receive an APE copy")
+	assert.NoFileExists(t, filepath.Join(outDir, buildhostManifestName),
+		"slot mapping publishes per-platform names, so it writes no manifest")
 	for _, slotName := range []string{
 		name + "_linux_amd64", name + "_linux_arm64",
 		name + "_windows_amd64.exe",
@@ -179,6 +198,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 
 func TestRunReleaseWithRunnerCosmoTargetCIDropsFat(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo"})
+	useCosmoSlots(t, legacyCosmoSlots...)
 	// Pin the CI shape: the fat name is REMOVED after slot mapping, so the
 	// uploaded build/ directory holds only publishable per-platform names
 	// (buildhost rejects os=cosmo; upload-artifact dereferences symlinks).
@@ -216,6 +236,7 @@ func TestRunReleaseWithRunnerCosmoTargetCIDropsFat(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	assert.Len(t, names, 4, "3 slot copies + checksums.txt, got %v", names)
+	assert.NotContains(t, names, buildhostManifestName)
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, 3, len(strings.Split(strings.TrimSpace(string(sums)), "\n")))
@@ -224,6 +245,7 @@ func TestRunReleaseWithRunnerCosmoTargetCIDropsFat(t *testing.T) {
 
 func TestRunReleaseWithRunnerCosmoNativeCollision(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo", "linux/amd64"})
+	useCosmoSlots(t, legacyCosmoSlots...)
 	t.Setenv("CI", "")
 
 	mock := newTestPassMock(0)
@@ -301,10 +323,11 @@ func TestRunReleaseWithRunnerCosmoSlotsNone(t *testing.T) {
 			regularFiles = append(regularFiles, e.Name())
 		}
 	}
-	// Just the fat APE and its checksum file; no slot copies.
-	assert.Equal(t, 2, len(regularFiles), "got %v", regularFiles)
+	// Just the fat APE, its checksum file and the publish manifest; no copies.
+	assert.Equal(t, 3, len(regularFiles), "got %v", regularFiles)
 	for _, f := range regularFiles {
-		assert.True(t, strings.HasSuffix(f, "_cosmo_fat") || f == "checksums.txt", "unexpected file %s", f)
+		assert.True(t, strings.HasSuffix(f, "_cosmo_fat") || f == "checksums.txt" || f == buildhostManifestName,
+			"unexpected file %s", f)
 	}
 }
 

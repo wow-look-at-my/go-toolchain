@@ -88,7 +88,7 @@ func TestCopyCosmoSlots(t *testing.T) {
 	fatPath := filepath.Join(tmpDir, "mytool_cosmo_fat")
 	require.NoError(t, os.WriteFile(fatPath, []byte("FAT-APE-BYTES"), 0755))
 
-	slots, err := parseCosmoSlots(DefaultCosmoSlots)
+	slots, err := parseCosmoSlots([]string{"linux/amd64", "linux/arm64", "windows/amd64"})
 	require.NoError(t, err)
 
 	created, replacedFat, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
