@@ -31,9 +31,11 @@ type WebSummary struct {
 	SkippedBatchBackoff uint32 `json:"skipped_batch_backoff"`
 	Reclaimed404        uint32 `json:"reclaimed_404"`
 
-	// PUT non-upload outcomes. put_refused_modindex is NORMAL and large on a
-	// cold run (cmd/go stores thousands of module-index blobs the client
-	// refuses to publish by design) — it is NOT a poison signal.
+	// PUT non-upload outcomes. put_refused_modindex reads 0 in normal
+	// operation: handlePut refuses a module index before the store and before
+	// this tier ever sees it (see isGoModuleIndex), so this counter is the
+	// boundary guard behind that one. Nonzero means an index reached the web
+	// PUT path anyway — a gap in the local refusal, not a poisoned remote.
 	PutSkippedKnown    uint32 `json:"put_skipped_known"`
 	PutRefusedModIndex uint32 `json:"put_refused_modindex"`
 	PutRefusedBuildID  uint32 `json:"put_refused_buildid"`

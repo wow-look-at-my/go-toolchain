@@ -68,10 +68,7 @@ func (s *Server) handleGet(req Request) Response {
 
 	// Write to local cache for future hits. A remote body reaching this Put
 	// has already passed the web ingestion guards (sha256 vs outputID,
-	// build-id action, module-index refusal — web.go / batch.go): that is
-	// load-bearing, because the local tier SERVES module indexes on the trust
-	// that only local cmd/go ever stores one (see verify.go). A web-originated
-	// index must never be materialized here.
+	// build-id action, module-index refusal — web.go / batch.go).
 	localPutStart := time.Now()
 	diskPath, err := s.local.Put(actionID, outputID, body)
 	s.Latency.LocalPut.Record(time.Since(localPutStart))
@@ -95,6 +92,16 @@ func (s *Server) handlePut(req Request) Response {
 	start := time.Now()
 	actionID := s.actionKey(req.ActionID)
 	outputID := fmt.Sprintf("%x", req.OutputID)
+
+	// A module index never enters the store. Its action key hashes only the Go
+	// version, the index format version and the modroot — no content — so a body
+	// served back under it can be neither proven right nor detected wrong, and a
+	// wrong one renames packages at load time (see isGoModuleIndex). cmd/go
+	// recomputes it from one directory read whenever the key misses.
+	if isGoModuleIndex(req.Body) {
+		return s.refuseIndexPut(req, actionID, outputID)
+	}
+
 	mu := s.lock(actionID)
 
 	lockStart := time.Now()

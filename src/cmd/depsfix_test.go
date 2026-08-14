@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -356,4 +357,48 @@ func TestResolveVersionViaGit_SubdirectoryModule(t *testing.T) {
 	version, err := resolveVersionViaGit(mock, mod, "refs/heads/master")
 	require.NoError(t, err)
 	assert.Contains(t, version, fullHash[:12])
+}
+
+// A "/vN" module path demands a matching vN pseudo-version: the go command
+// rejects a v0 one with `go.mod has post-v0 module path "..." at revision`,
+// so every branch-tracked v2+ module got an unresolvable pin.
+func TestPseudoVersionForDerivesTheMajorFromTheModulePath(t *testing.T) {
+	// Measured: go list -m github.com/wow-look-at-my/bubbletea/v2@master.
+	assert.Equal(t, "v2.0.0-20260812203640-351d2159f8d8", pseudoVersionFor(
+		"github.com/wow-look-at-my/bubbletea/v2",
+		time.Unix(1786567000, 0), "351d2159f8d8"))
+
+	assert.Equal(t, "v0.0.0-20260812203640-351d2159f8d8", pseudoVersionFor(
+		"github.com/wow-look-at-my/bubbletea",
+		time.Unix(1786567000, 0), "351d2159f8d8"))
+
+	assert.Equal(t, "v11.0.0-20260812203640-351d2159f8d8", pseudoVersionFor(
+		"example.com/foo/v11", time.Unix(1786567000, 0), "351d2159f8d8"))
+
+	// gopkg.in spells its major with a dot and allows every N.
+	assert.Equal(t, "v2.0.0-20260812203640-351d2159f8d8", pseudoVersionFor(
+		"gopkg.in/yaml.v2", time.Unix(1786567000, 0), "351d2159f8d8"))
+}
+
+func TestResolveVersionViaGitCarriesTheMajorThrough(t *testing.T) {
+	const fullHash = "351d2159f8d8a85613aa2a6e98c8c63df3c98623"
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("git", "ls-remote") {
+			return runner.MockProcess([]byte(fullHash+"\trefs/heads/master\n"), nil), nil
+		}
+		for _, arg := range cfg.Args {
+			if arg == "init" || arg == "fetch" {
+				return runner.MockProcess(nil, nil), nil
+			}
+			if arg == "log" {
+				return runner.MockProcess([]byte("1786567000\n"), nil), nil
+			}
+		}
+		return nil, nil
+	}
+
+	version, err := resolveVersionViaGit(mock, "github.com/wow-look-at-my/bubbletea/v2", "refs/heads/master")
+	require.NoError(t, err)
+	assert.Equal(t, "v2.0.0-20260812203640-351d2159f8d8", version)
 }

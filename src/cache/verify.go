@@ -13,22 +13,19 @@ import (
 // path also does: the cache never hands the compiler a damaged body, nor a
 // compiled package stamped for a different action key.
 //
-// The one deliberate divergence from the web tier is the Go module index: the
-// LOCAL tiers serve it, the web tier refuses it everywhere. Every web->local
-// ingestion path refuses module indexes (web.go individual GET, batch.go batch
-// GET, cache.go prefetch population) and uploads refuse them too (webput.go),
-// so anything with the "go index v" magic in the local store was computed by
-// the local cmd/go under its own action key — the same trust upstream GOCACHE
-// places in its own directory — and its body is still SHA-256-verified against
-// outputID. Refusing it here (as this file once did) created a permanent
-// accept-at-Put/refuse-at-Get loop: cmd/go stores hundreds of per-directory
-// index blobs through the cacheprog on every invocation, each Put was
-// accepted, each Get refused-and-evicted, so every index key missed on every
-// build forever (log spam on the loose tier, duplicate-record append churn and
-// unbounded pack growth on the pack tier). Pre-guard residue — packs populated
-// by binaries older than the web-ingestion guards, which could hold
-// web-originated (potentially mis-keyed) indexes — is flushed by the one-time
-// local cache version purge (see cacheversion.go).
+// The Go module index is refused here as it is everywhere else (see
+// isGoModuleIndex): its action key hashes no content, so no gate below can tell
+// a right body from a wrong one under that key, and a wrong one hands the
+// package loader a package under another package's name. Local origin does not
+// help — it says where the bytes came from, not that this key returned the
+// right ones.
+//
+// What makes refusing here safe is that handlePut refuses FIRST, so nothing is
+// ever stored: this gate only sheds residue an older binary left behind. Adding
+// a serve-path refusal without the PUT refusal is what must not happen — cmd/go
+// re-stores every index it recomputes, so accept-at-Put/refuse-at-Get is a
+// permanent miss loop that spams the loose tier's eviction log and appends a
+// duplicate record to the packs on every build.
 
 // verifyBodyForServe runs the local serve-path integrity gates over an
 // in-memory body about to be served for (actionID, outputID):
@@ -37,21 +34,21 @@ import (
 //     GOCACHEPROG invariant (outputID == sha256(body), see outputIDMatches).
 //     Catches truncation, rot, and mis-mapped bodies, including the empty
 //     bodies the old oversized-PUT bug committed under real IDs.
+//
 //   - build-id action: a compiled package's stamped build-id action must
 //     belong to actionID (see buildIDMatchesAction). Catches a self-consistent
 //     object filed under the wrong action key ("runtime imported as
 //     reflectlite").
 //
-// A Go module index is deliberately servable from the local tier: it is
-// locally-originated by construction (web ingestion refuses index blobs on
-// every path — see modindex.go, webput.go, and the prefetch filter in
-// cache.go) and the sha256 gate above still rot-protects it; pre-guard residue
-// is flushed by the one-time version purge (cacheversion.go). See the file-top
-// comment.
+//   - module index: never served, because neither gate above can say anything
+//     about a payload whose key hashes no content (see the file-top comment).
 //
 // On failure it returns ok == false and a human-readable reason for the
 // eviction log line.
 func verifyBodyForServe(actionID, outputID string, body []byte) (reason string, ok bool) {
+	if isGoModuleIndex(body) {
+		return "module index (never served: its action key carries no content to verify against)", false
+	}
 	if got, ok := outputIDMatches(outputID, body); !ok {
 		return fmt.Sprintf("body checksum mismatch (want outputid=%s, got sha256=%s, len=%d)",
 			shortID(outputID), shortID(got), len(body)), false
@@ -107,6 +104,7 @@ type verifyInfo struct {
 	crcOK        bool   // body matched the record-header CRC (rot-free w.r.t. append time)
 	shaOK        bool   // body hashed (SHA-256) to loc.outputID (content address proven)
 	isPkgArchive bool   // ar archive with a __.PKGDEF member
+	isModIndex   bool   // Go module index blob (never servable — see modindex.go)
 	stampAction  string // build-id action field ("" when none)
 }
 
@@ -129,11 +127,12 @@ func (vi verifyInfo) actionOK(actionIDHex string) bool {
 
 // servableForAction is the GET-RPC gate (the memoized equivalent of
 // bodyServableForAction): the body must be intact (CRC, or the strictly
-// stronger content-address proof) and a compiled package must be stamped for
-// this action. A module index passes: locally-originated by construction (the
-// web ingestion paths refuse index blobs — see the file-top comment), so
-// refusing it here only recreated the permanent store/refuse miss loop.
+// stronger content-address proof), must not be a module index, and a compiled
+// package must be stamped for this action.
 func (vi verifyInfo) servableForAction(actionIDHex string) bool {
+	if vi.isModIndex {
+		return false
+	}
 	if !vi.crcOK && !vi.shaOK {
 		return false
 	}
@@ -183,6 +182,7 @@ func (s *PackStore) verifyRecordFull(loc packLoc) (verifyInfo, bool) {
 	ok := s.verifyBody(loc, func(body []byte) bool {
 		vi.crcOK = crc32.Checksum(body, packCRC) == loc.crc
 		_, vi.shaOK = outputIDMatches(loc.outputID, body)
+		vi.isModIndex = isGoModuleIndex(body)
 		vi.isPkgArchive, vi.stampAction = archiveExportInfo(body)
 		return true // facts recorded; gates are applied by the callers
 	})
@@ -214,6 +214,7 @@ func (s *PackStore) verifiedInfo(loc packLoc) (verifyInfo, bool) {
 func verifyInfoForPut(outputID string, data []byte) verifyInfo {
 	vi := verifyInfo{crcOK: true}
 	_, vi.shaOK = outputIDMatches(outputID, data)
+	vi.isModIndex = isGoModuleIndex(data)
 	vi.isPkgArchive, vi.stampAction = archiveExportInfo(data)
 	return vi
 }
