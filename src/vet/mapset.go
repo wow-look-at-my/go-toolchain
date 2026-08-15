@@ -25,6 +25,9 @@ import (
 // vets every project it builds, and a third-party consumer must not get a red
 // build over a remedy that adds an org dependency to their module.
 //
+// The set package itself is exempt: its Set[T] is the map[T]struct{} every
+// other package is told to reach for.
+//
 // An escape hatch exists for a map that must stay a map: write
 // "// go-toolchain:allow-mapset <reason>" on the line, or on the line above.
 // Depth: docs/VET.md
@@ -49,6 +52,10 @@ const setPackage = "github.com/wow-look-at-my/go-containers/set"
 
 func runMapSet(pass *analysis.Pass) (any, error) {
 	if !mapSetInScope(pass.Module) {
+		return []*ASTFixes(nil), nil
+	}
+	// The remedy cannot take its own advice: set.Set IS a map[T]struct{}.
+	if pass.Pkg != nil && strings.TrimSuffix(pass.Pkg.Path(), "_test") == setPackage {
 		return []*ASTFixes(nil), nil
 	}
 

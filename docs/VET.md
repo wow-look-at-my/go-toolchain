@@ -32,3 +32,49 @@ genuinely dead one once per variant.
 behind a mutex (`parseRecorder`). Unlocked, a module this size died with
 `fatal error: concurrent map writes`, and the output watchdog's pipes swallowed
 the trace — CI saw a bare `exit status 2` with nothing above it.
+
+## mapset: a map written where a set is meant
+
+`src/vet/mapset.go` reports two shapes and offers
+[`github.com/wow-look-at-my/go-containers/set`](https://github.com/wow-look-at-my/go-containers/tree/master/set)
+in their place:
+
+- `map[K]struct{}` in any position -- a type, a `make` call, a literal, a
+  struct field, a parameter. An empty struct value carries nothing, so the map
+  is a set and only its keys matter.
+- a `map[K]bool` composite literal whose every value is the constant `true`.
+
+The second rule is deliberately narrow. One `false` entry makes the literal a
+lookup table, and `buildtags.platformIdents` is exactly that: it answers "is
+this a platform ident" and writes `"ignore": false` to say no. An empty literal
+and a value that is not the constant `true` are both left alone as well.
+
+What the rules do NOT cover is the local idiom `seen := make(map[string]bool)`
+followed by `seen[k] = true`. Deciding that one needs every use of the variable
+across the package, and a map that a function returns or passes on can be read
+for a real boolean somewhere the analyzer never looks. The narrow rules report
+the shapes that are a set by construction; the flow-analysed one is open work.
+
+### Scope, the set package, and the escape hatch
+
+The `set` package itself is exempt, under its own path and its `_test` variant.
+`set.Set[T]` IS a `map[T]struct{}`; the remedy cannot take its own advice, and
+eight markers inside one file would say nothing a reader does not already see.
+
+
+The check runs on `github.com/wow-look-at-my/` and `github.com/PazerOP/`
+modules (`mapSetModulePrefixes`). `vetSemantic` runs every analyzer on each
+consumer project go-toolchain builds, and the remedy here adds an org
+dependency -- a third-party consumer must not get a red build over that. A
+driver that supplies no module info fails open to checked, so the analysistest
+fixtures still exercise the rules.
+
+A map that must stay a map keeps its diagnostic off with a marker comment on
+its line, or on the line above:
+
+```go
+var shape = map[string]struct{}{} // go-toolchain:allow-mapset the wire format is fixed
+```
+
+The marker takes a reason for the same purpose `// go-toolchain:pinned` serves
+in `go.mod`: the next reader learns why this map is not a set.

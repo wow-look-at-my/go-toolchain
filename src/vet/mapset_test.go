@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -20,6 +21,40 @@ func TestMapSetAnalyzer(t *testing.T) {
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
 	analysistest.Run(t, testdata, MapSetAnalyzer, "mapset")
+}
+
+// TestMapSetSkipsTheSetPackageItself verifies the remedy is exempt: set.Set
+// is the map[T]struct{} every other package is told to reach for.
+func TestMapSetSkipsTheSetPackageItself(t *testing.T) {
+	const src = `package set
+
+type Set[T comparable] struct {
+	m map[T]struct{}
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "/set/set.go", src, parser.ParseComments)
+	require.NoError(t, err)
+	for _, path := range []string{setPackage, setPackage + "_test", "github.com/wow-look-at-my/other"} {
+		t.Run(path, func(t *testing.T) {
+			var reports []analysis.Diagnostic
+			pass := &analysis.Pass{
+				Analyzer:  MapSetAnalyzer,
+				Fset:      fset,
+				Files:     []*ast.File{f},
+				Pkg:       types.NewPackage(path, "set"),
+				Report:    func(d analysis.Diagnostic) { reports = append(reports, d) },
+				TypesInfo: &types.Info{},
+			}
+			_, err := runMapSet(pass)
+			require.NoError(t, err)
+			if strings.HasPrefix(path, setPackage) {
+				require.Empty(t, reports)
+			} else {
+				require.Len(t, reports, 1)
+			}
+		})
+	}
 }
 
 // TestMapSetModuleScoping verifies the check only fires on org code.
