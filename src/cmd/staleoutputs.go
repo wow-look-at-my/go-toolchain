@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -38,12 +39,12 @@ import (
 // nonBinaryOutputs are files the toolchain writes into the output directory
 // that are not build artifacts, even when a target's name is a prefix of
 // theirs (a project whose binary is named "wasm" must not lose wasm_exec.js).
-var nonBinaryOutputs = map[string]bool{
-	"checksums.txt": true,
-	"wasm_exec.js":  true,
-	"profile.json":  true,
-	"trace.json":    true,
-}
+var nonBinaryOutputs = set.Of(
+	"checksums.txt",
+	"wasm_exec.js",
+	"profile.json",
+	"trace.json",
+)
 
 // isOutputArtifact reports whether base — a file name inside the output
 // directory — is an artifact go-toolchain produces for the target named name.
@@ -57,7 +58,7 @@ func isOutputArtifact(base, name string) bool {
 	if base == buildhostManifestName {
 		return true
 	}
-	if name == "" || nonBinaryOutputs[base] {
+	if name == "" || nonBinaryOutputs.Contains(base) {
 		return false
 	}
 	return base == name || base == name+".exe" || strings.HasPrefix(base, name+"_")

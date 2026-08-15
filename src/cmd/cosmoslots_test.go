@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 )
 
@@ -91,7 +92,7 @@ func TestCopyCosmoSlots(t *testing.T) {
 	slots, err := parseCosmoSlots([]string{"linux/amd64", "linux/arm64", "windows/amd64"})
 	require.NoError(t, err)
 
-	created, replacedFat, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
+	created, replacedFat, err := copyCosmoSlots(targets, tmpDir, slots, set.Set[string]{}, false)
 	require.NoError(t, err)
 
 	wantNames := []string{"mytool_linux_amd64", "mytool_linux_arm64", "mytool_windows_amd64.exe"}
@@ -138,7 +139,7 @@ func TestCopyCosmoSlotsDropsFatInCI(t *testing.T) {
 
 	var created, replacedFat []string
 	output := captureStdout(func() {
-		created, replacedFat, err = copyCosmoSlots(targets, tmpDir, slots, nil, true)
+		created, replacedFat, err = copyCosmoSlots(targets, tmpDir, slots, set.Set[string]{}, true)
 	})
 	require.NoError(t, err)
 	require.Len(t, created, 1)
@@ -166,7 +167,7 @@ func TestCopyCosmoSlotsAllSlotsCollidedKeepsFat(t *testing.T) {
 	slots, err := parseCosmoSlots([]string{"linux/amd64"})
 	require.NoError(t, err)
 
-	nativeBuilt := map[string]bool{"mytool_linux_amd64": true}
+	nativeBuilt := set.Of("mytool_linux_amd64")
 	var created, replacedFat []string
 	output := captureCombinedOutput(func() {
 		created, replacedFat, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt, false)
@@ -194,7 +195,7 @@ func TestCopyCosmoSlotsNativeCollisionWins(t *testing.T) {
 	slots, err := parseCosmoSlots([]string{"linux/amd64", "linux/arm64"})
 	require.NoError(t, err)
 
-	nativeBuilt := map[string]bool{"mytool_linux_amd64": true}
+	nativeBuilt := set.Of("mytool_linux_amd64")
 	var created []string
 	output := captureCombinedOutput(func() {
 		created, _, err = copyCosmoSlots(targets, tmpDir, slots, nativeBuilt, false)
@@ -222,7 +223,7 @@ func TestCopyCosmoSlotsMissingFatAPE(t *testing.T) {
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 	slots := []buildPlatform{{OS: "linux", Arch: "amd64"}}
 
-	_, _, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
+	_, _, err := copyCosmoSlots(targets, tmpDir, slots, set.Set[string]{}, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mytool_cosmo_fat")
 }
@@ -239,7 +240,7 @@ func TestCopyCosmoSlotsReplacesStaleSymlink(t *testing.T) {
 	require.NoError(t, os.Symlink(other, filepath.Join(tmpDir, "mytool_linux_amd64")))
 
 	slots := []buildPlatform{{OS: "linux", Arch: "amd64"}}
-	_, _, err := copyCosmoSlots(targets, tmpDir, slots, nil, false)
+	_, _, err := copyCosmoSlots(targets, tmpDir, slots, set.Set[string]{}, false)
 	require.NoError(t, err)
 
 	info, err := os.Lstat(filepath.Join(tmpDir, "mytool_linux_amd64"))

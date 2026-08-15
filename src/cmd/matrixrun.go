@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
@@ -264,10 +265,10 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 
 	if hasCosmo && len(slotPlatforms) > 0 {
 		logger.Warn("⇒ Warning: --cosmo-slots is DEPRECATED for wow-look-at-my use: the org ships one APE covering every supported platform and no longer maintains or stores per-platform binaries. This copies the one fat APE onto %d per-platform names, so buildhost stores %d identical artifacts with %d download links instead of one. Drop the flag to publish the APE as a single multi-platform artifact.", len(slotPlatforms), len(slotPlatforms), len(slotPlatforms))
-		nativeBuilt := make(map[string]bool)
+		nativeBuilt := set.New[string]()
 		for _, job := range jobs {
 			if job.goos != cosmoOS {
-				nativeBuilt[filepath.Base(job.outputPath)] = true
+				nativeBuilt.Add(filepath.Base(job.outputPath))
 			}
 		}
 		copied, replacedFat, err := copyCosmoSlots(hostTargets, outputDir, slotPlatforms, nativeBuilt, os.Getenv("CI") != "")

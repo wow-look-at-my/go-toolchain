@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -196,7 +197,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	if err != nil {
 		return fmt.Errorf("resolving module root: %w", err)
 	}
-	seen := map[string]bool{}
+	seen := set.New[string]()
 	for _, tagCfg := range d.Configs {
 		args := []string{"list", "-e",
 			"-f", "{{$d := .Dir}}{{range .GoFiles}}{{$d}}/{{.}}\n{{end}}" +
@@ -220,7 +221,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 				continue
 			}
 			if rel, err := filepath.Rel(root, line); err == nil && !strings.HasPrefix(rel, "..") {
-				seen[filepath.ToSlash(rel)] = true
+				seen.Add(filepath.ToSlash(rel))
 			}
 		}
 	}
@@ -230,7 +231,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	// and reporting every gated file as unreachable from that is a guard
 	// firing when it could not look. In production this branch is unreachable;
 	// what reaches it is a caller driving the phase without a real toolchain.
-	if len(seen) == 0 {
+	if seen.IsEmpty() {
 		logger.Warn("tests: skipped the build-tag reachability check -- `go list` reported no files at all, so nothing could be verified")
 		return nil
 	}
@@ -296,8 +297,8 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		verbose:    verbose,
 		out:        os.Stdout,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
+		failedTest: set.New[string](),
+		timedOut:   set.New[string](),
 		onOutput:   onOutput,
 		timeline:   timeline,
 	}
@@ -343,7 +344,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	// If packages failed to build but no error details were captured (common
 	// with CGO packages where compiler errors bypass the JSON stream), re-run
 	// a plain go build to capture the actual compiler errors.
-	if waitErr != nil && len(handler.failedTest) > 0 {
+	if waitErr != nil && !handler.failedTest.IsEmpty() {
 		hasDetails := false
 		for _, lines := range handler.stderrLines {
 			if strings.Contains(lines, ":") {
@@ -355,7 +356,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 			// Pick any failing package to get the build error.
 			// failedTest keys may include test names (pkg/TestFoo);
 			// strip the test suffix to get a valid package path.
-			for key := range handler.failedTest {
+			for key := range handler.failedTest.All() {
 				pkg := key
 				if i := strings.LastIndex(pkg, "/"); i > 0 {
 					// Only strip if the suffix looks like a test name (starts with uppercase).
@@ -399,7 +400,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	// If go test exited non-zero but no actual tests failed, the failure is
 	// from a non-test issue (e.g. missing "covdata" tool on a main package
 	// with no test files). Treat as success.
-	if waitErr != nil && len(handler.failedTest) == 0 && handler.FailureOutput() == "" {
+	if waitErr != nil && handler.failedTest.IsEmpty() && handler.FailureOutput() == "" {
 		waitErr = nil
 	}
 
@@ -424,7 +425,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	var packages []PackageCoverage
 	for _, pkgName := range execution.Packages() {
 		// Skip packages not in the reachable import graph
-		if reachable != nil && !reachable[pkgName] {
+		if !reachable.IsEmpty() && !reachable.Contains(pkgName) {
 			continue
 		}
 		p := PackageCoverage{

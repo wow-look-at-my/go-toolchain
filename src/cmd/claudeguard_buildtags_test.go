@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // claudeGuardTagSets are the release-relevant build contexts: the from-source
@@ -33,19 +34,19 @@ var claudeGuardTagSets = map[string]map[string]bool{
 // knownGOOSSuffix lists GOOS values whose `_<goos>.go` filename suffix
 // imposes an implicit build constraint (upstream GOOS list plus the
 // gosmopolitan fork's cosmo).
-var knownGOOSSuffix = map[string]bool{
-	"aix": true, "android": true, "cosmo": true, "darwin": true,
-	"dragonfly": true, "freebsd": true, "hurd": true, "illumos": true,
-	"ios": true, "js": true, "linux": true, "netbsd": true, "openbsd": true,
-	"plan9": true, "solaris": true, "wasip1": true, "windows": true, "zos": true,
-}
+var knownGOOSSuffix = set.Of(
+	"aix", "android", "cosmo", "darwin",
+	"dragonfly", "freebsd", "hurd", "illumos",
+	"ios", "js", "linux", "netbsd", "openbsd",
+	"plan9", "solaris", "wasip1", "windows", "zos",
+)
 
 // knownGOARCHSuffix lists GOARCH values recognized in filename suffixes.
-var knownGOARCHSuffix = map[string]bool{
-	"386": true, "amd64": true, "arm": true, "arm64": true, "loong64": true,
-	"mips": true, "mips64": true, "mips64le": true, "mipsle": true,
-	"ppc64": true, "ppc64le": true, "riscv64": true, "s390x": true, "wasm": true,
-}
+var knownGOARCHSuffix = set.Of(
+	"386", "amd64", "arm", "arm64", "loong64",
+	"mips", "mips64", "mips64le", "mipsle",
+	"ppc64", "ppc64le", "riscv64", "s390x", "wasm",
+)
 
 // filenameGOOS returns the GOOS a file's `_<goos>[_<goarch>].go` suffix
 // implies, or "" when the name imposes no GOOS constraint. Mirrors go/build's
@@ -53,10 +54,10 @@ var knownGOARCHSuffix = map[string]bool{
 func filenameGOOS(name string) string {
 	name = strings.TrimSuffix(filepath.Base(name), ".go")
 	parts := strings.Split(name, "_")
-	if n := len(parts); n >= 2 && knownGOARCHSuffix[parts[n-1]] {
+	if n := len(parts); n >= 2 && knownGOARCHSuffix.Contains(parts[n-1]) {
 		parts = parts[:n-1]
 	}
-	if n := len(parts); n >= 2 && knownGOOSSuffix[parts[n-1]] {
+	if n := len(parts); n >= 2 && knownGOOSSuffix.Contains(parts[n-1]) {
 		return parts[n-1]
 	}
 	return ""

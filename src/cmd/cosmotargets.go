@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -54,7 +55,7 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 	if len(entries) == 1 && strings.TrimSpace(entries[0]) == "none" {
 		return nil, nil
 	}
-	seen := make(map[buildPlatform]bool, len(entries))
+	seen := set.New[buildPlatform](len(entries))
 	out := make([]buildPlatform, 0, len(entries))
 	for _, raw := range entries {
 		entry := strings.TrimSpace(raw)
@@ -68,10 +69,10 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 		if p.IsWasm() {
 			return nil, fmt.Errorf("invalid --cosmo-slots entry %q: slots name native platforms the fat APE is copied to, and an APE is not a wasm binary", entry)
 		}
-		if seen[p] {
+		if seen.Contains(p) {
 			return nil, fmt.Errorf("duplicate --cosmo-slots entry %q", entry)
 		}
-		seen[p] = true
+		seen.Add(p)
 		out = append(out, p)
 	}
 	return out, nil
@@ -88,7 +89,7 @@ func parseCosmoPlatforms(entries []string) ([]buildPlatform, error) {
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("--cosmo-platforms requires at least one os/arch pair, or %q for every platform the fork can emit: an APE with no platforms would run nowhere", cosmoPlatformsAll)
 	}
-	seen := make(map[buildPlatform]bool, len(entries))
+	seen := set.New[buildPlatform](len(entries))
 	out := make([]buildPlatform, 0, len(entries))
 	for _, raw := range entries {
 		entry := strings.TrimSpace(raw)
@@ -109,10 +110,10 @@ func parseCosmoPlatforms(entries []string) ([]buildPlatform, error) {
 		if reason != "" {
 			return nil, fmt.Errorf("invalid --cosmo-platforms entry %q: %s", entry, reason)
 		}
-		if seen[p] {
+		if seen.Contains(p) {
 			return nil, fmt.Errorf("duplicate --cosmo-platforms entry %q", entry)
 		}
-		seen[p] = true
+		seen.Add(p)
 		out = append(out, p)
 	}
 	return out, nil
@@ -184,7 +185,7 @@ func platformList(platforms []buildPlatform) string {
 // that were replaced — the caller must exclude those from checksums, which
 // cover real files only (every slot copy is byte-identical to the APE, so no
 // coverage is lost).
-func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform, nativeBuilt map[string]bool, dropFat bool) (created, replacedFat []string, err error) {
+func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform, nativeBuilt set.Set[string], dropFat bool) (created, replacedFat []string, err error) {
 	for _, target := range targets {
 		srcName := build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch)
 		srcPath := filepath.Join(outDir, srcName)
@@ -194,7 +195,7 @@ func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform
 		var targetCopies []string
 		for _, slot := range slots {
 			dstName := build.BinaryName(target.OutputName, slot.OS, slot.Arch)
-			if nativeBuilt[dstName] {
+			if nativeBuilt.Contains(dstName) {
 				logger.Warn("  SKIP %s (explicit native %s/%s build wins over the cosmo slot copy)", dstName, slot.OS, slot.Arch)
 				continue
 			}

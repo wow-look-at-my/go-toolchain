@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 func TestCollector_GraphArgUniqueAndRecorded(t *testing.T) {
@@ -60,11 +61,10 @@ func TestCollector_GraphArgConcurrent(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	seen := map[string]bool{}
+	seen := set.New[string]()
 	for _, a := range args {
 		require.NotEmpty(t, a)
-		assert.False(t, seen[a], "concurrent GraphArg calls must not collide")
-		seen[a] = true
+		assert.True(t, seen.Add(a), "concurrent GraphArg calls must not collide")
 	}
 	assert.Len(t, c.Files(), 16)
 }
