@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // ICoverageItem is the interface for any coverage entity

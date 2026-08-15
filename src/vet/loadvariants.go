@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"golang.org/x/tools/go/analysis/checker"
 	"github.com/wow-look-at-my/go-containers/set"
+	"golang.org/x/tools/go/analysis/checker"
 )
 
 // parseRecorder records every file a load actually parsed, module-relative and

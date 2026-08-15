@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gotest.tools/gotestsum/testjson"
 	"github.com/wow-look-at-my/go-containers/set"
+	"gotest.tools/gotestsum/testjson"
 )
 
 func newTestHandler(buf *bytes.Buffer) *coverageHandler {
@@ -17,7 +17,7 @@ func newTestHandler(buf *bytes.Buffer) *coverageHandler {
 		coverage:   make(map[string]float32),
 		out:        buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		timedOut:   set.New[string](),
 	}
 }

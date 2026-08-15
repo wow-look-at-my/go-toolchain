@@ -54,10 +54,10 @@ var knownGOARCHSuffix = set.Of(
 func filenameGOOS(name string) string {
 	name = strings.TrimSuffix(filepath.Base(name), ".go")
 	parts := strings.Split(name, "_")
-	if n := len(parts); n >= 2 && knownGOARCHSuffix[parts[n-1]] {
+	if n := len(parts); n >= 2 && knownGOARCHSuffix.Contains(parts[n-1]) {
 		parts = parts[:n-1]
 	}
-	if n := len(parts); n >= 2 && knownGOOSSuffix[parts[n-1]] {
+	if n := len(parts); n >= 2 && knownGOOSSuffix.Contains(parts[n-1]) {
 		return parts[n-1]
 	}
 	return ""

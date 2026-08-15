@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // SummaryData holds all data needed to generate the GitHub Step Summary.
@@ -335,7 +335,7 @@ func findTestFuncsInDir(dir string, funcNames set.Set[string]) map[string]testFu
 			if !ok || fn.Recv != nil {
 				continue
 			}
-			if funcNames[fn.Name.Name] {
+			if funcNames.Contains(fn.Name.Name) {
 				pos := fset.Position(fn.Pos())
 				result[fn.Name.Name] = testFuncLocation{
 					file: path,

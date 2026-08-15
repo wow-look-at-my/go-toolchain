@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gotest.tools/gotestsum/testjson"
 	"github.com/wow-look-at-my/go-containers/set"
+	"gotest.tools/gotestsum/testjson"
 )
 
 func TestCoverageHandlerExtractsCoverage(t *testing.T) {
@@ -123,7 +123,7 @@ func TestRealtimePassOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -146,7 +146,7 @@ func TestRealtimePassOutputHiddenWhenFast(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -166,7 +166,7 @@ func TestRealtimeFailOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -189,7 +189,7 @@ func TestRealtimeTimeoutOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		timedOut:   set.New[string](),
 	}
 
@@ -223,7 +223,7 @@ func TestRealtimeSkipOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -245,7 +245,7 @@ func TestRealtimeSkipOutputHiddenWhenFast(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -266,7 +266,7 @@ func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
 		verbose:    true,
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -286,7 +286,7 @@ func TestRealtimeNoOutputForPackageEvents(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	// Package-level pass (Test is empty)
@@ -304,7 +304,7 @@ func TestFailureOutputWithStderr(t *testing.T) {
 	h := &coverageHandler{
 		coverage:    make(map[string]float32),
 		testOutput:  make(map[string][]string),
-		failedTest:  make(map[string]bool),
+		failedTest:  set.New[string](),
 		stderrLines: []string{"build error: undefined reference", "linker failed"},
 	}
 
@@ -350,7 +350,7 @@ func TestOnOutputCallbackInPass(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		onOutput:   func() { called = true },
 	}
 
@@ -371,7 +371,7 @@ func TestOnOutputCallbackInSkip(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		onOutput:   func() { called = true },
 	}
 
@@ -394,7 +394,7 @@ func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		timedOut:   set.New[string](),
 		out:        &bytes.Buffer{},
 	}

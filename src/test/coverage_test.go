@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
 func TestParseProfile(t *testing.T) {
@@ -146,12 +146,12 @@ func TestFilterBlocksByReachableNil(t *testing.T) {
 		{file: "example.com/pkg2/file.go", statements: 3, count: 0},
 	}
 
-	// nil reachable should return all blocks
-	filtered := filterBlocksByReachable(blocks, nil)
+	// a zero-value set should return all blocks
+	filtered := filterBlocksByReachable(blocks, set.Set[string]{})
 	assert.Equal(t, 2, len(filtered))
 
 	// empty reachable should also return all blocks
-	filtered = filterBlocksByReachable(blocks, map[string]bool{})
+	filtered = filterBlocksByReachable(blocks, set.New[string]())
 	assert.Equal(t, 2, len(filtered))
 }
 
@@ -201,10 +201,10 @@ func TestReachablePackages(t *testing.T) {
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
-	assert.True(t, reachable["example.com/mymod/pkg2"])
-	assert.False(t, reachable["fmt"])
-	assert.False(t, reachable["strings"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
+	assert.True(t, reachable.Contains("example.com/mymod/pkg2"))
+	assert.False(t, reachable.Contains("fmt"))
+	assert.False(t, reachable.Contains("strings"))
 }
 
 func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
@@ -225,9 +225,9 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
 	// pkg2 is NOT reachable because it's not in the deps of main
-	assert.False(t, reachable["example.com/mymod/pkg2"])
+	assert.False(t, reachable.Contains("example.com/mymod/pkg2"))
 }
 
 func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
@@ -247,8 +247,8 @@ func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
-	assert.True(t, reachable["example.com/mymod/pkg2"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
+	assert.True(t, reachable.Contains("example.com/mymod/pkg2"))
 }
 
 func TestReachablePackagesModuleFailure(t *testing.T) {
