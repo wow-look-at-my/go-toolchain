@@ -150,11 +150,25 @@ func fetchCommit(r runner.CommandRunner, mod, ref string) (*gitCommit, func(), e
 	if len(fields) < 1 {
 		return nil, nil, fmt.Errorf("no ref %q found for %s", ref, mod)
 	}
-	fullHash := fields[0]
+	return fetchAt(r, mod, gitURL, fields[0])
+}
+
+// fetchCommitAt fetches one named commit of a module's repository, for a
+// version that already names one. The ls-remote is still what finds where the
+// repository stops and the module's subdirectory inside it starts.
+func fetchCommitAt(r runner.CommandRunner, mod, hash string) (*gitCommit, func(), error) {
+	gitURL, _, err := resolveGitURLAndRef(r, mod, "HEAD")
+	if err != nil {
+		return nil, nil, fmt.Errorf("git ls-remote failed: %w", err)
+	}
+	return fetchAt(r, mod, gitURL, hash)
+}
+
+// fetchAt fetches a known commit into a temporary bare repository.
+func fetchAt(r runner.CommandRunner, mod, gitURL, fullHash string) (*gitCommit, func(), error) {
 	if len(fullHash) < 12 {
 		return nil, nil, fmt.Errorf("invalid commit hash: %s", fullHash)
 	}
-
 	root := strings.TrimPrefix(gitURL, "https://")
 	c := &gitCommit{
 		URL:       gitURL,

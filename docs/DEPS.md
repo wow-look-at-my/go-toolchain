@@ -36,6 +36,14 @@ dependency someone deliberately pinned to a non-default branch would silently dr
 require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:branch=v1
 ```
 
+**The marker names no branch by default.** `// go-toolchain:auto-branch` follows the module's
+*default* branch, asked of the remote on every run. A branch's name lives on the remote, and a copy
+of it in `go.mod` is one more thing that goes stale — the day a default branch is renamed, every
+hardcoded copy across the org resolves to nothing. `auto-branch=<name>` names a different branch
+deliberately, and that is the only form that hardcodes anything. The original `branch=<name>`
+spelling is still READ, so an unmigrated `go.mod` resolves correctly; `EnforceOrgBranchTracking`
+rewrites it (below).
+
 Every run re-resolves that branch's current HEAD via `git ls-remote <url> refs/heads/<branch>` and
 rewrites the pseudo-version in place (the comment is preserved, so the pin stays declarative across
 runs); `listDirectDeps` excludes any such line from the org auto-update path so the two mechanisms
@@ -74,19 +82,48 @@ resolved to, walks the requires that live in the same repository, and requires e
 at that same commit, marked to keep tracking the same branch:
 
 ```go
-require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:branch=master
-require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:branch=master
+require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:auto-branch
+require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:sibling=github.com/wow-look-at-my/common-ai-api/go/client
 ```
 
 Minimal version selection then takes the newer of the two answers for `go/core`, so the stale pin
 inside `go/client` loses and is never fetched. One repository, one commit, whatever the modules
 inside it say about each other.
 
+The added line says `sibling=<module>`, not a branch, because that is what is true of it: it
+matches whatever commit that module resolved to. Writing a branch there would be a coincidence
+dressed as a declaration — correct only while the anchor happens to follow that branch's head. It
+also would not survive the case below.
+
+**A deliberately pinned module anchors its siblings too**, at the commit its own version names
+rather than at a branch head. Cohesion is about the modules of one repository shipping together, so
+a module held at an old version holds its siblings at that same old commit; following the branch
+there would pair a pinned module with siblings from today, which is the mismatch the pin exists to
+avoid. A `go-toolchain:pinned` line on a *sibling* still wins over cohesion, since moving with its
+siblings is exactly what that marker opts out of.
+
 The walk is over requirements, not over the repository, so only modules the tracked one actually
 needs come along. A sibling missing at the resolved commit FAILS the run: writing a pin to a commit
 that does not carry the module is the failure this exists to prevent, not something to skip past.
-`go-toolchain:pinned` wins over cohesion, since moving with its siblings is what that marker opts
-out of.
+
+### A tracked branch with an open pull request (`src/cmd/depsbranchguard.go`)
+
+A branch that is the head of an open pull request has a scheduled death: the merge that closes the
+PR deletes it. Point a pin at one and it resolves fine, CI goes green, the change merges — and the
+branch is gone, so the next run on the *default* branch resolves to nothing, after the thing that
+broke it has already landed.
+
+So a marker naming an explicit branch is checked against the open pull requests of the repository
+it belongs to. In CI this FAILS, because CI is the last look at a change before it merges and green
+there is what the merge is decided on. Locally it only warns: developing two repos in tandem,
+pointed at each other's unmerged branches, is a real workflow, and the warning is the reminder to
+repoint before the pull request goes up. A bare `auto-branch` is never checked — it names no
+branch, so it cannot be pointed at a temporary one.
+
+The check needs the GitHub API, and it answers "cannot tell" as no finding plus a warning: a guard
+that turned an unreachable API into a failed build would fail runs over the network rather than
+over the thing it checks. A private repository needs `GITHUB_TOKEN` or `GH_TOKEN` in the
+environment; without one the warning says so.
 
 ### Tracking a fork through a `replace`
 
@@ -124,16 +161,23 @@ ran `go get`. These modules are co-developed with their consumers and have no re
 pin to, so nothing ever moves that snapshot forward and the consumer silently builds against
 month-old code. The branch pin is therefore the canonical form for them, and `go.mod` is
 rewritten into it: an org require or replace carrying a plain version gets
-`// go-toolchain:branch=<default branch>` appended, with the branch read from the module's own
-repository (`git ls-remote --symref <url> HEAD`). Branch tracking then re-resolves that line every
-run like any other.
+`// go-toolchain:auto-branch` appended. That costs no lookup — the marker names no branch, so
+there is nothing to ask until the line is resolved.
+
+A line still carrying the legacy `branch=<name>` spelling is migrated in the same pass, and that
+one DOES cost a lookup (`git ls-remote --symref <url> HEAD`), because the point of the migration is
+to find out whether the hardcoded name is just the default branch written down. If it is, the name
+comes out and the line stops caring what the branch is called; a deliberate non-default branch
+keeps its name as `auto-branch=<name>`. A default branch that cannot be resolved FAILS the run:
+the line already resolves correctly, so leaving it is not wrong, but reporting green for a
+migration that did not happen is.
 
 The rewrite is the enforcement — locally you review the diff and commit it, in CI the resulting
 dirty tree fails the build (`checkDirtyInCI`), the same contract as every other `go.mod` mutation
-here. The up-to-date fast exit consults `untrackedOrgDeps` (a `go.mod` parse, no network) as well,
-because an unchanged tree can predate this requirement and the run being skipped is the one that
-would fix it. A default branch that cannot be resolved FAILS the run: leaving the version pin in
-place would report green for a `go.mod` that does not meet the requirement.
+here. A marker appearing is content, not a resolution, so the pin-movement exclusion above does not
+cover it. The up-to-date fast exit consults `untrackedOrgDeps` (a `go.mod` parse, no network) as
+well, because an unchanged tree can predate this requirement and the run being skipped is the one
+that would fix it.
 
 Two shapes cannot be rewritten. Neither is silently skipped:
 

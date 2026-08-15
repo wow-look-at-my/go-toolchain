@@ -86,6 +86,13 @@ coverage.
   the one publishing it -- at a first publish, one with no such module in it (`missing go.mod at revision`). And the
   re-resolution is excluded from the CI dirty check, so it never demands a bump commit; the exclusion covers the version
   token on a same-marker line plus the `go.sum` hashes that follow it, nothing else. Depth: `docs/DEPS.md`
+- Markers (`parseMarker` in `src/cmd/depsbranch.go`): `auto-branch` follows the module's DEFAULT branch and names none, so a
+  renamed default breaks nothing; `auto-branch=<name>` is the deliberate non-default choice; `sibling=<module>` matches
+  another module's resolved commit and is written by the toolchain, never by hand. The legacy `branch=<name>` is still read
+  and is migrated on sight. Depth: `docs/DEPS.md`
+- `src/cmd/depsbranchguard.go` — a marker naming a branch that is the head of an OPEN pull request FAILS in CI and warns
+  locally. That branch dies with the merge, so it resolves right up until the change lands and never again; CI is the last
+  look before the merge, and tandem development across two repos is why local is only a warning. Depth: `docs/DEPS.md`
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see

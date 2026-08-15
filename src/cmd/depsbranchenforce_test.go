@@ -81,9 +81,9 @@ require (
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
 	assert.True(t, changed)
-	assert.Equal(t, "// go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/foo"))
+	assert.Equal(t, "// go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/foo"))
 	assert.Equal(t, "", suffixFor(t, "spf13/cobra"), "a third-party dependency is left alone")
-	assert.Contains(t, strings.Join(*lsRemote, "\n"), "--symref https://github.com/wow-look-at-my/foo HEAD")
+	assert.Empty(t, *lsRemote, "the bare marker names no branch, so there is nothing to look up")
 }
 
 // The marker is only half the fix: the version pin it replaces is still the
@@ -109,7 +109,7 @@ require github.com/wow-look-at-my/foo v1.2.3
 	require.NoError(t, err)
 	require.Len(t, f.Require, 1)
 	assert.Equal(t, "v0.0.0-20260812203640-351d2159f8d8", f.Require[0].Mod.Version)
-	assert.Equal(t, "master", trackedBranch(f.Require[0].Syntax))
+	assert.Equal(t, marker{tracks: true}, parseMarker(f.Require[0].Syntax))
 }
 
 func TestEnforceOrgBranchTrackingLeavesAnAlreadyTrackedRequireAlone(t *testing.T) {
@@ -117,7 +117,7 @@ func TestEnforceOrgBranchTrackingLeavesAnAlreadyTrackedRequireAlone(t *testing.T
 	writeGoMod(t, `module test
 go 1.21
 
-require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:branch=v1
+require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:auto-branch=v1
 `)
 
 	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
@@ -125,7 +125,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-t
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
 	assert.False(t, changed)
-	assert.Equal(t, "// go-toolchain:branch=v1", suffixFor(t, "wow-look-at-my/foo"), "the chosen branch is not replaced by the default one")
+	assert.Equal(t, "// go-toolchain:auto-branch=v1", suffixFor(t, "wow-look-at-my/foo"), "the chosen branch is not replaced by the default one")
 	assert.Empty(t, mock.Calls())
 }
 
@@ -212,8 +212,8 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
 	assert.True(t, changed)
-	assert.Equal(t, "// go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/bubbletea/v2"))
-	assert.Contains(t, strings.Join(*lsRemote, "\n"), "github.com/wow-look-at-my/bubbletea/v2")
+	assert.Equal(t, "// go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/bubbletea/v2"))
+	assert.Empty(t, *lsRemote, "the bare marker names no branch, so there is nothing to look up")
 }
 
 func TestEnforceOrgBranchTrackingSkipsALocalReplacement(t *testing.T) {
@@ -251,14 +251,16 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard
 	assert.Empty(t, mock.Calls())
 }
 
-// Leaving the version pin in place on a resolution failure would report a
-// green run for a go.mod that does not meet the requirement.
+// Migration is the one path here that still needs the remote: it has to know
+// whether the hardcoded name is just the default branch written down. Leaving
+// the legacy marker in place on a resolution failure would report a green run
+// for a migration that did not happen.
 func TestEnforceOrgBranchTrackingFailsWhenTheDefaultBranchCannotBeResolved(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
 
-require github.com/wow-look-at-my/foo v1.2.3
+require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:branch=master
 `)
 
 	mock := runner.NewMock()
@@ -271,9 +273,8 @@ require github.com/wow-look-at-my/foo v1.2.3
 
 	_, err := EnforceOrgBranchTracking(mock)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must track a branch")
-	assert.Contains(t, err.Error(), pinnedMarker)
-	assert.NotContains(t, string(readGoMod(t)), branchMarkerPrefix)
+	assert.Contains(t, err.Error(), "must be migrated")
+	assert.Contains(t, string(readGoMod(t)), legacyBranchMarker, "the unmigrated line stays exactly as it was")
 }
 
 func TestEnforceOrgBranchTrackingIsANoOpWithoutAGoMod(t *testing.T) {

@@ -119,11 +119,11 @@ func (dc *DepChecker) run() {
 			continue
 		}
 
-		// A dependency pinned to follow a branch is owned by
+		// A dependency carrying a tracking marker is owned by
 		// UpdateTrackedBranchDeps (depsbranch.go); comparing it against the
 		// proxy's @latest here would silently drag it back onto the
 		// module's default branch on the next auto-update.
-		if dep.Branch != "" {
+		if dep.Tracked {
 			continue
 		}
 
@@ -263,7 +263,7 @@ func escapePath(path string) (string, error) {
 type depInfo struct {
 	Path    string
 	Version string
-	Branch  string // set when the require line carries a go-toolchain:branch comment
+	Tracked bool // the line, or the replace covering it, carries a tracking marker
 }
 
 // findGoMod walks up from the current directory to find go.mod.
@@ -300,13 +300,13 @@ func listDirectDeps() ([]depInfo, error) {
 		return nil, err
 	}
 
-	// A require replaced by a branch-tracked replacement is branch-tracked
-	// too: the version that ends up in the build is the replacement's, and
+	// A require replaced by a tracked replacement is tracked too: the version
+	// that ends up in the build is the replacement's, and
 	// UpdateTrackedBranchDeps owns it.
-	replacedBranch := map[string]string{}
+	replacedTracked := map[string]bool{}
 	for _, rep := range f.Replace {
-		if branch := trackedBranch(rep.Syntax); branch != "" {
-			replacedBranch[rep.Old.Path] = branch
+		if isTracked(rep.Syntax) {
+			replacedTracked[rep.Old.Path] = true
 		}
 	}
 
@@ -315,11 +315,11 @@ func listDirectDeps() ([]depInfo, error) {
 		if req.Indirect {
 			continue
 		}
-		branch := trackedBranch(req.Syntax)
-		if branch == "" {
-			branch = replacedBranch[req.Mod.Path]
-		}
-		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version, Branch: branch})
+		deps = append(deps, depInfo{
+			Path:    req.Mod.Path,
+			Version: req.Mod.Version,
+			Tracked: isTracked(req.Syntax) || replacedTracked[req.Mod.Path],
+		})
 	}
 	return deps, nil
 }

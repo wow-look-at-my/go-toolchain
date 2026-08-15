@@ -37,7 +37,7 @@ func isOrgModule(path string) bool {
 }
 
 // hasPinnedMarker reports whether a line carries the deliberate-version-pin
-// opt-out. Matched by substring for the same reason trackedBranch is: the
+// opt-out. Matched by substring for the same reason parseMarker is: the
 // marker can share the comment with "// indirect".
 func hasPinnedMarker(line *modfile.Line) bool {
 	if line == nil {
@@ -96,26 +96,28 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 		if replaced[req.Mod.Path] || !isOrgModule(req.Mod.Path) {
 			continue
 		}
-		if trackedBranch(req.Syntax) != "" || hasPinnedMarker(req.Syntax) {
+		if hasPinnedMarker(req.Syntax) {
 			continue
 		}
-		if err := markBranchTracked(r, req.Syntax, req.Mod.Path, req.Mod.Version); err != nil {
+		moved, err := markBranchTracked(r, req.Syntax, req.Mod.Path, req.Mod.Version)
+		if err != nil {
 			return changed, err
 		}
-		changed = true
+		changed = changed || moved
 	}
 
 	for _, rep := range f.Replace {
 		if isLocalReplacement(rep.New) || !isOrgModule(rep.New.Path) {
 			continue
 		}
-		if trackedBranch(rep.Syntax) != "" || hasPinnedMarker(rep.Syntax) {
+		if hasPinnedMarker(rep.Syntax) {
 			continue
 		}
-		if err := markBranchTracked(r, rep.Syntax, rep.New.Path, rep.New.Version); err != nil {
+		moved, err := markBranchTracked(r, rep.Syntax, rep.New.Path, rep.New.Version)
+		if err != nil {
 			return changed, err
 		}
-		changed = true
+		changed = changed || moved
 	}
 
 	if !changed {
@@ -148,35 +150,65 @@ func warnIndirectOrgRequire(req *modfile.Require, coveredByReplace bool) {
 	if coveredByReplace || !isOrgModule(req.Mod.Path) {
 		return
 	}
-	if trackedBranch(req.Syntax) != "" || hasPinnedMarker(req.Syntax) {
+	if isTracked(req.Syntax) || hasPinnedMarker(req.Syntax) {
 		return
 	}
-	logger.Warn("%s is version-pinned at %s and indirect, so it cannot carry a branch marker: promote it to a direct require, or pin the version that reaches the build with `replace %s => %s <version> // %s<branch>` (main-module-only, so it covers indirect requires too). Deliberate? Say so with a trailing // %s <reason> comment.",
-		req.Mod.Path, req.Mod.Version, req.Mod.Path, req.Mod.Path, branchMarkerPrefix, pinnedMarker)
+	logger.Warn("%s is version-pinned at %s and indirect, so it cannot carry a branch marker: promote it to a direct require, or pin the version that reaches the build with `replace %s => %s <version> // %s` (main-module-only, so it covers indirect requires too). Deliberate? Say so with a trailing // %s <reason> comment.",
+		req.Mod.Path, req.Mod.Version, req.Mod.Path, req.Mod.Path, autoBranchMarker, pinnedMarker)
 }
 
-// markBranchTracked appends the branch marker for mod's default branch to a
-// go.mod line. Resolution failure is fatal rather than a warning: silently
-// leaving the version pin in place would report a green run for a go.mod that
-// does not meet the requirement.
-func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version string) error {
-	branch, err := resolveDefaultBranch(r, mod)
+// markBranchTracked brings a go.mod line to the canonical marker and reports
+// whether it changed. An unmarked line gets the bare auto-branch marker, which
+// needs no network call: the branch it names is the module's default one, and
+// the remote is asked which that is at resolution time.
+//
+// A line still carrying the legacy branch=<name> spelling is migrated. That
+// one DOES cost a lookup, because the whole point of the migration is to find
+// out whether the hardcoded name is just the default branch written down --
+// in which case the name comes out and the line stops caring what the branch
+// is called. A deliberate non-default branch keeps its name.
+//
+// Resolution failure during a migration is fatal rather than a warning: the
+// line already resolves correctly, so silently leaving it is not wrong, but
+// reporting a green run for a migration that did not happen is.
+func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version string) (bool, error) {
+	m := parseMarker(line)
+	switch {
+	case m.tracks && !m.legacy:
+		return false, nil
+	case !m.tracks:
+		if !jsonOutput {
+			logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow the default branch", mod, version)
+		}
+		setMarker(line, marker{tracks: true})
+		return true, nil
+	}
+
+	def, err := resolveDefaultBranch(r, mod)
 	if err != nil {
-		return fmt.Errorf("%s is version-pinned to %s and must track a branch, but its default branch could not be resolved: %w (pin it deliberately with a trailing // %s <reason> comment if that is what you mean)", mod, version, err, pinnedMarker)
+		return false, fmt.Errorf("%s tracks branch %s with the superseded %s marker and must be migrated to %s, but its default branch could not be resolved: %w", mod, m.branch, legacyBranchMarker, autoBranchMarker, err)
+	}
+	migrated := marker{tracks: true}
+	if m.branch != def {
+		migrated.branch = m.branch
 	}
 	if !jsonOutput {
-		logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, branch)
+		logger.Info("⇒ %s: %s%s becomes %s, which follows %s", mod, legacyBranchMarker, m.branch, migrated.comment(), migrated.describe())
 	}
-	appendBranchMarker(line, branch)
-	return nil
+	setMarker(line, migrated)
+	return true, nil
 }
 
-// appendBranchMarker adds the branch-tracking comment to a go.mod line.
-func appendBranchMarker(line *modfile.Line, branch string) {
-	line.Suffix = append(line.Suffix, modfile.Comment{
-		Token:  "// " + branchMarkerPrefix + branch,
-		Suffix: true,
-	})
+// setMarker replaces any go-toolchain tracking comment on a line with m's.
+func setMarker(line *modfile.Line, m marker) {
+	kept := line.Suffix[:0]
+	for _, c := range line.Suffix {
+		if strings.Contains(c.Token, autoBranchMarker) || strings.Contains(c.Token, legacyBranchMarker) || strings.Contains(c.Token, siblingMarker) {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	line.Suffix = append(kept, modfile.Comment{Token: "// " + m.comment(), Suffix: true})
 }
 
 // resolveDefaultBranch returns the branch name a module's repository HEAD
@@ -241,7 +273,7 @@ func untrackedOrgDeps() []string {
 		if req.Indirect || replaced[req.Mod.Path] || !isOrgModule(req.Mod.Path) {
 			continue
 		}
-		if trackedBranch(req.Syntax) == "" && !hasPinnedMarker(req.Syntax) {
+		if !isTracked(req.Syntax) && !hasPinnedMarker(req.Syntax) {
 			out = append(out, req.Mod.Path)
 		}
 	}
@@ -249,7 +281,7 @@ func untrackedOrgDeps() []string {
 		if isLocalReplacement(rep.New) || !isOrgModule(rep.New.Path) {
 			continue
 		}
-		if trackedBranch(rep.Syntax) == "" && !hasPinnedMarker(rep.Syntax) {
+		if !isTracked(rep.Syntax) && !hasPinnedMarker(rep.Syntax) {
 			out = append(out, rep.New.Path)
 		}
 	}

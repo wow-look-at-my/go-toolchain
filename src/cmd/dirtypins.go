@@ -70,12 +70,12 @@ func trackedPinMovement(headData, workData []byte) ([]string, bool) {
 	moved := map[string]bool{}
 	restore := map[string]string{}
 	for _, req := range wf.Require {
-		branch := trackedBranch(req.Syntax)
-		if branch == "" {
+		m := parseMarker(req.Syntax)
+		if !m.tracks {
 			continue
 		}
 		head := findRequire(hf, req.Mod.Path)
-		if head == nil || trackedBranch(head.Syntax) != branch || head.Mod.Version == req.Mod.Version {
+		if head == nil || parseMarker(head.Syntax) != m || head.Mod.Version == req.Mod.Version {
 			continue
 		}
 		moved[req.Mod.Path] = true
@@ -88,12 +88,12 @@ func trackedPinMovement(headData, workData []byte) ([]string, bool) {
 	}
 
 	for _, rep := range wf.Replace {
-		branch := trackedBranch(rep.Syntax)
-		if branch == "" {
+		m := parseMarker(rep.Syntax)
+		if !m.tracks {
 			continue
 		}
 		head := findReplace(hf, rep.Old.Path, rep.Old.Version)
-		if head == nil || trackedBranch(head.Syntax) != branch {
+		if head == nil || parseMarker(head.Syntax) != m {
 			continue
 		}
 		if head.New.Path != rep.New.Path || head.New.Version == rep.New.Version {

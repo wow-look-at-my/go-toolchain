@@ -36,8 +36,14 @@ func repoTreeMock(t *testing.T, files map[string]string) *runner.Mock {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("git", "ls-remote") {
-			if cfg.Args[1] != repoURL {
-				return runner.MockProcess(nil, errors.New("repository not found: "+cfg.Args[1])), nil
+			url := cfg.Args[len(cfg.Args)-2]
+			if url != repoURL {
+				return runner.MockProcess(nil, errors.New("repository not found: "+url)), nil
+			}
+			for _, arg := range cfg.Args {
+				if arg == "--symref" {
+					return runner.MockProcess([]byte("ref: refs/heads/master\tHEAD\n"+siblingHash+"\tHEAD\n"), nil), nil
+				}
 			}
 			return runner.MockProcess([]byte(siblingHash+"\trefs/heads/master\n"), nil), nil
 		}
@@ -168,7 +174,7 @@ require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-
 	core := findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/core")
 	require.NotNil(t, core, "the sibling has to be required here: a replace would not travel to this module's own consumers")
 	assert.Equal(t, siblingVersion, core.Mod.Version)
-	assert.Equal(t, "master", trackedBranch(core.Syntax), "the added line has to keep moving on later runs")
+	assert.Equal(t, marker{tracks: true, sibling: "github.com/wow-look-at-my/common-ai-api/go/client"}, parseMarker(core.Syntax), "the added line records WHY it is here, so later runs keep moving it")
 
 	client := findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/client")
 	require.NotNil(t, client)

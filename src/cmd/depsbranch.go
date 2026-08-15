@@ -14,30 +14,129 @@ import (
 	"golang.org/x/mod/module"
 )
 
-// branchMarkerPrefix is the trailing comment that pins a dependency to a
-// branch instead of the module's default branch. It rides either the require
-// line or, for a fork consumed through a replacement, the replace line:
-//
-//	require github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:branch=v1
-//	replace upstream.example/foo => github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:branch=master
-const branchMarkerPrefix = "go-toolchain:branch="
+// The trailing comments that make a line's version an ANSWER rather than a
+// choice. Each rides either the require line or, for a fork consumed through a
+// replacement, the replace line.
+const (
+	// autoBranchMarker follows the module's DEFAULT branch, resolved on every
+	// run. Bare, it names no branch at all -- which is the point: a branch's
+	// name lives on the remote, and a copy of it in go.mod is one more thing
+	// that goes stale the day the default branch is renamed. "=<branch>" names
+	// a different branch deliberately.
+	//
+	//	require github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:auto-branch
+	//	require github.com/wow-look-at-my/bar v0.0.0-... // go-toolchain:auto-branch=v1
+	autoBranchMarker = "go-toolchain:auto-branch"
 
-// trackedBranch returns the branch a go.mod line is pinned to follow, or ""
-// if it carries no branchMarkerPrefix comment. Matched by substring, not
-// prefix, so it still finds the marker on a line combined with an
-// "// indirect; ..." comment (see setIndirect in x/mod/modfile).
-func trackedBranch(line *modfile.Line) string {
+	// siblingMarker matches the commit another module resolved to. It is
+	// written by go-toolchain and not by hand: which modules share a repository
+	// is read off that repository, so a hand-written one is a guess.
+	//
+	//	require github.com/wow-look-at-my/foo/go/core v0.0.0-... // go-toolchain:sibling=github.com/wow-look-at-my/foo/go/client
+	siblingMarker = "go-toolchain:sibling="
+
+	// legacyBranchMarker is the original spelling. It is still READ, so an
+	// unmigrated go.mod resolves correctly, and EnforceOrgBranchTracking
+	// rewrites it into the form above.
+	legacyBranchMarker = "go-toolchain:branch="
+)
+
+// marker is what a go.mod line's go-toolchain comment asks for.
+type marker struct {
+	// tracks is true when any of the markers above is present.
+	tracks bool
+	// branch names the branch to follow. Empty with tracks set means the
+	// module's default branch, whatever it is called today.
+	branch string
+	// sibling names the module whose commit this line matches, and is empty
+	// on a line that follows a branch.
+	sibling string
+	// legacy is true for the old branch= spelling, which is what tells
+	// EnforceOrgBranchTracking there is something to migrate.
+	legacy bool
+}
+
+// parseMarker reads a go.mod line's tracking marker. Matched by substring, not
+// prefix, so it is still found on a line combined with an "// indirect; ..."
+// comment (see setIndirect in x/mod/modfile).
+func parseMarker(line *modfile.Line) marker {
 	if line == nil {
-		return ""
+		return marker{}
 	}
 	for _, c := range line.Suffix {
-		idx := strings.Index(c.Token, branchMarkerPrefix)
-		if idx == -1 {
-			continue
+		if i := strings.Index(c.Token, siblingMarker); i != -1 {
+			return marker{tracks: true, sibling: markerValue(c.Token[i+len(siblingMarker):])}
 		}
-		return strings.TrimSpace(c.Token[idx+len(branchMarkerPrefix):])
+		if i := strings.Index(c.Token, autoBranchMarker); i != -1 {
+			rest := c.Token[i+len(autoBranchMarker):]
+			if named, ok := strings.CutPrefix(rest, "="); ok {
+				return marker{tracks: true, branch: markerValue(named)}
+			}
+			return marker{tracks: true}
+		}
+		if i := strings.Index(c.Token, legacyBranchMarker); i != -1 {
+			return marker{tracks: true, branch: markerValue(c.Token[i+len(legacyBranchMarker):]), legacy: true}
+		}
 	}
-	return ""
+	return marker{}
+}
+
+// markerValue takes a marker's value off the front of the rest of a comment:
+// up to the first space, so a trailing note stays readable.
+func markerValue(rest string) string {
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+// ref is the git ref this marker resolves against. A marker naming no branch
+// resolves HEAD, which IS the default branch and costs no extra lookup to
+// follow.
+func (m marker) ref() string {
+	if m.branch == "" {
+		return "HEAD"
+	}
+	return "refs/heads/" + m.branch
+}
+
+// describe names what a line follows, for a log or warning message.
+func (m marker) describe() string {
+	switch {
+	case m.sibling != "":
+		return "the commit of " + m.sibling
+	case m.branch == "":
+		return "the default branch"
+	default:
+		return "branch " + m.branch
+	}
+}
+
+// comment is the marker as it is written into go.mod.
+func (m marker) comment() string {
+	switch {
+	case m.sibling != "":
+		return siblingMarker + m.sibling
+	case m.branch == "":
+		return autoBranchMarker
+	default:
+		return autoBranchMarker + "=" + m.branch
+	}
+}
+
+// trackedBranch reports the branch a line follows, or "" when it follows no
+// branch -- either because it carries no marker at all, or because it follows
+// a default branch or a sibling, neither of which names one. Callers that have
+// to tell those apart use parseMarker.
+func trackedBranch(line *modfile.Line) string {
+	return parseMarker(line).branch
+}
+
+// isTracked reports whether a line's version is go-toolchain's answer rather
+// than somebody's choice.
+func isTracked(line *modfile.Line) bool {
+	return parseMarker(line).tracks
 }
 
 // isLocalReplacement reports whether a replacement points at a directory on
@@ -50,10 +149,53 @@ func isLocalReplacement(target module.Version) bool {
 		filepath.IsAbs(target.Path)
 }
 
-// branchPin is a resolved version and the branch whose head it came from.
+// branchPin is a resolved version and the marker that answered for it.
 type branchPin struct {
 	version string
-	branch  string
+	marker  marker
+}
+
+// commitAnchor is the commit a require's siblings have to match, and how to
+// get it: a ref to resolve for a line that follows a branch, or the commit a
+// deliberate version pin already names.
+type commitAnchor struct {
+	ref  string
+	hash string
+	desc string
+}
+
+func (a commitAnchor) describe() string { return a.desc }
+
+func (a commitAnchor) fetch(r runner.CommandRunner, mod string) (*gitCommit, func(), error) {
+	if a.hash != "" {
+		return fetchCommitAt(r, mod, a.hash)
+	}
+	return fetchCommit(r, mod, a.ref)
+}
+
+// siblingAnchor returns the commit a direct require's same-repository siblings
+// must match, and whether it has one at all.
+//
+// A tracked line's anchor is its branch. A DELIBERATELY PINNED line has one
+// too, and it is not the branch: cohesion is about the modules of one repo
+// shipping together, so a line held at an old version holds its siblings at
+// that same old commit. Following the branch there would pair a pinned module
+// with siblings from today, which is the mismatch the pin exists to avoid.
+func siblingAnchor(req *modfile.Require, m marker) (commitAnchor, bool) {
+	if req.Indirect {
+		return commitAnchor{}, false // an indirect line is somebody else's answer
+	}
+	if m.tracks && m.sibling == "" {
+		return commitAnchor{ref: m.ref(), desc: m.describe()}, true
+	}
+	if !hasPinnedMarker(req.Syntax) || !isOrgModule(req.Mod.Path) {
+		return commitAnchor{}, false
+	}
+	rev, err := module.PseudoVersionRev(req.Mod.Version)
+	if err != nil || rev == "" {
+		return commitAnchor{}, false // a tagged release names no commit to match
+	}
+	return commitAnchor{hash: rev, desc: "the commit pinned by " + req.Mod.Version}, true
 }
 
 // UpdateTrackedBranchDeps re-resolves every require and replace carrying a
@@ -104,36 +246,55 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	// untouched rather than half-moved.
 	resolved := map[string]branchPin{}
 	siblings := map[string]branchPin{}
+	var temporary []temporaryBranch
 	for _, req := range f.Require {
-		branch := trackedBranch(req.Syntax)
-		if branch == "" || req.Indirect {
+		m := parseMarker(req.Syntax)
+		anchor, isAnchor := siblingAnchor(req, m)
+		if !isAnchor {
 			continue
 		}
-		c, cleanup, err := fetchCommit(r, req.Mod.Path, "refs/heads/"+branch)
+		c, cleanup, err := anchor.fetch(r, req.Mod.Path)
 		if err != nil {
-			return false, fmt.Errorf("failed to resolve %s@%s: %w", req.Mod.Path, branch, err)
+			return false, fmt.Errorf("failed to resolve %s at %s: %w", req.Mod.Path, anchor.describe(), err)
 		}
-		resolved[req.Mod.Path] = branchPin{pseudoVersionFor(req.Mod.Path, c.Time, c.ShortHash), branch}
+		if m.tracks {
+			resolved[req.Mod.Path] = branchPin{pseudoVersionFor(req.Mod.Path, c.Time, c.ShortHash), m}
+		}
+		if m.branch != "" {
+			if t, found := checkTemporaryBranch(req.Mod.Path, m.branch); found {
+				t.module = req.Mod.Path
+				temporary = append(temporary, t)
+			}
+		}
 		sibs, sibErr := siblingRequires(r, c, mainModule)
 		cleanup()
 		if sibErr != nil {
-			return false, fmt.Errorf("failed to resolve the modules %s shares a repository with at %s: %w", req.Mod.Path, branch, sibErr)
+			return false, fmt.Errorf("failed to resolve the modules %s shares a repository with at %s: %w", req.Mod.Path, anchor.describe(), sibErr)
 		}
 		for mod, version := range sibs {
-			siblings[mod] = branchPin{version, branch}
+			siblings[mod] = branchPin{version, marker{tracks: true, sibling: req.Mod.Path}}
 		}
 	}
 
+	if err := reportTemporaryBranches(temporary); err != nil {
+		return false, err
+	}
+
 	for _, req := range f.Require {
-		branch := trackedBranch(req.Syntax)
-		if branch == "" || !req.Indirect {
+		m := parseMarker(req.Syntax)
+		if !m.tracks || !req.Indirect {
 			continue
 		}
 		if _, managed := siblings[req.Mod.Path]; managed {
 			continue // this run owns the line; tidy is what marked it indirect
 		}
-		logger.Warn("%s tracks branch %q but is marked indirect; make it a direct dependency, track it through a replace instead (replace %s => <repo> <version> // go-toolchain:branch=%s -- a replace is main-module-only, so it covers direct and indirect requires alike), or drop the go-toolchain:branch comment",
-			req.Mod.Path, branch, req.Mod.Path, branch)
+		if m.sibling != "" {
+			logger.Warn("%s matches the commit of %s, which no longer brings it in; drop the %s comment, or restore the require that used to need it",
+				req.Mod.Path, m.sibling, siblingMarker)
+			continue
+		}
+		logger.Warn("%s follows %s but is marked indirect; make it a direct dependency, track it through a replace instead (replace %s => <repo> <version> // %s -- a replace is main-module-only, so it covers direct and indirect requires alike), or drop the %s comment",
+			req.Mod.Path, m.describe(), req.Mod.Path, m.comment(), autoBranchMarker)
 	}
 
 	changed := false
@@ -143,7 +304,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 			continue
 		}
 		if !jsonOutput {
-			logger.Info("⇒ Updating %s (tracking %s): %s -> %s", req.Mod.Path, pin.branch, req.Mod.Version, pin.version)
+			logger.Info("⇒ Updating %s (following %s): %s -> %s", req.Mod.Path, pin.marker.describe(), req.Mod.Version, pin.version)
 		}
 		if err := f.AddRequire(req.Mod.Path, pin.version); err != nil {
 			return false, fmt.Errorf("failed to update %s: %w", req.Mod.Path, err)
@@ -166,25 +327,34 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	// keeps upstream's module path, so the require line names upstream and
 	// tracking its branch is never what the marker means.
 	for _, rep := range f.Replace {
-		branch := trackedBranch(rep.Syntax)
-		if branch == "" {
+		m := parseMarker(rep.Syntax)
+		if !m.tracks {
 			continue
 		}
 		if isLocalReplacement(rep.New) {
-			logger.Warn("%s is replaced by the local directory %s, which has no branch to track; drop the go-toolchain:branch comment", rep.Old.Path, rep.New.Path)
+			logger.Warn("%s is replaced by the local directory %s, which has no branch to track; drop the %s comment", rep.Old.Path, rep.New.Path, autoBranchMarker)
 			continue
 		}
 
-		version, err := resolveVersionViaGit(r, rep.New.Path, "refs/heads/"+branch)
+		if m.branch != "" {
+			if t, found := checkTemporaryBranch(rep.New.Path, m.branch); found {
+				t.module = rep.New.Path
+				if err := reportTemporaryBranches([]temporaryBranch{t}); err != nil {
+					return changed, err
+				}
+			}
+		}
+
+		version, err := resolveVersionViaGit(r, rep.New.Path, m.ref())
 		if err != nil {
-			return changed, fmt.Errorf("failed to resolve %s@%s: %w", rep.New.Path, branch, err)
+			return changed, fmt.Errorf("failed to resolve %s at %s: %w", rep.New.Path, m.describe(), err)
 		}
 		if version == rep.New.Version {
 			continue
 		}
 
 		if !jsonOutput {
-			logger.Info("⇒ Updating %s (tracking %s): %s -> %s", rep.New.Path, branch, rep.New.Version, version)
+			logger.Info("⇒ Updating %s (following %s): %s -> %s", rep.New.Path, m.describe(), rep.New.Version, version)
 		}
 		if err := f.AddReplace(rep.Old.Path, rep.Old.Version, rep.New.Path, version); err != nil {
 			return changed, fmt.Errorf("failed to update %s: %w", rep.New.Path, err)
@@ -220,22 +390,22 @@ func requireSiblingAt(f *modfile.File, mod string, pin branchPin) (bool, error) 
 	if existing != nil && hasPinnedMarker(existing.Syntax) {
 		return false, nil
 	}
-	if existing != nil && existing.Mod.Version == pin.version && trackedBranch(existing.Syntax) == pin.branch {
+	if existing != nil && existing.Mod.Version == pin.version && parseMarker(existing.Syntax) == pin.marker {
 		return false, nil
 	}
 
 	if !jsonOutput {
 		if existing == nil {
-			logger.Info("⇒ Requiring %s at %s: it ships from the same commit as a module tracking %s", mod, pin.version, pin.branch)
+			logger.Info("⇒ Requiring %s at %s: it ships from the same commit as %s", mod, pin.version, pin.marker.sibling)
 		} else if existing.Mod.Version != pin.version {
-			logger.Info("⇒ Updating %s (same repository, tracking %s): %s -> %s", mod, pin.branch, existing.Mod.Version, pin.version)
+			logger.Info("⇒ Updating %s (same repository as %s): %s -> %s", mod, pin.marker.sibling, existing.Mod.Version, pin.version)
 		}
 	}
 	if err := f.AddRequire(mod, pin.version); err != nil {
 		return false, fmt.Errorf("failed to require %s: %w", mod, err)
 	}
-	if added := findRequire(f, mod); added != nil && trackedBranch(added.Syntax) == "" {
-		appendBranchMarker(added.Syntax, pin.branch)
+	if added := findRequire(f, mod); added != nil {
+		setMarker(added.Syntax, pin.marker)
 	}
 	return true, nil
 }
@@ -273,11 +443,11 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 		return false
 	}
 	for _, req := range f.Require {
-		branch := trackedBranch(req.Syntax)
-		if branch == "" || req.Indirect {
-			continue
+		m := parseMarker(req.Syntax)
+		if !m.tracks || m.sibling != "" || req.Indirect {
+			continue // a sibling moves with its anchor, which is checked here
 		}
-		version, err := resolveVersionViaGit(r, req.Mod.Path, "refs/heads/"+branch)
+		version, err := resolveVersionViaGit(r, req.Mod.Path, m.ref())
 		if err != nil {
 			continue
 		}
@@ -286,11 +456,11 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 		}
 	}
 	for _, rep := range f.Replace {
-		branch := trackedBranch(rep.Syntax)
-		if branch == "" || isLocalReplacement(rep.New) {
+		m := parseMarker(rep.Syntax)
+		if !m.tracks || isLocalReplacement(rep.New) {
 			continue
 		}
-		version, err := resolveVersionViaGit(r, rep.New.Path, "refs/heads/"+branch)
+		version, err := resolveVersionViaGit(r, rep.New.Path, m.ref())
 		if err != nil {
 			continue
 		}
