@@ -95,12 +95,20 @@ func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, err
 // result -- treated as final, not as a reason to keep guessing shorter
 // prefixes that could accidentally match an unrelated repository that
 // happens to have a branch of the same name.
+// Resolving HEAD asks --symref, which reports the branch HEAD points at
+// alongside its commit. That name is what an older go-toolchain needs written
+// into go.mod to understand the line at all (see marker.comment), and asking
+// for it here costs nothing: it rides the lookup that had to happen anyway.
 func resolveGitURLAndRef(r runner.CommandRunner, mod, ref string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var lastErr error
 	for i := len(parts); i >= 2; i-- {
 		url := "https://" + strings.Join(parts[:i], "/")
-		proc, runErr := runner.Cmd("git", "ls-remote", url, ref).WithQuiet().Run(r)
+		args := []string{"ls-remote", url, ref}
+		if ref == "HEAD" {
+			args = []string{"ls-remote", "--symref", url, ref}
+		}
+		proc, runErr := runner.Cmd("git", args...).WithQuiet().Run(r)
 		if runErr != nil {
 			lastErr = fmt.Errorf("git ls-remote %s failed: %w", url, runErr)
 			continue
@@ -129,11 +137,37 @@ type gitCommit struct {
 	// module is the repository root.
 	Subdir string
 
+	// DefaultBranch is the branch the repository's HEAD points at, known only
+	// when this commit was resolved through HEAD. It is what the compatibility
+	// half of a marker is written from (see marker.comment).
+	DefaultBranch string
+
 	Hash      string
 	ShortHash string
 	Time      time.Time
 
 	dir string
+}
+
+// parseLsRemote reads a `git ls-remote` answer: the commit the ref points at,
+// and -- with --symref -- the branch a symbolic ref resolves to.
+//
+//	ref: refs/heads/master	HEAD
+//	<hash>	HEAD
+func parseLsRemote(out []byte) (hash, branch string) {
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "ref: "); ok {
+			if fields := strings.Fields(rest); len(fields) > 0 {
+				branch = strings.TrimPrefix(fields[0], "refs/heads/")
+			}
+			continue
+		}
+		if fields := strings.Fields(line); len(fields) > 0 && hash == "" {
+			hash = fields[0]
+		}
+	}
+	return hash, branch
 }
 
 // fetchCommit resolves ref (a branch, "HEAD", or any other ref git ls-remote
@@ -146,11 +180,28 @@ func fetchCommit(r runner.CommandRunner, mod, ref string) (*gitCommit, func(), e
 		return nil, nil, fmt.Errorf("git ls-remote failed: %w", err)
 	}
 
-	fields := strings.Fields(string(output))
-	if len(fields) < 1 {
+	hash, branch := parseLsRemote(output)
+	if hash == "" {
 		return nil, nil, fmt.Errorf("no ref %q found for %s", ref, mod)
 	}
-	return fetchAt(r, mod, gitURL, fields[0])
+	c, cleanup, err := fetchAt(r, mod, gitURL, hash)
+	if c != nil {
+		c.DefaultBranch = branch
+	}
+	return c, cleanup, err
+}
+
+// defaultBranchOf reports the branch a module's repository HEAD points at.
+func defaultBranchOf(r runner.CommandRunner, mod string) (string, error) {
+	_, output, err := resolveGitURLAndRef(r, mod, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	_, branch := parseLsRemote(output)
+	if branch == "" {
+		return "", fmt.Errorf("%s reported no symbolic HEAD", mod)
+	}
+	return branch, nil
 }
 
 // fetchCommitAt fetches one named commit of a module's repository, for a

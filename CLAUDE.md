@@ -69,13 +69,15 @@ coverage.
   dats/README.md)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
-  version pin: an org require/replace carrying a plain version gets `// go-toolchain:branch=<default branch>` appended
-  (resolved via `git ls-remote --symref`), which the rewrite-then-dirty-tree-fails-CI contract enforces. A require overridden
-  by a replace is marked on the replace line instead; an INDIRECT one cannot carry a working marker at all, so it warns and
+  version pin: an org require/replace carrying a plain version, or the legacy marker, is rewritten to
+  `// go-toolchain:auto-branch go-toolchain:branch=<default branch>` (resolved via `git ls-remote --symref`; an unreachable
+  remote is FATAL, since the second half is what keeps an older release off the line), which the
+  rewrite-then-dirty-tree-fails-CI contract enforces. A require overridden by a replace is marked on the replace line
+  instead; an INDIRECT one cannot carry a working marker at all, so it warns and
   names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the explicit opt-out.
   Depth: `docs/DEPS.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
-  deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same dependency.
+  deps (`// go-toolchain:auto-branch`), and the same-org auto-updater; the three never fight over the same dependency.
   The marker rides a require OR a replace line -- a fork keeps upstream's module path, so it is reached through a replace,
   and the replacement's repo and version are what get resolved. A tracked branch's HEAD is the one pipeline input that is
   not a file, so the up-to-date fast exit checks it too -- otherwise a dependency that moved is invisible on an unchanged
@@ -86,11 +88,13 @@ coverage.
   the one publishing it -- at a first publish, one with no such module in it (`missing go.mod at revision`). And the
   re-resolution is excluded from the CI dirty check, so it never demands a bump commit; the exclusion covers the version
   token on a same-marker line plus the `go.sum` hashes that follow it, nothing else. Depth: `docs/DEPS.md`
-- Markers (`parseMarker` in `src/cmd/depsbranch.go`): `auto-branch` follows the module's DEFAULT branch and names none, so a
-  renamed default breaks nothing; `auto-branch=<name>` is the deliberate non-default choice; `sibling=<module>` matches
-  another module's resolved commit and is written by the toolchain, never by hand. The legacy `branch=<name>` is still read
-  and NEVER rewritten: a release predating `auto-branch` reads that marker as untracked and appends its own as a standalone
-  comment above the require, corrupting the block. Depth: `docs/DEPS.md`
+- Markers (`src/cmd/depsmarker.go`): `auto-branch` follows the module's DEFAULT branch and names none, so a renamed default
+  breaks nothing; `auto-branch=<name>` is the deliberate non-default choice; `sibling=<module>` matches another module's
+  resolved commit and is written by the toolchain, never by hand. Every one is WRITTEN with the legacy `branch=<name>` last
+  on the line, naming the branch that line actually follows: a release predating these markers takes everything after
+  `branch=` as the branch name, so both readers answer off one line and neither overwrites the other. Without that half an
+  old release reads the line as untracked and appends its own comment above the require, corrupting the block. That is what
+  makes the automatic migration of an unmarked or legacy line safe. Depth: `docs/DEPS.md`
 - `src/cmd/depsbranchguard.go` — a marker naming a branch that is the head of an OPEN pull request FAILS in CI and warns
   locally. That branch dies with the merge, so it resolves right up until the change lands and never again; CI is the last
   look before the merge, and tandem development across two repos is why local is only a warning. Depth: `docs/DEPS.md`

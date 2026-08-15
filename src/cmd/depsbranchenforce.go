@@ -156,25 +156,50 @@ func warnIndirectOrgRequire(req *modfile.Require, coveredByReplace bool) {
 		req.Mod.Path, req.Mod.Version, req.Mod.Path, req.Mod.Path, autoBranchMarker, pinnedMarker)
 }
 
-// markBranchTracked gives an unmarked go.mod line the bare auto-branch marker
-// and reports whether it changed. It needs no network call: the marker names
-// no branch, so there is nothing to look up until the line is resolved.
+// markBranchTracked brings a go.mod line to the canonical marker and reports
+// whether it changed. An unmarked line gets auto-branch; a line still carrying
+// the legacy branch=<name> spelling is migrated to it. Both keep a
+// compatibility half naming the branch, so a release that predates auto-branch
+// still reads the line (see marker.comment).
 //
-// A line already carrying a marker is left exactly as it is, including the
-// legacy branch=<name> spelling. Rewriting those into the new one is tempting
-// and is a trap: a go-toolchain release that predates auto-branch does not
-// recognize the marker, reads the line as untracked, and appends its own --
-// as a standalone comment ABOVE the require, which corrupts the block. So a
-// go.mod only gains the new spelling on a line that had no marker at all, and
-// a repo migrates when someone chooses to, on a toolchain everyone is running.
-func markBranchTracked(_ runner.CommandRunner, line *modfile.Line, mod, version string) (bool, error) {
-	if parseMarker(line).tracks {
+// The migration drops a hardcoded name that merely repeats the default branch,
+// and keeps one that does not: `branch=v1` becomes `auto-branch=v1`, while
+// `branch=master` on a repo whose default IS master becomes plain
+// `auto-branch`, which stops caring what the branch is called.
+//
+// Resolution failure is fatal rather than a warning. Writing the marker
+// without its compatibility half would leave a go.mod that an older release
+// corrupts on sight, and reporting green for a marker that was not written is
+// the other way to be wrong here.
+func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version string) (bool, error) {
+	m := parseMarker(line)
+	if m.tracks && !m.legacy && m.compat != "" {
 		return false, nil
 	}
-	if !jsonOutput {
-		logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow the default branch", mod, version)
+
+	def, err := defaultBranchOf(r, mod)
+	if err != nil {
+		return false, fmt.Errorf("%s must track a branch, but the default branch of its repository could not be resolved: %w (pin it deliberately with a trailing // %s <reason> comment if that is what you mean)", mod, err, pinnedMarker)
 	}
-	setMarker(line, marker{tracks: true})
+
+	marked := marker{tracks: true, compat: def}
+	if m.branch != "" && m.branch != def {
+		// The compatibility half has to name the branch this line actually
+		// follows, not the default one: an older release reads that half and
+		// nothing else, so naming the default there would quietly move a
+		// deliberate non-default pin onto master.
+		marked.branch = m.branch
+		marked.compat = m.branch
+	}
+	if !jsonOutput {
+		switch {
+		case !m.tracks:
+			logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, marked.describe())
+		case m.legacy:
+			logger.Info("⇒ %s: %s%s becomes %s", mod, legacyBranchMarker, m.branch, marked.comment())
+		}
+	}
+	setMarker(line, marked)
 	return true, nil
 }
 

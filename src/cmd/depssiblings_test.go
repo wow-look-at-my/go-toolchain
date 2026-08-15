@@ -174,7 +174,7 @@ require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-
 	core := findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/core")
 	require.NotNil(t, core, "the sibling has to be required here: a replace would not travel to this module's own consumers")
 	assert.Equal(t, siblingVersion, core.Mod.Version)
-	assert.Equal(t, marker{tracks: true, sibling: "github.com/wow-look-at-my/common-ai-api/go/client"}, parseMarker(core.Syntax), "the added line records WHY it is here, so later runs keep moving it")
+	assert.Equal(t, marker{tracks: true, sibling: "github.com/wow-look-at-my/common-ai-api/go/client", compat: "master"}, parseMarker(core.Syntax), "the added line records WHY it is here, so later runs keep moving it; the compatibility half is the closest an older release comes to saying the same thing")
 
 	client := findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/client")
 	require.NotNil(t, client)

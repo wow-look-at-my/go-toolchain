@@ -42,12 +42,40 @@ of it in `go.mod` is one more thing that goes stale — the day a default branch
 hardcoded copy across the org resolves to nothing. `auto-branch=<name>` names a different branch
 deliberately, and that is the only form that hardcodes anything.
 
-The original `branch=<name>` spelling is still READ and is never rewritten. Rewriting it is
-tempting and is a trap: **a go-toolchain release that predates `auto-branch` does not recognize the
-marker**, reads the line as untracked, and appends its own — as a standalone comment ABOVE the
-require, which corrupts the block. Until every runner is on a toolchain that knows the new marker,
-a `go.mod` only gains it on a line that had no marker at all, and moving an existing line is a
-deliberate edit made when the repo's builds are all on a new enough toolchain.
+The original `branch=<name>` spelling is still READ, and every marker is WRITTEN with a
+compatibility half behind it:
+
+```go
+require github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:auto-branch go-toolchain:branch=master
+require github.com/wow-look-at-my/bar v0.0.0-... // go-toolchain:auto-branch=v1 go-toolchain:branch=v1
+require github.com/wow-look-at-my/baz v0.0.0-... // go-toolchain:sibling=github.com/org/repo/go/client go-toolchain:branch=master
+```
+
+A go-toolchain release that predates these markers looks for `go-toolchain:branch=` and takes
+EVERYTHING after it as the branch name. So the legacy spelling goes LAST, with nothing after it,
+and both readers answer correctly off one line: an old release follows the named branch, a current
+one follows the marker in front and ignores the rest. Neither rewrites the other's work.
+
+That half is what makes the new markers shippable at all. An old release does not IGNORE a marker
+it does not recognize — it reads the line as untracked and appends its own comment, on a line of
+its own, ABOVE the require, which corrupts the block. So the migration is automatic and total:
+`EnforceOrgBranchTracking` brings every unmarked line and every legacy line to the bridged form on
+the next run, and a repo whose builds still run an older release keeps working throughout.
+
+The compatibility half names the branch the line ACTUALLY follows, never the default one:
+`branch=v1` on a repo whose default is `master` becomes `auto-branch=v1 go-toolchain:branch=v1`.
+Naming the default there would quietly move a deliberate non-default pin onto master for every old
+reader. Where the name only repeated the default, the new half stops naming it: `branch=master`
+becomes plain `auto-branch`, which stops caring what the branch is called.
+
+Writing a marker therefore needs the default branch, which costs one
+`git ls-remote --symref <url> HEAD` — the same lookup the resolution had to make anyway. A remote
+that cannot answer is FATAL: a marker written without its compatibility half is one an older
+release corrupts on sight, and reporting green over a marker that never got written is the other
+way to be wrong here.
+
+The half is redundant the moment every runner reads the marker in front of it, and a later release
+drops it.
 
 Every run re-resolves that branch's current HEAD via `git ls-remote <url> refs/heads/<branch>` and
 rewrites the pseudo-version in place (the comment is preserved, so the pin stays declarative across
@@ -165,12 +193,13 @@ A version pin on a `github.com/wow-look-at-my/` module is a snapshot of whenever
 ran `go get`. These modules are co-developed with their consumers and have no release cadence to
 pin to, so nothing ever moves that snapshot forward and the consumer silently builds against
 month-old code. The branch pin is therefore the canonical form for them, and `go.mod` is
-rewritten into it: an org require or replace carrying a plain version gets
-`// go-toolchain:auto-branch` appended. That costs no lookup — the marker names no branch, so
-there is nothing to ask until the line is resolved.
+rewritten into it: an org require or replace carrying a plain version gets the bridged
+`// go-toolchain:auto-branch go-toolchain:branch=<default>` appended, and a line still carrying
+the legacy spelling is migrated to the same form. Both need the default branch, so both ask the
+remote for it — see the compatibility half above for what that half is and why a failure to
+resolve it is fatal.
 
-A line that already carries any marker — including the legacy spelling — is left exactly as it is,
-for the compatibility reason above.
+A line already in the bridged form is left exactly as it is, and asks the remote nothing.
 
 The rewrite is the enforcement — locally you review the diff and commit it, in CI the resulting
 dirty tree fails the build (`checkDirtyInCI`), the same contract as every other `go.mod` mutation
