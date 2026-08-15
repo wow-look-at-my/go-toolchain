@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/mod/modfile"
 )
 
@@ -72,32 +73,21 @@ require github.com/wow-look-at-my/foo v1.2.3
 	assert.Equal(t, marker{tracks: true}, parseMarker(findRequire(f, "github.com/wow-look-at-my/foo").Syntax))
 }
 
-// Migration: a hardcoded default-branch name is a copy of a fact that lives on
-// the remote, so it comes out. A deliberate non-default branch keeps its name.
-func TestEnforceOrgBranchTrackingMigratesTheLegacyMarker(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		was   string
-		want  marker
-		about string
-	}{
-		{"default branch", "master", marker{tracks: true}, "the name was just the default branch written down"},
-		{"other branch", "v1", marker{tracks: true, branch: "v1"}, "a deliberate non-default branch is a choice to keep"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Chdir(t.TempDir())
-			gomod := "module test\ngo 1.25.0\n\nrequire github.com/wow-look-at-my/common-ai-api/go/core v1.2.3 // go-toolchain:branch=" + tc.was + "\n"
-			require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
+// A release that predates auto-branch does not recognize it, reads the line as
+// untracked, and appends its own marker as a standalone comment ABOVE the
+// require -- which corrupts the block. So a legacy line is read and left, and
+// the new spelling only ever lands on a line that had no marker at all.
+func TestEnforceOrgBranchTrackingLeavesTheLegacyMarkerAlone(t *testing.T) {
+	t.Chdir(t.TempDir())
+	gomod := "module test\ngo 1.25.0\n\nrequire github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:branch=master\n"
+	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
 
-			changed, err := EnforceOrgBranchTracking(repoTreeMock(t, commonAPITree()))
-			require.NoError(t, err)
-			assert.True(t, changed)
-
-			f, err := modfile.Parse("go.mod", readGoMod(t), nil)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, parseMarker(findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/core").Syntax), tc.about)
-		})
-	}
+	mock := repoTreeMock(t, commonAPITree())
+	changed, err := EnforceOrgBranchTracking(mock)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Empty(t, mock.Calls(), "there is nothing to decide, so nothing to ask")
+	assert.Contains(t, string(readGoMod(t)), "// go-toolchain:branch=master")
 }
 
 func TestEnforceOrgBranchTrackingLeavesTheCanonicalFormAlone(t *testing.T) {
@@ -139,4 +129,22 @@ func TestReportTemporaryBranchesFailsInCIAndWarnsOutsideIt(t *testing.T) {
 	assert.Contains(t, err.Error(), "claude/wip")
 
 	assert.NoError(t, reportTemporaryBranches(nil))
+}
+
+// The run's own token is scoped to the repository being built, so a
+// cross-repository check against a private one is refused as a matter of
+// course. Saying so once names every branch it covers; saying it per line
+// would fire on every run of every repo forever.
+func TestReportUncheckedBranchesSaysItOnce(t *testing.T) {
+	logger.ResetWarnCount()
+	defer logger.ResetWarnCount()
+
+	reportUncheckedBranches(nil)
+	assert.Equal(t, int64(0), logger.WarnCount(), "nothing unchecked is nothing to say")
+
+	reportUncheckedBranches([]string{"github.com/org/a@v1", "github.com/org/b@v1"})
+	warnings := logger.EmittedWarnings()
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "github.com/org/a@v1")
+	assert.Contains(t, warnings[0], "github.com/org/b@v1")
 }

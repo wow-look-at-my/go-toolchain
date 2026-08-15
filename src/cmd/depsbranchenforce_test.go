@@ -251,16 +251,15 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard
 	assert.Empty(t, mock.Calls())
 }
 
-// Migration is the one path here that still needs the remote: it has to know
-// whether the hardcoded name is just the default branch written down. Leaving
-// the legacy marker in place on a resolution failure would report a green run
-// for a migration that did not happen.
-func TestEnforceOrgBranchTrackingFailsWhenTheDefaultBranchCannotBeResolved(t *testing.T) {
+// Marking a line asks the remote nothing now, so an unreachable one cannot
+// stop it: the marker names no branch, and which branch that is gets asked at
+// resolution time instead.
+func TestEnforceOrgBranchTrackingMarksWithAnUnreachableRemote(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
 
-require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:branch=master
+require github.com/wow-look-at-my/foo v1.2.3
 `)
 
 	mock := runner.NewMock()
@@ -271,10 +270,11 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:branch=master
 		return nil, nil
 	}
 
-	_, err := EnforceOrgBranchTracking(mock)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must be migrated")
-	assert.Contains(t, string(readGoMod(t)), legacyBranchMarker, "the unmigrated line stays exactly as it was")
+	changed, err := EnforceOrgBranchTracking(mock)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Equal(t, "// go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/foo"))
+	assert.Empty(t, mock.Calls())
 }
 
 func TestEnforceOrgBranchTrackingIsANoOpWithoutAGoMod(t *testing.T) {

@@ -40,9 +40,14 @@ require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-t
 *default* branch, asked of the remote on every run. A branch's name lives on the remote, and a copy
 of it in `go.mod` is one more thing that goes stale — the day a default branch is renamed, every
 hardcoded copy across the org resolves to nothing. `auto-branch=<name>` names a different branch
-deliberately, and that is the only form that hardcodes anything. The original `branch=<name>`
-spelling is still READ, so an unmigrated `go.mod` resolves correctly; `EnforceOrgBranchTracking`
-rewrites it (below).
+deliberately, and that is the only form that hardcodes anything.
+
+The original `branch=<name>` spelling is still READ and is never rewritten. Rewriting it is
+tempting and is a trap: **a go-toolchain release that predates `auto-branch` does not recognize the
+marker**, reads the line as untracked, and appends its own — as a standalone comment ABOVE the
+require, which corrupts the block. Until every runner is on a toolchain that knows the new marker,
+a `go.mod` only gains it on a line that had no marker at all, and moving an existing line is a
+deliberate edit made when the repo's builds are all on a new enough toolchain.
 
 Every run re-resolves that branch's current HEAD via `git ls-remote <url> refs/heads/<branch>` and
 rewrites the pseudo-version in place (the comment is preserved, so the pin stays declarative across
@@ -164,13 +169,8 @@ rewritten into it: an org require or replace carrying a plain version gets
 `// go-toolchain:auto-branch` appended. That costs no lookup — the marker names no branch, so
 there is nothing to ask until the line is resolved.
 
-A line still carrying the legacy `branch=<name>` spelling is migrated in the same pass, and that
-one DOES cost a lookup (`git ls-remote --symref <url> HEAD`), because the point of the migration is
-to find out whether the hardcoded name is just the default branch written down. If it is, the name
-comes out and the line stops caring what the branch is called; a deliberate non-default branch
-keeps its name as `auto-branch=<name>`. A default branch that cannot be resolved FAILS the run:
-the line already resolves correctly, so leaving it is not wrong, but reporting green for a
-migration that did not happen is.
+A line that already carries any marker — including the legacy spelling — is left exactly as it is,
+for the compatibility reason above.
 
 The rewrite is the enforcement — locally you review the diff and commit it, in CI the resulting
 dirty tree fails the build (`checkDirtyInCI`), the same contract as every other `go.mod` mutation

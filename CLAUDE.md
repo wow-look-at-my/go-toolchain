@@ -89,7 +89,8 @@ coverage.
 - Markers (`parseMarker` in `src/cmd/depsbranch.go`): `auto-branch` follows the module's DEFAULT branch and names none, so a
   renamed default breaks nothing; `auto-branch=<name>` is the deliberate non-default choice; `sibling=<module>` matches
   another module's resolved commit and is written by the toolchain, never by hand. The legacy `branch=<name>` is still read
-  and is migrated on sight. Depth: `docs/DEPS.md`
+  and NEVER rewritten: a release predating `auto-branch` reads that marker as untracked and appends its own as a standalone
+  comment above the require, corrupting the block. Depth: `docs/DEPS.md`
 - `src/cmd/depsbranchguard.go` — a marker naming a branch that is the head of an OPEN pull request FAILS in CI and warns
   locally. That branch dies with the merge, so it resolves right up until the change lands and never again; CI is the last
   look before the merge, and tandem development across two repos is why local is only a warning. Depth: `docs/DEPS.md`

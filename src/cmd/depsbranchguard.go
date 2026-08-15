@@ -39,6 +39,20 @@ func (t temporaryBranch) String() string {
 	return fmt.Sprintf("%s follows branch %q, which is the head of %s and is deleted when that merges", t.module, t.branch, t.pr)
 }
 
+// reportUncheckedBranches says once, per run, which branches this could not
+// ask about -- not once per branch. `github.token` is scoped to the repository
+// being built, so a cross-repo check against a private one is REFUSED as a
+// matter of course, and a per-line warning would fire on every run of every
+// repo forever. A guard that cries wolf that often is one nobody reads by the
+// time it is right.
+func reportUncheckedBranches(unchecked []string) {
+	if len(unchecked) == 0 {
+		return
+	}
+	logger.Warn("could not check whether these tracked branches have an open pull request: %s. A cross-repository check needs a GITHUB_TOKEN or GH_TOKEN that can read the other repository's pull requests; the run's own token is scoped to this repository. Until then a branch that a merge is about to delete is not caught here.",
+		strings.Join(unchecked, ", "))
+}
+
 // reportTemporaryBranches fails the run in CI and warns outside it. A run with
 // nothing to report costs nothing.
 func reportTemporaryBranches(found []temporaryBranch) error {
@@ -58,23 +72,24 @@ func reportTemporaryBranches(found []temporaryBranch) error {
 }
 
 // checkTemporaryBranch reports whether branch is the head of an open pull
-// request in the repository mod belongs to.
+// request in the repository mod belongs to, and whether the question could be
+// asked at all.
 //
-// It answers "cannot tell" as no finding, with a warning. A guard that turned
-// an unreachable API into a failed build would fail runs over the network
-// rather than over the thing it checks -- but a guard that said nothing at all
-// would read exactly like a clean result.
-func checkTemporaryBranch(mod, branch string) (temporaryBranch, bool) {
+// An unanswerable question is never a finding, and never a failed build: a
+// guard that turned an unreachable API into a red run would fail over the
+// network rather than over the thing it checks. It is not silent either --
+// the caller collects these and says so once.
+func checkTemporaryBranch(mod, branch string) (found temporaryBranch, isTemporary, checked bool) {
 	owner, repo, ok := gitHubOwnerRepo(mod)
 	if !ok {
-		return temporaryBranch{}, false // only GitHub has an API to ask
+		return temporaryBranch{}, false, true // no GitHub, no pull requests to have
 	}
 
 	api := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls?state=open&per_page=1&head=%s",
 		owner, repo, url.QueryEscape(owner+":"+branch))
 	req, err := http.NewRequest(http.MethodGet, api, nil)
 	if err != nil {
-		return temporaryBranch{}, false
+		return temporaryBranch{}, false, false
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	if token := gitHubAPIToken(); token != "" {
@@ -83,13 +98,11 @@ func checkTemporaryBranch(mod, branch string) (temporaryBranch, bool) {
 
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
-		logger.Warn("could not check whether %s/%s branch %q has an open pull request: %v", owner, repo, branch, err)
-		return temporaryBranch{}, false
+		return temporaryBranch{}, false, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		logger.Warn("could not check whether %s/%s branch %q has an open pull request: HTTP %d (a private repository needs GITHUB_TOKEN or GH_TOKEN in the environment)", owner, repo, branch, resp.StatusCode)
-		return temporaryBranch{}, false
+		return temporaryBranch{}, false, false
 	}
 
 	var open []struct {
@@ -97,17 +110,16 @@ func checkTemporaryBranch(mod, branch string) (temporaryBranch, bool) {
 		HTMLURL string `json:"html_url"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&open); err != nil {
-		logger.Warn("could not read the open pull requests of %s/%s: %v", owner, repo, err)
-		return temporaryBranch{}, false
+		return temporaryBranch{}, false, false
 	}
 	if len(open) == 0 {
-		return temporaryBranch{}, false
+		return temporaryBranch{}, false, true
 	}
 	pr := open[0].HTMLURL
 	if pr == "" {
 		pr = fmt.Sprintf("%s/%s#%d", owner, repo, open[0].Number)
 	}
-	return temporaryBranch{branch: branch, pr: pr}, true
+	return temporaryBranch{branch: branch, pr: pr}, true, true
 }
 
 // gitHubOwnerRepo reads the owner and repository out of a github.com module

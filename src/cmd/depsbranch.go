@@ -247,6 +247,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	resolved := map[string]branchPin{}
 	siblings := map[string]branchPin{}
 	var temporary []temporaryBranch
+	var unchecked []string
 	for _, req := range f.Require {
 		m := parseMarker(req.Syntax)
 		anchor, isAnchor := siblingAnchor(req, m)
@@ -261,9 +262,13 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 			resolved[req.Mod.Path] = branchPin{pseudoVersionFor(req.Mod.Path, c.Time, c.ShortHash), m}
 		}
 		if m.branch != "" {
-			if t, found := checkTemporaryBranch(req.Mod.Path, m.branch); found {
+			t, isTemporary, checked := checkTemporaryBranch(req.Mod.Path, m.branch)
+			switch {
+			case isTemporary:
 				t.module = req.Mod.Path
 				temporary = append(temporary, t)
+			case !checked:
+				unchecked = append(unchecked, req.Mod.Path+"@"+m.branch)
 			}
 		}
 		sibs, sibErr := siblingRequires(r, c, mainModule)
@@ -276,6 +281,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 		}
 	}
 
+	reportUncheckedBranches(unchecked)
 	if err := reportTemporaryBranches(temporary); err != nil {
 		return false, err
 	}
@@ -337,11 +343,15 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 		}
 
 		if m.branch != "" {
-			if t, found := checkTemporaryBranch(rep.New.Path, m.branch); found {
+			t, isTemporary, checked := checkTemporaryBranch(rep.New.Path, m.branch)
+			switch {
+			case isTemporary:
 				t.module = rep.New.Path
 				if err := reportTemporaryBranches([]temporaryBranch{t}); err != nil {
 					return changed, err
 				}
+			case !checked:
+				reportUncheckedBranches([]string{rep.New.Path + "@" + m.branch})
 			}
 		}
 

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -52,11 +51,11 @@ func hasPinnedMarker(line *modfile.Line) bool {
 }
 
 // EnforceOrgBranchTracking makes the branch pin the canonical form for every
-// org-owned dependency: an org require or replace that carries a plain
-// version instead of a go-toolchain:branch comment gets the comment added,
-// naming the module's own default branch. UpdateTrackedBranchDeps then owns
-// the line from that point on and re-resolves it every run, so the version
-// stops being a snapshot of whenever someone last ran `go get`.
+// org-owned dependency: an org require or replace that carries a plain version
+// and no marker gets the bare auto-branch comment added.
+// UpdateTrackedBranchDeps then owns the line from that point on and re-resolves
+// it every run, so the version stops being a snapshot of whenever someone last
+// ran `go get`.
 //
 // The rewrite is the enforcement: locally the developer sees the diff and
 // commits it, and in CI the resulting dirty tree fails the build
@@ -157,45 +156,25 @@ func warnIndirectOrgRequire(req *modfile.Require, coveredByReplace bool) {
 		req.Mod.Path, req.Mod.Version, req.Mod.Path, req.Mod.Path, autoBranchMarker, pinnedMarker)
 }
 
-// markBranchTracked brings a go.mod line to the canonical marker and reports
-// whether it changed. An unmarked line gets the bare auto-branch marker, which
-// needs no network call: the branch it names is the module's default one, and
-// the remote is asked which that is at resolution time.
+// markBranchTracked gives an unmarked go.mod line the bare auto-branch marker
+// and reports whether it changed. It needs no network call: the marker names
+// no branch, so there is nothing to look up until the line is resolved.
 //
-// A line still carrying the legacy branch=<name> spelling is migrated. That
-// one DOES cost a lookup, because the whole point of the migration is to find
-// out whether the hardcoded name is just the default branch written down --
-// in which case the name comes out and the line stops caring what the branch
-// is called. A deliberate non-default branch keeps its name.
-//
-// Resolution failure during a migration is fatal rather than a warning: the
-// line already resolves correctly, so silently leaving it is not wrong, but
-// reporting a green run for a migration that did not happen is.
-func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version string) (bool, error) {
-	m := parseMarker(line)
-	switch {
-	case m.tracks && !m.legacy:
+// A line already carrying a marker is left exactly as it is, including the
+// legacy branch=<name> spelling. Rewriting those into the new one is tempting
+// and is a trap: a go-toolchain release that predates auto-branch does not
+// recognize the marker, reads the line as untracked, and appends its own --
+// as a standalone comment ABOVE the require, which corrupts the block. So a
+// go.mod only gains the new spelling on a line that had no marker at all, and
+// a repo migrates when someone chooses to, on a toolchain everyone is running.
+func markBranchTracked(_ runner.CommandRunner, line *modfile.Line, mod, version string) (bool, error) {
+	if parseMarker(line).tracks {
 		return false, nil
-	case !m.tracks:
-		if !jsonOutput {
-			logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow the default branch", mod, version)
-		}
-		setMarker(line, marker{tracks: true})
-		return true, nil
-	}
-
-	def, err := resolveDefaultBranch(r, mod)
-	if err != nil {
-		return false, fmt.Errorf("%s tracks branch %s with the superseded %s marker and must be migrated to %s, but its default branch could not be resolved: %w", mod, m.branch, legacyBranchMarker, autoBranchMarker, err)
-	}
-	migrated := marker{tracks: true}
-	if m.branch != def {
-		migrated.branch = m.branch
 	}
 	if !jsonOutput {
-		logger.Info("⇒ %s: %s%s becomes %s, which follows %s", mod, legacyBranchMarker, m.branch, migrated.comment(), migrated.describe())
+		logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow the default branch", mod, version)
 	}
-	setMarker(line, migrated)
+	setMarker(line, marker{tracks: true})
 	return true, nil
 }
 
@@ -209,42 +188,6 @@ func setMarker(line *modfile.Line, m marker) {
 		kept = append(kept, c)
 	}
 	line.Suffix = append(kept, modfile.Comment{Token: "// " + m.comment(), Suffix: true})
-}
-
-// resolveDefaultBranch returns the branch name a module's repository HEAD
-// points at. `git ls-remote --symref <url> HEAD` reports it without cloning:
-//
-//	ref: refs/heads/master	HEAD
-//	<hash>	HEAD
-func resolveDefaultBranch(r runner.CommandRunner, mod string) (string, error) {
-	gitURL, _, err := resolveGitURLAndRef(r, mod, "HEAD")
-	if err != nil {
-		return "", err
-	}
-
-	proc, err := runner.Cmd("git", "ls-remote", "--symref", gitURL, "HEAD").WithQuiet().Run(r)
-	if err != nil {
-		return "", fmt.Errorf("git ls-remote --symref %s failed: %w", gitURL, err)
-	}
-	out, _ := io.ReadAll(proc.Stdout())
-	if err := proc.Wait(); err != nil {
-		return "", fmt.Errorf("git ls-remote --symref %s failed: %w", gitURL, err)
-	}
-
-	for _, ln := range strings.Split(string(out), "\n") {
-		rest, ok := strings.CutPrefix(strings.TrimSpace(ln), "ref: ")
-		if !ok {
-			continue
-		}
-		ref := strings.Fields(rest)
-		if len(ref) == 0 {
-			continue
-		}
-		if branch, ok := strings.CutPrefix(ref[0], "refs/heads/"); ok && branch != "" {
-			return branch, nil
-		}
-	}
-	return "", fmt.Errorf("%s reported no symbolic HEAD", gitURL)
 }
 
 // untrackedOrgDeps returns the org-owned dependencies that carry a version
