@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // invalidPackageNameMarker is what go/types reports when the EXPORT DATA for an
@@ -44,14 +46,11 @@ func corruptExportPackages(err error) []string {
 	if err == nil {
 		return nil
 	}
-	seen := map[string]bool{}
+	seen := set.New[string]()
 	for _, m := range corruptExportPkgRe.FindAllStringSubmatch(err.Error(), -1) {
-		seen[m[1]] = true
+		seen.Add(m[1])
 	}
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
-	}
+	out := seen.Values()
 	sort.Strings(out)
 	return out
 }
