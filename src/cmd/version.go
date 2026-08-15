@@ -77,7 +77,13 @@ func resolvedTimestamp() (int64, bool) {
 }
 
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
-var githubAPIBase = "https://api.github.com"
+
+// The staleness footer's commit queries. GO_TOOLCHAIN_GITHUB_API_URL points
+// them elsewhere, the same knob GO_TOOLCHAIN_BUILDHOST_URL is for the update
+// check: a caller that must not depend on api.github.com's latency (a CLI
+// suite under a wall-clock budget) aims it at an unreachable address and gets
+// the offline footer instantly.
+var githubAPIBase = envOr("GO_TOOLCHAIN_GITHUB_API_URL", "https://api.github.com")
 
 func setGithubAPIBase(base string) { githubAPIBase = base }
 
