@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
@@ -238,10 +239,10 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// the first slot copy. Replaced fat paths leave builtFiles: checksums
 	// cover real files only.
 	if hasCosmo && len(slotPlatforms) > 0 {
-		nativeBuilt := make(map[string]bool)
+		nativeBuilt := set.New[string]()
 		for _, job := range jobs {
 			if job.goos != cosmoOS {
-				nativeBuilt[filepath.Base(job.outputPath)] = true
+				nativeBuilt.Add(filepath.Base(job.outputPath))
 			}
 		}
 		copied, replacedFat, err := copyCosmoSlots(hostTargets, outputDir, slotPlatforms, nativeBuilt, os.Getenv("CI") != "")

@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"github.com/wow-look-at-my/go-containers/set"
 	"strings"
 )
 
@@ -21,7 +22,7 @@ func BuildSuggestion(pair DuplicatePair) Suggestion {
 		valueB string
 	}
 
-	seen := make(map[string]bool)
+	seen := set.New[string]()
 	var params []paramPair
 
 	addParam := func(vA, vB string) {
@@ -29,10 +30,9 @@ func BuildSuggestion(pair DuplicatePair) Suggestion {
 			return
 		}
 		key := vA + " -> " + vB
-		if seen[key] {
+		if !seen.Add(key) {
 			return
 		}
-		seen[key] = true
 		params = append(params, paramPair{valueA: vA, valueB: vB})
 	}
 

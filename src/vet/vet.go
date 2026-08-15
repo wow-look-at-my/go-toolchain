@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
@@ -35,6 +36,7 @@ func Analyzers() []*analysis.Analyzer {
 		AssertNormAnalyzer,
 		DeadCodeAnalyzer,
 		BannedOutputAnalyzer,
+		MapSetAnalyzer,
 		RedundantCastAnalyzer,
 		TestifyCastAnalyzer,
 	}
@@ -99,7 +101,7 @@ func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error)
 // error two to four times.
 func loadErrorMessages(pkgs []*packages.Package) []string {
 	var msgs []string
-	seen := make(map[string]bool)
+	seen := set.New[string]()
 	packages.Visit(pkgs, func(pkg *packages.Package) bool {
 		for _, e := range pkg.Errors {
 			msg := e.Error()
@@ -107,10 +109,9 @@ func loadErrorMessages(pkgs []*packages.Package) []string {
 				strings.Contains(msg, "source-processing packages") {
 				continue
 			}
-			if seen[msg] {
+			if !seen.Add(msg) {
 				continue
 			}
-			seen[msg] = true
 			msgs = append(msgs, msg)
 		}
 		return true
@@ -164,11 +165,12 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	// alone left `//go:build sometag` files unparsed, unanalyzed and therefore
 	// unable to fail -- a bypass by omission rather than by defeat. Scan derives
 	// the configurations; buildtags.Verify below PROVES they were sufficient.
+	resetMapSetWarnings()
 	discovery, err := buildtags.Scan(".")
 	if err != nil {
 		return filesChanged, fmt.Errorf("discovering build tags: %w", err)
 	}
-	analyzedFiles := map[string]bool{}
+	analyzedFiles := set.New[string]()
 	var diagnostics []Diagnostic
 	var nParsed int
 
@@ -208,7 +210,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 // parsed into analyzedFiles (module-relative, slash separated) so Verify can
 // prove no tagged file went unseen.
 func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report func(string),
-	diagnostics *[]Diagnostic, analyzedFiles map[string]bool, nParsedTotal *int,
+	diagnostics *[]Diagnostic, analyzedFiles set.Set[string], nParsedTotal *int,
 ) (bool, error) {
 	filesChanged := false
 
@@ -394,13 +396,12 @@ func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
 // per-analyzer per-package timing in the trace. Mutates the original analyzers
 // since cloning breaks checker.Analyze's internal pointer-identity maps.
 func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
-	seen := make(map[*analysis.Analyzer]bool)
+	seen := set.New[*analysis.Analyzer]()
 	var instrument func(a *analysis.Analyzer)
 	instrument = func(a *analysis.Analyzer) {
-		if seen[a] {
+		if !seen.Add(a) {
 			return
 		}
-		seen[a] = true
 		origRun := a.Run
 		name := a.Name
 		a.Run = func(pass *analysis.Pass) (interface{}, error) {

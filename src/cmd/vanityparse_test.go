@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 func TestParseVanityModulesFromSum(t *testing.T) {
@@ -33,13 +34,13 @@ gopkg.in/yaml.v3 v3.0.1 h1:ggg=
 	// Should exclude: github.com, golang.org, gopkg.in
 	assert.Equal(t, 3, len(modules))
 
-	hosts := map[string]bool{}
+	hosts := set.New[string]()
 	for _, m := range modules {
-		hosts[m.Host] = true
+		hosts.Add(m.Host)
 	}
-	assert.True(t, hosts["gotest.tools"])
-	assert.True(t, hosts["modernc.org"])
-	assert.True(t, hosts["dario.cat"])
+	assert.True(t, hosts.Contains("gotest.tools"))
+	assert.True(t, hosts.Contains("modernc.org"))
+	assert.True(t, hosts.Contains("dario.cat"))
 }
 
 func TestParseVanityModulesFromSumNoFile(t *testing.T) {
