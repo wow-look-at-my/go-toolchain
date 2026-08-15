@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -331,14 +332,14 @@ func setFirstTokenPos(node ast.Node, pos token.Pos) {
 // Only returns basic types that don't require imports.
 func castableType(lit *ast.BasicLit, targetType string) string {
 	// Only cast to simple builtin types (no package imports needed)
-	basicTypes := map[string]bool{
-		"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
-		"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
-		"float32": true, "float64": true,
-		"byte": true, "rune": true,
-	}
+	basicTypes := set.Of(
+		"int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64",
+		"float32", "float64",
+		"byte", "rune",
+	)
 
-	if !basicTypes[targetType] {
+	if !basicTypes.Contains(targetType) {
 		return "" // Skip complex types that would require imports
 	}
 
