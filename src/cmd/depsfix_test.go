@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,7 +69,7 @@ require (
 
 	mock := runner.NewMock()
 	// Mock git ls-remote to fail - we just want to verify detection works
-	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/service/auth", "HEAD"},
+	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://git.internal/service/auth", "HEAD"},
 		nil, os.ErrNotExist)
 
 	jsonOutput = true
@@ -82,7 +83,18 @@ require (
 	calls := mock.Calls()
 	require.GreaterOrEqual(t, len(calls), 1)
 	assert.False(t, calls[0].Name != "git" || calls[0].Args[0] != "ls-remote")
-	assert.Equal(t, "https://git.internal/service/auth", calls[0].Args[1])
+	assert.Equal(t, "https://git.internal/service/auth", lsRemoteURL(calls[0]))
+}
+
+// lsRemoteURL picks the repository out of an ls-remote call. The options in
+// front of it move the position: HEAD is asked with --symref.
+func lsRemoteURL(cfg runner.Config) string {
+	for _, arg := range cfg.Args {
+		if strings.HasPrefix(arg, "https://") {
+			return arg
+		}
+	}
+	return ""
 }
 
 func TestFixBogusDepsVersions_GitLsRemoteFails(t *testing.T) {
@@ -99,7 +111,7 @@ require git.internal/broken v0.0.0
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
 	mock := runner.NewMock()
-	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/broken", "HEAD"}, nil, os.ErrNotExist)
+	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://git.internal/broken", "HEAD"}, nil, os.ErrNotExist)
 
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -140,7 +152,7 @@ func TestResolveLatestVersionViaGit_Success(t *testing.T) {
 func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
 	mock := runner.NewMock()
 	// Return empty output (no HEAD ref)
-	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte(""), nil)
+	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, []byte(""), nil)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
 	assert.NotNil(t, err)
@@ -149,7 +161,7 @@ func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
 func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
 	mock := runner.NewMock()
 	// Return hash that's too short
-	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte("abc123\tHEAD\n"), nil)
+	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, []byte("abc123\tHEAD\n"), nil)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
 	assert.NotNil(t, err)
@@ -212,7 +224,7 @@ require git.internal/foo v0.0.0
 
 	mock := runner.NewMock()
 	// Don't set jsonOutput = true, so the message will be printed
-	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/foo", "HEAD"}, nil, os.ErrNotExist)
+	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://git.internal/foo", "HEAD"}, nil, os.ErrNotExist)
 
 	// This will fail but covers the non-jsonOutput branch
 	_ = FixBogusDepsVersions(mock)
@@ -220,7 +232,7 @@ require git.internal/foo v0.0.0
 
 func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
 	mock := runner.NewMock()
-	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
+	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
 	assert.NotNil(t, err)
@@ -235,7 +247,7 @@ func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
 // instead of naming what actually went wrong.
 func TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError(t *testing.T) {
 	mock := runner.NewMock()
-	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
+	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
 
 	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
 	require.Error(t, err)
@@ -245,7 +257,7 @@ func TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError(t *testing
 func TestResolveGitURLAndRef(t *testing.T) {
 	t.Run("module at repo root resolves on the first try", func(t *testing.T) {
 		mock := runner.NewMock()
-		mock.SetResponse("git", []string{"ls-remote", "https://github.com/wow-look-at-my/agentic-loop", "HEAD"},
+		mock.SetResponse("git", []string{"ls-remote", "--symref", "https://github.com/wow-look-at-my/agentic-loop", "HEAD"},
 			[]byte("abc123\tHEAD\n"), nil)
 
 		url, output, err := resolveGitURLAndRef(mock, "github.com/wow-look-at-my/agentic-loop", "HEAD")
@@ -259,13 +271,13 @@ func TestResolveGitURLAndRef(t *testing.T) {
 		mock := runner.NewMock()
 		mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 			require.True(t, cfg.IsCmd("git", "ls-remote"))
-			switch cfg.Args[1] {
+			switch lsRemoteURL(cfg) {
 			case "https://github.com/wow-look-at-my/agentic-loop/go":
 				return runner.MockProcess(nil, errors.New("exit status 128")), nil
 			case "https://github.com/wow-look-at-my/agentic-loop":
 				return runner.MockProcess([]byte("abc123\tHEAD\n"), nil), nil
 			}
-			t.Fatalf("unexpected ls-remote URL %q", cfg.Args[1])
+			t.Fatalf("unexpected ls-remote URL %q", lsRemoteURL(cfg))
 			return nil, nil
 		}
 
@@ -280,13 +292,13 @@ func TestResolveGitURLAndRef(t *testing.T) {
 	t.Run("a nested gitlab subgroup resolves without knowing gitlab's shape in advance", func(t *testing.T) {
 		mock := runner.NewMock()
 		mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-			switch cfg.Args[1] {
+			switch lsRemoteURL(cfg) {
 			case "https://gitlab.com/group/subgroup/repo/sub":
 				return runner.MockProcess(nil, errors.New("exit status 128")), nil
 			case "https://gitlab.com/group/subgroup/repo":
 				return runner.MockProcess([]byte("abc123\tHEAD\n"), nil), nil
 			}
-			t.Fatalf("unexpected ls-remote URL %q", cfg.Args[1])
+			t.Fatalf("unexpected ls-remote URL %q", lsRemoteURL(cfg))
 			return nil, nil
 		}
 

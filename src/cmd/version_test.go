@@ -39,7 +39,7 @@ func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 	assert.NoError(t, checkDirtyInCI())
 }
 
-func TestDirtyFilesExcludingGuard(t *testing.T) {
+func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
 	// Guard files are ignored in every state — including the deletions that a
 	// repo migrating off committed guards produces — while real changes remain.
 	status := " M .gitignore\n" +
@@ -47,21 +47,21 @@ func TestDirtyFilesExcludingGuard(t *testing.T) {
 		" D cmd/tool/gomemlimit_gen.go\n" +
 		"?? gomemlimit_gen.go\n" +
 		" M src/main.go\n"
-	got := dirtyFilesExcludingGuard(status)
+	got := dirtyFilesExcludingToolchainWrites(status)
 	assert.Equal(t, " M .gitignore\n M src/main.go", got)
 }
 
-func TestDirtyFilesExcludingGuardOnlyGuards(t *testing.T) {
+func TestDirtyFilesExcludingToolchainWritesOnlyGuards(t *testing.T) {
 	// A tree dirty *only* with guard files reads as clean.
 	status := " D gomemlimit_gen.go\n?? cmd/tool/gomemlimit_gen.go\n"
-	assert.Equal(t, "", dirtyFilesExcludingGuard(status))
+	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(status))
 }
 
-func TestDirtyFilesExcludingGuardEmpty(t *testing.T) {
-	assert.Equal(t, "", dirtyFilesExcludingGuard(""))
+func TestDirtyFilesExcludingToolchainWritesEmpty(t *testing.T) {
+	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(""))
 }
 
-func TestStatusLineIsGuard(t *testing.T) {
+func TestStatusLineIsToolchainWrite(t *testing.T) {
 	cases := map[string]bool{
 		" D gomemlimit_gen.go":           true,
 		"?? gomemlimit_gen.go":           true,
@@ -72,7 +72,7 @@ func TestStatusLineIsGuard(t *testing.T) {
 		"":                               false,
 	}
 	for line, want := range cases {
-		assert.Equalf(t, want, statusLineIsGuard(line), "line %q", line)
+		assert.Equalf(t, want, statusLineIsToolchainWrite(line, nil), "line %q", line)
 	}
 }
 
