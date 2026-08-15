@@ -1,11 +1,13 @@
 package vet
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -54,6 +56,15 @@ const mapSetAllowMarker = "go-toolchain:allow-mapset"
 
 // setPackage is the remedy every diagnostic names.
 const setPackage = "github.com/wow-look-at-my/go-containers/set"
+
+// mapSetWarned records the file:line of every struct-map warning this run
+// emitted. Analyzers run concurrently across package variants, so the map is
+// a sync.Map and resetMapSetWarnings clears it at the start of each vet run.
+var mapSetWarned sync.Map
+
+// resetMapSetWarnings forgets the warnings of the previous run, so a re-run
+// after a fix reports its sites again.
+func resetMapSetWarnings() { mapSetWarned.Clear() }
 
 func runMapSet(pass *analysis.Pass) (any, error) {
 	if !mapSetInScope(pass.Module) {
@@ -113,6 +124,12 @@ func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File, allowed set.Set[in
 		}
 		pos := pass.Fset.Position(mt.Pos())
 		if allowed.Contains(pos.Line) {
+			return true
+		}
+		// go/packages loads a package up to four ways (plain, internal test,
+		// external test, test main), and every variant walks the same file. One
+		// site must spend one warning of the budget, not four.
+		if _, dup := mapSetWarned.LoadOrStore(fmt.Sprintf("%s:%d", pos.Filename, pos.Line), true); dup {
 			return true
 		}
 		logger.WarnFile(pos.Filename, "%s:%d: map[…]struct{} is a set: %s.Set carries the membership operations (or write %q with a reason)",

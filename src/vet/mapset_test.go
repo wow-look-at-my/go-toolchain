@@ -80,6 +80,7 @@ func main() { seen["a"] = struct{}{} }
 	f, err := parser.ParseFile(fset, "/consumer/main.go", src, parser.ParseComments)
 	require.NoError(t, err)
 
+	resetMapSetWarnings()
 	before := logger.WarnCount()
 	var reports []analysis.Diagnostic
 	pass := &analysis.Pass{
@@ -93,4 +94,15 @@ func main() { seen["a"] = struct{}{} }
 	require.NoError(t, err)
 	require.Empty(t, reports)
 	require.Equal(t, before+1, logger.WarnCount())
+
+	// go/packages walks the same file once per package variant. One site
+	// spends one warning of the budget, until the next run resets the record.
+	_, err = runMapSet(pass)
+	require.NoError(t, err)
+	require.Equal(t, before+1, logger.WarnCount())
+
+	resetMapSetWarnings()
+	_, err = runMapSet(pass)
+	require.NoError(t, err)
+	require.Equal(t, before+2, logger.WarnCount())
 }

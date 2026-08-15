@@ -165,6 +165,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	// alone left `//go:build sometag` files unparsed, unanalyzed and therefore
 	// unable to fail -- a bypass by omission rather than by defeat. Scan derives
 	// the configurations; buildtags.Verify below PROVES they were sufficient.
+	resetMapSetWarnings()
 	discovery, err := buildtags.Scan(".")
 	if err != nil {
 		return filesChanged, fmt.Errorf("discovering build tags: %w", err)

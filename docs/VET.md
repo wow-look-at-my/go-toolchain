@@ -33,34 +33,43 @@ behind a mutex (`parseRecorder`). Unlocked, a module this size died with
 `fatal error: concurrent map writes`, and the output watchdog's pipes swallowed
 the trace — CI saw a bare `exit status 2` with nothing above it.
 
-## mapset: a map written where a set is meant
 
-`src/vet/mapset.go` reports two shapes and offers
+## mapset: a map[K]bool written where a set is meant
+
+`src/vet/mapset.go` reports the map that picks the wrong default and offers
 [`github.com/wow-look-at-my/go-containers/set`](https://github.com/wow-look-at-my/go-containers/tree/master/set)
-in their place:
+in its place. Two shapes FAIL the build:
 
-- `map[K]struct{}` in any position -- a type, a `make` call, a literal, a
-  struct field, a parameter. An empty struct value carries nothing, so the map
-  is a set and only its keys matter.
 - a `map[K]bool` composite literal whose every value is the constant `true`.
+- a `map[K]bool` variable made empty -- `make(map[K]bool)`, `map[K]bool{}`,
+  or a bare `var` -- that the package writes `true` into, and never uses in a
+  way that could read a real boolean.
 
-The second rule is deliberately narrow. One `false` entry makes the literal a
-lookup table, and `buildtags.platformIdents` is exactly that: it answers "is
-this a platform ident" and writes `"ignore": false` to say no. An empty literal
-and a value that is not the constant `true` are both left alone as well.
+A `map[K]struct{}` gets a WARNING instead, never a diagnostic. That map
+already carries no value, so which of the two to write is the author's call;
+the warning names `set.Set` once per site and counts against the warnings
+budget. Every package variant walks the same file, so the sites are
+deduplicated by `file:line` for the length of one vet run
+(`resetMapSetWarnings`).
 
-What the rules do NOT cover is the local idiom `seen := make(map[string]bool)`
-followed by `seen[k] = true`. Deciding that one needs every use of the variable
-across the package, and a map that a function returns or passes on can be read
-for a real boolean somewhere the analyzer never looks. The narrow rules report
-the shapes that are a set by construction; the flow-analysed one is open work.
+### What disqualifies a made-empty bool map
 
-### Scope, the set package, and the escape hatch
+The use walk (`mapSetUses`) accepts a write of `true`, `delete`, `clear`,
+`len`, a key-only `range`, and an index read. Anything else means the map is
+not provably a set, and the candidate is dropped:
 
-The `set` package itself is exempt, under its own path and its `_test` variant.
-`set.Set[T]` IS a `map[T]struct{}`; the remedy cannot take its own advice, and
-eight markers inside one file would say nothing a reader does not already see.
+- `v, ok := m[k]` -- present-and-false is not the same as absent.
+- `m[k] = <anything but true>`, and any compound assignment.
+- `for k, v := range m`, where `v` is used.
+- the map as a value: an argument to anything but those three builtins, a
+  return, a struct field, a channel send, `&m`. Past that point the deciding
+  use can live in another package, where this walk cannot follow.
 
+A literal carrying one `false` is a lookup table and stays.
+`buildtags.platformIdents` is exactly that: it answers "is this a platform
+ident" and writes `"ignore": false` to say no.
+
+### Scope and the escape hatch
 
 The check runs on `github.com/wow-look-at-my/` and `github.com/PazerOP/`
 modules (`mapSetModulePrefixes`). `vetSemantic` runs every analyzer on each
@@ -69,11 +78,11 @@ dependency -- a third-party consumer must not get a red build over that. A
 driver that supplies no module info fails open to checked, so the analysistest
 fixtures still exercise the rules.
 
-A map that must stay a map keeps its diagnostic off with a marker comment on
-its line, or on the line above:
+A map that must stay a map keeps its report off with a marker comment on its
+line, or on the line above:
 
 ```go
-var shape = map[string]struct{}{} // go-toolchain:allow-mapset the wire format is fixed
+var shape = map[string]bool{"a": true} // go-toolchain:allow-mapset the wire format is fixed
 ```
 
 The marker takes a reason for the same purpose `// go-toolchain:pinned` serves
