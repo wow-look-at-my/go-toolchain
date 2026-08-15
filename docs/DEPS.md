@@ -27,6 +27,9 @@ tidy`; anything else is only reported, with a `go get -u` hint.
 
 ## Branch-tracked dependencies (`src/cmd/depsbranch.go`)
 
+Colloquially "the `//branch` comment" — spelled `go-toolchain:branch=` in the file, so searching a
+checkout for `//branch` finds nothing. Search for `branch=` or read on.
+
 The two mechanisms above always resolve to a module's *default* branch — there is no way to ask
 either one to follow a different branch, and letting the org auto-updater run `go get -u` on a
 dependency someone deliberately pinned to a non-default branch would silently drag it back onto
