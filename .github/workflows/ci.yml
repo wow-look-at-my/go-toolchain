@@ -500,6 +500,43 @@ jobs:
           # dats phase above.
           "$RUNNER_TEMP/gt-ape"
 
+      # The same two socket cases the fixture above runs, but OUTSIDE dats --
+      # which is the shape a real opencode user has, since nothing sandboxes
+      # them. It earns its place twice over: the fixture's two socket cases
+      # currently die with the harness's OWN exit 2 (an error raised before the
+      # guard ever reports) and dats surfaces only the failed stdout
+      # expectation, never the harness's stderr, so an un-sandboxed run with
+      # output attached is the only place that error is readable. Runs on
+      # always() so it still reports when the pipeline above went red.
+      - name: Agent output guard over a socket, unsandboxed
+        if: always()
+        run: |
+          set -uo pipefail
+          probe="$RUNNER_TEMP/sockprobe"
+          rm -rf "$probe" && mkdir -p "$probe"
+          # A copy per case: an APE rewrites its own file on first exec.
+          cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" "$probe/harness"
+          cp "$RUNNER_TEMP/gt-ape" "$probe/gt-right"
+          cp "$RUNNER_TEMP/gt-ape" "$probe/gt-wrong"
+          chmod +x "$probe/harness" "$probe/gt-right" "$probe/gt-wrong"
+          cd "$probe"
+          export GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1
+
+          rc=0
+          echo "--- reader IS the agent (expect HARNESS_GUARD_REFUSED=false) ---"
+          ./harness ./gt-right > right.out 2> right.err || rc=$?
+          echo "harness exit: $rc"; echo "stdout:"; cat right.out; echo "stderr:"; cat right.err
+
+          wrc=0
+          echo "--- reader is NOT the agent (expect HARNESS_GUARD_REFUSED=true) ---"
+          ./harness --wrong-reader ./gt-wrong > wrong.out 2> wrong.err || wrc=$?
+          echo "harness exit: $wrc"; echo "stdout:"; cat wrong.out; echo "stderr:"; cat wrong.err
+
+          fail=0
+          grep -q "HARNESS_GUARD_REFUSED=false" right.out || { echo "::error::guard refused a run whose socket reader IS the agent"; fail=1; }
+          grep -q "HARNESS_GUARD_REFUSED=true"  wrong.out || { echo "::error::guard allowed a run whose socket reader is NOT the agent"; fail=1; }
+          exit $fail
+
   smoke-windows:
     needs: build
     runs-on: windows-latest
