@@ -17,6 +17,20 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// libraryModulesAllowed lets a module with no main package pass through the
+// build phase with an empty job list instead of failing the run. runRelease
+// sets it while it walks a tree of modules: a library beside the module that
+// ships the binary is the ordinary shape there, and its tests and dats suites
+// still have to run. A single-module repo leaves it false, so "no main
+// packages found to build" still fails that run.
+//
+// matrixBuiltBinaries counts what every module built, so a whole run that
+// produced no binary at all still fails.
+var (
+	libraryModulesAllowed bool
+	matrixBuiltBinaries   int
+)
+
 func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	setupCGOEnvironment()
 	// Same contract as the default pipeline (see staleoutputs.go): delete the
@@ -122,7 +136,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	if err != nil {
 		return err
 	}
-	if !anyMains {
+	if !anyMains && !libraryModulesAllowed {
 		return fmt.Errorf("no main packages found to build")
 	}
 
@@ -165,11 +179,15 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 	}
 
-	if len(matrixTargets) > 0 {
+	switch {
+	case len(jobs) == 0:
+		logger.Info("⇒ No main package here, so there is nothing to cross-compile")
+	case len(matrixTargets) > 0:
 		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
-	} else {
+	default:
 		logger.Info("⇒ Building %d binaries (%d OS x %d arch)", len(jobs), len(matrixOS), len(matrixArch))
 	}
+	matrixBuiltBinaries += len(jobs)
 	buildStart := time.Now()
 
 	// Run builds in parallel
