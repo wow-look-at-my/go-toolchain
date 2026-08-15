@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // memBackend is a simple in-memory IBackend for testing.
@@ -257,11 +258,11 @@ func TestServer_Lock(t *testing.T) {
 	// Distinct keys MAY share a shard (a collision only coarsens
 	// serialization, never correctness), but across many keys the fixed
 	// table must actually spread load over multiple shards.
-	shards := map[*sync.Mutex]bool{}
+	shards := set.New[*sync.Mutex]()
 	for i := 0; i < 4*lockShards; i++ {
-		shards[srv.lock(fmt.Sprintf("key-%d", i))] = true
+		shards.Add(srv.lock(fmt.Sprintf("key-%d", i)))
 	}
-	require.Greater(t, len(shards), lockShards/2, "keys must spread across the shard table")
+	require.Greater(t, shards.Len(), lockShards/2, "keys must spread across the shard table")
 }
 
 func TestFileSize(t *testing.T) {

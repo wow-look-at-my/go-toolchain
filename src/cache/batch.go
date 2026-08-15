@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -373,13 +374,13 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	// shutdown (and therefore WebBackend.Close and the daemon's close order:
 	// remote before local) still waits for in-flight ingestion.
 	if b.OnBatchEntries != nil {
-		requested := make(map[string]bool, len(reqs))
+		requested := set.New[string](len(reqs))
 		for _, r := range reqs {
-			requested[r.key] = true
+			requested.Add(r.key)
 		}
 		var extra []BatchEntry
 		for _, e := range entries {
-			if !requested[e.Key] {
+			if !requested.Contains(e.Key) {
 				extra = append(extra, e)
 			}
 		}

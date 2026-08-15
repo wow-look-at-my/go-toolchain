@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"gotest.tools/gotestsum/testjson"
 )
 
@@ -122,7 +123,7 @@ func TestRealtimePassOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -145,7 +146,7 @@ func TestRealtimePassOutputHiddenWhenFast(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -165,7 +166,7 @@ func TestRealtimeFailOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -188,8 +189,8 @@ func TestRealtimeTimeoutOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
+		failedTest: set.New[string](),
+		timedOut:   set.New[string](),
 	}
 
 	// First, simulate timeout output event
@@ -222,7 +223,7 @@ func TestRealtimeSkipOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -244,7 +245,7 @@ func TestRealtimeSkipOutputHiddenWhenFast(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -265,7 +266,7 @@ func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
 		verbose:    true,
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -285,7 +286,7 @@ func TestRealtimeNoOutputForPackageEvents(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	// Package-level pass (Test is empty)
@@ -303,7 +304,7 @@ func TestFailureOutputWithStderr(t *testing.T) {
 	h := &coverageHandler{
 		coverage:    make(map[string]float32),
 		testOutput:  make(map[string][]string),
-		failedTest:  make(map[string]bool),
+		failedTest:  set.New[string](),
 		stderrLines: []string{"build error: undefined reference", "linker failed"},
 	}
 
@@ -319,9 +320,7 @@ func TestFailureOutputWithFailedTests(t *testing.T) {
 			"pkg/TestFoo": {"    foo_test.go:10: expected 1, got 2\n"},
 			"pkg/TestBar": {"    bar_test.go:5: nil pointer\n"},
 		},
-		failedTest: map[string]bool{
-			"pkg/TestFoo": true,
-		},
+		failedTest: set.Of("pkg/TestFoo"),
 	}
 
 	output := h.FailureOutput()
@@ -335,9 +334,7 @@ func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
 		testOutput: map[string][]string{
 			"pkg/TestFail": {"    assert failed\n"},
 		},
-		failedTest: map[string]bool{
-			"pkg/TestFail": true,
-		},
+		failedTest:  set.Of("pkg/TestFail"),
 		stderrLines: []string{"compilation error"},
 	}
 
@@ -353,7 +350,7 @@ func TestOnOutputCallbackInPass(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		onOutput:   func() { called = true },
 	}
 
@@ -374,7 +371,7 @@ func TestOnOutputCallbackInSkip(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		onOutput:   func() { called = true },
 	}
 
@@ -397,8 +394,8 @@ func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
+		failedTest: set.New[string](),
+		timedOut:   set.New[string](),
 		out:        &bytes.Buffer{},
 	}
 
