@@ -44,6 +44,9 @@ a `::warning` annotation in GitHub Actions) **if** the check already finished;
 otherwise it cancels the in-flight request and moves on. The check never blocks
 the build and is silent on any error. It always runs — there is no opt-out;
 override the buildhost base URL (self-hosted) with `GO_TOOLCHAIN_BUILDHOST_URL`.
+`version` reports its own staleness instead, from GitHub's commit API;
+`GO_TOOLCHAIN_GITHUB_API_URL` overrides that base, and pointing it at an
+unreachable address is how a CLI suite keeps the footer offline and instant.
 
 ## The up-to-date fingerprint
 
