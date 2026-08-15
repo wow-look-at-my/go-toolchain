@@ -248,7 +248,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(gotSingle) == len(first)
+		return gotSingle.Len() == len(first)
 	}, 2*time.Second, 10*time.Millisecond, "both first-wave objects must arrive as single PUTs after the 405")
 
 	require.True(t, b.batchPutUnsupported.Load(), "the 405 must set the sticky unsupported flag")
@@ -264,7 +264,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return gotSingle["/testbucket/go-buildcache/v1"+second]
+		return gotSingle.Contains("/testbucket/go-buildcache/v1" + second)
 	}, 2*time.Second, 10*time.Millisecond, "post-fallback PUT must go straight to the single-PUT path")
 
 	require.Equal(t, attemptsAfterFirstWave, batchAttempts.Load(), "once the flag sticks, no further /_batch/put is attempted")

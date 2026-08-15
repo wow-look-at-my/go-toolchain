@@ -9,9 +9,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
@@ -111,8 +111,8 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		require.NoError(t, nsErr)
 		assert.Equal(t, wantNS, ns, "wasm build env must set %s from the toolchain content hash", cache.KeyNamespaceEnv)
 	}
-	assert.True(t, seenGOOS["js"], "expected a js/wasm build via the fork toolchain")
-	assert.True(t, seenGOOS["wasip1"], "expected a wasip1/wasm build via the fork toolchain")
+	assert.True(t, seenGOOS.Contains("js"), "expected a js/wasm build via the fork toolchain")
+	assert.True(t, seenGOOS.Contains("wasip1"), "expected a wasip1/wasm build via the fork toolchain")
 
 	// The native target must NOT be routed through the fork toolchain — and
 	// must NOT carry the fork's cache namespace (normal toolchains have
