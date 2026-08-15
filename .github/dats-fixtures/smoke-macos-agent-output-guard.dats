@@ -160,6 +160,22 @@ tests:
 		stdout:
 			- "HARNESS_GUARD_REFUSED=false"
 
+	# The darwin classifier resolves the socket peer's name by running ps(1):
+	# macOS has no /proc, and the sysctl(KERN_PROC) a native darwin build would
+	# use answers ENOSYS from a cosmo APE, so ps is the whole mechanism. That
+	# makes "can this run ps" a load-bearing property of the sandbox the guard
+	# tests run in, and an unanswerable one from the guard's own verdict: a ps
+	# that cannot run makes every socket unidentifiable, which is refused, which
+	# is also what a correctly-refused capture looks like. Ask it directly.
+	# pid 1, so the row is asserted against a name macOS guarantees rather than
+	# against whichever shell dats happened to spawn.
+	- desc: ps answers inside the sandbox, which the socket peer lookup needs
+	  cmd: '/bin/ps -o ppid=,ucomm= -p 1'
+	  timeout: 30s
+	  outputs:
+		stdout:
+			- "launchd"
+
 	- desc: agent output guard still refuses a socket whose reader is not the agent (APE on a macOS host)
 	  cmd: 'cp ./socketharness-under-test {outputs.harness}; cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness} --wrong-reader {outputs.gt}'
 	  timeout: 60s

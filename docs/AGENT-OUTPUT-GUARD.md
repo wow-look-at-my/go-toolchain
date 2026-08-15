@@ -253,3 +253,16 @@ flag to disable it.
   first run, so the direct exec succeeds. Without it the harness dies with
   `exec format error` before the guard reports anything, which reads as a
   guard failure and is not one.
+
+  It drains the socket and reprints both of the child's streams under
+  `HARNESS_CHILD_STDOUT:`/`HARNESS_CHILD_STDERR:`. Reading is what an agent
+  does with a tool call's stdio, and it is also the only way the child's own
+  account of itself survives: `HARNESS_GUARD_REFUSED=false` is equally what a
+  guard that allowed and a run that never reached the guard produce.
+- **A run reaches the guard only under a module.** With no `go.mod` anywhere
+  above the cwd, main.go's bootstrap cannot tell which Go to use and exits
+  first, so nothing the guard would have said is ever printed. Any harness for
+  these tests must therefore run inside a module; the dats fixtures get it for
+  free, since `{outputs.X}` is nested inside the module go-toolchain is
+  building, which is why the same empty scratch directory behaves differently
+  outside dats.

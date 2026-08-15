@@ -512,13 +512,27 @@ jobs:
         run: |
           set -uo pipefail
           probe="$RUNNER_TEMP/sockprobe"
-          rm -rf "$probe" && mkdir -p "$probe"
-          # A copy per case: an APE rewrites its own file on first exec.
-          cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" "$probe/harness"
-          cp "$RUNNER_TEMP/gt-ape" "$probe/gt-right"
-          cp "$RUNNER_TEMP/gt-ape" "$probe/gt-wrong"
-          chmod +x "$probe/harness" "$probe/gt-right" "$probe/gt-wrong"
-          cd "$probe"
+          rm -rf "$probe" && mkdir -p "$probe/run"
+          # The run has to happen UNDER a module, or it never reaches the guard:
+          # with no go.mod anywhere above the cwd, main.go's bootstrap cannot
+          # tell which Go to use, and exits before cobra ever runs. The dats
+          # fixture gets this for free -- its {outputs.X} scratch dirs are
+          # nested inside the module go-toolchain is building -- which is why
+          # the same cwd-with-no-go.mod means two different things in the two
+          # places. The version matches what the pipeline step above already
+          # cached, so this bootstraps from disk instead of downloading a
+          # second toolchain.
+          printf 'module example.com/sockprobe\n\ngo 1.24\n' > "$probe/go.mod"
+          # A copy per case, taken from the pristine artifact rather than from
+          # $RUNNER_TEMP/gt-ape: that one has been executed several times by the
+          # steps above, and an APE rewrites its own file on first exec, so a
+          # copy of it is no longer the thing a mac user downloads. The dats
+          # fixture copies pristine too, which is what makes the two comparable.
+          cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" "$probe/run/harness"
+          cp "$GITHUB_WORKSPACE/dist/go-toolchain_cosmo_fat" "$probe/run/gt-right"
+          cp "$GITHUB_WORKSPACE/dist/go-toolchain_cosmo_fat" "$probe/run/gt-wrong"
+          chmod +x "$probe/run/harness" "$probe/run/gt-right" "$probe/run/gt-wrong"
+          cd "$probe/run"
           export GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1
 
           rc=0
