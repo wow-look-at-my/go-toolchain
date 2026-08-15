@@ -68,6 +68,11 @@ coverage.
   command must `cd "$(mktemp -d)"` first or it deletes the binaries the pipeline just built (this bit `dats/cli.dats`'s guard test — see
   dats/README.md)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
+- `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
+  version pin: an org require/replace carrying a plain version gets `// go-toolchain:branch=<default branch>` appended
+  (resolved via `git ls-remote --symref`), which the rewrite-then-dirty-tree-fails-CI contract enforces. Indirect requires
+  and a require overridden by a replace are out of scope; `// go-toolchain:pinned <reason>` is the explicit opt-out.
+  Depth: `docs/DEPS.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
   deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same dependency.
   The marker rides a require OR a replace line -- a fork keeps upstream's module path, so it is reached through a replace,

@@ -287,6 +287,12 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
+	// An unchanged tree can still predate the branch-tracking requirement, and
+	// the run that would add the markers is exactly the one being skipped here.
+	if len(untrackedOrgDeps()) > 0 {
+		return false
+	}
+
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return false

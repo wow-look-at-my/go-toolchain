@@ -1,7 +1,7 @@
 # Dependency handling
 
 Depth for the "Dependency checking" line in the [README](../README.md#features) and step 3 of
-[How It Works](../README.md#how-it-works). Three independent mechanisms run early in every
+[How It Works](../README.md#how-it-works). Four independent mechanisms run early in every
 pipeline, all before `go mod tidy`; each rewrites `go.mod` in place, so the same rules as any
 other pipeline mutation apply: locally you see the diff and commit it, in CI a resulting dirty
 tree fails the build (`checkDirtyInCI`) with an actionable message.
@@ -79,3 +79,37 @@ The pseudo-version is built for the module path being resolved, so a `/vN` path 
 gopkg.in's `.vN`) produces a matching `vN.0.0-<timestamp>-<hash>`. A v0 pseudo-version on a post-v0
 path is not a valid version: the go command rejects it with
 `go.mod has post-v0 module path "..." at revision ...`.
+
+## Branch tracking is mandatory for org modules (`src/cmd/depsbranchenforce.go`)
+
+A version pin on a `github.com/wow-look-at-my/` module is a snapshot of whenever someone last
+ran `go get`. These modules are co-developed with their consumers and have no release cadence to
+pin to, so nothing ever moves that snapshot forward and the consumer silently builds against
+month-old code. The branch pin is therefore the canonical form for them, and `go.mod` is
+rewritten into it: an org require or replace carrying a plain version gets
+`// go-toolchain:branch=<default branch>` appended, with the branch read from the module's own
+repository (`git ls-remote --symref <url> HEAD`). Branch tracking then re-resolves that line every
+run like any other.
+
+The rewrite is the enforcement — locally you review the diff and commit it, in CI the resulting
+dirty tree fails the build (`checkDirtyInCI`), the same contract as every other `go.mod` mutation
+here. The up-to-date fast exit consults `untrackedOrgDeps` (a `go.mod` parse, no network) as well,
+because an unchanged tree can predate this requirement and the run being skipped is the one that
+would fix it. A default branch that cannot be resolved FAILS the run: leaving the version pin in
+place would report green for a `go.mod` that does not meet the requirement.
+
+Two shapes are out of scope, not exempted:
+
+- **Indirect requires.** Branch tracking skips them entirely (see above), so demanding a marker
+  there would demand one that does nothing. The direct dependency pulling the module in owns its
+  version; pin it with a `replace`, which is main-module-only and covers indirect requires too.
+- **A require overridden by a `replace`.** The replacement supplies the version that reaches the
+  build, so the replace line is what gets marked. A replacement into a local directory has no
+  remote at all and is left alone.
+
+Genuinely wanting a version pin — a tagged release with a hard API break past it, say — is an
+explicit opt-out on the line, with the reason next to it:
+
+```go
+require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard API break
+```
