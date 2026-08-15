@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -226,7 +227,7 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 		return nil, err
 	}
 
-	set := make(map[string]struct{})
+	embedded := set.New[string]()
 	dec := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var pkg struct {
@@ -246,15 +247,12 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 		}
 		for _, group := range [][]string{pkg.EmbedFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles} {
 			for _, rel := range group {
-				set[filepath.Join(pkg.Dir, rel)] = struct{}{}
+				embedded.Add(filepath.Join(pkg.Dir, rel))
 			}
 		}
 	}
 
-	embeds := make([]string, 0, len(set))
-	for f := range set {
-		embeds = append(embeds, f)
-	}
+	embeds := embedded.Values()
 	sort.Strings(embeds)
 	return embeds, nil
 }

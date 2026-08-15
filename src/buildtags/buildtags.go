@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
@@ -78,28 +79,28 @@ var platformIdents = map[string]bool{
 // knownOS and knownArch cover the GOOS/GOARCH values that may appear as
 // constraint idents. Sourced from `go tool dist list`; a value missing here is
 // treated as a user tag, which over-covers rather than under-covers.
-var knownOS = map[string]bool{
+var knownOS = set.Of(
 	// cosmo is the gosmopolitan fork's GOOS, so `go tool dist list` does not
 	// name it. It is a build target all the same, and one this host cannot
 	// stand in for: a `-tags cosmo` load here still satisfies every _linux.go
 	// filename constraint, so each cosmo variant collides with its linux
 	// sibling ("socketPeerPID redeclared"). The GOOS=cosmo matrix job compiles
 	// these files with the fork's toolchain, which is where they are checkable.
-	"cosmo": true,
-	"aix":   true, "android": true, "darwin": true, "dragonfly": true,
-	"freebsd": true, "hurd": true, "illumos": true, "ios": true, "js": true,
-	"linux": true, "nacl": true, "netbsd": true, "openbsd": true, "plan9": true,
-	"solaris": true, "wasip1": true, "windows": true, "zos": true,
-}
+	"cosmo",
+	"aix", "android", "darwin", "dragonfly",
+	"freebsd", "hurd", "illumos", "ios", "js",
+	"linux", "nacl", "netbsd", "openbsd", "plan9",
+	"solaris", "wasip1", "windows", "zos",
+)
 
-var knownArch = map[string]bool{
-	"386": true, "amd64": true, "amd64p32": true, "arm": true, "arm64": true,
-	"arm64be": true, "armbe": true, "loong64": true, "mips": true,
-	"mips64": true, "mips64le": true, "mips64p32": true, "mips64p32le": true,
-	"mipsle": true, "ppc": true, "ppc64": true, "ppc64le": true, "riscv": true,
-	"riscv64": true, "s390": true, "s390x": true, "sparc": true, "sparc64": true,
-	"wasm": true,
-}
+var knownArch = set.Of(
+	"386", "amd64", "amd64p32", "arm", "arm64",
+	"arm64be", "armbe", "loong64", "mips",
+	"mips64", "mips64le", "mips64p32", "mips64p32le",
+	"mipsle", "ppc", "ppc64", "ppc64le", "riscv",
+	"riscv64", "s390", "s390x", "sparc", "sparc64",
+	"wasm",
+)
 
 // isPlatformIdent reports whether ident describes the build target rather than
 // a project opt-in.
@@ -107,7 +108,7 @@ func isPlatformIdent(ident string) bool {
 	if v, ok := platformIdents[ident]; ok {
 		return v
 	}
-	if knownOS[ident] || knownArch[ident] {
+	if knownOS.Contains(ident) || knownArch.Contains(ident) {
 		return true
 	}
 	// go1.N release tags.

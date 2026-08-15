@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -65,10 +66,10 @@ type CastEdits struct {
 // equalityFuncs are the testify assertions whose semantics changed in the fork
 // because they route argument comparison through ObjectsAreEqual. These are the
 // ones we rewrite with a conversion.
-var equalityFuncs = map[string]bool{
-	"Equal": true, "Equalf": true,
-	"NotEqual": true, "NotEqualf": true,
-}
+var equalityFuncs = set.Of(
+	"Equal", "Equalf",
+	"NotEqual", "NotEqualf",
+)
 
 // orderingFuncs are the testify ordering assertions. Upstream routes them
 // through compareTwoValues, which requires the two operands to have the same
@@ -77,24 +78,24 @@ var equalityFuncs = map[string]bool{
 // even though the fork's loose numeric comparison accepted it. They take the
 // same (expected, actual) operand shape as Equal and get the same conversion
 // treatment.
-var orderingFuncs = map[string]bool{
-	"Greater": true, "Greaterf": true,
-	"GreaterOrEqual": true, "GreaterOrEqualf": true,
-	"Less": true, "Lessf": true,
-	"LessOrEqual": true, "LessOrEqualf": true,
-}
+var orderingFuncs = set.Of(
+	"Greater", "Greaterf",
+	"GreaterOrEqual", "GreaterOrEqualf",
+	"Less", "Lessf",
+	"LessOrEqual", "LessOrEqualf",
+)
 
 // elementFuncs are testify assertions whose element comparison also uses
 // ObjectsAreEqual. Rewriting these soundly is much harder (it requires
 // reasoning about collection element types), so we only warn when we detect a
 // type-mismatched element comparison rather than silently changing behavior.
-var elementFuncs = map[string]bool{
-	"Contains": true, "Containsf": true,
-	"NotContains": true, "NotContainsf": true,
-	"ElementsMatch": true, "ElementsMatchf": true,
-	"Subset": true, "Subsetf": true,
-	"NotSubset": true, "NotSubsetf": true,
-}
+var elementFuncs = set.Of(
+	"Contains", "Containsf",
+	"NotContains", "NotContainsf",
+	"ElementsMatch", "ElementsMatchf",
+	"Subset", "Subsetf",
+	"NotSubset", "NotSubsetf",
+)
 
 func runTestifyCast(pass *analysis.Pass) (any, error) {
 	fileToEdits := make(map[*ast.File]*CastEdits)
@@ -132,7 +133,7 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 			}
 
 			switch {
-			case equalityFuncs[name] || orderingFuncs[name]:
+			case equalityFuncs.Contains(name) || orderingFuncs.Contains(name):
 				if edit := castEditForEqual(pass, file, call, expIdx, actIdx); edit != nil {
 					ce := fileToEdits[file]
 					if ce == nil {
@@ -141,7 +142,7 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 					}
 					ce.Edits = append(ce.Edits, *edit)
 				}
-			case elementFuncs[name]:
+			case elementFuncs.Contains(name):
 				warnElementMismatch(pass, call, name, expIdx, actIdx)
 			}
 			return true

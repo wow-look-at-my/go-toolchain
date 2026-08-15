@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/mod/modfile"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -18,14 +19,14 @@ import (
 
 // wellKnownHosts are code-hosting domains that resolve directly without
 // vanity URL meta-tag resolution.
-var wellKnownHosts = map[string]bool{
-	"github.com":        true,
-	"gitlab.com":        true,
-	"bitbucket.org":     true,
-	"golang.org":        true,
-	"google.golang.org": true,
-	"gopkg.in":          true,
-}
+var wellKnownHosts = set.Of(
+	"github.com",
+	"gitlab.com",
+	"bitbucket.org",
+	"golang.org",
+	"google.golang.org",
+	"gopkg.in",
+)
 
 // directMirrorHosts are the hosts we are willing to rewrite a vanity module
 // *onto*. They serve plain git repositories that resolve without any further
@@ -33,11 +34,11 @@ var wellKnownHosts = map[string]bool{
 // else (e.g. go.googlesource.com), rewriting to it merely swaps one indirect
 // host for another — and can break resolution that the module proxy would
 // otherwise satisfy for the original path — so we leave such modules untouched.
-var directMirrorHosts = map[string]bool{
-	"github.com":    true,
-	"gitlab.com":    true,
-	"bitbucket.org": true,
-}
+var directMirrorHosts = set.Of(
+	"github.com",
+	"gitlab.com",
+	"bitbucket.org",
+)
 
 type vanityModule struct {
 	Path    string // e.g. "gotest.tools/gotestsum"
@@ -93,7 +94,7 @@ func parseVanityModulesFromSum() ([]vanityModule, error) {
 		}
 
 		host := strings.SplitN(modPath, "/", 2)[0]
-		if wellKnownHosts[host] {
+		if wellKnownHosts.Contains(host) {
 			continue
 		}
 
@@ -279,7 +280,7 @@ func injectVanityReplaces() (*vanityState, error) {
 			// lives elsewhere (e.g. go.googlesource.com), a replace would just
 			// move the indirection — and may break what the proxy could resolve
 			// for the original path — so skip it and let the proxy handle it.
-			if targetHost := strings.SplitN(ghPath, "/", 2)[0]; !directMirrorHosts[targetHost] {
+			if targetHost := strings.SplitN(ghPath, "/", 2)[0]; !directMirrorHosts.Contains(targetHost) {
 				if !jsonOutput {
 					logger.Info("    skipping %s: resolved host %s is not a direct mirror", m.Path, targetHost)
 				}
