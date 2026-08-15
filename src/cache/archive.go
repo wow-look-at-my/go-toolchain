@@ -3,8 +3,8 @@ package cache
 import (
 	"bytes"
 	"encoding/binary"
-	"path/filepath"
 	"github.com/wow-look-at-my/go-containers/set"
+	"path/filepath"
 )
 
 // parseImportPath extracts the Go package import path from the binary export

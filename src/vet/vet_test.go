@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/tools/go/analysis/analysistest"
 	"github.com/wow-look-at-my/go-containers/set"
+	"golang.org/x/tools/go/analysis/analysistest"
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {

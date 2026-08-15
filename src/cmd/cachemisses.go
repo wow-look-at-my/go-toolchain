@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // cacheMissTracker captures package import paths from go build -v / go test -v

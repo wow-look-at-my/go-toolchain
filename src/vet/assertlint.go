@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/astutil"
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // AssertLintAnalyzer detects manual assertion patterns that should use helper functions.

@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and

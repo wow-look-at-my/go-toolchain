@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"strings"
 
-	"golang.org/x/tools/go/analysis"
 	"github.com/wow-look-at-my/go-containers/set"
+	"golang.org/x/tools/go/analysis"
 )
 
 // DeadCodeAnalyzer detects unexported package-level symbols that are never

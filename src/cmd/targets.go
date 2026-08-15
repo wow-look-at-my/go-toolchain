@@ -212,7 +212,7 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 		if seen.Contains(p) {
 			return nil, fmt.Errorf("duplicate --cosmo-slots entry %q", entry)
 		}
-		seen[p] = true
+		seen.Add(p)
 		out = append(out, p)
 	}
 	return out, nil

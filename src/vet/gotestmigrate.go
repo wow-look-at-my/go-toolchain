@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
-	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 const (

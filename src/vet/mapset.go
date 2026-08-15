@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/tools/go/analysis"
 )

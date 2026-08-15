@@ -2,8 +2,8 @@ package lint
 
 import (
 	"fmt"
-	"strings"
 	"github.com/wow-look-at-my/go-containers/set"
+	"strings"
 )
 
 // Suggestion describes a refactoring suggestion for a pair of near-duplicate blocks.

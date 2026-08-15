@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // orgModulePrefixes are the module-path prefixes whose dependencies must be

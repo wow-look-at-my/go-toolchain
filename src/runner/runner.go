@@ -8,8 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/wow-look-at-my/go-containers/sortedmap"
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-containers/sortedmap"
 )
 
 // IProcess represents a running or completed process
