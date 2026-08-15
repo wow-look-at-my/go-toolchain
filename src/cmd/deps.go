@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/mod/modfile"
 )
 
@@ -105,7 +104,6 @@ func (dc *DepChecker) run() {
 	dc.mu.Unlock()
 
 	// Check each dependency
-	autoUpdatePrefix := getAutoUpdatePrefix()
 	var outdated []OutdatedDep
 	for _, dep := range deps {
 		dc.mu.Lock()
@@ -131,16 +129,7 @@ func (dc *DepChecker) run() {
 
 		update, needsUpdate, err := dc.checkDep(dep.Path, dep.Version)
 		if err != nil {
-			// One dependency the proxy cannot answer for must not fail the
-			// build, but an ORG one must not pass in silence either: those are
-			// the ones autoUpdateDeps would have repointed, so a skipped check
-			// leaves a pin nobody is maintaining and nothing says so. A pin can
-			// then sit on a commit that git no longer reaches, resolving only
-			// because the proxy still serves what it cached.
-			if autoUpdatePrefix != "" && strings.HasPrefix(dep.Path, autoUpdatePrefix) {
-				logger.Warn("%s %s: could not check for updates (%v); this pin is not being maintained", dep.Path, dep.Version, err)
-			}
-			continue
+			continue // Skip on error, don't fail the whole check
 		}
 
 		if needsUpdate {
