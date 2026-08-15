@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wow-look-at-my/go-containers/sortedmap"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // IProcess represents a running or completed process
@@ -118,12 +119,12 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		// Remove existing entries that are being overridden, since duplicate
 		// keys have platform-dependent behavior (Linux getenv returns the
 		// first match, so appending wouldn't actually override).
-		overrides := make(map[string]bool, cfg.Env.Len())
+		overrides := set.New[string](cfg.Env.Len())
 		for k := range cfg.Env.All() {
-			overrides[k] = true
+			overrides.Add(k)
 		}
 		for _, e := range os.Environ() {
-			if k, _, ok := strings.Cut(e, "="); ok && overrides[k] {
+			if k, _, ok := strings.Cut(e, "="); ok && overrides.Contains(k) {
 				continue // skip — will be replaced by override
 			}
 			cmd.Env = append(cmd.Env, e)

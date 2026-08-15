@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // cacheMissTracker captures package import paths from go build -v / go test -v
@@ -17,7 +18,7 @@ type cacheMissTracker struct {
 	target io.Writer // underlying writer (e.g. os.Stderr)
 	buf    []byte
 	pkgs   []string
-	seen   map[string]bool
+	seen   set.Set[string]
 	phase  string // current phase label (e.g. "vet", "test", "build")
 }
 
@@ -25,7 +26,7 @@ type cacheMissTracker struct {
 func newCacheMissTracker(target io.Writer) *cacheMissTracker {
 	return &cacheMissTracker{
 		target: target,
-		seen:   make(map[string]bool),
+		seen:   set.New[string](),
 	}
 }
 
@@ -51,8 +52,7 @@ func (t *cacheMissTracker) Write(p []byte) (int, error) {
 		// go build -v prints bare import paths like "encoding/json" or
 		// "github.com/foo/bar". Filter: must contain "/", no spaces, no colons.
 		if line != "" && strings.Contains(line, "/") && !strings.Contains(line, " ") && !strings.Contains(line, ":") && !strings.HasPrefix(line, "#") {
-			if !t.seen[line] {
-				t.seen[line] = true
+			if t.seen.Add(line) {
 				t.pkgs = append(t.pkgs, line)
 			}
 		}

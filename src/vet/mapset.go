@@ -59,12 +59,12 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 		return []*ASTFixes(nil), nil
 	}
 
-	allowed := make(map[int]bool)
+	allowed := set.New[int]()
 	for _, file := range pass.Files {
 		mapSetAllowedLines(pass, file, allowed)
 	}
 	report := func(pos token.Pos, format string, args ...any) {
-		if !allowed[pass.Fset.Position(pos).Line] {
+		if !allowed.Contains(pass.Fset.Position(pos).Line) {
 			pass.Reportf(pos, format, args...)
 		}
 	}
@@ -104,14 +104,14 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 // still gives it the membership operations, and which of the two to write is
 // the author's call. The warning says so once per site and counts against the
 // warnings budget; it never fails the run by itself.
-func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File, allowed map[int]bool) {
+func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File, allowed set.Set[int]) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		mt, ok := n.(*ast.MapType)
 		if !ok || !isEmptyStructType(pass, mt.Value) {
 			return true
 		}
 		pos := pass.Fset.Position(mt.Pos())
-		if allowed[pos.Line] {
+		if allowed.Contains(pos.Line) {
 			return true
 		}
 		logger.WarnFile(pos.Filename, "%s:%d: map[…]struct{} is a set: %s.Set carries the membership operations (or write %q with a reason)",
@@ -147,15 +147,14 @@ func mapSetInScope(mod *analysis.Module) bool {
 
 // mapSetAllowedLines adds the lines an allow marker suppresses: the line the
 // marker sits on, and the line below it.
-func mapSetAllowedLines(pass *analysis.Pass, file *ast.File, allowed map[int]bool) {
+func mapSetAllowedLines(pass *analysis.Pass, file *ast.File, allowed set.Set[int]) {
 	for _, group := range file.Comments {
 		for _, c := range group.List {
 			if !strings.Contains(c.Text, mapSetAllowMarker) {
 				continue
 			}
 			line := pass.Fset.Position(c.End()).Line
-			allowed[line] = true
-			allowed[line+1] = true
+			allowed.AddRange(line, line+1)
 		}
 	}
 }

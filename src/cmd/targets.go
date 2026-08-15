@@ -195,7 +195,7 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 	if len(entries) == 1 && strings.TrimSpace(entries[0]) == "none" {
 		return nil, nil
 	}
-	seen := make(map[buildPlatform]bool, len(entries))
+	seen := set.New[buildPlatform](len(entries))
 	out := make([]buildPlatform, 0, len(entries))
 	for _, raw := range entries {
 		entry := strings.TrimSpace(raw)
@@ -209,7 +209,7 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 		if p.IsWasm() {
 			return nil, fmt.Errorf("invalid --cosmo-slots entry %q: slots name native platforms the fat APE is copied to, and an APE is not a wasm binary", entry)
 		}
-		if seen[p] {
+		if seen.Contains(p) {
 			return nil, fmt.Errorf("duplicate --cosmo-slots entry %q", entry)
 		}
 		seen[p] = true

@@ -101,7 +101,7 @@ func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error)
 // error two to four times.
 func loadErrorMessages(pkgs []*packages.Package) []string {
 	var msgs []string
-	seen := make(map[string]bool)
+	seen := set.New[string]()
 	packages.Visit(pkgs, func(pkg *packages.Package) bool {
 		for _, e := range pkg.Errors {
 			msg := e.Error()
@@ -109,10 +109,9 @@ func loadErrorMessages(pkgs []*packages.Package) []string {
 				strings.Contains(msg, "source-processing packages") {
 				continue
 			}
-			if seen[msg] {
+			if !seen.Add(msg) {
 				continue
 			}
-			seen[msg] = true
 			msgs = append(msgs, msg)
 		}
 		return true
@@ -396,13 +395,12 @@ func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
 // per-analyzer per-package timing in the trace. Mutates the original analyzers
 // since cloning breaks checker.Analyze's internal pointer-identity maps.
 func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
-	seen := make(map[*analysis.Analyzer]bool)
+	seen := set.New[*analysis.Analyzer]()
 	var instrument func(a *analysis.Analyzer)
 	instrument = func(a *analysis.Analyzer) {
-		if seen[a] {
+		if !seen.Add(a) {
 			return
 		}
-		seen[a] = true
 		origRun := a.Run
 		name := a.Name
 		a.Run = func(pass *analysis.Pass) (interface{}, error) {

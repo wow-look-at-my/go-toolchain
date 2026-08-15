@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // DeadCodeAnalyzer detects unexported package-level symbols that are never
@@ -21,10 +22,10 @@ var DeadCodeAnalyzer = &analysis.Analyzer{
 
 func runDeadCode(pass *analysis.Pass) (any, error) {
 	// Determine which files are generated so we can skip them entirely.
-	generated := make(map[*ast.File]bool)
+	generated := set.New[*ast.File]()
 	for _, file := range pass.Files {
 		if isGeneratedFile(file) {
-			generated[file] = true
+			generated.Add(file)
 		}
 	}
 
@@ -42,7 +43,7 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 		}
 		// Skip generated files.
 		file := fileForPos(pass, ident.Pos())
-		if file != nil && generated[file] {
+		if file != nil && generated.Contains(file) {
 			continue
 		}
 		if shouldSkipDef(obj, ident.Name, pass) {

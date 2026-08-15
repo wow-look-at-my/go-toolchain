@@ -19,6 +19,7 @@ import (
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
@@ -207,17 +208,17 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if activeTrace != nil && result != nil {
 		// Build set of tests that have subtests so we only trace leaf tests
 		// (parent durations include children and would overlap).
-		hasSubtest := make(map[string]bool)
+		hasSubtest := set.New[string]()
 		for _, tc := range result.TestCases {
 			if i := strings.LastIndex(tc.Test, "/"); i > 0 {
-				hasSubtest[tc.Package+"."+tc.Test[:i]] = true
+				hasSubtest.Add(tc.Package + "." + tc.Test[:i])
 			}
 		}
 		for _, tc := range result.TestCases {
 			if tc.Elapsed <= 0 || tc.End.IsZero() {
 				continue
 			}
-			if hasSubtest[tc.Package+"."+tc.Test] {
+			if hasSubtest.Contains(tc.Package + "." + tc.Test) {
 				continue // skip parent, children cover the time
 			}
 			dur := time.Duration(tc.Elapsed * float64(time.Second))

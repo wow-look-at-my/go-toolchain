@@ -125,7 +125,7 @@ func skipDir(name string) bool {
 // Scan walks the module rooted at dir and returns the configurations every
 // phase must run under, plus the gated files that prove they were needed.
 func Scan(dir string) (*Discovery, error) {
-	tagSet := map[string]bool{}
+	tagSet := set.New[string]()
 	var gated []File
 
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -162,7 +162,7 @@ func Scan(dir string) (*Discovery, error) {
 			rel = path
 		}
 		for _, t := range tags {
-			tagSet[t] = true
+			tagSet.Add(t)
 		}
 		gated = append(gated, File{Path: filepath.ToSlash(rel), Tags: tags})
 		return nil
@@ -171,10 +171,7 @@ func Scan(dir string) (*Discovery, error) {
 		return nil, err
 	}
 
-	userTags := make([]string, 0, len(tagSet))
-	for t := range tagSet {
-		userTags = append(userTags, t)
-	}
+	userTags := tagSet.Values()
 	sort.Strings(userTags)
 	sort.Slice(gated, func(i, j int) bool { return gated[i].Path < gated[j].Path })
 
@@ -210,7 +207,7 @@ func fileTags(path string) ([]string, error) {
 		// phase reports it with a far better message than this walk could.
 		return nil, nil //nolint:nilerr // reported downstream, not here
 	}
-	seen := map[string]bool{}
+	seen := set.New[string]()
 	var tags []string
 	for _, group := range f.Comments {
 		// Constraints must precede the package clause.
@@ -223,10 +220,9 @@ func fileTags(path string) ([]string, error) {
 				continue // not a build constraint
 			}
 			walkConstraint(expr, func(ident string) {
-				if isPlatformIdent(ident) || seen[ident] {
+				if isPlatformIdent(ident) || !seen.Add(ident) {
 					return
 				}
-				seen[ident] = true
 				tags = append(tags, ident)
 			})
 		}
@@ -265,7 +261,7 @@ func walkConstraint(e constraint.Expr, visit func(string)) {
 // Verify still checks the outcome, so narrowing the pattern cannot narrow the
 // guarantee: a gated file outside these directories fails the run.
 func (d *Discovery) GatedPatterns() []string {
-	seen := map[string]bool{}
+	seen := set.New[string]()
 	var pats []string
 	for _, f := range d.Gated {
 		dir := path.Dir(f.Path)
@@ -274,10 +270,9 @@ func (d *Discovery) GatedPatterns() []string {
 		} else {
 			dir = "./" + dir
 		}
-		if seen[dir] {
+		if !seen.Add(dir) {
 			continue
 		}
-		seen[dir] = true
 		pats = append(pats, dir)
 	}
 	sort.Strings(pats)

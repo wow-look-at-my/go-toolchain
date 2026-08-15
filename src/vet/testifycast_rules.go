@@ -18,6 +18,7 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // constRepresentable reports whether constant v can be represented exactly in
@@ -179,12 +180,11 @@ func (c *CastEdits) rendered(src []byte) []byte {
 // neededImports returns the sorted union of the import paths the edits require
 // (recorded per edit when a conversion names a package the file doesn't import).
 func (c *CastEdits) neededImports() []string {
-	seen := make(map[string]bool)
+	seen := set.New[string]()
 	var paths []string
 	for _, e := range c.Edits {
 		for _, p := range e.AddImports {
-			if !seen[p] {
-				seen[p] = true
+			if seen.Add(p) {
 				paths = append(paths, p)
 			}
 		}

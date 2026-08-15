@@ -12,6 +12,7 @@ import (
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 const (
@@ -176,7 +177,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 
 	// Phase 2: Walk call expressions to rename functions and unwrap cmp calls.
 	// Track which idents should stay as "assert" (non-fatal Check paths).
-	keepAsAssert := map[*ast.Ident]bool{}
+	keepAsAssert := set.New[*ast.Ident]()
 
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -213,7 +214,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 					call.Args = append(call.Args[:1], cmpArgs...)
 
 					if funcName == "Check" {
-						keepAsAssert[ident] = true
+						keepAsAssert.Add(ident)
 						needAssertImport = true
 					} else {
 						ident.Name = "require"
@@ -227,7 +228,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 		// Check without cmp → assert.True (non-fatal)
 		if funcName == "Check" {
 			needAssertImport = true
-			keepAsAssert[ident] = true
+			keepAsAssert.Add(ident)
 			sel.Sel.Name = "True"
 
 			return true
@@ -253,7 +254,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 		if !ok {
 			return true
 		}
-		if ident.Name == "assert" && !keepAsAssert[ident] {
+		if ident.Name == "assert" && !keepAsAssert.Contains(ident) {
 			ident.Name = "require"
 
 		}

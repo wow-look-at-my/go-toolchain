@@ -74,7 +74,7 @@ func parseVanityModulesFromSum() ([]vanityModule, error) {
 	}
 	defer f.Close()
 
-	seen := make(map[string]bool)
+	seen := set.New[string]()
 	var modules []vanityModule
 
 	scanner := bufio.NewScanner(f)
@@ -89,7 +89,7 @@ func parseVanityModulesFromSum() ([]vanityModule, error) {
 		// Normalize: strip /go.mod suffix from version field
 		version = strings.TrimSuffix(version, "/go.mod")
 
-		if seen[modPath] {
+		if seen.Contains(modPath) {
 			continue
 		}
 
@@ -98,7 +98,7 @@ func parseVanityModulesFromSum() ([]vanityModule, error) {
 			continue
 		}
 
-		seen[modPath] = true
+		seen.Add(modPath)
 		modules = append(modules, vanityModule{
 			Path:    modPath,
 			Version: version,
