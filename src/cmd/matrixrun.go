@@ -323,13 +323,17 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// Create _host and bare symlinks for the current platform. In CI these
 	// are pointless (nothing consumes them) and harmful: upload-artifact
 	// dereferences symlinks, bloating the artifact with full duplicate copies.
-	if os.Getenv("CI") == "" {
+	// A module that built nothing has no host binary to point at, and saying
+	// so once above is enough.
+	if os.Getenv("CI") == "" && len(jobs) > 0 {
 		if err := createHostSymlinks(hostTargets, outputDir); err != nil {
 			return err
 		}
 	}
 
-	logger.Info("⇒ All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	if len(jobs) > 0 {
+		logger.Info("⇒ All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	}
 
 	// Run benchmarks after successful build
 	if !noBenchmark {

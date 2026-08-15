@@ -68,6 +68,8 @@ coverage.
   command must `cd "$(mktemp -d)"` first or it deletes the binaries the pipeline just built (this bit `dats/cli.dats`'s guard test — see
   dats/README.md)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
+- `src/cmd/matrix.go` — `runMatrixModules` walks every module, as the default pipeline does, so a repo root with no `go.mod` cross-compiles its tree
+  instead of dying on "no go.mod found". A library module builds nothing and says so; a run that built nothing anywhere fails. Depth: `docs/CMD.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
   version pin: an org require/replace carrying a plain version gets `// go-toolchain:branch=<default branch>` appended
   (resolved via `git ls-remote --symref`), which the rewrite-then-dirty-tree-fails-CI contract enforces. A require overridden
