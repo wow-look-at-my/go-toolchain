@@ -123,8 +123,8 @@ github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 h1:nS/I
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174/go.mod h1:ZCjJ1b6VfXIov0GZbfRE4QtIFQrPqkD3NK5qlkf6Ow8=
 github.com/wow-look-at-my/dats v0.0.0-20260813220544-3fa7f66afab9 h1:gDyAvFTmLDI7/CzGFWB+8UQDXNR0m9bfHocnnpzAmSg=
 github.com/wow-look-at-my/dats v0.0.0-20260813220544-3fa7f66afab9/go.mod h1:l8UlIGzpxqvZ8Djyff9qW2KzpnKGDyReo9dGVFGSQlA=
-github.com/wow-look-at-my/go-containers v0.0.0-20260811014700-3396c9468809 h1:/khsBnHHPm6mn2S2kJszBt/B3q+t/nJ+e4lUHcZ/rGg=
-github.com/wow-look-at-my/go-containers v0.0.0-20260811014700-3396c9468809/go.mod h1:AGGzFZheJSooQmBf0LdfoAGXr7jSGxsn7N1NrOdhmIs=
+github.com/wow-look-at-my/go-containers v0.0.0-20260815182216-dbc69fb36452 h1:lHmh+oiLrFMFKkQbrMrdLJmtEA0AilbWM2HSNjBDdSY=
+github.com/wow-look-at-my/go-containers v0.0.0-20260815182216-dbc69fb36452/go.mod h1:AGGzFZheJSooQmBf0LdfoAGXr7jSGxsn7N1NrOdhmIs=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9 h1:par9Tv9kLcWCCy8Z0ciMaeyHfx8kbiLiB45n2fmjTqI=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9/go.mod h1:JM0y3LYD27uGHE34wamVHIaIvYx/vugAaqE20bsLvqs=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260814181250-68cd2d92b9a7 h1:JhOyhVWeF7zAGq03hCO2JLHXPARhhYAldfVbrOWWPH0=

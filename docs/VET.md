@@ -32,3 +32,64 @@ genuinely dead one once per variant.
 behind a mutex (`parseRecorder`). Unlocked, a module this size died with
 `fatal error: concurrent map writes`, and the output watchdog's pipes swallowed
 the trace — CI saw a bare `exit status 2` with nothing above it.
+
+
+## mapset: a map[K]bool written where a set is meant
+
+`src/vet/mapset.go` reports the map that picks the wrong default and offers
+[`github.com/wow-look-at-my/go-containers/set`](https://github.com/wow-look-at-my/go-containers/tree/master/set)
+in its place. Two shapes FAIL the build:
+
+- a `map[K]bool` composite literal whose every value is the constant `true`.
+- a `map[K]bool` variable made empty -- `make(map[K]bool)`, `map[K]bool{}`,
+  or a bare `var` -- that the package writes `true` into, and never uses in a
+  way that could read a real boolean.
+
+A `map[K]struct{}` gets a WARNING instead, never a diagnostic. That map
+already carries no value, so which of the two to write is the author's call;
+the warning names `set.Set` once per site and counts against the warnings
+budget. Every package variant walks the same file, so the sites are
+deduplicated by `file:line` for the length of one vet run
+(`resetMapSetWarnings`).
+
+The `set` package itself is exempt from that warning, under its own path and
+its `_test` variant (`isSetPackage`). `Set[T]` IS the `map[T]struct{}` the
+warning points at, and its eight storage sites would spend half the warnings
+budget telling the remedy to use itself.
+
+### What disqualifies a made-empty bool map
+
+The use walk (`mapSetUses`) accepts a write of `true`, `delete`, `clear`,
+`len`, a key-only `range`, and an index read. Anything else means the map is
+not provably a set, and the candidate is dropped:
+
+- `v, ok := m[k]` -- present-and-false is not the same as absent.
+- `m[k] = <anything but true>`, and any compound assignment.
+- `for k, v := range m`, where `v` is used.
+- the map as a value: an argument to anything but those three builtins, a
+  return, a struct field, a channel send, `&m`. Past that point the deciding
+  use can live in another package, where this walk cannot follow.
+
+A literal carrying one `false` is a lookup table and stays.
+`buildtags.platformIdents` is exactly that: it answers "is this a platform
+ident" and writes `"ignore": false` to say no.
+
+### Severity, not carve-outs
+
+The check runs on every module go-toolchain builds, its own and every
+consumer's: a map that carries no information is wasteful wherever it is
+written. What the module decides is the severity, not whether the finding
+appears.
+
+In a `github.com/wow-look-at-my/` or `github.com/PazerOP/` module
+(`isOrgModule`) the `map[K]bool` findings FAIL the build -- the remedy is one
+first-party require away. In anybody else's module the same findings are
+warnings: the code is just as wasteful, but the fix would add a dependency its
+author never chose, and that is theirs to decide. A driver that supplies no
+module info fails open to org, so the analysistest fixtures still expect
+diagnostics.
+
+There is no opt-out marker. Every shape the check reports is a set by
+construction, so a suppression comment could only ever hide one -- and the two
+rules already leave a real map alone: write one `false`, read with `v, ok :=`,
+or hand the map to another function, and nothing fires.

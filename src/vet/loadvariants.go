@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis/checker"
 )
 
@@ -18,7 +19,7 @@ import (
 // above it.
 type parseRecorder struct {
 	mu    sync.Mutex
-	files map[string]bool
+	files set.Set[string]
 	root  string
 	n     int
 }
@@ -28,7 +29,7 @@ func (r *parseRecorder) record(filename string) {
 	defer r.mu.Unlock()
 	r.n++
 	if rel, err := filepath.Rel(r.root, filename); err == nil && !strings.HasPrefix(rel, "..") {
-		r.files[filepath.ToSlash(rel)] = true
+		r.files.Add(filepath.ToSlash(rel))
 	}
 }
 
