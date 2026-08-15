@@ -95,24 +95,38 @@ func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, err
 // result -- treated as final, not as a reason to keep guessing shorter
 // prefixes that could accidentally match an unrelated repository that
 // happens to have a branch of the same name.
+//
+// When every candidate fails, the FIRST one is what gets reported. The
+// backoff walks from the module path down to the bare host, so the last
+// candidate is the least like anything the caller wrote -- reporting it
+// describes a URL nobody asked for and reads as a URL-construction bug. The
+// full module path is the one the caller declared, so its failure is the one
+// that says what actually went wrong (a private repository the credential
+// cannot read exits 128 there, and every shorter prefix exits 128 too, for a
+// different reason).
 func resolveGitURLAndRef(r runner.CommandRunner, mod, ref string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
-	var lastErr error
+	var firstErr error
+	keep := func(e error) {
+		if firstErr == nil {
+			firstErr = e
+		}
+	}
 	for i := len(parts); i >= 2; i-- {
 		url := "https://" + strings.Join(parts[:i], "/")
 		proc, runErr := runner.Cmd("git", "ls-remote", url, ref).WithQuiet().Run(r)
 		if runErr != nil {
-			lastErr = fmt.Errorf("git ls-remote %s failed: %w", url, runErr)
+			keep(fmt.Errorf("git ls-remote %s failed: %w", url, runErr))
 			continue
 		}
 		out, _ := io.ReadAll(proc.Stdout())
 		if waitErr := proc.Wait(); waitErr != nil {
-			lastErr = fmt.Errorf("git ls-remote %s failed: %w", url, waitErr)
+			keep(fmt.Errorf("git ls-remote %s failed: %w", url, waitErr))
 			continue
 		}
 		return url, out, nil
 	}
-	return "", nil, lastErr
+	return "", nil, firstErr
 }
 
 // resolveVersionViaGit fetches the commit ref points at (a branch, "HEAD",

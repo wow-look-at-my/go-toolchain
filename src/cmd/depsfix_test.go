@@ -315,6 +315,10 @@ func TestResolveGitURLAndRef(t *testing.T) {
 
 		_, _, err := resolveGitURLAndRef(mock, "example.com/a/b/c", "HEAD")
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "https://example.com/a/b/c",
+			"the module path the caller declared is what failed; the bare host is a URL nobody asked for")
+		assert.NotContains(t, err.Error(), "https://example.com ",
+			"reporting the shortest candidate reads as a URL-construction bug")
 	})
 }
 
