@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -55,7 +56,7 @@ var fingerprintFlags *pflag.FlagSet
 // nothing in a build can read as configuration: `_` holds the previous
 // command's last argument, OLDPWD the previous directory, SHLVL the shell
 // nesting depth. Without this every invocation would look different.
-var volatileEnv = map[string]bool{"_": true, "OLDPWD": true, "SHLVL": true}
+var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
 
 // flagFingerprint renders every root-command flag as name=value, sorted. A run
 // invoked differently is a different run: --generate executes go:generate
@@ -101,7 +102,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	env := append([]string(nil), fingerprintEnv()...)
 	sort.Strings(env)
 	for _, kv := range env {
-		if name, _, ok := strings.Cut(kv, "="); ok && volatileEnv[name] {
+		if name, _, ok := strings.Cut(kv, "="); ok && volatileEnv.Contains(name) {
 			continue
 		}
 		fmt.Fprintf(h, "env:%s\n", kv)
@@ -226,7 +227,7 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 		return nil, err
 	}
 
-	set := make(map[string]struct{})
+	embedded := set.New[string]()
 	dec := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var pkg struct {
@@ -246,15 +247,12 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 		}
 		for _, group := range [][]string{pkg.EmbedFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles} {
 			for _, rel := range group {
-				set[filepath.Join(pkg.Dir, rel)] = struct{}{}
+				embedded.Add(filepath.Join(pkg.Dir, rel))
 			}
 		}
 	}
 
-	embeds := make([]string, 0, len(set))
-	for f := range set {
-		embeds = append(embeds, f)
-	}
+	embeds := embedded.Values()
 	sort.Strings(embeds)
 	return embeds, nil
 }

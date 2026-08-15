@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
@@ -82,18 +83,18 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 		return false, nil // Let go mod tidy handle parse errors
 	}
 
-	replaced := map[string]bool{}
+	replaced := set.New[string]()
 	for _, rep := range f.Replace {
-		replaced[rep.Old.Path] = true
+		replaced.Add(rep.Old.Path)
 	}
 
 	changed := false
 	for _, req := range f.Require {
 		if req.Indirect {
-			warnIndirectOrgRequire(req, replaced[req.Mod.Path])
+			warnIndirectOrgRequire(req, replaced.Contains(req.Mod.Path))
 			continue
 		}
-		if replaced[req.Mod.Path] || !isOrgModule(req.Mod.Path) {
+		if replaced.Contains(req.Mod.Path) || !isOrgModule(req.Mod.Path) {
 			continue
 		}
 		if trackedBranch(req.Syntax) != "" || hasPinnedMarker(req.Syntax) {
@@ -226,14 +227,14 @@ func untrackedOrgDeps() []string {
 		return nil
 	}
 
-	replaced := map[string]bool{}
+	replaced := set.New[string]()
 	for _, rep := range f.Replace {
-		replaced[rep.Old.Path] = true
+		replaced.Add(rep.Old.Path)
 	}
 
 	var out []string
 	for _, req := range f.Require {
-		if req.Indirect || replaced[req.Mod.Path] || !isOrgModule(req.Mod.Path) {
+		if req.Indirect || replaced.Contains(req.Mod.Path) || !isOrgModule(req.Mod.Path) {
 			continue
 		}
 		if trackedBranch(req.Syntax) == "" && !hasPinnedMarker(req.Syntax) {

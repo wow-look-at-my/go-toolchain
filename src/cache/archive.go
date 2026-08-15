@@ -3,6 +3,7 @@ package cache
 import (
 	"bytes"
 	"encoding/binary"
+	"github.com/wow-look-at-my/go-containers/set"
 	"path/filepath"
 )
 
@@ -25,7 +26,7 @@ func parseSourceFiles(data []byte) []string {
 		return nil
 	}
 	n := p.sectionLen(pbSectionPosBase)
-	seen := make(map[string]bool, n)
+	seen := set.New[string](n)
 	var files []string
 	for i := 0; i < n; i++ {
 		full := p.readSectionString(pbSectionPosBase, i, pbSyncPosBase)
@@ -33,8 +34,7 @@ func parseSourceFiles(data []byte) []string {
 			continue
 		}
 		base := filepath.Base(full)
-		if !seen[base] && filepath.Ext(base) == ".go" {
-			seen[base] = true
+		if filepath.Ext(base) == ".go" && seen.Add(base) {
 			files = append(files, base)
 		}
 	}

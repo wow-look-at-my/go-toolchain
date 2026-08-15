@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
@@ -218,7 +219,7 @@ func helperNotATest() {}
 `
 	os.WriteFile(testFile, []byte(content), 0644)
 
-	funcs := findTestFuncsInDir(tmpDir, map[string]bool{"TestAlpha": true, "TestBeta": true})
+	funcs := findTestFuncsInDir(tmpDir, set.Of("TestAlpha", "TestBeta"))
 
 	assert.Contains(t, funcs, "TestAlpha")
 	assert.Contains(t, funcs, "TestBeta")
