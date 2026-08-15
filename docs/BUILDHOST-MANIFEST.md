@@ -71,7 +71,7 @@ platform, and 409s if any named platform is already taken in that release.
 
 ## Producing it
 
-`src/cmd/apemanifest.go`. Written only when a cosmo APE was built and
-`--cosmo-slots` is empty — slot mapping publishes through the filename grammar
-instead, so it writes no manifest. `checksums.txt` lists the APE once, under its
-real filename; buildhost skips `checksums.txt` and never reads it.
+`src/cmd/apemanifest.go`. Written whenever a cosmo APE was built — it is the
+only way the APE publishes, so there is no build that produces one without the
+other. `checksums.txt` lists the APE once, under its real filename; buildhost
+skips `checksums.txt` and never reads it.

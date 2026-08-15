@@ -64,11 +64,11 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		assert.Equal(t, content, string(data), "artifact %s content", name)
 	}
 
-	// No cosmo machinery may run for wasm targets: no fat APE, no slot copies.
+	// No cosmo machinery may run for wasm targets: no fat APE, no manifest.
 	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
 	assert.Empty(t, fatMatches, "wasm targets must not produce a cosmo fat artifact")
 	assert.NoFileExists(t, filepath.Join(outDir, "mytool_linux_arm64"),
-		"wasm targets must not trigger cosmo slot copies")
+		"no artifact may appear for a platform that was not requested")
 
 	// The fork's wasm_exec.js is shipped alongside the js artifact — it must
 	// byte-match the toolchain that built the wasm.
@@ -131,13 +131,14 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	}
 }
 
-func TestRunReleaseWithRunnerWasmOnlySkipsSlotParsing(t *testing.T) {
+func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 	// Uses the canonical wasm/js spelling end to end (the other wasm tests
 	// pin the js/wasm GOOS-order alias); both produce the same artifact.
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"wasm/js"})
-	// An invalid --cosmo-slots value must be ignored when no cosmo target is
-	// requested: slot parsing is a cosmo-only prerequisite.
-	cosmoSlots = []string{"not-a-pair"}
+	// An invalid --cosmo-platforms value must be ignored when no cosmo target
+	// is requested: it is a cosmo-only prerequisite. A wasm-only build also
+	// writes no manifest -- the manifest exists to publish an APE.
+	cosmoPlatforms = []string{"not-a-pair"}
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
@@ -153,6 +154,7 @@ func TestRunReleaseWithRunnerWasmOnlySkipsSlotParsing(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	require.NoError(t, err)
 	assert.FileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
+	assert.NoFileExists(t, filepath.Join(outDir, buildhostManifestName))
 }
 
 func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {

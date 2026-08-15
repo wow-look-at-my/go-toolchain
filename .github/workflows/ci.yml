@@ -222,16 +222,6 @@ jobs:
           # too tight for a cold runner.
           timeout: '15'
 
-      # This repo ships ONE APE covering every supported platform; per-platform
-      # binaries ended. Asserted on the build output here and again on the
-      # publish payload below -- only the second is what consumers receive.
-      - name: Assert one multi-platform APE
-        uses: ./.github/actions/assert-single-ape
-        with:
-          path: build
-          binary: go-toolchain
-          platforms: linux/amd64,darwin/arm64,windows/amd64
-
   # Cross-OS smoke of the actual release artifacts: download the build-output
   # hand-off the `build` job uploaded (exactly what `publish` will ship) and RUN
   # the APE on each host OS. APEs self-assimilate on first exec -- they
@@ -611,17 +601,6 @@ jobs:
         with:
           name: go-build-build
           path: build/
-
-      # The gate that actually matters: this directory IS the publish payload.
-      # The identical check in `build` guards what was produced; this one
-      # guards what is released, and only the second can keep a per-platform
-      # binary off the registry.
-      - name: Assert one multi-platform APE
-        uses: ./.github/actions/assert-single-ape
-        with:
-          path: build
-          binary: go-toolchain
-          platforms: linux/amd64,darwin/arm64,windows/amd64
 
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
         with:

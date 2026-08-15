@@ -222,32 +222,18 @@ The manifest is an artifact of the build, not a survivor of it:
 delete it with the binaries. `apeManifestEntries` refuses to name a file that is
 not on disk, or an empty platform set.
 
-## Cosmo slots — the deprecated per-platform-copy escape hatch
+## One APE is one file, by construction
 
-The org ships one APE covering every supported platform and no longer maintains
-or stores per-platform binaries. `--cosmo-slots` is therefore EMPTY by default
-and DEPRECATED for org use; nothing in this org's pipelines may depend on it.
-Each slot is a byte-identical copy of the one APE under a per-platform name, so
-a list of length N publishes the same binary N times, with N download links. It
-stays reachable for a consumer that still resolves a `<binary>_<os>_<arch>`
-download and cannot yet ask for the APE itself; setting it warns.
+A cosmo build writes the APE and nothing else. There is no flag, no default and
+no code path that copies it onto per-platform names: the copier, its
+`--cosmo-slots` flag and the symlink/drop machinery that hid the `_cosmo_fat`
+name from a publish pipeline are all gone. The behavior is not a policy CI
+checks after the fact — a duplicate is unreachable, so there is nothing to
+check.
 
-The policy is enforced, not just documented: `.github/actions/assert-single-ape`
-fails if any file matching the per-platform grammar reaches either the build
-output or — the one that decides what is released — the publish payload.
-
-When slots ARE set, `copyCosmoSlots` writes them as real files (never symlinks —
-publish skips symlinks; the windows slot gets `.exe` because an APE IS a PE), no
-manifest is written, and the fat name is replaced, because buildhost validates
-os on upload and 400-rejects `os=cosmo` in the per-platform grammar:
-
-- **Locally**, `<name>_cosmo_fat` becomes a symlink to the first surviving slot
-  copy. Publish skips symlinks, and matrix pre-removes a stale fat symlink
-  before the next cosmo build so `go build -o` cannot write through it.
-- **In CI** it is removed outright: a dereferenced symlink would come back as a
-  publish-breaking regular file.
-- An explicitly-built native target wins a colliding slot filename (the copy is
-  skipped with a warning), and `checksums.txt` covers real files only.
+What the deleted machinery existed for is gone too. It replaced the fat name
+because buildhost 400-rejected `os=cosmo` in the per-platform filename grammar;
+the manifest above is how the APE publishes now, under its own name, as one row.
 
 `release --build` registers the same flags.
 

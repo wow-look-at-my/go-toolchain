@@ -17,7 +17,6 @@ var (
 	matrixArch      []string
 	matrixTargets   []string
 	cosmoPlatforms  []string
-	cosmoSlots      []string
 	releaseParallel int
 )
 
@@ -44,11 +43,6 @@ file runs on all three; there is no per-platform copy.
 binaries; naming either one selects it. --targets replaces both with an exact
 list, each entry an os/arch pair (e.g. darwin/amd64) or the special value
 "cosmo" for the fat APE.
-
---cosmo-slots copies the one APE onto per-platform artifact names, which is N
-identical files; it is empty by default and exists for consumers that still
-resolve a <name>_<os>_<arch> download. An explicit native target in --targets
-wins over a slot copy of the same name.
 
 The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
 also built with the gosmopolitan fork toolchain (it carries the org's wasm
@@ -80,7 +74,6 @@ func addMatrixTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceVar(&matrixArch, "arch", nil, "Target architectures; naming either --os or --arch switches from the single-APE default to per-platform binaries (default amd64,arm64 when only --os is given)")
 	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. wasm/js and wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
 	cmd.Flags().StringSliceVar(&cosmoPlatforms, "cosmo-platforms", DefaultCosmoPlatforms, `Host platforms the cosmo fat APE must cover, as os/arch pairs ("all" covers every platform the fork can emit)`)
-	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a COPY of the cosmo fat APE — N identical files, empty by default ("none" is also accepted)`)
 }
 
 type buildJob struct {

@@ -48,14 +48,6 @@ inputs:
       whole set. "all" covers every platform the gosmopolitan fork can emit.
     required: false
     default: 'linux/amd64,darwin/arm64,windows/amd64'
-  cosmo-slots:
-    description: >-
-      Comma-separated per-platform artifact names that receive a COPY of the
-      fat APE (e.g. linux/amd64,windows/amd64). Each copy is the same binary
-      published again under another name, so this is empty by default; set it
-      only for a consumer that still resolves a <binary>_<os>_<arch> download.
-    required: false
-    default: ''
   cgo:
     description: 'Enable CGO (disabled by default for static binaries)'
     required: false
@@ -298,9 +290,6 @@ runs:
         fi
         if [ -n "${{ inputs.cosmo-platforms }}" ]; then
           ARGS="$ARGS --cosmo-platforms ${{ inputs.cosmo-platforms }}"
-        fi
-        if [ -n "${{ inputs.cosmo-slots }}" ]; then
-          ARGS="$ARGS --cosmo-slots ${{ inputs.cosmo-slots }}"
         fi
         if [ "${{ inputs.cgo }}" = "true" ]; then
           ARGS="$ARGS --cgo"

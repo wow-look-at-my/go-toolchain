@@ -57,7 +57,7 @@ func wasmArtifactName(name string, p buildPlatform) string {
 
 // validGOOS / validGOARCH mirror the target lists of the Go distribution
 // (`go tool dist list`), plus cosmo which is handled specially. Used only to
-// validate --targets / --cosmo-slots entries; the legacy --os/--arch flags
+// validate --targets / --cosmo-platforms entries; the legacy --os/--arch flags
 // stay unvalidated for backward compatibility.
 var (
 	validGOOS = []string{
@@ -103,7 +103,7 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 		if flagName == "--targets" {
 			return buildPlatform{}, fmt.Errorf("invalid target %q: a cosmo build is always one fat APE (multi-OS, multi-arch), so it takes no architecture; use the plain %q entry", entry, cosmoOS)
 		}
-		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: slots name the native platforms the fat APE is copied to, so %q itself is not a slot", flagName, entry, cosmoOS)
+		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: this flag names the native platforms the fat APE covers, so %q itself is not one of them", flagName, entry, cosmoOS)
 	}
 	// Canonical wasm spelling: wasm/js and wasm/wasip1, matching buildhost's
 	// artifact scheme (os=wasm with arch=js/wasip1) and the published

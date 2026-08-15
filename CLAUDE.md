@@ -71,8 +71,8 @@ coverage.
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` defaults to ONE fat APE**, not a per-platform
   product: no target flags means one `<name>_cosmo_fat` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
   fork as `GOCOSMOPLATFORMS`; unverified hosts are refused, and an unaware toolchain is detected and warned about rather than silently ignoring
-  the set). Naming `--os`/`--arch` selects the cartesian product; `--targets` an exact list. `--cosmo-slots` (per-platform COPIES of the one APE)
-  is empty by default. Depth: `docs/CMD.md`
+  the set). Naming `--os`/`--arch` selects the cartesian product; `--targets` an exact list. A cosmo build writes the APE and nothing else:
+  no flag copies it onto per-platform names, so a duplicate is unreachable rather than checked for. Depth: `docs/CMD.md`
 - `src/cmd/apemanifest.go` — `build/buildhost-artifacts.json`: names the APE, its platform SET and the plain filename the download is served
   under, so buildhost publishes it as ONE artifact row with one download link instead of one row per platform. Depth: `docs/BUILDHOST-MANIFEST.md`
 - `src/cmd/exportdataretry.go` — a damaged export-data entry from the shared build cache surfaces as `invalid package name: ""` plus a cascade of

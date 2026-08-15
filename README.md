@@ -84,7 +84,6 @@ To opt out, pass `codeql: 'false'`.
 | `arch`              | string   | `''`       | Comma-separated target architectures. Setting this **or** `os` switches to per-platform binaries; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
 | `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo`. When non-empty this replaces the `os`/`arch` inputs |
 | `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE must cover, as `os/arch` pairs; `all` covers everything the fork can emit — see [One binary for every platform](#one-binary-for-every-platform-the-default) |
-| `cosmo-slots`       | string   | `''`       | Per-platform artifact names that receive a **copy** of the APE. Each copy is the same binary published again, so this is empty by default |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; also registers a GitHub Deployment and posts an artifact storage record, so it additionally requires `deployments: write` + `artifact-metadata: write` and fails the build without either (see [autorelease permissions](#github-action-usage)) |
 | `autorelease_args`  | string   | `''`       | Extra publish options forwarded to the buildhost publish, as whitespace/comma-separated `key=value` pairs. Recognized: `create_service=true\|false` (the published binary runs as a background service; each download format materializes it — brew `service do` block, auto-enabled systemd user unit in generated debs). Unknown keys fail the build; empty forwards nothing |
@@ -224,7 +223,7 @@ Log routing: debug messages go to stderr and info to stdout; warnings and errors
 
 ### Subcommands
 
-- **`matrix`** — build one multi-platform APE, or cross-compile per platform (`--cosmo-platforms`, `--os`, `--arch`, `--targets`, `--cosmo-slots`, `--parallel`, `--no-benchmark`)
+- **`matrix`** — build one multi-platform APE, or cross-compile per platform (`--cosmo-platforms`, `--os`, `--arch`, `--targets`, `--parallel`, `--no-benchmark`)
 - **`bench`** — run and manage benchmarks
   - `run` — run benchmarks and show deltas vs stored results
   - `save` — run benchmarks and store results in git notes
@@ -291,13 +290,10 @@ go-toolchain matrix --os linux,darwin --arch amd64,arm64
 go-toolchain matrix --targets cosmo,windows/arm64
 ```
 
-**Per-platform *copies* of the APE.** `--cosmo-slots` copies the one APE onto
-`<name>_<os>_<arch>` names for a consumer that cannot yet resolve the APE
-itself. Each copy is the same binary published again under another name. It is
-empty by default and **deprecated for org use** — the org does not store
-per-platform binaries — so setting it warns. When slots are used the fat name is
-replaced (locally a symlink to the first copy, in CI removed), because
-buildhost's per-platform upload grammar rejects `os=cosmo`.
+**No per-platform copies.** A cosmo build writes the APE and nothing else.
+There is no flag that copies it onto `<name>_<os>_<arch>` names — the APE
+publishes under its own name through the manifest, as one artifact carrying its
+whole platform set.
 
 **Toolchain resolution.** Building the cosmo target needs the gosmopolitan
 toolchain:
@@ -396,7 +392,7 @@ artifacts from the trailing two underscore-separated filename tokens after
 stripping only `.exe`, so the bare form is what publishes as
 `os=wasm`/`arch=js|wasip1` (an extension would keep the file out of the
 upload set entirely). The files are still ordinary wasm modules, covered by
-`checksums.txt`; none of the cosmo slot machinery applies to them.
+`checksums.txt`.
 
 **Buildhost publishing.** By default wasm artifacts are published to
 buildhost like any other target, as `os=wasm` with `arch=js`/`arch=wasip1`.
@@ -452,8 +448,8 @@ Rejected spellings fail fast with a pointer to the right one: `js`/`wasip1`
 in `--os` and `wasm` in `--arch` (both flipped in buildhost's model — use
 `--os wasm --arch js|wasip1`, or `--targets wasm/js`/`wasm/wasip1`),
 `js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings), a
-`js`/`wasip1` arch with no `wasm` os in the list, and wasm targets in
-`--cosmo-slots` (an APE is not a wasm binary).
+`js`/`wasip1` arch with no `wasm` os in the list, and a wasm target in
+`--cosmo-platforms` (an APE covers native hosts, and wasm is not one).
 
 ### Build output lifetime
 

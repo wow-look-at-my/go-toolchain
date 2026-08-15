@@ -222,8 +222,10 @@ tests:
 		stdout:
 			- "--cosmo-platforms"
 			- "linux/amd64,darwin/arm64,windows/amd64"
-			- "--cosmo-slots"
+		# The CLI cannot ask for a per-platform copy of the APE: there is no
+		# flag, because there is no copier behind one.
 		"!stdout":
+			- "--cosmo-slots"
 			- "(default [linux,darwin,windows])"
 			- "(default [amd64,arm64])"
 
