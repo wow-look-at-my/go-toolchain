@@ -185,15 +185,50 @@ func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version 
 }
 
 // setMarker replaces any go-toolchain tracking comment on a line with m's.
+//
+// A line that already has a suffix comment gets the marker JOINED to it,
+// "// indirect; go-toolchain:...", the same way x/mod's own setIndirect does
+// it. A second Suffix comment would not share the line: modfile renders it
+// underneath, and a marker on its own line above the next require is exactly
+// the shape that corrupts the block.
 func setMarker(line *modfile.Line, m marker) {
 	kept := line.Suffix[:0]
 	for _, c := range line.Suffix {
-		if strings.Contains(c.Token, autoBranchMarker) || strings.Contains(c.Token, legacyBranchMarker) {
+		token := stripMarkers(c.Token)
+		if token == "" {
 			continue
 		}
+		c.Token = token
 		kept = append(kept, c)
 	}
-	line.Suffix = append(kept, modfile.Comment{Token: "// " + m.comment(), Suffix: true})
+	line.Suffix = kept
+	if len(line.Suffix) == 0 {
+		line.Suffix = []modfile.Comment{{Token: "// " + m.comment(), Suffix: true}}
+		return
+	}
+	line.Suffix[0].Token += "; " + m.comment()
+}
+
+// stripMarkers removes any go-toolchain tracking marker from a comment token,
+// returning "" when nothing but the marker was there.
+func stripMarkers(token string) string {
+	for _, mark := range []string{autoBranchMarker, legacyBranchMarker} {
+		i := strings.Index(token, mark)
+		if i == -1 {
+			continue
+		}
+		rest := token[i+len(mark):]
+		if _, after, found := strings.Cut(rest, " "); found {
+			token = token[:i] + after // a trailing note after the marker stays
+		} else {
+			token = token[:i]
+		}
+	}
+	token = strings.TrimRight(strings.TrimSpace(token), ";")
+	if token == "//" {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 // untrackedOrgDeps returns the org-owned dependencies that carry a version

@@ -134,3 +134,37 @@ func TestReportUncheckedBranchesSaysItOnce(t *testing.T) {
 	assert.Contains(t, warnings[0], "github.com/org/a@v1")
 	assert.Contains(t, warnings[0], "github.com/org/b@v1")
 }
+
+// A marker joins the comment already on the line rather than becoming a second
+// one: modfile renders an extra Suffix comment underneath, and a marker on its
+// own line above the next require is what corrupts the block.
+func TestSetMarkerJoinsAnExistingComment(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+		want string
+	}{
+		{"no comment", "require example.com/a v1.0.0", "// go-toolchain:auto-branch"},
+		{"indirect", "require example.com/a v1.0.0 // indirect", "// indirect; go-toolchain:auto-branch"},
+		{"replacing a marker", "require example.com/a v1.0.0 // go-toolchain:branch=v1", "// go-toolchain:auto-branch"},
+		{"replacing a marker beside indirect", "require example.com/a v1.0.0 // indirect; go-toolchain:branch=v1", "// indirect; go-toolchain:auto-branch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := modfile.Parse("go.mod", []byte("module test\ngo 1.25.0\n\n"+tc.line+"\n"), nil)
+			require.NoError(t, err)
+
+			setMarker(f.Require[0].Syntax, marker{tracks: true})
+			out, err := f.Format()
+			require.NoError(t, err)
+
+			var got []string
+			for _, line := range strings.Split(string(out), "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), "//") {
+					got = append(got, strings.TrimSpace(line))
+				}
+			}
+			assert.Empty(t, got, "no comment may end up on a line of its own:\n%s", out)
+			assert.Contains(t, string(out), tc.want)
+		})
+	}
+}
