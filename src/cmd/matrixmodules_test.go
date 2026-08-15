@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -25,16 +26,13 @@ func moduleTree(t *testing.T, names []string, withMain ...string) string {
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { os.Chdir(old) })
 
-	mains := map[string]bool{}
-	for _, n := range withMain {
-		mains[n] = true
-	}
+	mains := set.Of(withMain...)
 	for _, name := range names {
 		require.NoError(t, os.MkdirAll(name, 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(name, "go.mod"),
 			[]byte("module example.com/"+name+"\n\ngo 1.21\n"), 0o600))
 		body := "package " + name + "\n"
-		if mains[name] {
+		if mains.Contains(name) {
 			body = "package main\n\nfunc main() {}\n"
 		}
 		require.NoError(t, os.WriteFile(filepath.Join(name, name+".go"), []byte(body), 0o600))
@@ -120,12 +118,11 @@ func TestMatrixReturnsToTheDirectoryItStartedIn(t *testing.T) {
 	assert.Equal(t, resolvedPath(t, dir), resolvedPath(t, wd))
 }
 
-// A tree with no module at all still runs its suites, as the default pipeline
-// does -- the CLI a suite drives does not have to be Go.
-func TestMatrixWithoutAModuleFailsOnTheSameMessageAsTheDefaultPipeline(t *testing.T) {
-	dir := t.TempDir()
+// Nothing to build and no suites to run: the message names both, as the
+// default pipeline's does, rather than blaming a missing go.mod alone.
+func TestMatrixWithoutAModuleOrSuitesNamesBoth(t *testing.T) {
 	old, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
+	require.NoError(t, os.Chdir(t.TempDir()))
 	t.Cleanup(func() { os.Chdir(old) })
 	matrixTestFlags(t)
 
