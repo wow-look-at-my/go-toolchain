@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/mod/modfile"
+
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // trackedPinMoves maps a module directory to the modules whose branch-tracked
@@ -151,19 +153,16 @@ func goSumFollowsPins(path string, moved []string) bool {
 // sumDiffOnlyTouches reports whether the lines present in exactly one of two
 // go.sum files all belong to modules in moved.
 func sumDiffOnlyTouches(head, work string, moved []string) bool {
-	allowed := map[string]bool{}
-	for _, mod := range moved {
-		allowed[mod] = true
-	}
+	allowed := set.Of(moved...)
 	headLines := sumLines(head)
 	workLines := sumLines(work)
-	for line := range headLines {
-		if !workLines[line] && !allowed[sumLineModule(line)] {
+	for line := range headLines.All() {
+		if !workLines.Contains(line) && !allowed.Contains(sumLineModule(line)) {
 			return false
 		}
 	}
-	for line := range workLines {
-		if !headLines[line] && !allowed[sumLineModule(line)] {
+	for line := range workLines.All() {
+		if !headLines.Contains(line) && !allowed.Contains(sumLineModule(line)) {
 			return false
 		}
 	}
@@ -171,11 +170,11 @@ func sumDiffOnlyTouches(head, work string, moved []string) bool {
 }
 
 // sumLines returns a go.sum's non-blank lines as a set.
-func sumLines(data string) map[string]bool {
-	out := map[string]bool{}
+func sumLines(data string) set.Set[string] {
+	out := set.New[string]()
 	for _, line := range strings.Split(data, "\n") {
 		if strings.TrimSpace(line) != "" {
-			out[line] = true
+			out.Add(line)
 		}
 	}
 	return out

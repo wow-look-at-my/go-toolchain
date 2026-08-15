@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/mod/modfile"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -28,7 +29,7 @@ import (
 // stale pin loses and is never fetched, so it stops mattering what it says.
 func siblingRequires(r runner.CommandRunner, c *gitCommit, mainModule string) (map[string]string, error) {
 	out := map[string]string{}
-	seen := map[string]bool{c.Subdir: true}
+	seen := set.Of(c.Subdir)
 	queue := []string{c.Subdir}
 
 	for len(queue) > 0 {
@@ -50,10 +51,9 @@ func siblingRequires(r runner.CommandRunner, c *gitCommit, mainModule string) (m
 				continue
 			}
 			sub := moduleSubdir(mod, c.RepoRoot)
-			if seen[sub] {
+			if !seen.Add(sub) {
 				continue
 			}
-			seen[sub] = true
 			out[mod] = pseudoVersionFor(mod, c.Time, c.ShortHash)
 			queue = append(queue, sub)
 		}

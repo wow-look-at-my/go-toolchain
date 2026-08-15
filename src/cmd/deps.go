@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // How long to cache "up-to-date" results before rechecking
@@ -303,10 +305,10 @@ func listDirectDeps() ([]depInfo, error) {
 	// A require replaced by a tracked replacement is tracked too: the version
 	// that ends up in the build is the replacement's, and
 	// UpdateTrackedBranchDeps owns it.
-	replacedTracked := map[string]bool{}
+	replacedTracked := set.New[string]()
 	for _, rep := range f.Replace {
 		if isTracked(rep.Syntax) {
-			replacedTracked[rep.Old.Path] = true
+			replacedTracked.Add(rep.Old.Path)
 		}
 	}
 
@@ -318,7 +320,7 @@ func listDirectDeps() ([]depInfo, error) {
 		deps = append(deps, depInfo{
 			Path:    req.Mod.Path,
 			Version: req.Mod.Version,
-			Tracked: isTracked(req.Syntax) || replacedTracked[req.Mod.Path],
+			Tracked: isTracked(req.Syntax) || replacedTracked.Contains(req.Mod.Path),
 		})
 	}
 	return deps, nil
