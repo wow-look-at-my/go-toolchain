@@ -39,12 +39,17 @@ setup:
 	- 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
 
 tests:
+	# The only test here that reaches the staleness footer, whose commit queries
+	# would otherwise ride api.github.com -- up to two round trips at a 10s
+	# client timeout each, spent inside the second-build wall-clock budget
+	# host-build enforces. Unreachable base = the offline footer, instantly.
 	- desc: version reports the build stamp
 	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version'
 	  timeout: 30s
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			GO_TOOLCHAIN_GITHUB_API_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
 			- "Version:"
