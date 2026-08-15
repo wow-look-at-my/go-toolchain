@@ -31,6 +31,12 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		return false, nil, err
 	}
 
+	// An org dependency carrying a plain version pin gets the branch marker
+	// added first, so the re-resolution below owns it from this run on.
+	if _, err := EnforceOrgBranchTracking(r); err != nil {
+		return false, nil, err
+	}
+
 	// Re-resolve any dependency pinned to follow a branch (see depsbranch.go)
 	if _, err := UpdateTrackedBranchDeps(r); err != nil {
 		return false, nil, err

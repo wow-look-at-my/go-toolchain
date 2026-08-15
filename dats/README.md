@@ -75,7 +75,10 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 - Every test sets `GO_TOOLCHAIN_BUILDHOST_URL` to an unreachable address so
   the background update check fails instantly and silently, keeping output
   deterministic. Consumer suites that exec go-toolchain itself should do the
-  same.
+  same. A test running `version` (not `version raw`) sets
+  `GO_TOOLCHAIN_GITHUB_API_URL` the same way: the staleness footer is a
+  separate query against api.github.com, and leaving it live makes that test's
+  duration a network measurement.
 - The agent-output-guard tests in `cli.dats` assume a **linux host**, because
   this suite only runs when this repo builds ITSELF, which only happens on
   linux (`build`/`host-build`). darwin has its own real guard classifier
