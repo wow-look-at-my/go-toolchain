@@ -181,8 +181,8 @@ coverage.
   `docs/VET.md`
 - `src/vet/mapset.go` — the `mapset` analyzer: a `map[K]bool` is a set when its literal writes only `true`, or when the package makes it empty and
   every use is a `true` write, delete, clear, len, key-only range or index read. Both FAIL, naming `go-containers/set`. A `v, ok :=` read, a computed
-  value, or the map escaping to another function keeps it a map. A `map[K]struct{}` only WARNS (deduplicated per file:line, `resetMapSetWarnings`) —
-  it already carries no value. Org modules only, because the remedy adds an org dependency; `// go-toolchain:allow-mapset <reason>` turns off one
+  value, or the map escaping to another function keeps it a map. A `map[K]struct{}` only WARNS (deduplicated per file:line, `resetMapSetWarnings`; the `set`
+  package itself is exempt, `isSetPackage`) — it already carries no value. Org modules only, because the remedy adds an org dependency; `// go-toolchain:allow-mapset <reason>` turns off one
   report. Depth: `docs/VET.md`
 - `src/hostos/` — `hostos.GOOS()`, the host operating system as opposed to `runtime.GOOS` (what the binary was compiled for). Identical for every
   normal

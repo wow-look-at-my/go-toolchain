@@ -29,7 +29,8 @@ import (
 //
 // A map[K]struct{} gets a WARNING instead, never a diagnostic. It already
 // carries no value, so it is not the mistake this check fails a build over.
-// The default a map[K]bool picks is.
+// The default a map[K]bool picks is. The set package itself is exempt from
+// that warning: Set[T] IS the map[T]struct{} the warning points at.
 //
 // The check is scoped to org modules (see mapSetModulePrefixes). go-toolchain
 // vets every project it builds, and a third-party consumer must not get a red
@@ -97,8 +98,13 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 		})
 	}
 
-	for _, file := range pass.Files {
-		warnEmptyStructMaps(pass, file, allowed)
+	// The set package is the one place the advice cannot apply: Set[T] IS the
+	// map[T]struct{}. Its eight storage sites would spend half the warnings
+	// budget telling the remedy to use itself.
+	if !isSetPackage(pass.Pkg) {
+		for _, file := range pass.Files {
+			warnEmptyStructMaps(pass, file, allowed)
+		}
 	}
 
 	for _, c := range mapSetCandidates(pass) {
@@ -136,6 +142,12 @@ func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File, allowed set.Set[in
 			pos.Filename, pos.Line, setPackage, mapSetAllowMarker)
 		return true
 	})
+}
+
+// isSetPackage reports whether pkg is the set package itself, under its own
+// path or its external test variant.
+func isSetPackage(pkg *types.Package) bool {
+	return pkg != nil && strings.TrimSuffix(pkg.Path(), "_test") == setPackage
 }
 
 // isEmptyStructType reports whether expr names a struct type with no fields.

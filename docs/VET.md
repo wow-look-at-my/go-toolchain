@@ -52,6 +52,11 @@ budget. Every package variant walks the same file, so the sites are
 deduplicated by `file:line` for the length of one vet run
 (`resetMapSetWarnings`).
 
+The `set` package itself is exempt from that warning, under its own path and
+its `_test` variant (`isSetPackage`). `Set[T]` IS the `map[T]struct{}` the
+warning points at, and its eight storage sites would spend half the warnings
+budget telling the remedy to use itself.
+
 ### What disqualifies a made-empty bool map
 
 The use walk (`mapSetUses`) accepts a write of `true`, `delete`, `clear`,

@@ -24,6 +24,46 @@ func TestMapSetAnalyzer(t *testing.T) {
 	analysistest.Run(t, testdata, MapSetAnalyzer, "mapset")
 }
 
+// TestMapSetSkipsTheSetPackageItself verifies the remedy never warns about
+// itself: Set[T] IS a map[T]struct{}, and its storage sites would spend half
+// the warnings budget saying so.
+func TestMapSetSkipsTheSetPackageItself(t *testing.T) {
+	const src = `package set
+
+type Set[T comparable] struct {
+	m map[T]struct{}
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "/set/set.go", src, parser.ParseComments)
+	require.NoError(t, err)
+
+	for _, c := range []struct {
+		path      string
+		wantWarns int64
+	}{
+		{setPackage, 0},
+		{setPackage + "_test", 0},
+		{"github.com/wow-look-at-my/other", 1},
+	} {
+		t.Run(c.path, func(t *testing.T) {
+			resetMapSetWarnings()
+			before := logger.WarnCount()
+			pass := &analysis.Pass{
+				Analyzer:  MapSetAnalyzer,
+				Fset:      fset,
+				Files:     []*ast.File{f},
+				Pkg:       types.NewPackage(c.path, "set"),
+				Report:    func(analysis.Diagnostic) { t.Fatal("a struct map must never fail the build") },
+				TypesInfo: &types.Info{},
+			}
+			_, err := runMapSet(pass)
+			require.NoError(t, err)
+			require.Equal(t, before+c.wantWarns, logger.WarnCount())
+		})
+	}
+}
+
 // TestMapSetModuleScoping verifies the check only fires on org code.
 // go-toolchain vets every project it builds, and the remedy adds an org
 // dependency, so a third-party consumer must not get a red build over it.
