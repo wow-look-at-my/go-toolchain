@@ -81,9 +81,9 @@ require (
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
 	assert.True(t, changed)
-	assert.Equal(t, "// go-toolchain:auto-branch go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/foo"))
+	assert.Equal(t, "// go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/foo"))
 	assert.Equal(t, "", suffixFor(t, "spf13/cobra"), "a third-party dependency is left alone")
-	assert.Contains(t, strings.Join(*lsRemote, "\n"), "--symref", "the compatibility half needs the default branch NAME")
+	assert.Contains(t, strings.Join(*lsRemote, "\n"), "--symref", "the written marker names a branch, so it has to be asked for")
 }
 
 // The marker is only half the fix: the version pin it replaces is still the
@@ -109,7 +109,7 @@ require github.com/wow-look-at-my/foo v1.2.3
 	require.NoError(t, err)
 	require.Len(t, f.Require, 1)
 	assert.Equal(t, "v0.0.0-20260812203640-351d2159f8d8", f.Require[0].Mod.Version)
-	assert.Equal(t, marker{tracks: true, compat: "master"}, parseMarker(f.Require[0].Syntax))
+	assert.Equal(t, marker{tracks: true, branch: "master", legacy: true}, parseMarker(f.Require[0].Syntax))
 }
 
 func TestEnforceOrgBranchTrackingLeavesAnAlreadyTrackedRequireAlone(t *testing.T) {
@@ -117,7 +117,7 @@ func TestEnforceOrgBranchTrackingLeavesAnAlreadyTrackedRequireAlone(t *testing.T
 	writeGoMod(t, `module test
 go 1.21
 
-require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:auto-branch=v1 go-toolchain:branch=v1
+require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:branch=v1
 `)
 
 	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
@@ -125,7 +125,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-t
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
 	assert.False(t, changed)
-	assert.Equal(t, "// go-toolchain:auto-branch=v1 go-toolchain:branch=v1", suffixFor(t, "wow-look-at-my/foo"), "the chosen branch is not replaced by the default one")
+	assert.Equal(t, "// go-toolchain:branch=v1", suffixFor(t, "wow-look-at-my/foo"), "the chosen branch is not replaced by the default one")
 	assert.Empty(t, mock.Calls())
 }
 
@@ -212,8 +212,8 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
 	assert.True(t, changed)
-	assert.Equal(t, "// go-toolchain:auto-branch go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/bubbletea/v2"))
-	assert.Contains(t, strings.Join(*lsRemote, "\n"), "--symref", "the compatibility half needs the default branch NAME")
+	assert.Equal(t, "// go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/bubbletea/v2"))
+	assert.Contains(t, strings.Join(*lsRemote, "\n"), "--symref", "the written marker names a branch, so it has to be asked for")
 }
 
 func TestEnforceOrgBranchTrackingSkipsALocalReplacement(t *testing.T) {
@@ -251,10 +251,10 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard
 	assert.Empty(t, mock.Calls())
 }
 
-// The compatibility half names a branch, so marking a line has to ask the
-// remote which one. An unreachable remote is therefore fatal: a marker written
-// without that half is one an older release overwrites on sight, and a green
-// run over a marker that never got written is the other way to be wrong.
+// The written marker names a branch, so marking a line has to ask the remote
+// which one. An unreachable remote is therefore fatal: reporting green over a
+// marker that was not written leaves the version pin it replaces exactly as
+// stale as it was.
 func TestEnforceOrgBranchTrackingFailsWhenTheRemoteIsUnreachable(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test

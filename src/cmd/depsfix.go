@@ -137,11 +137,6 @@ type gitCommit struct {
 	// module is the repository root.
 	Subdir string
 
-	// DefaultBranch is the branch the repository's HEAD points at, known only
-	// when this commit was resolved through HEAD. It is what the compatibility
-	// half of a marker is written from (see marker.comment).
-	DefaultBranch string
-
 	Hash      string
 	ShortHash string
 	Time      time.Time
@@ -180,15 +175,11 @@ func fetchCommit(r runner.CommandRunner, mod, ref string) (*gitCommit, func(), e
 		return nil, nil, fmt.Errorf("git ls-remote failed: %w", err)
 	}
 
-	hash, branch := parseLsRemote(output)
+	hash, _ := parseLsRemote(output)
 	if hash == "" {
 		return nil, nil, fmt.Errorf("no ref %q found for %s", ref, mod)
 	}
-	c, cleanup, err := fetchAt(r, mod, gitURL, hash)
-	if c != nil {
-		c.DefaultBranch = branch
-	}
-	return c, cleanup, err
+	return fetchAt(r, mod, gitURL, hash)
 }
 
 // defaultBranchOf reports the branch a module's repository HEAD points at.

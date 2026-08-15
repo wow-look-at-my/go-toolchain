@@ -18,7 +18,7 @@ go 1.25.0
 require (
 	example.com/def v1.0.0 // go-toolchain:auto-branch
 	example.com/named v1.0.0 // go-toolchain:auto-branch=v1
-	example.com/sib v1.0.0 // indirect; go-toolchain:sibling=example.com/anchor
+	example.com/sib v1.0.0 // indirect; go-toolchain:auto-branch
 	example.com/old v1.0.0 // go-toolchain:branch=master
 	example.com/plain v1.0.0
 	example.com/pinned v1.0.0 // go-toolchain:pinned v2 API break
@@ -34,7 +34,7 @@ require (
 
 	assert.Equal(t, marker{tracks: true}, got["example.com/def"], "bare auto-branch names no branch, which is the point")
 	assert.Equal(t, marker{tracks: true, branch: "v1"}, got["example.com/named"])
-	assert.Equal(t, marker{tracks: true, sibling: "example.com/anchor"}, got["example.com/sib"])
+	assert.Equal(t, marker{tracks: true}, got["example.com/sib"], "the marker is still found sharing a comment with // indirect")
 	assert.Equal(t, marker{tracks: true, branch: "master", legacy: true}, got["example.com/old"])
 	assert.Equal(t, marker{}, got["example.com/plain"])
 	assert.Equal(t, marker{}, got["example.com/pinned"], "a deliberate pin is a choice, not a tracked answer")
@@ -48,12 +48,31 @@ func TestMarkerRefIsHeadWhenItNamesNoBranch(t *testing.T) {
 func TestMarkerComment(t *testing.T) {
 	assert.Equal(t, "go-toolchain:auto-branch", marker{tracks: true}.comment())
 	assert.Equal(t, "go-toolchain:auto-branch=v1", marker{tracks: true, branch: "v1"}.comment())
-	assert.Equal(t, "go-toolchain:sibling=example.com/a", marker{tracks: true, sibling: "example.com/a"}.comment())
+	assert.Equal(t, "go-toolchain:branch=master", marker{tracks: true, branch: "master", legacy: true}.comment(),
+		"a line read in the old spelling is written back in it, until every runner reads the new one")
 }
 
-// An unmarked org require gets auto-branch plus the compatibility half, which
-// is what an older release reads to leave the line alone.
-func TestEnforceOrgBranchTrackingWritesTheBridgedMarker(t *testing.T) {
+// auto-branch is READ here and written by the next release, so a line already
+// carrying it is left exactly as it is -- including asking the remote nothing.
+func TestEnforceOrgBranchTrackingLeavesAnAutoBranchLineAlone(t *testing.T) {
+	for _, comment := range []string{"go-toolchain:auto-branch", "go-toolchain:auto-branch=v1"} {
+		t.Run(comment, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			writeGoMod(t, "module test\ngo 1.21\n\nrequire github.com/wow-look-at-my/foo v1.2.3 // "+comment+"\n")
+
+			mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
+			changed, err := EnforceOrgBranchTracking(mock)
+			require.NoError(t, err)
+			assert.False(t, changed)
+			assert.Empty(t, mock.Calls(), "already tracked, so nothing to ask")
+		})
+	}
+}
+
+// Writing the new spelling has to wait for a fleet that reads it. Until then
+// an unmarked line gets the one every release understands, so a repo built by
+// an older binary and a newer one lands on the same go.mod either way.
+func TestEnforceOrgBranchTrackingStillWritesTheLegacySpelling(t *testing.T) {
 	t.Chdir(t.TempDir())
 	gomod := `module test
 go 1.25.0
@@ -62,79 +81,13 @@ require github.com/wow-look-at-my/foo v1.2.3
 `
 	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
 
-	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
+	mock, lsRemote := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
 	assert.True(t, changed)
 
-	assert.Equal(t, "// go-toolchain:auto-branch go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/foo"))
-	f, err := modfile.Parse("go.mod", readGoMod(t), nil)
-	require.NoError(t, err)
-	assert.Equal(t, marker{tracks: true, compat: "master"}, parseMarker(findRequire(f, "github.com/wow-look-at-my/foo").Syntax))
-}
-
-// The legacy marker is what an older release reads, so the migration KEEPS it,
-// last on the line and with nothing after it: that release takes everything
-// following "branch=" as the branch name. Both readers then answer correctly
-// off one line, and neither overwrites the other -- without which an older one
-// treats the line as unmarked and appends a comment of its own on a line of
-// its own, corrupting the require block.
-func TestEnforceOrgBranchTrackingMigratesTheLegacyMarker(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		was   string
-		want  string
-		about string
-	}{
-		{"default branch", "master", "// go-toolchain:auto-branch go-toolchain:branch=master", "the name only repeated the default branch, so the new half stops naming it"},
-		{"other branch", "v1", "// go-toolchain:auto-branch=v1 go-toolchain:branch=v1", "a deliberate non-default branch is a choice both halves keep"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Chdir(t.TempDir())
-			writeGoMod(t, "module test\ngo 1.21\n\nrequire github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:branch="+tc.was+"\n")
-
-			mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
-			changed, err := EnforceOrgBranchTracking(mock)
-			require.NoError(t, err)
-			assert.True(t, changed)
-			assert.Equal(t, tc.want, suffixFor(t, "wow-look-at-my/foo"), tc.about)
-		})
-	}
-}
-
-// An older release reads the compatibility half and sees a tracked line, so it
-// appends nothing. Proven against that release's own parser: everything after
-// "branch=" to the end of the comment, which is why nothing may follow it.
-func TestBridgedMarkerReadsCorrectlyToAnOlderRelease(t *testing.T) {
-	for _, tc := range []struct {
-		m    marker
-		want string
-	}{
-		{marker{tracks: true, compat: "master"}, "master"},
-		{marker{tracks: true, branch: "v1", compat: "v1"}, "v1"},
-		{marker{tracks: true, sibling: "example.com/anchor", compat: "master"}, "master"},
-	} {
-		token := "// " + tc.m.comment()
-		i := strings.Index(token, legacyBranchMarker)
-		require.NotEqual(t, -1, i, "an older release finds nothing to follow in %q", token)
-		assert.Equal(t, tc.want, strings.TrimSpace(token[i+len(legacyBranchMarker):]), "older parser reading %q", token)
-	}
-}
-
-func TestEnforceOrgBranchTrackingLeavesTheBridgedFormAlone(t *testing.T) {
-	t.Chdir(t.TempDir())
-	gomod := `module test
-go 1.25.0
-
-require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:auto-branch go-toolchain:branch=master
-`
-	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
-
-	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
-	changed, err := EnforceOrgBranchTracking(mock)
-	require.NoError(t, err)
-	assert.False(t, changed)
-	assert.Empty(t, mock.Calls(), "already canonical, so nothing to ask")
+	assert.Equal(t, "// go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/foo"))
+	assert.Contains(t, strings.Join(*lsRemote, "\n"), "--symref", "the written marker names a branch, so it has to be asked for")
 }
 
 func TestGitHubOwnerRepo(t *testing.T) {

@@ -157,24 +157,17 @@ func warnIndirectOrgRequire(req *modfile.Require, coveredByReplace bool) {
 		req.Mod.Path, req.Mod.Version, req.Mod.Path, req.Mod.Path, autoBranchMarker, pinnedMarker)
 }
 
-// markBranchTracked brings a go.mod line to the canonical marker and reports
-// whether it changed. An unmarked line gets auto-branch; a line still carrying
-// the legacy branch=<name> spelling is migrated to it. Both keep a
-// compatibility half naming the branch, so a release that predates auto-branch
-// still reads the line (see marker.comment).
+// markBranchTracked adds the tracking marker to an unmarked line and reports
+// whether it changed. A line already carrying one is left alone, in either
+// spelling: migrating the legacy one is the next release's job, not this one's
+// (see marker.legacy).
 //
-// The migration drops a hardcoded name that merely repeats the default branch,
-// and keeps one that does not: `branch=v1` becomes `auto-branch=v1`, while
-// `branch=master` on a repo whose default IS master becomes plain
-// `auto-branch`, which stops caring what the branch is called.
-//
-// Resolution failure is fatal rather than a warning. Writing the marker
-// without its compatibility half would leave a go.mod that an older release
-// corrupts on sight, and reporting green for a marker that was not written is
-// the other way to be wrong here.
+// The written marker names the module's default branch, so writing it needs
+// one `git ls-remote --symref`. A remote that cannot answer is fatal:
+// reporting green over a marker that was not written is the way to be wrong
+// here, and the version pin it was supposed to replace stays a stale snapshot.
 func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version string) (bool, error) {
-	m := parseMarker(line)
-	if m.tracks && !m.legacy && m.compat != "" {
+	if parseMarker(line).tracks {
 		return false, nil
 	}
 
@@ -183,22 +176,9 @@ func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version 
 		return false, fmt.Errorf("%s must track a branch, but the default branch of its repository could not be resolved: %w (pin it deliberately with a trailing // %s <reason> comment if that is what you mean)", mod, err, pinnedMarker)
 	}
 
-	marked := marker{tracks: true, compat: def}
-	if m.branch != "" && m.branch != def {
-		// The compatibility half has to name the branch this line actually
-		// follows, not the default one: an older release reads that half and
-		// nothing else, so naming the default there would quietly move a
-		// deliberate non-default pin onto master.
-		marked.branch = m.branch
-		marked.compat = m.branch
-	}
+	marked := marker{tracks: true, branch: def, legacy: true}
 	if !jsonOutput {
-		switch {
-		case !m.tracks:
-			logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, marked.describe())
-		case m.legacy:
-			logger.Info("⇒ %s: %s%s becomes %s", mod, legacyBranchMarker, m.branch, marked.comment())
-		}
+		logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, marked.describe())
 	}
 	setMarker(line, marked)
 	return true, nil
@@ -208,7 +188,7 @@ func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version 
 func setMarker(line *modfile.Line, m marker) {
 	kept := line.Suffix[:0]
 	for _, c := range line.Suffix {
-		if strings.Contains(c.Token, autoBranchMarker) || strings.Contains(c.Token, legacyBranchMarker) || strings.Contains(c.Token, siblingMarker) {
+		if strings.Contains(c.Token, autoBranchMarker) || strings.Contains(c.Token, legacyBranchMarker) {
 			continue
 		}
 		kept = append(kept, c)

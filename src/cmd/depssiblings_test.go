@@ -160,7 +160,7 @@ func TestUpdateTrackedBranchDepsRequiresSiblingsAtTheSameCommit(t *testing.T) {
 
 go 1.25.0
 
-require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-000000000000 // go-toolchain:branch=master
+require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-000000000000 // go-toolchain:auto-branch
 `
 	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
 
@@ -174,7 +174,7 @@ require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-
 	core := findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/core")
 	require.NotNil(t, core, "the sibling has to be required here: a replace would not travel to this module's own consumers")
 	assert.Equal(t, siblingVersion, core.Mod.Version)
-	assert.Equal(t, marker{tracks: true, sibling: "github.com/wow-look-at-my/common-ai-api/go/client", compat: "master"}, parseMarker(core.Syntax), "the added line records WHY it is here, so later runs keep moving it; the compatibility half is the closest an older release comes to saying the same thing")
+	assert.Equal(t, marker{tracks: true}, parseMarker(core.Syntax), "the added line follows what the line that brought it in follows, so later runs keep moving it")
 
 	client := findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/client")
 	require.NotNil(t, client)
@@ -188,7 +188,7 @@ func TestUpdateTrackedBranchDepsLeavesADeliberatelyPinnedSiblingAlone(t *testing
 go 1.25.0
 
 require (
-	github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-000000000000 // go-toolchain:branch=master
+	github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-000000000000 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20250101000000-111111111111 // go-toolchain:pinned last release before the API break
 )
 `
@@ -213,7 +213,7 @@ func TestUpdateTrackedBranchDepsResolvesAnIndirectSibling(t *testing.T) {
 
 go 1.25.0
 
-require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-000000000000 // go-toolchain:branch=master
+require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-000000000000 // go-toolchain:auto-branch
 
 require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260101000000-000000000000 // indirect; go-toolchain:branch=master
 `
@@ -232,4 +232,44 @@ require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260101000000-00
 	core := findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/core")
 	require.NotNil(t, core)
 	assert.Equal(t, siblingVersion, core.Mod.Version)
+}
+
+// Two DIRECT modules of one repository is the case that needs the resolver:
+// resolving each on its own would ask the remote twice, and a branch that
+// moved between the two answers would land them on different commits. Which
+// modules share a repository is read off the repository, so neither line has
+// to say anything about the other.
+func TestUpdateTrackedBranchDepsResolvesEachRepositoryOnce(t *testing.T) {
+	t.Chdir(t.TempDir())
+	gomod := `module example.com/consumer
+
+go 1.25.0
+
+require (
+	github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-000000000000 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260101000000-000000000000 // go-toolchain:auto-branch
+)
+`
+	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
+
+	mock := repoTreeMock(t, commonAPITree())
+	changed, err := UpdateTrackedBranchDeps(mock)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	resolutions := 0
+	for _, call := range mock.Calls() {
+		if call.IsCmd("git", "ls-remote") && lsRemoteURL(call) == repoURL {
+			resolutions++
+		}
+	}
+	assert.Equal(t, 1, resolutions, "one repository is one answer, however many of its modules ask")
+
+	f, err := modfile.Parse("go.mod", readGoMod(t), nil)
+	require.NoError(t, err)
+	for _, mod := range []string{"go/client", "go/core"} {
+		req := findRequire(f, "github.com/wow-look-at-my/common-ai-api/"+mod)
+		require.NotNil(t, req)
+		assert.Equal(t, siblingVersion, req.Mod.Version, mod+" lands on the commit its repository resolved to")
+	}
 }

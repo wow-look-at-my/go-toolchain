@@ -69,13 +69,13 @@ coverage.
   dats/README.md)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
-  version pin: an org require/replace carrying a plain version, or the legacy marker, is rewritten to
-  `// go-toolchain:auto-branch go-toolchain:branch=<default branch>` (resolved via `git ls-remote --symref`; an unreachable
-  remote is FATAL, since the second half is what keeps an older release off the line), which the
-  rewrite-then-dirty-tree-fails-CI contract enforces. A require overridden by a replace is marked on the replace line
-  instead; an INDIRECT one cannot carry a working marker at all, so it warns and
-  names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the explicit opt-out.
-  Depth: `docs/DEPS.md`
+  version pin: an org require/replace carrying a plain version gets `// go-toolchain:branch=<default branch>` appended
+  (resolved via `git ls-remote --symref`; an unreachable remote is FATAL, since a marker that was not written leaves the
+  stale snapshot in place), which the rewrite-then-dirty-tree-fails-CI contract enforces. A line already carrying a marker
+  is left alone in EITHER spelling -- see the markers item for why the new one is read a release before it is written. A
+  require overridden by a replace is marked on the replace line instead; an INDIRECT one cannot carry a working marker at
+  all, so it warns and names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the
+  explicit opt-out. Depth: `docs/DEPS.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
   deps (`// go-toolchain:auto-branch`), and the same-org auto-updater; the three never fight over the same dependency.
   The marker rides a require OR a replace line -- a fork keeps upstream's module path, so it is reached through a replace,
@@ -85,16 +85,16 @@ coverage.
 - `src/cmd/depssiblings.go`, `src/cmd/dirtypins.go` — the recorded pseudo-version on a tracked line is a CACHE of the last
   resolution, not a contract, and the two halves of making that true. A tracked module brings the modules sharing its
   repository along at the same commit, because a multi-module repo's sibling require necessarily names a commit older than
-  the one publishing it -- at a first publish, one with no such module in it (`missing go.mod at revision`). And the
+  the one publishing it -- at a first publish, one with no such module in it (`missing go.mod at revision`). Each repository
+  resolves ONCE (`repoResolver`), so two of its modules cannot land on different commits. And the
   re-resolution is excluded from the CI dirty check, so it never demands a bump commit; the exclusion covers the version
   token on a same-marker line plus the `go.sum` hashes that follow it, nothing else. Depth: `docs/DEPS.md`
-- Markers (`src/cmd/depsmarker.go`): `auto-branch` follows the module's DEFAULT branch and names none, so a renamed default
-  breaks nothing; `auto-branch=<name>` is the deliberate non-default choice; `sibling=<module>` matches another module's
-  resolved commit and is written by the toolchain, never by hand. Every one is WRITTEN with the legacy `branch=<name>` last
-  on the line, naming the branch that line actually follows: a release predating these markers takes everything after
-  `branch=` as the branch name, so both readers answer off one line and neither overwrites the other. Without that half an
-  old release reads the line as untracked and appends its own comment above the require, corrupting the block. That is what
-  makes the automatic migration of an unmarked or legacy line safe. Depth: `docs/DEPS.md`
+- Markers (`src/cmd/depsmarker.go`): ONE marker is the whole vocabulary. `auto-branch` follows the module's DEFAULT branch
+  and names none, so a renamed default breaks nothing; `auto-branch=<name>` is the deliberate non-default choice. Nothing
+  declares repository membership -- `repoResolver` reads that off the repository. This release READS `auto-branch` and still
+  WRITES the legacy `branch=<name>`: an older release treats an unrecognized marker as an untracked line and appends its own
+  comment ABOVE the require, so one committed go.mod cannot satisfy both binaries. The NEXT release writes the new spelling
+  and migrates. Depth: `docs/DEPS.md`
 - `src/cmd/depsbranchguard.go` — a marker naming a branch that is the head of an OPEN pull request FAILS in CI and warns
   locally. That branch dies with the merge, so it resolves right up until the change lands and never again; CI is the last
   look before the merge, and tandem development across two repos is why local is only a warning. Depth: `docs/DEPS.md`

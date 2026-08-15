@@ -42,40 +42,41 @@ of it in `go.mod` is one more thing that goes stale — the day a default branch
 hardcoded copy across the org resolves to nothing. `auto-branch=<name>` names a different branch
 deliberately, and that is the only form that hardcodes anything.
 
-The original `branch=<name>` spelling is still READ, and every marker is WRITTEN with a
-compatibility half behind it:
+**There is one marker, and it is the whole vocabulary.** A line either follows a branch or it does
+not, and the only thing it ever names is a branch that is not the default:
 
 ```go
-require github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:auto-branch go-toolchain:branch=master
-require github.com/wow-look-at-my/bar v0.0.0-... // go-toolchain:auto-branch=v1 go-toolchain:branch=v1
-require github.com/wow-look-at-my/baz v0.0.0-... // go-toolchain:sibling=github.com/org/repo/go/client go-toolchain:branch=master
+require github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:auto-branch
+require github.com/wow-look-at-my/bar v0.0.0-... // go-toolchain:auto-branch=v1
 ```
 
-A go-toolchain release that predates these markers looks for `go-toolchain:branch=` and takes
-EVERYTHING after it as the branch name. So the legacy spelling goes LAST, with nothing after it,
-and both readers answer correctly off one line: an old release follows the named branch, a current
-one follows the marker in front and ignores the rest. Neither rewrites the other's work.
+The original `branch=<name>` spelling is still READ, so an unmigrated `go.mod` resolves correctly
+either way.
 
-That half is what makes the new markers shippable at all. An old release does not IGNORE a marker
-it does not recognize — it reads the line as untracked and appends its own comment, on a line of
-its own, ABOVE the require, which corrupts the block. So the migration is automatic and total:
-`EnforceOrgBranchTracking` brings every unmarked line and every legacy line to the bridged form on
-the next run, and a repo whose builds still run an older release keeps working throughout.
+### The marker is read one release before it is written
 
-The compatibility half names the branch the line ACTUALLY follows, never the default one:
-`branch=v1` on a repo whose default is `master` becomes `auto-branch=v1 go-toolchain:branch=v1`.
-Naming the default there would quietly move a deliberate non-default pin onto master for every old
-reader. Where the name only repeated the default, the new half stops naming it: `branch=master`
-becomes plain `auto-branch`, which stops caring what the branch is called.
+This release READS `auto-branch` and still WRITES `branch=<default branch>`. That is not caution
+about the new spelling — it is the only order that works. A release predating `auto-branch` does not
+ignore a marker it fails to recognize: it reads the line as untracked and appends a comment of its
+own, on a line of its own, ABOVE the require, which corrupts the block. Measured, on this
+repository's own `go.mod`:
 
-Writing a marker therefore needs the default branch, which costs one
-`git ls-remote --symref <url> HEAD` — the same lookup the resolution had to make anyway. A remote
-that cannot answer is FATAL: a marker written without its compatibility half is one an older
-release corrupts on sight, and reporting green over a marker that never got written is the other
-way to be wrong here.
+```diff
+ 	github.com/wow-look-at-my/ansi-writer v0.0.0-... // go-toolchain:auto-branch
++	// go-toolchain:branch=master
+ 	github.com/wow-look-at-my/dats v0.0.0-... // go-toolchain:auto-branch
++	// go-toolchain:branch=master
+```
 
-The half is redundant the moment every runner reads the marker in front of it, and a later release
-drops it.
+So one committed `go.mod` has to satisfy both binaries at once, and with a single marker per line
+no text does — whichever spelling is committed, the other binary rewrites it. Writing the new
+spelling therefore waits for a fleet that reads it. Once this release is out (every runner installs
+`@v1` from buildhost on each run), the next one flips `markBranchTracked` to write `auto-branch`
+and migrates existing lines, and no binary in the fleet mistakes the result for an unmarked line.
+
+The alternative — one line carrying BOTH spellings, the legacy one last so an old parser reads its
+branch name off the tail — works and was rejected: two markers on a line is a worse thing to live
+with than one ordered release.
 
 Every run re-resolves that branch's current HEAD via `git ls-remote <url> refs/heads/<branch>` and
 rewrites the pseudo-version in place (the comment is preserved, so the pin stays declarative across
@@ -116,17 +117,19 @@ at that same commit, marked to keep tracking the same branch:
 
 ```go
 require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:auto-branch
-require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:sibling=github.com/wow-look-at-my/common-ai-api/go/client
+require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:auto-branch
 ```
 
 Minimal version selection then takes the newer of the two answers for `go/core`, so the stale pin
 inside `go/client` loses and is never fetched. One repository, one commit, whatever the modules
 inside it say about each other.
 
-The added line says `sibling=<module>`, not a branch, because that is what is true of it: it
-matches whatever commit that module resolved to. Writing a branch there would be a coincidence
-dressed as a declaration — correct only while the anchor happens to follow that branch's head. It
-also would not survive the case below.
+**Nothing declares which modules share a repository, because the repository already knows.** The
+added line carries the same ordinary marker as the line that brought it in, and cohesion comes from
+`repoResolver` (`depsbranch.go`) instead: it answers each repository ONCE, keyed on the repository
+root it discovers plus the branch being followed, and every module of that repository reuses that
+one answer. Two modules resolved a moment apart therefore cannot land on different commits, and a
+`go.mod` never carries a claim about repository membership that could go stale.
 
 **A deliberately pinned module anchors its siblings too**, at the commit its own version names
 rather than at a branch head. Cohesion is about the modules of one repository shipping together, so
@@ -193,13 +196,13 @@ A version pin on a `github.com/wow-look-at-my/` module is a snapshot of whenever
 ran `go get`. These modules are co-developed with their consumers and have no release cadence to
 pin to, so nothing ever moves that snapshot forward and the consumer silently builds against
 month-old code. The branch pin is therefore the canonical form for them, and `go.mod` is
-rewritten into it: an org require or replace carrying a plain version gets the bridged
-`// go-toolchain:auto-branch go-toolchain:branch=<default>` appended, and a line still carrying
-the legacy spelling is migrated to the same form. Both need the default branch, so both ask the
-remote for it — see the compatibility half above for what that half is and why a failure to
-resolve it is fatal.
+rewritten into it: an org require or replace carrying a plain version gets a tracking marker
+appended, naming the module's default branch. Resolving that name is one
+`git ls-remote --symref <url> HEAD`, and a remote that cannot answer it is FATAL — reporting green
+over a marker that was not written leaves the stale snapshot exactly as stale as it was.
 
-A line already in the bridged form is left exactly as it is, and asks the remote nothing.
+A line already carrying a marker is left exactly as it is, in EITHER spelling, and asks the remote
+nothing. Which spelling gets written is the release-ordering question above.
 
 The rewrite is the enforcement — locally you review the diff and commit it, in CI the resulting
 dirty tree fails the build (`checkDirtyInCI`), the same contract as every other `go.mod` mutation

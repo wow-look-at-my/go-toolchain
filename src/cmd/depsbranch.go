@@ -34,9 +34,13 @@ type branchPin struct {
 // get it: a ref to resolve for a line that follows a branch, or the commit a
 // deliberate version pin already names.
 type commitAnchor struct {
-	ref  string
-	hash string
-	desc string
+	ref string
+	// branch is the marker's branch name, empty for the default branch. It
+	// separates two lines of one repository that deliberately follow different
+	// branches, which are two answers rather than one.
+	branch string
+	hash   string
+	desc   string
 }
 
 func (a commitAnchor) describe() string { return a.desc }
@@ -46,6 +50,57 @@ func (a commitAnchor) fetch(r runner.CommandRunner, mod string) (*gitCommit, fun
 		return fetchCommitAt(r, mod, a.hash)
 	}
 	return fetchCommit(r, mod, a.ref)
+}
+
+// repoResolution is one repository answered once: the commit every module in
+// it lands on, and the modules of it reachable from the require that asked.
+type repoResolution struct {
+	anchor   commitAnchor
+	commit   *gitCommit
+	siblings map[string]string
+}
+
+// repoResolver answers each repository ONCE. Which modules share a repository
+// is a property of the repository, read off it -- so nothing in go.mod has to
+// declare it, and a multi-module repo cannot land half on one commit and half
+// on another because two of its modules were resolved a moment apart.
+type repoResolver struct {
+	r        runner.CommandRunner
+	main     string
+	resolved []*repoResolution
+	cleanups []func()
+}
+
+// at returns the resolution covering mod under anchor, fetching the repository
+// the first time one of its modules asks and reusing that answer afterward.
+func (rr *repoResolver) at(mod string, anchor commitAnchor) (*repoResolution, error) {
+	for _, res := range rr.resolved {
+		if res.anchor == anchor && inRepo(mod, res.commit.RepoRoot) {
+			return res, nil
+		}
+	}
+	c, cleanup, err := anchor.fetch(rr.r, mod)
+	if err != nil {
+		return nil, err
+	}
+	rr.cleanups = append(rr.cleanups, cleanup)
+	sibs, err := siblingRequires(rr.r, c, rr.main)
+	if err != nil {
+		return nil, err
+	}
+	res := &repoResolution{anchor: anchor, commit: c, siblings: sibs}
+	rr.resolved = append(rr.resolved, res)
+	return res, nil
+}
+
+// close removes the temporary repositories. Every fetched tree stays readable
+// until then, because a resolution is reused by later modules of its
+// repository.
+func (rr *repoResolver) close() {
+	for _, cleanup := range rr.cleanups {
+		cleanup()
+	}
+	rr.cleanups = nil
 }
 
 // siblingAnchor returns the commit a direct require's same-repository siblings
@@ -60,8 +115,8 @@ func siblingAnchor(req *modfile.Require, m marker) (commitAnchor, bool) {
 	if req.Indirect {
 		return commitAnchor{}, false // an indirect line is somebody else's answer
 	}
-	if m.tracks && m.sibling == "" {
-		return commitAnchor{ref: m.ref(), desc: m.describe()}, true
+	if m.tracks {
+		return commitAnchor{ref: m.ref(), branch: m.branch, desc: m.describe()}, true
 	}
 	if !hasPinnedMarker(req.Syntax) || !isOrgModule(req.Mod.Path) {
 		return commitAnchor{}, false
@@ -119,6 +174,9 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	// until every tracked line has been answered, since a tracked module can
 	// name siblings -- and a failure partway through then leaves go.mod
 	// untouched rather than half-moved.
+	resolver := &repoResolver{r: r, main: mainModule}
+	defer resolver.close()
+
 	resolved := map[string]branchPin{}
 	siblings := map[string]branchPin{}
 	var temporary []temporaryBranch
@@ -129,12 +187,12 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 		if !isAnchor {
 			continue
 		}
-		c, cleanup, err := anchor.fetch(r, req.Mod.Path)
+		res, err := resolver.at(req.Mod.Path, anchor)
 		if err != nil {
 			return false, fmt.Errorf("failed to resolve %s at %s: %w", req.Mod.Path, anchor.describe(), err)
 		}
 		if m.tracks {
-			resolved[req.Mod.Path] = branchPin{pseudoVersionFor(req.Mod.Path, c.Time, c.ShortHash), m}
+			resolved[req.Mod.Path] = branchPin{pseudoVersionFor(req.Mod.Path, res.commit.Time, res.commit.ShortHash), m}
 		}
 		if m.branch != "" {
 			t, isTemporary, checked := checkTemporaryBranch(req.Mod.Path, m.branch)
@@ -146,21 +204,11 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 				unchecked = append(unchecked, req.Mod.Path+"@"+m.branch)
 			}
 		}
-		sibs, sibErr := siblingRequires(r, c, mainModule)
-		cleanup()
-		if sibErr != nil {
-			return false, fmt.Errorf("failed to resolve the modules %s shares a repository with at %s: %w", req.Mod.Path, anchor.describe(), sibErr)
-		}
-		// The compatibility half names the branch the ANCHOR follows, which is
-		// the closest an older release can come to "the commit that module
-		// resolved to": it has no sibling marker, so the alternative is it
-		// treating the line as unmarked and overwriting it.
-		compat := m.branch
-		if compat == "" {
-			compat = c.DefaultBranch
-		}
-		for mod, version := range sibs {
-			siblings[mod] = branchPin{version, marker{tracks: true, sibling: req.Mod.Path, compat: compat}}
+		// A sibling carries the same marker as the line that brought it in, so
+		// it says what it follows and nothing about which module it came with.
+		// Its cohesion is the resolver's doing, not the comment's.
+		for mod, version := range res.siblings {
+			siblings[mod] = branchPin{version, m}
 		}
 	}
 
@@ -176,11 +224,6 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 		}
 		if _, managed := siblings[req.Mod.Path]; managed {
 			continue // this run owns the line; tidy is what marked it indirect
-		}
-		if m.sibling != "" {
-			logger.Warn("%s matches the commit of %s, which no longer brings it in; drop the %s comment, or restore the require that used to need it",
-				req.Mod.Path, m.sibling, siblingMarker)
-			continue
 		}
 		logger.Warn("%s follows %s but is marked indirect; make it a direct dependency, track it through a replace instead (replace %s => <repo> <version> // %s -- a replace is main-module-only, so it covers direct and indirect requires alike), or drop the %s comment",
 			req.Mod.Path, m.describe(), req.Mod.Path, m.comment(), autoBranchMarker)
@@ -289,9 +332,9 @@ func requireSiblingAt(f *modfile.File, mod string, pin branchPin) (bool, error) 
 
 	if !jsonOutput {
 		if existing == nil {
-			logger.Info("⇒ Requiring %s at %s: it ships from the same commit as %s", mod, pin.version, pin.marker.sibling)
+			logger.Info("⇒ Requiring %s at %s: it ships from the commit its repository resolved to", mod, pin.version)
 		} else if existing.Mod.Version != pin.version {
-			logger.Info("⇒ Updating %s (same repository as %s): %s -> %s", mod, pin.marker.sibling, existing.Mod.Version, pin.version)
+			logger.Info("⇒ Updating %s (same repository, one commit): %s -> %s", mod, existing.Mod.Version, pin.version)
 		}
 	}
 	if err := f.AddRequire(mod, pin.version); err != nil {
@@ -337,8 +380,8 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 	}
 	for _, req := range f.Require {
 		m := parseMarker(req.Syntax)
-		if !m.tracks || m.sibling != "" || req.Indirect {
-			continue // a sibling moves with its anchor, which is checked here
+		if !m.tracks || req.Indirect {
+			continue // an indirect sibling moves with the direct line checked here
 		}
 		version, err := resolveVersionViaGit(r, req.Mod.Path, m.ref())
 		if err != nil {

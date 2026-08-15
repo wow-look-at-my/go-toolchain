@@ -20,13 +20,6 @@ const (
 	//	require github.com/wow-look-at-my/bar v0.0.0-... // go-toolchain:auto-branch=v1
 	autoBranchMarker = "go-toolchain:auto-branch"
 
-	// siblingMarker matches the commit another module resolved to. It is
-	// written by go-toolchain and not by hand: which modules share a repository
-	// is read off that repository, so a hand-written one is a guess.
-	//
-	//	require github.com/wow-look-at-my/foo/go/core v0.0.0-... // go-toolchain:sibling=github.com/wow-look-at-my/foo/go/client
-	siblingMarker = "go-toolchain:sibling="
-
 	// legacyBranchMarker is the original spelling. It is still READ, so an
 	// unmigrated go.mod resolves correctly, and EnforceOrgBranchTracking
 	// rewrites it into the form above.
@@ -35,20 +28,18 @@ const (
 
 // marker is what a go.mod line's go-toolchain comment asks for.
 type marker struct {
-	// tracks is true when any of the markers above is present.
+	// tracks is true when either marker above is present.
 	tracks bool
 	// branch names the branch to follow. Empty with tracks set means the
 	// module's default branch, whatever it is called today.
 	branch string
-	// sibling names the module whose commit this line matches, and is empty
-	// on a line that follows a branch.
-	sibling string
-	// legacy is true for the old branch= spelling, which is what tells
-	// EnforceOrgBranchTracking there is something to migrate.
+	// legacy is true for the old branch= spelling. It is what comment writes
+	// today: a release that predates auto-branch reads such a line as
+	// untracked and appends a comment of its own ABOVE the require, so the
+	// release that starts WRITING the new spelling cannot be the one that
+	// first reads it. This one reads it. The next one writes it, by which
+	// point nothing in the fleet mistakes it for an unmarked line.
 	legacy bool
-	// compat is the branch name written for readers that predate this
-	// marker. See comment.
-	compat string
 }
 
 // parseMarker reads a go.mod line's tracking marker. Matched by substring, not
@@ -59,11 +50,8 @@ func parseMarker(line *modfile.Line) marker {
 		return marker{}
 	}
 	for _, c := range line.Suffix {
-		if i := strings.Index(c.Token, siblingMarker); i != -1 {
-			return marker{tracks: true, sibling: markerValue(c.Token[i+len(siblingMarker):]), compat: compatBranch(c.Token)}
-		}
 		if i := strings.Index(c.Token, autoBranchMarker); i != -1 {
-			m := marker{tracks: true, compat: compatBranch(c.Token)}
+			m := marker{tracks: true}
 			if named, ok := strings.CutPrefix(c.Token[i+len(autoBranchMarker):], "="); ok {
 				m.branch = markerValue(named)
 			}
@@ -74,16 +62,6 @@ func parseMarker(line *modfile.Line) marker {
 		}
 	}
 	return marker{}
-}
-
-// compatBranch reads the branch name from the compatibility half of a marker
-// comment, or "" when the comment carries none.
-func compatBranch(token string) string {
-	i := strings.Index(token, legacyBranchMarker)
-	if i == -1 {
-		return ""
-	}
-	return markerValue(token[i+len(legacyBranchMarker):])
 }
 
 // markerValue takes a marker's value off the front of the rest of a comment:
@@ -108,51 +86,29 @@ func (m marker) ref() string {
 
 // describe names what a line follows, for a log or warning message.
 func (m marker) describe() string {
-	switch {
-	case m.sibling != "":
-		return "the commit of " + m.sibling
-	case m.branch == "":
+	if m.branch == "" {
 		return "the default branch"
-	default:
-		return "branch " + m.branch
 	}
+	return "branch " + m.branch
 }
 
-// comment is the marker as it is written into go.mod, with a compatibility
-// half appended when the caller supplied one:
-//
-//	// go-toolchain:auto-branch go-toolchain:branch=master
-//
-// A go-toolchain release that predates these markers looks for
-// "go-toolchain:branch=" and takes EVERYTHING after it as the branch name. So
-// the legacy spelling goes LAST and nothing follows it, and both readers get a
-// right answer off one line: an old one follows the named branch, this one
-// follows the marker in front and ignores the rest. Neither rewrites the
-// other's work, which is what stops a mixed fleet from fighting over go.mod --
-// and what let this marker ship at all, since an unrecognized one is not
-// ignored by an old release, it is overwritten with a comment of its own on a
-// line of its own, which corrupts the require block.
-//
-// The compatibility half is redundant the moment every runner reads the marker
-// in front of it, and a later release drops it.
+// comment is the marker as it is written into go.mod, in the spelling the
+// marker records. See the legacy field for why a written one still names its
+// branch, and what changes when every runner reads auto-branch.
 func (m marker) comment() string {
-	out := autoBranchMarker
-	switch {
-	case m.sibling != "":
-		out = siblingMarker + m.sibling
-	case m.branch != "":
-		out = autoBranchMarker + "=" + m.branch
+	if m.legacy {
+		return legacyBranchMarker + m.branch
 	}
-	if m.compat != "" {
-		out += " " + legacyBranchMarker + m.compat
+	if m.branch != "" {
+		return autoBranchMarker + "=" + m.branch
 	}
-	return out
+	return autoBranchMarker
 }
 
 // trackedBranch reports the branch a line follows, or "" when it follows no
 // branch -- either because it carries no marker at all, or because it follows
-// a default branch or a sibling, neither of which names one. Callers that have
-// to tell those apart use parseMarker.
+// the module's default branch, which names none. Callers that have to tell
+// those apart use parseMarker.
 func trackedBranch(line *modfile.Line) string {
 	return parseMarker(line).branch
 }
