@@ -74,14 +74,20 @@ A literal carrying one `false` is a lookup table and stays.
 `buildtags.platformIdents` is exactly that: it answers "is this a platform
 ident" and writes `"ignore": false` to say no.
 
-### Scope
+### Severity, not carve-outs
 
-The check runs on `github.com/wow-look-at-my/` and `github.com/PazerOP/`
-modules (`mapSetModulePrefixes`). `vetSemantic` runs every analyzer on each
-consumer project go-toolchain builds, and the remedy here adds an org
-dependency -- a third-party consumer must not get a red build over that. A
-driver that supplies no module info fails open to checked, so the analysistest
-fixtures still exercise the rules.
+The check runs on every module go-toolchain builds, its own and every
+consumer's: a map that carries no information is wasteful wherever it is
+written. What the module decides is the severity, not whether the finding
+appears.
+
+In a `github.com/wow-look-at-my/` or `github.com/PazerOP/` module
+(`isOrgModule`) the `map[K]bool` findings FAIL the build -- the remedy is one
+first-party require away. In anybody else's module the same findings are
+warnings: the code is just as wasteful, but the fix would add a dependency its
+author never chose, and that is theirs to decide. A driver that supplies no
+module info fails open to org, so the analysistest fixtures still expect
+diagnostics.
 
 There is no opt-out marker. Every shape the check reports is a set by
 construction, so a suppression comment could only ever hide one -- and the two

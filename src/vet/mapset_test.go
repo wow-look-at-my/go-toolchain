@@ -17,7 +17,7 @@ import (
 // TestMapSetAnalyzer runs the mapset analyzer over its fixture: an all-true
 // bool map literal and a made-empty bool map used only as a set must be
 // reported, while a lookup table, a comma-ok read, a computed value, a map
-// that escapes, a map[K]struct{} and a marked declaration must not.
+// that escapes and a map[K]struct{} must not.
 func TestMapSetAnalyzer(t *testing.T) {
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
@@ -64,10 +64,12 @@ type Set[T comparable] struct {
 	}
 }
 
-// TestMapSetModuleScoping verifies the check only fires on org code.
-// go-toolchain vets every project it builds, and the remedy adds an org
-// dependency, so a third-party consumer must not get a red build over it.
-func TestMapSetModuleScoping(t *testing.T) {
+// TestMapSetSeverityFollowsTheModule verifies no module escapes the check, and
+// that what the module decides is severity. An org module has the remedy one
+// first-party require away, so its findings fail the build; anywhere else the
+// same finding is a warning, because the fix would add a dependency the author
+// never chose.
+func TestMapSetSeverityFollowsTheModule(t *testing.T) {
 	const src = `package main
 
 var seen = map[string]bool{"a": true}
@@ -78,18 +80,21 @@ func main() { _ = seen }
 		name        string
 		module      *analysis.Module
 		wantReports int
+		wantWarns   int64
 	}{
-		{"org module is checked", &analysis.Module{Path: "github.com/wow-look-at-my/go-toolchain"}, 1},
-		{"PazerOP module is checked", &analysis.Module{Path: "github.com/PazerOP/tool"}, 1},
-		{"third-party module is skipped", &analysis.Module{Path: "example.com/consumer"}, 0},
-		{"empty module path is checked", &analysis.Module{}, 1},
-		{"nil module is checked", nil, 1},
+		{"org module fails", &analysis.Module{Path: "github.com/wow-look-at-my/go-toolchain"}, 1, 0},
+		{"PazerOP module fails", &analysis.Module{Path: "github.com/PazerOP/tool"}, 1, 0},
+		{"third-party module warns", &analysis.Module{Path: "example.com/consumer"}, 0, 1},
+		{"empty module path fails", &analysis.Module{}, 1, 0},
+		{"nil module fails", nil, 1, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fset := token.NewFileSet()
 			f, err := parser.ParseFile(fset, "/consumer/main.go", src, parser.ParseComments)
 			require.NoError(t, err)
+			resetMapSetWarnings()
+			before := logger.WarnCount()
 			var reports []analysis.Diagnostic
 			pass := &analysis.Pass{
 				Analyzer:  MapSetAnalyzer,
@@ -102,13 +107,14 @@ func main() { _ = seen }
 			_, err = runMapSet(pass)
 			require.NoError(t, err)
 			require.Len(t, reports, c.wantReports)
+			require.Equal(t, before+c.wantWarns, logger.WarnCount())
 		})
 	}
 }
 
-// TestMapSetStructMapOnlyWarns verifies a map[K]struct{} never fails a build.
-// It already carries no value; the diagnostic is reserved for the map[K]bool
-// default, and the struct map gets a warning naming set.Set instead.
+// TestMapSetStructMapOnlyWarns verifies a map[K]struct{} never fails a build,
+// even in an org module. It already carries no value; the diagnostic is
+// reserved for the map[K]bool default.
 func TestMapSetStructMapOnlyWarns(t *testing.T) {
 	const src = `package main
 
@@ -122,21 +128,20 @@ func main() { seen["a"] = struct{}{} }
 
 	resetMapSetWarnings()
 	before := logger.WarnCount()
-	var reports []analysis.Diagnostic
 	pass := &analysis.Pass{
 		Analyzer:  MapSetAnalyzer,
 		Fset:      fset,
 		Files:     []*ast.File{f},
-		Report:    func(d analysis.Diagnostic) { reports = append(reports, d) },
+		Module:    &analysis.Module{Path: "github.com/wow-look-at-my/go-toolchain"},
+		Report:    func(analysis.Diagnostic) { t.Fatal("a struct map must never fail the build") },
 		TypesInfo: &types.Info{},
 	}
 	_, err = runMapSet(pass)
 	require.NoError(t, err)
-	require.Empty(t, reports)
 	require.Equal(t, before+1, logger.WarnCount())
 
-	// go/packages walks the same file once per package variant. One site
-	// spends one warning of the budget, until the next run resets the record.
+	// Every package variant walks the same file. One site spends one warning
+	// of the budget, until the next run resets the record.
 	_, err = runMapSet(pass)
 	require.NoError(t, err)
 	require.Equal(t, before+1, logger.WarnCount())

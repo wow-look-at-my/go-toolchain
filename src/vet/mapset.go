@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/tools/go/analysis"
 )
@@ -32,9 +31,10 @@ import (
 // The default a map[K]bool picks is. The set package itself is exempt from
 // that warning: Set[T] IS the map[T]struct{} the warning points at.
 //
-// The check is scoped to org modules (see mapSetModulePrefixes). go-toolchain
-// vets every project it builds, and a third-party consumer must not get a red
-// build over a remedy that adds an org dependency to their module.
+// Severity follows the module. An org module has the remedy one require away,
+// so the map[K]bool findings FAIL its build. In anybody else's module the same
+// findings are warnings: the code is just as wasteful, but the fix would add a
+// dependency its author never chose, and that is their call to make.
 //
 // Depth: docs/VET.md
 var MapSetAnalyzer = &analysis.Analyzer{
@@ -42,12 +42,6 @@ var MapSetAnalyzer = &analysis.Analyzer{
 	Doc:        "detects a map[K]bool used as a set; use github.com/wow-look-at-my/go-containers/set instead",
 	Run:        runMapSet,
 	ResultType: reflect.TypeOf([]*ASTFixes{}),
-}
-
-// mapSetModulePrefixes are the module paths this check applies to.
-var mapSetModulePrefixes = []string{
-	"github.com/wow-look-at-my/",
-	"github.com/PazerOP/",
 }
 
 // setPackage is the remedy every diagnostic names.
@@ -63,8 +57,9 @@ var mapSetWarned sync.Map
 func resetMapSetWarnings() { mapSetWarned.Clear() }
 
 func runMapSet(pass *analysis.Pass) (any, error) {
-	if !mapSetInScope(pass.Module) {
-		return []*ASTFixes(nil), nil
+	report := pass.Reportf
+	if !isOrgModule(pass.Module) {
+		report = func(pos token.Pos, format string, args ...any) { warnAt(pass, pos, format, args...) }
 	}
 
 	for _, file := range pass.Files {
@@ -77,7 +72,7 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 			if !ok || !isAllTrueBoolMap(pass, mt, lit) {
 				return true
 			}
-			pass.Reportf(lit.Pos(), "map[…]bool with every value true is a set, not a map: use %s.Of(…) instead", setPackage)
+			report(lit.Pos(), "map[…]bool with every value true is a set, not a map: use %s.Of(…) instead", setPackage)
 			return true
 		})
 	}
@@ -93,7 +88,7 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 
 	for _, c := range mapSetCandidates(pass) {
 		if c.writes > 0 && !c.disqualified {
-			pass.Reportf(c.pos, "map[…]bool is only ever used as a set: use %s.Set instead", setPackage)
+			report(c.pos, "map[…]bool is only ever used as a set: use %s.Set instead", setPackage)
 		}
 	}
 
@@ -111,17 +106,41 @@ func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File) {
 		if !ok || !isEmptyStructType(pass, mt.Value) {
 			return true
 		}
-		pos := pass.Fset.Position(mt.Pos())
-		// go/packages loads a package up to four ways (plain, internal test,
-		// external test, test main), and every variant walks the same file. One
-		// site must spend one warning of the budget, not four.
-		if _, dup := mapSetWarned.LoadOrStore(fmt.Sprintf("%s:%d", pos.Filename, pos.Line), true); dup {
-			return true
-		}
-		logger.WarnFile(pos.Filename, "%s:%d: map[…]struct{} is a set: %s.Set carries the membership operations",
-			pos.Filename, pos.Line, setPackage)
+		warnAt(pass, mt.Pos(), "map[…]struct{} is a set: %s.Set carries the membership operations", setPackage)
 		return true
 	})
+}
+
+// warnAt emits one finding as a warning. go/packages loads a package up to
+// four ways (plain, internal test, external test, test main) and every variant
+// walks the same file, so a site spends one warning of the budget, not four.
+func warnAt(pass *analysis.Pass, pos token.Pos, format string, args ...any) {
+	p := pass.Fset.Position(pos)
+	if _, dup := mapSetWarned.LoadOrStore(fmt.Sprintf("%s:%d", p.Filename, p.Line), true); dup {
+		return
+	}
+	logger.WarnFile(p.Filename, "%s:%d: "+format, append([]any{p.Filename, p.Line}, args...)...)
+}
+
+// isOrgModule reports whether the module under analysis is org code, where the
+// remedy is a first-party dependency. A driver that supplies no module info
+// fails open to org, so the analysistest fixtures still expect diagnostics.
+func isOrgModule(mod *analysis.Module) bool {
+	if mod == nil || mod.Path == "" {
+		return true
+	}
+	for _, prefix := range mapSetOrgPrefixes {
+		if strings.HasPrefix(mod.Path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// mapSetOrgPrefixes are the module paths whose findings fail the build.
+var mapSetOrgPrefixes = []string{
+	"github.com/wow-look-at-my/",
+	"github.com/PazerOP/",
 }
 
 // isSetPackage reports whether pkg is the set package itself, under its own
@@ -138,21 +157,6 @@ func isEmptyStructType(pass *analysis.Pass, expr ast.Expr) bool {
 	}
 	st, ok := expr.(*ast.StructType)
 	return ok && st.Fields.NumFields() == 0
-}
-
-// mapSetInScope reports whether the module under analysis is org code. A
-// driver that supplies no module info fails open to checked, so the
-// analysistest fixtures still run the check.
-func mapSetInScope(mod *analysis.Module) bool {
-	if mod == nil || mod.Path == "" {
-		return true
-	}
-	for _, prefix := range mapSetModulePrefixes {
-		if strings.HasPrefix(mod.Path, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 // isAllTrueBoolMap reports whether lit is a non-empty map[K]bool literal whose
