@@ -183,7 +183,7 @@ coverage.
   every use is a `true` write, delete, clear, len, key-only range or index read. Both FAIL, naming `go-containers/set`. A `v, ok :=` read, a computed
   value, or the map escaping to another function keeps it a map. A `map[K]struct{}` only WARNS (deduplicated per file:line by
   `resetMapSetWarnings`; the `set` package itself is exempt, `isSetPackage`, since `Set[T]` IS that map) — it already carries no value. Org modules
-  only, because the remedy adds an org dependency; `// go-toolchain:allow-mapset <reason>` turns off one report. Depth: `docs/VET.md`
+  only, because the remedy adds an org dependency. There is no opt-out marker: a map the check calls a set is one. Depth: `docs/VET.md`
 - `src/hostos/` — `hostos.GOOS()`, the host operating system as opposed to `runtime.GOOS` (what the binary was compiled for). Identical for every
   normal
   build; for a GOOS=cosmo fat APE — which reports `runtime.GOOS == "cosmo"` on Linux and macOS hosts (Windows runs the embedded native windows

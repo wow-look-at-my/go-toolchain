@@ -36,8 +36,6 @@ import (
 // vets every project it builds, and a third-party consumer must not get a red
 // build over a remedy that adds an org dependency to their module.
 //
-// An escape hatch exists for a map that must stay a map: write
-// "// go-toolchain:allow-mapset <reason>" on the line, or on the line above.
 // Depth: docs/VET.md
 var MapSetAnalyzer = &analysis.Analyzer{
 	Name:       "mapset",
@@ -51,9 +49,6 @@ var mapSetModulePrefixes = []string{
 	"github.com/wow-look-at-my/",
 	"github.com/PazerOP/",
 }
-
-// mapSetAllowMarker suppresses one report.
-const mapSetAllowMarker = "go-toolchain:allow-mapset"
 
 // setPackage is the remedy every diagnostic names.
 const setPackage = "github.com/wow-look-at-my/go-containers/set"
@@ -72,16 +67,6 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 		return []*ASTFixes(nil), nil
 	}
 
-	allowed := set.New[int]()
-	for _, file := range pass.Files {
-		mapSetAllowedLines(pass, file, allowed)
-	}
-	report := func(pos token.Pos, format string, args ...any) {
-		if !allowed.Contains(pass.Fset.Position(pos).Line) {
-			pass.Reportf(pos, format, args...)
-		}
-	}
-
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			lit, ok := n.(*ast.CompositeLit)
@@ -92,8 +77,7 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 			if !ok || !isAllTrueBoolMap(pass, mt, lit) {
 				return true
 			}
-			report(lit.Pos(), "map[…]bool with every value true is a set, not a map: use %s.Of(…) instead (or write %q with a reason)",
-				setPackage, mapSetAllowMarker)
+			pass.Reportf(lit.Pos(), "map[…]bool with every value true is a set, not a map: use %s.Of(…) instead", setPackage)
 			return true
 		})
 	}
@@ -103,14 +87,13 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 	// budget telling the remedy to use itself.
 	if !isSetPackage(pass.Pkg) {
 		for _, file := range pass.Files {
-			warnEmptyStructMaps(pass, file, allowed)
+			warnEmptyStructMaps(pass, file)
 		}
 	}
 
 	for _, c := range mapSetCandidates(pass) {
 		if c.writes > 0 && !c.disqualified {
-			report(c.pos, "map[…]bool is only ever used as a set: use %s.Set instead (or write %q with a reason)",
-				setPackage, mapSetAllowMarker)
+			pass.Reportf(c.pos, "map[…]bool is only ever used as a set: use %s.Set instead", setPackage)
 		}
 	}
 
@@ -122,24 +105,21 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 // still gives it the membership operations, and which of the two to write is
 // the author's call. The warning says so once per site and counts against the
 // warnings budget; it never fails the run by itself.
-func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File, allowed set.Set[int]) {
+func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		mt, ok := n.(*ast.MapType)
 		if !ok || !isEmptyStructType(pass, mt.Value) {
 			return true
 		}
 		pos := pass.Fset.Position(mt.Pos())
-		if allowed.Contains(pos.Line) {
-			return true
-		}
 		// go/packages loads a package up to four ways (plain, internal test,
 		// external test, test main), and every variant walks the same file. One
 		// site must spend one warning of the budget, not four.
 		if _, dup := mapSetWarned.LoadOrStore(fmt.Sprintf("%s:%d", pos.Filename, pos.Line), true); dup {
 			return true
 		}
-		logger.WarnFile(pos.Filename, "%s:%d: map[…]struct{} is a set: %s.Set carries the membership operations (or write %q with a reason)",
-			pos.Filename, pos.Line, setPackage, mapSetAllowMarker)
+		logger.WarnFile(pos.Filename, "%s:%d: map[…]struct{} is a set: %s.Set carries the membership operations",
+			pos.Filename, pos.Line, setPackage)
 		return true
 	})
 }
@@ -173,20 +153,6 @@ func mapSetInScope(mod *analysis.Module) bool {
 		}
 	}
 	return false
-}
-
-// mapSetAllowedLines adds the lines an allow marker suppresses: the line the
-// marker sits on, and the line below it.
-func mapSetAllowedLines(pass *analysis.Pass, file *ast.File, allowed set.Set[int]) {
-	for _, group := range file.Comments {
-		for _, c := range group.List {
-			if !strings.Contains(c.Text, mapSetAllowMarker) {
-				continue
-			}
-			line := pass.Fset.Position(c.End()).Line
-			allowed.AddRange(line, line+1)
-		}
-	}
 }
 
 // isAllTrueBoolMap reports whether lit is a non-empty map[K]bool literal whose

@@ -74,7 +74,7 @@ A literal carrying one `false` is a lookup table and stays.
 `buildtags.platformIdents` is exactly that: it answers "is this a platform
 ident" and writes `"ignore": false` to say no.
 
-### Scope and the escape hatch
+### Scope
 
 The check runs on `github.com/wow-look-at-my/` and `github.com/PazerOP/`
 modules (`mapSetModulePrefixes`). `vetSemantic` runs every analyzer on each
@@ -83,12 +83,7 @@ dependency -- a third-party consumer must not get a red build over that. A
 driver that supplies no module info fails open to checked, so the analysistest
 fixtures still exercise the rules.
 
-A map that must stay a map keeps its report off with a marker comment on its
-line, or on the line above:
-
-```go
-var shape = map[string]bool{"a": true} // go-toolchain:allow-mapset the wire format is fixed
-```
-
-The marker takes a reason for the same purpose `// go-toolchain:pinned` serves
-in `go.mod`: the next reader learns why this map is not a set.
+There is no opt-out marker. Every shape the check reports is a set by
+construction, so a suppression comment could only ever hide one -- and the two
+rules already leave a real map alone: write one `false`, read with `v, ok :=`,
+or hand the map to another function, and nothing fires.

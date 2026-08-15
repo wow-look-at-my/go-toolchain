@@ -37,15 +37,6 @@ func writePkgLevel(k string) bool {
 	return pkgLevel[k]
 }
 
-// A marker on the line suppresses the report.
-var allowedInline = map[string]bool{"a": true} // go-toolchain:allow-mapset the wire format is fixed
-
-// go-toolchain:allow-mapset the false entry is load-bearing below
-var allowedAbove = map[string]bool{
-	"unix":   true,
-	"ignore": false,
-}
-
 // A map that carries a real value is untouched.
 var platformIdents = map[string]bool{
 	"cgo":    true,
