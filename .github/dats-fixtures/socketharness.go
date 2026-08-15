@@ -105,4 +105,13 @@ func main() {
 	} else {
 		fmt.Println("HARNESS_GUARD_REFUSED=false")
 	}
+	// The child's own stderr, on stdout so it travels with the verdict above.
+	// The guard names what it resolved the socket's reader to be, and that
+	// sentence is the difference between "the peer lookup failed" and "the peer
+	// resolved to something unrecognized" -- two bugs that look identical from
+	// the verdict alone. A run that ends some other way (a bootstrap that never
+	// reached the guard) is equally invisible without it.
+	for _, line := range strings.Split(strings.TrimRight(errBuf.String(), "\n"), "\n") {
+		fmt.Println("HARNESS_CHILD_STDERR: " + line)
+	}
 }

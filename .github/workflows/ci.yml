@@ -501,13 +501,12 @@ jobs:
           "$RUNNER_TEMP/gt-ape"
 
       # The same two socket cases the fixture above runs, but OUTSIDE dats --
-      # which is the shape a real opencode user has, since nothing sandboxes
-      # them. It earns its place twice over: the fixture's two socket cases
-      # currently die with the harness's OWN exit 2 (an error raised before the
-      # guard ever reports) and dats surfaces only the failed stdout
-      # expectation, never the harness's stderr, so an un-sandboxed run with
-      # output attached is the only place that error is readable. Runs on
-      # always() so it still reports when the pipeline above went red.
+      # the shape a real opencode user has, since nothing sandboxes them. The
+      # two are not redundant: seatbelt is itself a variable the classifier's
+      # probes answer differently under, so a disagreement between this step
+      # and the fixture localizes the defect to the sandbox rather than to the
+      # guard. Runs on always() so it still reports when the pipeline above
+      # went red.
       - name: Agent output guard over a socket, unsandboxed
         if: always()
         run: |
