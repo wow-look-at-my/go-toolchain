@@ -167,11 +167,16 @@ func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version 
 	if !jsonOutput {
 		logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, branch)
 	}
+	appendBranchMarker(line, branch)
+	return nil
+}
+
+// appendBranchMarker adds the branch-tracking comment to a go.mod line.
+func appendBranchMarker(line *modfile.Line, branch string) {
 	line.Suffix = append(line.Suffix, modfile.Comment{
 		Token:  "// " + branchMarkerPrefix + branch,
 		Suffix: true,
 	})
-	return nil
 }
 
 // resolveDefaultBranch returns the branch name a module's repository HEAD

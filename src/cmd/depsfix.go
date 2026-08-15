@@ -115,65 +115,142 @@ func resolveGitURLAndRef(r runner.CommandRunner, mod, ref string) (gitURL string
 	return "", nil, lastErr
 }
 
-// resolveVersionViaGit fetches the commit ref points at (a branch, "HEAD",
-// or any other ref git ls-remote accepts) and constructs a proper
-// pseudo-version with the correct timestamp.
-func resolveVersionViaGit(r runner.CommandRunner, mod, ref string) (string, error) {
+// gitCommit is one module's repository, the commit a ref points at, and where
+// the module sits inside it. The commit is fetched into a temporary bare
+// repository, so anything else committed alongside the module -- a sibling
+// module's go.mod, say -- can be read at the same commit without a checkout.
+type gitCommit struct {
+	// URL is the repository, e.g. https://github.com/org/repo.
+	URL string
+	// RepoRoot is URL without its scheme, which is the module-path prefix
+	// every module in the repository shares.
+	RepoRoot string
+	// Subdir is the module's directory inside the repository, empty when the
+	// module is the repository root.
+	Subdir string
+
+	Hash      string
+	ShortHash string
+	Time      time.Time
+
+	dir string
+}
+
+// fetchCommit resolves ref (a branch, "HEAD", or any other ref git ls-remote
+// accepts) to a commit and fetches it. The returned cleanup removes the
+// temporary repository and must be called; the gitCommit's tree is unreadable
+// afterward.
+func fetchCommit(r runner.CommandRunner, mod, ref string) (*gitCommit, func(), error) {
 	gitURL, output, err := resolveGitURLAndRef(r, mod, ref)
 	if err != nil {
-		return "", fmt.Errorf("git ls-remote failed: %w", err)
+		return nil, nil, fmt.Errorf("git ls-remote failed: %w", err)
 	}
 
 	fields := strings.Fields(string(output))
 	if len(fields) < 1 {
-		return "", fmt.Errorf("no ref %q found for %s", ref, mod)
+		return nil, nil, fmt.Errorf("no ref %q found for %s", ref, mod)
 	}
 	fullHash := fields[0]
 	if len(fullHash) < 12 {
-		return "", fmt.Errorf("invalid commit hash: %s", fullHash)
+		return nil, nil, fmt.Errorf("invalid commit hash: %s", fullHash)
 	}
-	shortHash := fullHash[:12]
 
-	// Shallow fetch just the commit to get its timestamp
+	root := strings.TrimPrefix(gitURL, "https://")
+	c := &gitCommit{
+		URL:       gitURL,
+		RepoRoot:  root,
+		Subdir:    moduleSubdir(mod, root),
+		Hash:      fullHash,
+		ShortHash: fullHash[:12],
+	}
+
+	// Shallow fetch just the commit: --depth=1 still carries its whole tree.
 	tmpDir, err := os.MkdirTemp("", "resolve-*")
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
-	defer os.RemoveAll(tmpDir)
+	cleanup := func() { os.RemoveAll(tmpDir) }
+	c.dir = tmpDir
 
-	// Init bare repo and fetch just the one commit
-	proc, err := runner.Cmd("git", "-C", tmpDir, "init", "--bare").WithQuiet().Run(r)
+	if err := runGitQuiet(r, "git", "-C", tmpDir, "init", "--bare"); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("git init failed: %w", err)
+	}
+	if err := runGitQuiet(r, "git", "-C", tmpDir, "fetch", "--depth=1", gitURL, fullHash); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("git fetch failed: %w", err)
+	}
+
+	// Commit timestamp as a Unix epoch, which is timezone-free.
+	tsOutput, err := gitOutput(r, "git", "-C", tmpDir, "log", "-1", "--format=%ct", fullHash)
 	if err != nil {
-		return "", fmt.Errorf("git init failed: %w", err)
+		cleanup()
+		return nil, nil, fmt.Errorf("git log failed: %w", err)
 	}
-	if waitErr := proc.Wait(); waitErr != nil {
-		return "", fmt.Errorf("git init failed: %w", waitErr)
-	}
-
-	proc, err = runner.Cmd("git", "-C", tmpDir, "fetch", "--depth=1", gitURL, fullHash).WithQuiet().Run(r)
-	if err != nil {
-		return "", fmt.Errorf("git fetch failed: %w", err)
-	}
-	if waitErr := proc.Wait(); waitErr != nil {
-		return "", fmt.Errorf("git fetch failed: %w", waitErr)
-	}
-
-	// Get commit timestamp in UTC (use Unix epoch and convert)
-	proc, err = runner.Cmd("git", "-C", tmpDir, "log", "-1", "--format=%ct", fullHash).WithQuiet().Run(r)
-	if err != nil {
-		return "", fmt.Errorf("git log failed: %w", err)
-	}
-	tsOutput, _ := io.ReadAll(proc.Stdout())
-	if waitErr := proc.Wait(); waitErr != nil {
-		return "", fmt.Errorf("git log failed: %w", waitErr)
-	}
-
 	epochStr := strings.TrimSpace(string(tsOutput))
 	epoch, err := strconv.ParseInt(epochStr, 10, 64)
 	if err != nil {
-		return "", fmt.Errorf("invalid timestamp: %s", epochStr)
+		cleanup()
+		return nil, nil, fmt.Errorf("invalid timestamp: %s", epochStr)
 	}
-	return pseudoVersionFor(mod, time.Unix(epoch, 0), shortHash), nil
+	c.Time = time.Unix(epoch, 0)
+	return c, cleanup, nil
+}
+
+// moduleSubdir returns the directory mod occupies inside the repository whose
+// module-path prefix is root. A "/vN" major-version suffix names no directory
+// -- github.com/org/repo/go/core/v2 lives in go/core -- so it is trimmed first.
+func moduleSubdir(mod, root string) string {
+	prefix, pathMajor, ok := module.SplitPathVersion(mod)
+	if ok && pathMajor != "" {
+		mod = prefix
+	}
+	return strings.Trim(strings.TrimPrefix(mod, root), "/")
+}
+
+// readFile returns the contents of a path inside the repository at this
+// commit. An empty relative path reads the repository root itself, which is
+// how a module at the root reads its own go.mod.
+func (c *gitCommit) readFile(r runner.CommandRunner, rel string) ([]byte, error) {
+	out, err := gitOutput(r, "git", "-C", c.dir, "cat-file", "-p", c.Hash+":"+rel)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s at %s: %w", rel, c.ShortHash, err)
+	}
+	return out, nil
+}
+
+// runGitQuiet runs a command that produces no output worth keeping.
+func runGitQuiet(r runner.CommandRunner, name string, args ...string) error {
+	proc, err := runner.Cmd(name, args...).WithQuiet().Run(r)
+	if err != nil {
+		return err
+	}
+	return proc.Wait()
+}
+
+// gitOutput runs a command and returns its stdout.
+func gitOutput(r runner.CommandRunner, name string, args ...string) ([]byte, error) {
+	proc, err := runner.Cmd(name, args...).WithQuiet().Run(r)
+	if err != nil {
+		return nil, err
+	}
+	out, _ := io.ReadAll(proc.Stdout())
+	if err := proc.Wait(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// resolveVersionViaGit fetches the commit ref points at (a branch, "HEAD",
+// or any other ref git ls-remote accepts) and constructs a proper
+// pseudo-version with the correct timestamp.
+func resolveVersionViaGit(r runner.CommandRunner, mod, ref string) (string, error) {
+	c, cleanup, err := fetchCommit(r, mod, ref)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	return pseudoVersionFor(mod, c.Time, c.ShortHash), nil
 }
 
 // pseudoVersionFor builds the pseudo-version for mod at a commit. The major

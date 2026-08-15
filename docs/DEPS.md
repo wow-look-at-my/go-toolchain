@@ -41,15 +41,52 @@ rewrites the pseudo-version in place (the comment is preserved, so the pin stays
 runs); `listDirectDeps` excludes any such line from the org auto-update path so the two mechanisms
 never fight over the same require. The dependency still always resolves to one concrete,
 `go.sum`-verified pseudo-version — go-toolchain does not do unpinned/floating dependency
-resolution — the marker only tells it *which* branch's HEAD that pin should track, and a human
-still reviews and commits every version bump the same way they would a manual `go get -u`.
+resolution — the marker only tells it *which* branch's HEAD that pin should track.
+
+**The recorded version is a cache of the last resolution, not a contract.** `branch=master` says
+the branch is what this dependency means; every run re-answers it. So the rewrite is not a change
+anybody has to sign off on, and `checkDirtyInCI` excludes it: a commit whose whole content is a
+hash nobody chose is noise, and demanding one would make the marker mean a bump commit per
+upstream push — the opposite of what it is for. The exclusion is exactly the version token on a
+line carrying the same marker in `HEAD` and the working tree, plus the `go.sum` hashes for the
+modules that moved. Anything else — a require added or dropped, a marker that appeared, an edited
+comment, a `go.sum` line for a module that did not move — still fails the build as dirt.
 
 Only direct (non-`// indirect`) requires are tracked; an indirect line carrying the marker is
 skipped with a warning rather than silently ignored, since indirect dependencies are resolved
 transitively and a per-line branch pin on one would not mean what it looks like it means. The
 warning names the way that does work: a `replace` carrying the marker (see below) is main-module
 only, so it applies to direct and indirect requires alike and pins the version that actually
-reaches the build.
+reaches the build. A same-repository sibling (below) is the exception: that line is this run's own
+and `go mod tidy` is what marked it indirect, so it keeps being resolved and draws no warning.
+
+### Multi-module repositories resolve as a unit (`src/cmd/depssiblings.go`)
+
+A repository cut into several modules cannot pin itself. `go/client` requires `go/core` at a
+pseudo-version, and that line was written *before* the commit publishing them both existed, so it
+necessarily names an earlier one. At the repository's first publish it names one with no such
+module in it at all, and a consumer gets `missing go.mod at revision <hash>` — which is the whole
+of that bug: not a wrong pin, but the only pin a commit can carry about itself. A relative
+`replace` hides it inside the repository and nowhere else, because a replace is main-module-only.
+
+So a tracked module brings its siblings with it. Resolving one reads its `go.mod` at the commit it
+resolved to, walks the requires that live in the same repository, and requires each of them here
+at that same commit, marked to keep tracking the same branch:
+
+```go
+require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:branch=master
+require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:branch=master
+```
+
+Minimal version selection then takes the newer of the two answers for `go/core`, so the stale pin
+inside `go/client` loses and is never fetched. One repository, one commit, whatever the modules
+inside it say about each other.
+
+The walk is over requirements, not over the repository, so only modules the tracked one actually
+needs come along. A sibling missing at the resolved commit FAILS the run: writing a pin to a commit
+that does not carry the module is the failure this exists to prevent, not something to skip past.
+`go-toolchain:pinned` wins over cohesion, since moving with its siblings is what that marker opts
+out of.
 
 ### Tracking a fork through a `replace`
 

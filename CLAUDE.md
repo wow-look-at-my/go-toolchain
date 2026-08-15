@@ -80,6 +80,12 @@ coverage.
   and the replacement's repo and version are what get resolved. A tracked branch's HEAD is the one pipeline input that is
   not a file, so the up-to-date fast exit checks it too -- otherwise a dependency that moved is invisible on an unchanged
   tree and the pin never updates. Depth: `docs/DEPS.md`
+- `src/cmd/depssiblings.go`, `src/cmd/dirtypins.go` — the recorded pseudo-version on a tracked line is a CACHE of the last
+  resolution, not a contract, and the two halves of making that true. A tracked module brings the modules sharing its
+  repository along at the same commit, because a multi-module repo's sibling require necessarily names a commit older than
+  the one publishing it -- at a first publish, one with no such module in it (`missing go.mod at revision`). And the
+  re-resolution is excluded from the CI dirty check, so it never demands a bump commit; the exclusion covers the version
+  token on a same-marker line plus the `go.sum` hashes that follow it, nothing else. Depth: `docs/DEPS.md`
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see
