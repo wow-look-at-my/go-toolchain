@@ -9,6 +9,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,6 +55,26 @@ func main() {
 	cmd.Env = append(os.Environ(), "OPENCODE=1", "OPENCODE_PID="+strconv.Itoa(readerPID))
 
 	startErr := cmd.Start()
+	if errors.Is(startErr, unix.ENOEXEC) {
+		// An APE's header is valid shell, not a format the kernel loads, so
+		// execve returns ENOEXEC until the binary has assimilated itself into
+		// the host format. A POSIX shell answers ENOEXEC by running the file as
+		// a script, which is the whole reason an APE is runnable -- and it is
+		// how a real agent reaches one, since a tool call is spawned through a
+		// shell. Go's os/exec has no such fallback, so do it explicitly rather
+		// than report a portability gap in this harness as a guard failure.
+		//
+		// This is the macOS path: there the arm64 APE boots through a compiled
+		// loader and stays a polyglot, so every exec of it needs the shell. On
+		// linux it assimilates to a native ELF on first run, so the direct exec
+		// above succeeds and this never fires.
+		shell := exec.Command("/bin/sh", append([]string{"-c", `"$0" "$@"`}, args...)...)
+		shell.Stdout = cmd.Stdout
+		shell.Stderr = cmd.Stderr
+		shell.Env = cmd.Env
+		cmd = shell
+		startErr = cmd.Start()
+	}
 	// Close our copy of the child's end the moment the fork/dup2 has happened,
 	// the way opencode/Node's child_process really does -- keeping it open
 	// until after Wait() would let a same-inode /proc scan "find" our own

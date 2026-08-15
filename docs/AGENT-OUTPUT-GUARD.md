@@ -240,3 +240,16 @@ flag to disable it.
   (smoke-linux) tolerates `mktemp -d` only because it privatizes the whole
   /tmp namespace — `{outputs.X}` is the one idiom documented to work
   identically on both.
+- `.github/dats-fixtures/socketharness.go` spawns the binary with its stdout
+  on a UNIX-domain socketpair, the stdio a Node/Bun `child_process` really
+  gives a tool call, and names itself in `OPENCODE_PID` as the reader. It
+  execs the binary through `/bin/sh` when a direct `execve` returns ENOEXEC.
+  That fallback is not a workaround: an APE's header is valid shell rather
+  than a format the kernel loads, and a POSIX shell answering ENOEXEC by
+  running the file as a script is exactly what makes an APE runnable — and
+  how a real agent reaches one, since a tool call is spawned through a shell.
+  It fires only on macOS, where the arm64 APE boots through a compiled loader
+  and stays a polyglot; on linux the binary assimilates into a native ELF on
+  first run, so the direct exec succeeds. Without it the harness dies with
+  `exec format error` before the guard reports anything, which reads as a
+  guard failure and is not one.
