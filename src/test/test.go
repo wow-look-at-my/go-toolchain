@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -196,7 +197,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	if err != nil {
 		return fmt.Errorf("resolving module root: %w", err)
 	}
-	seen := map[string]bool{}
+	seen := set.New[string]()
 	for _, tagCfg := range d.Configs {
 		args := []string{"list", "-e",
 			"-f", "{{$d := .Dir}}{{range .GoFiles}}{{$d}}/{{.}}\n{{end}}" +
@@ -220,7 +221,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 				continue
 			}
 			if rel, err := filepath.Rel(root, line); err == nil && !strings.HasPrefix(rel, "..") {
-				seen[filepath.ToSlash(rel)] = true
+				seen.Add(filepath.ToSlash(rel))
 			}
 		}
 	}
@@ -230,7 +231,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	// and reporting every gated file as unreachable from that is a guard
 	// firing when it could not look. In production this branch is unreachable;
 	// what reaches it is a caller driving the phase without a real toolchain.
-	if len(seen) == 0 {
+	if seen.IsEmpty() {
 		logger.Warn("tests: skipped the build-tag reachability check -- `go list` reported no files at all, so nothing could be verified")
 		return nil
 	}

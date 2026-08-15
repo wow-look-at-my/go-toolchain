@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gotest.tools/gotestsum/testjson"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 func TestCoverageHandlerExtractsCoverage(t *testing.T) {
@@ -333,7 +334,7 @@ func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
 		testOutput: map[string][]string{
 			"pkg/TestFail": {"    assert failed\n"},
 		},
-		failedTest: set.Of("pkg/TestFail"),
+		failedTest:  set.Of("pkg/TestFail"),
 		stderrLines: []string{"compilation error"},
 	}
 

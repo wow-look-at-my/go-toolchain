@@ -9,6 +9,7 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"gotest.tools/gotestsum/testjson"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // shortPkg returns the last path segment of a package name.

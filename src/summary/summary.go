@@ -13,6 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // SummaryData holds all data needed to generate the GitHub Step Summary.
