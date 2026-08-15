@@ -98,14 +98,17 @@ because an unchanged tree can predate this requirement and the run being skipped
 would fix it. A default branch that cannot be resolved FAILS the run: leaving the version pin in
 place would report green for a `go.mod` that does not meet the requirement.
 
-Two shapes are out of scope, not exempted:
+Two shapes cannot be rewritten. Neither is silently skipped:
 
-- **Indirect requires.** Branch tracking skips them entirely (see above), so demanding a marker
-  there would demand one that does nothing. The direct dependency pulling the module in owns its
-  version; pin it with a `replace`, which is main-module-only and covers indirect requires too.
-- **A require overridden by a `replace`.** The replacement supplies the version that reaches the
-  build, so the replace line is what gets marked. A replacement into a local directory has no
-  remote at all and is left alone.
+- **Indirect requires.** Branch tracking skips indirect lines, so a marker written there would
+  read like a pin and track nothing — the rewrite would be a lie. The module is still
+  version-pinned, so it WARNS instead, naming both repairs: promote it to a direct require, or
+  pin the version that reaches the build with a tracked `replace` (main-module-only, so it covers
+  indirect requires too). Both change what the build resolves, which is why neither is applied for
+  you. A tracked replace already covering the module, or the `pinned` opt-out, silences it.
+- **A require overridden by a `replace`.** Nothing is lost here: the replacement supplies the
+  version that reaches the build, and the replace line is marked in the require's place. A
+  replacement into a local directory has no remote to resolve and is left alone.
 
 Genuinely wanting a version pin — a tagged release with a hard API break past it, say — is an
 explicit opt-out on the line, with the reason next to it:

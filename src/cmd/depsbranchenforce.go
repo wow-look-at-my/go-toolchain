@@ -89,7 +89,11 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 
 	changed := false
 	for _, req := range f.Require {
-		if req.Indirect || replaced[req.Mod.Path] || !isOrgModule(req.Mod.Path) {
+		if req.Indirect {
+			warnIndirectOrgRequire(req, replaced[req.Mod.Path])
+			continue
+		}
+		if replaced[req.Mod.Path] || !isOrgModule(req.Mod.Path) {
 			continue
 		}
 		if trackedBranch(req.Syntax) != "" || hasPinnedMarker(req.Syntax) {
@@ -127,6 +131,28 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 		return false, fmt.Errorf("failed to write go.mod: %w", err)
 	}
 	return true, nil
+}
+
+// warnIndirectOrgRequire reports an org dependency that is version-pinned on
+// an indirect require, where the marker this file adds everywhere else cannot
+// go: branch tracking skips indirect lines, so writing one there would leave a
+// comment that reads like a pin and tracks nothing.
+//
+// The repair a human has to choose between -- promote the module to a direct
+// dependency, or pin the effective version with a tracked replace -- changes
+// what the build resolves, so it is not one to make on someone's behalf.
+// Saying nothing is the option this rules out: the module is version-pinned
+// exactly like the ones being rewritten, and a silent skip is indistinguishable
+// from compliance.
+func warnIndirectOrgRequire(req *modfile.Require, coveredByReplace bool) {
+	if coveredByReplace || !isOrgModule(req.Mod.Path) {
+		return
+	}
+	if trackedBranch(req.Syntax) != "" || hasPinnedMarker(req.Syntax) {
+		return
+	}
+	logger.Warn("%s is version-pinned at %s and indirect, so it cannot carry a branch marker: promote it to a direct require, or pin the version that reaches the build with `replace %s => %s <version> // %s<branch>` (main-module-only, so it covers indirect requires too). Deliberate? Say so with a trailing // %s <reason> comment.",
+		req.Mod.Path, req.Mod.Version, req.Mod.Path, req.Mod.Path, branchMarkerPrefix, pinnedMarker)
 }
 
 // markBranchTracked appends the branch marker for mod's default branch to a

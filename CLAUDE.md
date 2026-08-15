@@ -70,8 +70,9 @@ coverage.
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
   version pin: an org require/replace carrying a plain version gets `// go-toolchain:branch=<default branch>` appended
-  (resolved via `git ls-remote --symref`), which the rewrite-then-dirty-tree-fails-CI contract enforces. Indirect requires
-  and a require overridden by a replace are out of scope; `// go-toolchain:pinned <reason>` is the explicit opt-out.
+  (resolved via `git ls-remote --symref`), which the rewrite-then-dirty-tree-fails-CI contract enforces. A require overridden
+  by a replace is marked on the replace line instead; an INDIRECT one cannot carry a working marker at all, so it warns and
+  names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the explicit opt-out.
   Depth: `docs/DEPS.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
   deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same dependency.
