@@ -81,16 +81,34 @@ coverage.
   `modindexretry.go` (different signature, different cure). Depth: `docs/CI.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
   version pin: an org require/replace carrying a plain version gets `// go-toolchain:branch=<default branch>` appended
-  (resolved via `git ls-remote --symref`), which the rewrite-then-dirty-tree-fails-CI contract enforces. A require overridden
-  by a replace is marked on the replace line instead; an INDIRECT one cannot carry a working marker at all, so it warns and
-  names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the explicit opt-out.
-  Depth: `docs/DEPS.md`
+  (resolved via `git ls-remote --symref`; an unreachable remote is FATAL, since a marker that was not written leaves the
+  stale snapshot in place), which the rewrite-then-dirty-tree-fails-CI contract enforces. A line already carrying a marker
+  is left alone in EITHER spelling -- see the markers item for why the new one is read a release before it is written. A
+  require overridden by a replace is marked on the replace line instead; an INDIRECT one cannot carry a working marker at
+  all, so it warns and names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the
+  explicit opt-out. Depth: `docs/DEPS.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
-  deps (`// go-toolchain:branch=<name>`), and the same-org auto-updater; the three never fight over the same dependency.
+  deps (`// go-toolchain:auto-branch`), and the same-org auto-updater; the three never fight over the same dependency.
   The marker rides a require OR a replace line -- a fork keeps upstream's module path, so it is reached through a replace,
   and the replacement's repo and version are what get resolved. A tracked branch's HEAD is the one pipeline input that is
   not a file, so the up-to-date fast exit checks it too -- otherwise a dependency that moved is invisible on an unchanged
   tree and the pin never updates. Depth: `docs/DEPS.md`
+- `src/cmd/depssiblings.go`, `src/cmd/dirtypins.go` — the recorded pseudo-version on a tracked line is a CACHE of the last
+  resolution, not a contract, and the two halves of making that true. A tracked module brings the modules sharing its
+  repository along at the same commit, because a multi-module repo's sibling require necessarily names a commit older than
+  the one publishing it -- at a first publish, one with no such module in it (`missing go.mod at revision`). Each repository
+  resolves ONCE (`repoResolver`), so two of its modules cannot land on different commits. And the
+  re-resolution is excluded from the CI dirty check, so it never demands a bump commit; the exclusion covers the version
+  token on a same-marker line plus the `go.sum` hashes that follow it, nothing else. Depth: `docs/DEPS.md`
+- Markers (`src/cmd/depsmarker.go`): ONE marker is the whole vocabulary. `auto-branch` follows the module's DEFAULT branch
+  and names none, so a renamed default breaks nothing; `auto-branch=<name>` is the deliberate non-default choice. Nothing
+  declares repository membership -- `repoResolver` reads that off the repository. This release READS `auto-branch` and still
+  WRITES the legacy `branch=<name>`: an older release treats an unrecognized marker as an untracked line and appends its own
+  comment ABOVE the require, so one committed go.mod cannot satisfy both binaries. The NEXT release writes the new spelling
+  and migrates. Depth: `docs/DEPS.md`
+- `src/cmd/depsbranchguard.go` — a marker naming a branch that is the head of an OPEN pull request FAILS in CI and warns
+  locally. That branch dies with the merge, so it resolves right up until the change lands and never again; CI is the last
+  look before the merge, and tandem development across two repos is why local is only a warning. Depth: `docs/DEPS.md`
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see

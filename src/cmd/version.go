@@ -307,6 +307,15 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 // for migration: a repo that committed the guard under an older go-toolchain
 // sheds it the first time the new cleanup runs, and that in-flight deletion must
 // not fail the build.
+//
+// A branch-tracked pin moving to its branch's current commit is excluded too.
+// `// go-toolchain:branch=<branch>` declares that the branch, not the recorded
+// pseudo-version, is what this dependency means; the version is a cache of the
+// last resolution, and every run re-answers it. Failing the build over it would
+// demand a commit whose entire content is a hash nobody chose, once per upstream
+// push. Only the version token moves under this exclusion — anything else the
+// working tree did to go.mod, and any go.sum line for a module that did not
+// move, is reported as before.
 func checkDirtyInCI() error {
 	if os.Getenv("CI") == "" {
 		return nil
@@ -315,7 +324,7 @@ func checkDirtyInCI() error {
 	if err != nil {
 		return nil
 	}
-	files := dirtyFilesExcludingGuard(string(out))
+	files := dirtyFilesExcludingToolchainWrites(string(out))
 	if files == "" {
 		return nil
 	}
@@ -328,14 +337,16 @@ func checkDirtyInCI() error {
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
-// dirtyFilesExcludingGuard returns the trimmed `git status --short` lines that
-// represent real uncommitted changes, dropping any line that refers to the
-// go-toolchain-managed GOMEMLIMIT guard. An empty result means the tree is clean
-// apart from guard files.
-func dirtyFilesExcludingGuard(statusOut string) string {
+// dirtyFilesExcludingToolchainWrites returns the trimmed `git status --short`
+// lines that represent real uncommitted changes, dropping the ones this
+// toolchain wrote itself and no human has to decide about: the GOMEMLIMIT
+// guard, and a branch-tracked pin following its branch. An empty result means
+// the tree is clean apart from those.
+func dirtyFilesExcludingToolchainWrites(statusOut string) string {
+	pins := trackedPinMoves(statusOut)
 	var kept []string
 	for _, line := range strings.Split(statusOut, "\n") {
-		if strings.TrimSpace(line) == "" || statusLineIsGuard(line) {
+		if strings.TrimSpace(line) == "" || statusLineIsToolchainWrite(line, pins) {
 			continue
 		}
 		kept = append(kept, line)
@@ -343,21 +354,28 @@ func dirtyFilesExcludingGuard(statusOut string) string {
 	return strings.Join(kept, "\n")
 }
 
-// statusLineIsGuard reports whether a `git status --short` porcelain line refers
-// to a GOMEMLIMIT guard file. The format is "XY <path>" (or "XY <old> -> <new>"
-// for renames); the guard is matched by base name so it is ignored in any
-// package directory.
-func statusLineIsGuard(line string) bool {
-	if len(line) < 4 {
+// statusLineIsToolchainWrite reports whether a `git status --short` porcelain
+// line refers to a file this run rewrote on its own authority. The format is
+// "XY <path>" (or "XY <old> -> <new>" for renames); the GOMEMLIMIT guard is
+// matched by base name so it is ignored in any package directory, while the
+// go.mod and go.sum cases are decided per module directory from pins.
+func statusLineIsToolchainWrite(line string, pins map[string][]string) bool {
+	path := statusLinePath(line)
+	if path == "" {
 		return false
 	}
-	path := strings.TrimSpace(line[3:])
-	if i := strings.Index(path, " -> "); i != -1 {
-		path = path[i+len(" -> "):]
-	}
-	path = strings.Trim(path, "\"")
 	if filepath.Base(path) == memlimit.GuardFileName {
 		return true
+	}
+	// A tracked pin's new commit, and the go.sum hashes that follow it. pins
+	// holds a directory only when its go.mod changed in no other way.
+	if moved, ok := pins[filepath.Dir(path)]; ok {
+		switch filepath.Base(path) {
+		case "go.mod":
+			return true
+		case "go.sum":
+			return goSumFollowsPins(path, moved)
+		}
 	}
 	// removeFromGitignore strips the stale guard line from .gitignore during the
 	// build; a .gitignore whose only change vs HEAD is that removal is the
@@ -368,6 +386,22 @@ func statusLineIsGuard(line string) bool {
 		return true
 	}
 	return false
+}
+
+// statusLinePath extracts the path from a `git status --short` porcelain line,
+// "XY <path>" or "XY <old> -> <new>" for a rename, where the new name is the
+// one that exists. It returns "" for a line too short to carry one. Paths are
+// relative to the working directory, which is the module directory go-toolchain
+// runs in.
+func statusLinePath(line string) string {
+	if len(line) < 4 {
+		return ""
+	}
+	path := strings.TrimSpace(line[3:])
+	if i := strings.Index(path, " -> "); i != -1 {
+		path = path[i+len(" -> "):]
+	}
+	return strings.Trim(path, "\"")
 }
 
 // gitignoreChangeOnlyDropsGuard reports whether the working-tree change to the
