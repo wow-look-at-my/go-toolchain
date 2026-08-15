@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
@@ -86,13 +87,13 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	// Each wasm build must run the fork's bin/go with GOOS/GOARCH pinned
 	// explicitly (the fork defaults to GOOS=cosmo), GOTOOLCHAIN=local, GOROOT
 	// and PATH pointing at the toolchain, and CGO_ENABLED forced to 0.
-	seenGOOS := map[string]bool{}
+	seenGOOS := set.New[string]()
 	for _, cfg := range mock.Calls() {
 		if cfg.Name != forkGo {
 			continue
 		}
 		goos, _ := cfg.Env.Get("GOOS")
-		seenGOOS[goos] = true
+		seenGOOS.Add(goos)
 		goarch, _ := cfg.Env.Get("GOARCH")
 		assert.Equal(t, "wasm", goarch, "GOARCH must be pinned to wasm for GOOS=%s", goos)
 		toolchain, _ := cfg.Env.Get("GOTOOLCHAIN")
