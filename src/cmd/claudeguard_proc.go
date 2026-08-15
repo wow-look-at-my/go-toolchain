@@ -81,6 +81,13 @@ func inspectFD(fd uintptr) outputSink {
 			if name != "" {
 				return outputSink{kind: sinkHidden, detail: name}
 			}
+			// No name, but the pid can still answer: an agent that published
+			// this pid as its own, and a kernel that records it as this
+			// socket's peer, identify the reader between them without any
+			// process lookup at all.
+			if agent.IsPID(pid) {
+				return outputSink{kind: sinkVisible}
+			}
 			return outputSink{kind: sinkHidden, detail: target}
 		}
 		if name, pid, ok := pipePeerName(target); ok {

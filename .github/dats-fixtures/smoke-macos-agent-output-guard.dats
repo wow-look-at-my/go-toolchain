@@ -160,20 +160,22 @@ tests:
 		stdout:
 			- "HARNESS_GUARD_REFUSED=false"
 
-	# The darwin classifier resolves the socket peer's name by running ps(1):
-	# macOS has no /proc, and the sysctl(KERN_PROC) a native darwin build would
-	# use answers ENOSYS from a cosmo APE, so ps is the whole mechanism. That
-	# makes "can this run ps" a load-bearing property of the sandbox the guard
-	# tests run in, and an unanswerable one from the guard's own verdict: a ps
-	# that cannot run makes every socket unidentifiable, which is refused, which
-	# is also what a correctly-refused capture looks like. Ask it directly.
-	# pid 1, so the row is asserted against a name macOS guarantees rather than
-	# against whichever shell dats happened to spawn.
-	- desc: ps answers inside the sandbox, which the socket peer lookup needs
+	# Naming a socket's peer on darwin means running ps(1): macOS has no /proc,
+	# and the sysctl(KERN_PROC) a native darwin build would use answers ENOSYS
+	# from a cosmo APE. Seatbelt refuses to execute it (MEASURED: exit 126),
+	# which is why classifyDarwinFD falls back to the pid the agent published
+	# rather than treating an unnameable peer as a capture -- the socket test
+	# below is what that fallback buys. Pinned here because the guard's own
+	# verdict cannot report it: an unrunnable ps and a real capture both come
+	# out as a refusal. A red here means the sandbox gained ps, which makes the
+	# fallback a second opinion rather than the only one; update this test, and
+	# keep the fallback for the sandboxes that still refuse.
+	- desc: ps stays unavailable inside the sandbox, which is what the pid fallback is for
 	  cmd: '/bin/ps -o ppid=,ucomm= -p 1'
+	  exit: 126
 	  timeout: 30s
 	  outputs:
-		stdout:
+		"!stdout":
 			- "launchd"
 
 	- desc: agent output guard still refuses a socket whose reader is not the agent (APE on a macOS host)

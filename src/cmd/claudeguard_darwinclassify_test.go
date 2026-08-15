@@ -17,6 +17,7 @@ func okProbes(mode uint32) darwinFDProbes {
 		path:          func() (string, bool) { return "/tmp/out.log", true },
 		peerName:      func(int) (string, bool) { return "", false },
 		isAgentReader: func(string, int) bool { return false },
+		isAgentPID:    func(int) bool { return false },
 	}
 }
 
@@ -93,6 +94,32 @@ func TestClassifyDarwinFD(t *testing.T) {
 			assert.True(t, ok)
 			assert.Equal(t, sinkHidden, sink.kind)
 			assert.Equal(t, "pid 77", sink.detail)
+		})
+
+		// Naming the peer needs ps(1), which a sandbox can refuse; the pid the
+		// agent published is the identification that survives that.
+		t.Run("a nameless peer the agent claims as its own is visible", func(t *testing.T) {
+			p := okProbes(sIFSOCK)
+			p.socketPeer = func() (int, bool, bool) { return 77, true, true }
+			p.isAgentPID = func(pid int) bool { return pid == 77 }
+			sink, ok := classifyDarwinFD(p)
+			assert.True(t, ok)
+			assert.Equal(t, sinkVisible, sink.kind, "an unrunnable ps must not refuse the agent's own reader")
+		})
+
+		// The pid fallback answers only where the name could not be read. A
+		// resolved name that is not an agent is a decided answer already, and
+		// re-deciding it on a pid an agent published for a DIFFERENT process
+		// would wave a real capture through.
+		t.Run("a named non-agent stays hidden whatever the pid claims", func(t *testing.T) {
+			p := okProbes(sIFSOCK)
+			p.socketPeer = func() (int, bool, bool) { return 77, true, true }
+			p.peerName = func(int) (string, bool) { return "tee", true }
+			p.isAgentPID = func(int) bool { return true }
+			sink, ok := classifyDarwinFD(p)
+			assert.True(t, ok)
+			assert.Equal(t, sinkHidden, sink.kind)
+			assert.Equal(t, "tee", sink.detail)
 		})
 
 		t.Run("no peer at all is hidden", func(t *testing.T) {

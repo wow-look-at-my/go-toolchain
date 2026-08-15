@@ -44,6 +44,9 @@ type darwinFDProbes struct {
 	// isAgentReader reports whether that process is the agent reading our
 	// output, rather than something capturing it.
 	isAgentReader func(comm string, pid int) bool
+	// isAgentPID reports whether an agent named this pid as its own, which
+	// needs no process lookup: the agent put it in the environment.
+	isAgentPID func(pid int) bool
 }
 
 // classifyDarwinFD decides where a descriptor's output is going on a darwin
@@ -81,6 +84,17 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 				return outputSink{kind: sinkVisible}, true
 			}
 			return outputSink{kind: sinkHidden, detail: comm}, true
+		}
+		// The name is out of reach more often than it looks: darwin resolves it
+		// by running ps(1), which a sandbox can refuse outright (dats' seatbelt
+		// does, exit 126). Falling straight to hidden there refuses every
+		// agent-driven run inside such a sandbox. The pid on its own still
+		// answers the question when an agent named that pid as its own process,
+		// because the kernel fixed this socket's peer at creation time and the
+		// agent published the pid itself -- neither is something a `| head`
+		// could arrange.
+		if p.isAgentPID(pid) {
+			return outputSink{kind: sinkVisible}, true
 		}
 		return outputSink{kind: sinkHidden, detail: fmt.Sprintf("pid %d", pid)}, true
 

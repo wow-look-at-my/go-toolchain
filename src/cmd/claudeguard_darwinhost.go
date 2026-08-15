@@ -29,5 +29,6 @@ func inspectFDDarwinHost(fd uintptr) (outputSink, bool) {
 			return comm, ok
 		},
 		isAgentReader: agent.IsPipeReader,
+		isAgentPID:    agent.IsPID,
 	})
 }

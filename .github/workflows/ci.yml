@@ -513,16 +513,16 @@ jobs:
           set -uo pipefail
           probe="$RUNNER_TEMP/sockprobe"
           rm -rf "$probe" && mkdir -p "$probe/run"
-          # The run has to happen UNDER a module, or it never reaches the guard:
-          # with no go.mod anywhere above the cwd, main.go's bootstrap cannot
-          # tell which Go to use, and exits before cobra ever runs. The dats
-          # fixture gets this for free -- its {outputs.X} scratch dirs are
-          # nested inside the module go-toolchain is building -- which is why
-          # the same cwd-with-no-go.mod means two different things in the two
-          # places. The version matches what the pipeline step above already
-          # cached, so this bootstraps from disk instead of downloading a
-          # second toolchain.
-          printf 'module example.com/sockprobe\n\ngo 1.24\n' > "$probe/go.mod"
+          # A go.mod in the RUN DIRECTORY ITSELF, or the child never reaches the
+          # guard: with no go on PATH, main.go's bootstrap reads the version to
+          # fetch out of ./go.mod and exits before cobra runs when there is
+          # none. It does not walk up (MEASURED: one directory above was not
+          # enough). The dats fixture never hits this: its suites run from
+          # inside go-toolchain's own pipeline, which has a go by then. The
+          # version
+          # matches what the pipeline step above already cached, so this
+          # bootstraps from disk instead of downloading a second toolchain.
+          printf 'module example.com/sockprobe\n\ngo 1.24\n' > "$probe/run/go.mod"
           # A copy per case, taken from the pristine artifact rather than from
           # $RUNNER_TEMP/gt-ape: that one has been executed several times by the
           # steps above, and an APE rewrites its own file on first exec, so a
