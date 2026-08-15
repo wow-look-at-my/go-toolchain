@@ -218,7 +218,7 @@ func helperNotATest() {}
 `
 	os.WriteFile(testFile, []byte(content), 0644)
 
-	funcs := findTestFuncsInDir(tmpDir, map[string]bool{"TestAlpha": true, "TestBeta": true})
+	funcs := findTestFuncsInDir(tmpDir, set.Of("TestAlpha", "TestBeta"))
 
 	assert.Contains(t, funcs, "TestAlpha")
 	assert.Contains(t, funcs, "TestBeta")

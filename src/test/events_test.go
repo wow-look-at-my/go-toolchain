@@ -189,7 +189,7 @@ func TestRealtimeTimeoutOutput(t *testing.T) {
 		out:        &buf,
 		testOutput: make(map[string][]string),
 		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
+		timedOut:   set.New[string](),
 	}
 
 	// First, simulate timeout output event
@@ -319,9 +319,7 @@ func TestFailureOutputWithFailedTests(t *testing.T) {
 			"pkg/TestFoo": {"    foo_test.go:10: expected 1, got 2\n"},
 			"pkg/TestBar": {"    bar_test.go:5: nil pointer\n"},
 		},
-		failedTest: map[string]bool{
-			"pkg/TestFoo": true,
-		},
+		failedTest: set.Of("pkg/TestFoo"),
 	}
 
 	output := h.FailureOutput()
@@ -335,9 +333,7 @@ func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
 		testOutput: map[string][]string{
 			"pkg/TestFail": {"    assert failed\n"},
 		},
-		failedTest: map[string]bool{
-			"pkg/TestFail": true,
-		},
+		failedTest: set.Of("pkg/TestFail"),
 		stderrLines: []string{"compilation error"},
 	}
 
@@ -398,7 +394,7 @@ func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
 		coverage:   make(map[string]float32),
 		testOutput: make(map[string][]string),
 		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
+		timedOut:   set.New[string](),
 		out:        &bytes.Buffer{},
 	}
 

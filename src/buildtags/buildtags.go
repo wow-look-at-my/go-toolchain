@@ -292,10 +292,10 @@ func (d *Discovery) GatedPatterns() []string {
 // configuration. Any gated file missing from it is a file the pipeline cannot
 // see, and the caller must FAIL rather than continue -- otherwise the tag is
 // exactly the bypass this package exists to remove.
-func Verify(d *Discovery, seen map[string]bool) []File {
+func Verify(d *Discovery, seen set.Set[string]) []File {
 	var missed []File
 	for _, f := range d.Gated {
-		if !seen[f.Path] {
+		if !seen.Contains(f.Path) {
 			missed = append(missed, f)
 		}
 	}

@@ -6,55 +6,22 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// TestMapSetAnalyzer runs the mapset analyzer over its fixture: a struct{}
-// value map and an all-true bool map literal must be reported, while a lookup
-// table, a non-bool map, an empty literal and a marked declaration must not.
+// TestMapSetAnalyzer runs the mapset analyzer over its fixture: an all-true
+// bool map literal and a made-empty bool map used only as a set must be
+// reported, while a lookup table, a comma-ok read, a computed value, a map
+// that escapes, a map[K]struct{} and a marked declaration must not.
 func TestMapSetAnalyzer(t *testing.T) {
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
 	analysistest.Run(t, testdata, MapSetAnalyzer, "mapset")
-}
-
-// TestMapSetSkipsTheSetPackageItself verifies the remedy is exempt: set.Set
-// is the map[T]struct{} every other package is told to reach for.
-func TestMapSetSkipsTheSetPackageItself(t *testing.T) {
-	const src = `package set
-
-type Set[T comparable] struct {
-	m map[T]struct{}
-}
-`
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "/set/set.go", src, parser.ParseComments)
-	require.NoError(t, err)
-	for _, path := range []string{setPackage, setPackage + "_test", "github.com/wow-look-at-my/other"} {
-		t.Run(path, func(t *testing.T) {
-			var reports []analysis.Diagnostic
-			pass := &analysis.Pass{
-				Analyzer:  MapSetAnalyzer,
-				Fset:      fset,
-				Files:     []*ast.File{f},
-				Pkg:       types.NewPackage(path, "set"),
-				Report:    func(d analysis.Diagnostic) { reports = append(reports, d) },
-				TypesInfo: &types.Info{},
-			}
-			_, err := runMapSet(pass)
-			require.NoError(t, err)
-			if strings.HasPrefix(path, setPackage) {
-				require.Empty(t, reports)
-			} else {
-				require.Len(t, reports, 1)
-			}
-		})
-	}
 }
 
 // TestMapSetModuleScoping verifies the check only fires on org code.
@@ -63,7 +30,7 @@ type Set[T comparable] struct {
 func TestMapSetModuleScoping(t *testing.T) {
 	const src = `package main
 
-var seen = map[string]struct{}{}
+var seen = map[string]bool{"a": true}
 
 func main() { _ = seen }
 `
@@ -97,4 +64,33 @@ func main() { _ = seen }
 			require.Len(t, reports, c.wantReports)
 		})
 	}
+}
+
+// TestMapSetStructMapOnlyWarns verifies a map[K]struct{} never fails a build.
+// It already carries no value; the diagnostic is reserved for the map[K]bool
+// default, and the struct map gets a warning naming set.Set instead.
+func TestMapSetStructMapOnlyWarns(t *testing.T) {
+	const src = `package main
+
+var seen = map[string]struct{}{}
+
+func main() { seen["a"] = struct{}{} }
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "/consumer/main.go", src, parser.ParseComments)
+	require.NoError(t, err)
+
+	before := logger.WarnCount()
+	var reports []analysis.Diagnostic
+	pass := &analysis.Pass{
+		Analyzer:  MapSetAnalyzer,
+		Fset:      fset,
+		Files:     []*ast.File{f},
+		Report:    func(d analysis.Diagnostic) { reports = append(reports, d) },
+		TypesInfo: &types.Info{},
+	}
+	_, err = runMapSet(pass)
+	require.NoError(t, err)
+	require.Empty(t, reports)
+	require.Equal(t, before+1, logger.WarnCount())
 }

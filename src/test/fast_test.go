@@ -17,7 +17,7 @@ func newTestHandler(buf *bytes.Buffer) *coverageHandler {
 		out:        buf,
 		testOutput: make(map[string][]string),
 		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
+		timedOut:   set.New[string](),
 	}
 }
 

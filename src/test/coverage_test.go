@@ -131,10 +131,7 @@ func TestFilterBlocksByReachable(t *testing.T) {
 		{file: "example.com/pkg3/file.go", statements: 1, count: 1},
 	}
 
-	reachable := map[string]bool{
-		"example.com/pkg1": true,
-		"example.com/pkg3": true,
-	}
+	reachable := set.Of("example.com/pkg1", "example.com/pkg3")
 
 	filtered := filterBlocksByReachable(blocks, reachable)
 	assert.Equal(t, 2, len(filtered))
@@ -170,10 +167,7 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 `
 	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
 
-	reachable := map[string]bool{
-		"example.com/pkg1": true,
-		"example.com/pkg3": true,
-	}
+	reachable := set.Of("example.com/pkg1", "example.com/pkg3")
 
 	total, files, err := ParseProfileFiltered(coverFile, reachable)
 	require.NoError(t, err)

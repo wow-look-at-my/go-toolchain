@@ -56,7 +56,7 @@ var fingerprintFlags *pflag.FlagSet
 // nothing in a build can read as configuration: `_` holds the previous
 // command's last argument, OLDPWD the previous directory, SHLVL the shell
 // nesting depth. Without this every invocation would look different.
-var volatileEnv = map[string]bool{"_": true, "OLDPWD": true, "SHLVL": true}
+var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
 
 // flagFingerprint renders every root-command flag as name=value, sorted. A run
 // invoked differently is a different run: --generate executes go:generate
@@ -102,7 +102,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	env := append([]string(nil), fingerprintEnv()...)
 	sort.Strings(env)
 	for _, kv := range env {
-		if name, _, ok := strings.Cut(kv, "="); ok && volatileEnv[name] {
+		if name, _, ok := strings.Cut(kv, "="); ok && volatileEnv.Contains(name) {
 			continue
 		}
 		fmt.Fprintf(h, "env:%s\n", kv)

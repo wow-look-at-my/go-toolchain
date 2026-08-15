@@ -60,9 +60,9 @@ func TestVerifyReportsUnreachedGatedFiles(t *testing.T) {
 		{Path: "a.go", Tags: []string{"x"}},
 		{Path: "b.go", Tags: []string{"y"}},
 	}}
-	assert.Empty(t, Verify(d, map[string]bool{"a.go": true, "b.go": true}))
+	assert.Empty(t, Verify(d, set.Of("a.go", "b.go")))
 
-	missed := Verify(d, map[string]bool{"a.go": true})
+	missed := Verify(d, set.Of("a.go"))
 	require.Len(t, missed, 1)
 	assert.Equal(t, "b.go", missed[0].Path)
 

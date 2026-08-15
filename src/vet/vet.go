@@ -169,7 +169,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	if err != nil {
 		return filesChanged, fmt.Errorf("discovering build tags: %w", err)
 	}
-	analyzedFiles := map[string]bool{}
+	analyzedFiles := set.New[string]()
 	var diagnostics []Diagnostic
 	var nParsed int
 
@@ -209,7 +209,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 // parsed into analyzedFiles (module-relative, slash separated) so Verify can
 // prove no tagged file went unseen.
 func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report func(string),
-	diagnostics *[]Diagnostic, analyzedFiles map[string]bool, nParsedTotal *int,
+	diagnostics *[]Diagnostic, analyzedFiles set.Set[string], nParsedTotal *int,
 ) (bool, error) {
 	filesChanged := false
 
