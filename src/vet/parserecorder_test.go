@@ -45,5 +45,5 @@ func TestParseRecorderSkipsFilesOutsideTheModule(t *testing.T) {
 	rec.record(filepath.Join(root, "elsewhere", "x.go"))
 
 	require.Equal(t, 1, rec.count(), "the counter reports files parsed, including foreign ones")
-	assert.Empty(t, rec.files)
+	assert.True(t, rec.files.IsEmpty())
 }

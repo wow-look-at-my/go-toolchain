@@ -261,8 +261,8 @@ func TestReachablePackagesModuleFailure(t *testing.T) {
 	mock := newMockRunnerForReachable("")
 
 	reachable, err := ReachablePackages(mock)
-	// Empty module prefix returns nil, nil
-	assert.Nil(t, reachable)
+	// An empty module prefix reports an empty set, which filters nothing.
+	assert.True(t, reachable.IsEmpty())
 	assert.Nil(t, err)
 }
 
