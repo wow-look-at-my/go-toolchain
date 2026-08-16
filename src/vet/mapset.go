@@ -59,7 +59,9 @@ func resetMapSetWarnings() { mapSetWarned.Clear() }
 func runMapSet(pass *analysis.Pass) (any, error) {
 	report := pass.Reportf
 	if !isOrgModule(pass.Module) {
-		report = func(pos token.Pos, format string, args ...any) { warnAt(pass, pos, format, args...) }
+		report = func(pos token.Pos, format string, args ...any) {
+			warnAt(&mapSetWarned, pass, pos, format, args...)
+		}
 	}
 
 	for _, file := range pass.Files {
@@ -106,7 +108,7 @@ func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File) {
 		if !ok || !isEmptyStructType(pass, mt.Value) {
 			return true
 		}
-		warnAt(pass, mt.Pos(), "map[…]struct{} is a set: %s.Set carries the membership operations", setPackage)
+		warnAt(&mapSetWarned, pass, mt.Pos(), "map[…]struct{} is a set: %s.Set carries the membership operations", setPackage)
 		return true
 	})
 }
@@ -114,9 +116,11 @@ func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File) {
 // warnAt emits one finding as a warning. go/packages loads a package up to
 // four ways (plain, internal test, external test, test main) and every variant
 // walks the same file, so a site spends one warning of the budget, not four.
-func warnAt(pass *analysis.Pass, pos token.Pos, format string, args ...any) {
+// Each check passes its own warned map, so two checks that report the same
+// line both get to speak.
+func warnAt(warned *sync.Map, pass *analysis.Pass, pos token.Pos, format string, args ...any) {
 	p := pass.Fset.Position(pos)
-	if _, dup := mapSetWarned.LoadOrStore(fmt.Sprintf("%s:%d", p.Filename, p.Line), true); dup {
+	if _, dup := warned.LoadOrStore(fmt.Sprintf("%s:%d", p.Filename, p.Line), true); dup {
 		return
 	}
 	logger.WarnFile(p.Filename, "%s:%d: "+format, append([]any{p.Filename, p.Line}, args...)...)

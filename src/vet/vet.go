@@ -39,6 +39,7 @@ func Analyzers() []*analysis.Analyzer {
 		MapSetAnalyzer,
 		RedundantCastAnalyzer,
 		TestifyCastAnalyzer,
+		WriteRunsAnalyzer,
 	}
 }
 
@@ -166,6 +167,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	// unable to fail -- a bypass by omission rather than by defeat. Scan derives
 	// the configurations; buildtags.Verify below PROVES they were sufficient.
 	resetMapSetWarnings()
+	resetWriteRunWarnings()
 	discovery, err := buildtags.Scan(".")
 	if err != nil {
 		return filesChanged, fmt.Errorf("discovering build tags: %w", err)
