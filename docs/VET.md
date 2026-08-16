@@ -93,3 +93,75 @@ There is no opt-out marker. Every shape the check reports is a set by
 construction, so a suppression comment could only ever hide one -- and the two
 rules already leave a real map alone: write one `false`, read with `v, ok :=`,
 or hand the map to another function, and nothing fires.
+
+
+## writeruns: a document spelled one write at a time
+
+`src/vet/writeruns.go` reports the shape this repo wrote in five places before
+the check existed:
+
+```go
+fmt.Fprintf(script, "  c=%s/$k\n", apeRunDir)
+script.WriteString("  p=\"$c/${0##*/}\"\n")
+script.WriteString("  if [ ! -x \"$p\" ]; then\n")
+script.WriteString("    (umask 077; mkdir -p \"$c\") || exit 121\n")
+script.WriteString("    cp \"$o\" \"$p.$$\" || exit 121\n")
+```
+
+That is one shell script, and nothing in the source shows its shape. The
+escapes, the trailing `\n` and the writer's name stand between the reader and
+every line of it. Whoever edits it reads Go to find the line they want, and
+whoever reviews the diff cannot see the output change.
+
+The first two writes of a run are free. The third and each one after it gets
+one warning, at its own line. So the five statements above spend three
+warnings, and a pair of writes spends none.
+
+The check WARNS; it never fails a build by itself. A long enough run still
+fails the run through the warnings budget (`docs/WARNINGS-GATE.md`), which is
+what this repo's 25-write mermaid header did.
+
+### What the remedy is
+
+The finding ends when the document becomes one piece of text.
+
+- With values in it, that is a `text/template`. `src/summary/gantt.go` renders
+  the whole chart from one template, and `src/cmd/claudeguard.go` renders the
+  abort message from another, deleted-outputs list and all.
+- With no values in it, one string constant IS the document, and a single
+  write of it ends the run. `src/hostos/detection.go` holds its banner that
+  way. Note a raw string cannot hold text that quotes shell or markdown with
+  backticks, which is why both templates here are interpreted strings joined
+  by `+`.
+
+A refactor of this kind must not move a byte of the output. Both documents are
+pinned by an equality test -- `TestRenderGanttRendersTheWholeDocument` and
+`TestAgentOutputMessageRendersTheWholeDocument` -- because the `Contains`
+assertions that surrounded them pass on a message whose blank lines moved.
+
+### What counts as a write
+
+A statement joins a run when its result is dropped (it is an expression
+statement), its writer is one this can name (`w`, `s.buf`), and its text is
+spelled in the source as a string or character literal.
+`fmt.Fprint`/`Fprintf`/`Fprintln` and `io.WriteString` name the writer first;
+`Write`, `WriteString`, `WriteByte` and `WriteRune` name it as the receiver.
+
+Three things end a run: any other statement, a write to a different writer, and
+a write whose text is computed. `b.WriteByte(c)` inside an escaper writes one
+byte of a value, and no template renders it.
+
+A writer that digests its input never counts, whatever it is handed
+(`isHashWriter`: a type carrying both `Sum` and `BlockSize`).
+`computeFingerprint` writes four framed lines into a `sha256.New()`, and
+rendering those through a template would change the digest and help nobody.
+
+### Scope
+
+The check runs on every module go-toolchain builds. `text/template` is in the
+standard library, so unlike `mapset`'s remedy it costs a consumer no
+dependency, and the severity is the same in every module: a warning.
+
+There is no opt-out marker. Every package variant walks the same file, so the
+sites are deduplicated by `file:line` for the length of one vet run
+(`resetWriteRunWarnings`).

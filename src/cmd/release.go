@@ -172,9 +172,8 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 		// Interactive confirmation prompt: must reach the real stderr at any
 		// log level, and the final line awaits input mid-line (no trailing
 		// newline) -- bypasses the logger via rawStderr, see logging.go.
-		fmt.Fprintf(rawStderr, "Release: %s\n", tag)
-		fmt.Fprintf(rawStderr, "Commits: %d\n", len(commits))
-		fmt.Fprintf(rawStderr, "Are you sure you want to tag and push %s? [y/N] ", tag)
+		fmt.Fprintf(rawStderr, "Release: %s\nCommits: %d\n"+
+			"Are you sure you want to tag and push %s? [y/N] ", tag, len(commits), tag)
 
 		scanner := bufio.NewScanner(stdin)
 		if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -53,44 +54,7 @@ func RenderGantt(entries []TimelineEntry) string {
 	}
 	totalDuration := maxEnd.Sub(epoch)
 
-	var sb strings.Builder
-
-	// Theme: custom colors for done/active/crit task bars
-	sb.WriteString("```mermaid\n")
-	sb.WriteString("---\n")
-	sb.WriteString("config:\n")
-	sb.WriteString("  theme: base\n")
-	sb.WriteString("  themeVariables:\n")
-	sb.WriteString("    primaryColor: \"#4a90d9\"\n")
-	sb.WriteString("    primaryTextColor: \"#fff\"\n")
-	sb.WriteString("    primaryBorderColor: \"#2a6cb0\"\n")
-	sb.WriteString("    doneTaskBkgColor: \"#2ea44f\"\n")
-	sb.WriteString("    doneTaskBorderColor: \"#22863a\"\n")
-	sb.WriteString("    critBkgColor: \"#d73a49\"\n")
-	sb.WriteString("    critBorderColor: \"#b31d28\"\n")
-	sb.WriteString("    activeTaskBkgColor: \"#6f42c1\"\n")
-	sb.WriteString("    activeTaskBorderColor: \"#5a32a3\"\n")
-	sb.WriteString("    sectionBkgColor: \"#f6f8fa\"\n")
-	sb.WriteString("    altSectionBkgColor: \"#eef1f5\"\n")
-	sb.WriteString("    gridColor: \"#d0d7de\"\n")
-	sb.WriteString("    taskTextColor: \"#fff\"\n")
-	sb.WriteString("    taskTextOutsideColor: \"#24292f\"\n")
-	sb.WriteString("    sectionFontSize: 14\n")
-	sb.WriteString("  gantt:\n")
-	sb.WriteString("    barHeight: 28\n")
-	sb.WriteString("    fontSize: 13\n")
-	sb.WriteString("---\n")
-	sb.WriteString("gantt\n")
-	sb.WriteString("    title Pipeline Timeline\n")
-	sb.WriteString("    dateFormat x\n")
-	// Pick axis format based on total duration
-	if totalDuration >= time.Hour {
-		sb.WriteString("    axisFormat %H:%M:%S\n")
-	} else if totalDuration >= time.Minute {
-		sb.WriteString("    axisFormat %M:%S\n")
-	} else {
-		sb.WriteString("    axisFormat %S s\n")
-	}
+	chart := ganttChart{AxisFormat: ganttAxisFormat(totalDuration)}
 
 	taskID := 0
 	for _, thread := range threads {
@@ -100,8 +64,7 @@ func RenderGantt(entries []TimelineEntry) string {
 			return tes[i].Start.Before(tes[j].Start)
 		})
 
-		sb.WriteString(fmt.Sprintf("    section %s\n", sanitizeLabel(thread)))
-
+		section := ganttSection{Name: sanitizeLabel(thread)}
 		for _, e := range tes {
 			tag := "done"
 			if e.Failed {
@@ -113,15 +76,94 @@ func RenderGantt(entries []TimelineEntry) string {
 			if endMs-startMs < 100 {
 				endMs = startMs + 100
 			}
-			sb.WriteString(fmt.Sprintf("    %s :%s, t%d, %d, %d\n",
-				sanitizeLabel(e.Label), tag, taskID, startMs, endMs))
+			section.Tasks = append(section.Tasks, ganttTask{
+				Label: sanitizeLabel(e.Label),
+				Tag:   tag,
+				ID:    taskID,
+				Start: startMs,
+				End:   endMs,
+			})
 			taskID++
 		}
+		chart.Sections = append(chart.Sections, section)
 	}
 
-	sb.WriteString("```\n")
+	var sb strings.Builder
+	if err := ganttTemplate.Execute(&sb, chart); err != nil {
+		// The caller renders this into a summary, so say what broke there.
+		// Silence would read as "the pipeline recorded no timeline".
+		return fmt.Sprintf("gantt chart failed to render: %v\n", err)
+	}
 	return sb.String()
 }
+
+// ganttAxisFormat picks the axis unit the whole run fits in.
+func ganttAxisFormat(total time.Duration) string {
+	switch {
+	case total >= time.Hour:
+		return "%H:%M:%S"
+	case total >= time.Minute:
+		return "%M:%S"
+	default:
+		return "%S s"
+	}
+}
+
+// The chart the template renders. Every field it names is here.
+type (
+	ganttChart struct {
+		AxisFormat string
+		Sections   []ganttSection
+	}
+	ganttSection struct {
+		Name  string
+		Tasks []ganttTask
+	}
+	ganttTask struct {
+		Label string
+		Tag   string
+		ID    int
+		Start int64
+		End   int64
+	}
+)
+
+// ganttTemplate is the chart itself, held as text. The theme block sets the
+// colours of the done, active and crit bars. The literals are interpreted
+// strings, not one raw string, because the mermaid fence is three backticks.
+var ganttTemplate = template.Must(template.New("gantt").Parse(
+	"```mermaid\n" +
+		"---\n" +
+		"config:\n" +
+		"  theme: base\n" +
+		"  themeVariables:\n" +
+		"    primaryColor: \"#4a90d9\"\n" +
+		"    primaryTextColor: \"#fff\"\n" +
+		"    primaryBorderColor: \"#2a6cb0\"\n" +
+		"    doneTaskBkgColor: \"#2ea44f\"\n" +
+		"    doneTaskBorderColor: \"#22863a\"\n" +
+		"    critBkgColor: \"#d73a49\"\n" +
+		"    critBorderColor: \"#b31d28\"\n" +
+		"    activeTaskBkgColor: \"#6f42c1\"\n" +
+		"    activeTaskBorderColor: \"#5a32a3\"\n" +
+		"    sectionBkgColor: \"#f6f8fa\"\n" +
+		"    altSectionBkgColor: \"#eef1f5\"\n" +
+		"    gridColor: \"#d0d7de\"\n" +
+		"    taskTextColor: \"#fff\"\n" +
+		"    taskTextOutsideColor: \"#24292f\"\n" +
+		"    sectionFontSize: 14\n" +
+		"  gantt:\n" +
+		"    barHeight: 28\n" +
+		"    fontSize: 13\n" +
+		"---\n" +
+		"gantt\n" +
+		"    title Pipeline Timeline\n" +
+		"    dateFormat x\n" +
+		"    axisFormat {{.AxisFormat}}\n" +
+		"{{range .Sections}}    section {{.Name}}\n" +
+		"{{range .Tasks}}    {{.Label}} :{{.Tag}}, t{{.ID}}, {{.Start}}, {{.End}}\n" +
+		"{{end}}{{end}}" +
+		"```\n"))
 
 // sanitizeLabel removes characters that Mermaid interprets as syntax.
 func sanitizeLabel(s string) string {
