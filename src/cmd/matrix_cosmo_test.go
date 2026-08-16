@@ -111,9 +111,15 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	require.NoError(t, err)
 
-	// The whole build directory. Exactly one binary exists as a file: the APE.
-	// The convenience names are symlinks TO it -- the distinction the deleted
-	// slot copier erased, since a copy is a second binary and a link is not.
+	// The whole build directory. One publishable binary exists: the APE. The
+	// deleted slot copier wrote a per-platform duplicate of it for every slot,
+	// and nothing here may bring those back.
+	//
+	// <name>_host is the one copy that stays, and it is not one of those: it is
+	// the host's assimilated copy, it never appears in checksums.txt or the
+	// manifest, and CI skips it entirely. Running the APE in place is what it
+	// buys -- that rewrites the artifact's header, so the file stops matching
+	// its checksum and stops being fat.
 	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
 	require.Len(t, fatMatches, 1, "expected exactly one fat APE in %s", outDir)
 	fatName := filepath.Base(fatMatches[0])
@@ -126,14 +132,21 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 		if e.Type()&os.ModeSymlink != 0 {
 			target, linkErr := os.Readlink(filepath.Join(outDir, e.Name()))
 			require.NoError(t, linkErr)
-			assert.Equal(t, fatName, target, "%s must link to the APE, not duplicate it", e.Name())
+			assert.Equal(t, name+"_host", target, "%s must link to the host copy", e.Name())
 			continue
 		}
 		files = append(files, e.Name())
 	}
 	assert.ElementsMatch(t, []string{
-		fatName, "checksums.txt", buildhostManifestName,
-	}, files, "a cosmo build writes one APE plus its checksums and manifest")
+		fatName, name + "_host", "checksums.txt", buildhostManifestName,
+	}, files, "a cosmo build writes one APE, the host copy, and the checksums and manifest")
+
+	// The slot copies stay gone: the APE is the only <name>_<os>_<arch> here.
+	slots, _ := filepath.Glob(filepath.Join(outDir, name+"_*_*"))
+	for i, s := range slots {
+		slots[i] = filepath.Base(s)
+	}
+	assert.Equal(t, []string{fatName}, slots, "per-platform slot copies must not come back")
 
 	// The manifest carries the platform set the filename grammar cannot spell.
 	var manifest buildhostManifest

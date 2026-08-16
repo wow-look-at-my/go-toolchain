@@ -34,9 +34,19 @@ func hostRunnableArtifact(target build.Target, outDir string) string {
 	return native
 }
 
-func createHostSymlinks(targets []build.Target, outDir string) error {
-	// hostos, not runtime: the symlink must point at the matrix binary built
-	// for the OS this process is running on, and a cosmo fat APE reports
+// createHostBinaries writes the <name>_host and <name> convenience entries for
+// the artifact that runs on this host.
+//
+// A native artifact gets two symlinks, as before. The fat APE gets one
+// assimilated COPY at <name>_host, and <name> symlinks to that copy. The copy
+// is the point: an APE rewrites its own file the first time it runs, so a
+// symlink to one turns `./build/<name>` into a mutation of the artifact that
+// gets published — the file no longer matches its checksum, and it is no
+// longer fat. The copy leaves the APE untouched and hands the host a plain
+// native binary that runs as many times as anyone likes.
+func createHostBinaries(targets []build.Target, outDir string) error {
+	// hostos, not runtime: this must point at the matrix binary built for the
+	// OS this process is running on, and a cosmo fat APE reports
 	// runtime.GOOS=="cosmo" everywhere. runtime.GOARCH matches the host.
 	hostOS := hostos.GOOS()
 
@@ -48,21 +58,44 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 			ext = ".exe"
 		}
 
-		// Verify the host binary exists in the output directory
 		if _, err := os.Stat(hostPath); err != nil {
-			logger.Info("  SKIP symlink for %s (host binary %s not found)", target.OutputName, hostBinary)
+			logger.Info("  SKIP host binary for %s (%s not found)", target.OutputName, hostBinary)
 			continue
 		}
 
-		// Create <name>_host and <name> symlinks (relative, pointing to the host binary)
+		isAPE := hostBinary == build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch)
+		hostName := target.OutputName + "_host" + ext
+		hostLink := filepath.Join(outDir, hostName)
+		linkTarget := hostBinary
+
+		if isAPE {
+			os.Remove(hostLink)
+			if err := copyFile(hostPath, hostLink); err != nil {
+				return fmt.Errorf("failed to copy %s: %w", hostName, err)
+			}
+			if err := os.Chmod(hostLink, 0o755); err != nil {
+				return err
+			}
+			// Loud, and not fatal: an unassimilated copy still runs, and it
+			// rewrites only itself. The artifact stays pristine either way.
+			if err := assimilateAPE(hostLink); err != nil {
+				logger.Warn("  %s stays an APE and rewrites itself on its first run: %v", hostName, err)
+			}
+			logger.Info("  COPY %s <- %s (assimilated)", hostLink, hostBinary)
+			linkTarget = hostName
+		}
+
 		for _, suffix := range []string{"_host", ""} {
+			if isAPE && suffix == "_host" {
+				continue // already written as the copy
+			}
 			linkName := target.OutputName + suffix + ext
 			linkPath := filepath.Join(outDir, linkName)
 			os.Remove(linkPath) // remove any stale symlink
-			if err := os.Symlink(hostBinary, linkPath); err != nil {
+			if err := os.Symlink(linkTarget, linkPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %w", linkName, err)
 			}
-			logger.Info("  LINK %s -> %s", linkPath, hostBinary)
+			logger.Info("  LINK %s -> %s", linkPath, linkTarget)
 		}
 	}
 	return nil

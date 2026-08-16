@@ -58,7 +58,7 @@ coverage.
   `discardBuildOutputsFromCWD` on the two exits that never enter the pipeline — the agent output guard's abort (which also NAMES the deleted paths in
   its message, so the missing binary doesn't read as a different bug) and, via the exported `DiscardBuildOutputs`, main's bootstrap-failure exit. What
   counts as an artifact is `isOutputArtifact`: the bare name, `<name>.exe`, or any `<name>_…` (BinaryName's `<name>_<goos>_<goarch>[.exe]`, the wasm
-  shapes, `<name>_cosmo_fat`, the `<name>_host` symlink), minus the `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
+  shapes, `<name>_cosmo_fat`, the `<name>_host` copy or symlink), minus the `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
   `trace.json` — a project whose binary is named `wasm` must not lose `wasm_exec.js`). Discovery is a directory scan keyed on target NAME rather than
   a re-derivation of the platform matrix, so artifacts of a previous run's platform set go too. `clearBuildOutputs` records `{dir, names}` per module
   (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module run. Removal failure is FATAL on the clear path (an

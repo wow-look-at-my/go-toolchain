@@ -295,7 +295,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// are pointless (nothing consumes them) and harmful: upload-artifact
 	// dereferences symlinks, bloating the artifact with full duplicate copies.
 	if os.Getenv("CI") == "" {
-		if err := createHostSymlinks(hostTargets, outputDir); err != nil {
+		if err := createHostBinaries(hostTargets, outputDir); err != nil {
 			return err
 		}
 	}

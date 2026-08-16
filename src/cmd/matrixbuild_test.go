@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -115,7 +116,7 @@ func TestRunBuildWithCgoEnabled(t *testing.T) {
 	assert.False(t, hasCgo, "CGO_ENABLED should not be set when --cgo is used")
 }
 
-func TestCreateHostSymlinks(t *testing.T) {
+func TestCreateHostBinaries(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -126,7 +127,7 @@ func TestCreateHostSymlinks(t *testing.T) {
 	hostBinary := fmt.Sprintf("mytool_%s_%s", runtime.GOOS, runtime.GOARCH)
 	os.WriteFile(filepath.Join(tmpDir, hostBinary), []byte("binary"), 0755)
 
-	err := createHostSymlinks(targets, tmpDir)
+	err := createHostBinaries(targets, tmpDir)
 	assert.Nil(t, err)
 
 	// Check _host symlink
@@ -140,7 +141,7 @@ func TestCreateHostSymlinks(t *testing.T) {
 	assert.Equal(t, hostBinary, linkTarget)
 }
 
-func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
+func TestCreateHostBinariesSkipMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -148,7 +149,7 @@ func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
 	}
 
 	// Don't create the host binary — should skip without error
-	err := createHostSymlinks(targets, tmpDir)
+	err := createHostBinaries(targets, tmpDir)
 	assert.Nil(t, err)
 
 	// Symlinks should not exist
@@ -158,7 +159,7 @@ func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestCreateHostSymlinksReplacesStale(t *testing.T) {
+func TestCreateHostBinariesReplacesStale(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -172,11 +173,43 @@ func TestCreateHostSymlinksReplacesStale(t *testing.T) {
 	os.Symlink("old_target", filepath.Join(tmpDir, "mytool_host"))
 	os.Symlink("old_target", filepath.Join(tmpDir, "mytool"))
 
-	err := createHostSymlinks(targets, tmpDir)
+	err := createHostBinaries(targets, tmpDir)
 	assert.Nil(t, err)
 
 	linkTarget, _ := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
 	assert.Equal(t, hostBinary, linkTarget)
 	linkTarget, _ = os.Readlink(filepath.Join(tmpDir, "mytool"))
 	assert.Equal(t, hostBinary, linkTarget)
+}
+
+// The fat APE is the artifact that gets published. Running it rewrites its own
+// file, so the convenience entry must be an assimilated copy of it, never a
+// symlink to it.
+func TestCreateHostBinariesCopiesAndAssimilatesTheAPE(t *testing.T) {
+	hostMachineByte(t)
+	tmpDir := t.TempDir()
+	targets := []build.Target{
+		{ImportPath: "./cmd/mytool", OutputName: "mytool"},
+	}
+	ape := filepath.Join(tmpDir, "mytool_cosmo_fat")
+	original := []byte(apePrologue + strings.Repeat("\x00", 4096))
+	require.NoError(t, os.WriteFile(ape, original, 0o755))
+
+	require.NoError(t, createHostBinaries(targets, tmpDir))
+
+	host := filepath.Join(tmpDir, "mytool_host")
+	info, err := os.Lstat(host)
+	require.NoError(t, err)
+	assert.Zero(t, info.Mode()&os.ModeSymlink, "the APE must be copied, not linked")
+	copied, err := os.ReadFile(host)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("\x7fELF"), copied[:4], "the copy execs without rewriting itself")
+
+	untouched, err := os.ReadFile(ape)
+	require.NoError(t, err)
+	assert.Equal(t, original, untouched, "the published artifact keeps its checksum")
+
+	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool"))
+	require.NoError(t, err)
+	assert.Equal(t, "mytool_host", linkTarget)
 }

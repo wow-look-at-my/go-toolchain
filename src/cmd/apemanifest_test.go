@@ -111,8 +111,8 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	require.NoError(t, runReleaseWithRunner(mock))
 
-	// Exactly one binary. Anything matching <name>_<os>_<arch> would be a
-	// duplicate copy of it.
+	// One publishable binary, plus the host's assimilated copy of it. Anything
+	// matching <name>_<os>_<arch> would be a duplicate that also ships.
 	entries, err := os.ReadDir(outDir)
 	require.NoError(t, err)
 	var binaries []string
@@ -122,7 +122,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 		}
 		binaries = append(binaries, e.Name())
 	}
-	assert.Equal(t, []string{"mytool_cosmo_fat"}, binaries)
+	assert.Equal(t, []string{"mytool_cosmo_fat", "mytool_host"}, binaries)
 
 	// checksums.txt lists the APE once, under its real filename.
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))

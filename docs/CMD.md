@@ -240,14 +240,21 @@ the manifest above is how the APE publishes now, under its own name, as one row.
 ## The host-runnable artifact
 
 `hostRunnableArtifact` (`matrixbuild.go`) resolves what the dats phase and the
-local convenience symlinks point at: the native `<name>_<hostos>_<hostarch>`
+local convenience entries derive from: the native `<name>_<hostos>_<hostarch>`
 build when one exists, else the APE, which runs here by construction. Without
 the fallback a default run — one APE, no per-platform copies — would leave both
 with nothing to point at.
 
-> **APEs self-assimilate on exec.** Never execute matrix artifacts in `build/`
-> in place. The bench phase never execs artifacts, so the pipeline is safe;
-> smoke tests use throwaway copies only.
+`createHostBinaries` then writes those entries. A native artifact gets two
+symlinks. An APE gets an assimilated copy at `<name>_host`, and `<name>` links
+to the copy, so `./build/<name>` is a plain native binary and the artifact
+itself is never the file being run.
+
+> **APEs self-assimilate on exec.** Nothing may execute a `<name>_cosmo_fat`
+> artifact in place: the run rewrites its header, so it stops matching its
+> checksum and stops being fat. Every consumer runs a copy instead — the dats
+> phase stages and assimilates one, `<name>_host` IS one, and the bench phase
+> never execs artifacts at all.
 
 ---
 

@@ -320,13 +320,13 @@ shared cache daemon and cache per-toolchain; normal targets are unaffected.
 See [docs/CACHE.md](docs/CACHE.md#fork-toolchain-key-namespacing).
 
 **Heads-up: APEs self-assimilate.** Executing an APE rewrites its own header
-in place to the host's native format, making the file differ from its
-checksum. Never execute the artifacts in `build/` directly — that includes the
-local `<name>`/`<name>_host` convenience symlinks, which point at the APE when
-no native host binary was built. Run a throwaway copy instead. The build
-pipeline itself never executes matrix artifacts in place (the dats phase stages
-copies; benchmarks compile their own test binaries), so artifacts stay pristine
-through the build.
+in place to the host's native format, making the file differ from its checksum
+and dropping the other platforms. So nothing runs one: `<name>_host` is an
+assimilated COPY of the APE (a plain native binary — run it as often as you
+like), `<name>` links to that copy, and the dats phase stages and assimilates
+its own copy. Benchmarks compile their own test binaries. The one file to leave
+alone is the `<name>_cosmo_fat` artifact itself, which stays pristine for
+publishing.
 
 ### WebAssembly targets (`--targets wasm/js,wasm/wasip1`)
 
