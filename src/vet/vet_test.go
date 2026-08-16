@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
@@ -33,18 +34,25 @@ func TestAssertNormAnalyzer(t *testing.T) {
 	analysistest.Run(t, dir, AssertNormAnalyzer, ".")
 }
 
+func TestDeadCodeAnalyzer(t *testing.T) {
+	testdata, err := filepath.Abs("testdata")
+	require.Nil(t, err)
+	analysistest.Run(t, testdata, DeadCodeAnalyzer, "deadcode")
+}
+
 func TestAnalyzers(t *testing.T) {
 	analyzers := Analyzers()
 	assert.NotEmpty(t, analyzers)
 
-	names := make(map[string]bool)
+	names := set.New[string]()
 	for _, a := range analyzers {
-		names[a.Name] = true
+		names.Add(a.Name)
 	}
-	assert.True(t, names["assertlint"])
-	assert.True(t, names["assertnorm"])
-	assert.True(t, names["redundantcast"])
-	assert.True(t, names["testifycast"])
+	assert.True(t, names.Contains("assertlint"))
+	assert.True(t, names.Contains("assertnorm"))
+	assert.True(t, names.Contains("deadcode"))
+	assert.True(t, names.Contains("redundantcast"))
+	assert.True(t, names.Contains("testifycast"))
 }
 
 func TestRunNoGoMod(t *testing.T) {

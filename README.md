@@ -7,7 +7,8 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Coverage enforcement** — fails the build if test coverage drops below 80%; emits a `::error::` workflow annotation in GitHub Actions so the failure is tagged in the run UI
 - **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
 - **Warnings budget** — fails the build when a run emits more than 15 warnings, and re-prints the full numbered list of them at the failure so there is no doubt which output was counted
-- **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
+- **One binary, every platform** — `matrix` builds a single fat APE running natively on Linux x64, macOS ARM64 and Windows x64, published as one artifact with one download link (see [One binary for every platform](#one-binary-for-every-platform-the-default))
+- **Cross-compilation** — or per-platform native binaries in parallel, by naming `--os`/`--arch`/`--targets`
 - **Benchmarks** — benchmarks run automatically after builds; compare against previous results stored in git notes
 - **CLI test suites (dats)** — `*.dats` suites under `dats/` run against the freshly built binaries after every build via the [dats](https://github.com/wow-look-at-my/dats) runner; a failing suite fails the build (see [CLI test suites (dats)](#cli-test-suites-dats))
 - **Near-duplicate detection** — scans Go source for structurally similar functions using AST comparison
@@ -15,9 +16,9 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Auto-fix / CI check** — locally (`CI` unset) it fixes linter violations and the migrations below in place; on CI (`CI` set) the very same checks run read-only and a tree that isn't already canonical is a hard build failure (listing the offending files and the local remedy), so CI can never pass green on something the local autofixer would have rewritten
 - **testify upstream migration** — rewrites in-house `github.com/wow-look-at-my/testify` imports back to upstream `github.com/stretchr/testify` (and migrates `gotest.tools` likewise), then inserts explicit type conversions into `assert`/`require` `Equal`/`NotEqual` and ordering (`Greater`/`GreaterOrEqual`/`Less`/`LessOrEqual`) operands so cross-type numeric comparisons the fork's loose comparisons accepted keep compiling and passing against upstream (which is type-strict on both paths — its ordering assertions fail cross-kind operands with "Elements should be the same type") — e.g. `assert.Equal(t, 0, f)` with `f float64` becomes `assert.Equal(t, float64(0), f)`, and `assert.Greater(t, v, 0)` with `v int16` becomes `assert.Greater(t, v, int16(0))`. The conversion is type-aware (only inserted when sound), idempotent, and adds any import the spelled type needs (an `os.FileMode` operand yields a `fs.FileMode(...)` cast — io/fs is the alias's origin — so `io/fs` is added when missing), and the vendor tree is resynced so vendored repos stay buildable with `-mod=vendor`
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval
-- **Dependency checking** — detects outdated dependencies and auto-updates same-org deps
+- **Dependency checking** — detects outdated dependencies and auto-updates same-org deps; a dependency can instead be pinned to follow a specific branch with a `// go-toolchain:branch=<name>` comment (the "`//branch` comment"). Every `github.com/wow-look-at-my/` dependency must carry that comment: a version-pinned one gets it added automatically, naming the module's default branch. See [docs/DEPS.md](docs/DEPS.md)
 - **Dependency graph submission** — automatically submits a dependency snapshot to GitHub's Dependency Submission API in CI, populating the repository's dependency graph for vulnerability alerts and Dependabot. A failed submission fails the build with an actionable error (missing token, missing `contents: write` permission). There is no opt-out: submission is part of building in CI. Building outside your checkout is not a way to skip either -- it is a hard error naming the problem, for every repository except go-toolchain itself, whose smoke jobs must drive the pipeline inside a synthetic throwaway module
-- **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Defers to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is a per-deploy kill switch); disable injection entirely with `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`
+- **Automatic GOMEMLIMIT** — injects a tiny, stdlib-only startup guard (`gomemlimit_gen.go`) into every `main` package it builds, so each binary reads its cgroup memory limit (v2 or v1) and sets `GOMEMLIMIT` to 90% of it, keeping the Go GC under the container ceiling instead of allocating until the kernel OOM-kills it. The guard is a transient build artifact — injected just before the build and removed right after, so it never lingers in the working tree or shows up as an uncommitted change; it is also listed in the repo's clone-local `.git/info/exclude` at inject time, so Go's own version stamping never sees it as an untracked file and built binaries keep clean `+dirty`-free provenance. It adds no dependency, carries the standard generated-code marker (so it never counts against coverage), and is a no-op when no limit is found or off-Linux. Injection is unconditional — there is no build-time off switch; opting out is a run-time decision, deferring to an explicit `GOMEMLIMIT` (`GOMEMLIMIT=off` is the per-deploy kill switch)
 - **Output stall watchdog** — the build's stdout/stderr are routed through an in-process watchdog that prints a loud `STALLED: no output for Ns` warning (with the current step name) whenever the pipeline goes silent for 5+ seconds. Disable it with `GO_TOOLCHAIN_NO_WATCHDOG=1` — the build then runs on its real stdio (useful when debugging output plumbing, since the watchdog works by dup2-redirecting fd 1/2 through pipes)
 - **CPU profiling** — run benchmarks with pprof profiling via the `profile` subcommand
 - **Local install** — install the binary to `~/.local/bin` via the `install` subcommand
@@ -34,7 +35,7 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Buildhost publishing** — CI automatically publishes cross-compiled binaries to [buildhost](https://pazer.build) via OIDC, making them available for download in multiple formats (raw binary, tar.gz, deb, Homebrew, npm, OCI)
 - **Background update check** — every run kicks off a non-blocking check against [buildhost](https://pazer.build) for a newer published `go-toolchain`. If this binary's commit is behind the latest release, a one-line warning is logged at the end of the run. The check runs in the background and is killed the instant the build finishes — it never blocks, delays, or fails the build, and stays silent on any error (offline, 404, etc.). It is a check only: the binary never replaces itself (update via buildhost/Homebrew/npm/APT). The check always runs — there is no opt-out. Point it at a self-hosted buildhost with `GO_TOOLCHAIN_BUILDHOST_URL`; it is skipped only for the `version` command (which reports its own staleness) and the GOCACHEPROG subprocess
 - **Build outputs only survive a green run** — `build/<target>` is deleted before the pipeline starts and again if the run fails, so a binary found there always came from a run that finished successfully. No opt-out. See [Build output lifetime](#build-output-lifetime)
-- **Claude output guard** — when go-toolchain runs under the Claude agent (detected via the `CLAUDECODE` environment marker and process ancestry), it refuses to run unless its full output is visible in the agent's transcript. Every way of hiding or truncating that output aborts immediately with an error pointing back to a plain run: piping into another command (`head`/`tail`/`grep`/`sed`/`awk`/`cat`/`tee`/…), redirecting to a file (`> out.log`, `>> out.log`), discarding to `/dev/null`, or capturing via `$(...)`. The only allowed "redirect" is the harness's own transcript-capture file (recognized by the `CLAUDE_CODE_SESSION_ID` embedded in its path) — that *is* how the agent reads the output — and a real terminal. It is a no-op when not running under Claude, so CI and human shells are unaffected. The guard is unconditional — there is deliberately no environment variable or flag to disable it. An abort also **deletes the module's build outputs** and names them in its message, since an invocation that hides the output usually ignores the exit code too. Stdout classification uses `/proc`, so the guard is live on linux hosts — including the released binaries, which are GOOS=cosmo fat-APE copies (the classifier builds for both `linux` and `cosmo`); native darwin/windows builds, and the cosmo APE on a macOS host (no `/proc`), fail open and never fire
+- **agent output guard** — when go-toolchain runs under an AI coding agent (Claude, grok build or opencode, detected by each one's environment marker and by process ancestry), it refuses to run unless its full output is visible in the agent's transcript: a pipe it does not read itself, a `> file`/`>> file` redirect, `/dev/null` or a `$(...)` capture aborts immediately and deletes the module's build outputs. Unconditional — no flag or env var disables it — and a no-op outside an agent, so CI and human shells are unaffected. See [docs/AGENT-OUTPUT-GUARD.md](docs/AGENT-OUTPUT-GUARD.md)
 
 ## GitHub Action Usage
 
@@ -79,11 +80,12 @@ To opt out, pass `codeql: 'false'`.
 | `generate`          | string   | `''`       | Run `go:generate` directives matching this hash          |
 | `working-directory` | string   | `.`        | Working directory for the build                          |
 | `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
-| `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems; `wasm` (WebAssembly) pairs only with arch `js`/`wasip1` — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1) |
-| `arch`              | string   | `amd64,arm64` | Comma-separated target architectures; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
-| `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
+| `os`                | string   | `''`       | Comma-separated target operating systems. Setting this **or** `arch` switches from the default single APE to one native binary per platform; `wasm` pairs only with arch `js`/`wasip1` — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1) |
+| `arch`              | string   | `''`       | Comma-separated target architectures. Setting this **or** `os` switches to per-platform binaries; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
+| `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo`. When non-empty this replaces the `os`/`arch` inputs |
+| `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE must cover, as `os/arch` pairs; `all` covers everything the fork can emit — see [One binary for every platform](#one-binary-for-every-platform-the-default) |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
-| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; with `deployments: write` also registers a GitHub Deployment (warns and skips it otherwise) |
+| `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; also registers a GitHub Deployment and posts an artifact storage record, so it additionally requires `deployments: write` + `artifact-metadata: write` and fails the build without either (see [autorelease permissions](#github-action-usage)) |
 | `autorelease_args`  | string   | `''`       | Extra publish options forwarded to the buildhost publish, as whitespace/comma-separated `key=value` pairs. Recognized: `create_service=true\|false` (the published binary runs as a background service; each download format materializes it — brew `service do` block, auto-enabled systemd user unit in generated debs). Unknown keys fail the build; empty forwards nothing |
 | `allow-source-build` | string  | `false`    | Allow building go-toolchain from source when the buildhost binary is unavailable; when `false`, the build fails fast instead of silently falling back |
 | `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
@@ -152,11 +154,14 @@ go install github.com/wow-look-at-my/go-toolchain@latest
 # Run tests and build (default workflow)
 go-toolchain
 
-# Cross-compile for multiple platforms
-go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
+# One fat APE covering Linux x64, macOS ARM64 and Windows x64 (the default)
+go-toolchain matrix
 
-# Build an exact target list: one Cosmopolitan fat APE plus three native builds
-go-toolchain matrix --targets cosmo,darwin/amd64,darwin/arm64,windows/arm64
+# Pick the platforms the one binary covers
+go-toolchain matrix --cosmo-platforms linux/amd64,linux/arm64
+
+# Native per-platform binaries instead: naming --os or --arch selects them
+go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
 
 # WebAssembly builds (browser/Node.js and WASI) alongside a native target
 go-toolchain matrix --targets wasm/js,wasm/wasip1,linux/amd64
@@ -218,7 +223,7 @@ Log routing: debug messages go to stderr and info to stdout; warnings and errors
 
 ### Subcommands
 
-- **`matrix`** — cross-compile for multiple platforms (`--os`, `--arch`, `--targets`, `--cosmo-slots`, `--parallel`, `--no-benchmark`)
+- **`matrix`** — build one multi-platform APE, or cross-compile per platform (`--cosmo-platforms`, `--os`, `--arch`, `--targets`, `--parallel`, `--no-benchmark`)
 - **`bench`** — run and manage benchmarks
   - `run` — run benchmarks and show deltas vs stored results
   - `save` — run benchmarks and store results in git notes
@@ -231,65 +236,64 @@ Log routing: debug messages go to stderr and info to stdout; warnings and errors
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
 
-### Cosmopolitan fat binaries (`--targets cosmo`)
+### One binary for every platform (the default)
 
-`matrix --targets` replaces the `--os` x `--arch` cartesian product with an
-exact target list. Each entry is an `os/arch` pair, or the special value
-`cosmo`: one **fat Actually Portable Executable** built with the
-[gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) Go fork
-(`GOOS=cosmo`). A fat APE is a single self-contained binary that runs natively
-on x86-64 Linux, ARM64 Linux, ARM64 macOS, and x86-64 Windows — it embeds cosmo
-amd64, cosmo arm64, and a native windows/amd64 PE payload. The artifact is
-named `<name>_cosmo_fat` (no `.exe`, even though the file is a genuine PE
-polyglot).
+> **Shipping policy.** The `wow-look-at-my` org ships **one APE covering every
+> supported platform**. Per-platform binaries have ended: the org no longer
+> maintains or stores them, and nothing in its pipelines produces them. The
+> cross-compilation flags below still work for consumers with a genuine need,
+> but they are not this org's shipping mode.
+
+`go-toolchain matrix` builds **one** file: a fat Actually Portable Executable,
+compiled with the [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan)
+Go fork (`GOOS=cosmo`). It runs natively on Linux x64, macOS ARM64 and Windows
+x64 — no emulation, no per-platform download. The artifact is
+`<name>_cosmo_fat` (no `.exe`, though the file is a genuine PE polyglot).
 
 ```bash
-# One fat APE (with slot copies) plus native builds for the three carve-outs
-go-toolchain matrix --targets cosmo,darwin/amd64,darwin/arm64,windows/arm64
+go-toolchain matrix
+# build/go-toolchain_cosmo_fat        the binary, runs on all three
+# build/buildhost-artifacts.json      publishes it as ONE artifact
+# build/checksums.txt
 ```
 
-**Slot mapping.** After a successful cosmo build the fat APE is *copied* (real
-files, never symlinks — artifact upload and publishing skip symlinks) onto the
-conventional per-platform artifact names, so per-platform consumers (e.g.
-buildhost's `?os=&arch=` download slots) keep resolving without changes:
+**Choosing the platforms.** `--cosmo-platforms` takes `os/arch` pairs and
+defaults to `linux/amd64,darwin/arm64,windows/amd64`. `all` covers everything
+the fork can emit.
 
-| Slot (default `--cosmo-slots`) | Artifact name |
-|---|---|
-| `linux/amd64`   | `<name>_linux_amd64` |
-| `linux/arm64`   | `<name>_linux_arm64` |
-| `windows/amd64` | `<name>_windows_amd64.exe` (the APE is a real PE, so `.exe` is correct) |
+A narrower set is **not** automatically a smaller binary, and the default set
+saves nothing: an APE carries one payload per ARCHITECTURE, and those three
+platforms still need both — darwin/arm64 boots the arm64 image, linux/amd64 and
+windows/amd64 the amd64 one. Measured saving for the default set: **0%**. Only
+collapsing to a single architecture drops a payload (**-46.9%**). The win of the
+default is one artifact instead of six, not fewer bytes.
 
-`--cosmo-slots` accepts a custom `os/arch` list, or `none` to disable mapping.
-`checksums.txt` covers the copies. If the target list *also* names a slot's
-platform as an explicit native target (e.g. `--targets cosmo,linux/amd64`),
-the native build wins that filename and the copy is skipped with a warning —
-explicit beats mapped.
+Accepted: `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`.
+`darwin/amd64` (Intel-mac runtime never proven on real hardware) and
+`windows/arm64` (amd64-only PE payload) are refused — a published platform set
+says where the binary runs, so an unproven host cannot be in it.
 
-**The fat name after mapping.** Once at least one slot copy exists, the
-`<name>_cosmo_fat` artifact itself is replaced: buildhost validates `os` on
-artifact upload and rejects `os=cosmo` (`400 invalid os`), and a single
-rejected artifact aborts the whole publish. Locally the fat name becomes a
-symlink to the first slot copy, so it keeps working on disk while the publish
-pipeline (which skips symlinks) never uploads it; in CI it is removed outright,
-because `upload-artifact` dereferences symlinks and would re-materialize a
-publish-breaking regular file inside the artifact. `checksums.txt` therefore
-lists real files only — every slot copy is byte-identical to the APE, so
-nothing is lost. With `--cosmo-slots=none` (or when every slot loses to a
-native collision) the real fat file is kept; note such a layout cannot be
-published to buildhost until the server accepts `os=cosmo`.
+**Publishing.** The APE publishes as a *single* artifact carrying its whole
+platform set: one upload, one download link, one checksum, with an
+`APE:<platforms>` badge. go-toolchain writes `buildhost-artifacts.json`
+alongside the binary to say so — see
+[docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md).
 
-**Native carve-outs.** `darwin/arm64`, `darwin/amd64` and `windows/arm64` are
-deliberately NOT default slots. `darwin/arm64`: the fat APE boots and even
-builds fine on ARM64 macs, but the pipeline *wedges at exit* there — the
-gosmopolitan runtime runs unix-socket fds in blocking mode with no netpoller
-on darwin hosts, so closing the cache daemon's listener deadlocks against its
-own blocked `Accept` (root-caused via SIGQUIT goroutine dumps; tracked in
-[#276](https://github.com/wow-look-at-my/go-toolchain/issues/276)) — so macs
-keep getting a native binary until that runtime bug is fixed. `darwin/amd64`:
-the cosmo runtime for Intel macs is not yet verified end to end.
-`windows/arm64`: the APE's embedded Windows payload is amd64-only. Build
-those three as native targets alongside `cosmo` (as in the example above) for
-full coverage.
+**Per-platform binaries instead** — supported, but not this org's shipping
+mode. Naming `--os` or `--arch` builds the cartesian product of native
+binaries; naming only one fills the other in (`--arch arm64` means every OS,
+arm64). `--targets` takes an exact list of `os/arch` pairs plus the entry
+`cosmo`, and mixes them freely:
+
+```bash
+go-toolchain matrix --os linux,darwin --arch amd64,arm64
+go-toolchain matrix --targets cosmo,windows/arm64
+```
+
+**No per-platform copies.** A cosmo build writes the APE and nothing else.
+There is no flag that copies it onto `<name>_<os>_<arch>` names — the APE
+publishes under its own name through the manifest, as one artifact carrying its
+whole platform set.
 
 **Toolchain resolution.** Building the cosmo target needs the gosmopolitan
 toolchain:
@@ -317,11 +321,12 @@ See [docs/CACHE.md](docs/CACHE.md#fork-toolchain-key-namespacing).
 
 **Heads-up: APEs self-assimilate.** Executing an APE rewrites its own header
 in place to the host's native format, making the file differ from its
-checksum. Never execute the artifacts in `build/` directly (that includes the
-`<name>`/`<name>_host` convenience symlinks after a cosmo-only build, which
-point at a mapped copy of the APE) — run a throwaway copy instead. The build
-pipeline itself never executes matrix artifacts (benchmarks compile their own
-test binaries), so artifacts stay pristine through the build.
+checksum. Never execute the artifacts in `build/` directly — that includes the
+local `<name>`/`<name>_host` convenience symlinks, which point at the APE when
+no native host binary was built. Run a throwaway copy instead. The build
+pipeline itself never executes matrix artifacts in place (the dats phase stages
+copies; benchmarks compile their own test binaries), so artifacts stay pristine
+through the build.
 
 ### WebAssembly targets (`--targets wasm/js,wasm/wasip1`)
 
@@ -387,7 +392,7 @@ artifacts from the trailing two underscore-separated filename tokens after
 stripping only `.exe`, so the bare form is what publishes as
 `os=wasm`/`arch=js|wasip1` (an extension would keep the file out of the
 upload set entirely). The files are still ordinary wasm modules, covered by
-`checksums.txt`; none of the cosmo slot machinery applies to them.
+`checksums.txt`.
 
 **Buildhost publishing.** By default wasm artifacts are published to
 buildhost like any other target, as `os=wasm` with `arch=js`/`arch=wasip1`.
@@ -443,8 +448,8 @@ Rejected spellings fail fast with a pointer to the right one: `js`/`wasip1`
 in `--os` and `wasm` in `--arch` (both flipped in buildhost's model — use
 `--os wasm --arch js|wasip1`, or `--targets wasm/js`/`wasm/wasip1`),
 `js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings), a
-`js`/`wasip1` arch with no `wasm` os in the list, and wasm targets in
-`--cosmo-slots` (an APE is not a wasm binary).
+`js`/`wasip1` arch with no `wasm` os in the list, and a wasm target in
+`--cosmo-platforms` (an APE covers native hosts, and wasm is not one).
 
 ### Build output lifetime
 
@@ -455,7 +460,7 @@ keep that true, go-toolchain deletes the artifacts of its own build targets
   kill — leaves nothing runnable behind;
 - **when the run fails after the build phase already wrote them** (a red dats
   suite, the coverage or warnings gate);
-- **when the Claude output guard refuses to run**, or when the Go bootstrap
+- **when the agent output guard refuses to run**, or when the Go bootstrap
   fails before the pipeline is reached.
 
 Only the target's own artifacts are touched: the bare name, `<name>.exe`, and
@@ -507,10 +512,10 @@ If a repository committed the guard under an older go-toolchain, the cleanup
 deletes those files from the working tree on the next run (without failing the
 build); commit that deletion once to drop the stale files for good.
 
-```bash
-# Build-time: disable injection (default is on)
-export GO_TOOLCHAIN_AUTO_MEMLIMIT=off
-```
+Injection is unconditional — there is no build-time flag or environment variable
+to turn it off. Opting out is a run-time decision instead, via the variables
+below, which is the layer that actually knows whether a given deployment wants
+the cap.
 
 The following are read by the built program **when it starts**, not at build time:
 
@@ -534,6 +539,18 @@ runs the module's command-line test suites written in
 - **Convention** — suites are non-hidden `*.dats` files under `dats/` at the
   module root. No `dats/` directory (or no suites in it) means the phase is a
   silent no-op: zero downloads, zero output.
+- **Indent with tabs** — dats' YAML parser rejects space indentation; spaces
+  only align after a tab. See `dats/README.md` for the shape.
+- **Repos with no `go.mod`** — a shell or TypeScript project whose CLI is worth
+  testing this way still gets its suites run: in a directory with `dats/` but no
+  module, `go-toolchain` prints `⇒ No go.mod; running dats suites only`, runs
+  them, and exits. Nothing is tidied, vetted, covered or built, so there are no
+  artifacts and `GO_TOOLCHAIN_DATS_BUILD_DIR` is an empty directory — such a
+  suite exercises what is already in the tree. Staging still happens under
+  `build/` (the sandbox exposes only the working directory), but a `build/`
+  created solely for it is removed again, so a non-Go repo is not left holding
+  one it does not gitignore. A directory with neither a module nor suites is
+  still an error.
 - **Built binaries** — `GO_TOOLCHAIN_DATS_BUILD_DIR` is exported to dats: a
   throwaway dir with copies of the just-built binaries, named by bare output
   name (plus `.exe` on windows hosts). Exec them through it, never `build/`.
@@ -541,14 +558,15 @@ runs the module's command-line test suites written in
   filtering, selection, or skip mechanism (dats has none by design either).
 - **Failures fail the build**, exactly like unit tests; suite and `.golden`
   snapshot edits also invalidate the "Up to date" fast-exit.
-- **Bootstrap** — the dats binary comes from `GO_TOOLCHAIN_DATS_BIN` (local
-  override) or a cached buildhost download; `GO_TOOLCHAIN_DATS_BRANCH`
-  (default `master`) selects the buildhost branch.
+- **No bootstrap** — dats is a Go library and go-toolchain links it, so suites
+  run in-process. Nothing is downloaded, cached, or exec'd, and the dats
+  version is whatever this binary was built against.
+- **Sandboxed** — suite commands run in dats' default sandbox (bubblewrap,
+  then seatbelt, then docker). Whether a suite needs the host is the suite's
+  own declaration (`sandbox: false`), never the toolchain's.
 
 | Environment variable | Meaning |
 |---|---|
-| `GO_TOOLCHAIN_DATS_BIN` | Path to a local dats binary (no download; health-probed with `dats version`) |
-| `GO_TOOLCHAIN_DATS_BRANCH` | buildhost branch for the dats download (default `master`) |
 | `GO_TOOLCHAIN_DATS_BUILD_DIR` | Set *by* go-toolchain *for* suites: dir of staged built binaries |
 
 See `dats/README.md` in this repo for suite-authoring conventions and this
@@ -609,18 +627,20 @@ All spans use `INTERNAL` kind. Success and failure are reported via span status 
 
 ## How It Works
 
-Before the pipeline begins, go-toolchain runs a pre-flight check: if it is running under the Claude agent and its output is being hidden — piped into another command, redirected to a file, discarded to `/dev/null`, or captured via `$(...)` — it aborts immediately with an error, deleting the module's build outputs on the way out (see the Claude output guard above; the guard is unconditional and has no opt-out). It then checks whether anything relevant changed since the last successful run: it fingerprints every `.go` file, `go.mod`/`go.sum`, every `.dats` suite and `.golden` snapshot, and each file referenced by a `//go:embed` directive (enumerated for the main module via `go list`, so an edit to an embedded asset such as a static file or template is detected), and if the fingerprint matches and all `build/` outputs still exist it prints `⇒ Up to date, nothing to do` and exits without running the steps below. If `go list` cannot resolve the packages (e.g. the build is broken) it does not short-circuit. Otherwise the default workflow is:
+Before the pipeline begins, go-toolchain runs a pre-flight check: if it is running under an AI coding agent (Claude, grok build, opencode) and its output is being hidden — piped into another command, redirected to a file, discarded to `/dev/null`, or captured via `$(...)` — it aborts immediately with an error, deleting the module's build outputs on the way out (see the agent output guard above; the guard is unconditional and has no opt-out). It then checks whether anything relevant changed since the last successful run: it fingerprints every `.go` file, `go.mod`/`go.sum`, every `.dats` suite and `.golden` snapshot, everything under a `testdata` directory, each file referenced by a `//go:embed` directive (enumerated for the main module via `go list`, so an edit to an embedded asset such as a static file or template is detected), the flags the run was invoked with, and the environment it was invoked in — an env-gated test you just switched on is a different run, and skipping it would report green for something that never executed. If the fingerprint matches and all `build/` outputs still exist it prints `⇒ Up to date, nothing to do` and exits without running the steps below. If `go list` cannot resolve the packages (e.g. the build is broken) it does not short-circuit. Otherwise the default workflow is:
 
 1. Deletes the build outputs of every target in `build/`, so nothing runnable survives a run that never reaches the build step below (see [Build output lifetime](#build-output-lifetime))
 2. Configures Go proxy and sumdb environment (via `GO_PROXY_CONFIG` or env vars)
-3. Checks for outdated dependencies (auto-updates same-org deps)
+3. Checks for outdated dependencies (auto-updates same-org deps), adds the branch marker to any `github.com/wow-look-at-my/` dependency still carrying a plain version pin, and repairs/re-resolves any dependency's pseudo-version, including branch-tracked ones (see [docs/DEPS.md](docs/DEPS.md))
 4. Resolves vanity-URL module dependencies (injects replace directives for unreachable hosts). The replaces are transient — removed before the run ends — and the CI dirty-tree check evaluates the tree as it will be restored, so the toolchain's own go.mod/go.sum mutation never fails CI while any real uncommitted change still does
 5. Runs `go mod tidy`
 6. Detects and runs `//go:generate` directives (if present)
 7. Runs `go vet`: custom analyzers normalize assertions, migrate `gotest.tools`/fork-testify imports to upstream `stretchr/testify`, and insert explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` and `Greater`/`Less`-family operands, adding any import the conversion's type needs (resyncing the vendor tree afterward). Locally these fixes are applied in place; on CI (`CI` set) they run read-only and any change they would make is a hard failure instead — so importing the removed `wow-look-at-my/testify` fork fails CI rather than passing green
-8. Checks for near-duplicate code blocks (warnings only)
-9. Checks file lengths (warns at 500 lines, errors at 750). Generated files — detected by the canonical `^// Code generated .* DO NOT EDIT\.$` header marker (the same rule used by `go help generate`/gofmt/x/tools) — are auto-exempted from both the warning and the hard fail, and a single `File length check: skipped N generated file(s)` notice is printed for transparency. Pass `--count-generated` to subject generated files to the check like any other file
-10. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). The local tier is a FUSE virtual filesystem backed by append-only pack files (see [docs/CACHE.md](docs/CACHE.md)); a cache hit returns a `DiskPath` into the mount and the kernel serves the body on demand from a pack, so no per-entry loose files or sidecars are written. Remote fetches route through the server's batch GET endpoint with prefetch — one coalesced round-trip serves many concurrent requests and the server also returns temporally related entries from the same build, proactively populating the local cache; keys the server's fresh index reports absent miss instantly with no round-trip (a failed index fetch keeps probing enabled as the recovery path). PUTs are LZ4-compressed and coalesced: instead of one HTTP PUT per object (a storm of thousands that saturates the cache server's admission control on a large build), buffered uploads are shipped as a single `/_batch/put` tar request — mirroring the batch GET coalescer — so a whole batch takes one server slot. The batch is retried as a whole on a `503` admission shed (honoring `Retry-After`), a per-object server error rolls back only that object's optimistic index claim, and the client falls back to individual PUTs against a cache server that does not support the batch endpoint. A key the server 404s despite being index-listed is re-uploaded on the next PUT instead of being skipped as already-present. Each object is tagged with metadata describing what it is (sent as `X-Cache-Meta-*` headers on an individual PUT, or as per-entry manifest metadata in a batch):
+   The `mapset` analyzer also fails the build on a `map[K]bool` written where a set is meant — a literal whose every value is `true`, or a map made empty that the package only ever writes `true` into, deletes from, ranges by key and reads — and names [`go-containers/set`](https://github.com/wow-look-at-my/go-containers/tree/master/set) as the remedy. A `v, ok := m[k]` read, a non-`true` value, or handing the map to another function all mean it is a real map, and it is left alone. A `map[K]struct{}` gets a warning rather than a failure: it already carries no value (and `go-containers/set` itself, whose storage IS such a map, is exempt from that warning). There is no opt-out marker. In a `wow-look-at-my` or `PazerOP` module the `map[K]bool` findings fail the build; in anybody else's module the same findings are warnings, since the fix would add a dependency its author never chose (see [docs/VET.md](docs/VET.md))
+8. Detects dead code — warns about unexported functions, types, constants, and variables that are never used within their package
+9. Checks for near-duplicate code blocks (warnings only)
+10. Checks file lengths (warns at 500 lines, errors at 750). Generated files — detected by the canonical `^// Code generated .* DO NOT EDIT\.$` header marker (the same rule used by `go help generate`/gofmt/x/tools) — are auto-exempted from both the warning and the hard fail, and a single `File length check: skipped N generated file(s)` notice is printed for transparency. Pass `--count-generated` to subject generated files to the check like any other file
+11. Starts GOCACHEPROG server with local + web backends (if web cache credentials are configured). The local tier is a FUSE virtual filesystem backed by append-only pack files (see [docs/CACHE.md](docs/CACHE.md)); a cache hit returns a `DiskPath` into the mount and the kernel serves the body on demand from a pack, so no per-entry loose files or sidecars are written. Remote fetches route through the server's batch GET endpoint with prefetch — one coalesced round-trip serves many concurrent requests and the server also returns temporally related entries from the same build, proactively populating the local cache; keys the server's fresh index reports absent miss instantly with no round-trip (a failed index fetch keeps probing enabled as the recovery path). PUTs are LZ4-compressed and coalesced: instead of one HTTP PUT per object (a storm of thousands that saturates the cache server's admission control on a large build), buffered uploads are shipped as a single `/_batch/put` tar request — mirroring the batch GET coalescer — so a whole batch takes one server slot. The batch is retried as a whole on a `503` admission shed (honoring `Retry-After`), a per-object server error rolls back only that object's optimistic index claim, and the client falls back to individual PUTs against a cache server that does not support the batch endpoint. A key the server 404s despite being index-listed is re-uploaded on the next PUT instead of being skipped as already-present. Each object is tagged with metadata describing what it is (sent as `X-Cache-Meta-*` headers on an individual PUT, or as per-entry manifest metadata in a batch):
    - `Outputid` — the body's content address (lowercase-hex SHA-256), the id the GOCACHEPROG protocol verifies downloads against
    - `Object-Type` — file type detected from magic bytes (`go-archive`, `elf-binary`, `macho-binary`, `pe-binary`, `go-object`, or `unknown`)
    - `Go-Version` — the Go compiler version that produced the artifact (e.g. `go1.24.7`), extracted from Go archive headers
@@ -644,18 +664,18 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
    X-Cache-Meta-Target: linux/amd64
    X-Cache-Meta-Outputid: 6a1f…
    ```
-11. Discovers packages with test files, excluding those where all non-test `.go` files are generated code
-12. Runs `go test` across non-generated packages with coverage profiling
-13. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%). A module with no coverable statements at all (e.g. one that only embeds assets or declares constants/types) passes this check vacuously with a note; a module that has coverable statements but produced no test results fails with a pointer to add `*_test.go` files; and a run where tests executed over coverable code yet no statements were measured aborts loudly — that means the coverage profile itself is missing or broken
-14. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-15. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`) — first listing it in the clone-local `.git/info/exclude` so `git status`, and with it Go's build-time version stamping, never sees the transient file (binaries stamp clean provenance instead of `+dirty`) — builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
-16. Automatically adds `build/` to `.gitignore` (if in a git repo)
-17. Runs benchmarks and compares against previously stored results
-18. Runs the module's dats CLI test suites (non-hidden `*.dats` files under `dats/`) against throwaway copies of the just-built binaries, exported to suites as `GO_TOOLCHAIN_DATS_BUILD_DIR`; a failing suite fails the build (see [CLI test suites (dats)](#cli-test-suites-dats)). Skipped silently when the module has no suites
-19. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts. A failed submission fails the build. There is no opt-out, and building outside `GITHUB_WORKSPACE` is refused rather than skipped (the sole exception is go-toolchain's own smoke jobs)
-20. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
-21. Emits the per-action build profile once the cache daemon has drained: the console section, `build/profile.json` (+ `$TMPDIR/go-toolchain-profile/profile.json`), per-action Chrome-trace lanes, and a Step Summary table (see [Build profile](#build-profile); skipped with `--no-profile`)
-22. Fails the run if it emitted more than 15 warnings (`build failed: N warnings emitted (threshold: 15)`) — checked last, so every warning is printed before the failure; the failure then re-prints all of them as a numbered list (one `::error` annotation in GitHub Actions), because only `src/logger` warnings are counted and the loudest lines in a log usually are not. The same gate applies to `matrix`
+12. Discovers packages with test files, excluding those where all non-test `.go` files are generated code
+13. Runs `go test` across non-generated packages with coverage profiling
+14. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%). A module with no coverable statements at all (e.g. one that only embeds assets or declares constants/types) passes this check vacuously with a note; a module that has coverable statements but produced no test results fails with a pointer to add `*_test.go` files; and a run where tests executed over coverable code yet no statements were measured aborts loudly — that means the coverage profile itself is missing or broken
+15. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
+16. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (unless `GO_TOOLCHAIN_AUTO_MEMLIMIT=off`) — first listing it in the clone-local `.git/info/exclude` so `git status`, and with it Go's build-time version stamping, never sees the transient file (binaries stamp clean provenance instead of `+dirty`) — builds the project binaries into `build/`, then removes the transient guard files so they never linger in the working tree (the dirty-tree check ignores `gomemlimit_gen.go` in every git state)
+17. Automatically adds `build/` to `.gitignore` (if in a git repo)
+18. Runs benchmarks and compares against previously stored results
+19. Runs the module's dats CLI test suites (non-hidden `*.dats` files under `dats/`) against throwaway copies of the just-built binaries, exported to suites as `GO_TOOLCHAIN_DATS_BUILD_DIR`; a failing suite fails the build (see [CLI test suites (dats)](#cli-test-suites-dats)). Skipped silently when the module has no suites
+20. Submits a dependency snapshot to GitHub's Dependency Submission API (when `$CI` and `$GITHUB_REPOSITORY` are set), populating the repository's dependency graph with all direct and indirect Go module dependencies for vulnerability scanning and Dependabot alerts. A failed submission fails the build. There is no opt-out, and building outside `GITHUB_WORKSPACE` is refused rather than skipped (the sole exception is go-toolchain's own smoke jobs)
+21. Writes a GitHub Step Summary (when `$GITHUB_STEP_SUMMARY` is set) with a test case table, clickable source links, coverage stats, benchmark comparison, and a Gantt chart showing the pipeline timeline across all threads
+22. Emits the per-action build profile once the cache daemon has drained: the console section, `build/profile.json` (+ `$TMPDIR/go-toolchain-profile/profile.json`), per-action Chrome-trace lanes, and a Step Summary table (see [Build profile](#build-profile); skipped with `--no-profile`)
+23. Fails the run if it emitted more than 15 warnings (`build failed: N warnings emitted (threshold: 15)`) — checked last, so every warning is printed before the failure; the failure then re-prints all of them as a numbered list (one `::error` annotation in GitHub Actions), because only `src/logger` warnings are counted and the loudest lines in a log usually are not. The same gate applies to `matrix`
 
 ## Development
 

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -28,6 +29,17 @@ import (
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
 	// Fix any v0.0.0 dependencies before go mod tidy
 	if err := FixBogusDepsVersions(r); err != nil {
+		return false, nil, err
+	}
+
+	// An org dependency carrying a plain version pin gets the branch marker
+	// added first, so the re-resolution below owns it from this run on.
+	if _, err := EnforceOrgBranchTracking(r); err != nil {
+		return false, nil, err
+	}
+
+	// Re-resolve any dependency pinned to follow a branch (see depsbranch.go)
+	if _, err := UpdateTrackedBranchDeps(r); err != nil {
 		return false, nil, err
 	}
 
@@ -125,6 +137,28 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			}
 			filesChanged = false
 			err = nil
+		} else if isCorruptExportData(err) {
+			// A corrupt build-cache entry, not a source error. Recover once,
+			// deterministically: drop the shared cache tier and rebuild the
+			// damaged packages from source. Exactly one retry, and only when
+			// that tier was actually in play, so this cannot loop.
+			if !disableSharedBuildCache() {
+				return false, nil, corruptExportDataError(err, false)
+			}
+			logger.Warn("⇒ Warning: vet failed on CORRUPT BUILD CACHE data (%s), not on your source: %s. Disabling the shared build cache (GOCACHEPROG) for the rest of this run and rebuilding those packages from source. Repeated occurrences mean the shared cache tier is serving damaged entries and needs inspecting.",
+				invalidPackageNameMarker, strings.Join(corruptExportPackages(err), ", "))
+			if vetPhaseStep != nil {
+				vetPhaseStep.done()
+				vetPhaseStep = nil
+			}
+			vetPhaseStep = logSubStep("vet: retry without the shared build cache", "main")
+			filesChanged, err = vet.RunWithProgress(fix, vetProgress)
+			if err != nil {
+				if isCorruptExportData(err) {
+					return false, nil, corruptExportDataError(err, true)
+				}
+				return false, nil, fmt.Errorf("vet failed: %w", err)
+			}
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}
@@ -196,17 +230,17 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if activeTrace != nil && result != nil {
 		// Build set of tests that have subtests so we only trace leaf tests
 		// (parent durations include children and would overlap).
-		hasSubtest := make(map[string]bool)
+		hasSubtest := set.New[string]()
 		for _, tc := range result.TestCases {
 			if i := strings.LastIndex(tc.Test, "/"); i > 0 {
-				hasSubtest[tc.Package+"."+tc.Test[:i]] = true
+				hasSubtest.Add(tc.Package + "." + tc.Test[:i])
 			}
 		}
 		for _, tc := range result.TestCases {
 			if tc.Elapsed <= 0 || tc.End.IsZero() {
 				continue
 			}
-			if hasSubtest[tc.Package+"."+tc.Test] {
+			if hasSubtest.Contains(tc.Package + "." + tc.Test) {
 				continue // skip parent, children cover the time
 			}
 			dur := time.Duration(tc.Elapsed * float64(time.Second))

@@ -17,3 +17,9 @@ import "runtime"
 // GOOS returns runtime.GOOS: for every non-cosmo build target, the
 // compiled-for OS and the host OS are the same thing.
 func GOOS() string { return runtime.GOOS }
+
+// Detect reports the host OS and how it was determined. For a non-cosmo build
+// there is nothing to determine — the compiler already knew.
+func Detect() Detection {
+	return Detection{OS: runtime.GOOS, Method: "compiled"}
+}

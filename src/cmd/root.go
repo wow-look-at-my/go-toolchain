@@ -13,6 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/integration"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -63,14 +64,18 @@ var rootCmd = &cobra.Command{
 		if err := initLogging(cmd); err != nil {
 			return err
 		}
+		// Snapshot the environment before any phase adds variables of its own,
+		// so the fingerprint saved at the end of the run describes the same
+		// environment the next run's check will see.
+		captureRunEnv()
 		if skipCache(cmd) {
 			return nil
 		}
-		// Abort before doing any work if Claude is hiding our output — piping
-		// it, redirecting it to a file, or discarding it — instead of letting
-		// the coverage report and build/test failures print where it can read
-		// them.
-		guardAgainstClaudeOutputCapture()
+		// Abort before doing any work if the agent running us is hiding our
+		// output — piping it, redirecting it to a file, or discarding it —
+		// instead of letting the coverage report and build/test failures print
+		// where it can read them.
+		guardAgainstAgentOutputCapture()
 		if cmd.Parent() == nil && isUpToDate(runner.New()) {
 			logger.Output("⇒ Up to date, nothing to do")
 			ReportUpdateCheck()
@@ -107,6 +112,10 @@ func init() {
 	rootCmd.Flags().StringVar(&benchTime, "benchtime", "", "Duration or count for each benchmark (e.g. 5s, 1000x)")
 	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
+
+	// The fingerprint covers the flags the run was invoked with; see
+	// flagFingerprint for why it cannot name rootCmd itself.
+	fingerprintFlags = rootCmd.Flags()
 
 	Register(rootCmd)
 }
@@ -148,7 +157,17 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	modules := findGoModules()
 	if len(modules) == 0 {
-		return fmt.Errorf("no go.mod found — initialize with: go mod init <module-path>")
+		// A repo with no go.mod can still own dats suites -- the CLI a suite
+		// exercises does not have to be Go, and dats is linked in here rather
+		// than distributed separately. Refusing outright pushed those repos
+		// into fetching a standalone dats binary and wiring their own CI step,
+		// which is this toolchain's job and a version skew waiting to happen.
+		// There is nothing to tidy, vet, cover or build, so the suites ARE the
+		// run.
+		if hasDatsSuites(".") {
+			return runDatsOnly()
+		}
+		return fmt.Errorf("no go.mod and no dats/ suites found — initialize a module with: go mod init <module-path>")
 	}
 
 	r := runner.New()
@@ -316,11 +335,15 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		return err
 	}
 
+	if err := integration.Run(context.Background(), "tests"); err != nil {
+		return err
+	}
+
 	// Run the module's dats suites (if any) against the binaries just built.
 	// After the build phase so the transient memlimit guard is already
 	// cleaned up; an error here fails the run before saveFingerprint, so a
 	// failing suite is never stamped up-to-date.
-	if err := runDatsPhase(r, quiet, builtArtifacts); err != nil {
+	if err := runDatsPhase(quiet, builtArtifacts); err != nil {
 		return err
 	}
 

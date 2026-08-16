@@ -1,91 +1,33 @@
 //go:build linux || cosmo
 
-// This file is the Claude output guard's real classifier. It MUST build for
+// This file is the agent output guard's real classifier. It MUST build for
 // GOOS=cosmo as well as GOOS=linux: every released "linux" binary is a
 // GOOS=cosmo fat-APE slot copy, and cosmo matches the `unix` build tag but
 // not `linux` — a `_linux.go` filename (or a bare `//go:build linux`) would
 // compile the guard out of every shipped binary while the GOOS=linux unit
 // tests stay green (that was a real bug; claudeguard_buildtags_test.go pins
 // the constraints). Everything here needs only /proc + stdlib, which work
-// under cosmo on linux hosts; on a darwin host the APE has no /proc, so
-// inspectFD fails open to sinkVisible. isTerminal is the one piece needing a
-// platform ioctl and lives in claudeguard_tty_{linux,cosmo}.go.
+// under cosmo on linux hosts. On a darwin host the APE has no /proc, so this
+// classifier is blind and the guard cannot fire; that is a KNOWN GAP, not a
+// design — see unclassifiableSink, which says so out loud, and
+// docs/AGENT-OUTPUT-GUARD.md for what closing it needs. isTerminal is the one
+// piece needing a platform ioctl and lives in claudeguard_tty_{linux,cosmo}.go.
 
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// claudeProcessAncestor reports whether any ancestor process is the Claude
-// agent, identified by a process name beginning with "claude". It walks the
-// parent-PID chain via /proc, stopping at PID 1 or after a bounded number of
-// hops (defensive against pid-reuse races).
-func claudeProcessAncestor() bool {
-	pid := os.Getppid()
-	for hops := 0; pid > 1 && hops < 64; hops++ {
-		comm, ppid, ok := procCommPPID(pid)
-		if !ok {
-			return false
-		}
-		if strings.HasPrefix(comm, "claude") {
-			return true
-		}
-		pid = ppid
-	}
-	return false
-}
-
-// isAncestorPID reports whether target is somewhere in this process's
-// parent-PID chain.
-func isAncestorPID(target int) bool {
-	pid := os.Getppid()
-	for hops := 0; pid > 1 && hops < 64; hops++ {
-		if pid == target {
-			return true
-		}
-		_, ppid, ok := procCommPPID(pid)
-		if !ok {
-			return false
-		}
-		pid = ppid
-	}
-	return pid == target
-}
-
-// procCommPPID reads /proc/<pid>/stat and returns the process's comm (the
-// executable base name, truncated to 15 bytes by the kernel) and its parent
-// PID. ok is false if the entry cannot be read or parsed.
-func procCommPPID(pid int) (comm string, ppid int, ok bool) {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return "", 0, false
-	}
-	s := string(data)
-	// Field layout: "<pid> (<comm>) <state> <ppid> ...". comm may itself
-	// contain spaces and parentheses, so anchor on the LAST ')' rather than
-	// splitting the whole line into fields.
-	open := strings.IndexByte(s, '(')
-	closeParen := strings.LastIndexByte(s, ')')
-	if open < 0 || closeParen < open {
-		return "", 0, false
-	}
-	comm = s[open+1 : closeParen]
-	fields := strings.Fields(s[closeParen+1:]) // [state, ppid, ...]
-	if len(fields) < 2 {
-		return "", 0, false
-	}
-	ppid, err = strconv.Atoi(fields[1])
-	if err != nil {
-		return "", 0, false
-	}
-	return comm, ppid, true
-}
-
 // inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
-// guard can refuse to run when Claude is hiding the output. It runs before the
+// guard can refuse to run when the agent is hiding the output. It runs before the
 // output watchdog rewires fd 1, so it sees the real descriptor the shell set up.
 func inspectStdout() outputSink {
 	return inspectFD(os.Stdout.Fd())
@@ -94,32 +36,75 @@ func inspectStdout() outputSink {
 // inspectFD is inspectStdout's logic, parameterized on the descriptor so it can
 // be tested against controlled pipes/files/devices.
 func inspectFD(fd uintptr) outputSink {
+	// A cosmo APE on a darwin host has no /proc and needs the darwin
+	// classifier instead. Decided on the HOST, not runtime.GOOS.
+	if sink, ok, handled := hostSpecificInspect(fd); handled {
+		if !ok {
+			return blindClassifierSink(hostos.GOOS())
+		}
+		return sink
+	}
 	target, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(fd), 10))
 	if err != nil {
-		return outputSink{kind: sinkVisible} // can't tell — never block on uncertainty
+		return unclassifiableSink()
 	}
 
 	switch {
 	case strings.HasPrefix(target, "pipe:"):
 		// A pipe is the agent hiding output (| head, | cat, $(...)) — UNLESS the
-		// reader is the harness itself capturing our stdout, i.e. an ancestor
-		// process named "claude". A filter in a shell pipeline is a sibling, and
-		// a `$(...)` reader is a shell, so neither is an ancestor named claude.
+		// reader is the harness itself capturing our stdout.
 		if name, pid, ok := pipePeerName(target); ok {
-			if strings.HasPrefix(name, "claude") && isAncestorPID(pid) {
+			if agent.IsPipeReader(name, pid) {
 				return outputSink{kind: sinkVisible}
 			}
 			return outputSink{kind: sinkPipe, detail: name}
 		}
 		return outputSink{kind: sinkPipe}
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
+		// A coding agent's own tool-execution plumbing (e.g. a socketpair for a
+		// spawned child's stdio, which is what opencode's bash tool uses) looks
+		// identical to a pipe from here — give it the same peer-identification
+		// chance a pipe gets, rather than assuming hidden outright. detail always
+		// carries something to show: the peer's name when resolved, else the raw
+		// fd target, so the refusal message is never left with nothing to say.
+		//
+		// Unlike a pipe(), the two ends of an AF_UNIX socketpair are separate
+		// sockets with DIFFERENT inodes — an fd-target string match can never
+		// find the other end. SO_PEERCRED gives the kernel's own record of who
+		// is on the other side, fixed at connection time, so it still resolves
+		// after the parent (opencode/Node) closes its copy of the child's fd.
+		if pid, ok := socketPeerPID(fd); ok {
+			name, _, _ := agent.CommPPID(pid)
+			if agent.IsPipeReader(name, pid) {
+				return outputSink{kind: sinkVisible}
+			}
+			if name != "" {
+				return outputSink{kind: sinkHidden, detail: name}
+			}
+			// No name, but the pid can still answer: an agent that published
+			// this pid as its own, and a kernel that records it as this
+			// socket's peer, identify the reader between them without any
+			// process lookup at all.
+			if agent.IsPID(pid) {
+				return outputSink{kind: sinkVisible}
+			}
+			return outputSink{kind: sinkHidden, detail: target}
+		}
+		if name, pid, ok := pipePeerName(target); ok {
+			if agent.IsPipeReader(name, pid) {
+				return outputSink{kind: sinkVisible}
+			}
+			if name != "" {
+				return outputSink{kind: sinkHidden, detail: name}
+			}
+		}
 		return outputSink{kind: sinkHidden, detail: target}
 	}
 
 	// A path: classify by file type.
 	fi, statErr := os.Stat(target)
 	if statErr != nil {
-		if isHarnessCapturePath(target) {
+		if agent.IsCapturePath(target) {
 			return outputSink{kind: sinkVisible}
 		}
 		return outputSink{kind: sinkFile, detail: target}
@@ -134,13 +119,82 @@ func inspectFD(fd uintptr) outputSink {
 	case mode&os.ModeNamedPipe != 0:
 		return outputSink{kind: sinkPipe}
 	case mode.IsRegular():
-		if isHarnessCapturePath(target) {
+		if agent.IsCapturePath(target) {
 			return outputSink{kind: sinkVisible} // the harness's own transcript capture
 		}
 		return outputSink{kind: sinkFile, detail: target}
 	}
 	return outputSink{kind: sinkVisible} // unknown disposition — don't block
 }
+
+// unclassifiableSink answers for a descriptor this build could not classify.
+// Two different facts arrive here and must not be collapsed into one.
+//
+//   - "I looked and saw nothing": on a linux host /proc IS present, so a failed
+//     readlink is genuine uncertainty about one odd descriptor. Allow it, in
+//     silence. Refusing a run over one unreadable fd would be a false alarm,
+//     and a guard that cries wolf gets ignored on the run that mattered.
+//
+//   - "I am blind and know it": on a host with no /proc, nothing is
+//     classifiable — not this descriptor, all of them. The guard is inoperative
+//     for the whole run.
+//
+// Today both ALLOW, because a classifier with no mechanism has not earned a
+// refusal: it cannot tell a captured run from a legitimate one, and refusing
+// would break every agent-driven run on that host. But only the second is a
+// guard that is not running, and it says so out loud.
+//
+// The blind case is a placeholder, not a design. Once the host has a real
+// classifier (see docs/AGENT-OUTPUT-GUARD.md), a descriptor its primitives
+// cannot answer for is no longer "no mechanism" but a failed probe, and the
+// honest reply then is to REFUSE — the same fail-closed rule
+// claudeguard_darwin.go already applies to a FIFO it cannot resolve.
+func unclassifiableSink() outputSink {
+	if host := hostos.GOOS(); host != "linux" {
+		return blindClassifierSink(host)
+	}
+	return unreadableDescriptorSink()
+}
+
+// unreadableDescriptorSink answers for one descriptor that could not be read
+// on a host whose classifier otherwise works.
+func unreadableDescriptorSink() outputSink {
+	return outputSink{kind: sinkVisible}
+}
+
+// blindClassifierSink answers on a host where this build has no classifier at
+// all, and announces that the guard is not running.
+func blindClassifierSink(host string) outputSink {
+	warnGuardInoperative(host)
+	return outputSink{kind: sinkVisible}
+}
+
+// warnGuardInoperative reports, once per run, that the output guard cannot
+// classify anything on this host. It writes to the guard's own stderr writer
+// for the same reason the refusal does: the guard fires precisely when stdout
+// is captured, so stdout is the one place this must never go.
+func warnGuardInoperative(host string) {
+	guardInoperativeOnce.Do(func() {
+		fmt.Fprintf(agentGuardOut, "\n%s⚠ go-toolchain's agent output guard is INOPERATIVE on this %s host.%s\n",
+			colorBoldRed, host, colorReset)
+		fmt.Fprintf(agentGuardOut, "This binary classifies stdout through /proc, which %s does not have, so it\n", host)
+		fmt.Fprintf(agentGuardOut, "cannot tell whether its output is being captured and will not refuse a run\n")
+		fmt.Fprintf(agentGuardOut, "that hides it. Read the output yourself; do not trust the guard here.\n\n")
+	})
+}
+
+var guardInoperativeOnce sync.Once
+
+// socketPeerPID (declared per-platform: claudeguard_sockpeer_linux.go uses
+// golang.org/x/sys/unix, claudeguard_sockpeer_cosmo.go a raw syscall, since
+// x/sys/unix has no cosmo port) returns the pid the kernel recorded as the
+// other end of the AF_UNIX socket at fd, via SO_PEERCRED. For a socketpair(),
+// that credential is fixed at creation time — the pid of whichever process
+// called socketpair(), i.e. the real reader — so it still resolves after that
+// process closes its own copy of the fd it handed the child (the normal thing
+// for a coding agent's child_process to do, and why pipePeerName's inode match
+// cannot see it). ok is false for anything that isn't a SOCK_STREAM/SOCK_DGRAM
+// AF_UNIX socket, e.g. an anon_inode fd — never treated as a match.
 
 // pipePeerName returns the comm and pid of another process holding the same
 // pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends of
@@ -167,7 +221,7 @@ func pipePeerName(target string) (comm string, pid int, ok bool) {
 			if err != nil || link != target {
 				continue
 			}
-			if c, _, ok := procCommPPID(p); ok {
+			if c, _, ok := agent.CommPPID(p); ok {
 				return c, p, true
 			}
 			return "", p, true

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // How long to cache "up-to-date" results before rechecking
@@ -116,6 +118,14 @@ func (dc *DepChecker) run() {
 
 		// Only check pseudo-versions
 		if !looksLikeGitVersion(dep.Version) {
+			continue
+		}
+
+		// A dependency carrying a tracking marker is owned by
+		// UpdateTrackedBranchDeps (depsbranch.go); comparing it against the
+		// proxy's @latest here would silently drag it back onto the
+		// module's default branch on the next auto-update.
+		if dep.Tracked {
 			continue
 		}
 
@@ -255,6 +265,7 @@ func escapePath(path string) (string, error) {
 type depInfo struct {
 	Path    string
 	Version string
+	Tracked bool // the line, or the replace covering it, carries a tracking marker
 }
 
 // findGoMod walks up from the current directory to find go.mod.
@@ -291,12 +302,26 @@ func listDirectDeps() ([]depInfo, error) {
 		return nil, err
 	}
 
+	// A require replaced by a tracked replacement is tracked too: the version
+	// that ends up in the build is the replacement's, and
+	// UpdateTrackedBranchDeps owns it.
+	replacedTracked := set.New[string]()
+	for _, rep := range f.Replace {
+		if isTracked(rep.Syntax) {
+			replacedTracked.Add(rep.Old.Path)
+		}
+	}
+
 	var deps []depInfo
 	for _, req := range f.Require {
 		if req.Indirect {
 			continue
 		}
-		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version})
+		deps = append(deps, depInfo{
+			Path:    req.Mod.Path,
+			Version: req.Mod.Version,
+			Tracked: isTracked(req.Syntax) || replacedTracked.Contains(req.Mod.Path),
+		})
 	}
 	return deps, nil
 }

@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
 // sinkKind classifies where go-toolchain's stdout is going.
@@ -24,97 +26,76 @@ type outputSink struct {
 	detail string // peer command name (pipe) or path (file/discard)
 }
 
-// runningUnderClaude reports whether go-toolchain is executing underneath the
-// Claude agent. Detection is primarily by process ancestry — an ancestor whose
-// process name begins with "claude" (see claudeProcessAncestor) — and
-// additionally by the CLAUDECODE marker the Claude Code CLI exports into the
-// environment of every child. The env fallback keeps the guard working when the
-// process name is unavailable (e.g. a non-Linux host where the ancestry walk is
-// a no-op, or a renamed launcher).
-func runningUnderClaude() bool {
-	if claudeProcessAncestor() {
-		return true
-	}
-	if v := os.Getenv("CLAUDECODE"); v != "" && v != "0" {
-		return true
-	}
-	return false
-}
-
-// isHarnessCapturePath reports whether path is the Claude Code harness's own
-// per-task stdout capture file — the file the Bash tool redirects a command's
-// stdout to and streams verbatim into the transcript. That is the ONE redirect
-// that does not hide output (it IS how the agent sees it), so it must be
-// allowed. Every agent-introduced redirect (`> out.log`, `> /dev/null`, …)
-// targets something else and is refused.
+// Which agents exist, what they look like, and how to recognize one from a
+// process tree live in github.com/wow-look-at-my/is-this-an-agent. Keeping
+// that roster here meant every other tool needing the same answer wrote its
+// own -- and go-toolchain's stopped at the agents it happened to know.
 //
-// The capture path embeds this session's id (a UUID) and ends in ".output"
-// under a ".../tasks/" directory, e.g.
-// /tmp/claude-0/-home-user/<CLAUDE_CODE_SESSION_ID>/tasks/<id>.output. Matching
-// the session id is the strong signal; the ".output"+"claude" structural match
-// is a fallback so a minor change to the harness path scheme cannot wedge the
-// guard into blocking every normal run.
-func isHarnessCapturePath(path string) bool {
-	if sid := os.Getenv("CLAUDE_CODE_SESSION_ID"); sid != "" && strings.Contains(path, sid) {
-		return true
-	}
-	lower := strings.ToLower(path)
-	return strings.HasSuffix(lower, ".output") && strings.Contains(lower, "claude")
-}
+// What stays here is the part that is go-toolchain's own: classifying where
+// stdout went, and refusing to run when the answer means the agent will never
+// read it.
 
-// Indirection seams: claudeOutputViolation calls these rather than the
+// Indirection seams: agentOutputViolation calls these rather than the
 // detectors directly, so a test can drive every branch deterministically
-// without a real Claude ancestor process or a captured stdout descriptor. They
+// without a real agent ancestor process or a captured stdout descriptor. They
 // are unexported, default to the real implementations, and are reassigned only
 // from tests in this package. They are NOT a bypass: there is no environment
 // variable, flag, or any other runtime knob that disables the guard.
 var (
-	runningUnderClaudeFn = runningUnderClaude
-	inspectStdoutFn      = inspectStdout
+	runningUnderAgentFn = detectAgent
+	inspectStdoutFn     = inspectStdout
 )
 
-// claudeOutputViolation reports the offending sink and true when go-toolchain is
-// running under Claude with its output captured, redirected, or discarded
-// instead of printed where the agent will read it. It is a no-op (returns
-// false) only when go-toolchain is not running under Claude. The guard is
-// unconditional: there is deliberately no way to opt out of it.
-func claudeOutputViolation() (outputSink, bool) {
-	if !runningUnderClaudeFn() {
-		return outputSink{}, false
+// detectAgent names the agent go-toolchain is running under, if any:
+// ancestry first, then the environment markers each agent exports.
+func detectAgent() (string, bool) {
+	a, ok := agent.Detect()
+	return a.Name, ok
+}
+
+// agentOutputViolation reports the agent, the offending sink and true when
+// go-toolchain is running under an agent with its output captured, redirected,
+// or discarded instead of printed where the agent will read it. It is a no-op
+// (returns false) only when go-toolchain is not running under an agent. The
+// guard is unconditional: there is deliberately no way to opt out of it.
+func agentOutputViolation() (string, outputSink, bool) {
+	agent, ok := runningUnderAgentFn()
+	if !ok {
+		return "", outputSink{}, false
 	}
 	s := inspectStdoutFn()
 	if s.kind == sinkVisible {
-		return s, false
+		return agent, s, false
 	}
-	return s, true
+	return agent, s, true
 }
 
-// guardAgainstClaudeOutputCapture aborts the process immediately (exit 1) when
-// go-toolchain is running under Claude and its output is being hidden — piped,
-// redirected to a file, or discarded — instead of shown in the transcript. It
-// is a no-op in every other situation.
-// claudeGuardOut is a deliberate logger bypass: the abort message below MUST
+// guardAgainstAgentOutputCapture aborts the process immediately (exit 1) when
+// go-toolchain is running under an agent and its output is being hidden —
+// piped, redirected to a file, or discarded — instead of shown in the
+// transcript. It is a no-op in every other situation.
+// agentGuardOut is a deliberate logger bypass: the abort message below MUST
 // always reach the real stderr and must never become a stdout GHA annotation,
 // because the guard fires precisely when stdout is redirected or captured (the
 // smoke-linux CI step asserts the "refused to run" text on stderr). Held in a
 // variable, which the bannedoutput analyzer deliberately permits.
-var claudeGuardOut io.Writer = os.Stderr
+var agentGuardOut io.Writer = os.Stderr
 
-func guardAgainstClaudeOutputCapture() {
-	if s, bad := claudeOutputViolation(); bad {
+func guardAgainstAgentOutputCapture() {
+	if agent, s, bad := agentOutputViolation(); bad {
 		// Refusing to run is not enough on its own. The invocation that hides
 		// the output typically ignores the exit code too, and a binary from an
 		// earlier successful run is still sitting at build/<target>, ready to
 		// be executed as proof of a build that never happened. Delete it: an
 		// aborted run must leave nothing runnable behind (see staleoutputs.go).
-		fmt.Fprint(claudeGuardOut, claudeOutputMessage(s, discardBuildOutputsFromCWD()))
+		fmt.Fprint(agentGuardOut, agentOutputMessage(agent, s, discardBuildOutputsFromCWD()))
 		os.Exit(1)
 	}
 }
 
-// claudeOutputMessage renders the abort message for the given sink, listing
-// the build outputs the abort deleted (if any).
-func claudeOutputMessage(s outputSink, removed []string) string {
+// agentOutputMessage renders the abort message for the given agent and sink,
+// listing the build outputs the abort deleted (if any).
+func agentOutputMessage(agent string, s outputSink, removed []string) string {
 	var what string
 	switch s.kind {
 	case sinkPipe:
@@ -127,13 +108,19 @@ func claudeOutputMessage(s outputSink, removed []string) string {
 		what = fmt.Sprintf("redirected to the file `%s`", s.detail)
 	case sinkDiscard:
 		what = fmt.Sprintf("discarded to `%s`", s.detail)
+	case sinkHidden:
+		if s.detail != "" {
+			what = fmt.Sprintf("captured instead of printed to the terminal (reader: `%s`)", s.detail)
+		} else {
+			what = "captured instead of printed to the terminal"
+		}
 	default:
 		what = "captured instead of printed to the terminal"
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n%s✗ go-toolchain refused to run: its output is being %s.%s\n\n", colorBoldRed, what, colorReset)
-	b.WriteString("You are running under Claude, where go-toolchain's FULL output must land in\n")
+	fmt.Fprintf(&b, "You are running under %s, where go-toolchain's FULL output must land in\n", agent)
 	b.WriteString("your transcript so you actually read it — the \"Coverage targets\" list, the\n")
 	b.WriteString("total-coverage line, and any test or build failures. Capturing it instead —\n")
 	b.WriteString("a pipe (head/tail/grep/sed/awk/cat/tee/…), a `> file` or `>> file` redirect,\n")

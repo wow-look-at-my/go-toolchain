@@ -32,12 +32,27 @@ func withMockBuildhost(t *testing.T, server *httptest.Server) func() {
 // releaseServer serves rel at /releases/latest and 404s elsewhere.
 func releaseServer(t *testing.T, rel buildhostRelease) *httptest.Server {
 	t.Helper()
+	return releaseServerWithList(t, rel, nil)
+}
+
+// releaseServerWithList serves both endpoints the check uses: the latest
+// release, and the newest-first listing it identifies THIS binary from. A nil
+// list answers 404, which is the "lookup failed" path.
+func releaseServerWithList(t *testing.T, rel buildhostRelease, list []buildhostRelease) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			_ = json.NewEncoder(w).Encode(rel)
+		case strings.HasSuffix(r.URL.Path, "/releases"):
+			if list == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(list)
+		default:
 			w.WriteHeader(http.StatusNotFound)
-			return
 		}
-		_ = json.NewEncoder(w).Encode(rel)
 	}))
 }
 
@@ -98,10 +113,44 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 	defer srv.Close()
 	defer withMockBuildhost(t, srv)()
 
+	// With no listing to identify this build, its commit stands in for the
+	// version it cannot know.
 	msg := computeUpdateWarning(context.Background())
 	assert.Contains(t, msg, "out of date")
-	assert.Contains(t, msg, "v202")
-	assert.Contains(t, msg, "0000000") // short form of our commit
+	assert.Contains(t, msg, "0000000 < v202")
+}
+
+// TestComputeUpdateWarning_IsOneLineWithBothVersions pins the whole message:
+// how far behind, mine, latest. Nothing else -- a reader deciding whether to
+// update needs the two versions and the distance, and every extra word is one
+// they have to skip past on every build.
+func TestComputeUpdateWarning_IsOneLineWithBothVersions(t *testing.T) {
+	const myCommit = "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	built := time.Date(2024, 5, 29, 0, 0, 0, 0, time.UTC)
+	defer setVCS(t, myCommit, built.Format(time.RFC3339))()
+
+	pub := built.Add(3 * 24 * time.Hour) // exactly three days newer
+	latest := buildhostRelease{
+		Version: "345", VersionNum: 345, GitCommit: "ffffff222222222222222222222222222222ffff",
+		Published: true, PublishedAt: &pub,
+	}
+	mine := buildhostRelease{Version: "123", GitCommit: myCommit, Published: true, PublishedAt: &built}
+
+	srv := releaseServerWithList(t, latest, []buildhostRelease{latest, mine})
+	defer srv.Close()
+	defer withMockBuildhost(t, srv)()
+
+	msg := stripANSI(computeUpdateWarning(context.Background()))
+	assert.Equal(t, "⇒ go-toolchain is 3 days out of date: v123 < v345", msg)
+}
+
+// stripANSI removes the color escapes so a test can assert the exact line a
+// reader sees.
+func stripANSI(s string) string {
+	for _, code := range []string{colorYellow, colorReset} {
+		s = strings.ReplaceAll(s, code, "")
+	}
+	return s
 }
 
 func TestComputeUpdateWarning_AheadOfPublished(t *testing.T) {

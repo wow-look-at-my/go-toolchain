@@ -263,7 +263,6 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
-
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -313,7 +312,6 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 		runWithRunner(mock, nil) //nolint
 	})
 }
-
 func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

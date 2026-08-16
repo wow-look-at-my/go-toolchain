@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -63,11 +64,11 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		assert.Equal(t, content, string(data), "artifact %s content", name)
 	}
 
-	// No cosmo machinery may run for wasm targets: no fat APE, no slot copies.
+	// No cosmo machinery may run for wasm targets: no fat APE, no manifest.
 	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
 	assert.Empty(t, fatMatches, "wasm targets must not produce a cosmo fat artifact")
 	assert.NoFileExists(t, filepath.Join(outDir, "mytool_linux_arm64"),
-		"wasm targets must not trigger cosmo slot copies")
+		"no artifact may appear for a platform that was not requested")
 
 	// The fork's wasm_exec.js is shipped alongside the js artifact — it must
 	// byte-match the toolchain that built the wasm.
@@ -86,13 +87,13 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	// Each wasm build must run the fork's bin/go with GOOS/GOARCH pinned
 	// explicitly (the fork defaults to GOOS=cosmo), GOTOOLCHAIN=local, GOROOT
 	// and PATH pointing at the toolchain, and CGO_ENABLED forced to 0.
-	seenGOOS := map[string]bool{}
+	seenGOOS := set.New[string]()
 	for _, cfg := range mock.Calls() {
 		if cfg.Name != forkGo {
 			continue
 		}
 		goos, _ := cfg.Env.Get("GOOS")
-		seenGOOS[goos] = true
+		seenGOOS.Add(goos)
 		goarch, _ := cfg.Env.Get("GOARCH")
 		assert.Equal(t, "wasm", goarch, "GOARCH must be pinned to wasm for GOOS=%s", goos)
 		toolchain, _ := cfg.Env.Get("GOTOOLCHAIN")
@@ -110,8 +111,8 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		require.NoError(t, nsErr)
 		assert.Equal(t, wantNS, ns, "wasm build env must set %s from the toolchain content hash", cache.KeyNamespaceEnv)
 	}
-	assert.True(t, seenGOOS["js"], "expected a js/wasm build via the fork toolchain")
-	assert.True(t, seenGOOS["wasip1"], "expected a wasip1/wasm build via the fork toolchain")
+	assert.True(t, seenGOOS.Contains("js"), "expected a js/wasm build via the fork toolchain")
+	assert.True(t, seenGOOS.Contains("wasip1"), "expected a wasip1/wasm build via the fork toolchain")
 
 	// The native target must NOT be routed through the fork toolchain — and
 	// must NOT carry the fork's cache namespace (normal toolchains have
@@ -130,13 +131,14 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	}
 }
 
-func TestRunReleaseWithRunnerWasmOnlySkipsSlotParsing(t *testing.T) {
+func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 	// Uses the canonical wasm/js spelling end to end (the other wasm tests
 	// pin the js/wasm GOOS-order alias); both produce the same artifact.
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"wasm/js"})
-	// An invalid --cosmo-slots value must be ignored when no cosmo target is
-	// requested: slot parsing is a cosmo-only prerequisite.
-	cosmoSlots = []string{"not-a-pair"}
+	// An invalid --cosmo-platforms value must be ignored when no cosmo target
+	// is requested: it is a cosmo-only prerequisite. A wasm-only build also
+	// writes no manifest -- the manifest exists to publish an APE.
+	cosmoPlatforms = []string{"not-a-pair"}
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
@@ -152,6 +154,7 @@ func TestRunReleaseWithRunnerWasmOnlySkipsSlotParsing(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	require.NoError(t, err)
 	assert.FileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
+	assert.NoFileExists(t, filepath.Join(outDir, buildhostManifestName))
 }
 
 func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"gotest.tools/gotestsum/testjson"
 )
 
@@ -122,7 +123,7 @@ func TestRealtimePassOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -145,7 +146,7 @@ func TestRealtimePassOutputHiddenWhenFast(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -165,7 +166,7 @@ func TestRealtimeFailOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -188,8 +189,8 @@ func TestRealtimeTimeoutOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
-		timedOut:   make(map[string]bool),
+		failedTest: set.New[string](),
+		timedOut:   set.New[string](),
 	}
 
 	// First, simulate timeout output event
@@ -222,7 +223,7 @@ func TestRealtimeSkipOutput(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -244,7 +245,7 @@ func TestRealtimeSkipOutputHiddenWhenFast(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -265,7 +266,7 @@ func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
 		verbose:    true,
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	event := testjson.TestEvent{
@@ -285,7 +286,7 @@ func TestRealtimeNoOutputForPackageEvents(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 	}
 
 	// Package-level pass (Test is empty)
@@ -303,7 +304,7 @@ func TestFailureOutputWithStderr(t *testing.T) {
 	h := &coverageHandler{
 		coverage:    make(map[string]float32),
 		testOutput:  make(map[string][]string),
-		failedTest:  make(map[string]bool),
+		failedTest:  set.New[string](),
 		stderrLines: []string{"build error: undefined reference", "linker failed"},
 	}
 
@@ -319,9 +320,7 @@ func TestFailureOutputWithFailedTests(t *testing.T) {
 			"pkg/TestFoo": {"    foo_test.go:10: expected 1, got 2\n"},
 			"pkg/TestBar": {"    bar_test.go:5: nil pointer\n"},
 		},
-		failedTest: map[string]bool{
-			"pkg/TestFoo": true,
-		},
+		failedTest: set.Of("pkg/TestFoo"),
 	}
 
 	output := h.FailureOutput()
@@ -335,9 +334,7 @@ func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
 		testOutput: map[string][]string{
 			"pkg/TestFail": {"    assert failed\n"},
 		},
-		failedTest: map[string]bool{
-			"pkg/TestFail": true,
-		},
+		failedTest:  set.Of("pkg/TestFail"),
 		stderrLines: []string{"compilation error"},
 	}
 
@@ -353,7 +350,7 @@ func TestOnOutputCallbackInPass(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		onOutput:   func() { called = true },
 	}
 
@@ -374,7 +371,7 @@ func TestOnOutputCallbackInSkip(t *testing.T) {
 		coverage:   make(map[string]float32),
 		out:        &buf,
 		testOutput: make(map[string][]string),
-		failedTest: make(map[string]bool),
+		failedTest: set.New[string](),
 		onOutput:   func() { called = true },
 	}
 
@@ -386,4 +383,58 @@ func TestOnOutputCallbackInSkip(t *testing.T) {
 	}
 	require.NoError(t, h.Event(event, nil))
 	assert.True(t, called, "onOutput should be called on skip")
+}
+
+// TestFailureOutputKeepsBuildDiagnostics is the regression test for a build
+// failure that printed as "FAIL <pkg> [build failed]" and nothing else. The
+// compiler's diagnostics arrive as "build-output" events carrying ImportPath
+// and an EMPTY Package, so they belonged to no per-package buffer and were
+// dropped -- leaving a summary of an error nobody could see.
+func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
+	h := &coverageHandler{
+		coverage:   make(map[string]float32),
+		testOutput: make(map[string][]string),
+		failedTest: set.New[string](),
+		timedOut:   set.New[string](),
+		out:        &bytes.Buffer{},
+	}
+
+	// What `go test -json` really emits for a package that will not compile.
+	build := []testjson.TestEvent{
+		{Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "# example.com/pkg\n"},
+		{Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "./broken.go:7:2: undefined: nope\n"},
+	}
+	for _, e := range build {
+		require.NoError(t, h.Event(e, nil))
+	}
+	// ...followed by the package summary, which is all that used to survive.
+	require.NoError(t, h.Event(testjson.TestEvent{
+		Action:  testjson.ActionOutput,
+		Package: "example.com/pkg",
+		Output:  "FAIL\texample.com/pkg [build failed]\n",
+	}, nil))
+	require.NoError(t, h.Event(testjson.TestEvent{
+		Action:  testjson.ActionFail,
+		Package: "example.com/pkg",
+	}, nil))
+
+	out := h.FailureOutput()
+	assert.Contains(t, out, "undefined: nope", "the compiler diagnostic must survive")
+	assert.Contains(t, out, "# example.com/pkg")
+	assert.Contains(t, out, "[build failed]")
+
+	// Order is the point: the error, then the summary of it.
+	assert.Less(t, strings.Index(out, "undefined: nope"), strings.Index(out, "[build failed]"),
+		"the summary must not precede the error it summarizes")
+}
+
+func TestFailureOutputOrdersBuildErrorsBeforeStderr(t *testing.T) {
+	h := &coverageHandler{coverage: make(map[string]float32), out: &bytes.Buffer{}}
+	require.NoError(t, h.Event(testjson.TestEvent{
+		Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "./x.go:1:1: syntax error\n",
+	}, nil))
+	require.NoError(t, h.Err("go: some later complaint"))
+
+	out := h.FailureOutput()
+	assert.Less(t, strings.Index(out, "syntax error"), strings.Index(out, "later complaint"))
 }

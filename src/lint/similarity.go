@@ -1,5 +1,7 @@
 package lint
 
+import "github.com/wow-look-at-my/go-containers/set"
+
 // DuplicatePair records two blocks that are near-duplicates.
 type DuplicatePair struct {
 	A          *Block
@@ -42,7 +44,7 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 	// Track which pairs we've already compared to avoid duplicates
 	// from the overlapping bucket assignment.
 	type pairKey struct{ a, b int }
-	seen := make(map[pairKey]bool)
+	seen := set.New[pairKey]()
 
 	var pairs []DuplicatePair
 
@@ -54,10 +56,9 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 					ai, bi = bi, ai
 				}
 				k := pairKey{ai, bi}
-				if seen[k] {
+				if !seen.Add(k) {
 					continue
 				}
-				seen[k] = true
 
 				ea, eb := all[ai], all[bi]
 

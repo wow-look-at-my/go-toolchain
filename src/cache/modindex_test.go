@@ -1,9 +1,14 @@
 package cache
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -144,4 +149,128 @@ func TestWireBatchCallbacks_SkipsModuleIndex(t *testing.T) {
 	require.True(t, missIndex, "a module index must never be prefetched into the local store")
 	_, missPlain := local.Get(aidPlain)
 	require.False(t, missPlain, "an ordinary entry must still be prefetched")
+}
+
+// TestServer_PutRefusesModuleIndexAndKeepsDiskPath is the local-tier half of
+// the refusal: a PUT carrying a module index stores nothing, yet still answers
+// with a DiskPath naming a file that holds the body -- cmd/go rejects an empty
+// DiskPath outright ("GOCACHEPROG didn't return DiskPath in put response") and
+// treats a failed index store as fatal, so a refusal that errored or replied
+// empty would break every build instead of the one in five it was fixing.
+func TestServer_PutRefusesModuleIndexAndKeepsDiskPath(t *testing.T) {
+	lc, err := NewLocalCache(t.TempDir())
+	require.NoError(t, err)
+	defer lc.Close()
+	srv := NewServer(lc, nil)
+
+	index := "go index v2\n" + largePayload(2048)
+	action := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33}
+	sum := sha256.Sum256([]byte(index))
+
+	resp := srv.handlePut(Request{
+		ID: 1, Command: CmdPut, ActionID: action, OutputID: sum[:],
+		Body: []byte(index), BodySize: int64(len(index)),
+	})
+	require.Empty(t, resp.Err, "a refused index PUT is not a protocol error")
+	require.NotEmpty(t, resp.DiskPath, "the put reply still owes cmd/go a DiskPath")
+	onDisk, err := os.ReadFile(resp.DiskPath)
+	require.NoError(t, err, "the DiskPath must name a real file until close")
+	require.Equal(t, index, string(onDisk), "the sunk file must hold the body cmd/go handed over")
+	require.Equal(t, uint32(1), srv.IndexPutsRefused.Load())
+
+	// Nothing entered the cache, so the next GET misses and cmd/go recomputes.
+	_, miss := lc.Peek(srv.actionKey(action))
+	require.True(t, miss, "a module index must never enter the local store")
+	require.True(t, srv.handleGet(Request{ID: 2, Command: CmdGet, ActionID: action}).Miss)
+
+	// The sink is scratch, not cache: it goes away when the protocol loop ends.
+	srv.removeIndexSink()
+	_, err = os.Stat(resp.DiskPath)
+	require.True(t, os.IsNotExist(err), "the sink must be removed at close")
+}
+
+// TestServer_NeverStoresModuleIndexBlob is the deterministic assertion the
+// 1-in-5 type-check flake needs: no run of the cacheprog may leave a module
+// index anywhere under the cache root. A wrong index served back under an
+// action key that hashes NO content renames a package at load time (otel's
+// attribute package arriving named "trace"), and nothing downstream can detect
+// it -- so the property to pin is that the blob is never stored at all, not
+// that some later gate catches it.
+func TestServer_NeverStoresModuleIndexBlob(t *testing.T) {
+	dir := t.TempDir()
+	lc, err := NewLocalCache(dir)
+	require.NoError(t, err)
+
+	index := "go index v2\n" + largePayload(512)
+	indexSum := sha256.Sum256([]byte(index))
+	plain := "an ordinary cached body"
+	plainSum := sha256.Sum256([]byte(plain))
+	indexAction := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	plainAction := []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18}
+
+	var input strings.Builder
+	input.WriteString(makePutRequest(Request{
+		ID: 1, Command: CmdPut, ActionID: indexAction, OutputID: indexSum[:],
+		BodySize: int64(len(index)),
+	}, index))
+	input.WriteString(makePutRequest(Request{
+		ID: 2, Command: CmdPut, ActionID: plainAction, OutputID: plainSum[:],
+		BodySize: int64(len(plain)),
+	}, plain))
+	input.WriteString(makeRequest(Request{ID: 3, Command: CmdGet, ActionID: indexAction}))
+	input.WriteString(makeRequest(Request{ID: 4, Command: CmdGet, ActionID: plainAction}))
+	input.WriteString(makeRequest(Request{ID: 5, Command: CmdClose}))
+
+	var out bytes.Buffer
+	srv := NewServer(lc, nil)
+	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
+
+	byID := map[int64]Response{}
+	for _, r := range parseResponses(t, out.Bytes()) {
+		byID[r.ID] = r
+	}
+	require.Empty(t, byID[1].Err)
+	require.NotEmpty(t, byID[1].DiskPath)
+	require.True(t, byID[3].Miss, "the index key must miss so cmd/go recomputes")
+	require.False(t, byID[4].Miss, "an ordinary body is still cached and served")
+
+	// The whole cache root, every tier and every sidecar: no index bytes.
+	require.NoError(t, filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		head, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil
+		}
+		require.False(t, isGoModuleIndex(head), "module index stored at %s", path)
+		return nil
+	}))
+}
+
+// TestLocalServeGatesRefuseModuleIndex covers the residue case: an index a
+// PREVIOUS binary stored (both tiers served them then) must not be handed back
+// by this one. The PUT refusal is what keeps this from becoming the permanent
+// accept-at-Put/refuse-at-Get miss loop the file-top comment in verify.go
+// describes.
+func TestLocalServeGatesRefuseModuleIndex(t *testing.T) {
+	const actionID = "aabbccdd11223344"
+	index := []byte("go index v2\n" + largePayload(64))
+	outputID := testOutputID(string(index))
+
+	reason, ok := verifyBodyForServe(actionID, outputID, index)
+	require.False(t, ok, "the loose tier must refuse a stored module index")
+	require.Contains(t, reason, "module index")
+
+	// The pack tier decides from memoized facts, so the index-ness of the body
+	// has to survive memoization.
+	vi := verifyInfoForPut(outputID, index)
+	require.True(t, vi.isModIndex)
+	require.False(t, vi.servableForAction(actionID))
+
+	// An ordinary body under the same key is unaffected.
+	plain := []byte("an ordinary cached body")
+	_, ok = verifyBodyForServe(actionID, testOutputID(string(plain)), plain)
+	require.True(t, ok)
+	require.True(t, verifyInfoForPut(testOutputID(string(plain)), plain).servableForAction(actionID))
 }

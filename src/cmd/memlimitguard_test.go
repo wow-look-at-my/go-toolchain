@@ -30,7 +30,6 @@ func setupGuardModule(t *testing.T) string {
 }
 
 func TestInjectThenCleanupLeavesTreeClean(t *testing.T) {
-	t.Setenv(memLimitEnvVar, "1") // force the feature on
 	mod := setupGuardModule(t)
 	guard := filepath.Join(mod, memlimit.GuardFileName)
 
@@ -47,33 +46,23 @@ func TestInjectThenCleanupLeavesTreeClean(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "guard should be removed after the build")
 }
 
-func TestInjectGuardDisabledIsNoOp(t *testing.T) {
-	t.Setenv(memLimitEnvVar, "off")
+// Injection is unconditional: the old GO_TOOLCHAIN_AUTO_MEMLIMIT kill switch is
+// gone, so a build that sets it (a stale export in a consumer's CI, say) must
+// still get the guard rather than silently shipping unguarded binaries. The
+// run-time GOMEMLIMIT=off escape hatch is the supported way to opt out.
+func TestInjectGuardIgnoresRemovedKillSwitch(t *testing.T) {
+	t.Setenv("GO_TOOLCHAIN_AUTO_MEMLIMIT", "off")
 	mod := setupGuardModule(t)
 
 	require.NoError(t, injectMemLimitGuard(true))
 
 	_, err := os.Stat(filepath.Join(mod, memlimit.GuardFileName))
-	assert.True(t, os.IsNotExist(err), "no guard should be written when the feature is off")
+	assert.NoError(t, err, "the guard must be injected even when the removed kill switch is set")
 
-	// Cleanup with the feature off must not touch the tree either.
+	// Cleanup is unconditional too: the tree comes back clean.
 	cleanupMemLimitGuards()
-}
-
-func TestCleanupGuardDisabledLeavesGuard(t *testing.T) {
-	mod := setupGuardModule(t)
-
-	// Inject with the feature on, then attempt cleanup with it off: the kill
-	// switch must make cleanup a no-op so a user who disables the feature keeps
-	// whatever guard files they are managing themselves.
-	t.Setenv(memLimitEnvVar, "1")
-	require.NoError(t, injectMemLimitGuard(true))
-
-	t.Setenv(memLimitEnvVar, "off")
-	cleanupMemLimitGuards()
-
-	_, err := os.Stat(filepath.Join(mod, memlimit.GuardFileName))
-	assert.NoError(t, err, "cleanup must be a no-op when the feature is disabled")
+	_, err = os.Stat(filepath.Join(mod, memlimit.GuardFileName))
+	assert.True(t, os.IsNotExist(err), "cleanup must remove the guard regardless of the removed env var")
 }
 
 // setupRealGitModule is setupGuardModule with a REAL (hermetic) git repository
@@ -112,7 +101,6 @@ func readExclude(t *testing.T, mod string) string {
 // must not see it — that is what Go's VCS stamping reads, and an untracked
 // guard is what stamped every built binary "+dirty" on clean checkouts.
 func TestInjectedGuardInvisibleToGitStatus(t *testing.T) {
-	t.Setenv(memLimitEnvVar, "1")
 	mod := setupRealGitModule(t)
 
 	require.NoError(t, injectMemLimitGuard(true))

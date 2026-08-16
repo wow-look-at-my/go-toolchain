@@ -154,11 +154,6 @@ func indexETag(blob []byte) string {
 	return `"` + hex.EncodeToString(blob[bodyEnd:]) + `"`
 }
 
-func (f *indexFixture) update(keys set.Set[string]) {
-	b := marshalIndex(keys)
-	f.blob.Store(&b)
-}
-
 func TestLoadOrFetchIndex_ColdStart(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 

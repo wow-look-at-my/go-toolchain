@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -27,7 +28,7 @@ import (
 //     crash, or a kill — leaves nothing runnable behind;
 //   - when the run fails AFTER the build phase already wrote them (a red dats
 //     suite, the coverage or warnings gate);
-//   - when the Claude output guard refuses to run at all. That is the case
+//   - when the agent output guard refuses to run at all. That is the case
 //     this exists for: no phase executes, so only the deletion stands between
 //     a hidden failure and a false "build successful".
 //
@@ -38,12 +39,12 @@ import (
 // nonBinaryOutputs are files the toolchain writes into the output directory
 // that are not build artifacts, even when a target's name is a prefix of
 // theirs (a project whose binary is named "wasm" must not lose wasm_exec.js).
-var nonBinaryOutputs = map[string]bool{
-	"checksums.txt": true,
-	"wasm_exec.js":  true,
-	"profile.json":  true,
-	"trace.json":    true,
-}
+var nonBinaryOutputs = set.Of(
+	"checksums.txt",
+	"wasm_exec.js",
+	"profile.json",
+	"trace.json",
+)
 
 // isOutputArtifact reports whether base — a file name inside the output
 // directory — is an artifact go-toolchain produces for the target named name.
@@ -51,7 +52,13 @@ var nonBinaryOutputs = map[string]bool{
 // or "<name>_…": build.BinaryName's <name>_<goos>_<goarch>[.exe], the wasm
 // variants, the <name>_cosmo_fat APE, and the <name>_host convenience symlink.
 func isOutputArtifact(base, name string) bool {
-	if name == "" || nonBinaryOutputs[base] {
+	// The publish manifest describes the artifacts, so it dies with them: a
+	// manifest outliving the binaries it names would send the next publish
+	// after a file that is not there.
+	if base == buildhostManifestName {
+		return true
+	}
+	if name == "" || nonBinaryOutputs.Contains(base) {
 		return false
 	}
 	return base == name || base == name+".exe" || strings.HasPrefix(base, name+"_")
@@ -196,7 +203,7 @@ func discardBuildOutputs() {
 
 // discardBuildOutputsFromCWD deletes the build artifacts of the module in the
 // current directory on an exit path that never entered the pipeline — the
-// Claude output guard's abort and a failed Go bootstrap. It returns what it
+// agent output guard's abort and a failed Go bootstrap. It returns what it
 // removed so the caller can say so, and is silent and best-effort: the exit
 // message is the priority, and a project with no resolvable targets simply has
 // nothing to delete.
