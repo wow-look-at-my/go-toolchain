@@ -133,7 +133,11 @@ coverage.
   x/sys/unix xattrs; `isXattrNotFound` in the `_linux`/`_darwin` files), `xattr_windows.go` (NTFS ADS), and `xattr_cosmo.go` — GOOS=cosmo has no xattr
   wrappers in the fork's syscall package, so the attribute for target `/a/b` lives in a hidden sidecar file `/a/.b.xattr.<sanitized attr>` NEXT TO the
   target (in its parent, so the module-root watermark never dirties `git status`)
-- `src/build/` — build target resolution via filesystem walking
+- `src/build/` — build target resolution via filesystem walking. A binary's NAME comes from the module when its main package sits at
+  or one level below the module root, and from the leaf directory when deeper -- but `nameTargets` gives the module-derived name only
+  to a package that is ALONE in wanting it. Two mains one level down both derive the module's name, and the old code kept whichever it
+  saw first, so a build shipped missing a binary and still reported success. A contested name falls back to each package's own
+  directory; one still contested after that is a hard error, never a dropped target.
 - `tests/` — declarative CLI integration tests (.dats format)
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery). `FindMainPackages` → `hasMainPackage` →
   `packageNameFromFile`
