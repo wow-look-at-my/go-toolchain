@@ -2,9 +2,12 @@ package vet
 
 import (
 	"go/ast"
+	"go/token"
+	"go/types"
 	"reflect"
 	"sync"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -23,6 +26,11 @@ import (
 // The first two writes are free. Each write after them gets one warning, at
 // the line of the write. A run is a group of adjacent statements that write to
 // the SAME writer: any other statement between them ends the run.
+//
+// A write joins a run when it spells its text in the source, as a string or a
+// character literal. A write of a computed value is a value the template names
+// instead, and a writer that digests its input -- a hash -- holds no document
+// at all, so neither one counts (see writeCall).
 //
 // This check never fails a build by itself. It warns, and a run long enough to
 // exhaust the warnings budget fails the build through the budget.
@@ -51,19 +59,10 @@ func resetWriteRunWarnings() { writeRunWarned.Clear() }
 
 // writeMethods are the writer methods that put text into the output. A call to
 // one of them, with its result dropped, is a write.
-var writeMethods = map[string]bool{
-	"Write":       true,
-	"WriteString": true,
-	"WriteByte":   true,
-	"WriteRune":   true,
-}
+var writeMethods = set.Of("Write", "WriteString", "WriteByte", "WriteRune")
 
 // printfFuncs are the fmt functions whose first argument is the writer.
-var printfFuncs = map[string]bool{
-	"Fprint":   true,
-	"Fprintf":  true,
-	"Fprintln": true,
-}
+var printfFuncs = set.Of("Fprint", "Fprintf", "Fprintln")
 
 func runWriteRuns(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
@@ -87,7 +86,7 @@ func runWriteRuns(pass *analysis.Pass) (any, error) {
 func checkWriteRun(pass *analysis.Pass, list []ast.Stmt) {
 	target, length := "", 0
 	for _, stmt := range list {
-		call, writer, ok := writeCall(stmt)
+		call, writer, ok := writeCall(pass, stmt)
 		if !ok || writer != target {
 			target, length = writer, 0
 		}
@@ -104,11 +103,13 @@ func checkWriteRun(pass *analysis.Pass, list []ast.Stmt) {
 	}
 }
 
-// writeCall reports whether a statement is a write whose result is dropped,
-// and names the writer it writes to. The name is the key a run groups by, so
-// only a writer this can spell -- an identifier, or a chain of fields -- counts
-// as a write.
-func writeCall(stmt ast.Stmt) (*ast.CallExpr, string, bool) {
+// writeCall reports whether a statement writes a piece of the document, and
+// names the writer it writes to. Three things must hold. The result is
+// dropped, so the statement is an expression. The written text is spelled in
+// the source, so a call carrying no string or character literal writes a value
+// this check cannot render. And the writer holds text: a hash reads its input
+// as bytes, and a template has nothing to say about it.
+func writeCall(pass *analysis.Pass, stmt ast.Stmt) (*ast.CallExpr, string, bool) {
 	expr, ok := stmt.(*ast.ExprStmt)
 	if !ok {
 		return nil, "", false
@@ -121,18 +122,69 @@ func writeCall(stmt ast.Stmt) (*ast.CallExpr, string, bool) {
 	if !ok {
 		return nil, "", false
 	}
-	if id, ok := sel.X.(*ast.Ident); ok && id.Name == "fmt" && printfFuncs[sel.Sel.Name] {
+
+	// fmt.Fprintf(w, …) and io.WriteString(w, s) name the writer first; a
+	// method names it as its receiver.
+	target, text := sel.X, call.Args
+	if id, isPkg := sel.X.(*ast.Ident); isPkg && writerFirstFunc(id.Name, sel.Sel.Name) {
 		if len(call.Args) == 0 {
 			return nil, "", false
 		}
-		writer := writerName(call.Args[0])
-		return call, writer, writer != ""
-	}
-	if !writeMethods[sel.Sel.Name] {
+		target, text = call.Args[0], call.Args[1:]
+	} else if !writeMethods.Contains(sel.Sel.Name) {
 		return nil, "", false
 	}
-	writer := writerName(sel.X)
-	return call, writer, writer != ""
+
+	writer := writerName(target)
+	if writer == "" || !writesLiteral(text) || isHashWriter(pass, target) {
+		return nil, "", false
+	}
+	return call, writer, true
+}
+
+// writerFirstFunc reports whether pkg.fn takes its writer as the first
+// argument.
+func writerFirstFunc(pkg, fn string) bool {
+	return (pkg == "fmt" && printfFuncs.Contains(fn)) || (pkg == "io" && fn == "WriteString")
+}
+
+// writesLiteral reports whether the text of a write is spelled in the source.
+// A write of a computed value -- one byte of an escape, a marshalled payload --
+// is not a line of a document, and no template renders it.
+func writesLiteral(args []ast.Expr) bool {
+	for _, arg := range args {
+		lit, ok := arg.(*ast.BasicLit)
+		if ok && (lit.Kind == token.STRING || lit.Kind == token.CHAR) {
+			return true
+		}
+	}
+	return false
+}
+
+// isHashWriter reports whether a writer digests its input instead of holding
+// it. The bytes a hash reads are framing, never a document: rendering them
+// through a template would change the digest and help nobody.
+func isHashWriter(pass *analysis.Pass, e ast.Expr) bool {
+	if pass.TypesInfo == nil {
+		return false
+	}
+	t := pass.TypesInfo.TypeOf(e)
+	if t == nil {
+		return false
+	}
+	sum, block := false, false
+	for _, candidate := range []types.Type{t, types.NewPointer(t)} {
+		ms := types.NewMethodSet(candidate)
+		for i := range ms.Len() {
+			switch ms.At(i).Obj().Name() {
+			case "Sum":
+				sum = true
+			case "BlockSize":
+				block = true
+			}
+		}
+	}
+	return sum && block
 }
 
 // writerName spells a writer expression, and returns "" for one it cannot

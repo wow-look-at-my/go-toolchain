@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"strconv"
 	"strings"
 	"testing"
@@ -128,14 +129,14 @@ func TestWriteRunsBoundaries(t *testing.T) {
 	fmt.Fprintf(b, "%d", n)
 	b.WriteRune('c')
 	b.WriteByte('d')`,
-			lines: []int{11, 12, 13},
+			lines: []int{12, 13, 14},
 		},
 		{
 			name: "a field names its own writer",
 			body: `s.buf.WriteString("a")
 	s.buf.WriteString("b")
 	s.buf.WriteString("c")`,
-			lines: []int{11},
+			lines: []int{12},
 		},
 		{
 			name: "a call that is not a write is not counted",
@@ -153,13 +154,27 @@ func TestWriteRunsBoundaries(t *testing.T) {
 	}`,
 		},
 		{
+			name: "io.WriteString names its writer first",
+			body: `io.WriteString(b, "a")
+	io.WriteString(b, "b")
+	io.WriteString(b, "c")`,
+			lines: []int{12},
+		},
+		{
+			name: "a computed value is not a line of a document",
+			body: `b.WriteString("a")
+	b.WriteString("b")
+	b.WriteString(name)
+	b.WriteString("c")`,
+		},
+		{
 			name: "a loop body holds its own run",
 			body: `for range 3 {
 		b.WriteString("a")
 		b.WriteString("b")
 		b.WriteString("c")
 	}`,
-			lines: []int{12},
+			lines: []int{13},
 		},
 		{
 			name: "a case clause holds its own run",
@@ -169,21 +184,22 @@ func TestWriteRunsBoundaries(t *testing.T) {
 		b.WriteString("b")
 		b.WriteString("c")
 	}`,
-			lines: []int{13},
+			lines: []int{14},
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			// The body starts on line 9, which every wanted line above counts from.
+			// The body starts on line 10, which every wanted line above counts from.
 			src := fmt.Sprintf(`package ape
 
 import (
 	"fmt"
+	"io"
 	"strings"
 )
 
-func emit(b, other *strings.Builder, s struct{ buf *strings.Builder }, n int) {
+func emit(b, other *strings.Builder, s struct{ buf *strings.Builder }, n int, name string) {
 	%s
 	_, _ = fmt.Fprint(b, n)
 }
@@ -191,6 +207,66 @@ func emit(b, other *strings.Builder, s struct{ buf *strings.Builder }, n int) {
 			assert.Equal(t, c.lines, runWriteRunsOn(t, src))
 		})
 	}
+}
+
+// TestWriteRunsSkipsAHash verifies the one writer a template must not touch.
+// A fingerprint frames its input, and a run of writes IS the framing; the
+// document type next to it, written the same way, still warns.
+func TestWriteRunsSkipsAHash(t *testing.T) {
+	const src = `package ape
+
+type digest struct{}
+
+func (digest) Write(p []byte) (int, error)     { return len(p), nil }
+func (digest) WriteString(s string) (int, error) { return len(s), nil }
+func (digest) Sum(b []byte) []byte             { return b }
+func (digest) BlockSize() int                  { return 64 }
+
+type doc struct{}
+
+func (doc) WriteString(s string) (int, error) { return len(s), nil }
+
+func fingerprint(h digest) {
+	h.WriteString("go:1\n")
+	h.WriteString("toolchain:1\n")
+	h.WriteString("output:build\n")
+}
+
+func render(d doc) {
+	d.WriteString("go:1\n")
+	d.WriteString("toolchain:1\n")
+	d.WriteString("output:build\n")
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "/pkg/write.go", src, parser.ParseComments)
+	require.NoError(t, err)
+
+	info := &types.Info{
+		Types:      map[ast.Expr]types.TypeAndValue{},
+		Defs:       map[*ast.Ident]types.Object{},
+		Uses:       map[*ast.Ident]types.Object{},
+		Selections: map[*ast.SelectorExpr]*types.Selection{},
+	}
+	// The source imports nothing, so the type-checker needs no importer.
+	_, err = (&types.Config{}).Check("ape", fset, []*ast.File{file}, info)
+	require.NoError(t, err)
+
+	resetWriteRunWarnings()
+	logger.ResetWarnCount()
+	t.Cleanup(logger.ResetWarnCount)
+	_, err = runWriteRuns(&analysis.Pass{
+		Analyzer:  WriteRunsAnalyzer,
+		Fset:      fset,
+		Files:     []*ast.File{file},
+		Report:    func(analysis.Diagnostic) { t.Fatal("writeruns warns; it never fails a build") },
+		TypesInfo: info,
+	})
+	require.NoError(t, err)
+
+	warnings := logger.EmittedWarnings()
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "write 3 in a row to d")
 }
 
 // TestWriteRunsSpendsOneWarningPerSite verifies the file:line deduplication.
