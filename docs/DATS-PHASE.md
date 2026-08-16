@@ -86,8 +86,8 @@ invisible to every backend, and every suite fails its setup command. `build/`
 is gitignored in every repo go-toolchain builds, so staging there never
 dirties the tree.
 
-Copies, never in-place execution: matrix cosmo slot artifacts are fat APEs
-that rewrite their own file on first exec, so nothing may ever execute a
+Copies, never in-place execution: the matrix cosmo artifact is a fat APE
+that rewrites its own file on first exec, so nothing may ever execute a
 `build/` artifact where it sits.
 
 Staged names are the bare `OutputName` plus `.exe` on windows hosts. The root

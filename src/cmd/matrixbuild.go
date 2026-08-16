@@ -15,22 +15,40 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// hostRunnableArtifact returns the artifact in outDir that runs on this host:
+// the native <name>_<hostos>_<hostarch> build when one exists, else the fat
+// APE, which runs here by construction. Without the fallback, a default matrix
+// run — one APE and no per-platform copies — would leave the dats phase and
+// the convenience symlinks with nothing to point at. The path is returned even
+// when neither exists, so callers report a missing artifact rather than a
+// wrong one.
+func hostRunnableArtifact(target build.Target, outDir string) string {
+	native := filepath.Join(outDir, build.BinaryName(target.OutputName, hostos.GOOS(), runtime.GOARCH))
+	if _, err := os.Stat(native); err == nil {
+		return native
+	}
+	ape := filepath.Join(outDir, build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch))
+	if _, err := os.Stat(ape); err == nil {
+		return ape
+	}
+	return native
+}
+
 func createHostSymlinks(targets []build.Target, outDir string) error {
 	// hostos, not runtime: the symlink must point at the matrix binary built
 	// for the OS this process is running on, and a cosmo fat APE reports
 	// runtime.GOOS=="cosmo" everywhere. runtime.GOARCH matches the host.
 	hostOS := hostos.GOOS()
-	hostArch := runtime.GOARCH
 
 	for _, target := range targets {
-		hostBinary := build.BinaryName(target.OutputName, hostOS, hostArch)
+		hostPath := hostRunnableArtifact(target, outDir)
+		hostBinary := filepath.Base(hostPath)
 		ext := ""
 		if hostOS == "windows" {
 			ext = ".exe"
 		}
 
 		// Verify the host binary exists in the output directory
-		hostPath := filepath.Join(outDir, hostBinary)
 		if _, err := os.Stat(hostPath); err != nil {
 			logger.Info("  SKIP symlink for %s (host binary %s not found)", target.OutputName, hostBinary)
 			continue
@@ -92,9 +110,14 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		// see cache.KeyNamespaceEnv), because the fork's constant version
 		// stamp would otherwise collide its action IDs with every other fork
 		// toolchain build's.
+		// GOCOSMOPLATFORMS names the host platforms the APE must cover, so the
+		// fork skips building and merging the payloads nothing in the set
+		// needs. Always assigned, never left inherited: an ambient value would
+		// silently change which platforms the artifact claims to run on.
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").
+			WithEnv(cosmoPlatformsEnv, job.cosmoPlatforms).
 			WithEnv("GOTOOLCHAIN", "local").
 			WithEnv("GOROOT", job.forkGoroot).
 			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
