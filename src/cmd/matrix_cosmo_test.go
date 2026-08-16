@@ -96,6 +96,9 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 // under a per-platform name is a thing this repo can no longer express.
 func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo"})
+	// The host convenience entries are a local-only step. Pin CI empty so this
+	// asserts the same directory on a runner as on a developer's machine.
+	t.Setenv("CI", "")
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
