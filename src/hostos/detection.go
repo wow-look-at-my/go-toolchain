@@ -45,15 +45,19 @@ var hostosOut io.Writer = os.Stderr
 
 var guessedHostOnce sync.Once
 
+// guessedHostBanner is the warning, held as one document. Its only value is
+// the OS the fallback assumed.
+const guessedHostBanner = "\n⚠ go-toolchain could not determine its HOST OS and is assuming %q.\n" +
+	"Every probe failed: uname is unimplemented for this target and the filesystem\n" +
+	"probes were denied or absent (a sandbox will do that). On a Mac this answer is\n" +
+	"WRONG, and host-specific choices -- Go toolchain archives, brew paths, the agent\n" +
+	"output guard -- are being made on it. Run `go-toolchain version host` to see.\n\n"
+
 // warnGuessedHost reports, once per run, that the host OS is a fallback rather
 // than a measurement, and names what that costs.
 func warnGuessedHost(d Detection) {
 	guessedHostOnce.Do(func() {
-		fmt.Fprintf(hostosOut, "\n⚠ go-toolchain could not determine its HOST OS and is assuming %q.\n", d.OS)
-		fmt.Fprintf(hostosOut, "Every probe failed: uname is unimplemented for this target and the filesystem\n")
-		fmt.Fprintf(hostosOut, "probes were denied or absent (a sandbox will do that). On a Mac this answer is\n")
-		fmt.Fprintf(hostosOut, "WRONG, and host-specific choices -- Go toolchain archives, brew paths, the agent\n")
-		fmt.Fprintf(hostosOut, "output guard -- are being made on it. Run `go-toolchain version host` to see.\n\n")
+		fmt.Fprintf(hostosOut, guessedHostBanner, d.OS)
 	})
 }
 
