@@ -207,9 +207,10 @@ Two shapes cannot be rewritten. Neither is silently skipped:
 
 - **Indirect requires.** Branch tracking skips indirect lines, so a marker written there would
   read like a pin and track nothing — the rewrite would be a lie. The module is still
-  version-pinned, so it WARNS instead, naming both repairs: promote it to a direct require, or
-  pin the version that reaches the build with a tracked `replace` (main-module-only, so it covers
-  indirect requires too). Both change what the build resolves, which is why neither is applied for
+  version-pinned, so it WARNS instead, naming both repairs and which is which. Promoting it to a
+  direct require is the only one a consumer of this module ever sees. A tracked `replace` is
+  main-module-only, so it moves what *this* module builds against and nothing else. Both change
+  what the build resolves, which is why neither is applied for
   you. A tracked replace already covering the module, or the `pinned` opt-out, silences it. So does
   being a same-repository sibling of a tracked line: that line is this run's own to move (above),
   and warning about it would name a problem the same run fixes.

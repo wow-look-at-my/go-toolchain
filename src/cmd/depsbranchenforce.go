@@ -187,6 +187,11 @@ func trackedSiblingOf(f *modfile.File, mod string) bool {
 // A sibling of a tracked line is the one silence that is earned. This run
 // moves that line itself, later in the same phase, so a warning about it would
 // name a problem this run already fixes.
+//
+// The two repairs are not equals, and the message says which is which. A
+// tracked replace is main-module-only: it moves the version THIS module builds
+// against, and a consumer never reads it. Only the promotion to a direct
+// require puts a moving version where a consumer resolves one.
 func warnIndirectOrgRequire(f *modfile.File, req *modfile.Require, coveredByReplace bool) {
 	if coveredByReplace || !isOrgModule(req.Mod.Path) {
 		return
@@ -197,7 +202,7 @@ func warnIndirectOrgRequire(f *modfile.File, req *modfile.Require, coveredByRepl
 	if trackedSiblingOf(f, req.Mod.Path) {
 		return
 	}
-	logger.Warn("%s is version-pinned at %s and indirect, so it cannot carry a branch marker: promote it to a direct require, or pin the version that reaches the build with `replace %s => %s <version> // %s` (main-module-only, so it covers indirect requires too). Deliberate? Say so with a trailing // %s <reason> comment.",
+	logger.Warn("%s is version-pinned at %s and indirect, so it cannot carry a branch marker. Promote it to a direct require, which is the only repair a consumer of this module sees. To move just this module's own builds, pin the effective version with `replace %s => %s <version> // %s` -- a replace is main-module-only, so it covers this module's indirect requires and nobody else's. Deliberate? Say so with a trailing // %s <reason> comment.",
 		req.Mod.Path, req.Mod.Version, req.Mod.Path, req.Mod.Path, autoBranchMarker, pinnedMarker)
 }
 
