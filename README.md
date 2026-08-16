@@ -7,7 +7,8 @@ A GitHub Action and CLI tool that builds Go projects with test coverage enforcem
 - **Coverage enforcement** — fails the build if test coverage drops below 80%; emits a `::error::` workflow annotation in GitHub Actions so the failure is tagged in the run UI
 - **Coverage watermarking** — optionally locks in a coverage floor using filesystem extended attributes, preventing regressions (with a 2.5% grace period)
 - **Warnings budget** — fails the build when a run emits more than 15 warnings, and re-prints the full numbered list of them at the failure so there is no doubt which output was counted
-- **Cross-compilation** — build for multiple OS/architecture combinations in parallel via the `matrix` subcommand
+- **One binary, every platform** — `matrix` builds a single fat APE running natively on Linux x64, macOS ARM64 and Windows x64, published as one artifact with one download link (see [One binary for every platform](#one-binary-for-every-platform-the-default))
+- **Cross-compilation** — or per-platform native binaries in parallel, by naming `--os`/`--arch`/`--targets`
 - **Benchmarks** — benchmarks run automatically after builds; compare against previous results stored in git notes
 - **CLI test suites (dats)** — `*.dats` suites under `dats/` run against the freshly built binaries after every build via the [dats](https://github.com/wow-look-at-my/dats) runner; a failing suite fails the build (see [CLI test suites (dats)](#cli-test-suites-dats))
 - **Near-duplicate detection** — scans Go source for structurally similar functions using AST comparison
@@ -79,9 +80,10 @@ To opt out, pass `codeql: 'false'`.
 | `generate`          | string   | `''`       | Run `go:generate` directives matching this hash          |
 | `working-directory` | string   | `.`        | Working directory for the build                          |
 | `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
-| `os`                | string   | `linux,darwin,windows` | Comma-separated target operating systems; `wasm` (WebAssembly) pairs only with arch `js`/`wasip1` — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1) |
-| `arch`              | string   | `amd64,arm64` | Comma-separated target architectures; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
-| `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` for WebAssembly — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo` (one gosmopolitan fat APE plus per-platform slot copies — see [Cosmopolitan fat binaries](#cosmopolitan-fat-binaries---targets-cosmo)). When non-empty this replaces the `os`/`arch` inputs |
+| `os`                | string   | `''`       | Comma-separated target operating systems. Setting this **or** `arch` switches from the default single APE to one native binary per platform; `wasm` pairs only with arch `js`/`wasip1` — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1) |
+| `arch`              | string   | `''`       | Comma-separated target architectures. Setting this **or** `os` switches to per-platform binaries; the wasm flavors `js`/`wasip1` pair only with os `wasm` |
+| `targets`           | string   | `''`       | Comma-separated exact build targets, each an `os/arch` pair (e.g. `darwin/amd64`, or `wasm/js`/`wasm/wasip1` — see [WebAssembly targets](#webassembly-targets---targets-wasmjswasmwasip1)) or the special value `cosmo`. When non-empty this replaces the `os`/`arch` inputs |
+| `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE must cover, as `os/arch` pairs; `all` covers everything the fork can emit — see [One binary for every platform](#one-binary-for-every-platform-the-default) |
 | `cgo`               | string   | `false`    | Enable CGO (disabled by default for static binaries) |
 | `autorelease`       | string   | `true`     | Automatically publish to buildhost on every branch push (requires `id-token: write`) — publishes the `build/` directory directly from the workspace, no GitHub Actions artifact involved; also registers a GitHub Deployment and posts an artifact storage record, so it additionally requires `deployments: write` + `artifact-metadata: write` and fails the build without either (see [autorelease permissions](#github-action-usage)) |
 | `autorelease_args`  | string   | `''`       | Extra publish options forwarded to the buildhost publish, as whitespace/comma-separated `key=value` pairs. Recognized: `create_service=true\|false` (the published binary runs as a background service; each download format materializes it — brew `service do` block, auto-enabled systemd user unit in generated debs). Unknown keys fail the build; empty forwards nothing |
@@ -152,11 +154,14 @@ go install github.com/wow-look-at-my/go-toolchain@latest
 # Run tests and build (default workflow)
 go-toolchain
 
-# Cross-compile for multiple platforms
-go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
+# One fat APE covering Linux x64, macOS ARM64 and Windows x64 (the default)
+go-toolchain matrix
 
-# Build an exact target list: one Cosmopolitan fat APE plus three native builds
-go-toolchain matrix --targets cosmo,darwin/amd64,darwin/arm64,windows/arm64
+# Pick the platforms the one binary covers
+go-toolchain matrix --cosmo-platforms linux/amd64,linux/arm64
+
+# Native per-platform binaries instead: naming --os or --arch selects them
+go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
 
 # WebAssembly builds (browser/Node.js and WASI) alongside a native target
 go-toolchain matrix --targets wasm/js,wasm/wasip1,linux/amd64
@@ -218,7 +223,7 @@ Log routing: debug messages go to stderr and info to stdout; warnings and errors
 
 ### Subcommands
 
-- **`matrix`** — cross-compile for multiple platforms (`--os`, `--arch`, `--targets`, `--cosmo-slots`, `--parallel`, `--no-benchmark`)
+- **`matrix`** — build one multi-platform APE, or cross-compile per platform (`--cosmo-platforms`, `--os`, `--arch`, `--targets`, `--parallel`, `--no-benchmark`)
 - **`bench`** — run and manage benchmarks
   - `run` — run benchmarks and show deltas vs stored results
   - `save` — run benchmarks and store results in git notes
@@ -231,65 +236,64 @@ Log routing: debug messages go to stderr and info to stdout; warnings and errors
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
 
-### Cosmopolitan fat binaries (`--targets cosmo`)
+### One binary for every platform (the default)
 
-`matrix --targets` replaces the `--os` x `--arch` cartesian product with an
-exact target list. Each entry is an `os/arch` pair, or the special value
-`cosmo`: one **fat Actually Portable Executable** built with the
-[gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) Go fork
-(`GOOS=cosmo`). A fat APE is a single self-contained binary that runs natively
-on x86-64 Linux, ARM64 Linux, ARM64 macOS, and x86-64 Windows — it embeds cosmo
-amd64, cosmo arm64, and a native windows/amd64 PE payload. The artifact is
-named `<name>_cosmo_fat` (no `.exe`, even though the file is a genuine PE
-polyglot).
+> **Shipping policy.** The `wow-look-at-my` org ships **one APE covering every
+> supported platform**. Per-platform binaries have ended: the org no longer
+> maintains or stores them, and nothing in its pipelines produces them. The
+> cross-compilation flags below still work for consumers with a genuine need,
+> but they are not this org's shipping mode.
+
+`go-toolchain matrix` builds **one** file: a fat Actually Portable Executable,
+compiled with the [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan)
+Go fork (`GOOS=cosmo`). It runs natively on Linux x64, macOS ARM64 and Windows
+x64 — no emulation, no per-platform download. The artifact is
+`<name>_cosmo_fat` (no `.exe`, though the file is a genuine PE polyglot).
 
 ```bash
-# One fat APE (with slot copies) plus native builds for the three carve-outs
-go-toolchain matrix --targets cosmo,darwin/amd64,darwin/arm64,windows/arm64
+go-toolchain matrix
+# build/go-toolchain_cosmo_fat        the binary, runs on all three
+# build/buildhost-artifacts.json      publishes it as ONE artifact
+# build/checksums.txt
 ```
 
-**Slot mapping.** After a successful cosmo build the fat APE is *copied* (real
-files, never symlinks — artifact upload and publishing skip symlinks) onto the
-conventional per-platform artifact names, so per-platform consumers (e.g.
-buildhost's `?os=&arch=` download slots) keep resolving without changes:
+**Choosing the platforms.** `--cosmo-platforms` takes `os/arch` pairs and
+defaults to `linux/amd64,darwin/arm64,windows/amd64`. `all` covers everything
+the fork can emit.
 
-| Slot (default `--cosmo-slots`) | Artifact name |
-|---|---|
-| `linux/amd64`   | `<name>_linux_amd64` |
-| `linux/arm64`   | `<name>_linux_arm64` |
-| `windows/amd64` | `<name>_windows_amd64.exe` (the APE is a real PE, so `.exe` is correct) |
+A narrower set is **not** automatically a smaller binary, and the default set
+saves nothing: an APE carries one payload per ARCHITECTURE, and those three
+platforms still need both — darwin/arm64 boots the arm64 image, linux/amd64 and
+windows/amd64 the amd64 one. Measured saving for the default set: **0%**. Only
+collapsing to a single architecture drops a payload (**-46.9%**). The win of the
+default is one artifact instead of six, not fewer bytes.
 
-`--cosmo-slots` accepts a custom `os/arch` list, or `none` to disable mapping.
-`checksums.txt` covers the copies. If the target list *also* names a slot's
-platform as an explicit native target (e.g. `--targets cosmo,linux/amd64`),
-the native build wins that filename and the copy is skipped with a warning —
-explicit beats mapped.
+Accepted: `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`.
+`darwin/amd64` (Intel-mac runtime never proven on real hardware) and
+`windows/arm64` (amd64-only PE payload) are refused — a published platform set
+says where the binary runs, so an unproven host cannot be in it.
 
-**The fat name after mapping.** Once at least one slot copy exists, the
-`<name>_cosmo_fat` artifact itself is replaced: buildhost validates `os` on
-artifact upload and rejects `os=cosmo` (`400 invalid os`), and a single
-rejected artifact aborts the whole publish. Locally the fat name becomes a
-symlink to the first slot copy, so it keeps working on disk while the publish
-pipeline (which skips symlinks) never uploads it; in CI it is removed outright,
-because `upload-artifact` dereferences symlinks and would re-materialize a
-publish-breaking regular file inside the artifact. `checksums.txt` therefore
-lists real files only — every slot copy is byte-identical to the APE, so
-nothing is lost. With `--cosmo-slots=none` (or when every slot loses to a
-native collision) the real fat file is kept; note such a layout cannot be
-published to buildhost until the server accepts `os=cosmo`.
+**Publishing.** The APE publishes as a *single* artifact carrying its whole
+platform set: one upload, one download link, one checksum, with an
+`APE:<platforms>` badge. go-toolchain writes `buildhost-artifacts.json`
+alongside the binary to say so — see
+[docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md).
 
-**Native carve-outs.** `darwin/arm64`, `darwin/amd64` and `windows/arm64` are
-deliberately NOT default slots. `darwin/arm64`: the fat APE boots and even
-builds fine on ARM64 macs, but the pipeline *wedges at exit* there — the
-gosmopolitan runtime runs unix-socket fds in blocking mode with no netpoller
-on darwin hosts, so closing the cache daemon's listener deadlocks against its
-own blocked `Accept` (root-caused via SIGQUIT goroutine dumps; tracked in
-[#276](https://github.com/wow-look-at-my/go-toolchain/issues/276)) — so macs
-keep getting a native binary until that runtime bug is fixed. `darwin/amd64`:
-the cosmo runtime for Intel macs is not yet verified end to end.
-`windows/arm64`: the APE's embedded Windows payload is amd64-only. Build
-those three as native targets alongside `cosmo` (as in the example above) for
-full coverage.
+**Per-platform binaries instead** — supported, but not this org's shipping
+mode. Naming `--os` or `--arch` builds the cartesian product of native
+binaries; naming only one fills the other in (`--arch arm64` means every OS,
+arm64). `--targets` takes an exact list of `os/arch` pairs plus the entry
+`cosmo`, and mixes them freely:
+
+```bash
+go-toolchain matrix --os linux,darwin --arch amd64,arm64
+go-toolchain matrix --targets cosmo,windows/arm64
+```
+
+**No per-platform copies.** A cosmo build writes the APE and nothing else.
+There is no flag that copies it onto `<name>_<os>_<arch>` names — the APE
+publishes under its own name through the manifest, as one artifact carrying its
+whole platform set.
 
 **Toolchain resolution.** Building the cosmo target needs the gosmopolitan
 toolchain:
@@ -317,11 +321,12 @@ See [docs/CACHE.md](docs/CACHE.md#fork-toolchain-key-namespacing).
 
 **Heads-up: APEs self-assimilate.** Executing an APE rewrites its own header
 in place to the host's native format, making the file differ from its
-checksum. Never execute the artifacts in `build/` directly (that includes the
-`<name>`/`<name>_host` convenience symlinks after a cosmo-only build, which
-point at a mapped copy of the APE) — run a throwaway copy instead. The build
-pipeline itself never executes matrix artifacts (benchmarks compile their own
-test binaries), so artifacts stay pristine through the build.
+checksum. Never execute the artifacts in `build/` directly — that includes the
+local `<name>`/`<name>_host` convenience symlinks, which point at the APE when
+no native host binary was built. Run a throwaway copy instead. The build
+pipeline itself never executes matrix artifacts in place (the dats phase stages
+copies; benchmarks compile their own test binaries), so artifacts stay pristine
+through the build.
 
 ### WebAssembly targets (`--targets wasm/js,wasm/wasip1`)
 
@@ -387,7 +392,7 @@ artifacts from the trailing two underscore-separated filename tokens after
 stripping only `.exe`, so the bare form is what publishes as
 `os=wasm`/`arch=js|wasip1` (an extension would keep the file out of the
 upload set entirely). The files are still ordinary wasm modules, covered by
-`checksums.txt`; none of the cosmo slot machinery applies to them.
+`checksums.txt`.
 
 **Buildhost publishing.** By default wasm artifacts are published to
 buildhost like any other target, as `os=wasm` with `arch=js`/`arch=wasip1`.
@@ -443,8 +448,8 @@ Rejected spellings fail fast with a pointer to the right one: `js`/`wasip1`
 in `--os` and `wasm` in `--arch` (both flipped in buildhost's model — use
 `--os wasm --arch js|wasip1`, or `--targets wasm/js`/`wasm/wasip1`),
 `js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings), a
-`js`/`wasip1` arch with no `wasm` os in the list, and wasm targets in
-`--cosmo-slots` (an APE is not a wasm binary).
+`js`/`wasip1` arch with no `wasm` os in the list, and a wasm target in
+`--cosmo-platforms` (an APE covers native hosts, and wasm is not one).
 
 ### Build output lifetime
 

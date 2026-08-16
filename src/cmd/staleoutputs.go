@@ -52,6 +52,12 @@ var nonBinaryOutputs = set.Of(
 // or "<name>_…": build.BinaryName's <name>_<goos>_<goarch>[.exe], the wasm
 // variants, the <name>_cosmo_fat APE, and the <name>_host convenience symlink.
 func isOutputArtifact(base, name string) bool {
+	// The publish manifest describes the artifacts, so it dies with them: a
+	// manifest outliving the binaries it names would send the next publish
+	// after a file that is not there.
+	if base == buildhostManifestName {
+		return true
+	}
 	if name == "" || nonBinaryOutputs.Contains(base) {
 		return false
 	}

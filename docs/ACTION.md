@@ -20,7 +20,15 @@ That `actions: read` is the guard's requirement, not autorelease's.
 
 ## 2. Secrets, then the build
 
-Fetches secrets over OIDC, then runs go-toolchain.
+Fetches secrets over OIDC, then runs `go-toolchain matrix`.
+
+**What the target inputs build.** With none of them set — the default — the run
+produces ONE fat APE covering `cosmo-platforms`
+(`linux/amd64,darwin/arm64,windows/amd64`), published as a single
+multi-platform artifact. `os` and `arch` are EMPTY by default; setting either
+switches to one native binary per platform. `targets` replaces both with an
+exact list. There is no input that copies the APE onto per-platform artifact
+names; the APE publishes under its own name, once.
 
 ## 3. Handing off `build/`
 

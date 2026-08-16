@@ -99,7 +99,7 @@ const datsStageDir = ".dats-stage"
 //
 // The staged binaries are READABLE there, not writable -- the sandbox exposes
 // the working directory read-only and offers no way to declare otherwise. A
-// binary that rewrites itself on first exec (a cosmo slot artifact is an APE,
+// binary that rewrites itself on first exec (the cosmo artifact is an APE,
 // whose loader does exactly that and exits 121 on a read-only filesystem) must
 // therefore be copied into the sandbox's own writable temp space by the suite
 // that runs it -- one `cp` into `$(mktemp -d)`, which is what dats/README.md
