@@ -36,11 +36,13 @@ func runWriteRunsOn(t *testing.T, src string) []int {
 	_, err = runWriteRuns(pass)
 	require.NoError(t, err)
 
+	// WarnFile records the file it annotates ahead of the message, so the
+	// position the message itself carries is the LAST one in the text.
 	var lines []int
 	for _, msg := range logger.EmittedWarnings() {
-		_, rest, ok := strings.Cut(msg, "/pkg/write.go:")
-		require.True(t, ok, "warning names the file: %s", msg)
-		num, _, _ := strings.Cut(rest, ":")
+		at := strings.LastIndex(msg, "/pkg/write.go:")
+		require.GreaterOrEqual(t, at, 0, "warning names the file: %s", msg)
+		num, _, _ := strings.Cut(msg[at+len("/pkg/write.go:"):], ":")
 		line, err := strconv.Atoi(num)
 		require.NoError(t, err, "warning names a line: %s", msg)
 		lines = append(lines, line)
