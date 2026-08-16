@@ -309,7 +309,7 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 // not fail the build.
 //
 // A branch-tracked pin moving to its branch's current commit is excluded too.
-// `// go-toolchain:branch=<branch>` declares that the branch, not the recorded
+// `// go-toolchain:auto-branch` declares that the branch, not the recorded
 // pseudo-version, is what this dependency means; the version is a cache of the
 // last resolution, and every run re-answers it. Failing the build over it would
 // demand a commit whose entire content is a hash nobody chose, once per upstream
