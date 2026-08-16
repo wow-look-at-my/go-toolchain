@@ -229,7 +229,11 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 	assert.Equal(t, "// go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/bubbletea/v2"))
 }
 
-func TestEnforceOrgBranchTrackingSkipsALocalReplacement(t *testing.T) {
+// A local replace is main-module-only: it points this repository at a
+// directory and tells a consumer nothing. The consumer resolves the REQUIRE's
+// version, so that line still has to track. The replace itself stays bare,
+// because a directory has no branch.
+func TestEnforceOrgBranchTrackingMarksARequireBehindALocalReplacement(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -243,8 +247,84 @@ replace github.com/wow-look-at-my/foo => ./vendor/foo
 
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
-	assert.False(t, changed, "a directory has no branch to track, and the require's version is overridden by it")
+	assert.True(t, changed)
+	assert.Equal(t, "// go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/foo v1.2.3"))
+	assert.Equal(t, "", suffixFor(t, "=> ./vendor/foo"), "a directory has no branch to track")
 	assert.Empty(t, untrackedOrgDeps())
+}
+
+// The shape that made this a real outage: a multi-module repository requires
+// its own sibling and hides the pin with a relative replace. Every consumer
+// resolves the require, so the pin has to keep moving. Leaving it alone let it
+// name a commit older than the sibling's own go.mod, and every consumer got
+// "missing go.mod at revision".
+func TestEnforceOrgBranchTrackingMarksASiblingRequireBehindARelativeReplace(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeGoMod(t, `module github.com/wow-look-at-my/repo/writer
+go 1.21
+
+require github.com/wow-look-at-my/repo/reader v0.0.0-20200101000000-000000000000
+
+replace github.com/wow-look-at-my/repo/reader => ../reader
+`)
+
+	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
+
+	changed, err := EnforceOrgBranchTracking(mock)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Equal(t, "// go-toolchain:auto-branch", suffixFor(t, "repo/reader v0.0.0"))
+	assert.Empty(t, untrackedOrgDeps())
+}
+
+// An indirect org require behind a local replace ships its own version to
+// consumers too, so the silence it used to get was the same hole. It warns,
+// because the marker cannot go on an indirect line.
+func TestEnforceOrgBranchTrackingWarnsOnAnIndirectRequireBehindALocalReplacement(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeGoMod(t, `module test
+go 1.21
+
+require github.com/wow-look-at-my/foo v1.2.3 // indirect
+
+replace github.com/wow-look-at-my/foo => ../foo
+`)
+
+	logger.ResetWarnCount()
+	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
+
+	_, err := EnforceOrgBranchTracking(mock)
+	require.NoError(t, err)
+
+	warnings := logger.EmittedWarnings()
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "github.com/wow-look-at-my/foo")
+}
+
+// A sibling of a line this run just marked is the exception. The sibling
+// resolution moves that indirect line later in the same phase, so a warning
+// here would name a problem the run already fixes.
+func TestEnforceOrgBranchTrackingStaysQuietOnASiblingOfATrackedLine(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeGoMod(t, `module github.com/wow-look-at-my/repo/cli
+go 1.21
+
+require github.com/wow-look-at-my/repo/validator v0.0.0-20200101000000-000000000000
+
+require github.com/wow-look-at-my/repo/reader v0.0.0-20200101000000-000000000000 // indirect
+
+replace github.com/wow-look-at-my/repo/validator => ../validator
+
+replace github.com/wow-look-at-my/repo/reader => ../reader
+`)
+
+	logger.ResetWarnCount()
+	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
+
+	changed, err := EnforceOrgBranchTracking(mock)
+	require.NoError(t, err)
+	assert.True(t, changed, "the direct sibling is marked")
+	assert.Empty(t, logger.EmittedWarnings())
 }
 
 func TestEnforceOrgBranchTrackingHonorsTheDeliberatePinOptOut(t *testing.T) {

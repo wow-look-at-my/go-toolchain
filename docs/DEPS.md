@@ -207,13 +207,27 @@ Two shapes cannot be rewritten. Neither is silently skipped:
 
 - **Indirect requires.** Branch tracking skips indirect lines, so a marker written there would
   read like a pin and track nothing — the rewrite would be a lie. The module is still
-  version-pinned, so it WARNS instead, naming both repairs: promote it to a direct require, or
-  pin the version that reaches the build with a tracked `replace` (main-module-only, so it covers
-  indirect requires too). Both change what the build resolves, which is why neither is applied for
-  you. A tracked replace already covering the module, or the `pinned` opt-out, silences it.
-- **A require overridden by a `replace`.** Nothing is lost here: the replacement supplies the
-  version that reaches the build, and the replace line is marked in the require's place. A
-  replacement into a local directory has no remote to resolve and is left alone.
+  version-pinned, so it WARNS instead, naming both repairs and which is which. Promoting it to a
+  direct require is the only one a consumer of this module ever sees. A tracked `replace` is
+  main-module-only, so it moves what *this* module builds against and nothing else. Both change
+  what the build resolves, which is why neither is applied for
+  you. A tracked replace already covering the module, or the `pinned` opt-out, silences it. So does
+  being a same-repository sibling of a tracked line: that line is this run's own to move (above),
+  and warning about it would name a problem the same run fixes.
+- **A require whose version a `replace` overrides.** Nothing is lost here: the replacement supplies
+  the version that reaches the build, and the replace line is marked in the require's place.
+
+**Only a `replace` that NAMES A VERSION overrides anything.** A `replace` into a local directory
+(`=> ../reader`) is main-module-only: it points *this* repository at a tree on disk and tells a
+consumer nothing at all. Every consumer resolves the `require`'s own version, so that require is
+still marked and still tracked — the directory replace beside it stays bare, because a directory
+has no branch to follow.
+
+Treating a locally-replaced require as covered was a real hole, and the multi-module case above is
+where it bit: `validator` required its sibling `reader` at a pseudo-version, `replace ../reader`
+hid it from this repository's own builds, and nothing ever moved it. The pin ended up naming a
+commit older than `reader/go.mod` itself, so every CI run here was green while every consumer got
+`missing go.mod at revision`.
 
 Genuinely wanting a version pin — a tagged release with a hard API break past it, say — is an
 explicit opt-out on the line, with the reason next to it:
