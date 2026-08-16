@@ -99,10 +99,15 @@ its suites (and fails honestly if it needed one).
 ## Read-only in the sandbox
 
 The staged binaries are READABLE inside the sandbox, not writable, and there
-is no way to declare otherwise. A suite whose binary rewrites itself on first
-exec (an APE does, exiting 121 from a read-only path) copies it into the
-sandbox's private `/tmp` and execs the copy — `dats/cli.dats` does exactly
-that in every test.
+is no way to declare otherwise. An APE rewrites its own file on first exec and
+exits 121 when it cannot, so staging assimilates each APE copy while the file
+is still writable — `assimilateAPE` writes the ELF header the binary's own
+prologue would have written, taken from that prologue. A suite therefore execs
+the handoff path in place, and `dats/cli.dats` does exactly that in every test,
+which is what catches a regression in the staging step.
+
+A suite still copies a binary into the sandbox's private `/tmp` when its own
+test needs a writable one.
 
 Never answer any of this by turning the sandbox off. A suite cannot even ask
 for that any more: dats removed the file-level opt-out, so the `sandbox:` block
@@ -115,8 +120,7 @@ docker backend has a Go for the bootstrap.
 ## How the run is configured
 
 - `Paths: []string{"dats"}` — the suite directory, nothing else.
-- `Jobs: 0` (serial) on purpose: the report stays byte-deterministic, and
-  staged APE copies never race their first-exec self-assimilation.
+- `Jobs: 0` (serial) on purpose: the report stays byte-deterministic.
 - `Sandbox` is dats' zero value, which is auto (bwrap → seatbelt → docker).
 - `Env` carries `GO_TOOLCHAIN_DATS_BUILD_DIR`, plus `GOCACHEPROG=` and
   `GOCACHE_STATS_SOCK=` — cleared, so a suite command that runs `go ...`

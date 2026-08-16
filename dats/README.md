@@ -39,7 +39,8 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   holding copies of the binaries the pipeline just built, named by their bare
   output name (`go-toolchain` here; plus `.exe` on windows hosts). Tests exec
   binaries through it — never out of `build/` directly, because matrix cosmo
-  slot artifacts are APEs that self-assimilate on first exec.
+  slot artifacts are APEs that rewrite their own file on first exec. Staging
+  assimilates each APE copy, so a test execs the handoff path in place.
 - That directory is `build/.dats-stage/` **inside the module root**, and it is
   there for a reason: dats sandboxes every command, and of the host a
   sandboxed command reaches only the working directory (docker mounts it and
@@ -50,9 +51,10 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 - Suites are **sandboxed** — the phase does not pass `--no-sandbox`, and it is
   not the toolchain's call to make. The handoff dir is READ-ONLY there, like
   the rest of the working directory, and there is no way to declare otherwise:
-  a test whose binary must write (an APE rewrites its own file on first exec)
-  copies it into the private `/tmp` first and execs the copy — see
-  `cli.dats`. A suite whose commands genuinely need the host says so per file
+  a test whose binary must write copies it into the private `/tmp` first and
+  execs the copy. An APE is not such a case any more — staging assimilates it,
+  and `cli.dats` execs the handoff path in place to prove that still works.
+  A suite whose commands genuinely need the host says so per file
   (`sandbox: false`); one that needs something specific of the docker backend
   names it (`image:`).
 - Suites run serially (`dats test dats`, no `-j`) so the report is

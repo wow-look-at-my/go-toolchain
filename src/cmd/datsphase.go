@@ -82,12 +82,11 @@ func hasDatsSuites(dir string) bool {
 const datsStageDir = ".dats-stage"
 
 // stageDatsArtifacts copies built binaries into a staging dir (the caller
-// removes it) for suites to exec. Copy-then-exec is mandatory: matrix cosmo
-// slot artifacts are fat APEs that self-assimilate (rewrite their own file)
-// on first exec, so nothing may ever execute a build/ artifact in place. A
-// missing source (e.g. a cross-only build with no host-runnable artifact) is
-// skipped with a debug log — the suite still runs and fails honestly if it
-// needed it.
+// removes it) for suites to exec. It stages copies because a matrix cosmo slot
+// artifact is a fat APE that rewrites its own file the first time it runs, so
+// nothing may ever execute a build/ artifact in place. A missing source (e.g. a
+// cross-only build with no host-runnable artifact) is skipped with a debug log
+// — the suite still runs and fails honestly if it needed it.
 //
 // The staging dir must be INSIDE the module root, and the path handed to dats
 // absolute. dats sandboxes every test command, and of the host a sandboxed
@@ -98,13 +97,13 @@ const datsStageDir = ".dats-stage"
 // outside all three backends.
 //
 // The staged binaries are READABLE there, not writable -- the sandbox exposes
-// the working directory read-only and offers no way to declare otherwise. A
-// binary that rewrites itself on first exec (the cosmo artifact is an APE,
-// whose loader does exactly that and exits 121 on a read-only filesystem) must
-// therefore be copied into the sandbox's own writable temp space by the suite
-// that runs it -- one `cp` into `$(mktemp -d)`, which is what dats/README.md
-// tells suites to do. Do not "fix" any of this by passing --no-sandbox: that
-// turns the isolation off for every suite command in every consuming repo.
+// the working directory read-only and offers no way to declare otherwise. So
+// staging assimilates each APE copy here, while the file is still writable:
+// the loader's first-exec self-rewrite needs write access and exits 121
+// without it, and a suite must be able to exec the handoff path directly. A
+// suite copies a binary only when its own test needs a writable one. Do not
+// "fix" an exec failure by passing --no-sandbox: that turns the isolation off
+// for every suite command in every consuming repo.
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -128,6 +127,13 @@ func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 		}
 		if copyErr != nil {
 			logger.Debug("dats: not staging %s: %v", a.sourcePath, copyErr)
+			continue
+		}
+		// Loud, and not fatal: the copy still runs anywhere it is writable,
+		// so a suite that copies it keeps passing while this says why one
+		// that execs the handoff path directly will not.
+		if err := assimilateAPE(dst); err != nil {
+			logger.Warn("dats: %s stays an APE and a suite cannot exec it from the read-only handoff dir: %v", a.name, err)
 		}
 	}
 	return dir, nil
@@ -222,8 +228,7 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		out = &noteFirstWrite{w: out, note: st.noteOutput}
 	}
 
-	// Jobs stays 0 (serial) on purpose: the report is byte-deterministic and
-	// staged APE copies never race their first-exec self-assimilation. The
+	// Jobs stays 0 (serial) on purpose: the report is byte-deterministic. The
 	// sandbox is dats' default (auto) — whether a suite needs the host is the
 	// SUITE's declaration to make, never the toolchain's.
 	//
