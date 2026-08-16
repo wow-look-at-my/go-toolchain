@@ -99,11 +99,7 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 		if hasPinnedMarker(req.Syntax) {
 			continue
 		}
-		moved, err := markBranchTracked(r, req.Syntax, req.Mod.Path, req.Mod.Version)
-		if err != nil {
-			return changed, err
-		}
-		changed = changed || moved
+		changed = markBranchTracked(r, req.Syntax, req.Mod.Path, req.Mod.Version) || changed
 	}
 
 	for _, rep := range f.Replace {
@@ -113,11 +109,7 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 		if hasPinnedMarker(rep.Syntax) {
 			continue
 		}
-		moved, err := markBranchTracked(r, rep.Syntax, rep.New.Path, rep.New.Version)
-		if err != nil {
-			return changed, err
-		}
-		changed = changed || moved
+		changed = markBranchTracked(r, rep.Syntax, rep.New.Path, rep.New.Version) || changed
 	}
 
 	if !changed {
@@ -157,31 +149,47 @@ func warnIndirectOrgRequire(req *modfile.Require, coveredByReplace bool) {
 		req.Mod.Path, req.Mod.Version, req.Mod.Path, req.Mod.Path, autoBranchMarker, pinnedMarker)
 }
 
-// markBranchTracked adds the tracking marker to an unmarked line and reports
-// whether it changed. A line already carrying one is left alone, in either
-// spelling: migrating the legacy one is the next release's job, not this one's
-// (see marker.legacy).
+// markBranchTracked brings a go.mod line to the canonical marker and reports
+// whether it changed. An unmarked line gets the bare auto-branch comment, which
+// costs no lookup: it names no branch, so there is nothing to ask until the
+// line is resolved.
 //
-// The written marker names the module's default branch, so writing it needs
-// one `git ls-remote --symref`. A remote that cannot answer is fatal:
-// reporting green over a marker that was not written is the way to be wrong
-// here, and the version pin it was supposed to replace stays a stale snapshot.
-func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version string) (bool, error) {
-	if parseMarker(line).tracks {
-		return false, nil
+// A line still carrying the legacy branch=<name> spelling is migrated. The
+// migration drops a hardcoded name that merely repeats the default branch and
+// keeps one that does not: `branch=v1` becomes `auto-branch=v1`, while
+// `branch=master` on a repo whose default IS master becomes plain
+// `auto-branch`, which stops caring what the branch is called.
+//
+// Telling those apart is the one lookup here, and a remote that cannot answer
+// it keeps the name: `auto-branch=<name>` follows exactly what the line
+// followed before, so the migration is never a change of meaning. It warns,
+// because a name kept for that reason is one somebody may want to drop later.
+func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version string) bool {
+	m := parseMarker(line)
+	if m.tracks && !m.legacy {
+		return false
 	}
 
-	def, err := defaultBranchOf(r, mod)
-	if err != nil {
-		return false, fmt.Errorf("%s must track a branch, but the default branch of its repository could not be resolved: %w (pin it deliberately with a trailing // %s <reason> comment if that is what you mean)", mod, err, pinnedMarker)
+	marked := marker{tracks: true, branch: m.branch}
+	if m.legacy && m.branch != "" {
+		def, err := defaultBranchOf(r, mod)
+		switch {
+		case err != nil:
+			logger.Warn("%s follows branch %s, and whether that is its default branch could not be resolved (%v), so the migrated marker keeps the name: drop the =%s to follow whatever the default is called", mod, m.branch, err, m.branch)
+		case def == m.branch:
+			marked.branch = ""
+		}
 	}
-
-	marked := marker{tracks: true, branch: def, legacy: true}
 	if !jsonOutput {
-		logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, marked.describe())
+		switch {
+		case !m.tracks:
+			logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, marked.describe())
+		case m.legacy:
+			logger.Info("⇒ %s: %s%s becomes %s", mod, legacyBranchMarker, m.branch, marked.comment())
+		}
 	}
 	setMarker(line, marked)
-	return true, nil
+	return true
 }
 
 // setMarker replaces any go-toolchain tracking comment on a line with m's.

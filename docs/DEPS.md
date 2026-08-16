@@ -27,8 +27,8 @@ tidy`; anything else is only reported, with a `go get -u` hint.
 
 ## Branch-tracked dependencies (`src/cmd/depsbranch.go`)
 
-Colloquially "the `//branch` comment" — spelled `go-toolchain:branch=` in the file, so searching a
-checkout for `//branch` finds nothing. Search for `branch=` or read on.
+Colloquially "the `//branch` comment" — spelled `go-toolchain:auto-branch` in the file, so searching
+a checkout for `//branch` finds nothing. Search for `auto-branch` or read on.
 
 The two mechanisms above always resolve to a module's *default* branch — there is no way to ask
 either one to follow a different branch, and letting the org auto-updater run `go get -u` on a
@@ -36,7 +36,7 @@ dependency someone deliberately pinned to a non-default branch would silently dr
 `main`. A `require` line opts out of both and into branch tracking with a trailing comment:
 
 ```go
-require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:branch=v1
+require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:auto-branch=v1
 ```
 
 **The marker names no branch by default.** `// go-toolchain:auto-branch` follows the module's
@@ -53,33 +53,23 @@ require github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:auto-branch
 require github.com/wow-look-at-my/bar v0.0.0-... // go-toolchain:auto-branch=v1
 ```
 
-The original `branch=<name>` spelling is still READ, so an unmigrated `go.mod` resolves correctly
-either way.
+### The legacy spelling migrates itself
 
-### The marker is read one release before it is written
+The original `branch=<name>` spelling is still READ, so an unmigrated `go.mod` resolves correctly,
+and `markBranchTracked` rewrites it the first time it sees it. Nothing has to be migrated by hand.
 
-This release READS `auto-branch` and still WRITES `branch=<default branch>`. That is not caution
-about the new spelling — it is the only order that works. A release predating `auto-branch` does not
-ignore a marker it fails to recognize: it reads the line as untracked and appends a comment of its
-own, on a line of its own, ABOVE the require, which corrupts the block. Measured, on this
-repository's own `go.mod`:
+The legacy spelling always names a branch, so the migration asks the remote one question: is that
+name merely the default branch? A name that repeats the default is DROPPED —
+`branch=master` on a repository whose default is `master` becomes plain `auto-branch`, which stops
+caring what the branch is called. A name that does not is KEPT: `branch=v1` becomes
+`auto-branch=v1`, because that was a deliberate choice. A remote that cannot answer keeps the name
+and warns, so the migration is never a change of meaning.
 
-```diff
- 	github.com/wow-look-at-my/ansi-writer v0.0.0-... // go-toolchain:auto-branch
-+	// go-toolchain:branch=master
- 	github.com/wow-look-at-my/dats v0.0.0-... // go-toolchain:auto-branch
-+	// go-toolchain:branch=master
-```
-
-So one committed `go.mod` has to satisfy both binaries at once, and with a single marker per line
-no text does — whichever spelling is committed, the other binary rewrites it. Writing the new
-spelling therefore waits for a fleet that reads it. Once this release is out (every runner installs
-`@v1` from buildhost on each run), the next one flips `markBranchTracked` to write `auto-branch`
-and migrates existing lines, and no binary in the fleet mistakes the result for an unmarked line.
-
-The alternative — one line carrying BOTH spellings, the legacy one last so an old parser reads its
-branch name off the tail — works and was rejected: two markers on a line is a worse thing to live
-with than one ordered release.
+**Changing the marker's spelling again takes two releases, in this order: read it first, write it
+one release later.** A binary predating a marker does not ignore one it fails to recognize — it
+reads the line as untracked and appends a comment of its own, on a line of its own, ABOVE the
+require, which corrupts the block. So one committed `go.mod` has to satisfy the whole fleet at
+once, and with a single marker per line no text does until every runner reads the new spelling.
 
 Every run re-resolves that branch's current HEAD via `git ls-remote <url> refs/heads/<branch>` and
 rewrites the pseudo-version in place (the comment is preserved, so the pin stays declarative across
@@ -173,7 +163,7 @@ line, where the version that actually reaches the build lives:
 ```go
 require charm.land/bubbletea/v2 v2.0.8
 
-replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0-20260812203640-351d2159f8d8 // go-toolchain:branch=master
+replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0-20260812203640-351d2159f8d8 // go-toolchain:auto-branch
 ```
 
 The branch is resolved against the **replacement's** repository (`github.com/wow-look-at-my/...`)
@@ -199,13 +189,12 @@ A version pin on a `github.com/wow-look-at-my/` module is a snapshot of whenever
 ran `go get`. These modules are co-developed with their consumers and have no release cadence to
 pin to, so nothing ever moves that snapshot forward and the consumer silently builds against
 month-old code. The branch pin is therefore the canonical form for them, and `go.mod` is
-rewritten into it: an org require or replace carrying a plain version gets a tracking marker
-appended, naming the module's default branch. Resolving that name is one
-`git ls-remote --symref <url> HEAD`, and a remote that cannot answer it is FATAL — reporting green
-over a marker that was not written leaves the stale snapshot exactly as stale as it was.
+rewritten into it: an org require or replace carrying a plain version gets the bare
+`// go-toolchain:auto-branch` comment appended. That costs no lookup — it names no branch, so there
+is nothing to ask until the line is resolved.
 
-A line already carrying a marker is left exactly as it is, in EITHER spelling, and asks the remote
-nothing. Which spelling gets written is the release-ordering question above.
+A line already carrying the canonical marker is left exactly as it is. The legacy spelling is
+migrated, which is the one place this asks the remote anything (see above).
 
 The rewrite is the enforcement — locally you review the diff and commit it, in CI the resulting
 dirty tree fails the build (`checkDirtyInCI`), the same contract as every other `go.mod` mutation

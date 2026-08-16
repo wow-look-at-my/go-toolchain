@@ -33,12 +33,8 @@ type marker struct {
 	// branch names the branch to follow. Empty with tracks set means the
 	// module's default branch, whatever it is called today.
 	branch string
-	// legacy is true for the old branch= spelling. It is what comment writes
-	// today: a release that predates auto-branch reads such a line as
-	// untracked and appends a comment of its own ABOVE the require, so the
-	// release that starts WRITING the new spelling cannot be the one that
-	// first reads it. This one reads it. The next one writes it, by which
-	// point nothing in the fleet mistakes it for an unmarked line.
+	// legacy is true for the old branch= spelling, which is what tells
+	// EnforceOrgBranchTracking there is something to migrate.
 	legacy bool
 }
 
@@ -92,13 +88,8 @@ func (m marker) describe() string {
 	return "branch " + m.branch
 }
 
-// comment is the marker as it is written into go.mod, in the spelling the
-// marker records. See the legacy field for why a written one still names its
-// branch, and what changes when every runner reads auto-branch.
+// comment is the marker as it is written into go.mod.
 func (m marker) comment() string {
-	if m.legacy {
-		return legacyBranchMarker + m.branch
-	}
 	if m.branch != "" {
 		return autoBranchMarker + "=" + m.branch
 	}
