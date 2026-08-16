@@ -215,6 +215,11 @@ coverage.
   value, or the map escaping to another function keeps it a map. A `map[K]struct{}` only WARNS (deduplicated per file:line by
   `resetMapSetWarnings`; the `set` package itself is exempt, `isSetPackage`, since `Set[T]` IS that map) — it already carries no value. No opt-out marker, and no
   module skips the check: an org module FAILS on the bool findings (`isOrgModule`), everyone else WARNS on them. Depth: `docs/VET.md`
+- `src/vet/writeruns.go` — the `writeruns` analyzer: three or more adjacent statements writing source-spelled text to ONE writer are a document
+  nobody can read in the source, so the third and each later write WARNS and names `text/template`. Never a build failure by itself; a long run still
+  fails through the warnings budget, which this repo's 25-write mermaid header did. A run ends at any other statement, at a different writer, and at
+  a write whose text is computed (`b.WriteByte(c)`); a writer that digests its input never counts (`isHashWriter`). Every module, warning severity,
+  no opt-out marker. Depth: `docs/VET.md`
 - `src/hostos/` — `hostos.GOOS()`, the host operating system as opposed to `runtime.GOOS` (what the binary was compiled for). Identical for every
   normal
   build; for a GOOS=cosmo fat APE — which reports `runtime.GOOS == "cosmo"` on Linux and macOS hosts (Windows runs the embedded native windows

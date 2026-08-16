@@ -175,15 +175,18 @@ func blindClassifierSink(host string) outputSink {
 // is captured, so stdout is the one place this must never go.
 func warnGuardInoperative(host string) {
 	guardInoperativeOnce.Do(func() {
-		fmt.Fprintf(agentGuardOut, "\n%s⚠ go-toolchain's agent output guard is INOPERATIVE on this %s host.%s\n",
-			colorBoldRed, host, colorReset)
-		fmt.Fprintf(agentGuardOut, "This binary classifies stdout through /proc, which %s does not have, so it\n", host)
-		fmt.Fprintf(agentGuardOut, "cannot tell whether its output is being captured and will not refuse a run\n")
-		fmt.Fprintf(agentGuardOut, "that hides it. Read the output yourself; do not trust the guard here.\n\n")
+		fmt.Fprintf(agentGuardOut, guardInoperativeBanner, colorBoldRed, host, colorReset, host)
 	})
 }
 
 var guardInoperativeOnce sync.Once
+
+// guardInoperativeBanner is the warning, held as one document. Its values are
+// the two colours and the host, which it names twice.
+const guardInoperativeBanner = "\n%s⚠ go-toolchain's agent output guard is INOPERATIVE on this %s host.%s\n" +
+	"This binary classifies stdout through /proc, which %s does not have, so it\n" +
+	"cannot tell whether its output is being captured and will not refuse a run\n" +
+	"that hides it. Read the output yourself; do not trust the guard here.\n\n"
 
 // socketPeerPID (declared per-platform: claudeguard_sockpeer_linux.go uses
 // golang.org/x/sys/unix, claudeguard_sockpeer_cosmo.go a raw syscall, since
