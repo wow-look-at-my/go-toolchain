@@ -7,17 +7,22 @@
 // compile the guard out of every shipped binary while the GOOS=linux unit
 // tests stay green (that was a real bug; claudeguard_buildtags_test.go pins
 // the constraints). Everything here needs only /proc + stdlib, which work
-// under cosmo on linux hosts; on a darwin host the APE has no /proc, so
-// inspectFD fails open to sinkVisible. isTerminal is the one piece needing a
-// platform ioctl and lives in claudeguard_tty_{linux,cosmo}.go.
+// under cosmo on linux hosts. On a darwin host the APE has no /proc, so this
+// classifier is blind and the guard cannot fire; that is a KNOWN GAP, not a
+// design — see unclassifiableSink, which says so out loud, and
+// docs/AGENT-OUTPUT-GUARD.md for what closing it needs. isTerminal is the one
+// piece needing a platform ioctl and lives in claudeguard_tty_{linux,cosmo}.go.
 
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
@@ -31,9 +36,17 @@ func inspectStdout() outputSink {
 // inspectFD is inspectStdout's logic, parameterized on the descriptor so it can
 // be tested against controlled pipes/files/devices.
 func inspectFD(fd uintptr) outputSink {
+	// A cosmo APE on a darwin host has no /proc and needs the darwin
+	// classifier instead. Decided on the HOST, not runtime.GOOS.
+	if sink, ok, handled := hostSpecificInspect(fd); handled {
+		if !ok {
+			return blindClassifierSink(hostos.GOOS())
+		}
+		return sink
+	}
 	target, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(fd), 10))
 	if err != nil {
-		return outputSink{kind: sinkVisible} // can't tell — never block on uncertainty
+		return unclassifiableSink()
 	}
 
 	switch {
@@ -67,6 +80,13 @@ func inspectFD(fd uintptr) outputSink {
 			}
 			if name != "" {
 				return outputSink{kind: sinkHidden, detail: name}
+			}
+			// No name, but the pid can still answer: an agent that published
+			// this pid as its own, and a kernel that records it as this
+			// socket's peer, identify the reader between them without any
+			// process lookup at all.
+			if agent.IsPID(pid) {
+				return outputSink{kind: sinkVisible}
 			}
 			return outputSink{kind: sinkHidden, detail: target}
 		}
@@ -106,6 +126,64 @@ func inspectFD(fd uintptr) outputSink {
 	}
 	return outputSink{kind: sinkVisible} // unknown disposition — don't block
 }
+
+// unclassifiableSink answers for a descriptor this build could not classify.
+// Two different facts arrive here and must not be collapsed into one.
+//
+//   - "I looked and saw nothing": on a linux host /proc IS present, so a failed
+//     readlink is genuine uncertainty about one odd descriptor. Allow it, in
+//     silence. Refusing a run over one unreadable fd would be a false alarm,
+//     and a guard that cries wolf gets ignored on the run that mattered.
+//
+//   - "I am blind and know it": on a host with no /proc, nothing is
+//     classifiable — not this descriptor, all of them. The guard is inoperative
+//     for the whole run.
+//
+// Today both ALLOW, because a classifier with no mechanism has not earned a
+// refusal: it cannot tell a captured run from a legitimate one, and refusing
+// would break every agent-driven run on that host. But only the second is a
+// guard that is not running, and it says so out loud.
+//
+// The blind case is a placeholder, not a design. Once the host has a real
+// classifier (see docs/AGENT-OUTPUT-GUARD.md), a descriptor its primitives
+// cannot answer for is no longer "no mechanism" but a failed probe, and the
+// honest reply then is to REFUSE — the same fail-closed rule
+// claudeguard_darwin.go already applies to a FIFO it cannot resolve.
+func unclassifiableSink() outputSink {
+	if host := hostos.GOOS(); host != "linux" {
+		return blindClassifierSink(host)
+	}
+	return unreadableDescriptorSink()
+}
+
+// unreadableDescriptorSink answers for one descriptor that could not be read
+// on a host whose classifier otherwise works.
+func unreadableDescriptorSink() outputSink {
+	return outputSink{kind: sinkVisible}
+}
+
+// blindClassifierSink answers on a host where this build has no classifier at
+// all, and announces that the guard is not running.
+func blindClassifierSink(host string) outputSink {
+	warnGuardInoperative(host)
+	return outputSink{kind: sinkVisible}
+}
+
+// warnGuardInoperative reports, once per run, that the output guard cannot
+// classify anything on this host. It writes to the guard's own stderr writer
+// for the same reason the refusal does: the guard fires precisely when stdout
+// is captured, so stdout is the one place this must never go.
+func warnGuardInoperative(host string) {
+	guardInoperativeOnce.Do(func() {
+		fmt.Fprintf(agentGuardOut, "\n%s⚠ go-toolchain's agent output guard is INOPERATIVE on this %s host.%s\n",
+			colorBoldRed, host, colorReset)
+		fmt.Fprintf(agentGuardOut, "This binary classifies stdout through /proc, which %s does not have, so it\n", host)
+		fmt.Fprintf(agentGuardOut, "cannot tell whether its output is being captured and will not refuse a run\n")
+		fmt.Fprintf(agentGuardOut, "that hides it. Read the output yourself; do not trust the guard here.\n\n")
+	})
+}
+
+var guardInoperativeOnce sync.Once
 
 // socketPeerPID (declared per-platform: claudeguard_sockpeer_linux.go uses
 // golang.org/x/sys/unix, claudeguard_sockpeer_cosmo.go a raw syscall, since

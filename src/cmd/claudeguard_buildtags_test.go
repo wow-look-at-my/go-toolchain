@@ -137,6 +137,82 @@ func TestClaudeGuardClassifierBuildsForEachPlatform(t *testing.T) {
 	}
 }
 
+// claudeGuardDefiners returns the claudeguard*.go files defining decl.
+func claudeGuardDefiners(t *testing.T, decl string) []string {
+	t.Helper()
+	var out []string
+	for _, f := range claudeGuardSourceFiles(t) {
+		data, err := os.ReadFile(f)
+		require.NoError(t, err)
+		if strings.Contains(string(data), decl) {
+			out = append(out, f)
+		}
+	}
+	require.NotEmpty(t, out, "no claudeguard*.go file defines %q", decl)
+	return out
+}
+
+// claudeGuardSelected returns the subset of files selected for a GOOS.
+func claudeGuardSelected(t *testing.T, files []string, goos string, tags map[string]bool) []string {
+	t.Helper()
+	var selected []string
+	for _, f := range files {
+		if fg := filenameGOOS(f); fg != "" && fg != goos {
+			continue
+		}
+		if line := buildTagLine(t, f); line != "" && !evalTagLine(t, line, tags) {
+			continue
+		}
+		selected = append(selected, f)
+	}
+	return selected
+}
+
+// The same class of bug as inspectFD's, one layer down. A cosmo APE runs on
+// Linux AND macOS, so it decides its classifier at RUNTIME through
+// hostSpecificInspect; a GOOS=linux build answers "never". Exactly one
+// definition must be selected per platform: zero fails the build, two is
+// ambiguous, and the wrong one silently sends a Mac down the /proc path that
+// cannot work there.
+func TestClaudeGuardHostDispatchBuildsForEachPlatform(t *testing.T) {
+	files := claudeGuardDefiners(t, "func hostSpecificInspect(")
+	for goos, tags := range claudeGuardTagSets {
+		selected := claudeGuardSelected(t, files, goos, tags)
+		if goos == "darwin" {
+			assert.Empty(t, selected,
+				"GOOS=darwin has its own classifier and must not also select a host dispatch, got %v", selected)
+			continue
+		}
+		assert.Len(t, selected, 1,
+			"GOOS=%s must select exactly one hostSpecificInspect, got %v", goos, selected)
+	}
+}
+
+// The darwin-host classifier is SHARED by the native darwin build and the
+// cosmo APE that runs on a Mac. Pin that: if it ever stops being selected for
+// cosmo, the APE loses the only classifier that works on macOS while the
+// darwin unit tests stay green -- exactly the shape of the original bug.
+func TestClaudeGuardDarwinHostClassifierShared(t *testing.T) {
+	for _, decl := range []string{
+		"func inspectFDDarwinHost(",
+		"func fdFileTypeOnDarwinHost(",
+		"func socketPeerOnDarwinHost(",
+		"func isTerminalOnDarwinHost(",
+		"func fdPathOnDarwinHost(",
+	} {
+		t.Run(decl, func(t *testing.T) {
+			files := claudeGuardDefiners(t, decl)
+			for _, goos := range []string{"darwin", "cosmo"} {
+				selected := claudeGuardSelected(t, files, goos, claudeGuardTagSets[goos])
+				assert.Len(t, selected, 1,
+					"GOOS=%s must select exactly one %s, got %v", goos, decl, selected)
+			}
+			assert.Empty(t, claudeGuardSelected(t, files, "linux", claudeGuardTagSets["linux"]),
+				"%s must not be selected for GOOS=linux, which uses the /proc classifier", decl)
+		})
+	}
+}
+
 func TestClaudeGuardStubExcludedForRealClassifierPlatforms(t *testing.T) {
 	const stub = "claudeguard_other.go"
 	require.FileExists(t, stub)

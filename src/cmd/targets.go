@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -56,23 +55,9 @@ func wasmArtifactName(name string, p buildPlatform) string {
 	return build.BinaryName(name, p.OS, p.Arch)
 }
 
-// DefaultCosmoSlots are the per-platform artifact names that receive a copy
-// of the cosmo fat APE (see copyCosmoSlots). darwin/arm64 is deliberately
-// absent even though the fat APE boots and builds fine on ARM64 macs: the
-// pipeline WEDGES at exit there (CI runs 28739021382/28739520377; SIGQUIT
-// dumps in run 28742069477), root-caused to the gosmopolitan runtime running
-// unix-socket fds in blocking mode with no netpoller on darwin hosts, so the
-// cache daemon's net.Listener.Close deadlocks against its own blocked Accept
-// — tracked in https://github.com/wow-look-at-my/go-toolchain/issues/276.
-// Macs keep getting a native binary by default until that runtime bug is
-// fixed. Also absent: darwin/amd64 (the cosmo darwin-Intel runtime is not
-// verified yet) and windows/arm64 (the APE's embedded PE payload is
-// amd64-only).
-var DefaultCosmoSlots = []string{"linux/amd64", "linux/arm64", "windows/amd64"}
-
 // validGOOS / validGOARCH mirror the target lists of the Go distribution
 // (`go tool dist list`), plus cosmo which is handled specially. Used only to
-// validate --targets / --cosmo-slots entries; the legacy --os/--arch flags
+// validate --targets / --cosmo-platforms entries; the legacy --os/--arch flags
 // stay unvalidated for backward compatibility.
 var (
 	validGOOS = []string{
@@ -118,7 +103,7 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 		if flagName == "--targets" {
 			return buildPlatform{}, fmt.Errorf("invalid target %q: a cosmo build is always one fat APE (multi-OS, multi-arch), so it takes no architecture; use the plain %q entry", entry, cosmoOS)
 		}
-		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: slots name the native platforms the fat APE is copied to, so %q itself is not a slot", flagName, entry, cosmoOS)
+		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: this flag names the native platforms the fat APE covers, so %q itself is not one of them", flagName, entry, cosmoOS)
 	}
 	// Canonical wasm spelling: wasm/js and wasm/wasip1, matching buildhost's
 	// artifact scheme (os=wasm with arch=js/wasip1) and the published
@@ -188,39 +173,11 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 	return out, nil
 }
 
-// parseCosmoSlots parses the --cosmo-slots flag: the os/arch artifact names
-// that receive a copy of the cosmo fat APE. The single value "none" disables
-// slot mapping (returns an empty list).
-func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
-	if len(entries) == 1 && strings.TrimSpace(entries[0]) == "none" {
-		return nil, nil
-	}
-	seen := set.New[buildPlatform](len(entries))
-	out := make([]buildPlatform, 0, len(entries))
-	for _, raw := range entries {
-		entry := strings.TrimSpace(raw)
-		if entry == "" || entry == "none" {
-			return nil, fmt.Errorf("invalid --cosmo-slots entry %q: \"none\" must be the only value when disabling slot mapping", raw)
-		}
-		p, err := parsePlatformPair(entry, "--cosmo-slots")
-		if err != nil {
-			return nil, err
-		}
-		if p.IsWasm() {
-			return nil, fmt.Errorf("invalid --cosmo-slots entry %q: slots name native platforms the fat APE is copied to, and an APE is not a wasm binary", entry)
-		}
-		if seen.Contains(p) {
-			return nil, fmt.Errorf("duplicate --cosmo-slots entry %q", entry)
-		}
-		seen.Add(p)
-		out = append(out, p)
-	}
-	return out, nil
-}
-
 // resolveMatrixPlatforms turns the matrix flags into the list of platforms to
-// build: the validated --targets list when set, otherwise the historic
-// --os x --arch cartesian product.
+// build. With no target flags at all the answer is ONE cosmo fat APE: a single
+// binary covering --cosmo-platforms, rather than a per-platform binary each.
+// Naming --os or --arch selects the cartesian product of native binaries
+// instead, and --targets replaces both with an exact list.
 //
 // The cartesian product accepts the wasm pairing in buildhost's model:
 // --os wasm combines ONLY with --arch js / --arch wasip1 (the wasm flavors),
@@ -234,17 +191,29 @@ func parseCosmoSlots(entries []string) ([]buildPlatform, error) {
 func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	if len(matrixTargets) > 0 {
 		// --targets replaces the cartesian product entirely; call out
-		// non-default --os/--arch values that are being ignored.
-		if !slices.Equal(matrixOS, DefaultOS) || !slices.Equal(matrixArch, DefaultArch) {
+		// --os/--arch values that are being ignored.
+		if len(matrixOS) > 0 || len(matrixArch) > 0 {
 			logger.Warn("⇒ Warning: --targets is set; ignoring --os/--arch")
 		}
 		return parseTargetList(matrixTargets)
 	}
-	if len(matrixOS) == 0 || len(matrixArch) == 0 {
-		return nil, fmt.Errorf("no platforms specified (need at least one --os and one --arch, or --targets)")
+	// No target flags: one APE, not a product. The cartesian product is opt-in
+	// because it costs one binary per platform for a binary that already runs
+	// on all of them.
+	if len(matrixOS) == 0 && len(matrixArch) == 0 {
+		return []buildPlatform{{OS: cosmoOS, Arch: cosmoFatArch}}, nil
 	}
-	hasWasmOS := slices.Contains(matrixOS, wasmArch)
-	for _, goarch := range matrixArch {
+	// Half a product is the other half's default: --arch arm64 alone still
+	// means "these arches, every OS I would have built anyway".
+	oses, arches := matrixOS, matrixArch
+	if len(oses) == 0 {
+		oses = DefaultOS
+	}
+	if len(arches) == 0 {
+		arches = DefaultArch
+	}
+	hasWasmOS := slices.Contains(oses, wasmArch)
+	for _, goarch := range arches {
 		if goarch == wasmArch {
 			return nil, fmt.Errorf("GOARCH %q is spelled as the OS in the wasm pairing (buildhost's os=wasm model); use --os wasm --arch js or --os wasm --arch wasip1 (or --targets %s/js, --targets %s/wasip1)", wasmArch, wasmArch, wasmArch)
 		}
@@ -254,14 +223,14 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	}
 	var out []buildPlatform
 	var skipped []string
-	for _, goos := range matrixOS {
+	for _, goos := range oses {
 		if goos == cosmoOS {
 			return nil, fmt.Errorf("GOOS %q cannot be built through --os/--arch: a cosmo build is one fat APE, not a per-arch matrix entry; use --targets %s instead", cosmoOS, cosmoOS)
 		}
 		if isWasmGOOS(goos) {
 			return nil, fmt.Errorf("GOOS %q is the wasm FLAVOR in buildhost's model, not the os; use --os wasm --arch %s (or --targets %s/%s)", goos, goos, wasmArch, goos)
 		}
-		for _, goarch := range matrixArch {
+		for _, goarch := range arches {
 			switch {
 			case goos == wasmArch && isWasmGOOS(goarch):
 				// os=wasm, arch=js|wasip1: normalize to the internal
@@ -361,80 +330,4 @@ func copyWasmExecJS(forkGoroot, outDir string) (string, error) {
 		return "", err
 	}
 	return dst, nil
-}
-
-// copyCosmoSlots copies each build target's cosmo fat APE onto the
-// conventional per-platform artifact names (the "slots" buildhost serves),
-// e.g. name_cosmo_fat -> name_linux_amd64, name_windows_amd64.exe. The APE is
-// a genuine PE, so the windows slot's .exe name is correct. Copies are real
-// files, never symlinks: the publish pipeline skips symlinks. A slot whose
-// filename was already produced by an explicit native build in this run is
-// skipped with a warning — an explicit target beats a mapped copy.
-//
-// Once a target has at least one slot copy, its <name>_cosmo_fat artifact is
-// REPLACED: buildhost validates os on artifact upload and rejects os=cosmo
-// (400 "invalid os", observed on go-regex-compiler run 28738513866), and one
-// rejected artifact aborts that whole publish — so the fat name must never
-// reach the publish pipeline as a regular file. With dropFat=false (local
-// builds) it becomes a relative symlink to the target's first slot copy, so
-// the canonical name keeps working on disk while the publish action skips it.
-// With dropFat=true (CI) it is removed outright: upload-artifact DEREFERENCES
-// symlinks (see the host-symlink note in matrix.go), which would re-materialize
-// a publish-breaking regular file inside the downloaded artifact. A target
-// with no surviving slot copy (every slot lost to a native collision) keeps
-// its real fat file — it is the only APE artifact then, and such a layout
-// cannot be published to buildhost until the server accepts os=cosmo.
-//
-// Returns the created copy paths (for checksums) and the fat artifact paths
-// that were replaced — the caller must exclude those from checksums, which
-// cover real files only (every slot copy is byte-identical to the APE, so no
-// coverage is lost).
-func copyCosmoSlots(targets []build.Target, outDir string, slots []buildPlatform, nativeBuilt set.Set[string], dropFat bool) (created, replacedFat []string, err error) {
-	for _, target := range targets {
-		srcName := build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch)
-		srcPath := filepath.Join(outDir, srcName)
-		if _, err := os.Stat(srcPath); err != nil {
-			return nil, nil, fmt.Errorf("cosmo slot mapping: fat APE %s not found: %w", srcPath, err)
-		}
-		var targetCopies []string
-		for _, slot := range slots {
-			dstName := build.BinaryName(target.OutputName, slot.OS, slot.Arch)
-			if nativeBuilt.Contains(dstName) {
-				logger.Warn("  SKIP %s (explicit native %s/%s build wins over the cosmo slot copy)", dstName, slot.OS, slot.Arch)
-				continue
-			}
-			dstPath := filepath.Join(outDir, dstName)
-			// Remove any stale artifact first so a leftover symlink is
-			// replaced by a real file instead of being written through.
-			if err := os.Remove(dstPath); err != nil && !os.IsNotExist(err) {
-				return nil, nil, fmt.Errorf("cosmo slot mapping: %w", err)
-			}
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return nil, nil, fmt.Errorf("cosmo slot mapping: copying %s to %s: %w", srcPath, dstPath, err)
-			}
-			logger.Info("  COPY %s <- %s", dstName, srcName)
-			targetCopies = append(targetCopies, dstPath)
-		}
-		created = append(created, targetCopies...)
-		if len(targetCopies) == 0 {
-			if len(slots) > 0 {
-				logger.Warn("  KEEP %s (no slot copy survived; note buildhost rejects os=cosmo uploads)", srcName)
-			}
-			continue
-		}
-		if err := os.Remove(srcPath); err != nil {
-			return nil, nil, fmt.Errorf("cosmo slot mapping: replacing %s: %w", srcName, err)
-		}
-		if dropFat {
-			logger.Info("  DROP %s (buildhost rejects os=cosmo uploads; the slot copies carry the APE)", srcName)
-		} else {
-			linkTarget := filepath.Base(targetCopies[0])
-			if err := os.Symlink(linkTarget, srcPath); err != nil {
-				return nil, nil, fmt.Errorf("cosmo slot mapping: linking %s -> %s: %w", srcName, linkTarget, err)
-			}
-			logger.Info("  LINK %s -> %s (kept as a symlink: publish skips symlinks; buildhost rejects os=cosmo)", srcName, linkTarget)
-		}
-		replacedFat = append(replacedFat, srcPath)
-	}
-	return created, replacedFat, nil
 }
