@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
@@ -37,15 +35,14 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 
 	// Resolve the gosmopolitan-fork prerequisites up front so a missing
-	// toolchain or a bad --cosmo-slots value fails fast, before the test
+	// toolchain or a bad --cosmo-platforms value fails fast, before the test
 	// phase. Both the cosmo fat APE and the wasm targets build with the fork.
 	hasCosmo := slices.ContainsFunc(platforms, buildPlatform.IsCosmo)
 	hasWasm := slices.ContainsFunc(platforms, buildPlatform.IsWasm)
 	var forkGoroot string
-	var slotPlatforms []buildPlatform
+	var apePlatforms []buildPlatform
 	if hasCosmo {
-		slotPlatforms, err = parseCosmoSlots(cosmoSlots)
-		if err != nil {
+		if apePlatforms, err = parseCosmoPlatforms(cosmoPlatforms); err != nil {
 			return err
 		}
 		if cgoEnabled {
@@ -55,7 +52,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	if hasWasm && cgoEnabled {
 		logger.Warn("⇒ Warning: --cgo has no effect on wasm targets (WebAssembly has no cgo; CGO_ENABLED=0 is forced)")
 	}
-	var forkCacheNamespace string
+	var forkCacheNamespace, apePlatformsEnv string
 	if hasCosmo || hasWasm {
 		if forkGoroot, err = ensureCosmoToolchainFunc(); err != nil {
 			return err
@@ -69,6 +66,9 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		// namespace would ride the shared cache un-isolated.
 		if forkCacheNamespace, err = forkToolchainCacheNamespace(forkGoroot); err != nil {
 			return fmt.Errorf("fingerprinting the fork toolchain for cache isolation: %w", err)
+		}
+		if hasCosmo {
+			apePlatformsEnv = cosmoPlatformsEnvValue(forkGoroot, apePlatforms)
 		}
 	}
 
@@ -104,7 +104,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// Resolve what to build. hostTargets — main packages under the HOST build
 	// context — drive the legacy --os/--arch product (unchanged behavior),
 	// the cosmo fat APE (which embeds payloads for several native platforms,
-	// so the host set is the sanest approximation), cosmo slot mapping, and
+	// so the host set is the sanest approximation), the publish manifest, and
 	// the host convenience symlinks. Explicit --targets entries additionally
 	// get main-package discovery under their OWN GOOS/GOARCH context (see
 	// resolvePlatformTargets), so a main guarded "//go:build js && wasm" is
@@ -152,23 +152,19 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 				job.cacheNamespace = forkCacheNamespace
 			}
 			if p.IsCosmo() {
-				// A previous local run leaves <name>_cosmo_fat as a symlink to
-				// a slot copy (see copyCosmoSlots). Remove it before building:
-				// `go build -o` follows symlinks, so it would otherwise write
-				// the new APE THROUGH the link into the slot artifact and the
-				// slot mapping would then copy the file onto itself.
-				if err := os.Remove(job.outputPath); err != nil && !os.IsNotExist(err) {
-					return fmt.Errorf("removing stale %s: %w", job.outputPath, err)
-				}
+				job.cosmoPlatforms = apePlatformsEnv
 			}
 			jobs = append(jobs, job)
 		}
 	}
 
-	if len(matrixTargets) > 0 {
+	switch {
+	case len(matrixTargets) == 0 && len(matrixOS) == 0 && len(matrixArch) == 0:
+		logger.Info("⇒ Building %d fat APE(s) covering %s", len(jobs), platformList(apeCoverage(apePlatforms)))
+	case len(matrixTargets) > 0:
 		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
-	} else {
-		logger.Info("⇒ Building %d binaries (%d OS x %d arch)", len(jobs), len(matrixOS), len(matrixArch))
+	default:
+		logger.Info("⇒ Building %d binaries (%d platforms from --os x --arch)", len(jobs), len(platforms))
 	}
 	buildStart := time.Now()
 
@@ -231,28 +227,21 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
 	}
 
-	// Copy the cosmo fat APE onto its conventional per-platform artifact
-	// names so per-platform consumers (buildhost slots) keep resolving. Runs
-	// before checksum generation so the copies are covered too. In CI the fat
-	// name is then dropped (buildhost rejects os=cosmo uploads and
-	// upload-artifact dereferences symlinks); locally it becomes a symlink to
-	// the first slot copy. Replaced fat paths leave builtFiles: checksums
-	// cover real files only.
-	if hasCosmo && len(slotPlatforms) > 0 {
-		nativeBuilt := set.New[string]()
-		for _, job := range jobs {
-			if job.goos != cosmoOS {
-				nativeBuilt.Add(filepath.Base(job.outputPath))
-			}
-		}
-		copied, replacedFat, err := copyCosmoSlots(hostTargets, outputDir, slotPlatforms, nativeBuilt, os.Getenv("CI") != "")
+	// One APE is one artifact. Its identity is a platform SET, which the
+	// <binary>_<os>_<arch> filename grammar cannot spell, so it travels in a
+	// manifest buildhost-publish reads from the published directory: one
+	// upload, one artifact row, one download link for every platform it
+	// covers. Listing the file there also takes it out of that filename scan,
+	// which is what lets the APE keep its _cosmo_fat name.
+	if hasCosmo {
+		entries, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
 		if err != nil {
 			return err
 		}
-		builtFiles = append(builtFiles, copied...)
-		for _, fat := range replacedFat {
-			builtFiles = slices.DeleteFunc(builtFiles, func(p string) bool { return p == fat })
+		if _, err := writeBuildhostManifest(outputDir, entries); err != nil {
+			return err
 		}
+		logger.Info("  WRITE %s (%d APE artifact(s), platforms %s)", buildhostManifestName, len(entries), platformList(apeCoverage(apePlatforms)))
 	}
 
 	// Wasm artifacts default to buildhost's publishable naming
@@ -322,14 +311,14 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 
 	// Run the module's dats suites (if any) against host-runnable copies of
 	// the matrix artifacts. The host-named artifact may BE the cosmo fat APE
-	// (default cosmo slots), which self-assimilates on first exec — the phase
+	// (the default cosmo build), which self-assimilates on first exec — the phase
 	// stages throwaway copies, never executing anything in build/ in place.
 	// A cross-only build with no host artifact still runs the suites (the
 	// missing copy is skipped; tests that need it fail honestly).
 	hostArtifacts := make([]datsArtifact, 0, len(hostTargets))
 	for _, t := range hostTargets {
 		hostArtifacts = append(hostArtifacts, datsArtifact{
-			sourcePath: filepath.Join(outputDir, build.BinaryName(t.OutputName, hostos.GOOS(), runtime.GOARCH)),
+			sourcePath: hostRunnableArtifact(t, outputDir),
 			name:       datsArtifactName(t.OutputName, hostos.GOOS()),
 		})
 	}
