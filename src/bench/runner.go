@@ -37,8 +37,14 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}
 	// Tee stderr to console for compilation progress while draining to
-	// prevent deadlock on the OS pipe buffer.
-	go io.Copy(os.Stderr, proc.Stderr())
+	// prevent deadlock on the OS pipe buffer. The copy is waited on before this
+	// returns: a process that dies with its complaint on stderr wins the race
+	// against the caller printing the error, and the complaint is the point.
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		io.Copy(os.Stderr, proc.Stderr())
+	}()
 
 	// Read stdout line by line so benchmark results stream as they
 	// complete, rather than buffering everything until the process exits.
@@ -61,16 +67,24 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	}
 
 	waitErr := proc.Wait()
+	<-stderrDone
 	output := buf.Bytes()
 
 	if waitErr != nil {
+		// Say what go test said. The console only ever saw the benchmark result
+		// lines, so without this a run that failed to build reports an exit
+		// status and nothing else.
+		err := fmt.Errorf("benchmarks failed: %w", waitErr)
+		if diag := Diagnostics(output); diag != "" {
+			err = fmt.Errorf("%w\n%s", err, diag)
+		}
 		// Try to parse and return partial results on failure
 		if len(output) > 0 {
 			if report, parseErr := ParseBenchmarkOutput(output); parseErr == nil && report.HasResults() {
-				return report, fmt.Errorf("benchmarks failed: %w", waitErr)
+				return report, err
 			}
 		}
-		return nil, fmt.Errorf("benchmarks failed: %w", waitErr)
+		return nil, err
 	}
 
 	report, err := ParseBenchmarkOutput(output)
