@@ -67,9 +67,10 @@ func hasPinnedMarker(line *modfile.Line) bool {
 // Indirect requires are out of scope. Branch tracking skips them (a per-line
 // branch pin on a transitively resolved dependency does not mean what it
 // looks like -- see UpdateTrackedBranchDeps), so demanding a marker there
-// would demand one that does nothing. A require whose version is overridden
-// by a replace is out of scope too: the replacement supplies the version that
-// reaches the build, and the replace line is what gets marked instead.
+// would demand one that does nothing. A require whose version a replace
+// overrides is out of scope too: the replacement supplies the version that
+// reaches the build, and the replace line is what gets marked instead. Only a
+// replace that NAMES A VERSION does that -- see versionReplaced.
 //
 // Returns whether go.mod changed.
 func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
@@ -82,18 +83,11 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 		return false, nil // Let go mod tidy handle parse errors
 	}
 
-	replaced := set.New[string]()
-	for _, rep := range f.Replace {
-		replaced.Add(rep.Old.Path)
-	}
+	replaced := versionReplaced(f)
 
 	changed := false
 	for _, req := range f.Require {
-		if req.Indirect {
-			warnIndirectOrgRequire(req, replaced.Contains(req.Mod.Path))
-			continue
-		}
-		if replaced.Contains(req.Mod.Path) || !isOrgModule(req.Mod.Path) {
+		if req.Indirect || replaced.Contains(req.Mod.Path) || !isOrgModule(req.Mod.Path) {
 			continue
 		}
 		if hasPinnedMarker(req.Syntax) {
@@ -112,6 +106,14 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 		changed = markBranchTracked(r, rep.Syntax, rep.New.Path, rep.New.Version) || changed
 	}
 
+	// The indirect lines are read last. The loops above decide which
+	// repositories this run tracks, and the warning has to know that.
+	for _, req := range f.Require {
+		if req.Indirect {
+			warnIndirectOrgRequire(f, req, replaced.Contains(req.Mod.Path))
+		}
+	}
+
 	if !changed {
 		return false, nil
 	}
@@ -127,6 +129,49 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 	return true, nil
 }
 
+// versionReplaced returns the modules whose require line defers to a replace.
+//
+// A replace that NAMES A MODULE VERSION supplies what the build resolves, so
+// the require has nothing left to track and the replace line carries the
+// marker instead.
+//
+// A replace into a local directory supplies that to nobody else. A replace is
+// main-module-only, so every consumer resolves the require's own version, and
+// only this repository ever sees the directory. That require therefore still
+// has to track its branch. Treating it as covered is what let a stale
+// same-repository pin sit in go.mod for weeks: green here, "missing go.mod at
+// revision" for every consumer. See docs/DEPS.md.
+func versionReplaced(f *modfile.File) set.Set[string] {
+	out := set.New[string]()
+	for _, rep := range f.Replace {
+		if !isLocalReplacement(rep.New) {
+			out.Add(rep.Old.Path)
+		}
+	}
+	return out
+}
+
+// trackedSiblingOf reports whether mod ships from a repository that a tracked
+// direct require already follows. The sibling resolution owns the line from
+// there: it requires every module of that repository at one commit and marks
+// each one (siblingRequires).
+func trackedSiblingOf(f *modfile.File, mod string) bool {
+	owner, repo, ok := gitHubOwnerRepo(mod)
+	if !ok {
+		return false
+	}
+	for _, req := range f.Require {
+		if req.Indirect || !isTracked(req.Syntax) {
+			continue
+		}
+		o, r, ok := gitHubOwnerRepo(req.Mod.Path)
+		if ok && o == owner && r == repo {
+			return true
+		}
+	}
+	return false
+}
+
 // warnIndirectOrgRequire reports an org dependency that is version-pinned on
 // an indirect require, where the marker this file adds everywhere else cannot
 // go: branch tracking skips indirect lines, so writing one there would leave a
@@ -138,11 +183,18 @@ func EnforceOrgBranchTracking(r runner.CommandRunner) (bool, error) {
 // Saying nothing is the option this rules out: the module is version-pinned
 // exactly like the ones being rewritten, and a silent skip is indistinguishable
 // from compliance.
-func warnIndirectOrgRequire(req *modfile.Require, coveredByReplace bool) {
+//
+// A sibling of a tracked line is the one silence that is earned. This run
+// moves that line itself, later in the same phase, so a warning about it would
+// name a problem this run already fixes.
+func warnIndirectOrgRequire(f *modfile.File, req *modfile.Require, coveredByReplace bool) {
 	if coveredByReplace || !isOrgModule(req.Mod.Path) {
 		return
 	}
 	if isTracked(req.Syntax) || hasPinnedMarker(req.Syntax) {
+		return
+	}
+	if trackedSiblingOf(f, req.Mod.Path) {
 		return
 	}
 	logger.Warn("%s is version-pinned at %s and indirect, so it cannot carry a branch marker: promote it to a direct require, or pin the version that reaches the build with `replace %s => %s <version> // %s` (main-module-only, so it covers indirect requires too). Deliberate? Say so with a trailing // %s <reason> comment.",
@@ -255,10 +307,7 @@ func untrackedOrgDeps() []string {
 		return nil
 	}
 
-	replaced := set.New[string]()
-	for _, rep := range f.Replace {
-		replaced.Add(rep.Old.Path)
-	}
+	replaced := versionReplaced(f)
 
 	var out []string
 	for _, req := range f.Require {
