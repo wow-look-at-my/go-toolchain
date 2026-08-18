@@ -26,6 +26,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stderr:
 			- "refused to run"
@@ -40,6 +41,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		"!stderr":
 			- "refused to run"
@@ -56,6 +58,7 @@ tests:
 		env:
 			OPENCODE: "1"
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stdout:
 			- "GUARD-DELETED-BINARY"
@@ -77,6 +80,7 @@ tests:
 		env:
 			CLAUDECODE: "1"
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stderr:
 			- "refused to run"
@@ -92,6 +96,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stdout:
 			- "Usage:"
@@ -110,6 +115,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stdout:
 			- "HARNESS_GUARD_REFUSED=false"
@@ -120,6 +126,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stdout:
 			- "HARNESS_GUARD_REFUSED=true"
