@@ -121,10 +121,10 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 h1:nS/IJCKxUo5/Y9KiSKHqBBj14XFRa1OGU/GbpW8zarw=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174/go.mod h1:ZCjJ1b6VfXIov0GZbfRE4QtIFQrPqkD3NK5qlkf6Ow8=
-github.com/wow-look-at-my/dats v0.0.0-20260813220544-3fa7f66afab9 h1:gDyAvFTmLDI7/CzGFWB+8UQDXNR0m9bfHocnnpzAmSg=
-github.com/wow-look-at-my/dats v0.0.0-20260813220544-3fa7f66afab9/go.mod h1:l8UlIGzpxqvZ8Djyff9qW2KzpnKGDyReo9dGVFGSQlA=
-github.com/wow-look-at-my/go-containers v0.0.0-20260815235059-bc089f373e68 h1:gBF/lTlZwXrVVoQKJpHeZBi+GEd/gSfgx8iQDa5Qsqg=
-github.com/wow-look-at-my/go-containers v0.0.0-20260815235059-bc089f373e68/go.mod h1:AGGzFZheJSooQmBf0LdfoAGXr7jSGxsn7N1NrOdhmIs=
+github.com/wow-look-at-my/dats v0.0.0-20260816204632-7c3cebee0c0d h1:szQ4G8CzB4+CUR9Ce340y8qZKJ646Q0MZZ0Bz+XMIWg=
+github.com/wow-look-at-my/dats v0.0.0-20260816204632-7c3cebee0c0d/go.mod h1:DVuQsnxFKbDpG1n4HApsQFX+8y5oa3NAEHv9YQx9TkE=
+github.com/wow-look-at-my/go-containers v0.0.0-20260818100925-5e01414a6ac3 h1:0YbDEeJC9Cb2UsmTcx2awoUG0eVgUsSUJKIBteoMgSM=
+github.com/wow-look-at-my/go-containers v0.0.0-20260818100925-5e01414a6ac3/go.mod h1:AGGzFZheJSooQmBf0LdfoAGXr7jSGxsn7N1NrOdhmIs=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9 h1:par9Tv9kLcWCCy8Z0ciMaeyHfx8kbiLiB45n2fmjTqI=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9/go.mod h1:JM0y3LYD27uGHE34wamVHIaIvYx/vugAaqE20bsLvqs=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260814181250-68cd2d92b9a7 h1:JhOyhVWeF7zAGq03hCO2JLHXPARhhYAldfVbrOWWPH0=
