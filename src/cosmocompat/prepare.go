@@ -52,6 +52,7 @@ func neededGaps(dir string) ([]resolvedGap, error) {
 	}
 
 	var out []resolvedGap
+	needsLibc := false
 	for _, g := range knownGaps {
 		if alreadyReplaced.Contains(g.module) {
 			continue
@@ -60,7 +61,28 @@ func neededGaps(dir string) ([]resolvedGap, error) {
 		if !ok {
 			continue
 		}
+		if g.module == libcGap.module {
+			needsLibc = true
+		}
 		out = append(out, resolvedGap{gap: g, version: v})
+	}
+	// golang.org/x/sys's own cosmo gap is only reached through
+	// modernc.org/libc's cosmo files, which pull in x/sys/unix symbols the
+	// rest of x/sys's callers never touch (go-toolchain's own cosmo
+	// self-build depends on x/sys directly and built fine for a long time
+	// with none of these patches applied). Patching x/sys for a consumer
+	// that isn't also getting libc patched changes files nothing actually
+	// needs changed, at whatever version the consumer happens to pin --
+	// version drift risk with no corresponding benefit. Skip it there.
+	if !needsLibc {
+		filtered := out[:0]
+		for _, rg := range out {
+			if rg.gap.module == xSysGap.module {
+				continue
+			}
+			filtered = append(filtered, rg)
+		}
+		out = filtered
 	}
 	return out, nil
 }
