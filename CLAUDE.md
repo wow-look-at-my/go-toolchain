@@ -80,10 +80,10 @@ coverage.
   rest of the run, retries ONCE so those packages rebuild from source, and warns each time; unrecoverable cases name `go clean -cache`. Sibling of
   `modindexretry.go` (different signature, different cure). Depth: `docs/CI.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
-  version pin: an org require/replace carrying a plain version gets `// go-toolchain:branch=<default branch>` appended
-  (resolved via `git ls-remote --symref`; an unreachable remote is FATAL, since a marker that was not written leaves the
-  stale snapshot in place), which the rewrite-then-dirty-tree-fails-CI contract enforces. A line already carrying a marker
-  is left alone in EITHER spelling -- see the markers item for why the new one is read a release before it is written. A
+  version pin: an org require/replace carrying a plain version gets the bare `// go-toolchain:auto-branch` appended, which
+  the rewrite-then-dirty-tree-fails-CI contract enforces. That costs no lookup, since the marker names no branch. A line
+  already carrying the canonical marker is left alone; a legacy one is migrated, which is the one place this asks the
+  remote anything (`git ls-remote --symref`, and a remote that cannot answer keeps the name and warns). A
   require overridden by a replace is marked on the replace line instead; an INDIRECT one cannot carry a working marker at
   all, so it warns and names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the
   explicit opt-out. Depth: `docs/DEPS.md`
@@ -102,10 +102,10 @@ coverage.
   token on a same-marker line plus the `go.sum` hashes that follow it, nothing else. Depth: `docs/DEPS.md`
 - Markers (`src/cmd/depsmarker.go`): ONE marker is the whole vocabulary. `auto-branch` follows the module's DEFAULT branch
   and names none, so a renamed default breaks nothing; `auto-branch=<name>` is the deliberate non-default choice. Nothing
-  declares repository membership -- `repoResolver` reads that off the repository. This release READS `auto-branch` and still
-  WRITES the legacy `branch=<name>`: an older release treats an unrecognized marker as an untracked line and appends its own
-  comment ABOVE the require, so one committed go.mod cannot satisfy both binaries. The NEXT release writes the new spelling
-  and migrates. Depth: `docs/DEPS.md`
+  declares repository membership -- `repoResolver` reads that off the repository. The legacy `branch=<name>` spelling is
+  still read and migrates itself, dropping a name that merely repeats the default branch. Respelling the marker again takes
+  TWO releases (read it, then write it one release later): an older binary treats an unrecognized marker as an untracked
+  line and appends its own comment ABOVE the require, corrupting the block. Depth: `docs/DEPS.md`
 - `src/cmd/depsbranchguard.go` — a marker naming a branch that is the head of an OPEN pull request FAILS in CI and warns
   locally. That branch dies with the merge, so it resolves right up until the change lands and never again; CI is the last
   look before the merge, and tandem development across two repos is why local is only a warning. Depth: `docs/DEPS.md`
@@ -131,7 +131,11 @@ coverage.
   x/sys/unix xattrs; `isXattrNotFound` in the `_linux`/`_darwin` files), `xattr_windows.go` (NTFS ADS), and `xattr_cosmo.go` — GOOS=cosmo has no xattr
   wrappers in the fork's syscall package, so the attribute for target `/a/b` lives in a hidden sidecar file `/a/.b.xattr.<sanitized attr>` NEXT TO the
   target (in its parent, so the module-root watermark never dirties `git status`)
-- `src/build/` — build target resolution via filesystem walking
+- `src/build/` — build target resolution via filesystem walking. A binary's NAME comes from the module when its main package sits at
+  or one level below the module root, and from the leaf directory when deeper -- but `nameTargets` gives the module-derived name only
+  to a package that is ALONE in wanting it. Two mains one level down both derive the module's name, and the old code kept whichever it
+  saw first, so a build shipped missing a binary and still reported success. A contested name falls back to each package's own
+  directory; one still contested after that is a hard error, never a dropped target.
 - `tests/` — declarative CLI integration tests (.dats format)
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery). `FindMainPackages` → `hasMainPackage` →
   `packageNameFromFile`
@@ -211,6 +215,11 @@ coverage.
   value, or the map escaping to another function keeps it a map. A `map[K]struct{}` only WARNS (deduplicated per file:line by
   `resetMapSetWarnings`; the `set` package itself is exempt, `isSetPackage`, since `Set[T]` IS that map) — it already carries no value. No opt-out marker, and no
   module skips the check: an org module FAILS on the bool findings (`isOrgModule`), everyone else WARNS on them. Depth: `docs/VET.md`
+- `src/vet/writeruns.go` — the `writeruns` analyzer: three or more adjacent statements writing source-spelled text to ONE writer are a document
+  nobody can read in the source, so the third and each later write WARNS and names `text/template`. Never a build failure by itself; a long run still
+  fails through the warnings budget, which this repo's 25-write mermaid header did. A run ends at any other statement, at a different writer, and at
+  a write whose text is computed (`b.WriteByte(c)`); a writer that digests its input never counts (`isHashWriter`). Every module, warning severity,
+  no opt-out marker. Depth: `docs/VET.md`
 - `src/hostos/` — `hostos.GOOS()`, the host operating system as opposed to `runtime.GOOS` (what the binary was compiled for). Identical for every
   normal
   build; for a GOOS=cosmo fat APE — which reports `runtime.GOOS == "cosmo"` on Linux and macOS hosts (Windows runs the embedded native windows

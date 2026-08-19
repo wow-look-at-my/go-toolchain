@@ -38,7 +38,14 @@ func TestRunGofmtDetectsUnformatted(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, changed)
 	require.Error(t, ed.Err())
-	assert.Contains(t, ed.Err().Error(), "main.go")
+	msg := ed.Err().Error()
+	assert.Contains(t, msg, "main.go")
+	// The violation carries a unified diff to the canonical content, readable
+	// (and appliable) without running go-toolchain at all.
+	assert.Contains(t, msg, "--- main.go")
+	assert.Contains(t, msg, "+++ main.go")
+	assert.Contains(t, msg, `-func main(){println("hello")}`)
+	assert.Contains(t, msg, `+func main() {`)
 }
 
 func TestRunGofmtFix(t *testing.T) {

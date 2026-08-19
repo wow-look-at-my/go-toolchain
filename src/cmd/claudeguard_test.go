@@ -119,6 +119,35 @@ func TestAgentOutputMessageVariants(t *testing.T) {
 	assert.Contains(t, deleted, "/repo/build/mytool_linux_amd64")
 }
 
+// TestAgentOutputMessageRendersTheWholeDocument pins the refusal message byte
+// for byte, with the deleted-outputs block and without it. The Contains
+// assertions above pass on a message whose blank lines have moved, and this
+// message is the only thing the aborted run prints.
+func TestAgentOutputMessageRendersTheWholeDocument(t *testing.T) {
+	const body = "\n" +
+		"You are running under Claude, where go-toolchain's FULL output must land in\n" +
+		"your transcript so you actually read it — the \"Coverage targets\" list, the\n" +
+		"total-coverage line, and any test or build failures. Capturing it instead —\n" +
+		"a pipe (head/tail/grep/sed/awk/cat/tee/…), a `> file` or `>> file` redirect,\n" +
+		"a `$(...)` capture, or `/dev/null` — truncates or hides exactly what matters.\n" +
+		"\n" +
+		"Run go-toolchain on its own, with nothing after it, and read the whole thing:\n" +
+		"    go-toolchain\n"
+	head := "\n" + colorBoldRed + "✗ go-toolchain refused to run: its output is being piped into `head`." +
+		colorReset + "\n"
+
+	sink := outputSink{kind: sinkPipe, detail: "head"}
+	assert.Equal(t, head+body, agentOutputMessage("Claude", sink, nil))
+	assert.Equal(t, head+body+
+		"\n"+
+		"The build outputs of the previous run have been DELETED, so an old binary\n"+
+		"cannot stand in for a build you did not run:\n"+
+		"    /repo/build/mytool\n"+
+		"    /repo/build/mytool_linux_amd64\n"+
+		"Run go-toolchain as shown above to build them again.\n",
+		agentOutputMessage("Claude", sink, []string{"/repo/build/mytool", "/repo/build/mytool_linux_amd64"}))
+}
+
 func TestAgentOutputViolation(t *testing.T) {
 	origUnder, origSink := runningUnderAgentFn, inspectStdoutFn
 	t.Cleanup(func() { runningUnderAgentFn, inspectStdoutFn = origUnder, origSink })

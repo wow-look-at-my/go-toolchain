@@ -8,13 +8,14 @@ require (
 	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/pierrec/lz4/v4 v4.1.28
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:branch=master
-	github.com/wow-look-at-my/dats v0.0.0-20260813220544-3fa7f66afab9 // go-toolchain:branch=master
-	github.com/wow-look-at-my/go-containers v0.0.0-20260815193622-200150bfb1c8 // go-toolchain:branch=master
-	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9 // go-toolchain:branch=master
-	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260814181250-68cd2d92b9a7 // go-toolchain:branch=master
+	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/dats v0.0.0-20260816204632-7c3cebee0c0d // go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-containers v0.0.0-20260818100925-5e01414a6ac3 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260814181250-68cd2d92b9a7 // go-toolchain:auto-branch
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0
 	go.opentelemetry.io/otel/sdk v1.45.0
@@ -56,7 +57,6 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect

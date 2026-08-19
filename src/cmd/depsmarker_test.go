@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -48,12 +47,10 @@ func TestMarkerRefIsHeadWhenItNamesNoBranch(t *testing.T) {
 func TestMarkerComment(t *testing.T) {
 	assert.Equal(t, "go-toolchain:auto-branch", marker{tracks: true}.comment())
 	assert.Equal(t, "go-toolchain:auto-branch=v1", marker{tracks: true, branch: "v1"}.comment())
-	assert.Equal(t, "go-toolchain:branch=master", marker{tracks: true, branch: "master", legacy: true}.comment(),
-		"a line read in the old spelling is written back in it, until every runner reads the new one")
 }
 
-// auto-branch is READ here and written by the next release, so a line already
-// carrying it is left exactly as it is -- including asking the remote nothing.
+// A line already carrying the canonical marker is left exactly as it is --
+// including asking the remote nothing.
 func TestEnforceOrgBranchTrackingLeavesAnAutoBranchLineAlone(t *testing.T) {
 	for _, comment := range []string{"go-toolchain:auto-branch", "go-toolchain:auto-branch=v1"} {
 		t.Run(comment, func(t *testing.T) {
@@ -67,27 +64,6 @@ func TestEnforceOrgBranchTrackingLeavesAnAutoBranchLineAlone(t *testing.T) {
 			assert.Empty(t, mock.Calls(), "already tracked, so nothing to ask")
 		})
 	}
-}
-
-// Writing the new spelling has to wait for a fleet that reads it. Until then
-// an unmarked line gets the one every release understands, so a repo built by
-// an older binary and a newer one lands on the same go.mod either way.
-func TestEnforceOrgBranchTrackingStillWritesTheLegacySpelling(t *testing.T) {
-	t.Chdir(t.TempDir())
-	gomod := `module test
-go 1.25.0
-
-require github.com/wow-look-at-my/foo v1.2.3
-`
-	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
-
-	mock, lsRemote := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
-	changed, err := EnforceOrgBranchTracking(mock)
-	require.NoError(t, err)
-	assert.True(t, changed)
-
-	assert.Equal(t, "// go-toolchain:branch=master", suffixFor(t, "wow-look-at-my/foo"))
-	assert.Contains(t, strings.Join(*lsRemote, "\n"), "--symref", "the written marker names a branch, so it has to be asked for")
 }
 
 func TestGitHubOwnerRepo(t *testing.T) {

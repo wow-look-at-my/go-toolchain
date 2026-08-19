@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"text/template"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
@@ -119,21 +120,37 @@ func agentOutputMessage(agent string, s outputSink, removed []string) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n%s✗ go-toolchain refused to run: its output is being %s.%s\n\n", colorBoldRed, what, colorReset)
-	fmt.Fprintf(&b, "You are running under %s, where go-toolchain's FULL output must land in\n", agent)
-	b.WriteString("your transcript so you actually read it — the \"Coverage targets\" list, the\n")
-	b.WriteString("total-coverage line, and any test or build failures. Capturing it instead —\n")
-	b.WriteString("a pipe (head/tail/grep/sed/awk/cat/tee/…), a `> file` or `>> file` redirect,\n")
-	b.WriteString("a `$(...)` capture, or `/dev/null` — truncates or hides exactly what matters.\n\n")
-	b.WriteString("Run go-toolchain on its own, with nothing after it, and read the whole thing:\n")
-	b.WriteString("    go-toolchain\n")
-	if len(removed) > 0 {
-		b.WriteString("\nThe build outputs of the previous run have been DELETED, so an old binary\n")
-		b.WriteString("cannot stand in for a build you did not run:\n")
-		for _, path := range removed {
-			fmt.Fprintf(&b, "    %s\n", path)
-		}
-		b.WriteString("Run go-toolchain as shown above to build them again.\n")
+	err := agentOutputTemplate.Execute(&b, struct {
+		Red, Reset, What, Agent string
+		Removed                 []string
+	}{colorBoldRed, colorReset, what, agent, removed})
+	if err != nil {
+		// This message is the whole reason the run aborts. A caller that
+		// printed nothing would look like a crash with no cause.
+		return fmt.Sprintf("\ngo-toolchain refused to run: its output is being %s.\n"+
+			"(the full message failed to render: %v)\n", what, err)
 	}
 	return b.String()
 }
+
+// agentOutputTemplate is the abort message, held as text. The literals are
+// interpreted strings, not one raw string, because the message quotes shell
+// with backticks.
+var agentOutputTemplate = template.Must(template.New("agent-output").Parse(
+	"\n{{.Red}}✗ go-toolchain refused to run: its output is being {{.What}}.{{.Reset}}\n" +
+		"\n" +
+		"You are running under {{.Agent}}, where go-toolchain's FULL output must land in\n" +
+		"your transcript so you actually read it — the \"Coverage targets\" list, the\n" +
+		"total-coverage line, and any test or build failures. Capturing it instead —\n" +
+		"a pipe (head/tail/grep/sed/awk/cat/tee/…), a `> file` or `>> file` redirect,\n" +
+		"a `$(...)` capture, or `/dev/null` — truncates or hides exactly what matters.\n" +
+		"\n" +
+		"Run go-toolchain on its own, with nothing after it, and read the whole thing:\n" +
+		"    go-toolchain\n" +
+		"{{if .Removed}}\n" +
+		"The build outputs of the previous run have been DELETED, so an old binary\n" +
+		"cannot stand in for a build you did not run:\n" +
+		"{{range .Removed}}    {{.}}\n" +
+		"{{end}}" +
+		"Run go-toolchain as shown above to build them again.\n" +
+		"{{end}}"))

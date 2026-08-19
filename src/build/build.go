@@ -1,6 +1,7 @@
 package build
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -59,14 +60,7 @@ func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	}
 
 	if len(pkgs) > 0 {
-		byName := sortedmap.New[string, Target]()
-		for _, pkg := range pkgs {
-			name := binaryNameFromImportPath(pkg, moduleName)
-			if !byName.Contains(name) {
-				byName.Put(name, Target{ImportPath: pkg, OutputName: name})
-			}
-		}
-		return slices.Collect(byName.Values()), nil
+		return nameTargets(pkgs, moduleName)
 	}
 
 	// Library-only project: walk filesystem to find all packages
@@ -94,12 +88,37 @@ func ResolveBuildTargetsForTarget(goos, goarch string) ([]Target, error) {
 	if err != nil {
 		return nil, err
 	}
+	return nameTargets(pkgs, moduleName)
+}
+
+// nameTargets assigns each main package the name its binary is written under.
+//
+// The module-derived name goes only to a package that is alone in wanting it.
+// Two mains one level below the module root -- `<mod>/cli` and
+// `<mod>/todo_driver`, say -- both derive the MODULE's name, and a build that
+// keeps whichever it saw first ships missing a binary while reporting success.
+// A contested name falls back to the package's own leaf directory, which is
+// unique among the packages of one module.
+//
+// A name still contested after that cannot happen from one module's packages,
+// so it is a hard error rather than a quiet loss.
+func nameTargets(pkgs []string, moduleName string) ([]Target, error) {
+	wanted := map[string]int{}
+	for _, pkg := range pkgs {
+		wanted[binaryNameFromImportPath(pkg, moduleName)]++
+	}
+
 	byName := sortedmap.New[string, Target]()
 	for _, pkg := range pkgs {
 		name := binaryNameFromImportPath(pkg, moduleName)
-		if !byName.Contains(name) {
-			byName.Put(name, Target{ImportPath: pkg, OutputName: name})
+		if wanted[name] > 1 {
+			name = filepath.Base(pkg)
 		}
+		if prev, taken := byName.Get(name); taken {
+			return nil, fmt.Errorf("main packages %s and %s both build to %q: rename one of their directories",
+				prev.ImportPath, pkg, name)
+		}
+		byName.Put(name, Target{ImportPath: pkg, OutputName: name})
 	}
 	return slices.Collect(byName.Values()), nil
 }
