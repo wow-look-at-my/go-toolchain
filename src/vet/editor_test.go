@@ -63,10 +63,14 @@ func TestCheckEditorRequireRecordsAndNeverWrites(t *testing.T) {
 	got, _ := os.ReadFile(p)
 	assert.Equal(t, "old", string(got))
 
-	// Violation recorded with path + reason.
+	// Violation recorded with path + reason, plus a unified diff an agent (or
+	// human) with no code-execution capability can read to see the exact fix.
 	require.Error(t, ed.Err())
-	assert.Contains(t, ed.Err().Error(), p)
-	assert.Contains(t, ed.Err().Error(), "needs fixing")
+	msg := ed.Err().Error()
+	assert.Contains(t, msg, p)
+	assert.Contains(t, msg, "needs fixing")
+	assert.Contains(t, msg, "-old")
+	assert.Contains(t, msg, "+new")
 }
 
 func TestCheckEditorCleanNoViolation(t *testing.T) {
