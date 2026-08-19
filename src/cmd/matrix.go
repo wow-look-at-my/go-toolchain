@@ -102,6 +102,11 @@ type buildJob struct {
 	// host platforms the APE must cover. Empty leaves the variable unset,
 	// which is the fork's everything-default.
 	cosmoPlatforms string
+	// goWork is a GOWORK override for a fat-APE job, set only when the
+	// consumer module depends on a third-party module cosmocompat knows how
+	// to patch (see cosmocompat.Prepare). Empty leaves GOWORK unset, so a
+	// consumer with no such dependency is completely unaffected.
+	goWork string
 }
 
 type buildResult struct {
