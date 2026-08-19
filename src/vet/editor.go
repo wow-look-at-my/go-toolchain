@@ -16,11 +16,12 @@ import (
 type Editor interface {
 	// Require declares want as the required canonical content of path. Locally
 	// it writes the file when it differs (returning wrote=true); on CI it
-	// records a violation (reason) when it differs and writes nothing
-	// (returning wrote=false). Use it for fixers that are the SOLE detector of
-	// their issue — gofmt, the wow-look-at-my/testify fork and gotest.tools
-	// import migrations, and the testify cross-type casts — so the recorded
-	// violation is what fails CI.
+	// records a violation (reason, plus a unified diff from the file's current
+	// content to want) when it differs and writes nothing (returning
+	// wrote=false). Use it for fixers that are the SOLE detector of their issue
+	// — gofmt, the wow-look-at-my/testify fork and gotest.tools import
+	// migrations, and the testify cross-type casts — so the recorded violation
+	// is what fails CI.
 	Require(path string, want []byte, reason string) (wrote bool, err error)
 
 	// Apply writes want to path locally (returning wrote=true when it changed
@@ -73,16 +74,30 @@ type checkEditor struct {
 	violations []violation
 }
 
-type violation struct{ path, reason string }
+// violation records one file the tree needs changed to be canonical, along
+// with a ready-to-read unified diff from its current content to the wanted
+// content — computed once, at detection time, while the "want" bytes and the
+// still-unmodified file are both in hand. Err() prints it for every reader
+// that cannot just run go-toolchain locally and look: most usefully, an
+// automated agent with no code-execution capability, for whom this diff — not
+// the file+reason line above it — is the actual answer.
+type violation struct {
+	path, reason, diff string
+}
 
 func (c *checkEditor) Require(path string, want []byte, reason string) (bool, error) {
-	differs, err := fileDiffers(path, want)
+	old, err := os.ReadFile(path)
 	if err != nil {
 		return false, err
 	}
-	if differs {
-		c.violations = append(c.violations, violation{path: path, reason: reason})
+	if bytes.Equal(old, want) {
+		return false, nil
 	}
+	diff, err := unifiedDiff(path, old, want)
+	if err != nil {
+		return false, err
+	}
+	c.violations = append(c.violations, violation{path: path, reason: reason, diff: diff})
 	return false, nil
 }
 
@@ -101,11 +116,15 @@ func (c *checkEditor) Err() error {
 		return c.violations[i].path < c.violations[j].path
 	})
 	var sb strings.Builder
-	sb.WriteString("working tree is not canonical — run `go-toolchain` locally to fix:")
+	sb.WriteString("working tree is not canonical — run `go-toolchain` locally to fix. The diff to the canonical content is below for each file, so this is answerable without running anything:")
 	for _, v := range c.violations {
 		fmt.Fprintf(&sb, "\n  %s (%s)", v.path, v.reason)
 	}
-	return fmt.Errorf("%s", sb.String())
+	for _, v := range c.violations {
+		sb.WriteString("\n\n")
+		sb.WriteString(v.diff)
+	}
+	return fmt.Errorf("%s", strings.TrimRight(sb.String(), "\n"))
 }
 
 // writeIfDiffer writes want to path only when it differs from the current
