@@ -49,6 +49,19 @@ module's `dats/` dir and run automatically by the pipeline's dats phase — not
 hand-rolled bash, so it exercises the real released APE the same way a
 consumer's own build would.
 
+Every test in that fixture that invokes the APE sets `TMPDIR=/tmp`, and that is
+load-bearing: this job has no bubblewrap provisioning step, so dats' phase
+falls back to its docker backend, which runs commands as `--user
+<host-uid>:<host-gid>`; a UID with no `/etc/passwd` entry in `golang:1.25` gets
+`HOME=/` from Docker, and the cosmo loader stages its first-exec
+self-assimilation under `${TMPDIR:-${HOME:-/tmp}}` — i.e. the unwritable
+filesystem root, exiting 121 on every APE invocation. `/tmp` is writable under
+both dats backends (the image's own `/tmp`, bwrap's private tmpfs), so the
+fixture env is the one setting that works regardless of backend. The upstream
+dats `HOME=/tmp` default (wow-look-at-my/dats#38) would only cover docker, not
+bwrap. `src/cmd/claudeguard_fixture_test.go` pins this invariant — do not drop
+it (commit 5fe6a42 did, and reddened this job until it was restored).
+
 **macOS** — magic, `version`, and the FULL default pipeline under the APE, plus
 the darwin sibling of the guard fixture
 (`smoke-macos-agent-output-guard.dats`). This is the consumer-critical mac gate,

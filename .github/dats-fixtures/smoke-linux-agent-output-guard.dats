@@ -12,6 +12,17 @@
 # whole /tmp namespace, and `{outputs.X}` is the one idiom documented to work
 # identically on every sandbox backend (see the macOS sibling fixture, which
 # needs it for real).
+#
+# Every test that invokes the APE also sets TMPDIR=/tmp, and that is
+# load-bearing: dats' docker backend runs commands as --user <host-uid>:<host-gid>,
+# and for a UID with no /etc/passwd entry in the image Docker falls back to
+# HOME=/. The cosmo loader stages its first-exec self-assimilation under
+# ${TMPDIR:-${HOME:-/tmp}}, so with HOME=/ it targets the unwritable filesystem
+# root and every APE invocation exits 121 (this exact red is what the
+# smoke-linux job hit). /tmp is writable under every backend (the docker
+# image's own /tmp, bwrap's private tmpfs), so pinning TMPDIR there is the one
+# setting that works on both -- the upstream dats HOME=/tmp default
+# (wow-look-at-my/dats#38) would only cover docker, not bwrap. Do not drop it.
 
 sandbox:
 	image: golang:1.25
@@ -26,6 +37,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stderr:
 			- "refused to run"
@@ -40,6 +52,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		"!stderr":
 			- "refused to run"
@@ -56,6 +69,7 @@ tests:
 		env:
 			OPENCODE: "1"
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stdout:
 			- "GUARD-DELETED-BINARY"
@@ -77,6 +91,7 @@ tests:
 		env:
 			CLAUDECODE: "1"
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stderr:
 			- "refused to run"
@@ -92,6 +107,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stdout:
 			- "Usage:"
@@ -110,6 +126,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stdout:
 			- "HARNESS_GUARD_REFUSED=false"
@@ -120,6 +137,7 @@ tests:
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			TMPDIR: "/tmp"
 	  outputs:
 		stdout:
 			- "HARNESS_GUARD_REFUSED=true"
