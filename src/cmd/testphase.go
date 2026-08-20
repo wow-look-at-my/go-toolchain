@@ -159,6 +159,18 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 				}
 				return false, nil, fmt.Errorf("vet failed: %w", err)
 			}
+		} else if isStaleAnalyzer(err) {
+			// Export data from a newer toolchain than the one that compiled
+			// this binary. Nothing here can recover it, so name both versions
+			// instead of leaving an importer error that reads like a bug in
+			// the imported package.
+			running, verErr := installedGoVersion()
+			if verErr != nil {
+				running = ""
+			} else {
+				running = "go" + running
+			}
+			return false, nil, staleAnalyzerError(err, running)
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}

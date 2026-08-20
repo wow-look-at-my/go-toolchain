@@ -245,7 +245,10 @@ coverage.
 ## Code Conventions
 
 - Go module: `github.com/wow-look-at-my/go-toolchain`
-- Go version: 1.24.7 (module), CI tests on 1.25
+- Go version: 1.27 (module). The directive is what go-bootstrap installs AND what CI builds with, and both matter: vet type-checks with the
+  `go/types` linked into this binary, and export data is not readable by an older one, so the directive must not fall behind the Go a consumer
+  builds with. Keep it a BARE MINOR (`go 1.27`, never `go 1.27.0`) — the gosmopolitan fork self-identifies as a dev version and refuses a
+  release-shaped directive, which would break the cosmo matrix build. Depth: `docs/GO-VERSION.md`
 - CLI framework: `github.com/spf13/cobra`
 - Test parsing: `gotest.tools/gotestsum/testjson`
 - Test assertions: upstream `github.com/stretchr/testify` (`assert`/`require`) — the in-house `wow-look-at-my/testify` fork has been removed; the
@@ -266,7 +269,8 @@ coverage.
 - When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
 - **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
   wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
-  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`). Each entry appears exactly once — editing a bullet means
+  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/GO-VERSION.md`). Each entry appears
+  exactly once — editing a bullet means
   updating it in place, never appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an
   edit shows up as a reviewable diff. A literal
   double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's
