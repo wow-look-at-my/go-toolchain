@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/mod/modfile"
 )
 
 // downloadModule fetches the exact requested version into GOMODCACHE,
@@ -198,17 +200,25 @@ func applyOverlays(moduleOut string, g gap) error {
 	return nil
 }
 
-// applyGap downloads the pristine module (at consumerVersion, resolved from
-// the consumer's own go.mod) into scratchDir/<slot> and patches it in
-// place. dir is the consumer's module root, used so the download resolves
-// through the consumer's own proxy/auth configuration.
-func applyGap(dir, scratchDir, slot string, g gap, consumerVersion string) error {
-	src, err := downloadModule(dir, g.module, consumerVersion)
+// applyGap downloads the pristine module into scratchDir/<slot> and patches
+// it in place. sourceModule/sourceVersion are what to fetch, which is
+// g.module at the consumer's pinned version unless the consumer replaces it
+// with a mirror -- see neededGaps. dir is the consumer's module root, used so
+// the download resolves through the consumer's own proxy/auth configuration.
+func applyGap(dir, scratchDir, slot string, g gap, sourceModule, sourceVersion string) error {
+	src, err := downloadModule(dir, sourceModule, sourceVersion)
 	if err != nil {
 		return err
 	}
 	moduleOut := filepath.Join(scratchDir, slot)
 	if err := freshCopy(src, moduleOut); err != nil {
+		return err
+	}
+	// The go.work replaces g.module with this directory, and a directory
+	// replacement must declare the path it replaces. A mirror declares its own
+	// path (gitlab.com/cznic/libc), so rewrite the module line to the one the
+	// build asks for. A no-op when the source IS g.module.
+	if err := setModulePath(moduleOut, g.module); err != nil {
 		return err
 	}
 	for _, e := range g.tagEdits {
@@ -230,4 +240,29 @@ func applyGap(dir, scratchDir, slot string, g gap, consumerVersion string) error
 		}
 	}
 	return nil
+}
+
+// setModulePath rewrites a staged module's "module" line to path. The staged
+// copy is scratch, so this never touches anything the consumer owns.
+func setModulePath(moduleDir, path string) error {
+	name := filepath.Join(moduleDir, "go.mod")
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return fmt.Errorf("cosmocompat: reading %s: %w", name, err)
+	}
+	f, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		return fmt.Errorf("cosmocompat: parsing %s: %w", name, err)
+	}
+	if f.Module != nil && f.Module.Mod.Path == path {
+		return nil
+	}
+	if err := f.AddModuleStmt(path); err != nil {
+		return fmt.Errorf("cosmocompat: setting the module path of %s to %s: %w", name, path, err)
+	}
+	out, err := f.Format()
+	if err != nil {
+		return fmt.Errorf("cosmocompat: formatting %s: %w", name, err)
+	}
+	return os.WriteFile(name, out, 0o644)
 }

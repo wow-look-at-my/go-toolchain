@@ -57,11 +57,26 @@ Everything cosmocompat does lives in a temporary scratch directory
 own — this is the whole point: the fix lives once, here, and applies to every
 consumer automatically.
 
-## A consumer's own `replace` wins
+## A consumer's own `replace`
 
-`neededGaps` skips any module the consumer's `go.mod` already replaces itself
-— cosmocompat never overrides a consumer's own intentional replace. A module
-the consumer does not depend on at all is skipped too (not in `require`).
+A replace tells cosmocompat where the code comes from, and the two kinds of
+replacement answer that differently.
+
+A replace onto another MODULE is a mirror: `modernc.org/libc =>
+gitlab.com/cznic/libc` is the same source at the address it now lives at,
+carrying the same missing cosmo files. cosmocompat downloads the replacement,
+patches THAT, and rewrites the staged copy's `module` line to the path the
+build asks for, so the generated `go.work` replace still resolves. Skipping
+this case is what left buildhost's cosmo build failing with twenty "build
+constraints exclude all Go files" lines and nothing naming the cause.
+
+A replace onto a local DIRECTORY is the consumer's own tree. cosmocompat
+cannot know what is in it and must not overwrite it, so that module is
+skipped — with a warning, because a cosmo build of an unpatched tree fails
+later and further away.
+
+A module the consumer does not depend on at all is skipped too (not in
+`require`).
 
 ## Known gaps
 
