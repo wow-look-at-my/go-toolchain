@@ -1,7 +1,9 @@
 module assertnorm
 
-go 1.25.0
+go 1.24
 
-require github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb
+require github.com/stretchr/testify v1.9.0
 
-require gopkg.in/yaml.v3 v3.0.1 // indirect
+// Hermetic: resolve upstream testify to the local stub so fixtures type-check
+// with the correct package path and no network dependency.
+replace github.com/stretchr/testify => ../testifystub

@@ -63,3 +63,9 @@ func (a *Assertions) Equalf(expected, actual interface{}, msg string, args ...in
 }
 
 func (a *Assertions) Greater(e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
+// True/False: the assertnorm fixture calls these to exercise negation
+// flipping.
+func True(t TestingT, value bool, msgAndArgs ...interface{}) bool { return value }
+
+func False(t TestingT, value bool, msgAndArgs ...interface{}) bool { return !value }

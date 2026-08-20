@@ -34,3 +34,8 @@ type Assertions struct{}
 func New(t TestingT) *Assertions { return &Assertions{} }
 
 func (a *Assertions) Equal(expected, actual interface{}, msgAndArgs ...interface{}) bool { return true }
+
+// True/False mirror the assert stub, for the assertnorm fixture.
+func True(t TestingT, value bool, msgAndArgs ...interface{}) bool { return value }
+
+func False(t TestingT, value bool, msgAndArgs ...interface{}) bool { return !value }
