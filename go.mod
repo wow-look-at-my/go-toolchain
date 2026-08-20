@@ -1,6 +1,6 @@
 module github.com/wow-look-at-my/go-toolchain
 
-go 1.25.0
+go 1.26
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
@@ -12,8 +12,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/dats v0.0.0-20260816204632-7c3cebee0c0d // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-containers v0.0.0-20260818100925-5e01414a6ac3 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-mmap v0.0.0-20260524160502-7c9fb35436a9 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-containers v0.0.0-20260820210621-2e1261867045 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-mmap v0.0.0-20260820164452-9c1e07927997 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260814181250-68cd2d92b9a7 // go-toolchain:auto-branch
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0

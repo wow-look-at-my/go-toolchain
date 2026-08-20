@@ -6,15 +6,21 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 )
 
 // resolvedGap is a knownGaps entry the consumer's go.mod actually needs
-// patched, at the version the consumer itself pins.
+// patched, at the version the consumer itself pins. sourceModule and
+// sourceVersion are what to DOWNLOAD, which differs from gap.module when the
+// consumer replaces the module with a mirror of the same code -- see
+// neededGaps.
 type resolvedGap struct {
 	gap
-	version string
+	version       string
+	sourceModule  string
+	sourceVersion string
 }
 
 // moduleSlot derives a short, filesystem-safe scratch-directory name from a
@@ -30,8 +36,20 @@ func moduleSlot(modulePath string) string {
 
 // neededGaps reads dir's go.mod and returns every knownGaps entry the
 // consumer's build graph actually depends on, at the consumer's own pinned
-// version. A module the consumer already replaces itself is left alone --
-// never override a consumer's own intentional replace.
+// version.
+//
+// A replace on a gap module is not automatically a reason to skip it. A
+// replace onto another MODULE -- modernc.org/libc => gitlab.com/cznic/libc,
+// the mirror that module now lives at -- redirects where the code comes from,
+// not what it is: the same source, with the same missing cosmo files. Skipping
+// there produced exactly the build cosmocompat exists to prevent, twenty
+// "build constraints exclude all Go files" lines with nothing naming the
+// cause. So that case downloads the replacement and patches THAT.
+//
+// A replace onto a local DIRECTORY is the case the skip is for: the consumer
+// is building its own tree, cosmocompat cannot know what is in it, and
+// patching it would overwrite the consumer's own work. That one is still
+// skipped, and now says so.
 func neededGaps(dir string) ([]resolvedGap, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	if err != nil {
@@ -42,9 +60,9 @@ func neededGaps(dir string) ([]resolvedGap, error) {
 		return nil, fmt.Errorf("cosmocompat: parsing go.mod: %w", err)
 	}
 
-	alreadyReplaced := set.New[string](len(f.Replace))
+	replaced := make(map[string]module.Version, len(f.Replace))
 	for _, r := range f.Replace {
-		alreadyReplaced.Add(r.Old.Path)
+		replaced[r.Old.Path] = r.New
 	}
 	versions := make(map[string]string, len(f.Require))
 	for _, r := range f.Require {
@@ -54,17 +72,23 @@ func neededGaps(dir string) ([]resolvedGap, error) {
 	var out []resolvedGap
 	needsLibc := false
 	for _, g := range knownGaps {
-		if alreadyReplaced.Contains(g.module) {
-			continue
-		}
 		v, ok := versions[g.module]
 		if !ok {
 			continue
 		}
+		src, srcVer := g.module, v
+		if new, ok := replaced[g.module]; ok {
+			if new.Version == "" {
+				// A directory replacement: the consumer's own tree.
+				logger.Warn("cosmocompat: %s is replaced by the local directory %s, so its cosmo patches are NOT applied; a GOOS=cosmo build of that tree fails unless it carries the cosmo files itself (docs/COSMOCOMPAT.md)", g.module, new.Path)
+				continue
+			}
+			src, srcVer = new.Path, new.Version
+		}
 		if g.module == libcGap.module {
 			needsLibc = true
 		}
-		out = append(out, resolvedGap{gap: g, version: v})
+		out = append(out, resolvedGap{gap: g, version: v, sourceModule: src, sourceVersion: srcVer})
 	}
 	// golang.org/x/sys's own cosmo gap is only reached through
 	// modernc.org/libc's cosmo files, which pull in x/sys/unix symbols the
@@ -134,7 +158,7 @@ func Prepare(dir string) (goWorkPath string, cleanup func(), err error) {
 	sb.WriteString("\nuse " + absDir + "\n\n")
 	for _, rg := range gaps {
 		slot := moduleSlot(rg.gap.module)
-		if err := applyGap(absDir, scratchDir, slot, rg.gap, rg.version); err != nil {
+		if err := applyGap(absDir, scratchDir, slot, rg.gap, rg.sourceModule, rg.sourceVersion); err != nil {
 			cleanup()
 			return "", nil, err
 		}
