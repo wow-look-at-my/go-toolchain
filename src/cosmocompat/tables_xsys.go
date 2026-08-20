@@ -13,7 +13,7 @@ import (
 // tables genuinely differ per architecture and so are copied once per arch.
 var xSysGap = gap{
 	module:          "golang.org/x/sys",
-	verifiedVersion: "v0.42.0",
+	verifiedVersion: "v0.47.0",
 	copies: []copySpec{
 		{"unix/affinity_linux.go", "unix/affinity_cosmo.go", ""},
 		{"unix/aliases.go", "unix/aliases_cosmo.go", ""},
@@ -35,6 +35,11 @@ var xSysGap = gap{
 		// the !race/race split explicitly instead.
 		{"unix/race0.go", "unix/race0_cosmo.go", "!race"},
 		{"unix/race.go", "unix/race_cosmo.go", "race"},
+		// readv_unix.go holds the helpers Readv/Writev in syscall_linux.go call:
+		// minIovec, appendBytes, readvRaceDetect, writevRaceDetect. Its own tag is
+		// OS-keyed and never true under cosmo, so the cosmo build of
+		// syscall2_cosmo.go has six undefined symbols without this copy.
+		{"unix/readv_unix.go", "unix/readv_cosmo.go", ""},
 		{"unix/readdirent_getdents.go", "unix/readdirent_cosmo.go", ""},
 		{"unix/sockcmsg_unix.go", "unix/sockcmsg_cosmo.go", ""},
 		{"unix/sockcmsg_unix_other.go", "unix/sockcmsgother_cosmo.go", ""},
