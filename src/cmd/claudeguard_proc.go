@@ -100,21 +100,21 @@ func inspectFD(fd uintptr) outputSink {
 // refused either way, and the harness's own capture is recognized by
 // IsCapturePath on the file path, which works fine here.
 func inspectFDStat(fd uintptr) outputSink {
-	var st unix.Stat_t
-	if err := unix.Fstat(int(fd), &st); err != nil {
+	mode, ok := fdMode(fd)
+	if !ok {
 		return outputSink{kind: sinkVisible} // genuinely cannot tell
 	}
-	switch st.Mode & unix.S_IFMT {
-	case unix.S_IFIFO:
+	switch mode {
+	case fdFifo:
 		return outputSink{kind: sinkPipe}
-	case unix.S_IFSOCK:
+	case fdSocket:
 		return outputSink{kind: sinkHidden, detail: "socket"}
-	case unix.S_IFCHR:
+	case fdCharDevice:
 		if isTerminal(fd) {
 			return outputSink{kind: sinkVisible}
 		}
 		return outputSink{kind: sinkDiscard, detail: fdPath(fd)}
-	case unix.S_IFREG:
+	case fdRegular:
 		path := fdPath(fd)
 		if agent.IsCapturePath(path) {
 			return outputSink{kind: sinkVisible}
@@ -124,16 +124,19 @@ func inspectFDStat(fd uintptr) outputSink {
 	return outputSink{kind: sinkVisible}
 }
 
-// fdPath returns the filesystem path fd refers to, or "" when the kernel
-// cannot name it. F_GETPATH is the procfs-free stand-in for reading
-// /proc/self/fd/N.
-func fdPath(fd uintptr) string {
-	path, err := unix.FcntlGetPath(int(fd))
-	if err != nil {
-		return ""
-	}
-	return path
-}
+// fdKind is the descriptor shape inspectFDStat cares about, named here so
+// the syscall details stay in the per-platform files: golang.org/x/sys/unix
+// has no cosmo port, so the cosmo build must reach the same answers through
+// the gosmopolitan fork's stdlib syscall package instead.
+type fdKind int
+
+const (
+	fdUnknown fdKind = iota
+	fdFifo
+	fdSocket
+	fdCharDevice
+	fdRegular
+)
 
 // pipePeerName returns the comm and pid of another process holding the same
 // pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends of
