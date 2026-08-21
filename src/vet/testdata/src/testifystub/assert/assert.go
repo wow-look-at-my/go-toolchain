@@ -63,3 +63,8 @@ func (a *Assertions) Equalf(expected, actual interface{}, msg string, args ...in
 }
 
 func (a *Assertions) Greater(e1, e2 interface{}, msgAndArgs ...interface{}) bool { return true }
+
+// True/False: the assertnorm fixtures assert on booleans.
+func True(t TestingT, value bool, msgAndArgs ...interface{}) bool { return true }
+
+func False(t TestingT, value bool, msgAndArgs ...interface{}) bool { return true }
