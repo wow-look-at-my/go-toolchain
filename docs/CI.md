@@ -14,7 +14,7 @@ never builds the APE — an APE rewrites its own header on first exec.
 
 Runs the composite action (`uses: ./`) with NO target inputs and
 `autorelease: false`, so it exercises the exact default a consumer gets: ONE fat
-APE (`go-toolchain_cosmo_fat`) covering linux/amd64, darwin/arm64 and
+APE (`go-toolchain`) covering linux/amd64, darwin/arm64 and
 windows/amd64, plus `buildhost-artifacts.json`. The cosmo bootstrap downloads
 the gosmopolitan toolchain from its default `?branch=master` and cold-compiles
 its stdlib, hence the raised `timeout: 15`.
@@ -38,7 +38,7 @@ concurrent same-run saves never collide on one key.
 They EXECUTE throwaway copies of the artifacts in `dist/`, never the downloaded
 file itself.
 
-All three run the SAME file, `dist/go-toolchain_cosmo_fat` — there is one
+All three run the SAME file, `dist/go-toolchain` — there is one
 artifact now, and each job proves it boots on that host.
 
 **linux** — APE magic `MZqFpD`, then `version`, `--help`, and the FULL default

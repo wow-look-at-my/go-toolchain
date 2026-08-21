@@ -158,7 +158,7 @@ jobs:
 
   # Build + test via the composite action with NO target inputs, which is
   # exactly what a consumer gets: ONE GOOS=cosmo fat APE
-  # (go-toolchain_cosmo_fat) covering linux/amd64, darwin/arm64 and
+  # (go-toolchain) covering linux/amd64, darwin/arm64 and
   # windows/amd64, plus the buildhost-artifacts.json manifest that publishes it
   # as a single multi-platform artifact. No per-platform copies, no native
   # cross-compiles.
@@ -266,8 +266,8 @@ jobs:
         run: |
           set -euo pipefail
           # One artifact, and it must BE the fat APE (magic MZqFpD).
-          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
-          cp dist/go-toolchain_cosmo_fat "$RUNNER_TEMP/gt-ape"
+          [ "$(head -c 6 dist/go-toolchain)" = "MZqFpD" ]
+          cp dist/go-toolchain "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
           # The other half of the host-detection gate (see smoke-macos): the
@@ -395,8 +395,8 @@ jobs:
           set -euo pipefail
           # The one artifact ARM64 macs download is the fat APE (magic MZqFpD);
           # its loader picks the arm64 payload at runtime.
-          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
-          cp dist/go-toolchain_cosmo_fat "$RUNNER_TEMP/gt-ape"
+          [ "$(head -c 6 dist/go-toolchain)" = "MZqFpD" ]
+          cp dist/go-toolchain "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
           "$RUNNER_TEMP/gt-ape" version
 
@@ -519,8 +519,8 @@ jobs:
           # copy of it is no longer the thing a mac user downloads. The dats
           # fixture copies pristine too, which is what makes the two comparable.
           cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" "$probe/run/harness"
-          cp "$GITHUB_WORKSPACE/dist/go-toolchain_cosmo_fat" "$probe/run/gt-right"
-          cp "$GITHUB_WORKSPACE/dist/go-toolchain_cosmo_fat" "$probe/run/gt-wrong"
+          cp "$GITHUB_WORKSPACE/dist/go-toolchain" "$probe/run/gt-right"
+          cp "$GITHUB_WORKSPACE/dist/go-toolchain" "$probe/run/gt-wrong"
           chmod +x "$probe/run/harness" "$probe/run/gt-right" "$probe/run/gt-wrong"
           cd "$probe/run"
           export GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1
@@ -560,9 +560,9 @@ jobs:
           # native windows/amd64 build. The .exe name is given here at copy
           # time: NT dispatches on the extension, and the published artifact
           # carries none.
-          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
+          [ "$(head -c 6 dist/go-toolchain)" = "MZqFpD" ]
           mkdir -p smoke
-          cp dist/go-toolchain_cosmo_fat smoke/gt-ape.exe
+          cp dist/go-toolchain smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
           # Smoke contract (owner-ruled): gt must resolve the machine's
           # EXISTING Go (windows-latest ships an image-default Go) via its
