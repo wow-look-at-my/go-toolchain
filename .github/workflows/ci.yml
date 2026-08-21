@@ -158,7 +158,7 @@ jobs:
 
   # Build + test via the composite action with NO target inputs, which is
   # exactly what a consumer gets: ONE GOOS=cosmo fat APE
-  # (go-toolchain_cosmo_fat) covering linux/amd64, darwin/arm64 and
+  # (go-toolchain) covering linux/amd64, darwin/arm64 and
   # windows/amd64, plus the buildhost-artifacts.json manifest that publishes it
   # as a single multi-platform artifact. No per-platform copies, no native
   # cross-compiles.
@@ -262,26 +262,15 @@ jobs:
           name: socketharness-build
           path: harness
 
-      - name: Run the APE
+      # Staging only. What the artifact must BE (the APE magic), that it runs,
+      # and which host it detects are assertions, so they live in
+      # .github/dats-fixtures/smoke-linux-agent-output-guard.dats, which the
+      # pipeline step below runs against this same copy.
+      - name: Stage the APE
         run: |
           set -euo pipefail
-          # One artifact, and it must BE the fat APE (magic MZqFpD).
-          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
-          cp dist/go-toolchain_cosmo_fat "$RUNNER_TEMP/gt-ape"
+          cp dist/go-toolchain "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
-          "$RUNNER_TEMP/gt-ape" version
-          # The other half of the host-detection gate (see smoke-macos): the
-          # same APE must answer linux here. Asserting both directions is what
-          # makes the answer evidence rather than a coincidence.
-          "$RUNNER_TEMP/gt-ape" version host
-          got=$("$RUNNER_TEMP/gt-ape" version host)
-          case "$got" in
-            *"host: linux"*) ;;
-            *) echo "::error::the APE detects the wrong host on ubuntu-latest: ${got}"; exit 1 ;;
-          esac
-          case "$got" in
-            *GUESSED*) echo "::error::host detection GUESSED on ubuntu-latest: ${got}"; exit 1 ;;
-          esac
 
       - name: Full pipeline in a tiny module
         env:
@@ -331,10 +320,6 @@ jobs:
           	require.Equal(t, "hello, cosmo", got)
           }
           EOF
-          # --help runs INSIDE the module: go-toolchain bootstraps a Go
-          # toolchain before dispatching any root-command invocation, and on a
-          # runner without Go on PATH that needs a go.mod to pick a version.
-          "$RUNNER_TEMP/gt-ape" --help
           # The agent output guard regression lives as a committed dats
           # fixture (see smoke-macos), not hand-rolled bash: the released
           # binaries ARE the cosmo APE, so the guard must fire in THIS
@@ -390,15 +375,13 @@ jobs:
           name: socketharness-build
           path: harness
 
-      - name: Run the APE
+      # Staging only -- the assertions about this artifact live in
+      # .github/dats-fixtures/smoke-macos-agent-output-guard.dats.
+      - name: Stage the APE
         run: |
           set -euo pipefail
-          # The one artifact ARM64 macs download is the fat APE (magic MZqFpD);
-          # its loader picks the arm64 payload at runtime.
-          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
-          cp dist/go-toolchain_cosmo_fat "$RUNNER_TEMP/gt-ape"
+          cp dist/go-toolchain "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
-          "$RUNNER_TEMP/gt-ape" version
 
       # One APE runs on several hosts, so everything host-specific it does --
       # toolchain archives, brew paths, and the agent output guard's entire
@@ -408,6 +391,11 @@ jobs:
       # wrong. Assert it here, UNSANDBOXED; the dats fixture below asserts the
       # same thing from inside dats' seatbelt sandbox, where the probes may not
       # be allowed. Both must say darwin.
+      #
+      # This one assertion cannot move into a dats file: dats runs every
+      # command sandboxed, and only --no-sandbox on the RUN turns that off,
+      # which a suite may not decide for itself. Its sandboxed twin is a dats
+      # test, as is everything else this job checks.
       - name: Host detection (outside the sandbox)
         run: |
           set -euo pipefail
@@ -519,8 +507,8 @@ jobs:
           # copy of it is no longer the thing a mac user downloads. The dats
           # fixture copies pristine too, which is what makes the two comparable.
           cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" "$probe/run/harness"
-          cp "$GITHUB_WORKSPACE/dist/go-toolchain_cosmo_fat" "$probe/run/gt-right"
-          cp "$GITHUB_WORKSPACE/dist/go-toolchain_cosmo_fat" "$probe/run/gt-wrong"
+          cp "$GITHUB_WORKSPACE/dist/go-toolchain" "$probe/run/gt-right"
+          cp "$GITHUB_WORKSPACE/dist/go-toolchain" "$probe/run/gt-wrong"
           chmod +x "$probe/run/harness" "$probe/run/gt-right" "$probe/run/gt-wrong"
           cd "$probe/run"
           export GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1
@@ -552,6 +540,11 @@ jobs:
           name: go-build-build
           path: dist
 
+      # These assertions stay in the workflow because dats cannot run here:
+      # its sandbox backends are bwrap, sandbox-exec and docker, and
+      # windows-latest has none, so a suite would fail before its first
+      # command. Linux and macOS assert the same properties from
+      # .github/dats-fixtures/*.dats.
       - name: Run the APE PE payload
         shell: bash
         run: |
@@ -560,9 +553,9 @@ jobs:
           # native windows/amd64 build. The .exe name is given here at copy
           # time: NT dispatches on the extension, and the published artifact
           # carries none.
-          [ "$(head -c 6 dist/go-toolchain_cosmo_fat)" = "MZqFpD" ]
+          [ "$(head -c 6 dist/go-toolchain)" = "MZqFpD" ]
           mkdir -p smoke
-          cp dist/go-toolchain_cosmo_fat smoke/gt-ape.exe
+          cp dist/go-toolchain smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
           # Smoke contract (owner-ruled): gt must resolve the machine's
           # EXISTING Go (windows-latest ships an image-default Go) via its

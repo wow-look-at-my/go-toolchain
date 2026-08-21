@@ -17,6 +17,32 @@ sandbox:
 	image: golang:1.25
 
 tests:
+	# What was downloaded IS the fat APE. A native ELF would run here and pass
+	# every other test in this file while shipping nothing a mac or a windows
+	# box can start.
+	- desc: the shipped artifact carries the APE magic
+	  cmd: 'head -c 6 ./gt-under-test'
+	  timeout: 30s
+	  outputs:
+		stdout:
+			- "MZqFpD"
+
+	# The other half of the host-detection gate (see the macOS sibling): the
+	# same APE must answer linux here. Asserting both directions is what makes
+	# the answer evidence rather than a coincidence. GUESSED means the probes
+	# failed and the fallback answered, which on a mac would be wrong.
+	- desc: the APE detects a linux host by measurement, not by fallback
+	  cmd: 'cp ./gt-under-test {outputs.gt}; {outputs.gt} version host'
+	  timeout: 30s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "host: linux"
+		"!stdout":
+			- "GUESSED"
+
 	- desc: agent output guard refuses a captured pipeline run under {matrix.marker} (shipped APE)
 	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; env {matrix.marker}=1 {outputs.gt}; rc=$?; exit $rc'
 	  exit: 1

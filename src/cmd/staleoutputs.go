@@ -48,9 +48,10 @@ var nonBinaryOutputs = set.Of(
 
 // isOutputArtifact reports whether base — a file name inside the output
 // directory — is an artifact go-toolchain produces for the target named name.
-// Every shape the toolchain writes is the bare name, the Windows "<name>.exe",
-// or "<name>_…": build.BinaryName's <name>_<goos>_<goarch>[.exe], the wasm
-// variants, the <name>_cosmo_fat APE, and the <name>_host convenience symlink.
+// Every shape the toolchain writes is the bare name (the Windows "<name>.exe"
+// and the cosmo fat APE), "<name>_…" (build.BinaryName's
+// <name>_<goos>_<goarch>[.exe], the wasm variants, the <name>_host
+// convenience symlink), or "<name>.…" (the APE's sidecar ELFs).
 func isOutputArtifact(base, name string) bool {
 	// The publish manifest describes the artifacts, so it dies with them: a
 	// manifest outliving the binaries it names would send the next publish
@@ -61,7 +62,7 @@ func isOutputArtifact(base, name string) bool {
 	if name == "" || nonBinaryOutputs.Contains(base) {
 		return false
 	}
-	return base == name || base == name+".exe" || strings.HasPrefix(base, name+"_")
+	return base == name || strings.HasPrefix(base, name+"_") || strings.HasPrefix(base, name+".")
 }
 
 // clearedOutputs records where one module's build artifacts live, so the
