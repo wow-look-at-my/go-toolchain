@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
+	"golang.org/x/sys/unix"
 )
 
 // inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
@@ -33,7 +34,19 @@ func inspectStdout() outputSink {
 func inspectFD(fd uintptr) outputSink {
 	target, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(fd), 10))
 	if err != nil {
-		return outputSink{kind: sinkVisible} // can't tell — never block on uncertainty
+		// No /proc. This is the NORMAL case for a released binary: every
+		// shipped "linux" go-toolchain is a GOOS=cosmo fat APE, and running
+		// one on a macOS host gives it a kernel with no procfs at all.
+		//
+		// This used to `return sinkVisible` -- "can't tell, never block on
+		// uncertainty" -- which meant the guard was dead on every Mac. It
+		// was not uncertainty: `go-toolchain > out.txt` and
+		// `go-toolchain | grep ...` were classified as visible and allowed,
+		// which is precisely the hiding this guard exists to refuse.
+		//
+		// fstat + fcntl(F_GETPATH) answer the same question without procfs,
+		// so fall back to them rather than failing open.
+		return inspectFDStat(fd)
 	}
 
 	switch {
@@ -75,6 +88,51 @@ func inspectFD(fd uintptr) outputSink {
 		return outputSink{kind: sinkFile, detail: target}
 	}
 	return outputSink{kind: sinkVisible} // unknown disposition — don't block
+}
+
+// inspectFDStat classifies fd without procfs, for a cosmo APE running on a
+// host that has none (macOS). fstat gives the descriptor's type and
+// fcntl(F_GETPATH) its path, which together answer everything the /proc
+// path answers except the NAME of a pipe's reader -- that needs the shared
+// inode scan, so a pipe here is reported without a peer name.
+//
+// Not being able to name the reader does not weaken the decision: a pipe is
+// refused either way, and the harness's own capture is recognized by
+// IsCapturePath on the file path, which works fine here.
+func inspectFDStat(fd uintptr) outputSink {
+	var st unix.Stat_t
+	if err := unix.Fstat(int(fd), &st); err != nil {
+		return outputSink{kind: sinkVisible} // genuinely cannot tell
+	}
+	switch st.Mode & unix.S_IFMT {
+	case unix.S_IFIFO:
+		return outputSink{kind: sinkPipe}
+	case unix.S_IFSOCK:
+		return outputSink{kind: sinkHidden, detail: "socket"}
+	case unix.S_IFCHR:
+		if isTerminal(fd) {
+			return outputSink{kind: sinkVisible}
+		}
+		return outputSink{kind: sinkDiscard, detail: fdPath(fd)}
+	case unix.S_IFREG:
+		path := fdPath(fd)
+		if agent.IsCapturePath(path) {
+			return outputSink{kind: sinkVisible}
+		}
+		return outputSink{kind: sinkFile, detail: path}
+	}
+	return outputSink{kind: sinkVisible}
+}
+
+// fdPath returns the filesystem path fd refers to, or "" when the kernel
+// cannot name it. F_GETPATH is the procfs-free stand-in for reading
+// /proc/self/fd/N.
+func fdPath(fd uintptr) string {
+	path, err := unix.FcntlGetPath(int(fd))
+	if err != nil {
+		return ""
+	}
+	return path
 }
 
 // pipePeerName returns the comm and pid of another process holding the same

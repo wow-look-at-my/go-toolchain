@@ -1,3 +1,15 @@
+//go:build linux || cosmo
+
+// These tests exercise the REAL classifier (inspectFD, pipePeerName,
+// isTerminal), which lives in claudeguard_proc.go behind `linux || cosmo`,
+// so they must carry the SAME constraint. This file previously carried NO
+// constraint, which broke the package on darwin (undefined: inspectFD) --
+// `go-toolchain` would not build at all on a Mac.
+//
+// Keep this tag in lockstep with claudeguard_proc.go; the constraints
+// themselves are pinned by claudeguard_buildtags_test.go, which is
+// deliberately tag-less because it only reads the files as text.
+
 package cmd
 
 import (
@@ -144,6 +156,52 @@ func TestPipeReaderAllowanceThroughTheGuard(t *testing.T) {
 	assert.True(t, agent.IsPipeReader("opencode", parent))
 	assert.False(t, agent.IsPipeReader("head", parent), "a filter is not the harness")
 	assert.False(t, agent.IsPipeReader("opencode", os.Getpid()), "self is not an ancestor")
+}
+
+// TestInspectFDStatWithoutProcfs pins the fix for the guard being dead on
+// macOS: every released "linux" binary is a GOOS=cosmo APE, and running one
+// on a Mac gives it no /proc, so inspectFD's Readlink fails. That used to
+// return sinkVisible -- "cannot tell" -- which allowed `go-toolchain > out`
+// and `go-toolchain | grep` on every Mac. inspectFDStat is the procfs-free
+// classifier it now falls back to; these cases must be REFUSED, not allowed.
+//
+// It needs no /proc by construction, so it runs on linux CI as well.
+func TestInspectFDStatWithoutProcfs(t *testing.T) {
+	t.Run("redirect_to_file_is_blocked", func(t *testing.T) {
+		t.Setenv("CLAUDE_CODE_SESSION_ID", "SID-unit-test")
+		f, err := os.CreateTemp(t.TempDir(), "out-*.log")
+		require.NoError(t, err)
+		defer f.Close()
+		s := inspectFDStat(f.Fd())
+		assert.Equal(t, sinkFile, s.kind, "a `> file` redirect must never read as visible")
+		assert.Contains(t, s.detail, ".log")
+	})
+
+	t.Run("pipe_is_blocked", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		require.NoError(t, err)
+		defer r.Close()
+		defer w.Close()
+		s := inspectFDStat(w.Fd())
+		assert.Equal(t, sinkPipe, s.kind, "a pipe must never read as visible")
+	})
+
+	t.Run("dev_null_is_blocked", func(t *testing.T) {
+		f, err := os.OpenFile("/dev/null", os.O_WRONLY, 0)
+		require.NoError(t, err)
+		defer f.Close()
+		s := inspectFDStat(f.Fd())
+		assert.Equal(t, sinkDiscard, s.kind, "/dev/null must never read as visible")
+	})
+
+	t.Run("harness_capture_file_is_allowed", func(t *testing.T) {
+		t.Setenv("CLAUDE_CODE_SESSION_ID", "SID-unit-test")
+		f, err := os.CreateTemp(t.TempDir(), "SID-unit-test-*.output")
+		require.NoError(t, err)
+		defer f.Close()
+		s := inspectFDStat(f.Fd())
+		assert.Equal(t, sinkVisible, s.kind, "the harness's own capture stays allowed")
+	})
 }
 
 func TestInspectFDClassification(t *testing.T) {
