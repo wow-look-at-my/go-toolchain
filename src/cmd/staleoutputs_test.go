@@ -17,7 +17,8 @@ func TestIsOutputArtifact(t *testing.T) {
 		"mytool.exe",
 		"mytool_linux_amd64",
 		"mytool_windows_amd64.exe",
-		"mytool_cosmo_fat",
+		"mytool.dbg",
+		"mytool.aarch64.elf",
 		"mytool_wasm_js",
 		"mytool_js_wasm.wasm",
 		"mytool_host",
@@ -59,7 +60,7 @@ func writeOutputDir(t *testing.T, dir string, names ...string) string {
 
 func TestRemoveBuildOutputsIn(t *testing.T) {
 	dir := writeOutputDir(t, filepath.Join(t.TempDir(), "build"),
-		"mytool", "mytool_linux_amd64", "mytool_cosmo_fat", "checksums.txt", "unrelated")
+		"mytool", "mytool_linux_amd64", "mytool.dbg", "checksums.txt", "unrelated")
 	// A stale host symlink is unlinked like any other artifact — and following
 	// it must never be required (its target is already gone).
 	require.NoError(t, os.Symlink("mytool_linux_amd64", filepath.Join(dir, "mytool_host")))
@@ -69,7 +70,7 @@ func TestRemoveBuildOutputsIn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, removed, 4, "removed: %v", removed)
 
-	for _, gone := range []string{"mytool", "mytool_linux_amd64", "mytool_cosmo_fat", "mytool_host"} {
+	for _, gone := range []string{"mytool", "mytool_linux_amd64", "mytool.dbg", "mytool_host"} {
 		assert.NoFileExists(t, filepath.Join(dir, gone))
 	}
 	assert.FileExists(t, filepath.Join(dir, "checksums.txt"))

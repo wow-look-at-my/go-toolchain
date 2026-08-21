@@ -27,7 +27,7 @@ set. Files not listed keep the per-platform behavior unchanged.
   "schema": 1,
   "artifacts": [
     {
-      "file": "go-toolchain_cosmo_fat",
+      "file": "go-toolchain",
       "platforms": ["linux/amd64", "darwin/arm64", "windows/amd64"],
       "filename": "go-toolchain"
     }
@@ -45,7 +45,7 @@ set. Files not listed keep the per-platform behavior unchanged.
   every covered platform's redirect to, so all three platforms resolve to one
   identical `static` URL, one digest, one ETag.
 - `filename` — what the download is served as. Without it a consumer would
-  receive a file called `go-toolchain_cosmo_fat`.
+  receive a file called `go-toolchain`.
 
 ## Two fields that are deliberately absent
 

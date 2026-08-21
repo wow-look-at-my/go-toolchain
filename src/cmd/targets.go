@@ -14,7 +14,7 @@ import (
 // The cosmo pseudo-target: one GOOS=cosmo fat APE built with the gosmopolitan
 // toolchain. A fat APE covers linux/amd64, linux/arm64, darwin/arm64 and
 // windows/amd64 in a single binary, so it has no per-arch matrix entries; its
-// artifact is named <name>_cosmo_fat.
+// artifact is named <name>.
 const (
 	cosmoOS      = "cosmo"
 	cosmoFatArch = "fat"

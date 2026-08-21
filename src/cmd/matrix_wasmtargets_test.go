@@ -64,9 +64,11 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		assert.Equal(t, content, string(data), "artifact %s content", name)
 	}
 
-	// No cosmo machinery may run for wasm targets: no fat APE, no manifest.
-	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
-	assert.Empty(t, fatMatches, "wasm targets must not produce a cosmo fat artifact")
+	// No cosmo machinery may run for wasm targets. The APE now lands under the
+	// plain name, which the host symlink also uses, so the manifest is what
+	// tells the two apart: only a cosmo build writes one.
+	assert.NoFileExists(t, filepath.Join(outDir, buildhostManifestName),
+		"wasm targets must not produce a cosmo fat artifact")
 	assert.NoFileExists(t, filepath.Join(outDir, "mytool_linux_arm64"),
 		"no artifact may appear for a platform that was not requested")
 
