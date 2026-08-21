@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
-	"golang.org/x/sys/unix"
 )
 
 // inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
