@@ -270,7 +270,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// manifest buildhost-publish reads from the published directory: one
 	// upload, one artifact row, one download link for every platform it
 	// covers. Listing the file there also takes it out of that filename scan,
-	// which is what lets the APE keep its _cosmo_fat name.
+	// which is what lets the APE publish under the plain name.
 	if hasCosmo {
 		entries, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
 		if err != nil {

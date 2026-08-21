@@ -57,8 +57,9 @@ coverage.
   every phase has printed) and of `runReleaseWithRunner`, covering a green build followed by a red dats suite / coverage / warnings gate; (3)
   `discardBuildOutputsFromCWD` on the two exits that never enter the pipeline — the agent output guard's abort (which also NAMES the deleted paths in
   its message, so the missing binary doesn't read as a different bug) and, via the exported `DiscardBuildOutputs`, main's bootstrap-failure exit. What
-  counts as an artifact is `isOutputArtifact`: the bare name, `<name>.exe`, or any `<name>_…` (BinaryName's `<name>_<goos>_<goarch>[.exe]`, the wasm
-  shapes, `<name>_cosmo_fat`, the `<name>_host` symlink), minus the `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
+  counts as an artifact is `isOutputArtifact`: the bare name (`<name>.exe` and the cosmo fat APE), any `<name>_…` (BinaryName's
+  `<name>_<goos>_<goarch>[.exe]`, the wasm shapes, the `<name>_host` symlink), and any `<name>.…` (the APE's sidecar ELFs), minus the
+  `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
   `trace.json` — a project whose binary is named `wasm` must not lose `wasm_exec.js`). Discovery is a directory scan keyed on target NAME rather than
   a re-derivation of the platform matrix, so artifacts of a previous run's platform set go too. `clearBuildOutputs` records `{dir, names}` per module
   (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module run. Removal failure is FATAL on the clear path (an
@@ -71,7 +72,7 @@ coverage.
 - `src/cmd/matrix.go` — `runMatrixModules` walks every module, as the default pipeline does, so a repo root with no `go.mod` cross-compiles its tree
   instead of dying on "no go.mod found". A library module builds nothing and says so; a run that built nothing anywhere fails. Depth: `docs/CMD.md`
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` defaults to ONE fat APE**, not a per-platform
-  product: no target flags means one `<name>_cosmo_fat` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
+  product: no target flags means one `<name>` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
   fork as `GOCOSMOPLATFORMS`; unverified hosts are refused, and an unaware toolchain is detected and warned about rather than silently ignoring
   the set). Naming `--os`/`--arch` selects the cartesian product; `--targets` an exact list. A cosmo build writes the APE and nothing else:
   no flag copies it onto per-platform names, so a duplicate is unreachable rather than checked for. Depth: `docs/CMD.md`

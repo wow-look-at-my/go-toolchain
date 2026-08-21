@@ -30,6 +30,14 @@ tests:
 	# CI step. A "linux" answer on this runner would mean every dependent
 	# decision -- including the output guard's whole classifier -- is silently
 	# taking the wrong branch under the sandbox the guard tests run in.
+	# What an ARM64 mac downloads IS the fat APE, not a native darwin build.
+	- desc: the shipped artifact carries the APE magic
+	  cmd: 'head -c 6 ./gt-under-test'
+	  timeout: 30s
+	  outputs:
+		stdout:
+			- "MZqFpD"
+
 	- desc: the APE detects a darwin host from inside the sandbox
 	  cmd: 'cp ./gt-under-test {outputs.gt}; {outputs.gt} version host'
 	  timeout: 30s

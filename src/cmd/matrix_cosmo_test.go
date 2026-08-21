@@ -111,13 +111,18 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	require.NoError(t, err)
 
-	// The whole build directory. Exactly one binary exists as a file: the APE.
-	// The convenience names are symlinks TO it -- the distinction the deleted
-	// slot copier erased, since a copy is a second binary and a link is not.
-	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
-	require.Len(t, fatMatches, 1, "expected exactly one fat APE in %s", outDir)
-	fatName := filepath.Base(fatMatches[0])
-	name := strings.TrimSuffix(fatName, "_cosmo_fat")
+	// The whole build directory. Exactly one binary exists as a file: the APE,
+	// under the plain name. The convenience names are symlinks TO it -- the
+	// distinction the deleted slot copier erased, since a copy is a second
+	// binary and a link is not.
+	var manifest buildhostManifest
+	manifestRaw, manifestErr := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
+	require.NoError(t, manifestErr)
+	require.NoError(t, json.Unmarshal(manifestRaw, &manifest))
+	require.Len(t, manifest.Artifacts, 1)
+	fatName := manifest.Artifacts[0].File
+	name := manifest.Artifacts[0].Filename
+	require.FileExists(t, filepath.Join(outDir, fatName))
 
 	entries, readErr := os.ReadDir(outDir)
 	require.NoError(t, readErr)
@@ -136,13 +141,8 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	}, files, "a cosmo build writes one APE plus its checksums and manifest")
 
 	// The manifest carries the platform set the filename grammar cannot spell.
-	var manifest buildhostManifest
-	raw, readErr := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
-	require.NoError(t, readErr)
-	require.NoError(t, json.Unmarshal(raw, &manifest))
-	require.Len(t, manifest.Artifacts, 1)
-	assert.Equal(t, name+"_cosmo_fat", manifest.Artifacts[0].File)
-	assert.Equal(t, name, manifest.Artifacts[0].Filename)
+	// The APE lands under the plain name, so the file IS the served filename.
+	assert.Equal(t, name, manifest.Artifacts[0].File)
 	assert.Equal(t, DefaultCosmoPlatforms, manifest.Artifacts[0].Platforms)
 
 	// checksums.txt covers the one real file.
@@ -150,7 +150,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	assert.Nil(t, err2)
 	sumLines := strings.Split(strings.TrimSpace(string(sums)), "\n")
 	assert.Equal(t, 1, len(sumLines))
-	assert.Contains(t, string(sums), "_cosmo_fat")
+	assert.Contains(t, string(sums), fatName)
 
 	// The cosmo build must run the gosmopolitan go with the fat-APE env:
 	// GOOS=cosmo, no GOARCH, GOTOOLCHAIN=local, GOROOT + PATH pointing at the
@@ -211,19 +211,6 @@ func TestRunReleaseWithRunnerCosmoAndNativeTarget(t *testing.T) {
 
 	require.NoError(t, runReleaseWithRunner(mock))
 
-	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
-	require.Len(t, fatMatches, 1)
-	name := strings.TrimSuffix(filepath.Base(fatMatches[0]), "_cosmo_fat")
-
-	// Each file holds what its own build wrote: the native binary is a native
-	// binary, not a renamed copy of the APE.
-	data, err := os.ReadFile(filepath.Join(outDir, name+"_linux_amd64"))
-	assert.Nil(t, err)
-	assert.Equal(t, "NATIVE", string(data))
-	data, err = os.ReadFile(fatMatches[0])
-	assert.Nil(t, err)
-	assert.Equal(t, "FAT-APE", string(data))
-
 	// The manifest claims only the APE. The native binary publishes through
 	// the filename grammar, so listing it here would upload it twice.
 	var manifest buildhostManifest
@@ -231,7 +218,17 @@ func TestRunReleaseWithRunnerCosmoAndNativeTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(raw, &manifest))
 	require.Len(t, manifest.Artifacts, 1)
-	assert.Equal(t, name+"_cosmo_fat", manifest.Artifacts[0].File)
+	name := manifest.Artifacts[0].Filename
+	assert.Equal(t, name, manifest.Artifacts[0].File)
+
+	// Each file holds what its own build wrote: the native binary is a native
+	// binary, not a renamed copy of the APE.
+	data, err := os.ReadFile(filepath.Join(outDir, name+"_linux_amd64"))
+	assert.Nil(t, err)
+	assert.Equal(t, "NATIVE", string(data))
+	data, err = os.ReadFile(filepath.Join(outDir, name))
+	assert.Nil(t, err)
+	assert.Equal(t, "FAT-APE", string(data))
 
 	// checksums cover both real binaries.
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))

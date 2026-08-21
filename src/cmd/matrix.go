@@ -38,7 +38,7 @@ func init() {
 		Long: `Builds ONE fat Actually Portable Executable covering several platforms, or
 binaries for multiple GOOS/GOARCH combinations in parallel.
 
-By default the matrix builds a single cosmo APE (artifact <name>_cosmo_fat)
+By default the matrix builds a single cosmo APE (artifact <name>)
 covering --cosmo-platforms: linux/amd64, darwin/arm64 and windows/amd64. One
 file runs on all three; there is no per-platform copy.
 
