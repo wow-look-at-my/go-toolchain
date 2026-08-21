@@ -1,7 +1,6 @@
 package summary
 
 import (
-	"bufio"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -11,7 +10,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
@@ -194,75 +195,6 @@ func writeTestTable(sb *strings.Builder, cases []gotest.TestCaseResult, commitSH
 	}
 }
 
-func writeBenchmarkTable(sb *strings.Builder, report *bench.BenchmarkReport, comp *bench.Comparison) {
-	hasComparison := comp != nil && comp.HasDeltas()
-	deltaMap := buildDeltaMap(comp)
-
-	// Sort packages for stable output
-	pkgNames := make([]string, 0, len(report.Packages))
-	for pkg := range report.Packages {
-		pkgNames = append(pkgNames, pkg)
-	}
-	sort.Strings(pkgNames)
-
-	for _, pkg := range pkgNames {
-		results := report.Packages[pkg]
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].NsPerOp < results[j].NsPerOp
-		})
-
-		short := shortPkg(pkg)
-		sb.WriteString(fmt.Sprintf("<details>\n<summary>Benchmarks: %s</summary>\n\n", short))
-
-		if hasComparison {
-			sb.WriteString("| Benchmark | time/op | vs previous | alloc/op | allocs/op |\n")
-			sb.WriteString("|-----------|--------:|------------:|---------:|----------:|\n")
-		} else {
-			sb.WriteString("| Benchmark | time/op | alloc/op | allocs/op |\n")
-			sb.WriteString("|-----------|--------:|---------:|----------:|\n")
-		}
-
-		for _, b := range results {
-			name := benchDisplayName(b.Name, short)
-			timeStr := formatBenchTime(b.NsPerOp)
-			allocStr := formatBenchBytes(b.BytesPerOp)
-
-			if hasComparison {
-				deltaStr := ""
-				key := pkg + "/" + stripCPUSuffix(b.Name)
-				if d, ok := deltaMap[key]; ok {
-					deltaStr = formatBenchDelta(d.NsPerOpDelta)
-				}
-				sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %d |\n",
-					name, timeStr, deltaStr, allocStr, b.AllocsPerOp))
-			} else {
-				sb.WriteString(fmt.Sprintf("| %s | %s | %s | %d |\n",
-					name, timeStr, allocStr, b.AllocsPerOp))
-			}
-		}
-
-		if hasComparison && comp.PreviousCommit != "" {
-			sb.WriteString(fmt.Sprintf("\n_Compared against `%s`_\n", comp.PreviousCommit))
-		}
-
-		sb.WriteString("\n</details>\n\n")
-	}
-}
-
-func buildDeltaMap(comp *bench.Comparison) map[string]bench.Delta {
-	m := make(map[string]bench.Delta)
-	if comp == nil {
-		return m
-	}
-	for pkg, deltas := range comp.Packages {
-		for _, d := range deltas {
-			key := pkg + "/" + d.Name
-			m[key] = d
-		}
-	}
-	return m
-}
-
 func statusEmoji(status string) string {
 	switch status {
 	case "pass":
@@ -330,18 +262,17 @@ func buildTestLocationCache(cases []gotest.TestCaseResult, modulePath string) ma
 		pkg      string
 		funcName string
 	}
-	needed := make(map[lookupKey]bool)
+	needed := set.New[lookupKey]()
 	for _, tc := range cases {
-		needed[lookupKey{tc.Package, rootTestFunc(tc.Test)}] = true
+		needed.Add(lookupKey{tc.Package, rootTestFunc(tc.Test)})
 	}
 
 	// Group by package to avoid re-walking
-	pkgFuncs := make(map[string]map[string]bool)
-	for k := range needed {
-		if pkgFuncs[k.pkg] == nil {
-			pkgFuncs[k.pkg] = make(map[string]bool)
-		}
-		pkgFuncs[k.pkg][k.funcName] = true
+	pkgFuncs := make(map[string]set.Set[string])
+	for k := range needed.All() {
+		funcs := pkgFuncs[k.pkg]
+		funcs.Add(k.funcName)
+		pkgFuncs[k.pkg] = funcs
 	}
 
 	for pkg, funcs := range pkgFuncs {
@@ -382,7 +313,7 @@ func pkgToDir(pkg, modulePath string) string {
 
 // findTestFuncsInDir parses _test.go files in a directory and returns locations
 // for the requested function names.
-func findTestFuncsInDir(dir string, funcNames map[string]bool) map[string]testFuncLocation {
+func findTestFuncsInDir(dir string, funcNames set.Set[string]) map[string]testFuncLocation {
 	result := make(map[string]testFuncLocation)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -404,7 +335,7 @@ func findTestFuncsInDir(dir string, funcNames map[string]bool) map[string]testFu
 			if !ok || fn.Recv != nil {
 				continue
 			}
-			if funcNames[fn.Name.Name] {
+			if funcNames.Contains(fn.Name.Name) {
 				pos := fset.Position(fn.Pos())
 				result[fn.Name.Name] = testFuncLocation{
 					file: path,
@@ -432,83 +363,7 @@ func sourceURL(tc gotest.TestCaseResult, commitSHA, repo, modulePath string, cac
 	return fmt.Sprintf("https://github.com/%s/blob/%s/%s#L%d", repo, commitSHA, loc.file, loc.line)
 }
 
-func benchDisplayName(name, shortPkg string) string {
-	n := name
-	if strings.HasPrefix(n, "Benchmark") {
-		n = n[9:]
-	}
-	// Strip CPU suffix (e.g. "-8")
-	if idx := strings.LastIndex(n, "-"); idx > 0 {
-		// Only strip if suffix is all digits
-		suffix := n[idx+1:]
-		allDigits := true
-		for _, c := range suffix {
-			if c < '0' || c > '9' {
-				allDigits = false
-				break
-			}
-		}
-		if allDigits {
-			n = n[:idx]
-		}
-	}
-	return n
-}
-
-func stripCPUSuffix(name string) string {
-	if idx := strings.LastIndex(name, "-"); idx > 0 {
-		return name[:idx]
-	}
-	return name
-}
-
-func formatBenchTime(ns float64) string {
-	switch {
-	case ns >= 1e9:
-		return fmt.Sprintf("%.2f s", ns/1e9)
-	case ns >= 1e6:
-		return fmt.Sprintf("%.2f ms", ns/1e6)
-	case ns >= 1e3:
-		return fmt.Sprintf("%.2f us", ns/1e3)
-	default:
-		return fmt.Sprintf("%.1f ns", ns)
-	}
-}
-
-func formatBenchBytes(b int64) string {
-	switch {
-	case b >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
-	case b >= 1<<10:
-		return fmt.Sprintf("%.1f KB", float64(b)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", b)
-	}
-}
-
-func formatBenchDelta(pct float64) string {
-	if pct < -1 {
-		return fmt.Sprintf("%.1f%% :arrow_down:", pct)
-	} else if pct > 1 {
-		return fmt.Sprintf("+%.1f%% :arrow_up:", pct)
-	}
-	return "~0%"
-}
-
 // readModulePath reads the module path from go.mod in the current directory.
 func readModulePath() string {
-	f, err := os.Open("go.mod")
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
-		}
-	}
-	return ""
+	return gomod.ReadModulePath()
 }

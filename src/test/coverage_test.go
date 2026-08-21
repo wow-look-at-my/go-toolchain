@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestParseProfile(t *testing.T) {
@@ -97,6 +98,33 @@ example.com/pkg/file.go:10.20,12.2 1 1
 	assert.Equal(t, float32(100), total)
 }
 
+func TestParseProfileMergesDuplicates(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := filepath.Join(tmpDir, "coverage.out")
+
+	// Simulate Go 1.25 -coverpkg=./... output where each block appears once
+	// per test package. Block at line 10 is covered by one test package,
+	// block at line 14 is never covered.
+	content := `mode: set
+example.com/pkg/file1.go:10.20,12.2 1 0
+example.com/pkg/file1.go:10.20,12.2 1 0
+example.com/pkg/file1.go:10.20,12.2 1 1
+example.com/pkg/file1.go:14.20,16.2 1 0
+example.com/pkg/file1.go:14.20,16.2 1 0
+example.com/pkg/file1.go:14.20,16.2 1 0
+`
+	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
+
+	total, files, err := ParseProfile(coverFile)
+	require.NoError(t, err)
+
+	// After merging: 2 unique blocks, 1 covered → 50%
+	assert.Equal(t, float32(50), total)
+	assert.Equal(t, 1, len(files))
+	assert.Equal(t, 2, files[0].Statements)
+	assert.Equal(t, 1, files[0].Covered)
+}
+
 func TestFilterBlocksByReachable(t *testing.T) {
 	blocks := []coverageBlock{
 		{file: "example.com/pkg1/file.go", statements: 2, count: 1},
@@ -104,10 +132,7 @@ func TestFilterBlocksByReachable(t *testing.T) {
 		{file: "example.com/pkg3/file.go", statements: 1, count: 1},
 	}
 
-	reachable := map[string]bool{
-		"example.com/pkg1": true,
-		"example.com/pkg3": true,
-	}
+	reachable := set.Of("example.com/pkg1", "example.com/pkg3")
 
 	filtered := filterBlocksByReachable(blocks, reachable)
 	assert.Equal(t, 2, len(filtered))
@@ -121,12 +146,12 @@ func TestFilterBlocksByReachableNil(t *testing.T) {
 		{file: "example.com/pkg2/file.go", statements: 3, count: 0},
 	}
 
-	// nil reachable should return all blocks
-	filtered := filterBlocksByReachable(blocks, nil)
+	// a zero-value set should return all blocks
+	filtered := filterBlocksByReachable(blocks, set.Set[string]{})
 	assert.Equal(t, 2, len(filtered))
 
 	// empty reachable should also return all blocks
-	filtered = filterBlocksByReachable(blocks, map[string]bool{})
+	filtered = filterBlocksByReachable(blocks, set.New[string]())
 	assert.Equal(t, 2, len(filtered))
 }
 
@@ -143,10 +168,7 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 `
 	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
 
-	reachable := map[string]bool{
-		"example.com/pkg1": true,
-		"example.com/pkg3": true,
-	}
+	reachable := set.Of("example.com/pkg1", "example.com/pkg3")
 
 	total, files, err := ParseProfileFiltered(coverFile, reachable)
 	require.NoError(t, err)
@@ -163,75 +185,100 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 }
 
 func TestReachablePackages(t *testing.T) {
-	mock := newMockRunnerForReachable("example.com/mymod",
-		"example.com/mymod/cmd/app\n",
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// Set up filesystem: go.mod + a main package in cmd/app
+	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("cmd/app", 0755)
+	os.WriteFile("cmd/app/main.go", []byte("package main\n"), 0644)
+
+	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
 
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
-	assert.True(t, reachable["example.com/mymod/pkg2"])
-	assert.False(t, reachable["fmt"])
-	assert.False(t, reachable["strings"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
+	assert.True(t, reachable.Contains("example.com/mymod/pkg2"))
+	assert.False(t, reachable.Contains("fmt"))
+	assert.False(t, reachable.Contains("strings"))
 }
 
 func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
 	// Simulate: main package imports pkg1, but pkg2 is behind a build tag
 	// and not reachable from the main entry point.
-	mock := newMockRunnerForReachable("example.com/mymod",
-		"example.com/mymod/cmd/app\n",
+	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("cmd/app", 0755)
+	os.WriteFile("cmd/app/main.go", []byte("package main\n"), 0644)
+
+	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nstrings\n")
 
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
 	// pkg2 is NOT reachable because it's not in the deps of main
-	assert.False(t, reachable["example.com/mymod/pkg2"])
+	assert.False(t, reachable.Contains("example.com/mymod/pkg2"))
 }
 
 func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
 	// No main packages found — falls back to ./...
-	mock := newMockRunnerForReachable("example.com/mymod",
-		"",
+	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll("pkg/lib", 0755)
+	os.WriteFile("pkg/lib/lib.go", []byte("package lib\n"), 0644)
+
+	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
 
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
-	assert.True(t, reachable["example.com/mymod/pkg2"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
+	assert.True(t, reachable.Contains("example.com/mymod/pkg2"))
 }
 
 func TestReachablePackagesModuleFailure(t *testing.T) {
-	mock := newMockRunnerForReachable("", "", "")
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	// No go.mod — ReadModulePath returns ""
+	mock := newMockRunnerForReachable("")
 
 	reachable, err := ReachablePackages(mock)
-	// Empty module prefix returns nil, nil
-	assert.Nil(t, reachable)
+	// An empty module prefix reports an empty set, which filters nothing.
+	assert.True(t, reachable.IsEmpty())
 	assert.Nil(t, err)
 }
 
 // newMockRunnerForReachable creates a mock runner for ReachablePackages tests.
-func newMockRunnerForReachable(moduleName, mainPkgs, depsOutput string) *mockReachableRunner {
-	return &mockReachableRunner{moduleName: moduleName, mainPkgs: mainPkgs, depsOutput: depsOutput}
+// Now only needs the depsOutput since module path and main packages come from filesystem.
+func newMockRunnerForReachable(depsOutput string) *mockReachableRunner {
+	return &mockReachableRunner{depsOutput: depsOutput}
 }
 
 type mockReachableRunner struct {
-	moduleName string
-	mainPkgs   string
 	depsOutput string
 }
 
 func (m *mockReachableRunner) Run(cfg runner.Config) (runner.IProcess, error) {
 	key := cfg.Name + " " + joinArgs(cfg.Args)
 	switch {
-	case key == "go list -m":
-		return runner.MockProcess([]byte(m.moduleName+"\n"), nil), nil
-	case strings.HasPrefix(key, "go list -f "):
-		// go list -f '{{if eq .Name "main"}}...' ./...
-		return runner.MockProcess([]byte(m.mainPkgs), nil), nil
 	case strings.HasPrefix(key, "go list -deps -f {{.ImportPath}}"):
 		return runner.MockProcess([]byte(m.depsOutput), nil), nil
 	default:
@@ -249,4 +296,3 @@ func joinArgs(args []string) string {
 	}
 	return result
 }
-

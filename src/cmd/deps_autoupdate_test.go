@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetAutoUpdatePrefix_ValidModule(t *testing.T) {

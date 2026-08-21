@@ -3,13 +3,24 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+func chdirWithBenchFile(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "x_test.go"), []byte("package p\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(oldWd) })
+}
+
 func TestRunBenchmarkInBuild(t *testing.T) {
+	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
 	// Set up benchmark response
@@ -44,6 +55,7 @@ func TestRunBenchmarkInBuild(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildJSON(t *testing.T) {
+	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
@@ -71,6 +83,7 @@ func TestRunBenchmarkInBuildJSON(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
+	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
@@ -105,6 +118,7 @@ func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildFails(t *testing.T) {
+	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
 	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
@@ -130,11 +144,29 @@ func TestRunBenchmarkInBuildFails(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
+func TestRunBenchmarkInBuildSkipsWhenNoBenchmarks(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte("package p\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n"), 0644)
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	mock := runner.NewMock()
+	br, err := runBenchmarkInBuild(mock)
+	assert.Nil(t, err)
+	assert.Nil(t, br)
+	for _, cfg := range mock.Calls() {
+		assert.False(t, cfg.HasArg("-bench"), "should not run benchmarks when no Benchmark functions exist")
+	}
+}
+
 func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
+
+	os.WriteFile(filepath.Join(tmpDir, "x_test.go"), []byte("package p\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
 
 	mock := newTestPassMock(0)
 
@@ -207,7 +239,15 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 }
 
 func TestRunBenchRunWithRunner(t *testing.T) {
-	r := runner.New()
+	mock := runner.NewMock()
+
+	// Set up benchmark response
+	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
+	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
+	mock.SetResponse("go", benchArgs, []byte(benchOutput), nil)
+
+	// Set up git log response for FetchPrevious (no previous)
+	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, nil, fmt.Errorf("no notes"))
 
 	oldJSON := jsonOutput
 	oldTime := benchTime
@@ -228,12 +268,28 @@ func TestRunBenchRunWithRunner(t *testing.T) {
 	benchCPU = ""
 	verbose = false
 
-	// This will fail because there's no go.mod, but it exercises the code path
-	_ = runBenchRunWithRunner(r, jsonOutput)
+	err := runBenchRunWithRunner(mock, jsonOutput)
+	assert.Nil(t, err)
 }
 
 func TestRunBenchSaveWithRunner(t *testing.T) {
-	r := runner.New()
+	mock := runner.NewMock()
+
+	// Set up benchmark response
+	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
+	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
+	mock.SetResponse("go", benchArgs, []byte(benchOutput), nil)
+
+	// Handle git commands dynamically (StoreNotes has dynamic -m arg, can't use exact match)
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("git", "notes") {
+			return runner.MockProcess(nil, nil), nil
+		}
+		if cfg.IsCmd("git", "rev-parse") {
+			return runner.MockProcess([]byte("abc1234\n"), nil), nil
+		}
+		return nil, nil // fall through to SetResponse
+	}
 
 	oldJSON := jsonOutput
 	oldTime := benchTime
@@ -254,8 +310,8 @@ func TestRunBenchSaveWithRunner(t *testing.T) {
 	benchCPU = ""
 	verbose = false
 
-	// This will fail because there's no go.mod, but it exercises the code path
-	_ = runBenchSaveWithRunner(r, jsonOutput)
+	err := runBenchSaveWithRunner(mock, jsonOutput)
+	assert.Nil(t, err)
 }
 
 func TestRunBenchShow(t *testing.T) {
@@ -275,19 +331,65 @@ func TestRunBenchCompare(t *testing.T) {
 }
 
 func TestRunBenchRun(t *testing.T) {
-	oldJSON := jsonOutput
-	defer func() { jsonOutput = oldJSON }()
-	jsonOutput = true
+	mock := runner.NewMock()
 
-	// This will fail but exercises the code path
-	_ = runBenchRun(benchRunCmd, []string{})
+	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
+	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
+	mock.SetResponse("go", benchArgs, []byte(benchOutput), nil)
+	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, nil, fmt.Errorf("no notes"))
+
+	oldJSON := jsonOutput
+	oldTime := benchTime
+	oldCount := benchCount
+	oldCPU := benchCPU
+	oldVerbose := verbose
+	defer func() {
+		jsonOutput = oldJSON
+		benchTime = oldTime
+		benchCount = oldCount
+		benchCPU = oldCPU
+		verbose = oldVerbose
+	}()
+
+	jsonOutput = true
+	benchTime = ""
+	benchCount = 1
+	benchCPU = ""
+	verbose = false
+
+	err := runBenchRunWithRunner(mock, jsonOutput)
+	assert.Nil(t, err)
 }
 
 func TestRunBenchSave(t *testing.T) {
-	oldJSON := jsonOutput
-	defer func() { jsonOutput = oldJSON }()
-	jsonOutput = true
+	mock := runner.NewMock()
 
-	// This will fail but exercises the code path
-	_ = runBenchSave(benchSaveCmd, []string{})
+	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
+	benchArgs := []string{"test", "-json", "-run", "^$", "-bench", ".", "-benchmem", "./..."}
+	mock.SetResponse("go", benchArgs, []byte(benchOutput), nil)
+	mock.SetResponse("git", []string{"log", "--format=%H", "--notes=benchmarks", "--grep=", "-1"}, nil, fmt.Errorf("no notes"))
+	mock.SetResponse("git", []string{"notes", "--ref=benchmarks", "add", "-f", "-m"}, nil, nil)
+	mock.SetResponse("git", []string{"rev-parse", "HEAD"}, []byte("abc123\n"), nil)
+
+	oldJSON := jsonOutput
+	oldTime := benchTime
+	oldCount := benchCount
+	oldCPU := benchCPU
+	oldVerbose := verbose
+	defer func() {
+		jsonOutput = oldJSON
+		benchTime = oldTime
+		benchCount = oldCount
+		benchCPU = oldCPU
+		verbose = oldVerbose
+	}()
+
+	jsonOutput = true
+	benchTime = ""
+	benchCount = 1
+	benchCPU = ""
+	verbose = false
+
+	err := runBenchSaveWithRunner(mock, jsonOutput)
+	assert.Nil(t, err)
 }
