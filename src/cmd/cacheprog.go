@@ -250,11 +250,13 @@ func enableCacheProg() error {
 
 	if !goSupportsFeature(FeatureCacheProg) {
 		logger.Warn("GOCACHEPROG requires Go 1.24+; buildcache disabled")
+		fallBackGoCache()
 		return nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		cacheSetupErr = fmt.Errorf("resolve executable: %w", err)
+		fallBackGoCache()
 		return nil
 	}
 
@@ -263,6 +265,7 @@ func enableCacheProg() error {
 	sl, err := cache.NewStatsListener(sockPath)
 	if err != nil {
 		cacheSetupErr = fmt.Errorf("stats listener: %w", err)
+		fallBackGoCache()
 		return nil
 	}
 	statsListener = sl
@@ -285,6 +288,7 @@ func enableCacheProg() error {
 	d, remoteEndpoint, err := startCacheDaemon(daemonSock)
 	if err != nil {
 		cacheSetupErr = fmt.Errorf("cache daemon: %w", err)
+		fallBackGoCache()
 		return nil
 	}
 	cacheDaemon = d
@@ -299,10 +303,35 @@ func enableCacheProg() error {
 	progCmd, err := cacheProgCommand(runtime.GOOS, hostos.GOOS(), exe)
 	if err != nil {
 		cacheSetupErr = err
+		fallBackGoCache()
 		return nil
 	}
 	os.Setenv("GOCACHEPROG", progCmd)
 	return nil
+}
+
+// fallBackGoCache points GOCACHE at a location this process can actually
+// write to, for the paths above that give up on GOCACHEPROG.
+//
+// Without it, "cache disabled" silently means "fall through to cmd/go's own
+// default GOCACHE" (~/.cache/go/build). On a host where that default is
+// itself unwritable -- a sandboxed environment restricting HOME, the same
+// one that denies the stats-socket bind above with "operation not permitted"
+// -- the build then fails with no connection back to the cache setup that
+// actually caused it.
+//
+// A GOCACHE the caller already set is left alone: their choice is not what
+// failed here.
+func fallBackGoCache() {
+	if os.Getenv("GOCACHE") != "" {
+		return
+	}
+	dir := filepath.Join(os.TempDir(), fmt.Sprintf("go-toolchain-cache-%d", os.Getpid()))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logger.Warn("fall back GOCACHE to %s: %v", dir, err)
+		return
+	}
+	os.Setenv("GOCACHE", dir)
 }
 
 // cacheProgCommand returns the GOCACHEPROG value that launches this binary's
