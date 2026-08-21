@@ -14,7 +14,7 @@ import (
 // platform SET rather than one os/arch pair — the fat APE — so each publishes
 // as ONE artifact row with one download link. A file listed here is removed
 // from the publish action's <binary>_<os>_<arch> filename scan, which is why
-// the APE keeps its <name>_cosmo_fat name without tripping buildhost's
+// the APE keeps its <name> name without tripping buildhost's
 // os=cosmo rejection.
 //
 // See docs/BUILDHOST-MANIFEST.md for the wire contract.
@@ -43,7 +43,7 @@ type buildhostManifestEntry struct {
 	// row's canonical slot.
 	Platforms []string `json:"platforms"`
 	// Filename is the name the download is served under: the plain binary
-	// name, not the on-disk <name>_cosmo_fat.
+	// name, not the on-disk <name>.
 	Filename string `json:"filename"`
 }
 

@@ -35,6 +35,12 @@ func SetInDockerCheck(f func() bool) func() {
 // upload set entirely. The file is still a wasm module; only the name
 // carries no extension. See UnpublishableWasmName for the opt-out shape.
 func BinaryName(name, goos, goarch string) string {
+	// The cosmo fat APE is the plain name. One file runs on every platform in
+	// the set, so a platform suffix would name a property it does not have,
+	// and build/<name> is what a consumer runs.
+	if goos == "cosmo" {
+		return name
+	}
 	if goarch == "wasm" {
 		return name + "_wasm_" + goos
 	}

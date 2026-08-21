@@ -248,11 +248,11 @@ Log routing: debug messages go to stderr and info to stdout; warnings and errors
 compiled with the [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan)
 Go fork (`GOOS=cosmo`). It runs natively on Linux x64, macOS ARM64 and Windows
 x64 — no emulation, no per-platform download. The artifact is
-`<name>_cosmo_fat` (no `.exe`, though the file is a genuine PE polyglot).
+`<name>` (no `.exe`, though the file is a genuine PE polyglot).
 
 ```bash
 go-toolchain matrix
-# build/go-toolchain_cosmo_fat        the binary, runs on all three
+# build/go-toolchain        the binary, runs on all three
 # build/buildhost-artifacts.json      publishes it as ONE artifact
 # build/checksums.txt
 ```
@@ -463,9 +463,10 @@ keep that true, go-toolchain deletes the artifacts of its own build targets
 - **when the agent output guard refuses to run**, or when the Go bootstrap
   fails before the pipeline is reached.
 
-Only the target's own artifacts are touched: the bare name, `<name>.exe`, and
-every `<name>_…` shape the toolchain writes (`<name>_<goos>_<goarch>`, the wasm
-names, `<name>_cosmo_fat`, the `<name>_host` symlink). `checksums.txt`,
+Only the target's own artifacts are touched: the bare name (`<name>.exe` and
+the fat APE), every `<name>_…` shape the toolchain writes
+(`<name>_<goos>_<goarch>`, the wasm names, the `<name>_host` symlink), and the
+APE's `<name>.…` sidecar ELFs. `checksums.txt`,
 `wasm_exec.js`, `profile.json` and anything else in `build/` are left alone.
 
 The point is that a hidden failure cannot be laundered into a success by

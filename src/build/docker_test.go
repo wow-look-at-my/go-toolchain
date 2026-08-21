@@ -26,9 +26,10 @@ func TestBinaryName(t *testing.T) {
 	assert.Equal(t, "myapp_linux_amd64", BinaryName("myapp", "linux", "amd64"))
 	assert.Equal(t, "myapp_darwin_arm64", BinaryName("myapp", "darwin", "arm64"))
 	assert.Equal(t, "myapp_windows_amd64.exe", BinaryName("myapp", "windows", "amd64"))
-	// The cosmo fat APE gets no .exe even though it is a genuine PE polyglot:
-	// only the windows/* slot copies carry the .exe name.
-	assert.Equal(t, "myapp_cosmo_fat", BinaryName("myapp", "cosmo", "fat"))
+	// The cosmo fat APE is the plain name: one file covers every platform, so
+	// a platform suffix would claim something false, and it gets no .exe even
+	// though it is a genuine PE polyglot.
+	assert.Equal(t, "myapp", BinaryName("myapp", "cosmo", "fat"))
 	// WebAssembly targets use buildhost's os=wasm convention: order swapped
 	// to name_wasm_<goos>, no extension (an extension would keep the file
 	// out of the buildhost-publish upload set).
