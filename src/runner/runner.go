@@ -4,8 +4,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-containers/sortedmap"
 )
 
 // IProcess represents a running or completed process
@@ -13,20 +17,20 @@ type IProcess interface {
 	// Wait blocks until the process completes and returns the exit error
 	Wait() error
 	// Stdout returns captured stout
-	Stdout()  io.Reader
+	Stdout() io.Reader
 	// Stderr returns captured stderr
-	Stderr()  io.Reader
+	Stderr() io.Reader
 }
 
 // Config specifies how to run a command
 type Config struct {
 	Name          string
 	Args          []string
-	Env           map[string]string // Merged with current environment
-	Quiet         bool              // Don't tee stdout/stderr to console
-	OnFirstOutput func()            // Called before the first byte of output is written to console
-	StdoutWriter  io.Writer         // If set, stdout is copied here instead of os.Stdout
-	StderrWriter  io.Writer         // If set, stderr is copied here instead of os.Stderr
+	Env           *sortedmap.SortedMap[string, string] // Merged with current environment
+	Quiet         bool                                 // Don't tee stdout/stderr to console
+	OnFirstOutput func()                               // Called before the first byte of output is written to console
+	StdoutWriter  io.Writer                            // If set, stdout is copied here instead of os.Stdout
+	StderrWriter  io.Writer                            // If set, stderr is copied here instead of os.Stderr
 }
 
 // IsCmd checks if this config runs the given command with the given prefix args.
@@ -64,9 +68,9 @@ func Cmd(name string, args ...string) *Config {
 // WithEnv adds an environment variable
 func (c *Config) WithEnv(key, value string) *Config {
 	if c.Env == nil {
-		c.Env = make(map[string]string)
+		c.Env = sortedmap.New[string, string]()
 	}
-	c.Env[key] = value
+	c.Env.Put(key, value)
 	return c
 }
 
@@ -110,9 +114,22 @@ type realRunner struct{}
 func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	cmd := exec.Command(cfg.Name, cfg.Args...)
 
-	if len(cfg.Env) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range cfg.Env {
+	if cfg.Env != nil && cfg.Env.Len() > 0 {
+		// Build env list by merging overrides into the current environment.
+		// Remove existing entries that are being overridden, since duplicate
+		// keys have platform-dependent behavior (Linux getenv returns the
+		// first match, so appending wouldn't actually override).
+		overrides := set.New[string](cfg.Env.Len())
+		for k := range cfg.Env.All() {
+			overrides.Add(k)
+		}
+		for _, e := range os.Environ() {
+			if k, _, ok := strings.Cut(e, "="); ok && overrides.Contains(k) {
+				continue // skip — will be replaced by override
+			}
+			cmd.Env = append(cmd.Env, e)
+		}
+		for k, v := range cfg.Env.All() {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestColorPct(t *testing.T) {
@@ -71,13 +71,34 @@ func captureStdout(f func()) string {
 	return buf.String()
 }
 
+// captureCombinedOutput runs f with BOTH stdout and stderr captured into one
+// stream and returns the combined output. Use it when asserting on messages
+// the logger may route to either stream depending on the environment (e.g.
+// logger.Warn: stderr locally, a ::warning annotation on stdout under
+// GITHUB_ACTIONS=true).
+func captureCombinedOutput(f func()) string {
+	oldOut, oldErr := os.Stdout, os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	os.Stderr = w
+
+	f()
+
+	w.Close()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	os.Stdout = oldOut
+	os.Stderr = oldErr
+	return buf.String()
+}
+
 func TestLogStepSilent(t *testing.T) {
 	output := captureStdout(func() {
 		s := logStep("go build")
 		time.Sleep(10 * time.Millisecond)
 		s.done()
 	})
-	assert.Contains(t, output, "==> go build...")
+	assert.Contains(t, output, "⇒ go build...")
 	assert.Contains(t, output, "done.")
 	assert.Contains(t, output, colorGreen+"done."+colorReset)
 	assert.Contains(t, output, colorDimCyan)
@@ -92,11 +113,11 @@ func TestLogStepNoisy(t *testing.T) {
 		fmt.Println("go: downloading something")
 		s.done()
 	})
-	assert.Contains(t, output, "==> go mod tidy...")
+	assert.Contains(t, output, "⇒ go mod tidy...")
 	// Should have newline after "..." (from noteOutput)
 	assert.Contains(t, output, "...\n")
 	// Done message should repeat the label on a new line with green "done."
-	assert.Contains(t, output, "==> go mod tidy "+colorGreen+"done."+colorReset)
+	assert.Contains(t, output, "⇒ go mod tidy "+colorGreen+"done."+colorReset)
 }
 
 func TestLogStepFailed(t *testing.T) {
@@ -105,7 +126,7 @@ func TestLogStepFailed(t *testing.T) {
 		s.noteOutput()
 		s.failed()
 	})
-	assert.Contains(t, output, "==> Running tests...")
+	assert.Contains(t, output, "⇒ Running tests...")
 	assert.Contains(t, output, colorRed+"failed!"+colorReset)
 	assert.Contains(t, output, colorDimCyan)
 }
@@ -115,7 +136,7 @@ func TestLogStepFailedSilent(t *testing.T) {
 		s := logStep("go vet")
 		s.failed()
 	})
-	assert.Contains(t, output, "==> go vet...")
+	assert.Contains(t, output, "⇒ go vet...")
 	assert.Contains(t, output, colorRed+"failed!"+colorReset)
 	assert.NotContains(t, output, "...\n")
 }

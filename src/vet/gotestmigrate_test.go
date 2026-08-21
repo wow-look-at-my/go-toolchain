@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMigrateGotestTools_Basic(t *testing.T) {
@@ -32,7 +32,7 @@ func TestFoo(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(oldWd)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -40,10 +40,71 @@ func TestFoo(t *testing.T) {
 	assert.Nil(t, err)
 
 	s := string(result)
-	assert.Contains(t, s, `"github.com/wow-look-at-my/testify/require"`)
+	assert.Contains(t, s, `"github.com/stretchr/testify/require"`)
 	assert.NotContains(t, s, `"gotest.tools/v3/assert"`)
 	assert.Contains(t, s, "require.NoError")
 	assert.NotContains(t, s, "assert.NilError")
+}
+
+// TestMigrateGotestTools_CheckModeRejects verifies that in check mode
+// (fix=false, the CI path) a file importing gotest.tools/v3/assert is reported
+// as a hard error and is NOT rewritten.
+func TestMigrateGotestTools_CheckModeRejects(t *testing.T) {
+	dir := t.TempDir()
+	content := `package example
+
+import (
+	"testing"
+
+	"gotest.tools/v3/assert"
+)
+
+func TestFoo(t *testing.T) {
+	assert.NilError(t, nil)
+}
+`
+	filePath := filepath.Join(dir, "example_test.go")
+	assert.Nil(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	ed := NewEditor(false)
+	wrote, err := MigrateGotestTools(ed)
+	assert.Nil(t, err)
+	assert.False(t, wrote)
+	assert.Error(t, ed.Err())
+	assert.Contains(t, ed.Err().Error(), "example_test.go")
+	assert.Contains(t, ed.Err().Error(), "gotest.tools")
+
+	// Check mode must not write: the import is still present.
+	got, readErr := os.ReadFile(filePath)
+	assert.Nil(t, readErr)
+	assert.Contains(t, string(got), "gotest.tools/v3/assert")
+}
+
+// TestMigrateGotestTools_CheckModeClean verifies check mode is a no-op when no
+// file imports gotest.tools.
+func TestMigrateGotestTools_CheckModeClean(t *testing.T) {
+	dir := t.TempDir()
+	content := `package example
+
+import "testing"
+
+func TestFoo(t *testing.T) {}
+`
+	assert.Nil(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(oldWd)
+
+	ed := NewEditor(false)
+	wrote, err := MigrateGotestTools(ed)
+	assert.Nil(t, err)
+	assert.False(t, wrote)
+	assert.NoError(t, ed.Err())
 }
 
 func TestMigrateGotestTools_FuncRenames(t *testing.T) {
@@ -69,7 +130,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -94,7 +155,7 @@ func TestMigrateGotestTools_Assert(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -110,12 +171,12 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 	dir := t.TempDir()
 
 	// File that already has testify/require AND gotest.tools/assert
-	content := "package example\n\nimport (\n\t\"testing\"\n\n\t\"github.com/wow-look-at-my/testify/require\"\n\t\"gotest.tools/v3/assert\"\n)\n\nfunc TestFoo(t *testing.T) {\n\trequire.NoError(t, nil)\n\tassert.NilError(t, nil)\n}\n"
+	content := "package example\n\nimport (\n\t\"testing\"\n\n\t\"github.com/stretchr/testify/require\"\n\t\"gotest.tools/v3/assert\"\n)\n\nfunc TestFoo(t *testing.T) {\n\trequire.NoError(t, nil)\n\tassert.NilError(t, nil)\n}\n"
 	filePath := filepath.Join(dir, "example_test.go")
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -124,7 +185,7 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 
 	s := string(result)
 	// Should have exactly one require import, not two
-	count := strings.Count(s, `"github.com/wow-look-at-my/testify/require"`)
+	count := strings.Count(s, `"github.com/stretchr/testify/require"`)
 	assert.Equal(t, 1, count, "should have exactly one require import, got %d", count)
 }
 
@@ -136,7 +197,7 @@ func TestMigrateGotestTools_NoChanges(t *testing.T) {
 import (
 	"testing"
 
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFoo(t *testing.T) {
@@ -147,7 +208,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.False(t, fixed)
 }
@@ -172,7 +233,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 
@@ -185,9 +246,9 @@ func TestFoo(t *testing.T) {
 	// Check → assert.True (non-fatal)
 	assert.Contains(t, s, "assert.True")
 	// Should have added testify/assert import
-	assert.Contains(t, s, `"github.com/wow-look-at-my/testify/assert"`)
+	assert.Contains(t, s, `"github.com/stretchr/testify/assert"`)
 	// Should have testify/require import
-	assert.Contains(t, s, `"github.com/wow-look-at-my/testify/require"`)
+	assert.Contains(t, s, `"github.com/stretchr/testify/require"`)
 }
 
 func TestMigrateGotestTools_CmpUnwrap(t *testing.T) {
@@ -213,7 +274,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	fixed, err := migrateFileGotestTools(filePath)
+	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
 	assert.True(t, fixed)
 

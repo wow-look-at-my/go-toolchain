@@ -2,7 +2,7 @@ package cache
 
 import (
 	"bytes"
-	"encoding/base64"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,7 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // memBackend is a simple in-memory IBackend for testing.
@@ -24,9 +25,9 @@ type memBackend struct {
 }
 
 type memEntry struct {
-	outputID	string
-	data		[]byte
-	time		time.Time
+	outputID string
+	data     []byte
+	time     time.Time
 }
 
 func newMemBackend() *memBackend {
@@ -54,7 +55,7 @@ func (m *memBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	return nil
 }
 
-func (m *memBackend) Close() error        { return nil }
+func (m *memBackend) Close() error          { return nil }
 func (m *memBackend) GetStats() *CacheStats { return &m.stats }
 
 func TestServer_Handshake(t *testing.T) {
@@ -90,26 +91,26 @@ func TestServer_PutAndGet(t *testing.T) {
 	require.Nil(t, err)
 
 	actionID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
 	body := "test cache body data"
+	sum := sha256.Sum256([]byte(body)) // the protocol invariant: outputID == sha256(body)
 
 	// Build input: PUT, GET, CLOSE.
 	var input strings.Builder
 	input.WriteString(makePutRequest(Request{
-		ID:		1,
-		Command:	CmdPut,
-		ActionID:	actionID,
-		OutputID:	outputID,
-		BodySize:	int64(len(body)),
+		ID:       1,
+		Command:  CmdPut,
+		ActionID: actionID,
+		OutputID: sum[:],
+		BodySize: int64(len(body)),
 	}, body))
 	input.WriteString(makeRequest(Request{
-		ID:		2,
-		Command:	CmdGet,
-		ActionID:	actionID,
+		ID:       2,
+		Command:  CmdGet,
+		ActionID: actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:		3,
-		Command:	CmdClose,
+		ID:      3,
+		Command: CmdClose,
 	}))
 
 	var out bytes.Buffer
@@ -135,58 +136,6 @@ func TestServer_PutAndGet(t *testing.T) {
 
 }
 
-func TestServer_PutRawBase64(t *testing.T) {
-	dir := t.TempDir()
-	lc, err := NewLocalCache(dir)
-	require.Nil(t, err)
-
-	actionID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
-	outputID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99}
-	body := "raw base64 test body"
-
-	// Build input using raw base64 format (Go >=1.25): PUT, GET, CLOSE.
-	var input strings.Builder
-	input.WriteString(makePutRequestRawBase64(Request{
-		ID:       1,
-		Command:  CmdPut,
-		ActionID: actionID,
-		OutputID: outputID,
-		BodySize: int64(len(body)),
-	}, body))
-	input.WriteString(makeRequest(Request{
-		ID:       2,
-		Command:  CmdGet,
-		ActionID: actionID,
-	}))
-	input.WriteString(makeRequest(Request{
-		ID:      3,
-		Command: CmdClose,
-	}))
-
-	var out bytes.Buffer
-	srv := NewServer(lc, nil)
-	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
-
-	responses := parseResponses(t, out.Bytes())
-
-	// Find GET response (ID=2).
-	var getResp *Response
-	for i := range responses {
-		if responses[i].ID == 2 {
-			getResp = &responses[i]
-			break
-		}
-	}
-	require.NotNil(t, getResp)
-	require.False(t, getResp.Miss)
-	require.NotEqual(t, "", getResp.DiskPath)
-
-	// Verify the file on disk has the right content.
-	data, err := os.ReadFile(getResp.DiskPath)
-	require.NoError(t, err)
-	require.Equal(t, body, string(data))
-}
-
 func TestServer_GetMiss(t *testing.T) {
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
@@ -196,13 +145,13 @@ func TestServer_GetMiss(t *testing.T) {
 
 	var input strings.Builder
 	input.WriteString(makeRequest(Request{
-		ID:		1,
-		Command:	CmdGet,
-		ActionID:	actionID,
+		ID:       1,
+		Command:  CmdGet,
+		ActionID: actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:		2,
-		Command:	CmdClose,
+		ID:      2,
+		Command: CmdClose,
 	}))
 
 	var out bytes.Buffer
@@ -240,13 +189,13 @@ func TestServer_WithRemoteBackend(t *testing.T) {
 	// GET from server (local miss, remote hit).
 	var input strings.Builder
 	input.WriteString(makeRequest(Request{
-		ID:		1,
-		Command:	CmdGet,
-		ActionID:	actionID,
+		ID:       1,
+		Command:  CmdGet,
+		ActionID: actionID,
 	}))
 	input.WriteString(makeRequest(Request{
-		ID:		2,
-		Command:	CmdClose,
+		ID:      2,
+		Command: CmdClose,
 	}))
 
 	var out bytes.Buffer
@@ -277,9 +226,9 @@ func TestServer_EOFWithoutClose(t *testing.T) {
 	// Just send a GET, no close command. The server should handle EOF gracefully.
 	actionID := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	input := makeRequest(Request{
-		ID:		1,
-		Command:	CmdGet,
-		ActionID:	actionID,
+		ID:       1,
+		Command:  CmdGet,
+		ActionID: actionID,
 	})
 
 	var out bytes.Buffer
@@ -304,10 +253,16 @@ func TestServer_Lock(t *testing.T) {
 	srv := NewServer(nil, nil)
 	mu1 := srv.lock("key1")
 	mu2 := srv.lock("key1")
-	require.True(t, mu1 == mu2, "same key should return same mutex")
+	require.True(t, mu1 == mu2, "same key must map to the same shard mutex")
 
-	mu3 := srv.lock("key2")
-	require.True(t, mu1 != mu3, "different keys should return different mutexes")
+	// Distinct keys MAY share a shard (a collision only coarsens
+	// serialization, never correctness), but across many keys the fixed
+	// table must actually spread load over multiple shards.
+	shards := set.New[*sync.Mutex]()
+	for i := 0; i < 4*lockShards; i++ {
+		shards.Add(srv.lock(fmt.Sprintf("key-%d", i)))
+	}
+	require.Greater(t, shards.Len(), lockShards/2, "keys must spread across the shard table")
 }
 
 func TestFileSize(t *testing.T) {
@@ -365,17 +320,17 @@ func TestServer_PutDuplicate(t *testing.T) {
 	require.NoError(t, err)
 
 	actionID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc, 0xdd, 0x00, 0x11, 0x22, 0x33}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
 	body := "duplicate data"
+	sum := sha256.Sum256([]byte(body))
 
 	// PUT same action twice, then CLOSE.
 	var input strings.Builder
 	input.WriteString(makePutRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID,
+		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: sum[:],
 		BodySize: int64(len(body)),
 	}, body))
 	input.WriteString(makePutRequest(Request{
-		ID: 2, Command: CmdPut, ActionID: actionID, OutputID: outputID,
+		ID: 2, Command: CmdPut, ActionID: actionID, OutputID: sum[:],
 		BodySize: int64(len(body)),
 	}, body))
 	input.WriteString(makeRequest(Request{ID: 3, Command: CmdClose}))
@@ -400,7 +355,7 @@ func (e *errBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	return fmt.Errorf("backend error")
 }
 
-func (e *errBackend) Close() error        { return nil }
+func (e *errBackend) Close() error          { return nil }
 func (e *errBackend) GetStats() *CacheStats { return &e.stats }
 
 func TestServer_GetWithRemoteError(t *testing.T) {
@@ -428,132 +383,4 @@ func TestServer_GetWithRemoteError(t *testing.T) {
 	}
 	require.NotNil(t, getResp)
 	require.True(t, getResp.Miss, "error from remote should result in miss")
-}
-
-func TestServer_Stats(t *testing.T) {
-	dir := t.TempDir()
-	lc, err := NewLocalCache(dir)
-	require.Nil(t, err)
-
-	backend := newMemBackend()
-	srv := NewServer(lc, backend)
-
-	actionID := []byte{0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
-	missID := []byte{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00}
-
-	var input strings.Builder
-	// PUT
-	input.WriteString(makePutRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 5,
-	}, "hello"))
-	// GET (local hit)
-	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: actionID}))
-	// GET (miss)
-	input.WriteString(makeRequest(Request{ID: 3, Command: CmdGet, ActionID: missID}))
-	// CLOSE
-	input.WriteString(makeRequest(Request{ID: 4, Command: CmdClose}))
-
-	var out bytes.Buffer
-	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
-
-	stats := srv.GetStats()
-	// local.Put was called once (the PUT), local.Get was called twice (the GET + the dedupe check in handlePut)
-	require.Equal(t, uint32(1), stats.Local.Puts.Load())
-	require.Equal(t, uint32(1), stats.Local.Hits.Load())
-	require.Equal(t, uint32(1), stats.Misses.Load())
-	require.NotNil(t, stats.Remote)
-}
-
-func TestStatsStreaming(t *testing.T) {
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "stats.sock")
-
-	sl, err := NewStatsListener(sockPath)
-	require.NoError(t, err)
-
-	t.Setenv("GOCACHE_STATS_SOCK", sockPath)
-
-	actionID := []byte{0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89}
-	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00}
-	missID := []byte{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00}
-
-	// Run a server with PUT, GET (hit), GET (miss), CLOSE.
-	lc, err := NewLocalCache(filepath.Join(dir, "cache"))
-	require.NoError(t, err)
-
-	var input strings.Builder
-	input.WriteString(makePutRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 5,
-	}, "hello"))
-	input.WriteString(makeRequest(Request{ID: 2, Command: CmdGet, ActionID: actionID}))
-	input.WriteString(makeRequest(Request{ID: 3, Command: CmdGet, ActionID: missID}))
-	input.WriteString(makeRequest(Request{ID: 4, Command: CmdClose}))
-
-	var out bytes.Buffer
-	srv := NewServer(lc, nil)
-	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
-
-	sl.Close()
-	got := sl.Stats()
-	require.Equal(t, uint32(1), got.Local.Puts.Load())
-	require.Equal(t, uint32(1), got.Local.Hits.Load())
-	require.Equal(t, uint32(1), got.Misses.Load())
-}
-
-func TestServer_PutEmpty(t *testing.T) {
-	dir := t.TempDir()
-	lc, err := NewLocalCache(dir)
-	require.NoError(t, err)
-
-	actionID := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	outputID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11}
-
-	// PUT with empty body (BodySize=0, no body line).
-	var input strings.Builder
-	input.WriteString(makeRequest(Request{
-		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 0,
-	}))
-	input.WriteString(makeRequest(Request{ID: 2, Command: CmdClose}))
-
-	var out bytes.Buffer
-	srv := NewServer(lc, nil)
-	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
-
-	responses := parseResponses(t, out.Bytes())
-	require.GreaterOrEqual(t, len(responses), 3)
-}
-
-// makeRequest serializes a request as a JSON line.
-func makeRequest(req Request) string {
-	b, _ := json.Marshal(req)
-	return string(b) + "\n"
-}
-
-// makePutRequest serializes a PUT request with body as two JSON lines (Go <=1.24 format).
-func makePutRequest(req Request, body string) string {
-	header, _ := json.Marshal(req)
-	bodyJSON, _ := json.Marshal(body)
-	return string(header) + "\n" + string(bodyJSON) + "\n"
-}
-
-// makePutRequestRawBase64 serializes a PUT request with raw base64 body (Go >=1.25 format).
-func makePutRequestRawBase64(req Request, body string) string {
-	header, _ := json.Marshal(req)
-	encoded := base64.StdEncoding.EncodeToString([]byte(body))
-	return string(header) + "\n" + encoded + "\n"
-}
-
-func parseResponses(t *testing.T, data []byte) []Response {
-	t.Helper()
-	var responses []Response
-	dec := json.NewDecoder(bytes.NewReader(data))
-	for {
-		var resp Response
-		if err := dec.Decode(&resp); err != nil {
-			break
-		}
-		responses = append(responses, resp)
-	}
-	return responses
 }

@@ -10,8 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
@@ -33,17 +34,25 @@ func TestAssertNormAnalyzer(t *testing.T) {
 	analysistest.Run(t, dir, AssertNormAnalyzer, ".")
 }
 
+func TestDeadCodeAnalyzer(t *testing.T) {
+	testdata, err := filepath.Abs("testdata")
+	require.Nil(t, err)
+	analysistest.Run(t, testdata, DeadCodeAnalyzer, "deadcode")
+}
+
 func TestAnalyzers(t *testing.T) {
 	analyzers := Analyzers()
 	assert.NotEmpty(t, analyzers)
 
-	names := make(map[string]bool)
+	names := set.New[string]()
 	for _, a := range analyzers {
-		names[a.Name] = true
+		names.Add(a.Name)
 	}
-	assert.True(t, names["assertlint"])
-	assert.True(t, names["assertnorm"])
-	assert.True(t, names["redundantcast"])
+	assert.True(t, names.Contains("assertlint"))
+	assert.True(t, names.Contains("assertnorm"))
+	assert.True(t, names.Contains("deadcode"))
+	assert.True(t, names.Contains("redundantcast"))
+	assert.True(t, names.Contains("testifycast"))
 }
 
 func TestRunNoGoMod(t *testing.T) {
@@ -192,8 +201,8 @@ func TestASTFixesPrintFix(t *testing.T) {
 	})
 
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{
-		{OldNode: call, NewNodes: []ast.Node{call.Args[0]}},	// replacement
-		{OldNode: call, NewNodes: nil},				// deletion
+		{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}, // replacement
+		{OldNode: call, NewNodes: nil},                      // deletion
 	}}
 
 	// Just ensure printFix doesn't panic
@@ -211,29 +220,29 @@ func TestSourceLocationShortLocRelative(t *testing.T) {
 
 func TestRedundantCastFixes(t *testing.T) {
 	tests := []struct {
-		name	string
-		before	string
-		after	string
+		name   string
+		before string
+		after  string
 	}{
 		{
-			name:	"int literal",
-			before:	"package main\n\nfunc main() { x := int(0); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 0; _ = x }\n",
+			name:   "int literal",
+			before: "package main\n\nfunc main() { x := int(0); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 0; _ = x }\n",
 		},
 		{
-			name:	"float64 literal",
-			before:	"package main\n\nfunc main() { x := float64(1.5); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 1.5; _ = x }\n",
+			name:   "float64 literal",
+			before: "package main\n\nfunc main() { x := float64(1.5); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 1.5; _ = x }\n",
 		},
 		{
-			name:	"string literal",
-			before:	`package main` + "\n\n" + `func main() { x := string("hello"); _ = x }`,
-			after:	"package main\n\nfunc main()\t{ x := \"hello\"; _ = x }\n",
+			name:   "string literal",
+			before: `package main` + "\n\n" + `func main() { x := string("hello"); _ = x }`,
+			after:  "package main\n\nfunc main()\t{ x := \"hello\"; _ = x }\n",
 		},
 		{
-			name:	"rune literal",
-			before:	"package main\n\nfunc main() { x := rune('a'); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 'a'; _ = x }\n",
+			name:   "rune literal",
+			before: "package main\n\nfunc main() { x := rune('a'); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 'a'; _ = x }\n",
 		},
 	}
 
@@ -333,7 +342,7 @@ func main() {
 	require.NotNil(t, call)
 
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}}}
-	err = fixes.Apply()
+	_, err = fixes.Apply(NewEditor(true))
 	assert.Nil(t, err)
 
 	content, _ := os.ReadFile(testFile)
@@ -342,7 +351,7 @@ func main() {
 
 func TestASTFixesApplyEmpty(t *testing.T) {
 	fixes := &ASTFixes{Fixes: nil}
-	err := fixes.Apply()
+	_, err := fixes.Apply(NewEditor(true))
 	assert.Nil(t, err)
 }
 

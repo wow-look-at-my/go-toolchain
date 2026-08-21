@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
@@ -18,7 +19,7 @@ const colorYellow = "\033[38;2;255;255;0m"
 const colorGreen = "\033[38;2;0;255;0m"
 const colorRed = "\033[38;2;255;0;0m"
 const colorPass = colorGreen
-const colorFail = "\033[38;2;255;128;128m" // softer red for readability
+const colorFail = "\033[38;2;255;128;128m"    // softer red for readability
 const colorDimCyan = "\033[38;2;100;160;160m" // dark greyish-cyan for durations
 
 type ColorPct struct {
@@ -77,28 +78,20 @@ func isGHA() bool {
 // logWarning prints a warning. In GHA it emits a ::warning annotation;
 // locally it prints yellow text. file is optional (used for GHA file annotations).
 func logWarning(file, msg string) {
-	if isGHA() {
-		if file != "" {
-			fmt.Printf("::warning file=%s::%s\n", file, msg)
-		} else {
-			fmt.Printf("::warning ::%s\n", msg)
-		}
+	if file != "" {
+		logger.WarnFile(file, "%s", msg)
 	} else {
-		fmt.Printf("  %s%s%s\n", colorYellow, msg, colorReset)
+		logger.Warn("%s", msg)
 	}
 }
 
 // logError prints an error. In GHA it emits a ::error annotation;
 // locally it prints red text. file is optional (used for GHA file annotations).
 func logError(file, msg string) {
-	if isGHA() {
-		if file != "" {
-			fmt.Printf("::error file=%s::%s\n", file, msg)
-		} else {
-			fmt.Printf("::error ::%s\n", msg)
-		}
+	if file != "" {
+		logger.ErrorFile(file, "%s", msg)
 	} else {
-		fmt.Printf("  %s%s%s\n", colorRed, msg, colorReset)
+		logger.Error("%s", msg)
 	}
 }
 
@@ -117,7 +110,7 @@ func GetTimeline() *summary.Timeline {
 }
 
 // step tracks progress for a long-running build step.
-// It prints "==> label..." initially, then " done. (Xs)" when finished.
+// It prints "⇒ label..." initially, then " done. (Xs)" when finished.
 // If output was produced between start and finish, the done message
 // goes on a new line with the label repeated.
 // Sub-steps (created via logSubStep) print indented "    label Xs" instead.
@@ -126,11 +119,11 @@ type step struct {
 	thread string
 	start  time.Time
 	noisy  bool
-	sub    bool // sub-step: indented output, no "==>" prefix
+	sub    bool // sub-step: indented output, no "⇒" prefix
 	once   sync.Once
 }
 
-// logStep prints "==> label..." without a newline and returns a step
+// logStep prints "⇒ label..." without a newline and returns a step
 // that can be finished later with done(). Records on the "main" thread.
 func logStep(label string) *step {
 	return logStepOn(label, "main")
@@ -138,7 +131,10 @@ func logStep(label string) *step {
 
 // logStepOn is like logStep but records on the given thread.
 func logStepOn(label, thread string) *step {
-	fmt.Printf("==> %s...", label)
+	fmt.Fprintf(os.Stdout, "⇒ %s...", label)
+	if activeWatchdog != nil {
+		activeWatchdog.setStep(label)
+	}
 	return &step{label: label, thread: thread, start: time.Now()}
 }
 
@@ -146,6 +142,9 @@ func logStepOn(label, thread string) *step {
 // It doesn't print anything on creation — only on completion.
 // Useful for recording sub-phases (e.g. vet phases) that have their own timing.
 func logSubStep(label, thread string) *step {
+	if activeWatchdog != nil {
+		activeWatchdog.setStep(label)
+	}
 	return &step{label: label, thread: thread, start: time.Now(), sub: true}
 }
 
@@ -155,7 +154,7 @@ func logSubStep(label, thread string) *step {
 func (s *step) noteOutput() {
 	s.once.Do(func() {
 		s.noisy = true
-		fmt.Println() // finish the "..." line before subprocess output
+		fmt.Fprintln(os.Stdout) // finish the "..." line before subprocess output
 	})
 }
 
@@ -169,11 +168,15 @@ func (s *step) finish(status string) {
 	end := time.Now()
 	d := end.Sub(s.start)
 	if s.sub {
-		fmt.Fprintf(os.Stderr, "    %s %s\n", s.label, fmtDuration(d))
+		fmt.Fprintf(os.Stdout, "    %s %s\n", s.label, fmtDuration(d))
 	} else if s.noisy {
-		fmt.Printf("==> %s %s %s\n", s.label, status, fmtDuration(d))
+		fmt.Fprintf(os.Stdout, "⇒ %s %s %s\n", s.label, status, fmtDuration(d))
 	} else {
-		fmt.Printf(" %s %s\n", status, fmtDuration(d))
+		fmt.Fprintf(os.Stdout, " %s %s\n", status, fmtDuration(d))
+	}
+
+	if activeWatchdog != nil {
+		activeWatchdog.clearStep()
 	}
 
 	// Record to the pipeline timeline if initialized
