@@ -17,7 +17,7 @@ import (
 
 func TestApeManifestEntries(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool_cosmo_fat"), []byte("APE"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 
 	entries, err := apeManifestEntries(targets, dir, []buildPlatform{
@@ -26,10 +26,10 @@ func TestApeManifestEntries(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []buildhostManifestEntry{{
-		File:      "mytool_cosmo_fat",
+		File:      "mytool",
 		Platforms: []string{"linux/amd64", "darwin/arm64"},
-		// The download is served as the plain binary name, not the on-disk
-		// _cosmo_fat one.
+		// The APE lands under the plain name, so the served filename and the
+		// file are the same string.
 		Filename: "mytool",
 	}}, entries)
 }
@@ -42,9 +42,9 @@ func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
 	// it here says which artifact is missing instead.
 	_, err := apeManifestEntries(targets, dir, []buildPlatform{{OS: "linux", Arch: "amd64"}})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mytool_cosmo_fat")
+	assert.Contains(t, err.Error(), "mytool")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool_cosmo_fat"), []byte("APE"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
 	_, err = apeManifestEntries(targets, dir, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty platform set")
@@ -56,7 +56,7 @@ func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
 func TestWriteBuildhostManifestShape(t *testing.T) {
 	dir := t.TempDir()
 	path, err := writeBuildhostManifest(dir, []buildhostManifestEntry{{
-		File:      "mytool_cosmo_fat",
+		File:      "mytool",
 		Platforms: []string{"linux/amd64", "darwin/arm64", "windows/amd64"},
 		Filename:  "mytool",
 	}})
@@ -74,7 +74,7 @@ func TestWriteBuildhostManifestShape(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, artifacts, 1)
 	entry := artifacts[0].(map[string]any)
-	assert.Equal(t, "mytool_cosmo_fat", entry["file"])
+	assert.Equal(t, "mytool", entry["file"])
 	assert.Equal(t, "mytool", entry["filename"])
 	assert.Equal(t, []any{"linux/amd64", "darwin/arm64", "windows/amd64"}, entry["platforms"])
 }
@@ -84,7 +84,7 @@ func TestWriteBuildhostManifestShape(t *testing.T) {
 func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, buildhostManifestName), []byte("{}"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool_cosmo_fat"), []byte("APE"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
 
 	removed, err := removeBuildOutputsIn(dir, []string{"mytool"})
 	require.NoError(t, err)
@@ -122,21 +122,21 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 		}
 		binaries = append(binaries, e.Name())
 	}
-	assert.Equal(t, []string{"mytool_cosmo_fat"}, binaries)
+	assert.Equal(t, []string{"mytool"}, binaries)
 
 	// checksums.txt lists the APE once, under its real filename.
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimSpace(string(sums)), "\n")
 	require.Len(t, lines, 1)
-	assert.Contains(t, lines[0], "mytool_cosmo_fat")
+	assert.Contains(t, lines[0], "mytool")
 
 	raw, err := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
 	require.NoError(t, err)
 	var m buildhostManifest
 	require.NoError(t, json.Unmarshal(raw, &m))
 	assert.Equal(t, buildhostManifest{Schema: 1, Artifacts: []buildhostManifestEntry{{
-		File:      "mytool_cosmo_fat",
+		File:      "mytool",
 		Platforms: []string{"linux/amd64", "darwin/arm64", "windows/amd64"},
 		Filename:  "mytool",
 	}}}, m)
@@ -198,7 +198,7 @@ func TestHostRunnableArtifactFallsBackToTheAPE(t *testing.T) {
 	dir := t.TempDir()
 	target := build.Target{ImportPath: "./cmd/mytool", OutputName: "mytool"}
 
-	ape := filepath.Join(dir, "mytool_cosmo_fat")
+	ape := filepath.Join(dir, "mytool")
 	require.NoError(t, os.WriteFile(ape, []byte("APE"), 0755))
 	assert.Equal(t, ape, hostRunnableArtifact(target, dir))
 

@@ -139,7 +139,7 @@ things split:
 platforms in three cases:
 
 - **No target flags — the default.** ONE `GOOS=cosmo` fat APE built with the
-  gosmopolitan fork (artifact `<name>_cosmo_fat`, no `.exe`), covering
+  gosmopolitan fork (artifact `<name>`, no `.exe`), covering
   `--cosmo-platforms`. One file, three platforms, one published artifact.
 - **`--os` or `--arch` named.** The `--os`×`--arch` cartesian product of native
   per-platform binaries. Naming only one fills the other from `DefaultOS` /
@@ -215,7 +215,7 @@ next to the APE, naming the file, its platform set, and the plain
 `<name>` the download is served under. buildhost-publish takes every listed file
 out of its `<binary>_<os>_<arch>` filename scan and uploads it once, as ONE
 artifact row carrying the whole set — which is also why the APE keeps its
-`_cosmo_fat` name without tripping buildhost's `os=cosmo` rejection.
+plain name without tripping buildhost's `os=cosmo` rejection.
 
 The manifest is an artifact of the build, not a survivor of it:
 `isOutputArtifact` matches it, so `clearBuildOutputs` and `discardBuildOutputs`
@@ -226,8 +226,8 @@ not on disk, or an empty platform set.
 
 A cosmo build writes the APE and nothing else. There is no flag, no default and
 no code path that copies it onto per-platform names: the copier, its
-`--cosmo-slots` flag and the symlink/drop machinery that hid the `_cosmo_fat`
-name from a publish pipeline are all gone. The behavior is not a policy CI
+`--cosmo-slots` flag and the symlink/drop machinery that hid the APE's old
+`_cosmo_fat` name from a publish pipeline are all gone. The behavior is not a policy CI
 checks after the fact — a duplicate is unreachable, so there is nothing to
 check.
 

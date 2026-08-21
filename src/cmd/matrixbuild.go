@@ -58,6 +58,14 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 		for _, suffix := range []string{"_host", ""} {
 			linkName := target.OutputName + suffix + ext
 			linkPath := filepath.Join(outDir, linkName)
+			// A cosmo build writes the APE under the plain name, so that name
+			// is a real binary and not a link slot. Overwriting it deletes the
+			// artifact -- and in a cosmo+native build the APE is not even the
+			// host binary, so the link would look correct while the APE was
+			// gone.
+			if st, statErr := os.Lstat(linkPath); statErr == nil && st.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
 			os.Remove(linkPath) // remove any stale symlink
 			if err := os.Symlink(hostBinary, linkPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %w", linkName, err)
