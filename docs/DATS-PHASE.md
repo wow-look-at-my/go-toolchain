@@ -135,6 +135,41 @@ path that happens before `saveFingerprint`, so a red suite is never stamped
 up-to-date. `.dats` and `.golden` files feed `computeFingerprint`
 (`uptodate.go`), so suite and golden edits bust the "Up to date" fast-exit.
 
+When `dats.Run` itself cannot start because no sandbox backend is usable, the
+phase appends a hint naming the GitHub Action prelude and
+`vars.CI_RUNNER_DIND`. It does not duplicate the action's probe script, and it
+does not mention `sysctl`.
+
 There is deliberately NO filtering, selection, or skip mechanism at either
 layer — every discovered test runs on every build (dats itself has none by
 design). The repo dogfoods the phase via `dats/cli.dats`.
+
+## The GitHub Action ensures a sandbox backend
+
+dats always sandboxes; there is no opt-out. On Linux the backends are
+bubblewrap (needs unprivileged user namespaces) then docker.
+
+`wow-look-at-my/go-toolchain@v1` therefore, on Linux and only when the
+consumer tree has `dats/` suites, installs bubblewrap if missing and probes
+it **before** running the pipeline. If the probe succeeds, done. If it fails,
+the action does **not** `sudo sysctl` — that would weaken host-kernel userns
+policy, and wow-linux's block is seccomp (`unshare(CLONE_NEWUSER)` denied),
+not `apparmor_restrict_unprivileged_userns` or `unprivileged_userns_clone`.
+If docker is usable, the action logs that dats will fall back to it. If
+neither backend works, the job fails with `::error::` naming the dind pool;
+it does not skip the suites.
+
+The action cannot change `runs-on`. Consumers with `dats/` on the wow-linux
+fleet set that one line themselves:
+
+{% raw %}
+```yaml
+runs-on: ${{ vars.CI_RUNNER_DIND }}
+```
+{% endraw %}
+
+Do not copy `wow-look-at-my/dats/action.yml` into the consumer workflow
+(200+ repos must not duplicate that 40-line sysctl script), and do not
+`uses: wow-look-at-my/dats` for this: that action downloads and runs the
+dats CLI. go-toolchain links `dats.Run` in-process; a second CLI run would
+drift versions and not help the linked phase. Depth: `docs/ACTION.md`.

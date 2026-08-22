@@ -258,6 +258,60 @@ runs:
         build-mode: manual
         queries: security-and-quality
 
+    # dats always sandboxes (bwrap on Linux, seatbelt on macOS, docker as
+    # fallback) and there is no opt-out. A consumer with dats/ suites on a
+    # runner that cannot provide any backend would otherwise fail closed
+    # mid-pipeline. This prelude is the one place that belongs: consumers
+    # must not copy dats/action.yml (that 40-line sysctl script is a
+    # security bypass, and the wrong diagnosis for wow-linux), and they
+    # cannot uses: wow-look-at-my/dats for it either (that action downloads
+    # and runs the dats CLI; go-toolchain links dats.Run in-process).
+    #
+    # Linux only. macOS seatbelt needs neither bwrap nor this step.
+    # Windows has no backend and is skipped the same way a suite-less tree
+    # is. Never sudo sysctl: wow-linux's block is seccomp denying
+    # unshare(CLONE_NEWUSER), not apparmor_restrict_unprivileged_userns or
+    # unprivileged_userns_clone (the latter is even the wrong direction).
+    # The action cannot change runs-on; consumers with dats/ on that fleet
+    # set it to the dind pool themselves (one line).
+    - name: Ensure a dats sandbox backend (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        # Same gate as hasDatsSuites in src/cmd/datsphase.go: non-hidden
+        # *.dats under dats/, skipping hidden directories. No suites means
+        # the dats phase is a silent no-op, so this prelude is too.
+        has_dats_suites() {
+          [ -d dats ] || return 1
+          local found
+          found=$(find dats \( -name '.*' -prune \) -o -type f -name '*.dats' -print -quit)
+          [ -n "$found" ]
+        }
+        if ! has_dats_suites; then
+          exit 0
+        fi
+
+        command -v bwrap >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y bubblewrap)
+
+        if bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --unshare-pid --die-with-parent true; then
+          echo "bwrap works; dats will sandbox with it"
+          exit 0
+        fi
+
+        # Do NOT sudo sysctl. Ubuntu 24.04's apparmor_restrict_unprivileged_userns
+        # is a host-kernel policy; wow-linux's refusal is seccomp, and no
+        # workflow step can lift a filter the container was started with.
+        echo "bwrap is blocked on this runner (likely seccomp, not a sysctl)"
+        if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+          echo "docker is usable; dats will fall back to it"
+          exit 0
+        fi
+
+        echo "::error::dats suites need a sandbox backend; this runner has no working bwrap and no docker. Use a runner with a docker daemon (e.g. vars.CI_RUNNER_DIND)."
+        exit 1
+
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}

@@ -113,8 +113,9 @@ coverage.
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see
-  them) and run SANDBOXED and SERIAL; a failure fails the build. **A repo with suites but no `go.mod` runs them anyway** (`runDatsOnly`) instead of
-  erroring. Never turn the sandbox off here — that is the SUITE's declaration to make. Depth: `docs/DATS-PHASE.md`
+  them) and run SANDBOXED and SERIAL; a failure fails the build. An unusable-sandbox error from `dats.Run` is rewritten to name the action prelude
+  and `vars.CI_RUNNER_DIND`. **A repo with suites but no `go.mod` runs them anyway** (`runDatsOnly`) instead of erroring. Never turn the sandbox off
+  here — that is the SUITE's declaration to make. Depth: `docs/DATS-PHASE.md`
 - `dats/` — this repo's own dats suite (`cli.dats` + committed `cli.snapshots/` goldens + README with the conventions): exercises the built binary's
   version/help surface, unknown-flag/-subcommand rejection (one stderr snapshot golden — regenerate with `dats --update test dats`), the
   agent-output-guard abort ("refused to run", exit 1, guard-positive via each agent's marker — `CLAUDECODE=1`, `GROK_AGENT=1`, `OPENCODE=1` — with
@@ -239,8 +240,8 @@ coverage.
   files under GOOS=cosmo (empty package, breaking fatih/color ← gotestsum/testjson ← src/test), so this byte-identical copy of v0.0.20 adds one
   `isatty_cosmo.go` (Fstat + S_IFCHR approximation). Non-cosmo builds compile the exact upstream files. Must be re-copied on dep bumps — see its
   README.md
-- `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard. Depth:
-  `docs/ACTION.md`
+- `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard and the Linux
+  dats sandbox prelude (install/probe bwrap, docker fallback, fail closed; never sysctl). Depth: `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. Depth: `docs/CI.md`
 
 ## Code Conventions

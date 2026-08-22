@@ -10,6 +10,15 @@ Builds go-toolchain from source into a host-native binary. Its cache-validation
 step execs `build/go-toolchain` directly, which is safe only because this job
 never builds the APE — an APE rewrites its own header on first exec.
 
+Both `host-build` and `build` run on GitHub-hosted `ubuntu-latest` and provision
+bubblewrap (install + `sysctl kernel.apparmor_restrict_unprivileged_userns=0`
++ probe) so this repo's own `dats/` suites run under bwrap. That sysctl is
+ubuntu-24.04 on a GitHub-hosted VM; it is **not** the wow-linux problem
+(seccomp in an unprivileged container) and must not grow
+`unprivileged_userns_clone=0`. Consumer repos do not copy this step: the
+composite action's Linux prelude (`docs/ACTION.md`) is the one place that
+belongs, and it never sysctls.
+
 ## build
 
 Runs the composite action (`uses: ./`) with NO target inputs and

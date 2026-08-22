@@ -18,7 +18,45 @@ reads pass scope-less. Both are in the documented consumer permissions block.
 
 That `actions: read` is the guard's requirement, not autorelease's.
 
-## 2. Secrets, then the build
+## 2. Linux dats sandbox prelude
+
+dats always sandboxes (bwrap on Linux, seatbelt on macOS, docker as fallback)
+and there is no opt-out. After checkout-independent setup (secrets, git
+config, installing the binary) and **before** the step that runs go-toolchain
+on the consumer repo, the action on Linux:
+
+1. Looks for non-hidden `*.dats` under `dats/` (same gate as `hasDatsSuites` in
+   `src/cmd/datsphase.go`). No suites: skip silently — the dats phase is a
+   no-op anyway.
+2. Installs bubblewrap if `bwrap` is missing (`apt-get install bubblewrap`).
+3. Probes bwrap with the same one-liner dats uses. Success: done.
+4. Failure: does **not** `sudo sysctl`. That would weaken host-kernel userns
+   policy (`apparmor_restrict_unprivileged_userns` /
+   `unprivileged_userns_clone`; the latter is even the wrong direction), and
+   wow-linux's block is seccomp, not those sysctls.
+5. If `docker info` works: log that bwrap is blocked and dats will fall back
+   to docker; succeed. (Only runners that have a daemon — dind / some
+   GitHub-hosted.)
+6. If neither: fail the job with `::error::` naming the dind pool. Suites are
+   never silently skipped.
+
+macOS seatbelt needs neither bwrap nor this step; Windows is skipped.
+
+The action cannot change `runs-on`. Consumers with `dats/` on the wow-linux
+fleet set that one line:
+
+{% raw %}
+```yaml
+runs-on: ${{ vars.CI_RUNNER_DIND }}
+```
+{% endraw %}
+
+Do not copy `wow-look-at-my/dats/action.yml` into the consumer workflow, and
+do not `uses: wow-look-at-my/dats` for this: that action downloads and runs
+the dats CLI (`args` required). go-toolchain links `dats.Run` in-process; a
+second CLI run would drift versions and not help the linked phase.
+
+## 3. Secrets, then the build
 
 Fetches secrets over OIDC, then runs `go-toolchain matrix`.
 
@@ -30,7 +68,7 @@ switches to one native binary per platform. `targets` replaces both with an
 exact list. There is no input that copies the APE onto per-platform artifact
 names; the APE publishes under its own name, once.
 
-## 3. Handing off `build/`
+## 4. Handing off `build/`
 
 Every run ends by cache-uploading `build/` for downstream jobs.
 
@@ -64,7 +102,7 @@ second save's conflict is absorbed. The strict per-job/per-leg save stays the
 sole authoritative one. Proposed for removal once those consumers migrate to
 `go-build-<uploader job id>`.
 
-## 4. Autorelease, and the permissions it needs
+## 5. Autorelease, and the permissions it needs
 
 `autorelease` (on by default) publishes the workspace `build/` **directly** to
 buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its

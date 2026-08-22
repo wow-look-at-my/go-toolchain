@@ -180,6 +180,35 @@ func runDatsOnly() error {
 	return err
 }
 
+// datsSandboxHint is appended when dats.Run fails because no sandbox backend
+// is usable. dats itself says "install bubblewrap, or start docker"; that is
+// incomplete for a consumer on wow-linux, where bwrap is blocked by seccomp
+// and there is no docker daemon. The GitHub Action is the one place the Linux
+// prelude lives (install bwrap, probe it, fall back to docker, else fail
+// naming the dind pool). This hint points at that rather than duplicating it,
+// and it does not mention sysctl: the action never weakens kernel userns
+// policy.
+const datsSandboxHint = "dats always sandboxes and there is no opt-out. " +
+	"wow-look-at-my/go-toolchain@v1 installs and probes bubblewrap before the " +
+	"pipeline when this tree has dats/ suites; it does not sysctl the host " +
+	"kernel (wow-linux's block is seccomp). If this runner has neither " +
+	"working bwrap nor docker, set the job's runs-on to a runner with a " +
+	"docker daemon (e.g. vars.CI_RUNNER_DIND). Do not copy dats/action.yml " +
+	"into the consumer workflow."
+
+// loudSandboxErr rewrites an unusable-sandbox error from dats.Run so a
+// consumer hears about the action prelude and the dind pool. Other errors
+// pass through unchanged.
+func loudSandboxErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if !strings.Contains(err.Error(), "no usable sandbox backend") {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, datsSandboxHint)
+}
+
 // runDatsPhase runs the module's dats suites (if any) against the binaries
 // just built, in this process: go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
@@ -241,7 +270,7 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		},
 	})
 	if err != nil {
-		return fail(err)
+		return fail(loudSandboxErr(err))
 	}
 	if !res.Ok() {
 		// dats already printed which tests failed and why; this is the line
