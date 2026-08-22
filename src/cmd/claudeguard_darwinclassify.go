@@ -35,6 +35,11 @@ type darwinFDProbes struct {
 	fileType func() (mode uint32, supported bool)
 	// socketPeer returns the pid the kernel recorded on the far end.
 	socketPeer func() (pid int, identified, supported bool)
+	// fifoPeer returns the pid holding the other end of a FIFO. nil, or
+	// identified=false, is "could not name the reader" and fails closed --
+	// never a missing-capability blind, because a FIFO without a reader
+	// identity is exactly `| cat`.
+	fifoPeer func() (pid int, identified, supported bool)
 	// isTerminal reports whether a character device is a real terminal.
 	isTerminal func() (terminal, supported bool)
 	// path recovers a descriptor's path (darwin's F_GETPATH).
@@ -62,10 +67,19 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 
 	switch mode & sIFMT {
 	case sIFIFO:
-		// A FIFO's reader cannot be identified on darwin without libproc, so
-		// an agent piping its own child's stdout back to itself is
-		// indistinguishable from `| grep`. Fails CLOSED.
-		return outputSink{kind: sinkPipe}, true
+		// grok-build captures a child's stdout through Stdio::piped() -- a
+		// FIFO, not a socketpair. Without a reader identity that is
+		// indistinguishable from `| cat`, so an unidentified FIFO still
+		// fails CLOSED. A named reader gets the same agent-vs-filter
+		// decision a socket does.
+		if p.fifoPeer == nil {
+			return outputSink{kind: sinkPipe}, true
+		}
+		pid, identified, supported := p.fifoPeer()
+		if !supported || !identified {
+			return outputSink{kind: sinkPipe}, true
+		}
+		return peerSink(p, pid, sinkPipe), true
 
 	case sIFSOCK:
 		// What a coding agent's tool-execution plumbing actually is: a
@@ -79,24 +93,7 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 		if !identified {
 			return outputSink{kind: sinkHidden}, true
 		}
-		if comm, ok := p.peerName(pid); ok {
-			if p.isAgentReader(comm, pid) {
-				return outputSink{kind: sinkVisible}, true
-			}
-			return outputSink{kind: sinkHidden, detail: comm}, true
-		}
-		// The name is out of reach more often than it looks: darwin resolves it
-		// by running ps(1), which a sandbox can refuse outright (dats' seatbelt
-		// does, exit 126). Falling straight to hidden there refuses every
-		// agent-driven run inside such a sandbox. The pid on its own still
-		// answers the question when an agent named that pid as its own process,
-		// because the kernel fixed this socket's peer at creation time and the
-		// agent published the pid itself -- neither is something a `| head`
-		// could arrange.
-		if p.isAgentPID(pid) {
-			return outputSink{kind: sinkVisible}, true
-		}
-		return outputSink{kind: sinkHidden, detail: fmt.Sprintf("pid %d", pid)}, true
+		return peerSink(p, pid, sinkHidden), true
 
 	case sIFCHR:
 		terminal, supported := p.isTerminal()
@@ -124,4 +121,23 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 	}
 
 	return outputSink{kind: sinkVisible}, true // unknown disposition -- don't block
+}
+
+// peerSink classifies a descriptor whose far-end pid is known: the agent
+// reading its own child is visible, anything else is `notAgent` (sinkPipe
+// for a FIFO, sinkHidden for a socket) and names the reader. A nameless
+// peer still answers when an agent published that pid as its own -- the
+// kernel fixed the peer and the agent named it, which `| cat` cannot
+// arrange.
+func peerSink(p darwinFDProbes, pid int, notAgent sinkKind) outputSink {
+	if comm, ok := p.peerName(pid); ok {
+		if p.isAgentReader(comm, pid) {
+			return outputSink{kind: sinkVisible}
+		}
+		return outputSink{kind: notAgent, detail: comm}
+	}
+	if p.isAgentPID != nil && p.isAgentPID(pid) {
+		return outputSink{kind: sinkVisible}
+	}
+	return outputSink{kind: notAgent, detail: fmt.Sprintf("pid %d", pid)}
 }

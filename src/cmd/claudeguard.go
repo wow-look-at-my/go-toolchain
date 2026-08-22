@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -52,6 +53,46 @@ var (
 func detectAgent() (string, bool) {
 	a, ok := agent.Detect()
 	return a.Name, ok
+}
+
+// grokPIDEnv is the pid variable grok-build does not currently export
+// (measured: its children get GROK_AGENT=1 and nothing else GROK_* that
+// names a pid). Tests, and a future grok-build, can set it the way
+// opencode sets OPENCODE_PID so a capture socket/pipe whose peer is the
+// agent itself classifies as visible even when the peer's comm is the
+// test binary rather than "grok-build".
+const grokPIDEnv = "GROK_AGENT_PID"
+
+// grokNamedPID reports whether pid is the grok-build process named in
+// GROK_AGENT_PID, but only when GROK_AGENT itself is set — the pid var
+// without the marker is not a grok session.
+func grokNamedPID(pid int) bool {
+	if v := os.Getenv("GROK_AGENT"); v == "" || v == "0" {
+		return false
+	}
+	s := os.Getenv(grokPIDEnv)
+	if s == "" {
+		return false
+	}
+	p, err := strconv.Atoi(s)
+	return err == nil && p == pid
+}
+
+// harnessIsPID is agent.IsPID plus GROK_AGENT_PID. The library's roster
+// has no grok pid var (grok-build does not export one); this is the
+// OPENCODE_PID-shaped seam the darwin socket/FIFO tests need.
+func harnessIsPID(pid int) bool {
+	return agent.IsPID(pid) || grokNamedPID(pid)
+}
+
+// harnessIsPipeReader is agent.IsPipeReader plus GROK_AGENT_PID, still
+// requiring the named pid to be an ancestor so a sibling `| cat` cannot
+// borrow the var.
+func harnessIsPipeReader(comm string, pid int) bool {
+	if agent.IsPipeReader(comm, pid) {
+		return true
+	}
+	return grokNamedPID(pid) && agent.IsAncestorPID(pid)
 }
 
 // agentOutputViolation reports the agent, the offending sink and true when
