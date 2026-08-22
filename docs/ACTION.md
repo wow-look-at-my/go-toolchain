@@ -93,6 +93,25 @@ Being distinct per job *and* per matrix leg is the point: concurrent
 go-toolchain saves in one run — two jobs, or the legs of one matrix job — used
 to 409 on a shared key.
 
+**Downloading it** — `cache-download` with no `name` self-discovers the current
+run's hand-off through the run-scoped key prefix, and emits a `::notice` naming
+what it picked, so a consumer never has to know the producing job's id:
+
+```yaml
+- uses: wow-look-at-my/actions@cache-download#latest
+  with:
+    path: dist   # no name: self-discovers this run's hand-off
+```
+
+Nameless discovery is clean only when the run's hand-off set is unambiguous at
+download time (the exact ambiguity semantics belong to `cache-download` — see
+its docs; the deprecated bare alias below is itself a second saved name until it
+is removed). A run that saves several distinct hand-offs — several go-toolchain
+jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the
+build outputs, as this repo's own CI does — needs an explicit
+`name: go-build-<uploader job id>` (plus `.m<index>` for one leg of a matrix
+producer) on exactly those downloads.
+
 **Legacy bare alias** — a second save under the bare name `go-build`, for
 download-only consumers that still restore it (webhook-runner, buildhost,
 api-cli, github-state-mirror, publish-ghcr callers). It is preceded by a
