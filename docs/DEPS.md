@@ -1,7 +1,7 @@
 # Dependency handling
 
 Depth for the "Dependency checking" line in the [README](../README.md#features) and step 3 of
-[How It Works](../README.md#how-it-works). Four independent mechanisms run early in every
+[the pipeline](PIPELINE.md). Four independent mechanisms run early in every
 pipeline, all before `go mod tidy`; each rewrites `go.mod` in place, so the same rules as any
 other pipeline mutation apply: locally you see the diff and commit it, in CI a resulting dirty
 tree fails the build (`checkDirtyInCI`) with an actionable message.
