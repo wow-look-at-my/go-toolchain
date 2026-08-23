@@ -85,6 +85,12 @@ func neededGaps(dir string) ([]resolvedGap, error) {
 			}
 			src, srcVer = new.Path, new.Version
 		}
+		if g.nativeFork != "" && src == g.nativeFork {
+			// The consumer already builds against the fork this gap would
+			// otherwise redirect to, and that fork ships real GOOS=cosmo
+			// support on its own -- nothing here to patch.
+			continue
+		}
 		if g.module == libcGap.module {
 			needsLibc = true
 		}

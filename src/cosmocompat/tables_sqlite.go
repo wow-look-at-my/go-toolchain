@@ -18,4 +18,5 @@ var sqliteGap = gap{
 		{dir: "lib", goos: "linux", goarch: "amd64", archTag: "amd64"},
 		{dir: "lib", goos: "linux", goarch: "arm64", archTag: "arm64"},
 	},
+	nativeFork: "github.com/wow-look-at-my/go-sqlite",
 }

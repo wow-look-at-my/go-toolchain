@@ -65,6 +65,12 @@ type gap struct {
 	// an edit to an EXISTING file this table can't express any other way
 	// (golang.org/x/sys/unix's Prlimit).
 	postPatch func(moduleDir string) error
+	// nativeFork names a drop-in replacement module that already ships real
+	// GOOS=cosmo support on its own, unlike module. A consumer replaced onto
+	// exactly this path needs none of the patches above -- see
+	// src/cmd/depsforksqlite.go, which redirects a bare require there and
+	// must name the same path.
+	nativeFork string
 }
 
 // knownGaps is every third-party module this package knows how to patch.

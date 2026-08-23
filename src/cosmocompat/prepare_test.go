@@ -76,6 +76,28 @@ replace modernc.org/sqlite v1.50.1 => gitlab.com/cznic/sqlite v1.50.1
 	assert.Equal(t, "gitlab.com/cznic/sqlite", sqlite.sourceModule)
 }
 
+// A replace onto the sqlite gap's known native fork needs no patching at
+// all: that fork already ships real GOOS=cosmo support, unlike
+// modernc.org/sqlite itself (see tables_sqlite.go's nativeFork field and
+// src/cmd/depsforksqlite.go, which is what points a consumer's replace at
+// this exact path).
+func TestNeededGaps_NativeForkReplacementNeedsNoPatching(t *testing.T) {
+	dir := writeGoMod(t, `module example.com/app
+
+go 1.25
+
+require modernc.org/sqlite v1.50.1
+
+replace modernc.org/sqlite => github.com/wow-look-at-my/go-sqlite v1.50.1
+`)
+	gaps, err := neededGaps(dir)
+	require.NoError(t, err)
+
+	for _, g := range gaps {
+		assert.NotEqual(t, "modernc.org/sqlite", g.gap.module, "the fork needs no runtime patching")
+	}
+}
+
 // A replace onto a local directory is the consumer's own tree. cosmocompat
 // cannot know what is in it and must not overwrite it, so that one is still
 // skipped -- and now says so instead of leaving the build to fail unexplained.
