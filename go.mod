@@ -112,9 +112,3 @@ replace modernc.org/strutil v1.2.1 => gitlab.com/cznic/strutil v1.2.1
 replace modernc.org/token v1.1.0 => gitlab.com/cznic/token v1.1.0
 
 replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
-
-// go-isatty selects zero implementation files under GOOS=cosmo (fat APE
-// builds with the gosmopolitan fork), breaking fatih/color and, through it,
-// gotestsum/testjson. The local copy is byte-identical to upstream plus an
-// isatty_cosmo.go; see src/compat/go-isatty/README.md.
-replace github.com/mattn/go-isatty => ./src/compat/go-isatty
