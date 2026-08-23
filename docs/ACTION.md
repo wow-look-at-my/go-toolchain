@@ -18,6 +18,32 @@ reads pass scope-less. Both are in the documented consumer permissions block.
 
 That `actions: read` is the guard's requirement, not autorelease's.
 
+## 1b. The autorelease permission probe
+
+`autorelease` publishes to buildhost, and that publish also registers a GitHub
+Deployment and posts an artifact storage record. Neither has an opt-out. A
+missing `deployments: write` or `artifact-metadata: write` used to surface as
+`Resource not accessible by integration` AFTER the whole build had run.
+
+A probe now runs before the build, on an empty POST to the deployments endpoint.
+An empty body creates nothing: 403 means the grant is missing and 422 means the
+permission is there. The failure names both grants and the job-level
+`permissions:` replacement rule, in the first seconds of the job.
+
+## 1c. Installing the binary
+
+The binary is installed into `$RUNNER_TEMP/go-toolchain-bin`, which is added to
+`$GITHUB_PATH`. Nothing uses `sudo`, and the file stays writable by the runner.
+That matters because the linux and windows/amd64 slots serve a fat APE, which
+assimilates itself on first exec by reopening ITSELF read-write. A root-owned
+copy in `/usr/local/bin` fails that exec for a non-root runner, with `line 11:
+... Permission denied`. A writable install directory removes the failure mode
+instead of scheduling a warm-up exec around it. The same install path serves a
+caller-provided `binary:`.
+
+The download URL carries no `branch` parameter. buildhost resolves the apex
+"latest" against the project's default branch, and that is `v1`.
+
 ## 2. Secrets, then the build
 
 Fetches secrets over OIDC, then runs `go-toolchain matrix`.
@@ -88,6 +114,14 @@ sole authoritative one. Proposed for removal once those consumers migrate to
 `autorelease` (on by default) publishes the workspace `build/` **directly** to
 buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its
 local `path` input — no GitHub Actions artifact is involved.
+
+**`autorelease_args`.** A composite `with:` block is static YAML, so those args
+cannot be spread into the publish step dynamically. A parse step reads each
+recognized key into a step output, and the publish step maps every output onto
+an explicit buildhost-publish input. An unknown key fails loudly, because a typo
+must never be silently ignored. An empty input leaves every output empty, and
+buildhost-publish treats an empty input as absent, so the publish stays
+byte-identical.
 
 The publish step itself needs only `id-token: write`. But publishing also
 **registers a GitHub Deployment and posts an artifact storage record**, and

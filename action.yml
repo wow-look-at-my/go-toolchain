@@ -134,47 +134,22 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # Download the released binary straight from buildhost's dl endpoint with
-        # curl -- no npm. --compressed advertises Accept-Encoding (including zstd
-        # when curl was built with it), so buildhost streams the stored zstd blob
-        # as-is and curl decompresses client-side; the server never pays the
-        # decompression cost. If curl lacks zstd it just gets the plain binary.
-        # buildhost normalizes platform aliases natively (RUNNER_OS Linux/macOS/
-        # Windows, RUNNER_ARCH X64/ARM64, ...), so pass them through verbatim, and
-        # it serves the branch tip no-store, so no cache-buster is needed.
-        #
-        # TEMPORARY: pinned to ?branch=v1 instead of the apex "latest". buildhost's
-        # "latest" resolves against a project's default branch; until buildhost has
-        # learned go-toolchain's default branch is "v1" it defaults to "master"
-        # (which go-toolchain never publishes to), so the unqualified latest
-        # download 404s and hard-fails every consumer's build. Revert to the
-        # unqualified URL once buildhost has resolved go-toolchain's default branch
-        # to v1 (buildhost deploy + the next go-toolchain publish).
-        URL="https://dl.pazer.build/go-toolchain?branch=v1&os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
-        # Install only on a successful download. A failure is reported (not hidden
-        # behind `|| true`) but is non-fatal here: gating with `if` keeps `set -e`
-        # from skipping the probe + source-build fallback below, which surface the
-        # reason and decide whether to fail the build.
-        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
-          chmod +x /tmp/go-toolchain
-          # Run the binary once BEFORE the root-owned install. Since the
-          # fat-APE migration (#275) the linux and windows/amd64 slots serve
-          # an APE polyglot that self-assimilates on first exec by reopening
-          # ITSELF read-write -- fine here while the file is still
-          # runner-writable in /tmp, impossible for the non-root runner once
-          # it is root-owned in /usr/local/bin ("line 11: ... Permission
-          # denied"). After this run, the installed file is a plain native
-          # binary. For native slots (e.g. darwin/arm64) this is just an
-          # early version check. Failures are tolerated (|| true): the probe
-          # below stays the single pass/fail gate and surfaces the reason.
-          /tmp/go-toolchain version || true
-          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        # --compressed lets buildhost stream its stored zstd blob as-is, and
+        # buildhost normalizes the RUNNER_OS and RUNNER_ARCH aliases itself.
+        URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
+        # A runner-writable install dir, so a fat APE can assimilate itself on
+        # any exec, and no step needs sudo or a root-owned file.
+        BIN_DIR="${RUNNER_TEMP}/go-toolchain-bin"
+        BIN="${BIN_DIR}/go-toolchain"
+        mkdir -p "${BIN_DIR}"
+        # The `if` keeps `set -e` from skipping the probe and source-build fallback.
+        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o "${BIN}" "${URL}"; then
+          chmod +x "${BIN}"
         else
           echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
         fi
-        # Probe the installed binary. Capture the output (don't discard it) so
-        # the real reason it is unusable -- 404, not on PATH, or a crash -- is shown.
-        if ! probe=$(go-toolchain version 2>&1); then
+        # Capture the probe output: it names a 404, a missing file, or a crash.
+        if ! probe=$("${BIN}" version 2>&1); then
           echo "buildhost go-toolchain (${URL}) not usable; probe output:"
           echo "${probe}"
           # Fail fast unless the caller has explicitly opted in to a source
@@ -186,21 +161,20 @@ runs:
           fi
           echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
           (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
-          sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
+          cp "$(go env GOPATH)/bin/src" "${BIN}"
         fi
+        echo "${BIN_DIR}" >> "${GITHUB_PATH}"
 
     - name: Install provided binary
       if: inputs.binary != ''
       shell: bash
       run: |
-        # Stage through /tmp and pre-run once so a fat-APE binary
-        # self-assimilates while still runner-writable (see the buildhost
-        # install step above for why); staging also keeps the caller's file
-        # byte-identical. For a native binary this changes nothing.
-        cp "${{ inputs.binary }}" /tmp/go-toolchain-provided
-        chmod +x /tmp/go-toolchain-provided
-        /tmp/go-toolchain-provided version || true
-        sudo cp /tmp/go-toolchain-provided /usr/local/bin/go-toolchain
+        # A copy, so the caller's own file stays byte-identical.
+        BIN_DIR="${RUNNER_TEMP}/go-toolchain-bin"
+        mkdir -p "${BIN_DIR}"
+        cp "${{ inputs.binary }}" "${BIN_DIR}/go-toolchain"
+        chmod +x "${BIN_DIR}/go-toolchain"
+        echo "${BIN_DIR}" >> "${GITHUB_PATH}"
 
     - name: Install timeout (macOS)
       if: runner.os == 'macOS'
@@ -208,6 +182,30 @@ runs:
       run: |
         brew install coreutils
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+
+    - name: Verify autorelease write permissions
+      if: inputs.autorelease == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        GH_API: ${{ github.api_url }}
+      run: |
+        set -euo pipefail
+        # An empty body creates nothing: 403 means the grant is missing, and
+        # 422 means the permission is there and the body is rejected.
+        HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -H "Authorization: Bearer ${GH_TOKEN}" \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "${GH_API}/repos/${GH_REPO}/deployments" \
+          -d '{}')
+        if [ "${HTTP_CODE}" = "403" ]; then
+          echo "::error title=Missing deployments: write::autorelease registers a GitHub Deployment as part of publishing. Add 'deployments: write' (and 'artifact-metadata: write', for the artifact storage record) to this job's permissions, or pass autorelease: 'false'. A job-level permissions block REPLACES the workflow-level one."
+          exit 1
+        fi
+        echo "deployments: write confirmed (probe HTTP ${HTTP_CODE})"
 
     - name: Verify security-events write permission
       if: inputs.codeql == 'true'
