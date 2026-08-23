@@ -34,9 +34,8 @@ func RunGofmt(ed Editor) (bool, error) {
 			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
 				return filepath.SkipDir
 			}
-			// A nested module's files (e.g. src/compat/go-isatty) are not
-			// this module's to reformat — they must stay byte-identical to
-			// their upstream.
+			// A nested module's files are not this module's to reformat —
+			// they must stay byte-identical to their upstream.
 			if gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}

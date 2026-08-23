@@ -39,9 +39,8 @@ func skipDir(name string) bool {
 // inside the tree being walked — i.e. a directory (other than the walk root
 // ".") containing its own go.mod. Filesystem walkers (gofmt, the import
 // fixers, the file-length check, main-package discovery) must skip such
-// directories: their files belong to a different module — e.g. the vendored
-// src/compat/go-isatty — are not covered by "./...", and must not be
-// rewritten by the outer module's fixers.
+// directories: their files belong to a different module, are not covered by
+// "./...", and must not be rewritten by the outer module's fixers.
 func IsNestedModule(dir string) bool {
 	if dir == "." {
 		return false

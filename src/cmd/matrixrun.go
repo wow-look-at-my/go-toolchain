@@ -10,7 +10,6 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
-	"github.com/wow-look-at-my/go-toolchain/src/cosmocompat"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -42,7 +41,6 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	hasWasm := slices.ContainsFunc(platforms, buildPlatform.IsWasm)
 	var forkGoroot string
 	var apePlatforms []buildPlatform
-	var cosmoGoWork string
 	if hasCosmo {
 		if apePlatforms, err = parseCosmoPlatforms(cosmoPlatforms); err != nil {
 			return err
@@ -71,24 +69,6 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 		if hasCosmo {
 			apePlatformsEnv = cosmoPlatformsEnvValue(forkGoroot, apePlatforms)
-		}
-	}
-
-	// Some third-party modules ship no cosmo port at all (modernc.org/libc,
-	// golang.org/x/sys, modernc.org/sqlite as of this writing). Prepare is a
-	// silent no-op (empty path, nil error) for a module graph that depends on
-	// none of them; only reached once the fork toolchain itself is confirmed
-	// available, so a genuinely missing toolchain still fails with THAT
-	// error, not a confusing go.mod-parsing error from this step. See
-	// docs/COSMOCOMPAT.md.
-	if hasCosmo {
-		var cosmoCleanup func()
-		if cosmoGoWork, cosmoCleanup, err = cosmocompat.Prepare("."); err != nil {
-			return fmt.Errorf("preparing cosmo build compatibility patches: %w", err)
-		}
-		defer cosmoCleanup()
-		if cosmoGoWork != "" {
-			logger.Info("⇒ Cosmo compat: patched third-party module(s) with no cosmo port (see docs/COSMOCOMPAT.md)")
 		}
 	}
 
@@ -173,7 +153,6 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 			}
 			if p.IsCosmo() {
 				job.cosmoPlatforms = apePlatformsEnv
-				job.goWork = cosmoGoWork
 			}
 			jobs = append(jobs, job)
 		}

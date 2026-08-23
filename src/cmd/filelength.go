@@ -102,8 +102,8 @@ func checkFileLength(root string) error {
 			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules") {
 				return filepath.SkipDir
 			}
-			// A nested module's files (e.g. src/compat/go-isatty) follow
-			// their upstream's conventions, not this repo's length limits.
+			// A nested module's files follow their upstream's conventions,
+			// not this repo's length limits.
 			if path != root && gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}

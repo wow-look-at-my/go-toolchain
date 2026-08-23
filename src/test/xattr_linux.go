@@ -1,3 +1,5 @@
+//go:build linux && !cosmo
+
 package test
 
 import (

@@ -90,7 +90,7 @@ func FixUnusedRangeVars(pattern string) ([]string, error) {
 			if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git") {
 				return filepath.SkipDir
 			}
-			// Never rewrite a nested module's files (e.g. src/compat/go-isatty).
+			// Never rewrite a nested module's files.
 			if d.IsDir() && gomod.IsNestedModule(p) {
 				return filepath.SkipDir
 			}
