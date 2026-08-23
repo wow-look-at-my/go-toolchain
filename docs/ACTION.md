@@ -215,6 +215,18 @@ be silently ignored. An empty input leaves every output empty, and
 buildhost-publish treats an empty input as absent, so the publish stays
 byte-identical.
 
+**The grants are probed before the build.** A missing `deployments: write` or
+`artifact-metadata: write` used to surface as `Resource not accessible by
+integration` AFTER the whole build had run, which is expensive to rediscover. A
+step now probes both in the first seconds of the job, with an empty POST body.
+An empty body creates and records nothing: 403 means the grant is missing, and
+any other code means the request got past permission checking. The deployments
+probe posts to `/repos/{owner}/{repo}/deployments`, and the storage-record probe
+posts to `/orgs/{owner}/artifacts/metadata/storage-record`, which is the endpoint
+the publish itself uses. Each failure names the grant, the `autorelease: 'false'`
+alternative, and the job-level replacement rule. The probe only runs where
+`autorelease` is on.
+
 The publish step itself needs only `id-token: write`. But publishing also
 **registers a GitHub Deployment and posts an artifact storage record**, and
 neither has an opt-out, so a job that autoreleases must additionally grant:
