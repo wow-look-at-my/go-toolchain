@@ -27,6 +27,24 @@ type tagEdit struct {
 	path string
 }
 
+// dirMatch adds a cosmo-tagged copy of every file directly under dir whose
+// EXISTING build constraint is already satisfied for goos/goarch. A
+// generator that splits shared declarations across many small files -- each
+// gated to whichever real platforms happen to share that code, rather than
+// one file per platform -- makes a fixed copySpec list infeasible: the
+// split points move on every regeneration. Matching by constraint instead
+// of by filename tracks the split automatically, so this table needs no
+// update when the split changes shape, only when a genuinely new gap opens.
+// archTag is ANDed onto the copy's forced tag (extraCond in addCosmoFile),
+// so two dirMatch entries against the same dir -- one per real arch this
+// gap supports -- never collide under a single build.
+type dirMatch struct {
+	dir     string
+	goos    string
+	goarch  string
+	archTag string
+}
+
 // gap closes one third-party module's cosmo support hole. verifiedVersion
 // documents the exact version this table was last verified against; a
 // consumer pinning a different version is still attempted (patch and
@@ -37,6 +55,7 @@ type gap struct {
 	module          string
 	verifiedVersion string
 	copies          []copySpec
+	dirMatches      []dirMatch
 	tagEdits        []tagEdit
 	// overlays maps a module-relative destination path to an embedded
 	// template path under overlay/, for a file that isn't a straight copy
