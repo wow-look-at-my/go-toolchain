@@ -88,16 +88,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # A caller writing @latest or @master gets a frozen orphan tag, not a
-    # moving pointer -- and the default branch is v1, so neither name tracks
-    # anything. Nothing about that is visible from the calling workflow: the
-    # build simply runs old code, and an input only newer versions declare is
-    # dropped as an unknown `with:` key, which GitHub reports as a warning
-    # nobody reads. One repo built against a months-old action that way and
-    # only noticed when a `targets:` input silently did nothing.
-    #
-    # Refusing here turns that into a first-step failure naming the fix. A SHA
-    # pin, v1, or a local ./ reference (empty action_ref) all pass.
+    # @latest and @master are frozen tags that track nothing. see docs/ACTION.md
     - name: Refuse a frozen ref
       shell: bash
       env:
@@ -112,6 +103,9 @@ runs:
 
     - name: Refuse jobs named all-builds
       uses: wow-look-at-my/actions@no-all-builds-job#latest
+
+    - name: Refuse comment walls in workflow and action YAML
+      uses: wow-look-at-my/actions@yaml-comment-block#latest
 
     - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -134,52 +128,22 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # Download the released binary straight from buildhost's dl endpoint with
-        # curl -- no npm. --compressed advertises Accept-Encoding (including zstd
-        # when curl was built with it), so buildhost streams the stored zstd blob
-        # as-is and curl decompresses client-side; the server never pays the
-        # decompression cost. If curl lacks zstd it just gets the plain binary.
-        # buildhost normalizes platform aliases natively (RUNNER_OS Linux/macOS/
-        # Windows, RUNNER_ARCH X64/ARM64, ...), so pass them through verbatim, and
-        # it serves the branch tip no-store, so no cache-buster is needed.
-        #
-        # TEMPORARY: pinned to ?branch=v1 instead of the apex "latest". buildhost's
-        # "latest" resolves against a project's default branch; until buildhost has
-        # learned go-toolchain's default branch is "v1" it defaults to "master"
-        # (which go-toolchain never publishes to), so the unqualified latest
-        # download 404s and hard-fails every consumer's build. Revert to the
-        # unqualified URL once buildhost has resolved go-toolchain's default branch
-        # to v1 (buildhost deploy + the next go-toolchain publish).
+        # The ?branch=v1 pin is load-bearing. see docs/ACTION.md
         URL="https://dl.pazer.build/go-toolchain?branch=v1&os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
-        # Install only on a successful download. A failure is reported (not hidden
-        # behind `|| true`) but is non-fatal here: gating with `if` keeps `set -e`
-        # from skipping the probe + source-build fallback below, which surface the
-        # reason and decide whether to fail the build.
+        # The `if` keeps `set -e` from skipping the probe and source-build fallback.
         if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
           chmod +x /tmp/go-toolchain
-          # Run the binary once BEFORE the root-owned install. Since the
-          # fat-APE migration (#275) the linux and windows/amd64 slots serve
-          # an APE polyglot that self-assimilates on first exec by reopening
-          # ITSELF read-write -- fine here while the file is still
-          # runner-writable in /tmp, impossible for the non-root runner once
-          # it is root-owned in /usr/local/bin ("line 11: ... Permission
-          # denied"). After this run, the installed file is a plain native
-          # binary. For native slots (e.g. darwin/arm64) this is just an
-          # early version check. Failures are tolerated (|| true): the probe
-          # below stays the single pass/fail gate and surfaces the reason.
+          # Run it once while still writable in /tmp. see docs/ACTION.md
           /tmp/go-toolchain version || true
           sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
         else
           echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
         fi
-        # Probe the installed binary. Capture the output (don't discard it) so
-        # the real reason it is unusable -- 404, not on PATH, or a crash -- is shown.
+        # Capture the probe output: it names a 404, a missing PATH entry, or a crash.
         if ! probe=$(go-toolchain version 2>&1); then
           echo "buildhost go-toolchain (${URL}) not usable; probe output:"
           echo "${probe}"
-          # Fail fast unless the caller has explicitly opted in to a source
-          # build: a silent fallback hides buildhost outages and ships a
-          # locally-compiled toolchain that may differ from the released one.
+          # A silent source build hides a buildhost outage. see docs/ACTION.md
           if [ "${{ inputs.allow-source-build }}" != "true" ]; then
             echo "::error::Could not install go-toolchain from buildhost and allow-source-build is not enabled. Set allow-source-build: 'true' to build from source instead."
             exit 1
@@ -193,10 +157,7 @@ runs:
       if: inputs.binary != ''
       shell: bash
       run: |
-        # Stage through /tmp and pre-run once so a fat-APE binary
-        # self-assimilates while still runner-writable (see the buildhost
-        # install step above for why); staging also keeps the caller's file
-        # byte-identical. For a native binary this changes nothing.
+        # Stage through /tmp and pre-run once. see docs/ACTION.md
         cp "${{ inputs.binary }}" /tmp/go-toolchain-provided
         chmod +x /tmp/go-toolchain-provided
         /tmp/go-toolchain-provided version || true
@@ -209,6 +170,37 @@ runs:
         brew install coreutils
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
 
+    - name: Verify autorelease write permissions
+      if: inputs.autorelease == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        GH_OWNER: ${{ github.repository_owner }}
+        GH_API: ${{ github.api_url }}
+      run: |
+        set -euo pipefail
+        # An empty body creates and records nothing. see docs/ACTION.md
+        probe() {
+          curl -sS -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$1" -d '{}'
+        }
+        DEPLOY_CODE=$(probe "${GH_API}/repos/${GH_REPO}/deployments")
+        if [ "${DEPLOY_CODE}" = "403" ]; then
+          echo "::error title=Missing deployments: write::autorelease registers a GitHub Deployment as part of publishing, with no opt-out. Add 'deployments: write' to this job's permissions, or pass autorelease: 'false'. A job-level permissions block REPLACES the workflow-level one, so it must list every grant the job needs."
+          exit 1
+        fi
+        RECORD_CODE=$(probe "${GH_API}/orgs/${GH_OWNER}/artifacts/metadata/storage-record")
+        if [ "${RECORD_CODE}" = "403" ]; then
+          echo "::error title=Missing artifact-metadata: write::autorelease posts an artifact storage record as part of publishing, with no opt-out. Add 'artifact-metadata: write' to this job's permissions, or pass autorelease: 'false'. A job-level permissions block REPLACES the workflow-level one, so it must list every grant the job needs."
+          exit 1
+        fi
+        echo "autorelease grants confirmed (deployments probe HTTP ${DEPLOY_CODE}, storage-record probe HTTP ${RECORD_CODE})"
+
     - name: Verify security-events write permission
       if: inputs.codeql == 'true'
       shell: bash
@@ -218,9 +210,7 @@ runs:
         GH_API: ${{ github.api_url }}
       run: |
         set -euo pipefail
-        # Probe the SARIF upload endpoint with an empty body.
-        # 403 = workflow lacks security-events: write.
-        # 422 = permission OK, body invalid (expected, no upload occurs).
+        # An empty body uploads nothing. see docs/ACTION.md
         HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
           -X POST \
           -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -329,8 +319,7 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
-        # No targets and no os/arch is the default: ONE fat APE covering
-        # cosmo-platforms, published as one multi-platform artifact.
+        # The default builds ONE fat APE. see docs/ACTION.md
         if [ -n "${{ inputs.targets }}" ]; then
           # --targets replaces the --os x --arch matrix entirely.
           ARGS="$ARGS --targets ${{ inputs.targets }}"
@@ -350,32 +339,7 @@ runs:
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
-    # Hand the build/ outputs off to later jobs in the same run via the org
-    # cache-upload action (artifact-free replacement for actions/upload-artifact;
-    # cache storage is free, artifact storage is billed). This runs on EVERY
-    # go-toolchain run. The name carries the calling job's id, so the cache key
-    # (cache-xfer-<run_id>-go-build-<job>-<run_attempt>) is distinct per job and
-    # concurrent jobs in one run (the standard linux + darwin pattern) can no
-    # longer collide -- the old shared `go-build` name made the second finisher
-    # fail its save with a 409 Conflict. github.job alone does NOT distinguish
-    # matrix legs, so for matrix jobs the name additionally carries the leg's
-    # strategy.job-index as `.m<index>` (the matrix and strategy contexts ARE
-    # evaluable inside composite steps -- the runner's action-manifest schema
-    # allows both in step expressions, and for a non-matrix job `matrix` is
-    # null, so the suffix collapses to the empty string and the non-matrix
-    # name stays byte-identical to before). The dot makes the suffix
-    # collision-proof against job ids: job ids cannot contain dots, so
-    # `go-build-<jobA>.m<i>` can never equal -- or restore-prefix-shadow --
-    # any `go-build-<jobB>`. job-index is 0-based in matrix definition order
-    # and identical across re-run attempts of the same leg, which keeps
-    # cache-download's cross-attempt fallback working. Downstream jobs
-    # cache-download with NO name (nameless self-discovery of the current
-    # run's hand-off -- the preferred mode when the run saves only one
-    # hand-off; no need to know the producing job's id), or with an explicit
-    # `go-build-<uploader job id>` / `go-build-<uploader job id>.m<index>`
-    # (e.g. go-build-linux, go-build-build.m2) when the run carries several
-    # hand-offs and discovery would be ambiguous -- a matrix producer is
-    # always such a case, since each leg saves its own name.
+    # The name must stay unique per job AND per matrix leg. see docs/ACTION.md
     - name: Hand off build outputs (go-build-<job>)
       uses: wow-look-at-my/actions@cache-upload#latest
       with:
@@ -386,15 +350,7 @@ runs:
       shell: bash
       run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
 
-    # Legacy alias: single-producer consumers (webhook-runner, buildhost,
-    # api-cli, github-state-mirror, publish-ghcr callers) download the bare
-    # name go-build; keep saving it until they migrate to
-    # go-build-<uploader job id>. In multi-producer runs -- several
-    # go-toolchain jobs, or the legs of one matrix job -- this bare key is
-    # inherently racy (the second save hits an existing entry), so this step
-    # tolerates failure instead of failing the job -- the collision-free
-    # per-job/per-leg hand-off above is the authoritative one. Remove this
-    # step once the named consumers migrate.
+    # A racy legacy alias, kept until its consumers migrate. see docs/ACTION.md
     - name: Hand off build outputs (legacy go-build alias)
       continue-on-error: true
       uses: wow-look-at-my/actions@cache-upload#latest
@@ -408,12 +364,7 @@ runs:
       with:
         category: /language:go
 
-    # Composite `with:` blocks are static YAML, so autorelease_args cannot be
-    # spread into the publish step dynamically: each recognized key is parsed
-    # here into a step output and mapped onto an explicit buildhost-publish
-    # input below. Unknown keys fail loudly (a typo must never be silently
-    # ignored); an empty input leaves every output empty, and buildhost-publish
-    # treats empty inputs as absent, so the publish stays byte-identical.
+    # A composite `with:` block is static YAML. see docs/ACTION.md
     - name: Parse autorelease_args
       if: inputs.autorelease == 'true'
       id: autorelease_args
