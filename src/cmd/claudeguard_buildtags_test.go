@@ -197,6 +197,7 @@ func TestClaudeGuardDarwinHostClassifierShared(t *testing.T) {
 		"func inspectFDDarwinHost(",
 		"func fdFileTypeOnDarwinHost(",
 		"func socketPeerOnDarwinHost(",
+		"func fifoPeerOnDarwinHost(",
 		"func isTerminalOnDarwinHost(",
 		"func fdPathOnDarwinHost(",
 	} {
