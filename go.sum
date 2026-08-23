@@ -121,8 +121,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 h1:nS/IJCKxUo5/Y9KiSKHqBBj14XFRa1OGU/GbpW8zarw=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174/go.mod h1:ZCjJ1b6VfXIov0GZbfRE4QtIFQrPqkD3NK5qlkf6Ow8=
-github.com/wow-look-at-my/dats v0.0.0-20260821010349-997d568512e9 h1:4k1zw0nqf5NqeC4N4Y+wLdrEZSRQ2FABbqBmKSpYQFI=
-github.com/wow-look-at-my/dats v0.0.0-20260821010349-997d568512e9/go.mod h1:ig0+sQPw3C/esXWshYgj3ANOCrZjYaQebI4kaex6w0Y=
+github.com/wow-look-at-my/dats v0.0.0-20260823004853-5c0121e8a39f h1:JZnISSXjTx6ybZMFfRH7C3ZOY5XSmAZUGiTKo4IwI/U=
+github.com/wow-look-at-my/dats v0.0.0-20260823004853-5c0121e8a39f/go.mod h1:ig0+sQPw3C/esXWshYgj3ANOCrZjYaQebI4kaex6w0Y=
 github.com/wow-look-at-my/go-containers v0.0.0-20260820210621-2e1261867045 h1:1ir/Tf75SwE29xK4Fn5e85LksidQh9x/6GGGFOjzv7w=
 github.com/wow-look-at-my/go-containers v0.0.0-20260820210621-2e1261867045/go.mod h1:7j8wbDwrqh+uJnlENqD5iwsgYkF4y3kIgremn/ctvVE=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260820164452-9c1e07927997 h1:WEBCI/l9s6/w78TrAY1q3BAWrjY1cA8rOcIYdG4qXbw=
