@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/mod/modfile"
 )
 
@@ -91,9 +92,22 @@ func copyTree(src, dst string) error {
 // cosmo" (or "//go:build cosmo && <extraCond>" when extraCond is set), and
 // any leftover double //go:build line from a file whose header spans more
 // than one such line is removed.
+// optionalCopies names copySpec.src paths (module-relative) that some
+// verified-working consumer version legitimately does not have: the symbols
+// the copy would add already arrived through a DIFFERENT copySpec in the
+// same gap (typically a whole-file copy that already contains them at an
+// older layout), so a missing source here is not a real gap for that
+// version -- see the copySpec's own comment in its table file for why. A src
+// NOT in this set still hard-fails on a missing source, same as before; this
+// is an explicit per-entry opt-in, never a blanket tolerance.
+var optionalCopies = set.Of("unix/readv_unix.go")
+
 func addCosmoFile(moduleOut string, c copySpec) error {
 	data, err := os.ReadFile(filepath.Join(moduleOut, c.src))
 	if err != nil {
+		if optionalCopies.Contains(c.src) && os.IsNotExist(err) {
+			return nil
+		}
 		return fmt.Errorf("cosmocompat: %s: %w (module layout may have changed upstream -- update src/cosmocompat)", c.src, err)
 	}
 	lines := strings.Split(string(data), "\n")

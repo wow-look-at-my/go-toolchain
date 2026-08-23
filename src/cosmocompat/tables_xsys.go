@@ -39,6 +39,14 @@ var xSysGap = gap{
 		// minIovec, appendBytes, readvRaceDetect, writevRaceDetect. Its own tag is
 		// OS-keyed and never true under cosmo, so the cosmo build of
 		// syscall2_cosmo.go has six undefined symbols without this copy.
+		//
+		// Optional (see optionalCopies in patch.go): at v0.42.0, verified
+		// directly against the module zip, these four helpers are not split
+		// into their own file at all -- they are still inline in
+		// unix/syscall_linux.go, which the whole-file copy below already
+		// carries into syscall2_cosmo.go. A consumer pinning a version before
+		// the split has nothing missing when readv_unix.go doesn't exist; one
+		// pinning a version after it needs this copy, and gets it.
 		{"unix/readv_unix.go", "unix/readv_cosmo.go", ""},
 		{"unix/readdirent_getdents.go", "unix/readdirent_cosmo.go", ""},
 		{"unix/sockcmsg_unix.go", "unix/sockcmsg_cosmo.go", ""},

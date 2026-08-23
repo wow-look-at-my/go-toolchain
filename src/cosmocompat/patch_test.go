@@ -25,6 +25,31 @@ func writeLibFile(t *testing.T, moduleOut, name, buildTag, body string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
 
+// TestAddCosmoFile_OptionalMissingSourceSkipsSilently reproduces the
+// x/sys v0.42.0 case: readv_unix.go's helpers are still inline in
+// syscall_linux.go at that version, so the file genuinely doesn't exist and
+// addCosmoFile must skip it rather than fail the whole gap.
+func TestAddCosmoFile_OptionalMissingSourceSkipsSilently(t *testing.T) {
+	dir := t.TempDir()
+	c := copySpec{src: "unix/readv_unix.go", dst: "unix/readv_cosmo.go"}
+
+	require.NoError(t, addCosmoFile(dir, c))
+	_, err := os.Stat(filepath.Join(dir, c.dst))
+	assert.True(t, os.IsNotExist(err), "no destination file should be written when the optional source is missing")
+}
+
+// TestAddCosmoFile_NonOptionalMissingSourceStillFails guards the fix above
+// against over-broadening: a copySpec not in optionalCopies must still hard
+// -fail on a missing source, exactly as before.
+func TestAddCosmoFile_NonOptionalMissingSourceStillFails(t *testing.T) {
+	dir := t.TempDir()
+	c := copySpec{src: "unix/does_not_exist.go", dst: "unix/does_not_exist_cosmo.go"}
+
+	err := addCosmoFile(dir, c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does_not_exist.go")
+}
+
 // TestDirMatchCopies_SiblingDefaultCoversCosmo reproduces modernc.org/sqlite
 // v1.57.0's lib/hooks.go ("!(linux && arm64)") / lib/hooks_linux_arm64.go
 // (filename-only) pair: hooks.go already declares X__ccgo_sqlite3_log under
