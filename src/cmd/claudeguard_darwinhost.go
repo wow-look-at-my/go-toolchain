@@ -6,9 +6,10 @@
 // locally is the one that would rot.
 //
 // darwin has no /proc, so this cannot reuse claudeguard_proc.go. What varies
-// per build is only HOW the four probes are made
-// (claudeguard_fdprobe_{darwin,cosmo}.go); what is decided from them lives in
-// claudeguard_darwinclassify.go, unconstrained so it is tested everywhere.
+// per build is only HOW the probes are made
+// (claudeguard_fdprobe_{darwin,cosmo}.go and claudeguard_fifopeer_{darwin,cosmo}.go);
+// what is decided from them lives in claudeguard_darwinclassify.go,
+// unconstrained so it is tested everywhere.
 
 package cmd
 
@@ -28,7 +29,8 @@ func inspectFDDarwinHost(fd uintptr) (outputSink, bool) {
 			comm, _, ok := agent.CommPPID(pid)
 			return comm, ok
 		},
-		isAgentReader: agent.IsPipeReader,
-		isAgentPID:    agent.IsPID,
+		fifoPeer:      func() (int, bool, bool) { return fifoPeerOnDarwinHost(fd) },
+		isAgentReader: harnessIsPipeReader,
+		isAgentPID:    harnessIsPID,
 	})
 }
