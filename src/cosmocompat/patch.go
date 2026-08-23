@@ -231,6 +231,11 @@ func applyGap(dir, scratchDir, slot string, g gap, sourceModule, sourceVersion s
 			return err
 		}
 	}
+	for _, cg := range g.copyGlobs {
+		if err := applyCopyGlob(moduleOut, cg); err != nil {
+			return err
+		}
+	}
 	if err := applyOverlays(moduleOut, g); err != nil {
 		return err
 	}

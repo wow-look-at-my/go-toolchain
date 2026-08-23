@@ -27,6 +27,23 @@ type tagEdit struct {
 	path string
 }
 
+// copyGlob adds a cosmo copy of every file under dir matching pattern whose
+// //go:build expression selects goos/goarch, naming each copy by inserting
+// "_cosmo" before the extension.
+//
+// It exists for a module that spreads one platform's code across hundreds of
+// separately-tagged generated files rather than one file per platform:
+// modernc.org/sqlite v1.57.0 has 258 sqlite_g_*.go, each with its own tag
+// combination, of which 127 build for linux/amd64. Listing those 127 as
+// copySpecs would name files that are regenerated under different names on
+// every upstream release, so the selection is evaluated instead of written
+// down.
+type copyGlob struct {
+	dir, pattern string
+	goos, goarch string
+	extraCond    string
+}
+
 // gap closes one third-party module's cosmo support hole. verifiedVersion
 // documents the exact version this table was last verified against; a
 // consumer pinning a different version is still attempted (patch and
@@ -37,6 +54,7 @@ type gap struct {
 	module          string
 	verifiedVersion string
 	copies          []copySpec
+	copyGlobs       []copyGlob
 	tagEdits        []tagEdit
 	// overlays maps a module-relative destination path to an embedded
 	// template path under overlay/, for a file that isn't a straight copy
@@ -51,4 +69,4 @@ type gap struct {
 // knownGaps is every third-party module this package knows how to patch.
 // A consumer that doesn't depend on a module here is entirely unaffected --
 // see Prepare.
-var knownGaps = []gap{libcGap, xSysGap, sqliteGap}
+var knownGaps = []gap{libcGap, xSysGap, sqliteGap, bubbleteaGap}
