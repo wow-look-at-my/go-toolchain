@@ -27,21 +27,28 @@ type tagEdit struct {
 	path string
 }
 
-// copyGlob adds a cosmo copy of every file under dir matching pattern whose
-// //go:build expression selects goos/goarch, naming each copy by inserting
-// "_cosmo" before the extension.
-//
-// It exists for a module that spreads one platform's code across hundreds of
-// separately-tagged generated files rather than one file per platform:
-// modernc.org/sqlite v1.57.0 has 258 sqlite_g_*.go, each with its own tag
-// combination, of which 127 build for linux/amd64. Listing those 127 as
-// copySpecs would name files that are regenerated under different names on
-// every upstream release, so the selection is evaluated instead of written
-// down.
 type copyGlob struct {
 	dir, pattern string
 	goos, goarch string
 	extraCond    string
+}
+
+// dirMatch adds a cosmo-tagged copy of every file directly under dir whose
+// EXISTING build constraint is already satisfied for goos/goarch. A
+// generator that splits shared declarations across many small files -- each
+// gated to whichever real platforms happen to share that code, rather than
+// one file per platform -- makes a fixed copySpec list infeasible: the
+// split points move on every regeneration. Matching by constraint instead
+// of by filename tracks the copy automatically, so this table needs no
+// update when the split changes shape, only when a genuinely new gap opens.
+// archTag is ANDed onto the copy's forced tag (extraCond in addCosmoFile),
+// so two dirMatch entries against the same dir -- one per real arch this
+// gap supports -- never collide under a single build.
+type dirMatch struct {
+	dir     string
+	goos    string
+	goarch  string
+	archTag string
 }
 
 // gap closes one third-party module's cosmo support hole. verifiedVersion
@@ -55,6 +62,7 @@ type gap struct {
 	verifiedVersion string
 	copies          []copySpec
 	copyGlobs       []copyGlob
+	dirMatches      []dirMatch
 	tagEdits        []tagEdit
 	// overlays maps a module-relative destination path to an embedded
 	// template path under overlay/, for a file that isn't a straight copy

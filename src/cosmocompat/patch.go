@@ -2,6 +2,7 @@ package cosmocompat
 
 import (
 	"fmt"
+	"go/build"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -152,6 +153,66 @@ func addCosmoFile(moduleOut string, c copySpec) error {
 	return os.WriteFile(dstPath, []byte(strings.Join(out, "\n")), 0o644)
 }
 
+// matchesContext reports whether file name in dirPath would be included in
+// the build under goos/goarch, honoring BOTH an explicit //go:build line and
+// Go's implicit _goos_goarch.go filename convention -- the same evaluation
+// "go build" itself does, via the standard library rather than a hand-rolled
+// re-implementation of either rule.
+func matchesContext(dirPath, name, goos, goarch string) (bool, error) {
+	ctx := build.Default
+	ctx.GOOS = goos
+	ctx.GOARCH = goarch
+	ctx.CgoEnabled = false
+	ok, err := ctx.MatchFile(dirPath, name)
+	if err != nil {
+		return false, fmt.Errorf("cosmocompat: evaluating build constraints for %s: %w", filepath.Join(dirPath, name), err)
+	}
+	return ok, nil
+}
+
+// dirMatchCopies finds every file directly under m.dir (module-relative)
+// that (a) is included in a real m.goos/m.goarch build and (b) is NOT
+// already included in a build under GOOS=cosmo/GOARCH=m.goarch -- a "default
+// file" carrying a negation tag such as "!(linux && arm64)" already compiles
+// for cosmo on its own (GOOS=cosmo makes "linux" false), so copying it too
+// would redeclare its symbols rather than fill a real gap. Every survivor
+// gets one copySpec: a cosmo-tagged sibling named after the original file
+// plus "_cosmo" and m.archTag, so two dirMatch entries against the same dir
+// never write the same destination.
+func dirMatchCopies(moduleOut string, m dirMatch) ([]copySpec, error) {
+	dirPath := filepath.Join(moduleOut, m.dir)
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("cosmocompat: reading %s: %w (module layout may have changed upstream -- update src/cosmocompat)", dirPath, err)
+	}
+	var out []copySpec
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		realMatch, err := matchesContext(dirPath, name, m.goos, m.goarch)
+		if err != nil {
+			return nil, err
+		}
+		if !realMatch {
+			continue
+		}
+		alreadyCosmo, err := matchesContext(dirPath, name, "cosmo", m.goarch)
+		if err != nil {
+			return nil, err
+		}
+		if alreadyCosmo {
+			continue
+		}
+		relSrc := filepath.Join(m.dir, name)
+		base := strings.TrimSuffix(name, ".go")
+		dst := filepath.Join(m.dir, base+"_cosmo_"+m.archTag+".go")
+		out = append(out, copySpec{src: relSrc, dst: dst, extraCond: m.archTag})
+	}
+	return out, nil
+}
+
 // appendCosmoExclusion wraps a file's existing //go:build expression in
 // parens and ANDs in "!cosmo". The parens are required, not cosmetic: "&&"
 // binds tighter than "||" in a build-tag expression, so appending "&&
@@ -226,7 +287,15 @@ func applyGap(dir, scratchDir, slot string, g gap, sourceModule, sourceVersion s
 			return err
 		}
 	}
-	for _, c := range g.copies {
+	copies := append([]copySpec(nil), g.copies...)
+	for _, m := range g.dirMatches {
+		matched, err := dirMatchCopies(moduleOut, m)
+		if err != nil {
+			return err
+		}
+		copies = append(copies, matched...)
+	}
+	for _, c := range copies {
 		if err := addCosmoFile(moduleOut, c); err != nil {
 			return err
 		}
