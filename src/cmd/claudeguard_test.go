@@ -323,6 +323,16 @@ func TestInspectFDClassification(t *testing.T) {
 		kind, _ := runSocketPeerHelper(t, "OPENCODE=1", "OPENCODE_PID=1")
 		assert.Equal(t, sinkHidden, kind)
 	})
+
+	t.Run("socket_reader_recognized_via_grok_pid_var_is_allowed", func(t *testing.T) {
+		kind, _ := runSocketPeerHelper(t, "GROK_AGENT=1", grokPIDEnv+"="+strconv.Itoa(os.Getpid()))
+		assert.Equal(t, sinkVisible, kind)
+	})
+
+	t.Run("socket_reader_with_wrong_grok_pid_var_is_still_blocked", func(t *testing.T) {
+		kind, _ := runSocketPeerHelper(t, "GROK_AGENT=1", grokPIDEnv+"=1")
+		assert.Equal(t, sinkHidden, kind)
+	})
 }
 
 func TestIsTerminalOnPipeIsFalse(t *testing.T) {

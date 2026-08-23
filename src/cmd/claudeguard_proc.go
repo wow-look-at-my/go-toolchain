@@ -54,7 +54,7 @@ func inspectFD(fd uintptr) outputSink {
 		// A pipe is the agent hiding output (| head, | cat, $(...)) — UNLESS the
 		// reader is the harness itself capturing our stdout.
 		if name, pid, ok := pipePeerName(target); ok {
-			if agent.IsPipeReader(name, pid) {
+			if harnessIsPipeReader(name, pid) {
 				return outputSink{kind: sinkVisible}
 			}
 			return outputSink{kind: sinkPipe, detail: name}
@@ -75,7 +75,7 @@ func inspectFD(fd uintptr) outputSink {
 		// after the parent (opencode/Node) closes its copy of the child's fd.
 		if pid, ok := socketPeerPID(fd); ok {
 			name, _, _ := agent.CommPPID(pid)
-			if agent.IsPipeReader(name, pid) {
+			if harnessIsPipeReader(name, pid) {
 				return outputSink{kind: sinkVisible}
 			}
 			if name != "" {
@@ -85,13 +85,13 @@ func inspectFD(fd uintptr) outputSink {
 			// this pid as its own, and a kernel that records it as this
 			// socket's peer, identify the reader between them without any
 			// process lookup at all.
-			if agent.IsPID(pid) {
+			if harnessIsPID(pid) {
 				return outputSink{kind: sinkVisible}
 			}
 			return outputSink{kind: sinkHidden, detail: target}
 		}
 		if name, pid, ok := pipePeerName(target); ok {
-			if agent.IsPipeReader(name, pid) {
+			if harnessIsPipeReader(name, pid) {
 				return outputSink{kind: sinkVisible}
 			}
 			if name != "" {
