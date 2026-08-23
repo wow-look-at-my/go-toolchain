@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -126,6 +127,7 @@ func TestWriteNetrc_EmptyCredentials(t *testing.T) {
 }
 
 func TestConfigureGoEnv_Default(t *testing.T) {
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "env"))
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "")
 	t.Setenv("GOSUMDB", "")
@@ -140,6 +142,7 @@ func TestConfigureGoEnv_Default(t *testing.T) {
 }
 
 func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "env"))
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com")
 	t.Setenv("GOSUMDB", "")
@@ -154,6 +157,7 @@ func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
 }
 
 func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "env"))
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com,direct")
 	// A PRIVATE checksum database, not sum.golang.org: configureGoEnv now
@@ -176,6 +180,7 @@ func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("GOENV", filepath.Join(home, "goenv"))
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "")
 	t.Setenv("GOSUMDB", "")
@@ -199,6 +204,7 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("GOENV", filepath.Join(home, "goenv"))
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "https://other-proxy.example.com,direct")
 	// A private sumdb: the public one is refused outright now, so precedence
@@ -219,6 +225,7 @@ func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret"}`
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("GOENV", filepath.Join(home, "goenv"))
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "")
 	t.Setenv("GOSUMDB", "")
@@ -234,6 +241,7 @@ func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
 }
 
 func TestConfigureGoEnv_DirectPassthrough(t *testing.T) {
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "env"))
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "direct")
 	t.Setenv("GOSUMDB", "")
@@ -246,6 +254,7 @@ func TestConfigureGoEnv_DirectPassthrough(t *testing.T) {
 }
 
 func TestConfigureGoEnv_OffPassthrough(t *testing.T) {
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "env"))
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "off")
 	t.Setenv("GOSUMDB", "")
@@ -288,6 +297,7 @@ func TestSumDBURLHost(t *testing.T) {
 // it must keep doing so via GONOSUMDB rather than GOSUMDB=off (which would
 // also break toolchain auto-downloads).
 func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "env"))
 	for _, k := range proxyEnvVars {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
@@ -300,4 +310,39 @@ func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
 	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
 	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
 	assert.Empty(t, os.Getenv("GOSUMDB"), "never set to the public database")
+}
+
+// goEnvValue shells out to "go env <key>" with the given GOENV, the same way
+// a later, separate `go` invocation in a real job would read back what this
+// process persisted -- proving the value survives a process boundary, not
+// just this process's own os.Getenv.
+func goEnvValue(t *testing.T, goenvPath, key string) string {
+	t.Helper()
+	cmd := exec.Command("go", "env", key)
+	cmd.Env = append(os.Environ(), "GOENV="+goenvPath)
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	return string(out)
+}
+
+// A separate `go install` step outside go-toolchain's own process -- one
+// that never sees this process's os.Setenv calls -- is exactly what
+// simple-llm-harness's CI runs to build tml from its go.mod pin. Without
+// GOENV persistence that step falls back to the default proxy chain and,
+// for a private module, a direct git fetch that fails with "terminal
+// prompts disabled". This proves configureGoEnv leaves the routing where a
+// later process can actually find it.
+func TestConfigureGoEnv_PersistsAcrossProcessBoundary(t *testing.T) {
+	goenvPath := filepath.Join(t.TempDir(), "env")
+	t.Setenv("GOENV", goenvPath)
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "https://proxy.example.com")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+
+	configureGoEnv()
+
+	assert.Contains(t, goEnvValue(t, goenvPath, "GOPROXY"), "https://proxy.example.com|direct")
+	assert.Contains(t, goEnvValue(t, goenvPath, "GONOSUMDB"), "*")
 }

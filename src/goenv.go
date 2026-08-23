@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -236,10 +237,12 @@ func configureGoEnv() {
 
 	// GOPROXY: use configured value with "|direct" fallback, or default to "direct".
 	if goproxy != "" && goproxy != "direct" && goproxy != "off" {
-		os.Setenv("GOPROXY", ensureDirectFallback(goproxy))
+		goproxy = ensureDirectFallback(goproxy)
 	} else {
-		os.Setenv("GOPROXY", "direct")
+		goproxy = "direct"
 	}
+	os.Setenv("GOPROXY", goproxy)
+	persistGoEnv(map[string]string{"GOPROXY": goproxy})
 
 	// GOSUMDB: use configured value (full "<key> <url>" form or short name),
 	// or disable sumdb phone-home.
@@ -260,6 +263,7 @@ func configureGoEnv() {
 		os.Setenv("GOSUMDB", gosumdb)
 		os.Unsetenv("GONOSUMDB")
 		os.Unsetenv("GONOSUMCHECK")
+		persistGoEnv(map[string]string{"GOSUMDB": gosumdb, "GONOSUMDB": ""})
 		return
 	}
 
@@ -267,4 +271,29 @@ func configureGoEnv() {
 	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
+	// GONOSUMCHECK has no "go env -w" equivalent (go rejects it as an
+	// unknown command variable) -- GONOSUMDB alone is what a later, separate
+	// `go` invocation in the same job needs to skip the sumdb for a private
+	// module, since GOENV persistence is this process's only channel to it.
+	persistGoEnv(map[string]string{"GONOSUMDB": "*"})
+}
+
+// persistGoEnv writes vars to Go's persistent env config file (GOENV) via
+// "go env -w", so a LATER, separate `go` invocation in the same job -- one
+// that never runs through this process, such as a workflow step's own `go
+// install` after this action's own step finishes -- inherits the same
+// GOPROXY/GOSUMDB/GONOSUMDB this process just resolved. os.Setenv alone only
+// reaches this process and its children; GOENV is the one channel that
+// survives a process boundary within the same $HOME. An empty value clears
+// a previously persisted override, matching os.Unsetenv's role above.
+// Best-effort: a write failure still leaves this process itself correctly
+// configured via its own env, so it only degrades a later step's routing.
+func persistGoEnv(vars map[string]string) {
+	proxyLog := logger.WithSubsystem("proxy")
+	for k, v := range vars {
+		args := []string{"env", "-w", k + "=" + v}
+		if out, err := exec.Command("go", args...).CombinedOutput(); err != nil {
+			proxyLog.Debug("go env -w %s: %v: %s", k, err, out)
+		}
+	}
 }
