@@ -179,11 +179,28 @@ func matchesContext(dirPath, name, goos, goarch string) (bool, error) {
 // gets one copySpec: a cosmo-tagged sibling named after the original file
 // plus "_cosmo" and m.archTag, so two dirMatch entries against the same dir
 // never write the same destination.
+//
+// A candidate can also be covered INDIRECTLY, by a sibling file rather than
+// its own tag: the generator's other half of a "default vs override" pair
+// (modernc.org/sqlite's hooks.go / hooks_linux_arm64.go is exactly this --
+// hooks.go's "!(linux && arm64)" tag, hooks_linux_arm64.go's implicit
+// filename tag) is gated purely by filename, which by construction never
+// matches GOOS=cosmo. So its own alreadyCosmo check is always false, even
+// when the negated sibling already declares the same symbols under cosmo.
+// coveredBySibling checks that: strip the candidate's trailing
+// "_<goos>_<goarch>" filename suffix and see whether the resulting base
+// file exists and already matches cosmo on its own.
 func dirMatchCopies(moduleOut string, m dirMatch) ([]copySpec, error) {
 	dirPath := filepath.Join(moduleOut, m.dir)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("cosmocompat: reading %s: %w (module layout may have changed upstream -- update src/cosmocompat)", dirPath, err)
+	}
+	names := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			names[e.Name()] = true
+		}
 	}
 	var out []copySpec
 	for _, e := range entries {
@@ -205,12 +222,53 @@ func dirMatchCopies(moduleOut string, m dirMatch) ([]copySpec, error) {
 		if alreadyCosmo {
 			continue
 		}
+		covered, err := coveredBySibling(dirPath, name, m.goos, m.goarch, names)
+		if err != nil {
+			return nil, err
+		}
+		if covered {
+			continue
+		}
 		relSrc := filepath.Join(m.dir, name)
 		base := strings.TrimSuffix(name, ".go")
 		dst := filepath.Join(m.dir, base+"_cosmo_"+m.archTag+".go")
 		out = append(out, copySpec{src: relSrc, dst: dst, extraCond: m.archTag})
 	}
 	return out, nil
+}
+
+// coveredBySibling reports whether name's declarations are already
+// available under GOOS=cosmo/GOARCH=goarch through a DIFFERENT file in the
+// same directory: the generator's negated "default" half of a
+// filename-gated override pair (modernc.org/sqlite's hooks.go /
+// hooks_linux_arm64.go is exactly this -- hooks.go's "!(linux && arm64)" tag
+// already covers cosmo on its own; hooks_linux_arm64.go's tag is
+// filename-only, so it can never match GOOS=cosmo and its own alreadyCosmo
+// check is always false, even though hooks.go already declares the same
+// symbols). name's real match against (goos, goarch) is already established
+// by the caller, so this strips exactly that suffix -- "_<goos>_<goarch>",
+// "_<goos>", or "_<goarch>", the three shapes go/build's implicit filename
+// convention recognizes -- and checks whether the resulting base file
+// exists and is itself already cosmo-inclusive.
+func coveredBySibling(dirPath, name, goos, goarch string, names map[string]bool) (bool, error) {
+	stem := strings.TrimSuffix(name, ".go")
+	for _, suffix := range []string{"_" + goos + "_" + goarch, "_" + goos, "_" + goarch} {
+		if !strings.HasSuffix(stem, suffix) {
+			continue
+		}
+		base := strings.TrimSuffix(stem, suffix) + ".go"
+		if base == ".go" || !names[base] {
+			continue
+		}
+		covered, err := matchesContext(dirPath, base, "cosmo", goarch)
+		if err != nil {
+			return false, err
+		}
+		if covered {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // appendCosmoExclusion wraps a file's existing //go:build expression in
