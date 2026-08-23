@@ -56,9 +56,8 @@ func wasmArtifactName(name string, p buildPlatform) string {
 }
 
 // validGOOS / validGOARCH mirror the target lists of the Go distribution
-// (`go tool dist list`), plus cosmo which is handled specially. Used only to
-// validate --targets / --cosmo-platforms entries; the legacy --os/--arch flags
-// stay unvalidated for backward compatibility.
+// (`go tool dist list`), plus cosmo which is handled specially. Used to
+// validate --targets / --cosmo-platforms entries.
 var (
 	validGOOS = []string{
 		"aix", "android", "darwin", "dragonfly", "freebsd", "illumos", "ios",
@@ -135,8 +134,11 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 	return buildPlatform{OS: goos, Arch: goarch}, nil
 }
 
-// parseTargetList parses the --targets flag: a list of os/arch pairs plus the
-// special value "cosmo" (one gosmopolitan fat APE). Duplicates are rejected.
+// parseTargetList parses the --targets flag: the special value "cosmo" (one
+// gosmopolitan fat APE) and/or wasm os/arch pairs. The org ships one APE as
+// its native output (see docs/MATRIX.md's shipping policy) — a native
+// os/arch pair is rejected here, pointing at --cosmo-platforms, which is how
+// the APE's own host coverage is chosen. Duplicates are rejected.
 func parseTargetList(entries []string) ([]buildPlatform, error) {
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("--targets requires at least one entry")
@@ -156,6 +158,9 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 			if p, err = parsePlatformPair(entry, "--targets"); err != nil {
 				return nil, err
 			}
+			if !p.IsWasm() {
+				return nil, fmt.Errorf("invalid target %q: --targets only accepts wasm targets (wasm/js, wasm/wasip1) and the special value %q; the fat APE is the only native output, and --cosmo-platforms chooses which native hosts it covers", entry, cosmoOS)
+			}
 		}
 		if first, dup := seen[p]; dup {
 			// The same entry twice is a mistake worth flagging; two different
@@ -173,122 +178,42 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 	return out, nil
 }
 
-// resolveMatrixPlatforms turns the matrix flags into the list of platforms to
-// build. With no target flags at all the answer is ONE cosmo fat APE: a single
-// binary covering --cosmo-platforms, rather than a per-platform binary each.
-// Naming --os or --arch selects the cartesian product of native binaries
-// instead, and --targets replaces both with an exact list.
-//
-// The cartesian product accepts the wasm pairing in buildhost's model:
-// --os wasm combines ONLY with --arch js / --arch wasip1 (the wasm flavors),
-// producing the same normalized targets as --targets wasm/js — identical
-// artifacts, naming, and per-target main discovery. In a MIXED list the
-// impossible cross combinations (wasm with a native arch, a native os with a
-// wasm flavor arch) are skipped with one aggregate warning; if the whole
-// product is impossible (e.g. --os wasm --arch amd64 alone) it fails fast
-// with the exact-pairing error, and a wasm flavor arch with no "wasm" in
-// --os at all is an error pointing at the fix.
+// resolveMatrixPlatforms turns the target flags into the list of platforms to
+// build. With no flags at all the answer is ONE cosmo fat APE: a single
+// binary covering --cosmo-platforms. This is the org's only native output
+// (see docs/MATRIX.md's shipping policy); --targets exists only to add wasm
+// artifacts alongside it, or to build wasm alone by leaving "cosmo" out of
+// the list.
 func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	if len(matrixTargets) > 0 {
-		// --targets replaces the cartesian product entirely; call out
-		// --os/--arch values that are being ignored.
-		if len(matrixOS) > 0 || len(matrixArch) > 0 {
-			logger.Warn("⇒ Warning: --targets is set; ignoring --os/--arch")
-		}
 		return parseTargetList(matrixTargets)
 	}
-	// No target flags: one APE, not a product. The cartesian product is opt-in
-	// because it costs one binary per platform for a binary that already runs
-	// on all of them.
-	if len(matrixOS) == 0 && len(matrixArch) == 0 {
-		return []buildPlatform{{OS: cosmoOS, Arch: cosmoFatArch}}, nil
-	}
-	// Half a product is the other half's default: --arch arm64 alone still
-	// means "these arches, every OS I would have built anyway".
-	oses, arches := matrixOS, matrixArch
-	if len(oses) == 0 {
-		oses = DefaultOS
-	}
-	if len(arches) == 0 {
-		arches = DefaultArch
-	}
-	hasWasmOS := slices.Contains(oses, wasmArch)
-	for _, goarch := range arches {
-		if goarch == wasmArch {
-			return nil, fmt.Errorf("GOARCH %q is spelled as the OS in the wasm pairing (buildhost's os=wasm model); use --os wasm --arch js or --os wasm --arch wasip1 (or --targets %s/js, --targets %s/wasip1)", wasmArch, wasmArch, wasmArch)
-		}
-		if isWasmGOOS(goarch) && !hasWasmOS {
-			return nil, fmt.Errorf("arch %q is a wasm flavor and needs os %q in the --os list (--os wasm --arch %s), or use --targets %s/%s", goarch, wasmArch, goarch, wasmArch, goarch)
-		}
-	}
-	var out []buildPlatform
-	var skipped []string
-	for _, goos := range oses {
-		if goos == cosmoOS {
-			return nil, fmt.Errorf("GOOS %q cannot be built through --os/--arch: a cosmo build is one fat APE, not a per-arch matrix entry; use --targets %s instead", cosmoOS, cosmoOS)
-		}
-		if isWasmGOOS(goos) {
-			return nil, fmt.Errorf("GOOS %q is the wasm FLAVOR in buildhost's model, not the os; use --os wasm --arch %s (or --targets %s/%s)", goos, goos, wasmArch, goos)
-		}
-		for _, goarch := range arches {
-			switch {
-			case goos == wasmArch && isWasmGOOS(goarch):
-				// os=wasm, arch=js|wasip1: normalize to the internal
-				// GOOS/GOARCH form, same as --targets wasm/<flavor>.
-				out = append(out, buildPlatform{OS: goarch, Arch: wasmArch})
-			case goos == wasmArch || isWasmGOOS(goarch):
-				// Impossible cross combination in a mixed list (wasm with a
-				// native arch, or a native os with a wasm flavor arch).
-				skipped = append(skipped, goos+"/"+goarch)
-			default:
-				out = append(out, buildPlatform{OS: goos, Arch: goarch})
-			}
-		}
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("no buildable os/arch combinations: os %q pairs only with arch js or wasip1 (--os wasm --arch js, or --targets %s/js)", wasmArch, wasmArch)
-	}
-	if len(skipped) > 0 {
-		logger.Warn("⇒ Warning: skipping impossible os/arch combinations: %s (os %q pairs only with arch js/wasip1; js/wasip1 arches pair only with os %q)", strings.Join(skipped, ", "), wasmArch, wasmArch)
-	}
-	return out, nil
+	return []buildPlatform{{OS: cosmoOS, Arch: cosmoFatArch}}, nil
 }
 
 // resolvePlatformTargets returns the main packages to build for each
 // platform, plus whether ANY platform has at least one.
 //
-// The legacy --os x --arch product keeps today's behavior for native
-// platforms: one host-context set (hostTargets, from
-// build.ResolveBuildTargets, including its library-only fallback) shared by
-// every non-wasm platform. Wasm platforms — reachable from BOTH paths since
-// --os wasm --arch js|wasip1 joined the cartesian product — always get
-// per-target discovery, and with an explicit --targets list every entry gets
-// discovery under its OWN GOOS/GOARCH build context: a main package guarded
-// "//go:build js && wasm" is built
-// for js/wasm targets and never attempted for native ones (it has zero files
-// there, so building it would fail), while a "//go:build linux" main builds
-// for linux entries even from a non-linux host. An unconstrained main is in
-// every set. The cosmo pseudo-target keeps the host set — the fat APE embeds
-// several native platforms, so no single GOOS/GOARCH context describes it
-// (unchanged semantics). A platform whose context has no main packages is
-// skipped with a warning rather than failing the whole matrix.
+// The cosmo pseudo-target keeps the host-context set (hostTargets, from
+// build.ResolveBuildTargets, including its library-only fallback): the fat
+// APE embeds several native platforms, so no single GOOS/GOARCH context
+// describes it. Every wasm platform gets discovery under its OWN GOOS/GOARCH
+// build context instead: a main package guarded "//go:build js && wasm" is
+// built for js/wasm targets and never attempted for wasip1/wasm (it has zero
+// files there, so building it would fail). An unconstrained main is in every
+// set. A platform whose context has no main packages is skipped with a
+// warning rather than failing the whole build.
 //
 // The memlimit guard never distorts these sets even though injection happens
 // earlier: discovery skips gomod.MemLimitGuardFileName by name, so the
-// unconstrained guard injected into HOST-context main dirs cannot make a
-// host-only main dir (e.g. //go:build linux) look like a main package under
-// another target's context.
+// unconstrained guard injected into the HOST-context main dirs cannot make a
+// host-only main dir look like a main package under a wasm target's context.
 func resolvePlatformTargets(platforms []buildPlatform, hostTargets []build.Target) (map[buildPlatform][]build.Target, bool, error) {
 	perPlatform := make(map[buildPlatform][]build.Target, len(platforms))
 	anyMains := false
-	explicit := len(matrixTargets) > 0
 	cache := make(map[string][]build.Target)
 	for _, p := range platforms {
-		// Host-context set: every legacy-cartesian platform except wasm
-		// (unchanged behavior), and always the cosmo pseudo-target. Wasm
-		// platforms get per-target discovery on BOTH paths, so
-		// `--os wasm --arch js` behaves exactly like `--targets wasm/js`.
-		if p.IsCosmo() || (!explicit && !p.IsWasm()) {
+		if p.IsCosmo() {
 			perPlatform[p] = hostTargets
 			if len(hostTargets) > 0 {
 				anyMains = true

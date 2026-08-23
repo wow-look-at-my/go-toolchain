@@ -15,33 +15,14 @@ func TestParseTargetList(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "single pair",
-			entries: []string{"linux/amd64"},
-			want:    []buildPlatform{{OS: "linux", Arch: "amd64"}},
-		},
-		{
-			name:    "multiple pairs",
-			entries: []string{"darwin/amd64", "windows/arm64"},
-			want:    []buildPlatform{{OS: "darwin", Arch: "amd64"}, {OS: "windows", Arch: "arm64"}},
-		},
-		{
 			name:    "cosmo alone",
 			entries: []string{"cosmo"},
 			want:    []buildPlatform{{OS: "cosmo", Arch: "fat"}},
 		},
 		{
-			name:    "cosmo mixed with native pairs",
-			entries: []string{"cosmo", "darwin/amd64", "windows/arm64"},
-			want: []buildPlatform{
-				{OS: "cosmo", Arch: "fat"},
-				{OS: "darwin", Arch: "amd64"},
-				{OS: "windows", Arch: "arm64"},
-			},
-		},
-		{
 			name:    "whitespace trimmed",
-			entries: []string{" linux/amd64 "},
-			want:    []buildPlatform{{OS: "linux", Arch: "amd64"}},
+			entries: []string{" wasm/js "},
+			want:    []buildPlatform{{OS: "js", Arch: "wasm"}},
 		},
 		{
 			name:    "empty list",
@@ -50,7 +31,7 @@ func TestParseTargetList(t *testing.T) {
 		},
 		{
 			name:    "empty entry",
-			entries: []string{"linux/amd64", ""},
+			entries: []string{"wasm/js", ""},
 			wantErr: "empty entry",
 		},
 		{
@@ -72,6 +53,20 @@ func TestParseTargetList(t *testing.T) {
 			name:    "cosmo with arch is rejected",
 			entries: []string{"cosmo/amd64"},
 			wantErr: "always one fat APE",
+		},
+		{
+			// A native os/arch pair is matrix mode: the APE is the org's only
+			// native output, so --targets rejects it and points at
+			// --cosmo-platforms instead (see docs/MATRIX.md's shipping
+			// policy).
+			name:    "native pair is rejected",
+			entries: []string{"darwin/amd64"},
+			wantErr: "only accepts wasm targets",
+		},
+		{
+			name:    "cosmo mixed with a native pair is rejected",
+			entries: []string{"cosmo", "windows/arm64"},
+			wantErr: "only accepts wasm targets",
 		},
 		{
 			name:    "wasm targets canonical spelling",
@@ -113,11 +108,10 @@ func TestParseTargetList(t *testing.T) {
 			wantErr: "wasm targets are wasm/js or wasm/wasip1",
 		},
 		{
-			name:    "wasm mixed with native and cosmo",
-			entries: []string{"cosmo", "linux/amd64", "js/wasm"},
+			name:    "wasm mixed with cosmo",
+			entries: []string{"cosmo", "js/wasm"},
 			want: []buildPlatform{
 				{OS: "cosmo", Arch: "fat"},
-				{OS: "linux", Arch: "amd64"},
 				{OS: "js", Arch: "wasm"},
 			},
 		},
@@ -135,11 +129,6 @@ func TestParseTargetList(t *testing.T) {
 			name:    "wasm arch without wasm os is rejected",
 			entries: []string{"linux/wasm"},
 			wantErr: "needs GOOS js or wasip1",
-		},
-		{
-			name:    "duplicate pair",
-			entries: []string{"linux/amd64", "linux/amd64"},
-			wantErr: "duplicate target",
 		},
 		{
 			name:    "duplicate cosmo",
@@ -174,143 +163,17 @@ func TestParseTargetListErrorNamesValidValues(t *testing.T) {
 	assert.Contains(t, err.Error(), "arm64")
 }
 
-func TestResolveMatrixPlatformsCartesian(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
+func TestResolveMatrixPlatformsUsesTargetsWhenSet(t *testing.T) {
+	oldTargets := matrixTargets
+	defer func() { matrixTargets = oldTargets }()
 
-	matrixOS = []string{"linux", "darwin"}
-	matrixArch = []string{"amd64", "arm64"}
-	matrixTargets = nil
-
-	got, err := resolveMatrixPlatforms()
-	require.NoError(t, err)
-	assert.Equal(t, []buildPlatform{
-		{OS: "linux", Arch: "amd64"},
-		{OS: "linux", Arch: "arm64"},
-		{OS: "darwin", Arch: "amd64"},
-		{OS: "darwin", Arch: "arm64"},
-	}, got)
-}
-
-func TestResolveMatrixPlatformsTargetsReplaceCartesian(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
-
-	matrixOS = DefaultOS
-	matrixArch = DefaultArch
-	matrixTargets = []string{"cosmo", "windows/arm64"}
-
+	matrixTargets = []string{"cosmo", "wasm/js"}
 	got, err := resolveMatrixPlatforms()
 	require.NoError(t, err)
 	assert.Equal(t, []buildPlatform{
 		{OS: "cosmo", Arch: "fat"},
-		{OS: "windows", Arch: "arm64"},
-	}, got)
-}
-
-func TestResolveMatrixPlatformsRejectsCosmoOS(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
-
-	matrixOS = []string{"cosmo"}
-	matrixArch = []string{"amd64"}
-	matrixTargets = nil
-
-	_, err := resolveMatrixPlatforms()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--targets cosmo")
-}
-
-func TestResolveMatrixPlatformsRejectsWasmInCartesian(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
-	matrixTargets = nil
-
-	// GOOS js/wasip1 through --os point at the os=wasm pairing (and the
-	// canonical --targets spelling).
-	matrixOS, matrixArch = []string{"js"}, []string{"amd64"}
-	_, err := resolveMatrixPlatforms()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--os wasm --arch js")
-	assert.Contains(t, err.Error(), "--targets wasm/js")
-
-	matrixOS, matrixArch = []string{"wasip1"}, []string{"amd64"}
-	_, err = resolveMatrixPlatforms()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--os wasm --arch wasip1")
-	assert.Contains(t, err.Error(), "--targets wasm/wasip1")
-
-	// GOARCH "wasm" is spelled as the OS in the wasm pairing.
-	matrixOS, matrixArch = []string{"linux"}, []string{"wasm"}
-	_, err = resolveMatrixPlatforms()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--os wasm --arch js")
-	assert.Contains(t, err.Error(), "--targets wasm/js")
-}
-
-func TestResolveMatrixPlatformsWasmCartesian(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
-	matrixTargets = nil
-
-	// --os wasm --arch js: same normalized target as --targets wasm/js.
-	matrixOS, matrixArch = []string{"wasm"}, []string{"js"}
-	got, err := resolveMatrixPlatforms()
-	require.NoError(t, err)
-	assert.Equal(t, []buildPlatform{{OS: "js", Arch: "wasm"}}, got)
-	fromTargets, err := parseTargetList([]string{"wasm/js"})
-	require.NoError(t, err)
-	assert.Equal(t, fromTargets, got, "--os wasm --arch js must equal --targets wasm/js")
-
-	// Both flavors at once.
-	matrixOS, matrixArch = []string{"wasm"}, []string{"js", "wasip1"}
-	got, err = resolveMatrixPlatforms()
-	require.NoError(t, err)
-	assert.Equal(t, []buildPlatform{
-		{OS: "js", Arch: "wasm"},
-		{OS: "wasip1", Arch: "wasm"},
-	}, got)
-
-	// MIXED list: impossible cross combinations (wasm x native arch, native
-	// os x wasm flavor) are skipped with one aggregate warning; the possible
-	// ones build.
-	matrixOS, matrixArch = []string{"linux", "wasm"}, []string{"amd64", "js"}
-	var warnOut string
-	warnOut = captureCombinedOutput(func() {
-		got, err = resolveMatrixPlatforms()
-	})
-	require.NoError(t, err)
-	assert.Equal(t, []buildPlatform{
-		{OS: "linux", Arch: "amd64"},
 		{OS: "js", Arch: "wasm"},
 	}, got)
-	assert.Contains(t, warnOut, "linux/js")
-	assert.Contains(t, warnOut, "wasm/amd64")
-
-	// os=wasm with no wasm flavor arch anywhere: nothing satisfiable, fail
-	// fast with the exact-pairing error.
-	matrixOS, matrixArch = []string{"wasm"}, []string{"amd64"}
-	_, err = resolveMatrixPlatforms()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no buildable os/arch combinations")
-	assert.Contains(t, err.Error(), "--os wasm --arch js")
-
-	// A wasm flavor arch with no os=wasm in the list: error with the fix.
-	matrixOS, matrixArch = []string{"linux"}, []string{"js"}
-	_, err = resolveMatrixPlatforms()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--os wasm --arch js")
-	assert.Contains(t, err.Error(), "--targets wasm/js")
-
-	// Mixed list where the wasm os gets no flavor: the native combos build,
-	// the wasm ones are skipped with the warning.
-	matrixOS, matrixArch = []string{"linux", "wasm"}, []string{"amd64"}
-	warnOut = captureCombinedOutput(func() {
-		got, err = resolveMatrixPlatforms()
-	})
-	require.NoError(t, err)
-	assert.Equal(t, []buildPlatform{{OS: "linux", Arch: "amd64"}}, got)
-	assert.Contains(t, warnOut, "wasm/amd64")
 }
 
 func TestBuildPlatformPredicates(t *testing.T) {

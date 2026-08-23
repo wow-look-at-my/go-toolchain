@@ -9,41 +9,29 @@ such as wasmtime or wazero) — spelled os-first to match buildhost's wasm
 artifact scheme and the `<name>_wasm_js` artifact naming. The GOOS-order
 spellings `js/wasm` and `wasip1/wasm` are accepted as compatibility aliases
 and normalize to the same targets (mixing both spellings dedupes to one
-target). Wasm targets mix freely with native pairs and `cosmo` in one run:
+target). Wasm is the only thing `--targets` accepts besides `cosmo` itself,
+and the two mix freely in one run:
 
 ```bash
-go-toolchain matrix --targets wasm/js,wasm/wasip1,linux/amd64
+go-toolchain matrix --targets wasm/js,wasm/wasip1,cosmo
 ```
 
-The same pairing also works through the `--os`/`--arch` cartesian product
-(and thus the action's `os:`/`arch:` inputs): `--os wasm` combines only with
-the wasm flavor arches `js`/`wasip1`, producing the identical targets —
-`--os wasm --arch js` is `--targets wasm/js` (same artifacts, naming, and
-per-target main discovery). In a mixed list the impossible cross
-combinations (`wasm` with a native arch, a native os with `js`/`wasip1`) are
-skipped with one aggregate warning; if the whole product is impossible
-(`--os wasm --arch amd64` alone) the build fails fast, and a `js`/`wasip1`
-arch without `wasm` anywhere in `--os` is an error naming the fix. A
-wasm-only consumer's action config is simply:
+A wasm-only consumer's action config is simply:
 
 ```yaml
 with:
-  os: wasm
-  arch: js
+  targets: wasm/js
 ```
 
 **Per-target main-package discovery.** With an explicit `--targets` list,
-main packages are discovered under **each target's own build context**
+main packages are discovered under **each wasm target's own build context**
 (GOOS/GOARCH), not the host's: a main package guarded `//go:build js && wasm`
 (e.g. a browser entry point importing `syscall/js`) is built for `wasm/js`
-targets and never attempted for native ones, an unconstrained main builds for
-every target as before, and a `//go:build linux` main builds for `linux/*`
-entries even from a non-linux host. A target whose context has no main
-packages at all is skipped with a warning (a target list where **no** entry
-has any main packages is still an error). The `cosmo` pseudo-target keeps
-host-context discovery (the fat APE spans several native platforms), and the
-legacy `--os` x `--arch` product keeps host-context discovery exactly as
-before.
+targets and never attempted for `wasm/wasip1`, and an unconstrained main
+builds for every target. A target whose context has no main packages at all
+is skipped with a warning (a target list where **no** entry has any main
+packages is still an error). The `cosmo` pseudo-target keeps host-context
+discovery (the fat APE spans several native platforms).
 
 **Toolchain.** Wasm targets are built with the same
 [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) fork toolchain
@@ -117,10 +105,9 @@ PATH="$GOROOT/bin:$GOROOT/lib/wasm:$PATH" GOTOOLCHAIN=local \
   GOOS=js GOARCH=wasm go test ./...
 ```
 
-Rejected spellings fail fast with a pointer to the right one: `js`/`wasip1`
-in `--os` and `wasm` in `--arch` (both flipped in buildhost's model — use
-`--os wasm --arch js|wasip1`, or `--targets wasm/js`/`wasm/wasip1`),
-`js/amd64`, `linux/wasm` and `wasm/amd64` (impossible pairings), a
-`js`/`wasip1` arch with no `wasm` os in the list, and a wasm target in
+Rejected spellings fail fast with a pointer to the right one: `js/amd64`,
+`linux/wasm` and `wasm/amd64` (impossible pairings), a native `os/arch` pair
+in `--targets` (the fat APE is the only native output; use
+`--cosmo-platforms` to choose which hosts it covers), and a wasm target in
 `--cosmo-platforms` (an APE covers native hosts, and wasm is not one).
 

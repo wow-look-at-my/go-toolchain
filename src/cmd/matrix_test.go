@@ -15,14 +15,14 @@ import (
 // With no target flags the run takes the single-APE path, which resolves the
 // gosmopolitan toolchain rather than building a per-platform product.
 func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
+	oldTargets := matrixTargets
 	oldEnsure := ensureCosmoToolchainFunc
-	matrixOS, matrixArch, matrixTargets = nil, nil, nil
+	matrixTargets = nil
 	ensureCosmoToolchainFunc = func() (string, error) {
 		return "", fmt.Errorf("cosmo toolchain unavailable")
 	}
 	defer func() {
-		matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets
+		matrixTargets = oldTargets
 		ensureCosmoToolchainFunc = oldEnsure
 	}()
 
@@ -32,87 +32,34 @@ func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
 	assert.Contains(t, err.Error(), "cosmo toolchain unavailable")
 }
 
-func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	matrixOS = []string{"linux"}
-	matrixArch = []string{"amd64"}
-	outputDir = filepath.Join(tmpDir, "dist")
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-	}()
-
-	mock := runner.NewMock()
-	err := runReleaseWithRunner(mock)
-	assert.NotNil(t, err)
-}
-
 func TestRunReleaseWithRunnerSuccess(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create a minimal go file
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	matrixOS = []string{"linux"}
-	matrixArch = []string{"amd64", "arm64"}
-	outputDir = filepath.Join(tmpDir, "dist")
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 2
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-	}()
 
 	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 }
 
 func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create a minimal go file
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	matrixOS = []string{"linux"}
-	matrixArch = []string{"amd64"}
-	outputDir = filepath.Join(tmpDir, "dist")
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-	}()
 
-	// Use a mock that passes tests but fails builds
+	// Use a mock that passes tests but fails builds.
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			return nil, fmt.Errorf("build failed")
 		}
 		return origHandler(cfg)
@@ -121,148 +68,44 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestRunReleaseWithRunnerWindowsExt(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create a minimal go file
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	matrixOS = []string{"windows"}
-	matrixArch = []string{"amd64"}
-	outputDir = filepath.Join(tmpDir, "dist")
-	releaseParallel = 1
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-	}()
-
-	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
-	assert.Nil(t, err)
-
-	// Check that commands were recorded with .exe extension
-	found := false
-	for _, cfg := range mock.Calls() {
-		if cfg.IsCmd("go", "build") {
-			for i, arg := range cfg.Args {
-				if arg == "-o" && i+1 < len(cfg.Args) {
-					if filepath.Ext(cfg.Args[i+1]) == ".exe" {
-						found = true
-					}
-				}
-			}
-		}
-	}
-	assert.True(t, found)
-}
-
 func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create a minimal go file
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	matrixOS = []string{"linux"}
-	matrixArch = []string{"amd64"}
-	outputDir = filepath.Join(tmpDir, "dist")
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 10 // More workers than jobs
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-	}()
 
 	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
-	assert.Nil(t, err)
-}
-
-func TestRunReleaseWithRunnerMultipleOSArch(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create a minimal go file
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	matrixOS = []string{"linux", "darwin"}
-	matrixArch = []string{"amd64", "arm64"}
-	outputDir = filepath.Join(tmpDir, "dist")
-	releaseParallel = 4
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-	}()
-
-	mock := newTestPassMock(0)
-	err := runReleaseWithRunner(mock)
-	assert.Nil(t, err)
-
-	// Should have 4 builds: 2 OS x 2 arch
-	buildCount := 0
-	for _, cfg := range mock.Calls() {
-		if cfg.IsCmd("go", "build") {
-			buildCount++
+	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
 		}
+		return origHandler(cfg)
 	}
-	assert.Equal(t, 4, buildCount)
+	err := runReleaseWithRunner(mock)
+	assert.Nil(t, err)
 }
 
 func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	os.WriteFile("x_test.go", []byte("package main\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
 
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	oldBench := noBenchmark
 	oldJSON := jsonOutput
-	matrixOS = []string{"linux"}
-	matrixArch = []string{"amd64"}
-	outputDir = filepath.Join(tmpDir, "dist")
 	releaseParallel = 1
 	noBenchmark = false
 	jsonOutput = true
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-		noBenchmark = oldBench
-		jsonOutput = oldJSON
-	}()
+	defer func() { jsonOutput = oldJSON }()
 
 	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 
@@ -278,32 +121,20 @@ func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	oldBench := noBenchmark
-	matrixOS = []string{"linux"}
-	matrixArch = []string{"amd64"}
-	outputDir = filepath.Join(tmpDir, "dist")
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
 	noBenchmark = true
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-		noBenchmark = oldBench
-	}()
 
 	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
 	err := runReleaseWithRunner(mock)
 	assert.Nil(t, err)
 
@@ -316,32 +147,19 @@ func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
 }
 
 func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	oldBench := noBenchmark
-	matrixOS = []string{"linux"}
-	matrixArch = []string{"amd64", "arm64"}
-	outputDir = filepath.Join(tmpDir, "dist")
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 1
-	noBenchmark = true
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-		noBenchmark = oldBench
-	}()
 
 	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "WASM")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
 	output := captureStdout(func() {
 		err := runReleaseWithRunner(mock)
 		assert.Nil(t, err)
@@ -357,35 +175,14 @@ func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
 }
 
 func TestMatrixOutputFailureShowsDuration(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	os.WriteFile("main.go", []byte("package main\nfunc main() {}\n"), 0644)
-
-	oldOS := matrixOS
-	oldArch := matrixArch
-	oldOutput := outputDir
-	oldParallel := releaseParallel
-	oldBench := noBenchmark
-	matrixOS = []string{"linux"}
-	matrixArch = []string{"amd64"}
-	outputDir = filepath.Join(tmpDir, "dist")
+	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
-	noBenchmark = true
-	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
-		outputDir = oldOutput
-		releaseParallel = oldParallel
-		noBenchmark = oldBench
-	}()
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
+	forkGo := filepath.Join(fakeGoroot, "bin", "go")
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			return nil, fmt.Errorf("build failed")
 		}
 		return origHandler(cfg)

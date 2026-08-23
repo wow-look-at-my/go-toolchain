@@ -3,10 +3,10 @@ See [WASM.md](WASM.md) for the `wasm/js` and `wasm/wasip1` targets, which share
 this command and its fork toolchain.
 
 > **Shipping policy.** The `wow-look-at-my` org ships **one APE covering every
-> supported platform**. Per-platform binaries have ended: the org no longer
-> maintains or stores them, and nothing in its pipelines produces them. The
-> cross-compilation flags below still work for consumers with a genuine need,
-> but they are not this org's shipping mode.
+> supported platform**. The fat APE is the command's only native output:
+> per-platform binaries (matrix mode's old cartesian `--os`/`--arch` product)
+> have been removed outright, not just deprecated. `--targets` accepts only
+> `cosmo` and the wasm targets below.
 
 `go-toolchain matrix` builds **one** file: a fat Actually Portable Executable,
 compiled with the [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan)
@@ -43,15 +43,13 @@ platform set: one upload, one download link, one checksum, with an
 alongside the binary to say so — see
 [BUILDHOST-MANIFEST.md](BUILDHOST-MANIFEST.md).
 
-**Per-platform binaries instead** — supported, but not this org's shipping
-mode. Naming `--os` or `--arch` builds the cartesian product of native
-binaries; naming only one fills the other in (`--arch arm64` means every OS,
-arm64). `--targets` takes an exact list of `os/arch` pairs plus the entry
-`cosmo`, and mixes them freely:
+**Adding wasm targets.** `--targets` takes `cosmo` and/or the wasm targets
+(`wasm/js`, `wasm/wasip1`) — nothing else. Leaving `cosmo` out of the list
+builds wasm alone:
 
 ```bash
-go-toolchain matrix --os linux,darwin --arch amd64,arm64
-go-toolchain matrix --targets cosmo,windows/arm64
+go-toolchain matrix --targets cosmo,wasm/js
+go-toolchain matrix --targets wasm/js,wasm/wasip1
 ```
 
 **No per-platform copies.** A cosmo build writes the APE and nothing else.

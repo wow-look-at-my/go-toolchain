@@ -122,17 +122,16 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	defer cleanupMemLimitGuards()
 
 	// Resolve what to build. hostTargets — main packages under the HOST build
-	// context — drive the legacy --os/--arch product (unchanged behavior),
-	// the cosmo fat APE (which embeds payloads for several native platforms,
-	// so the host set is the sanest approximation), the publish manifest, and
-	// the host convenience symlinks. Explicit --targets entries additionally
-	// get main-package discovery under their OWN GOOS/GOARCH context (see
+	// context — drive the cosmo fat APE (which embeds payloads for several
+	// native platforms, so the host set is the sanest approximation), the
+	// publish manifest, and the host convenience symlinks. Wasm targets get
+	// main-package discovery under their OWN GOOS/GOARCH context instead (see
 	// resolvePlatformTargets), so a main guarded "//go:build js && wasm" is
-	// built for js/wasm targets and never attempted for native ones. This
+	// built for js/wasm targets and never attempted for wasip1/wasm. This
 	// runs AFTER guard injection, which is safe because discovery skips the
 	// guard file by name (gomod.MemLimitGuardFileName) — an unconstrained
-	// guard in a host-only main dir cannot leak that dir into another
-	// target's main set.
+	// guard in the host-only main dirs cannot leak into a wasm target's main
+	// set.
 	hostTargets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err
@@ -179,13 +178,10 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 	}
 
-	switch {
-	case len(matrixTargets) == 0 && len(matrixOS) == 0 && len(matrixArch) == 0:
+	if len(matrixTargets) == 0 {
 		logger.Info("⇒ Building %d fat APE(s) covering %s", len(jobs), platformList(apeCoverage(apePlatforms)))
-	case len(matrixTargets) > 0:
+	} else {
 		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
-	default:
-		logger.Info("⇒ Building %d binaries (%d platforms from --os x --arch)", len(jobs), len(platforms))
 	}
 	buildStart := time.Now()
 

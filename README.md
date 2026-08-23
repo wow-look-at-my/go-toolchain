@@ -7,8 +7,8 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Coverage enforcement** — the build fails below 80% coverage, and the failure is annotated in the GitHub Actions run UI.
 - **Coverage watermarking** — optionally locks in a coverage floor (with a 2.5% grace period) so it can only go up.
 - **Warnings budget** — more than 15 warnings in a run fails the build, with a numbered recap. See [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md).
-- **One binary, every platform** — `matrix` builds a single fat APE that runs natively on Linux x64, macOS ARM64 and Windows x64. See [docs/MATRIX.md](docs/MATRIX.md).
-- **Cross-compilation** — per-platform native binaries instead, plus WebAssembly targets. See [docs/WASM.md](docs/WASM.md).
+- **One binary, every platform** — `matrix` builds a single fat APE that runs natively on Linux x64, macOS ARM64 and Windows x64; it's the org's only native output. See [docs/MATRIX.md](docs/MATRIX.md).
+- **WebAssembly targets** — `wasm/js` and `wasm/wasip1`, opted into alongside (or instead of) the APE. See [docs/WASM.md](docs/WASM.md).
 - **Benchmarks** — run automatically after builds, compared against previous results stored in git notes.
 - **CLI test suites** — `*.dats` suites under `dats/` run against the freshly built binaries; a failure fails the build. See [docs/DATS-PHASE.md](docs/DATS-PHASE.md).
 - **Near-duplicate detection** — finds structurally similar functions by comparing ASTs.
@@ -72,9 +72,7 @@ The action fetches secrets, configures the Go proxy and private repo access, wir
 | `generate`          | string   | `''`       | Run `go:generate` directives matching this hash          |
 | `working-directory` | string   | `.`        | Working directory for the build                          |
 | `binary`            | string   | `''`       | Path to a pre-built go-toolchain binary (skips release download) |
-| `os`                | string   | `''`       | Comma-separated target operating systems. Setting this or `arch` switches from the default single APE to one native binary per platform |
-| `arch`              | string   | `''`       | Comma-separated target architectures. Setting this or `os` switches to per-platform binaries |
-| `targets`           | string   | `''`       | Comma-separated exact `os/arch` targets, or the special value `cosmo`. Replaces `os`/`arch` when set |
+| `targets`           | string   | `''`       | Comma-separated wasm targets to add (`wasm/js`, `wasm/wasip1`), plus the special value `cosmo`. Empty (the default) builds the APE alone |
 | `cosmo-platforms`   | string   | `linux/amd64,darwin/arm64,windows/amd64` | Platforms the one fat APE covers; `all` covers everything the fork can emit |
 | `cgo`               | string   | `false`    | Enable CGO (off by default, for static binaries) |
 | `autorelease`       | string   | `true`     | Publish `build/` to buildhost on every branch push (see [docs/ACTION.md](docs/ACTION.md)) |
@@ -111,11 +109,11 @@ go-toolchain matrix
 # Pick the platforms the one binary covers
 go-toolchain matrix --cosmo-platforms linux/amd64,linux/arm64
 
-# Native per-platform binaries instead: naming --os or --arch selects them
-go-toolchain matrix --os linux,darwin,windows --arch amd64,arm64
+# WebAssembly builds (browser/Node.js and WASI) alongside the APE
+go-toolchain matrix --targets wasm/js,wasm/wasip1,cosmo
 
-# WebAssembly builds (browser/Node.js and WASI) alongside a native target
-go-toolchain matrix --targets wasm/js,wasm/wasip1,linux/amd64
+# WebAssembly alone, no APE
+go-toolchain matrix --targets wasm/js,wasm/wasip1
 
 # Run benchmarks independently
 go-toolchain bench run --benchtime 5s --count 3
@@ -174,7 +172,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 
 ### Subcommands
 
-- **`matrix`** — build one multi-platform APE, or cross-compile per platform (`--cosmo-platforms`, `--os`, `--arch`, `--targets`, `--parallel`, `--no-benchmark`)
+- **`matrix`** — build the release APE, plus optional wasm targets (`--cosmo-platforms`, `--targets`, `--parallel`, `--no-benchmark`)
 - **`bench`** — run and manage benchmarks
   - `run` — run benchmarks and show deltas vs stored results
   - `save` — run benchmarks and store results in git notes
