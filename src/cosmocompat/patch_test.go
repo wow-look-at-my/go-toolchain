@@ -71,3 +71,26 @@ func TestDirMatchCopies_SiblingPresentButNotCosmoInclusive(t *testing.T) {
 	require.Len(t, copies, 1)
 	assert.Equal(t, filepath.Join("lib", "quirk_linux_arm64.go"), copies[0].src)
 }
+
+// TestDirMatchCopies_UntaggedCommonFileIsNotMistakenForTheDefaultHalf
+// reproduces modernc.org/sqlite v1.57.0's lib/sqlite.go / lib/sqlite_linux_amd64.go
+// pair: sqlite.go carries NO build tag at all (it holds declarations common
+// to every platform, from modernc.org/undup's split), so it also compiles
+// for real linux/amd64 -- it is not sqlite_linux_amd64.go's negated
+// complement, just a same-stemmed file by naming coincidence, and must not
+// suppress the genuine cosmo gap sqlite_linux_amd64.go's platform-only
+// symbols (like Tstat) leave behind.
+func TestDirMatchCopies_UntaggedCommonFileIsNotMistakenForTheDefaultHalf(t *testing.T) {
+	dir := t.TempDir()
+	writeLibFile(t, dir, "sqlite.go", "", "const ALLBITS = -1\n")
+	writeLibFile(t, dir, "sqlite_linux_amd64.go", "", "type Tstat = struct{}\n")
+
+	copies, err := dirMatchCopies(dir, dirMatch{dir: "lib", goos: "linux", goarch: "amd64", archTag: "amd64"})
+	require.NoError(t, err)
+	// sqlite.go itself needs no copy -- untagged, it already compiles under
+	// cosmo directly. sqlite_linux_amd64.go's Tstat is a genuine cosmo gap
+	// and must still get one, despite sharing sqlite.go's stem.
+	require.Len(t, copies, 1)
+	assert.Equal(t, filepath.Join("lib", "sqlite_linux_amd64.go"), copies[0].src)
+	assert.Equal(t, filepath.Join("lib", "sqlite_linux_amd64_cosmo_amd64.go"), copies[0].dst)
+}

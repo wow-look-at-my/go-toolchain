@@ -245,11 +245,23 @@ func dirMatchCopies(moduleOut string, m dirMatch) ([]copySpec, error) {
 // already covers cosmo on its own; hooks_linux_arm64.go's tag is
 // filename-only, so it can never match GOOS=cosmo and its own alreadyCosmo
 // check is always false, even though hooks.go already declares the same
-// symbols). name's real match against (goos, goarch) is already established
-// by the caller, so this strips exactly that suffix -- "_<goos>_<goarch>",
+// symbols).
+//
+// A shared same-stem sibling is not enough by itself: modernc.org/undup also
+// emits an untagged "<module>.go" (sqlite.go) holding declarations common to
+// EVERY platform, which shares its stem with every "sqlite_<goos>_<goarch>.go"
+// override by pure naming coincidence and carries none of the override's own
+// symbols. The real "default" half of a pair is mutually exclusive with its
+// override on every real platform -- that is what "default" means -- so a
+// base file only counts as covering name when it does NOT itself match the
+// real (goos, goarch) build name already matched under (checked by the
+// caller before this runs).
+//
+// name's real match against (goos, goarch) is already established by the
+// caller, so this strips exactly that suffix -- "_<goos>_<goarch>",
 // "_<goos>", or "_<goarch>", the three shapes go/build's implicit filename
-// convention recognizes -- and checks whether the resulting base file
-// exists and is itself already cosmo-inclusive.
+// convention recognizes -- and looks for a same-stem base file that is both
+// excluded from the real build and already cosmo-inclusive.
 func coveredBySibling(dirPath, name, goos, goarch string, names map[string]bool) (bool, error) {
 	stem := strings.TrimSuffix(name, ".go")
 	for _, suffix := range []string{"_" + goos + "_" + goarch, "_" + goos, "_" + goarch} {
@@ -258,6 +270,16 @@ func coveredBySibling(dirPath, name, goos, goarch string, names map[string]bool)
 		}
 		base := strings.TrimSuffix(stem, suffix) + ".go"
 		if base == ".go" || !names[base] {
+			continue
+		}
+		baseExcludesRealPlatform, err := matchesContext(dirPath, base, goos, goarch)
+		if err != nil {
+			return false, err
+		}
+		if baseExcludesRealPlatform {
+			// base compiles for this real platform too -- it is a
+			// separately-included common file, not name's negated
+			// complement, so it proves nothing about a cosmo gap.
 			continue
 		}
 		covered, err := matchesContext(dirPath, base, "cosmo", goarch)
