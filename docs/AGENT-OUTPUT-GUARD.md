@@ -96,8 +96,7 @@ platform that can actually introspect a file descriptor. A third platform
   path itself (needed for `agent.IsCapturePath`) comes from the `F_GETPATH`
   fcntl, darwin's one substitute for `/proc/self/fd`'s readlink.
 - **Char device** — `isTerminal` uses the `github.com/mattn/go-isatty`
-  package already vendored at `src/compat/go-isatty` (its BSD/darwin variant),
-  not a hand-rolled ioctl.
+  package (its BSD/darwin variant), not a hand-rolled ioctl.
 
 ## Build constraints
 
