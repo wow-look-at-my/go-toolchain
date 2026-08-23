@@ -138,10 +138,9 @@ func Scan(dir string) (*Discovery, error) {
 			}
 			// A nested module's packages are not import paths of this one, so
 			// a pattern naming one fails to load ("main module does not
-			// contain package ..."). Its tags are its own module's business:
-			// src/compat/go-isatty carries `appengine`, which showed up here
-			// as a configuration this module was then asked to vet itself
-			// under -- and could not.
+			// contain package ..."). Its tags are its own module's business,
+			// not a configuration this module can be asked to vet itself
+			// under.
 			if path != dir && gomod.IsNestedModule(path) {
 				return fs.SkipDir
 			}
