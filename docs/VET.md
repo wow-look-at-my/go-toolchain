@@ -12,8 +12,7 @@ kinds of identifier must never become one:
 - **A nested module is not this module's code.** `Scan` stops at any directory
   holding its own `go.mod`. A pattern naming one fails to load outright ("main
   module does not contain package ..."), and its tags belong to its own
-  pipeline: `src/compat/go-isatty` carries `appengine`, which arrived here as a
-  configuration this module was then asked, and unable, to vet itself under.
+  pipeline, not a configuration this module can be asked to vet itself under.
 - **`cosmo` names a build target.** It is the gosmopolitan fork's GOOS, so it is
   absent from the `go tool dist list` values `knownOS` was built from. Under
   `-tags cosmo` on a normal host every `_linux.go` filename constraint still

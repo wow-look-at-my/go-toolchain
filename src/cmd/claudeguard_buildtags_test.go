@@ -27,7 +27,7 @@ import (
 // sharing linux/cosmo's.
 var claudeGuardTagSets = map[string]map[string]bool{
 	"linux":  {"linux": true, "unix": true, "amd64": true},
-	"cosmo":  {"cosmo": true, "unix": true, "amd64": true},
+	"cosmo":  {"cosmo": true, "linux": true, "unix": true, "amd64": true},
 	"darwin": {"darwin": true, "unix": true, "amd64": true},
 }
 
