@@ -153,7 +153,7 @@ coverage.
   filesystem walker uses to skip nested modules — `FindMainPackages`, test-package discovery (`listTestPackages` in src/test/test.go), the
   coverable-statements walk (`HasCoverableStatements` in src/test/coverable.go), build-target discovery's library-only fallback
   (`findAllPackagesByDir` in src/build), the vet fixers (gofmt, testify/gotest.tools import migrations, unused-range-vars), and the file-length check
-  all skip e.g. `src/compat/go-isatty`, whose files belong to their own module and must stay byte-identical to upstream (a nested module's packages
+  all skip any nested module, whose files belong to their own module and must stay byte-identical to upstream (a nested module's packages
   are not import paths of the outer module, so listing them fails `go test`/`go build` with `no required module provides package ...`)
 - `src/memlimit/` — injects a stdlib-only cgroup→GOMEMLIMIT startup guard into every main package built (discovered via `gomod.FindMainPackages`,
   which honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package)
@@ -255,8 +255,11 @@ coverage.
 - No Makefile — use `go run ./src` as the build entry point
 - Binaries are output to `build/` directory
 - Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go`, `_cosmo.go` suffixes (see `src/test/xattr_*.go`). GOOS=cosmo (gosmopolitan fat
-  APE) matches the `unix` build tag but NOT `linux`/`darwin` — and `golang.org/x/sys/unix` has no cosmo port, so any `//go:build unix` file that
-  imports it must be constrained `unix && !cosmo` with a `_cosmo.go` counterpart using stdlib `syscall`
+  APE) matches the `unix` build tag, and — since gosmopolitan's matchTag aliases GOOS=cosmo into `linux` — also matches `linux`, both by explicit
+  `//go:build` tag and by the `_linux.go`/`_linux_ARCH.go` filename convention. `golang.org/x/sys/unix` therefore now builds for cosmo like any other
+  linux target: reach for a plain `_linux.go` file first. A `_cosmo.go` file is for a genuine gap only — a dedicated implementation already exists
+  (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
+  (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
 
 ## Documentation
 

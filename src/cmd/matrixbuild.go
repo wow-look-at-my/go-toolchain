@@ -131,13 +131,6 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
 			WithEnv("CGO_ENABLED", "0").
 			WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
-		// GOWORK redirects one or more third-party modules with no cosmo port
-		// to cosmocompat's patched copies (see cosmocompat.Prepare); empty for
-		// a consumer that depends on none of them, so GOWORK stays unset and
-		// this build resolves exactly as it always has.
-		if job.goWork != "" {
-			cmd = cmd.WithEnv("GOWORK", job.goWork)
-		}
 	case job.forkGoroot != "":
 		// Wasm build (js/wasm or wasip1/wasm) via the gosmopolitan toolchain.
 		// The fork DEFAULTS to GOOS=cosmo, so GOOS and GOARCH are always
