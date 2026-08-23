@@ -208,6 +208,12 @@ func dirMatchCopies(moduleOut string, m dirMatch) ([]copySpec, error) {
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
+		if hasCosmoNameComponent(name) {
+			// The name already has "cosmo" in it, so the file is already
+			// someone's attempt at cosmo coverage, correct or not. A
+			// second copy of it would only duplicate its symbols.
+			continue
+		}
 		realMatch, err := matchesContext(dirPath, name, m.goos, m.goarch)
 		if err != nil {
 			return nil, err
@@ -235,6 +241,24 @@ func dirMatchCopies(moduleOut string, m dirMatch) ([]copySpec, error) {
 		out = append(out, copySpec{src: relSrc, dst: dst, extraCond: m.archTag})
 	}
 	return out, nil
+}
+
+// hasCosmoNameComponent reports whether name (a ".go" filename) already
+// has "cosmo" as one of its underscore-separated parts. modernc.org/undup
+// names a real per-platform file from hex hashes or a goos/goarch pair,
+// never the word "cosmo", so this matches only a file that already
+// targets cosmo: a correctly-tagged upstream one (excluded above by
+// alreadyCosmo already), or a hand-added shim that kept its source
+// file's own real-platform tag (modernc.org/sqlite's hooks_cosmo_arm64.go
+// and sqlite_cosmo_amd64.go both do this).
+func hasCosmoNameComponent(name string) bool {
+	stem := strings.TrimSuffix(name, ".go")
+	for _, part := range strings.Split(stem, "_") {
+		if part == "cosmo" {
+			return true
+		}
+	}
+	return false
 }
 
 // coveredBySibling reports whether name's declarations are already

@@ -72,6 +72,41 @@ func TestDirMatchCopies_SiblingPresentButNotCosmoInclusive(t *testing.T) {
 	assert.Equal(t, filepath.Join("lib", "quirk_linux_arm64.go"), copies[0].src)
 }
 
+// TestDirMatchCopies_StraySameTagCosmoFileIsNotReCopied reproduces
+// wow-look-at-my/go-sqlite's lib/sqlite_cosmo_amd64.go: a stray prior copy
+// of sqlite_linux_amd64.go that kept the source file's own real-platform
+// tag instead of getting rewritten to cosmo. Its name already matches the
+// real platform (like any genuine override), so without the "cosmo" name
+// check it would look like a second genuine gap and get copied again,
+// colliding with the real file's own cosmo copy on every symbol.
+func TestDirMatchCopies_StraySameTagCosmoFileIsNotReCopied(t *testing.T) {
+	dir := t.TempDir()
+	writeLibFile(t, dir, "quirk_linux_amd64.go", "linux && amd64", "func Quirk() {}\n")
+	writeLibFile(t, dir, "quirk_cosmo_amd64.go", "linux && amd64", "func Quirk() {}\n")
+
+	copies, err := dirMatchCopies(dir, dirMatch{dir: "lib", goos: "linux", goarch: "amd64", archTag: "amd64"})
+	require.NoError(t, err)
+	require.Len(t, copies, 1, "the stray _cosmo_amd64 file must not get copied a second time")
+	assert.Equal(t, filepath.Join("lib", "quirk_linux_amd64.go"), copies[0].src)
+}
+
+// TestDirMatchCopies_StrayUntaggedCosmoFileIsNotReCopied reproduces
+// wow-look-at-my/go-sqlite's lib/hooks_cosmo_arm64.go: a stray shim with NO
+// //go:build line at all, relying solely on its filename. Go's filename
+// convention does not recognize "cosmo" as an OS, so the name is read as
+// "arm64, any OS" and matches the real linux/arm64 build too -- again
+// looking like a second genuine gap without the "cosmo" name check.
+func TestDirMatchCopies_StrayUntaggedCosmoFileIsNotReCopied(t *testing.T) {
+	dir := t.TempDir()
+	writeLibFile(t, dir, "quirk_linux_arm64.go", "", "func Quirk() {}\n")
+	writeLibFile(t, dir, "quirk_cosmo_arm64.go", "", "func Quirk() {}\n")
+
+	copies, err := dirMatchCopies(dir, dirMatch{dir: "lib", goos: "linux", goarch: "arm64", archTag: "arm64"})
+	require.NoError(t, err)
+	require.Len(t, copies, 1, "the stray _cosmo_arm64 file must not get copied a second time")
+	assert.Equal(t, filepath.Join("lib", "quirk_linux_arm64.go"), copies[0].src)
+}
+
 // TestDirMatchCopies_UntaggedCommonFileIsNotMistakenForTheDefaultHalf
 // reproduces modernc.org/sqlite v1.57.0's lib/sqlite.go / lib/sqlite_linux_amd64.go
 // pair: sqlite.go carries NO build tag at all (it holds declarations common
