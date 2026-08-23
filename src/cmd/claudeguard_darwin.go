@@ -1,8 +1,8 @@
 // darwin has no /proc, so classifying stdout does not reuse
 // claudeguard_proc.go: fstat's mode bits answer pipe/regular/char-device
-// without a path, isatty answers the terminal question (already vendored at
-// src/compat/go-isatty), and F_GETPATH recovers a regular file's path -- the
-// one thing fstat cannot give, needed for agent.IsCapturePath.
+// without a path, isatty answers the terminal question, and F_GETPATH
+// recovers a regular file's path -- the one thing fstat cannot give, needed
+// for agent.IsCapturePath.
 //
 // A FIFO's reader is identified by walking ancestors for the other end of
 // this pipe (proc_info on a native build, lsof from a cosmo APE). grok-build

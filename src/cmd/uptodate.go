@@ -291,11 +291,6 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
-	// Same reasoning for the sqlite-fork redirect: a tree can predate it too.
-	if needsSqliteFork() {
-		return false
-	}
-
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return false

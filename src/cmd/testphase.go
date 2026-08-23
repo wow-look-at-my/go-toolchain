@@ -32,13 +32,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		return false, nil, err
 	}
 
-	// A bare modernc.org/sqlite require gets redirected onto the org's fork
-	// before branch enforcement, so the replace this writes is marked and
-	// resolved by the two steps right after it, in this same run.
-	if _, err := EnforceSqliteFork(r); err != nil {
-		return false, nil, err
-	}
-
 	// An org dependency carrying a plain version pin gets the branch marker
 	// added first, so the re-resolution below owns it from this run on.
 	if _, err := EnforceOrgBranchTracking(r); err != nil {
