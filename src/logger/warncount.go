@@ -16,33 +16,15 @@ type Warning struct {
 	Count   int
 }
 
-// The warnings budget counts DISTINCT messages. One root cause repeats once
-// per file, per module or per retry. If each repeat counted, one problem
-// spends the whole budget and every other warning in the run goes unreported.
-// Two warnings are the same warning when the recorded text is identical. A
-// message that names the file or the value it found stays distinct: WarnFile
-// records the "<file>: " prefix, so the same text about two files counts
-// twice. Deduplication governs the COUNT only. Every warning still prints, and
-// the recap names each repeat count.
+// The budget gates on warnDistinct; warnTotal counts every emission.
+// warnIndex maps a message to its slot in warnMessages, or to -1 once the
+// retention cap is full. It keeps an entry either way, so a repeat of an
+// unretained warning still folds.
 //
-// warnDistinct backs the pipeline's warnings budget: a run that emits more
-// than the allowed number of distinct warnings fails at the end (see src/cmd's
-// warnings gate). warnTotal is every emission. The recap reports it, so a
-// folded repeat stays visible. Both counters deliberately count only what the
-// user actually saw -- a Warn suppressed by --log-level error/silent is not
-// counted. The cacheprog subprocess is a separate process, so its warnings
-// never reach these counters.
-//
-// warnIndex is the deduplication set. It maps a message to the position in
-// warnMessages, or to -1 for a distinct message past MaxRecordedWarnings. It
-// holds one entry for each distinct message, so its size follows the variety
-// of the warning text, not the volume of the output.
-//
-// warnMessages holds the first MaxRecordedWarnings distinct warnings, in
-// first-emission order, so the warnings gate can re-print exactly what it
-// fails on instead of just a number (a bare count invites guessing at which
-// output was to blame -- and the loud things in a build log are usually not
-// the counted ones).
+// Identity is the recorded text, byte for byte. Never normalize it, and never
+// drop WarnFile's "<file>: " prefix: one warning per file over a thousand
+// files would fold into one, and the budget would stop seeing it.
+// see docs/WARNINGS-GATE.md
 var (
 	warnMu       sync.Mutex
 	warnDistinct int64
@@ -52,11 +34,9 @@ var (
 )
 
 // recordWarn counts one emitted warning and retains the message text. A
-// message already seen adds to that warning's repeat count and leaves the
-// distinct count alone. Warn/WarnFile call this after level filtering, with
-// the caller's message already formatted. Callers hold their own Logger's
-// mutex; this function takes only warnMu, so the lock order is fixed and
-// cannot deadlock.
+// message already seen adds to its repeat count and leaves the distinct count
+// alone. Callers hold their own Logger's mutex; this takes only warnMu, so the
+// lock order is fixed and cannot deadlock.
 func recordWarn(msg string) {
 	warnMu.Lock()
 	defer warnMu.Unlock()

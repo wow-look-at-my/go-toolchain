@@ -9,13 +9,10 @@ import (
 
 // maxWarnings is the pipeline's warning budget: a run that emits more than
 // this many DISTINCT Warn-level messages through src/logger fails after the
-// pipeline completes. Deliberately a constant — there is no flag or
-// environment variable to change it.
-//
-// The budget counts distinct messages because one root cause repeats once per
-// file, per module or per retry. Counting each repeat spends the budget on one
-// problem and hides every other warning in the run. src/logger folds the
-// repeats; see docs/WARNINGS-GATE.md.
+// pipeline completes. src/logger folds a repeated message into one.
+// Deliberately a constant — there is no flag or environment variable to
+// change it.
+// see docs/WARNINGS-GATE.md
 const maxWarnings = 15
 
 // checkWarningsGate fails the build when the run emitted more than
