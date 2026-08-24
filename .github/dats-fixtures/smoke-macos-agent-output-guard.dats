@@ -98,7 +98,7 @@ tests:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		"!stderr":
+		stderr:
 			- "refused to run"
 
 	# EnsureGoVersion's version check runs `go list runtime` (verifyGoToolchain,
