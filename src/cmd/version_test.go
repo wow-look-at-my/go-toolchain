@@ -108,10 +108,18 @@ func TestGithubRepoFromEnv(t *testing.T) {
 	assert.Equal(t, "other-org/other-repo", githubRepo)
 }
 
+// version is NOT exempt from the agent output guard (only cacheprog is), and
+// this test redirects a REAL os.Stdout pipe -- exactly what the guard exists
+// to catch. Stub the agent check so a real agent session running this test
+// doesn't hit the guard's os.Exit(1) and kill the whole test binary.
 func TestVersionRaw(t *testing.T) {
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
+
+	origUnder := runningUnderAgentFn
+	runningUnderAgentFn = func() (string, bool) { return "", false }
+	t.Cleanup(func() { runningUnderAgentFn = origUnder })
 
 	cmd := rootCmd
 	buf := new(strings.Builder)

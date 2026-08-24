@@ -34,6 +34,7 @@ import (
 const GuardFileName = gomod.MemLimitGuardFileName
 
 // guardSource is the exact content written into each main package.
+//
 //go:embed testdata/guard.go
 var guardSource string
 
