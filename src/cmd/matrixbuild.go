@@ -101,10 +101,10 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		// GOOS=cosmo fat-APE build. GOARCH and GOCOSMOFAT are cleared: "fat"
 		// is a pseudo-arch, not a real GOARCH, and an inherited GOCOSMOFAT=0
 		// must not silently produce a thin binary. The cache namespace keys
-		// this build's cacheprog to this toolchain, since the fork's constant
-		// version stamp would otherwise collide action IDs across fork builds.
+		// this build to this toolchain, since the fork's constant version
+		// stamp would otherwise collide action IDs across fork builds.
 		// GOCOSMOPLATFORMS is always assigned so the fork builds only the
-		// platforms the set needs.
+		// platforms needed.
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").

@@ -35,9 +35,8 @@ func skipDir(name string) bool {
 	return strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules"
 }
 
-// IsNestedModule reports whether dir (other than ".") holds its own go.mod, marking it a
-// separate module. Filesystem walkers must skip these dirs: their files are not part of
-// this module's build and must not be rewritten by its fixers.
+// IsNestedModule reports whether dir holds its own go.mod. Walkers must skip these dirs:
+// their files are not part of this module's build.
 func IsNestedModule(dir string) bool {
 	if dir == "." {
 		return false
@@ -46,17 +45,17 @@ func IsNestedModule(dir string) bool {
 	return err == nil
 }
 
-// MemLimitGuardFileName names the transient GOMEMLIMIT guard file; discovery skips it by name so a host-only main dir does not leak into other targets.
+// MemLimitGuardFileName names the transient memlimit guard; discovery skips it by name.
 const MemLimitGuardFileName = "gomemlimit_gen.go"
 
-// FindMainPackages returns the import paths of all main packages, found by walking the
-// module tree. Build constraints are evaluated against the host context.
+// FindMainPackages returns import paths of all main packages, found by walking the module
+// tree, under the host build context.
 func FindMainPackages() ([]string, error) {
 	return findMainPackages(matchFile)
 }
 
 // FindMainPackagesForTarget is FindMainPackages evaluated under an explicit GOOS/GOARCH
-// context instead of the host, matching what `go build` would compile for that target.
+// context, matching what `go build` would compile for that target.
 func FindMainPackagesForTarget(goos, goarch string) ([]string, error) {
 	ctx := build.Default
 	ctx.GOOS = goos
@@ -135,8 +134,8 @@ func hasMainPackageMatch(dir string, match func(dir, name string) (bool, error))
 		if packageNameFromFile(filepath.Join(dir, name)) != "main" {
 			continue
 		}
-		// Now check build constraints, so a "//go:build ignore" generator or a
-		// GOOS/GOARCH mismatch is not misidentified as the directory's main package.
+		// Now check build constraints (e.g. "//go:build ignore") so this file isn't misidentified
+		// as the directory's main package.
 		if matched, err := match(dir, name); err == nil && !matched {
 			continue
 		}
@@ -148,10 +147,9 @@ func hasMainPackageMatch(dir string, match func(dir, name string) (bool, error))
 // matchFile is the host build-constraint matcher, a var so tests can observe its calls; errors fail open (included).
 var matchFile = build.Default.MatchFile
 
-// packageNameFromFile reads a Go file's package name using go/parser in PackageClauseOnly
-// mode, which stops after the package clause instead of parsing the whole file. This
-// correctly handles a multi-line comment before the clause, unlike a naive line scanner.
-// Returns "" when the file has no parseable package clause.
+// packageNameFromFile reads a Go file's package name via go/parser in PackageClauseOnly
+// mode, which stops after the package clause — this handles a multi-line comment before
+// it, unlike a naive line scanner. Returns "" if there's no parseable package clause.
 func packageNameFromFile(path string) string {
 	// Use the partial AST's package name even if ParseFile also returned an error.
 	f, _ := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly)

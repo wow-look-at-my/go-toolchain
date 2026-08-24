@@ -211,8 +211,7 @@ func (l *Logger) ErrorFile(file, format string, args ...any) {
 	}
 }
 
-// Output emits a message unconditionally to Stdout, for the actual result of the command
-// (e.g. version strings). It bypasses level filtering, even LevelSilent.
+// Output emits a message unconditionally to Stdout; it bypasses level filtering, even LevelSilent.
 func (l *Logger) Output(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

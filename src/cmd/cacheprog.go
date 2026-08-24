@@ -180,9 +180,8 @@ var (
 	FeatureCacheProg = GoFeature{Name: "GOCACHEPROG", MinorVersion: 24}
 )
 
-// goSupportsFeature checks resolvedGoMinor instead of shelling out to
-// "go version", avoiding a wrong pick when the bootstrapped Go isn't
-// first on PATH.
+// goSupportsFeature checks resolvedGoMinor, avoiding a "go version" shell-out
+// that could pick the wrong PATH entry.
 func goSupportsFeature(f GoFeature) bool {
 	return resolvedGoMinor >= f.MinorVersion
 }

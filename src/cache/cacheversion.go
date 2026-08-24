@@ -9,10 +9,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// currentLocalCacheVersion stamps the local cache root's content generation.
-// When the on-disk stamp differs, EnsureLocalCacheVersion purges the cached
-// data once and re-stamps. Bump this to force every machine to shed cache
-// contents that a code change has made untrustworthy.
+// currentLocalCacheVersion: bump to force every machine to purge untrustworthy cache contents.
 const currentLocalCacheVersion = 2
 
 // localCacheVersionFile is the version stamp, directly under the cache root.

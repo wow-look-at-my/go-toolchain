@@ -142,15 +142,9 @@ func writeNetrc(host, user, password string) {
 	}
 }
 
-// ensureDirectFallback appends "|direct" to a GOPROXY value so that any
-// upstream proxy error (e.g. a 503 with body "DNS cache overflow" from a
-// flaky proxy) falls through to a direct download instead of failing the
-// build. The pipe (|) separator falls back on any error; comma (,) only
-// falls back on 404/410, which is too narrow for resilience.
-//
-// If the value ends with ",direct", it is upgraded to "|direct". Any
-// other configuration containing "direct" is left untouched to respect
-// explicit user intent.
+// ensureDirectFallback appends "|direct" so any proxy error falls through to
+// a direct download: pipe falls back on any error, comma only on 404/410. A
+// trailing ",direct" is upgraded; any other "direct" value is untouched.
 func ensureDirectFallback(goproxy string) string {
 	if strings.HasSuffix(goproxy, ",direct") {
 		return strings.TrimSuffix(goproxy, ",direct") + "|direct"
@@ -161,14 +155,6 @@ func ensureDirectFallback(goproxy string) string {
 	return goproxy
 }
 
-// configureGoEnv sets GOPROXY, GOSUMDB, GONOSUMDB, and GONOSUMCHECK.
-//
-// When GO_PROXY_CONFIG is set (base64 JSON with proxy URL, credentials, and
-// optional sumdb key), it writes ~/.netrc for authentication and defaults
-// GOPROXY/GOSUMDB to the configured proxy if not already set.
-//
-// Without GO_PROXY_CONFIG, falls back to GOPROXY/GOSUMDB env vars.
-// If nothing is configured, defaults to GOPROXY=direct with sumdb disabled.
 // proxyEnvVars are the Go environment variables that configureGoEnv manages.
 var proxyEnvVars = []string{"GOPROXY", "GOSUMDB", "GONOSUMDB", "GONOSUMCHECK"}
 
@@ -176,14 +162,11 @@ var proxyEnvVars = []string{"GOPROXY", "GOSUMDB", "GONOSUMDB", "GONOSUMCHECK"}
 const PublicSumDB = "sum.golang.org"
 
 // usesPublicSumDB reports whether a GOSUMDB value would have Go contact the
-// public checksum database ITSELF.
-//
-// GOSUMDB is "<name>", "<name>+<key>", or "<name>+<key> <url>". Only the
-// last form redirects the lookups somewhere else, so a value naming
-// sum.golang.org WITH a proxy URL — the standard "<proxy>/sumdb/<name>"
-// mirror — is fine and stays allowed: the request goes to the org's proxy,
-// nothing is disclosed to a third party. What is refused is the bare name,
-// or a URL that points back at the public host anyway.
+// public checksum database ITSELF. GOSUMDB is "<name>", "<name>+<key>", or
+// "<name>+<key> <url>"; only the URL form redirects lookups elsewhere, so
+// sum.golang.org named WITH a proxy URL (the org's "<proxy>/sumdb/<name>"
+// mirror) stays allowed. Refused: the bare name, or a URL pointing back at
+// the public host anyway.
 func usesPublicSumDB(gosumdb string) bool {
 	fields := strings.Fields(gosumdb)
 	if len(fields) == 0 {
@@ -209,6 +192,10 @@ func sumDBURLHost(raw string) string {
 	return host
 }
 
+// configureGoEnv sets GOPROXY, GOSUMDB, GONOSUMDB, and GONOSUMCHECK. With
+// GO_PROXY_CONFIG set, it writes ~/.netrc and defaults GOPROXY/GOSUMDB to
+// the configured proxy; otherwise it falls back to the GOPROXY/GOSUMDB env
+// vars, or to GOPROXY=direct with sumdb disabled if nothing is configured.
 func configureGoEnv() {
 	proxyLog := logger.WithSubsystem("proxy")
 	defer func() {
@@ -244,12 +231,9 @@ func configureGoEnv() {
 	// GOSUMDB: use configured value (full "<key> <url>" form or short name),
 	// or disable sumdb phone-home.
 	if gosumdb != "" {
-		// The PUBLIC checksum database is never an option here. It cannot
-		// contain a private module, so it can only ever fail on one; and
-		// asking it about a module announces that module's path to a third
-		// party, which for a private path is the leak itself. Refused
-		// LOUDLY rather than silently ignored: a build that quietly did
-		// something other than the configured thing is how a setting gets
+		// The PUBLIC checksum database is never an option: querying it for a
+		// private module announces that module's path to a third party. This
+		// is refused LOUDLY, not silently, so a misconfigured setting is not
 		// believed for months.
 		if usesPublicSumDB(gosumdb) {
 			proxyLog.Error("GOSUMDB=%q names the public checksum database directly.", gosumdb)
@@ -263,8 +247,7 @@ func configureGoEnv() {
 		return
 	}
 
-	// Default: disable sumdb phone-home for all modules.
-	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
+	// GONOSUMDB, not GOSUMDB=off, so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
 }

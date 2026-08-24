@@ -59,15 +59,14 @@ func inspectFD(fd uintptr) outputSink {
 		}
 		return outputSink{kind: sinkPipe}
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
-		// Agent tool plumbing (e.g. opencode's bash tool) uses a socketpair,
-		// which looks identical to a pipe here -- give it the same
-		// peer-identification chance rather than assuming hidden. detail
-		// always shows something: the peer's name, else the raw fd target.
+		// A socketpair looks like a pipe here -- give it the same peer-ID
+		// chance rather than assuming hidden. detail always shows something:
+		// the peer's name, else the fd target.
 		//
-		// A socketpair's two ends are separate sockets with different inodes,
-		// so an fd-target string match can't find the other end. SO_PEERCRED
-		// gives the kernel's record of the peer, fixed at connection time, so
-		// it still resolves after the parent closes its copy of the child's fd.
+		// A socketpair's ends are separate sockets with different inodes, so
+		// an fd-target match can't find the other end. SO_PEERCRED gives the
+		// kernel's peer record, fixed at connect time, so it resolves even
+		// after the parent closes its copy of the child's fd.
 		if pid, ok := socketPeerPID(fd); ok {
 			name, _, _ := agent.CommPPID(pid)
 			if harnessIsPipeReader(name, pid) {

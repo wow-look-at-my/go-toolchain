@@ -16,8 +16,7 @@ import (
 // trackedPinMoves maps a module directory to the modules whose branch-tracked
 // pin this run re-resolved, from `git status --short`. A directory is absent
 // when its go.mod changed some other way, so the exclusion below never covers
-// a real edit. Status paths are relative to the working directory, so a
-// go.sum shares its go.mod's directory key.
+// a real edit. A go.sum shares its go.mod's directory key.
 func trackedPinMoves(statusOut string) map[string][]string {
 	moves := map[string][]string{}
 	for _, line := range strings.Split(statusOut, "\n") {

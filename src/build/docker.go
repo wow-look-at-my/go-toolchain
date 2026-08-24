@@ -22,12 +22,12 @@ func SetInDockerCheck(f func() bool) func() {
 	return func() { inDockerCheck = old }
 }
 
-// BinaryName returns name_goos_goarch, with .exe appended on Windows.
+// BinaryName returns name_goos_goarch, .exe appended on Windows.
 //
-// Wasm (GOARCH=wasm) swaps to name_wasm_<goos>, no extension: buildhost's
-// publish action parses os/arch from the trailing two underscore tokens
-// after stripping .exe, so this form publishes as os=wasm/arch=<goos>; any
-// extension excludes it from the upload set. UnpublishableWasmName is the opt-out.
+// Wasm swaps to name_wasm_<goos>, no extension: publish parses os/arch
+// from the trailing two underscore tokens after stripping .exe, so this
+// publishes as os=wasm/arch=<goos>; an extension excludes it. See
+// UnpublishableWasmName for the opt-out.
 func BinaryName(name, goos, goarch string) string {
 	// The cosmo fat APE is the plain name; a platform suffix would name a property it lacks, and build/<name> is what runs.
 	if goos == "cosmo" {

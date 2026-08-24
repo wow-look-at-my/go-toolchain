@@ -9,9 +9,8 @@ import (
 	"golang.org/x/tools/go/analysis/checker"
 )
 
-// parseRecorder records every file a load parsed, so Verify can prove no
-// tagged file went unseen. Locked: x/tools calls ParseFile from an errgroup,
-// one goroutine per file, so the map and counter need the mutex.
+// parseRecorder records every parsed file, so Verify can prove none went
+// unseen. Locked: ParseFile runs one goroutine per file.
 type parseRecorder struct {
 	mu    sync.Mutex
 	files set.Set[string]

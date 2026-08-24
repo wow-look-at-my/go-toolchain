@@ -117,8 +117,7 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 }
 
 // Put writes body under actionID with a metadata sidecar, returning the disk
-// path. Writes for one action share a striped lock so PutIfAbsent's check
-// can't interleave with a concurrent Put.
+// path. Writes share a striped lock so PutIfAbsent's check can't interleave.
 func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, error) {
 	l := c.plock(actionID)
 	l.Lock()

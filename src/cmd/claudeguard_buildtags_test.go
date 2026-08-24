@@ -1,12 +1,7 @@
 package cmd
 
-// Regression test for the release no-op bug: released "linux" go-toolchain
-// binaries are GOOS=cosmo fat-APE slot copies (cosmo matches the `unix` build
-// tag but NOT `linux`), so guard code gated linux-only — by a `_linux.go`
-// filename suffix or a bare `//go:build linux` — is silently compiled out of
-// every shipped binary while the GOOS=linux unit tests stay green. This test
-// pins the build constraints themselves: the real classifier must be selected
-// for BOTH GOOS=linux and GOOS=cosmo, and the no-op stub for NEITHER.
+// Released "linux" binaries are GOOS=cosmo fat-APE slots, so linux-only-gated guard code can
+// silently compile out while GOOS=linux tests stay green; this test pins both selections.
 
 import (
 	"go/build/constraint"

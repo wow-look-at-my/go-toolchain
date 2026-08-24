@@ -66,8 +66,7 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 		return peerSink(p, pid, sinkPipe), true
 
 	case sIFSOCK:
-		// Agent tool plumbing is a socketpair; the kernel fixes the peer at
-		// connect time, so this resolves after the parent's copy closes.
+		// Agent tool plumbing is a socketpair; the kernel fixes the peer at connect time, resolving after the parent's copy closes.
 		pid, identified, supported := p.socketPeer()
 		if !supported {
 			return outputSink{}, false

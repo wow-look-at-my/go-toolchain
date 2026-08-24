@@ -158,7 +158,7 @@ func Tracer(name string) trace.Tracer {
 }
 
 // rootIDGenerator returns a fixed (traceID, spanID) once, then random IDs after, so the
-// first root span can adopt an externally supplied ID.
+// first root span can adopt a given ID.
 type rootIDGenerator struct {
 	traceID trace.TraceID
 	spanID  trace.SpanID

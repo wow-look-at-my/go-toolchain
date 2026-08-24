@@ -8,10 +8,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// BannedOutputAnalyzer reports direct fmt/log writes to os.Stdout/os.Stderr;
-// use the logger package instead, for uniform filtering and GHA annotations.
-// Scoped to the go-toolchain module: consumer projects have no src/logger.
-// Exempt: src/logger/ itself, src/cmd/console.go, and *_test.go files.
+// BannedOutputAnalyzer bans direct fmt/log writes to os.Stdout/os.Stderr in
+// this module; use the logger package. Exempt: src/logger/, console.go, tests.
 var BannedOutputAnalyzer = &analysis.Analyzer{
 	Name:       "bannedoutput",
 	Doc:        "bans direct writes to os.Stdout/os.Stderr; use the logger package instead",
@@ -23,8 +21,7 @@ var BannedOutputAnalyzer = &analysis.Analyzer{
 const bannedOutputModule = "github.com/wow-look-at-my/go-toolchain"
 
 func runBannedOutput(pass *analysis.Pass) (any, error) {
-	// An empty module path (analysistest's GOPATH-mode fixtures) keeps the ban
-	// active so fixtures exercise the checks; a real consumer module is skipped.
+	// An empty module path keeps the ban active for analysistest fixtures.
 	if pass.Module != nil && pass.Module.Path != "" && pass.Module.Path != bannedOutputModule {
 		return []*ASTFixes(nil), nil
 	}

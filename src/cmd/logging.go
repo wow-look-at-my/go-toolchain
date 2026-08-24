@@ -41,10 +41,9 @@ func resolveLogLevel(cmd *cobra.Command) (logger.Level, error) {
 	return logger.LevelInfo, nil
 }
 
-// initLogging installs the global default logger at the resolved level, first
-// in the root PersistentPreRunE. cacheprog never gets a stdout-capable logger:
-// its stdout is the GOCACHEPROG protocol pipe, and a GHA annotation there
-// would corrupt the JSON stream.
+// initLogging installs the global logger, first in the root PersistentPreRunE.
+// cacheprog never gets a stdout-capable logger: its stdout is the
+// GOCACHEPROG protocol pipe, which a GHA annotation would corrupt.
 func initLogging(cmd *cobra.Command) error {
 	level, err := resolveLogLevel(cmd)
 	if err != nil {

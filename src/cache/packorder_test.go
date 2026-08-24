@@ -1,9 +1,7 @@
 package cache
 
-// Regression tests for pack-store append/index ordering and PutIfAbsent:
-// racing Puts for one action must commit their index update in the same
-// order as their file append, or a later scan serves the wrong body. The
-// racing pair in production is a cmd/go PUT vs the web prefetch population.
+// Regression tests for pack-store append/index ordering: racing Puts for the
+// same action must commit index updates in the same order as their appends.
 
 import (
 	"bytes"

@@ -53,9 +53,8 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		if forkGoroot, err = ensureCosmoToolchainFunc(); err != nil {
 			return err
 		}
-		// The fork's constant version stamp collides across builds, so
-		// cacheprog scopes cache keys to this content hash instead.
-		// Fail closed rather than share the cache un-namespaced.
+		// The fork's version stamp collides across builds, so cacheprog scopes
+		// cache keys to this hash instead. Fail closed, not un-namespaced.
 		if forkCacheNamespace, err = forkToolchainCacheNamespace(forkGoroot); err != nil {
 			return fmt.Errorf("fingerprinting the fork toolchain for cache isolation: %w", err)
 		}

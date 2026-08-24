@@ -186,15 +186,7 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 	return nil
 }
 
-// selfRepository is the one repository whose builds may legitimately run outside
-// their own checkout: this one. Its smoke jobs drive the full pipeline inside a
-// synthetic throwaway module under RUNNER_TEMP to prove the shipped binary works
-// end to end, and a snapshot from there would publish the fixture's dependencies
-// as this repository's dependency graph.
-//
-// The carve-out is pinned to this exact name so it cannot become a general
-// opt-out. Every other repository submits or fails; there is no arrangement of
-// working directory, environment, or flags that lets one skip quietly.
+// selfRepository is the only repo exempt from dependency-graph submission: its smoke tests build in a throwaway module, pinned to this name only.
 const selfRepository = "wow-look-at-my/go-toolchain"
 
 // insideWorkspace reports whether the working directory is inside

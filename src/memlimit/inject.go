@@ -30,7 +30,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
-// GuardFileName names the generated guard file; main-package discovery skips it by name so a stale or injected copy never gets misread as a real main package.
+// GuardFileName names the generated guard; main-package discovery skips it so a stale copy is never misread as a real main package.
 const GuardFileName = gomod.MemLimitGuardFileName
 
 // guardSource is the exact content written into each main package.
@@ -104,12 +104,10 @@ func InjectAll() ([]string, error) {
 	return changed, nil
 }
 
-// CleanupAll removes the injected guard from every main package under the
-// current module, returning the directories a guard was removed from. It is the
-// inverse of InjectAll: go-toolchain injects the guard only for the duration of
-// the build and removes it immediately afterward, so the generated file never
-// lingers in the working tree or shows up as an uncommitted change. A guard that
-// is already absent is not an error, and when there is no module it is a no-op.
+// CleanupAll removes the injected guard from every main package under the current module, returning the
+// directories a guard was removed from. It is InjectAll's inverse, run immediately after the build so the
+// generated file never lingers or shows up as an uncommitted change. A guard already absent is not an error;
+// with no module it is a no-op.
 func CleanupAll() ([]string, error) {
 	dirs, err := mainPackageDirs()
 	if err != nil {

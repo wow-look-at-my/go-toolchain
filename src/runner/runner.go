@@ -80,8 +80,7 @@ func (c *Config) WithQuiet() *Config {
 	return c
 }
 
-// WithOnFirstOutput sets a callback invoked before the first output byte, for progress
-// indicators that print a newline before subprocess output starts.
+// WithOnFirstOutput sets a callback invoked before the first output byte, for progress indicators.
 func (c *Config) WithOnFirstOutput(f func()) *Config {
 	c.OnFirstOutput = f
 	return c
