@@ -49,32 +49,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Piped through tee so the steps below can verify no line printed a
-          # sub-1s duration stamp (logx / timedLineWriter regression guard).
-          # pipefail is REQUIRED: GitHub Actions' default bash invocation
-          # (`bash -e {0}`) does NOT set it, so `cmd | tee file` would
-          # otherwise report success from tee alone even if `go run ./src`
-          # failed the actual build or tests.
+          # pipefail is required: bare `bash -e {0}` lets tee mask a failed build.
           go run ./src 2>&1 | tee "$RUNNER_TEMP/build-log.txt"
 
-      # This job's runner starts with an empty module cache (setup-go above
-      # has cache: false), so the build above is guaranteed to cold-fetch
-      # this repo's dependencies and print `go mod tidy -v`'s verbose
-      # "go: downloading X"/"go: found X" lines -- exactly the CI output
-      # where the bug this guards against was actually observed (a fast
-      # burst line stamped "0.00s" by a wrapper that forgot to skip lines
-      # under a second). ansifilter (not our own ansiRE/alreadyTimedRE regex)
-      # does the stripping, so this check can't pass just because the same
-      # buggy regex that shipped the bug also verified it.
+      # setup-go's cache: false guarantees a cold module fetch, so this step can assert on `go mod tidy -v`'s output below.
       - name: Strip ANSI from the captured build log
         run: |
           set -euo pipefail
-          # go-toolchain's duration coloring (logx, timedLineWriter, step
-          # timers) is unconditional -- it never checks isatty -- so piping
-          # through tee above must not have stripped it. Assert that BEFORE
-          # ansifilter runs: if there were no ANSI codes to strip, the sub-1s
-          # check below would trivially pass for the wrong reason (nothing to
-          # strip looks identical to "everything already came out clean").
+          # Fail loud if there's nothing to strip -- that would silently no-op the sub-1s check below.
           grep -qP '\x1b\[[0-9;]*m' "$RUNNER_TEMP/build-log.txt" || {
             echo "::error::captured build log has no ANSI escape codes at all -- either color output broke, or the tee pipe stripped them"
             exit 1
@@ -83,10 +65,7 @@ jobs:
           sudo apt-get install -y ansifilter
           ansifilter "$RUNNER_TEMP/build-log.txt" > "$RUNNER_TEMP/build-log.clean.txt"
 
-      # cmd/go's own "go: " diagnostic lines never carry a duration themselves, so an
-      # "X.XXs" suffix on one means logx/timedLineWriter stamped a sub-1s line by mistake.
-      # go-toolchain's own named step/test timers (e.g. "vet: gofmt 0.17s") are exempt --
-      # only lines starting with "go: " are checked.
+      # cmd/go's own "go: " lines never carry a duration themselves; an "X.XXs" suffix on one is a logx/timedLineWriter bug.
       - name: Verify no sub-1s duration stamps on go tool output
         uses: wow-look-at-my/actions@typescript#latest
         with:
