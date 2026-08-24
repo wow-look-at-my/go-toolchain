@@ -113,8 +113,7 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 	defer srv.Close()
 	defer withMockBuildhost(t, srv)()
 
-	// With no listing to identify this build, its commit stands in for the
-	// version it cannot know.
+	// With no listing to identify this build, its commit stands in for the version it cannot know.
 	msg := computeUpdateWarning(context.Background())
 	assert.Contains(t, msg, "out of date")
 	assert.Contains(t, msg, "0000000 < v202")
@@ -256,9 +255,7 @@ func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
 	require.NotNil(t, activeUpdateCheck)
 	<-activeUpdateCheck.done // wait so Report takes the "ready" branch
 
-	// The staleness notice is a logger.Warn, which under GITHUB_ACTIONS=true
-	// routes to stdout as a ::warning annotation; pin non-GHA mode so it lands
-	// on stderr for capture.
+	// logger.Warn routes to stdout as a ::warning annotation under GITHUB_ACTIONS=true; pin non-GHA mode for stderr capture.
 	t.Setenv("GITHUB_ACTIONS", "")
 	out := captureStderr(t, ReportUpdateCheck)
 	assert.Contains(t, out, "out of date")
@@ -282,8 +279,7 @@ func TestReportUpdateCheck_KillsWhenSlow(t *testing.T) {
 	StartUpdateCheck()
 	require.NotNil(t, activeUpdateCheck)
 
-	// Report must return promptly (kill the in-flight check), never block on the
-	// slow server.
+	// Report must return promptly (kill the in-flight check), never block on the slow server.
 	returned := make(chan struct{})
 	go func() { ReportUpdateCheck(); close(returned) }()
 	select {

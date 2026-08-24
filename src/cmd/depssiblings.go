@@ -11,22 +11,15 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// siblingRequires returns every module that lives in the same repository as
-// the module c describes and is reachable through its requirements, each
-// mapped to the pseudo-version it has at c's commit.
+// siblingRequires returns every module in the same repository as c, reachable
+// through its requirements, mapped to its pseudo-version at c's commit.
 //
-// A multi-module repository cannot pin itself. Its modules are cut from one
-// tree and released together from one commit, but the sibling require inside
-// any of them was written BEFORE that commit existed, so it names an earlier
-// one -- and at the repository's first publish, one with no such module in it
-// at all. That is where "missing go.mod at revision" comes from: not a wrong
-// pin, but the only pin a commit can carry about itself.
-//
-// A replace fixes it inside the repository and nowhere else, since a replace
-// is main-module-only. What reaches a consumer is fixed here instead: the
-// consumer requires the siblings itself, at the commit the tracked module
-// resolved to, and minimal version selection takes the newer of the two. The
-// stale pin loses and is never fetched, so it stops mattering what it says.
+// A multi-module repo can't pin itself: a sibling require is written before
+// the commit it names exists, so it points at an earlier one -- at first
+// publish, one lacking the module entirely ("missing go.mod at revision").
+// A replace fixes this only inside the repo. This resolves it for a consumer
+// instead: the consumer requires the siblings directly at the resolved
+// commit, and minimal version selection picks that over the stale pin.
 func siblingRequires(r runner.CommandRunner, c *gitCommit, mainModule string) (map[string]string, error) {
 	out := map[string]string{}
 	seen := set.Of(c.Subdir)
@@ -61,10 +54,7 @@ func siblingRequires(r runner.CommandRunner, c *gitCommit, mainModule string) (m
 	return out, nil
 }
 
-// inRepo reports whether a module path belongs to the repository whose
-// module-path prefix is root. The path is either the root itself or sits
-// beneath it; a prefix that stops mid-segment is a different repository whose
-// name happens to start the same way.
+// inRepo: mod is root itself, or root plus a "/" boundary, not just a name prefix.
 func inRepo(mod, root string) bool {
 	return mod == root || strings.HasPrefix(mod, root+"/")
 }

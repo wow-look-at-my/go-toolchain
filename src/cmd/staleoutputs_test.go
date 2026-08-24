@@ -42,8 +42,7 @@ func TestIsOutputArtifact(t *testing.T) {
 	assert.False(t, isOutputArtifact("wasm_exec.js", "wasm"))
 	assert.True(t, isOutputArtifact("wasm_linux_amd64", "wasm"))
 
-	// An empty target name matches nothing (a module with no resolvable name
-	// must never sweep the whole output directory).
+	// An empty target name matches nothing -- no resolvable name must never sweep the whole output dir.
 	assert.False(t, isOutputArtifact("mytool", ""))
 	assert.False(t, isOutputArtifact("_host", ""))
 }
@@ -61,8 +60,7 @@ func writeOutputDir(t *testing.T, dir string, names ...string) string {
 func TestRemoveBuildOutputsIn(t *testing.T) {
 	dir := writeOutputDir(t, filepath.Join(t.TempDir(), "build"),
 		"mytool", "mytool_linux_amd64", "mytool.dbg", "checksums.txt", "unrelated")
-	// A stale host symlink is unlinked like any other artifact — and following
-	// it must never be required (its target is already gone).
+	// A stale host symlink is unlinked like any other artifact; following it is never required.
 	require.NoError(t, os.Symlink("mytool_linux_amd64", filepath.Join(dir, "mytool_host")))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "mytool_dir"), 0o755))
 
@@ -108,8 +106,7 @@ func setupOutputModule(t *testing.T) string {
 		outputDir = oldOut
 		resetTrackedOutputs()
 	})
-	// t.TempDir() on macOS is a /var symlink to /private/var; resolve it so
-	// the tracked absolute paths compare equal to what the test writes.
+	// t.TempDir() on macOS is a /var symlink to /private/var; resolve it to match the tracked absolute paths.
 	resolved, err := filepath.EvalSymlinks(tmp)
 	require.NoError(t, err)
 	return resolved
@@ -127,8 +124,7 @@ func TestClearBuildOutputsDeletesPreviousRunBinaries(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "mytool_linux_amd64"))
 	assert.FileExists(t, filepath.Join(dir, "checksums.txt"))
 
-	// The module is tracked, so a failure later in the pipeline can delete
-	// whatever the build phase wrote in the meantime.
+	// The module is tracked, so a later pipeline failure can delete whatever the build phase wrote.
 	tracked := trackedOutputsSnapshot()
 	require.Len(t, tracked, 1)
 	assert.Equal(t, dir, tracked[0].dir)
@@ -142,9 +138,7 @@ func TestDiscardBuildOutputsRemovesBinariesBuiltThisRun(t *testing.T) {
 	// Clear with nothing built yet, as the pipeline does before its phases.
 	require.NoError(t, clearBuildOutputs(runner.New()))
 
-	// The build phase then succeeds and a LATER phase fails (a red dats suite,
-	// the warnings gate): the freshly built binary must go too, or it stands
-	// as the result of a run that failed.
+	// Build succeeds but a LATER phase fails (dats, warnings gate): the fresh binary must go too.
 	writeOutputDir(t, dir, "mytool", "checksums.txt")
 	discardBuildOutputs()
 
@@ -158,8 +152,7 @@ func TestDiscardBuildOutputsIsIndependentOfWorkingDirectory(t *testing.T) {
 	require.NoError(t, clearBuildOutputs(runner.New()))
 	writeOutputDir(t, dir, "mytool")
 
-	// A multi-module run clears each module from that module's directory and
-	// can fail after chdir'ing elsewhere; the tracked paths are absolute.
+	// A multi-module run can fail after chdir'ing elsewhere; tracked paths are absolute.
 	other := t.TempDir()
 	require.NoError(t, os.Chdir(other))
 	discardBuildOutputs()
@@ -171,8 +164,7 @@ func TestDiscardBuildOutputsFromCWD(t *testing.T) {
 	tmp := setupOutputModule(t)
 	dir := writeOutputDir(t, filepath.Join(tmp, "build"), "mytool", "mytool_host", "checksums.txt")
 
-	// The guard/bootstrap exit paths never entered the pipeline, so nothing is
-	// tracked — they resolve the module from the current directory instead.
+	// The guard/bootstrap exit paths never enter the pipeline, so nothing is tracked; they resolve from cwd instead.
 	removed := discardBuildOutputsFromCWD()
 
 	assert.ElementsMatch(t,
@@ -228,8 +220,7 @@ func TestPipelineDeletesStaleBinaryWhenBuildFails(t *testing.T) {
 
 func TestPipelineKeepsTheBinaryItJustBuilt(t *testing.T) {
 	buildDir, binary := setupPipelineOutputTest(t)
-	// The stale binary from the previous run is still deleted up front; what
-	// must survive is the one this run's `go build` writes.
+	// The stale binary is deleted up front; what must survive is the one this run's build writes.
 	writeOutputDir(t, buildDir, binary)
 
 	mock := newTestPassMock(0)

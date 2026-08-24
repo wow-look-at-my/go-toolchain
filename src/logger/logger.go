@@ -58,15 +58,11 @@ type Options struct {
 	Stdout io.Writer
 	// Stderr is the writer for Debug, Warn, and Error messages. Defaults to os.Stderr.
 	Stderr io.Writer
-	// GHA enables GitHub Actions workflow commands (::warning, ::error).
-	// Defaults to true when GITHUB_ACTIONS=="true".
+	// GHA enables GitHub Actions workflow commands (::warning, ::error); defaults to GITHUB_ACTIONS=="true".
 	GHA bool
-	// GHAAuto, when true, overrides GHA and checks GITHUB_ACTIONS at emit
-	// time instead of at init time. Used by the default logger so that tests
-	// which set GITHUB_ACTIONS after logger initialization are respected.
+	// GHAAuto, when true, checks GITHUB_ACTIONS at emit time instead of init time, so a test that sets it late still works.
 	GHAAuto bool
-	// Colors enables ANSI color codes in output. Defaults to false in non-TTY
-	// environments. Set explicitly to override auto-detection.
+	// Colors enables ANSI color codes; defaults to false in non-TTY environments unless set explicitly.
 	Colors bool
 }
 
@@ -117,11 +113,8 @@ func (l *Logger) Info(format string, args ...any) {
 	l.write(l.opts.Stdout, format, args...)
 }
 
-// isGHA returns true if GitHub Actions mode is active. When GHAAuto is set
-// it checks GITHUB_ACTIONS at call time (used by the default logger so that
-// tests setting the env var after init are respected); otherwise it returns
-// the static GHA option.
-// Callers must hold l.mu.
+// isGHA reports whether GHA mode is active: GHAAuto checks GITHUB_ACTIONS live, else the
+// static GHA field applies. Callers must hold l.mu.
 func (l *Logger) isGHA() bool {
 	if l.opts.GHAAuto {
 		return os.Getenv("GITHUB_ACTIONS") == "true"
@@ -218,9 +211,7 @@ func (l *Logger) ErrorFile(file, format string, args ...any) {
 	}
 }
 
-// Output emits a message unconditionally to Stdout. This is for "the actual
-// result of the command" (e.g. version strings, coverage percentages). It
-// bypasses level filtering — even LevelSilent does not suppress it.
+// Output emits a message unconditionally to Stdout; it bypasses level filtering, even LevelSilent.
 func (l *Logger) Output(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

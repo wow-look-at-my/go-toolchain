@@ -40,8 +40,7 @@ func TestMain(m *testing.M) {
 // sink decisions, reached through fstat + F_GETPATH instead of /proc.
 func TestInspectFDClassificationDarwin(t *testing.T) {
 	t.Run("pipe_is_blocked", func(t *testing.T) {
-		// Both ends of this pipe belong to the test process, which is not an
-		// ancestor of itself, so the reader is not the agent -- fail closed.
+		// Both ends belong to this process, which is not its own ancestor: fail closed.
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		defer r.Close()
@@ -94,9 +93,7 @@ func TestFDPathRecoversRealPath(t *testing.T) {
 	defer f.Close()
 
 	got := fdPath(f.Fd())
-	// F_GETPATH can return a firmlink-resolved path (e.g. /private/var/...
-	// for a /var/... input) on darwin, so compare os.Stat identity rather than
-	// string equality.
+	// F_GETPATH may firmlink-resolve the path, so compare os.Stat identity, not strings.
 	wantInfo, err := os.Stat(f.Name())
 	require.NoError(t, err)
 	gotInfo, err := os.Stat(got)
@@ -105,8 +102,7 @@ func TestFDPathRecoversRealPath(t *testing.T) {
 }
 
 func TestFDPathEmptyOnPipe(t *testing.T) {
-	// A pipe has no path; F_GETPATH must fail rather than return garbage, and
-	// fdPath must surface that as "", never a made-up path.
+	// A pipe has no path; fdPath must surface "", never a made-up path.
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	defer r.Close()
@@ -136,13 +132,9 @@ func TestSocketPeerPIDOnNonSocketFails(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestPipeReaderAllowanceThroughTheGuardDarwin mirrors
-// TestPipeReaderAllowanceThroughTheGuard (claudeguard_test.go, linux) against
-// the sysctl-backed CommPPID this package now gets from is-this-an-agent:
-// os.Getppid() as both the ancestry target and the walk's start makes the
-// ancestry check trivially true, isolating the assertion to name/pid
-// matching -- proof the darwin lookup answers the same real questions the
-// linux one does, not just that it compiles.
+// TestPipeReaderAllowanceThroughTheGuardDarwin mirrors the linux
+// TestPipeReaderAllowanceThroughTheGuard, against the sysctl-backed CommPPID
+// from is-this-an-agent, isolating the assertion to name/pid matching.
 func TestPipeReaderAllowanceThroughTheGuardDarwin(t *testing.T) {
 	parent := os.Getppid()
 	assert.True(t, agent.IsPipeReader("opencode", parent))
@@ -167,15 +159,9 @@ func TestInspectFDSocketClassification(t *testing.T) {
 	assert.NotEmpty(t, s.detail, "detail must name the peer, not be silently empty")
 }
 
-// TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself is the actual
-// bug fix, end to end: opencode's own bash tool wires a child's stdout
-// through a socketpair (not a bare pipe), so a completely unpiped, unredirected
-// `go-toolchain` invocation was refused with "captured instead of printed to
-// the terminal" even though the reader IS the very agent that will show the
-// output to the user. Reproduces that exact plumbing -- this test process
-// holds the socket's other end and is the child's real parent, and the
-// child's OPENCODE_PID names this test process as opencode's own pid, the
-// same way opencode really exports it to its bash tool's children.
+// TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself reproduces
+// opencode's socketpair stdout plumbing: this process holds the socket's
+// other end and is the real parent, with OPENCODE_PID naming its own pid.
 func lookPathNativeDarwinToolchain(t *testing.T) string {
 	t.Helper()
 	bin, err := exec.LookPath("go-toolchain")
@@ -204,12 +190,7 @@ func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) 
 		if recognizedPID {
 			pidVar = "OPENCODE_PID=" + strconv.Itoa(os.Getpid())
 		}
-		// A bare invocation (no subcommand) is what actually reaches the
-		// guard; run it from an empty dir so no real build is attempted --
-		// with no go.mod, EnsureGoVersion proceeds with whatever Go is
-		// already on PATH and control reaches the guard immediately after.
-		// Any failure past that point (no go.mod to build) is expected and
-		// irrelevant here; only the guard's own refusal is under test.
+		// A bare invocation reaches the guard; only its own refusal is under test.
 		cmd := exec.Command(bin)
 		cmd.Dir = t.TempDir()
 		cmd.Stdout = childStdout
@@ -252,8 +233,7 @@ func TestAgentGuardRefusesPipedRunUnderOpencode(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.Error(t, err, "must exit non-zero when piped under OPENCODE=1; got output: %s", out)
 	assert.Contains(t, string(out), "refused to run")
-	// Ancestry outranks the env marker, so the message names grok build when
-	// this test runs inside a grok session rather than "opencode".
+	// Ancestry outranks the env marker, so the message may name grok build.
 }
 
 // TestAgentGuardAllowsPlainRunWhenSocketReaderIsGrok is the grok-build twin of

@@ -136,9 +136,7 @@ func TestDepChecker_Cancel(t *testing.T) {
 }
 
 func TestCheckOutdatedDeps(t *testing.T) {
-	// This test verifies the function doesn't panic and returns a DepChecker.
-	// We cancel immediately rather than waiting for completion, since the live
-	// dependency checks require network access and can exceed the test timeout.
+	// Cancel immediately rather than waiting: live checks need network access and can time out.
 	dc := CheckOutdatedDeps()
 	assert.NotNil(t, dc)
 	dc.Cancel()

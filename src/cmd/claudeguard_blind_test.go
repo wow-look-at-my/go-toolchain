@@ -29,15 +29,11 @@ func captureGuardOut(t *testing.T, f func()) string {
 	return buf.String()
 }
 
-// A blind classifier must ANNOUNCE that it is blind. Answering sinkVisible is
-// correct — a guard that cannot see must not refuse a legitimate run — but
-// that answer means "the guard is not running", and a guard that silently is
-// not running is worse than one that is loudly absent.
+// A blind classifier must ANNOUNCE it is blind: sinkVisible is correct, since a guard that
+// cannot see must not refuse a run — but silent is indistinguishable from running.
 //
-// Driven through blindClassifierSink rather than unclassifiableSink so the
-// banner's CONTENT is asserted on every platform's CI. Reaching it through the
-// host dispatch would make this a no-op on the linux runners that are the only
-// place this suite runs, which is how the banner could regress unseen.
+// Driven through blindClassifierSink, not unclassifiableSink, so the banner's content is
+// asserted on every platform, not via linux-only host dispatch.
 func TestBlindClassifierSinkAnnouncesItself(t *testing.T) {
 	var got outputSink
 	out := captureGuardOut(t, func() { got = blindClassifierSink("darwin") })

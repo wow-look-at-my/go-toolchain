@@ -27,19 +27,14 @@ import (
 	"unsafe"
 )
 
-// fGetPath is Apple's F_GETPATH fcntl command. This is the one probe with no
-// Linux counterpart to be shaped like, so the Apple number is correct here;
-// the fork accepts it specifically.
+// fGetPath is Apple's F_GETPATH fcntl command -- the one probe with no Linux shape, so the Apple number is correct.
 const fGetPath = 50
 
 // pathMax bounds the F_GETPATH buffer (darwin's PATH_MAX).
 const pathMax = 1024
 
-// unsupportedErrno reports whether errno means "this build cannot ask that
-// question here", as opposed to a real negative answer about the descriptor.
-// ENOTSUP is not listed alongside EOPNOTSUPP: they are the same constant (95)
-// in the Linux-shaped errno space this build compiles against, and naming both
-// is a duplicate case the compiler rejects.
+// unsupportedErrno reports whether errno means "cannot ask this here", not a
+// real negative answer. ENOTSUP == EOPNOTSUPP (95) here, so only one is listed.
 func unsupportedErrno(errno syscall.Errno) bool {
 	switch errno {
 	case syscall.ENOSYS, syscall.EOPNOTSUPP, syscall.ENOPROTOOPT, syscall.EINVAL:

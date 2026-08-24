@@ -17,25 +17,13 @@ import (
 // the priority under any backend trouble is to get out of the way of the build
 // fast and quietly rather than to keep trying.
 const (
-	// defaultMaxRetries bounds how many extra attempts a transient failure gets.
-	// Small on purpose — retries against a struggling backend add to the very
-	// load that is hurting it. Retries honor the server's Retry-After (which is
-	// "wait," not "give up") and paper over isolated single-request blips; a
-	// genuine failure that outlasts the retry budget simply falls back to a local
-	// miss for that one operation, without disabling the remote tier.
+	// defaultMaxRetries caps extra attempts after a transient failure, to limit load on a struggling backend.
 	defaultMaxRetries = 2
 
-	// defaultEmptyBatchBackoff is the number of consecutive zero-entry /_batch/get
-	// responses that disables further batch probing for the rest of the process.
-	// An empty-but-200 batch is a HEALTHY backend that simply has none of this
-	// build's keys. CI batches were ~1.6 keys / ~45ms each, so backing off after
-	// ~24 consecutive empties bounds the wasted probing to ~1s; the daemon is one
-	// process for the whole build, so one trip covers every later phase. 0
-	// disables the backoff (override via GO_TOOLCHAIN_CACHE_EMPTY_BATCH_BACKOFF).
+	// defaultEmptyBatchBackoff: consecutive empty /_batch/get responses before probing turns off; 0 disables it.
 	defaultEmptyBatchBackoff = 24
 
-	// retryBaseDelay / retryMaxDelay bound the exponential backoff between
-	// retries. Full jitter is applied on top (see sleepBackoff).
+	// retryBaseDelay / retryMaxDelay bound the exponential backoff between retries; full jitter on top (see sleepBackoff).
 	retryBaseDelay = 100 * time.Millisecond
 	retryMaxDelay  = 2 * time.Second
 )
@@ -66,9 +54,7 @@ func (b *WebBackend) noteBatchEntries(n int) {
 	}
 }
 
-// batchProbingOff reports whether the consecutive-empty-batch backoff has
-// tripped, meaning cold not-in-index keys should miss cleanly without a
-// /_batch/get round-trip for the rest of this run.
+// batchProbingOff reports whether the empty-batch backoff tripped, so cold keys miss without a round-trip.
 func (b *WebBackend) batchProbingOff() bool {
 	return b.batchProbingDisabled.Load()
 }
@@ -90,10 +76,7 @@ func envInt(name string, def int) int {
 	return n
 }
 
-// transientStatus reports whether an HTTP status code indicates a transient
-// backend problem worth retrying. 5xx (gateway/upstream trouble — the 502 storm)
-// and 429 (overload) are transient; every 4xx, including a 404 cache miss, is a
-// definitive answer from a healthy backend and must NOT be retried.
+// transientStatus reports whether a status is transient (5xx or 429); other 4xx, including 404, is definitive.
 func transientStatus(code int) bool {
 	return code >= 500 || code == http.StatusTooManyRequests
 }
@@ -131,28 +114,18 @@ func parseRetryAfter(resp *http.Response) time.Duration {
 	return d
 }
 
-// doRetryGET issues an idempotent GET (individual get, batch get) with the
-// configured number of bounded retries on transient failures. The index fetch
-// uses doRetryGETN directly with its own tighter budget.
+// doRetryGET issues an idempotent GET with the configured bounded-retry policy on transient failures.
 func (b *WebBackend) doRetryGET(req *http.Request) (*http.Response, error) {
 	return b.doRetry(req, b.maxRetries)
 }
 
-// doRetryGETN issues an idempotent GET with up to maxRetries retries — the
-// index fetch caps its retries below the configured policy so a slow server
-// cannot stall daemon startup (see the index fetch budgets in web_index.go /
-// indexFetchRetries).
+// doRetryGETN issues a GET with up to maxRetries retries; the index fetch caps this lower so it can't stall startup.
 func (b *WebBackend) doRetryGETN(req *http.Request, maxRetries int) (*http.Response, error) {
 	return b.doRetry(req, maxRetries)
 }
 
-// doRetryPUT issues an upload with the same bounded-retry/backoff policy as
-// doRetryGET. PUT is idempotent for this cache (the key is the content address,
-// so re-storing the same object is a no-op), which makes retrying a shed
-// request safe. The body is supplied as an in-memory []byte so each attempt can
-// rebuild a fresh reader via req.GetBody — without this a 503 admission shed
-// (the cache server's backpressure under a CI burst) silently dropped the
-// upload and the object was never stored.
+// doRetryPUT issues an upload with doRetryGET's bounded-retry policy; PUT is idempotent here (key = content address).
+// The body is []byte so each retry rebuilds a fresh reader via req.GetBody, or a 503 admission shed silently drops it.
 func (b *WebBackend) doRetryPUT(req *http.Request, body []byte) (*http.Response, error) {
 	req.Body = io.NopCloser(bytes.NewReader(body))
 	req.ContentLength = int64(len(body))
@@ -192,13 +165,11 @@ func (b *WebBackend) doRetry(req *http.Request, maxRetries int) (*http.Response,
 		if attempt >= maxRetries {
 			return resp, err
 		}
-		// Honor a server-supplied Retry-After (e.g. the admission-control 503
-		// shed), but never sleep less than the jittered backoff.
+		// Honor a server Retry-After (e.g. a 503 admission shed), but never sleep less than the jittered backoff.
 		var retryAfter time.Duration
 		if err == nil {
 			retryAfter = parseRetryAfter(resp)
-			// Drain and close a transient response before retrying so the
-			// connection returns to the pool.
+			// Drain and close so the connection returns to the pool.
 			io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
 			resp.Body.Close()
 		}
@@ -206,12 +177,8 @@ func (b *WebBackend) doRetry(req *http.Request, maxRetries int) (*http.Response,
 	}
 }
 
-// sleepBackoff waits before a retry, returning early if the backend is shutting
-// down. The base wait is an exponentially increasing, fully jittered delay
-// (full jitter — a random duration in [0, cap]) so a parallel build does not
-// synchronize into a thundering herd against a recovering backend. A non-zero
-// atLeast (a server Retry-After hint) raises the floor: the actual sleep is
-// max(jittered backoff, atLeast), still capped at retryMaxDelay.
+// sleepBackoff waits before a retry (full jitter, so parallel builds don't sync into a thundering herd), returning
+// early on shutdown. A non-zero atLeast (a server Retry-After hint) raises the floor, still capped at retryMaxDelay.
 func (b *WebBackend) sleepBackoff(attempt int, atLeast time.Duration) {
 	d := retryBaseDelay << attempt
 	if d > retryMaxDelay || d <= 0 {

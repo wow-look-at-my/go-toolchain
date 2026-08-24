@@ -7,10 +7,8 @@ import (
 	"strings"
 )
 
-// Token represents a single element in a linearized AST sequence.
-// Structural tokens use a single-char symbol; leaf nodes (identifiers,
-// literals, types) are recorded as placeholder "_" but the concrete
-// value is preserved for refactoring suggestions.
+// Token is one element in a linearized AST sequence: structural nodes use a
+// single-char symbol; leaf nodes record "_" but keep their concrete value.
 type Token struct {
 	Symbol   byte   // structural symbol (e.g. 'I' for IfStmt)
 	Concrete string // original name/literal for leaf nodes, empty for structural
