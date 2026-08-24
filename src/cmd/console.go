@@ -199,13 +199,7 @@ type timedLineWriter struct {
 	lineEnd     time.Time // when the line content was written
 }
 
-// timedLineMinDuration is the minimum gap before closeLine appends a
-// duration to a line; faster lines just get their newline. Mirrors logx's
-// minDurationToShow: a verbose subprocess (e.g. `go mod tidy -v`, whose
-// per-package "downloading" lines this writer times) can print dozens of
-// lines milliseconds apart, and stamping every one with "0.00s" is noise,
-// not information. A var, not a const, so tests can lower it instead of
-// sleeping for real.
+// timedLineMinDuration mirrors logx's minDurationToShow: skip stamping fast lines.
 var timedLineMinDuration = time.Second
 
 // newTimedLineWriter creates a writer that appends elapsed time to each line.

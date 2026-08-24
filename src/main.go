@@ -51,16 +51,14 @@ func needsGo() bool {
 }
 
 func main() {
-	// Install the elapsed-duration pipeline for all stdout/stderr lines.
-	// Skipped for the GOCACHEPROG subprocess — its stdout is a JSON protocol
-	// pipe that the Go toolchain parses and must stay undecorated.
+	// Install the elapsed-duration pipeline. Skip it for GOCACHEPROG: its
+	// stdout is a JSON protocol pipe that must stay undecorated.
 	if !isCacheProgInvocation() {
 		logx.Install()
 	}
 
-	// Kick off a non-blocking background check for a newer go-toolchain on
-	// buildhost. It runs while the real work happens and is surfaced (or killed)
-	// by ReportUpdateCheck on every exit path — it never blocks or delays.
+	// Check for a newer go-toolchain in the background; ReportUpdateCheck
+	// surfaces or kills it on every exit path, so it never blocks.
 	if shouldCheckForUpdate() {
 		cmd.StartUpdateCheck()
 	}

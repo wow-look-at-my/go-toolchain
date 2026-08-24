@@ -41,8 +41,7 @@ import (
 	"time"
 )
 
-// ColorDimCyan is the ANSI color used for elapsed-duration suffixes.
-// Exported so cmd's tests can assert on the expected formatting.
+// ColorDimCyan is the ANSI color for elapsed-duration suffixes, exported for tests.
 const ColorDimCyan = "\033[38;2;100;160;160m"
 
 const colorReset = "\033[0m"
@@ -102,8 +101,7 @@ func Flush() {
 	if !installed {
 		return
 	}
-	// Restore originals first so any post-Flush writes don't deadlock on a
-	// closed pipe. Then close the pipe write-ends to signal EOF to drainers.
+	// Restore now so late writes don't deadlock on the pipe once it's closed.
 	os.Stdout = origStdout
 	os.Stderr = origStderr
 	_ = pipeStdoutW.Close()
@@ -112,35 +110,20 @@ func Flush() {
 	installed = false
 }
 
-// ansiRE matches ANSI escape sequences so we can strip them before
-// checking whether a line already ends with a duration.
+// ansiRE matches ANSI escape sequences, stripped before checking for an existing duration suffix.
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// alreadyTimedRE matches a line that already ends with a " X.XXs"-style
-// duration suffix (e.g. output from cmd/console.go's fmtDuration). We skip
-// adding another duration in that case.
+// alreadyTimedRE matches a line already ending in a " X.XXs" duration suffix, so drain skips it.
 var alreadyTimedRE = regexp.MustCompile(` \d+\.\d{2}s$`)
 
-// minDurationToShow is the minimum elapsed time before drain appends a
-// duration suffix to a line. Most lines (progress messages, help text,
-// ordinary log output) appear well under a second apart; stamping every one
-// of them would bury the few durations that actually matter under noise, so
-// faster lines print unchanged. A var, not a const, so tests can lower it
-// instead of sleeping for real.
+// minDurationToShow is the elapsed time before drain appends a duration suffix; a var so tests can lower it.
 var minDurationToShow = time.Second
 
-// drain reads lines from r and writes them to w with an elapsed-duration
-// suffix (the wall-clock gap since the previous line, formatted by
-// FmtDuration) — but only when that gap is at least minDurationToShow.
-// Faster lines are written unchanged.
-//
-// Lines that already end with a " X.XXs" duration (after stripping ANSI
-// color codes) are always passed through unchanged, regardless of elapsed
-// time, so we don't double-stamp output from step.finish or other places
-// that already format timing via fmtDuration.
-//
-// Partial content at EOF (no trailing newline) is emitted with an
-// appended newline so nothing is lost.
+// drain reads lines from r and writes them to w, appending an elapsed-duration
+// suffix once the gap since the previous line reaches minDurationToShow.
+// A line already ending in a duration suffix passes through unchanged, so
+// step.finish's own timing is never double-stamped. A trailing partial line
+// at EOF is still emitted, with a newline appended.
 func drain(r *os.File, w io.Writer) {
 	defer drainedWG.Done()
 	defer r.Close()
@@ -165,10 +148,8 @@ func drain(r *os.File, w io.Writer) {
 	}
 }
 
-// FmtDuration formats a duration as dark greyish-cyan colored "X.XXs"
-// (e.g. "0.19s"). Used by both the drain and by cmd/console.go's step
-// system, so output stays consistent and the drain's already-timed-line
-// detection works.
+// FmtDuration formats d as dark greyish-cyan "X.XXs", used by both drain
+// and console.go's step timing, so output stays consistent.
 func FmtDuration(d time.Duration) string {
 	return fmt.Sprintf("%s%.2fs%s", ColorDimCyan, d.Seconds(), colorReset)
 }

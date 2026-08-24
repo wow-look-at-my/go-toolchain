@@ -30,8 +30,7 @@ func captureInstalled(t *testing.T, fn func()) string {
 	tmpErr, err := os.CreateTemp(t.TempDir(), "stderr-*")
 	require.Nil(t, err)
 
-	// Swap os.Stdout/Stderr to our temp files so Install captures those
-	// as the "origStdout" / "origStderr" destinations.
+	// Swap os.Stdout/Stderr for temp files so Install captures the originals.
 	origOut, origErr := os.Stdout, os.Stderr
 	os.Stdout = tmpOut
 	os.Stderr = tmpErr
@@ -60,9 +59,8 @@ var durSuffixRE = regexp.MustCompile(` \d+\.\d{2}s\n$`)
 // durLineRE matches a single line (no trailing newline) that ends with a duration.
 var durLineRE = regexp.MustCompile(` \d+\.\d{2}s$`)
 
-// withMinDuration lowers minDurationToShow for the duration of a test, so
-// tests can exercise the "line was slow enough to time" path without
-// actually sleeping for a real second.
+// withMinDuration lowers minDurationToShow for one test, so it can
+// exercise the slow-line path without sleeping for real.
 func withMinDuration(t *testing.T, d time.Duration) {
 	t.Helper()
 	old := minDurationToShow
@@ -103,9 +101,8 @@ func TestInstallAppendsDurationToSlowStdoutLine(t *testing.T) {
 }
 
 func TestInstallHandlesPartialLines(t *testing.T) {
-	// Simulates the step pattern: print prefix without newline, do work,
-	// then print completion with newline. The line already ends with a
-	// duration (1.82s) so drain() must NOT append another one.
+	// The prefix prints without a newline, then the completion prints
+	// "done. 1.82s\n"; drain() must not append a second duration.
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stdout, "⇒ Running tests with coverage...")
 		fmt.Fprintf(os.Stdout, " done. 1.82s\n")

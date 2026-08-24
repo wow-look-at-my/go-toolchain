@@ -26,20 +26,8 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
-// guard can refuse to run when the agent is hiding the output. It runs before the
-// output watchdog rewires fd 1, so it sees the real descriptor the shell set up.
-//
-// It inspects the raw descriptor 1, not os.Stdout.Fd(): logx.Install() (see
-// src/logx) reassigns the os.Stdout variable to its own internal pipe very
-// early in main(), before Cobol even starts, so os.Stdout.Fd() would report
-// logx's drain pipe instead of the real one. That pipe's reader is a
-// goroutine in THIS process, invisible to pipePeerName's cross-process /proc
-// scan, so every invocation under a real agent would misjudge as a hidden
-// sinkPipe and refuse to run — even when the shell's actual fd 1 is a
-// terminal or the harness's own capture file. fd 1 itself is never
-// reassigned by logx's swap (the original *os.File stays open under a
-// different name), so it always reflects the shell's real disposition.
+// inspectStdout reads fd 1 directly: logx.Install() swaps os.Stdout for
+// its own pipe, so Fd() would misreport a real terminal as hidden.
 func inspectStdout() outputSink {
 	return inspectFD(1)
 }

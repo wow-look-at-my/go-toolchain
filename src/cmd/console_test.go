@@ -139,9 +139,8 @@ func TestLogStepFailedSilent(t *testing.T) {
 	assert.NotContains(t, output, "...\n")
 }
 
-// withTimedLineMinDuration lowers timedLineMinDuration for the duration of a
-// test, so tests can exercise the "line was slow enough to time" path
-// without actually sleeping for a real second.
+// withTimedLineMinDuration lowers timedLineMinDuration for one test, so
+// it can exercise the slow-line path without sleeping for real.
 func withTimedLineMinDuration(t *testing.T, d time.Duration) {
 	t.Helper()
 	old := timedLineMinDuration
