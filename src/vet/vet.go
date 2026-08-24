@@ -36,6 +36,7 @@ func Analyzers() []*analysis.Analyzer {
 		AssertNormAnalyzer,
 		DeadCodeAnalyzer,
 		BannedOutputAnalyzer,
+		CommentSpanAnalyzer,
 		MapSetAnalyzer,
 		RedundantCastAnalyzer,
 		TestifyCastAnalyzer,
@@ -168,6 +169,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	// the configurations; buildtags.Verify below PROVES they were sufficient.
 	resetMapSetWarnings()
 	resetWriteRunWarnings()
+	resetCommentSpanWarnings()
 	discovery, err := buildtags.Scan(".")
 	if err != nil {
 		return filesChanged, fmt.Errorf("discovering build tags: %w", err)

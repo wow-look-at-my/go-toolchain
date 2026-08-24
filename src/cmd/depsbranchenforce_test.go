@@ -165,9 +165,9 @@ require github.com/wow-look-at-my/foo v1.2.3 // indirect
 
 	warnings := logger.EmittedWarnings()
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "github.com/wow-look-at-my/foo")
-	assert.Contains(t, warnings[0], "replace")
-	assert.Contains(t, warnings[0], pinnedMarker)
+	assert.Contains(t, warnings[0].Message, "github.com/wow-look-at-my/foo")
+	assert.Contains(t, warnings[0].Message, "replace")
+	assert.Contains(t, warnings[0].Message, pinnedMarker)
 }
 
 // The two ways out of that warning, plus the case where the module is not the
@@ -298,7 +298,7 @@ replace github.com/wow-look-at-my/foo => ../foo
 
 	warnings := logger.EmittedWarnings()
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "github.com/wow-look-at-my/foo")
+	assert.Contains(t, warnings[0].Message, "github.com/wow-look-at-my/foo")
 }
 
 // A sibling of a line this run just marked is the exception. The sibling
@@ -373,8 +373,8 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:branch=master
 
 	warnings := logger.EmittedWarnings()
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "github.com/wow-look-at-my/foo")
-	assert.Contains(t, warnings[0], "=master", "the warning names what to drop")
+	assert.Contains(t, warnings[0].Message, "github.com/wow-look-at-my/foo")
+	assert.Contains(t, warnings[0].Message, "=master", "the warning names what to drop")
 }
 
 func TestEnforceOrgBranchTrackingIsANoOpWithoutAGoMod(t *testing.T) {
