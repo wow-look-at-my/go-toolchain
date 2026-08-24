@@ -12,8 +12,7 @@ type Mock struct {
 	mu        sync.Mutex
 	responses map[string]mockResponse
 	calls     []Config
-	// Handler is called for each Run if set, allowing custom behavior.
-	// If it returns non-nil IProcess, that's used instead of looking up responses.
+	// Handler, if set, is called for each Run; a non-nil IProcess return is used instead of a looked-up response.
 	Handler func(cfg Config) (IProcess, error)
 }
 

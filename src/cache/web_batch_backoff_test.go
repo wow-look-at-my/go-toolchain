@@ -82,10 +82,7 @@ func TestWebBackend_EmptyBatchBackoffStopsProbing(t *testing.T) {
 	require.False(t, b.indexAuthoritative, "fetch failure => non-authoritative => probing enabled")
 	require.Equal(t, 4, b.emptyBatchBackoffThreshold)
 
-	// Issue many distinct cold keys. The coalescer ships one key per batch here
-	// (each Get blocks on its own reply before the next is issued), so each Get
-	// that reaches the network is exactly one empty /_batch/get. After the
-	// threshold the backoff trips and the remaining Gets skip the network.
+	// Each blocking Get issues one empty /_batch/get; after the threshold, the backoff skips the network.
 	const nKeys = 40
 	for i := 0; i < nKeys; i++ {
 		id := fmt.Sprintf("%016x", 0xb0110000+i)
@@ -137,8 +134,7 @@ func TestWebBackend_BackoffResetsOnNonEmptyBatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer b.Close()
-	// fakeBatchServer 404s on /_index, so the index is not authoritative and
-	// cold keys take the batch-probe path this test exercises.
+	// fakeBatchServer 404s on /_index, so cold keys take the batch-probe path this test exercises.
 	require.False(t, b.indexAuthoritative)
 
 	// Interleave: a few cold (empty-batch) keys, then a hot key that resets the

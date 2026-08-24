@@ -30,11 +30,8 @@ func inspectStdout() outputSink {
 	return inspectFD(uintptr(1))
 }
 
-// inspectFD is inspectStdout's logic, parameterized on the descriptor so it can
-// be tested against controlled pipes/files/devices. The algorithm itself lives
-// in claudeguard_darwinhost.go, shared with the cosmo APE that runs on this
-// same host; a native build can always ask its probes, so the
-// could-not-ask outcome degenerates to the old never-block-on-uncertainty.
+// inspectFD is inspectStdout's logic, parameterized for testing.
+// Algorithm: claudeguard_darwinhost.go.
 func inspectFD(fd uintptr) outputSink {
 	sink, ok := inspectFDDarwinHost(fd)
 	if !ok {
@@ -65,10 +62,8 @@ func fdPath(fd uintptr) string {
 	return string(buf)
 }
 
-// socketPeerPID returns the pid on the other end of a connected UNIX-domain
-// socket fd, via getsockopt(SOL_LOCAL, LOCAL_PEERPID) -- a kernel-provided
-// answer, not a guess, and the one piece of peer identification darwin gives
-// for free without libproc.
+// socketPeerPID returns the peer pid of a connected UNIX-domain socket fd,
+// via getsockopt(SOL_LOCAL, LOCAL_PEERPID) -- free, no libproc needed.
 func socketPeerPID(fd uintptr) (pid int, ok bool) {
 	p, err := unix.GetsockoptInt(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERPID)
 	if err != nil {

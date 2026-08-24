@@ -10,9 +10,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// warnGateLogger returns a logger at the given level that emits into
-// discarded buffers, so gate tests can drive the process-wide warning
-// counter without printing to the test output.
+// warnGateLogger returns a logger that emits into discarded buffers, so tests can drive
+// the process-wide warning counter without printing to the test output.
 func warnGateLogger(level logger.Level) *logger.Logger {
 	return logger.New(logger.Options{
 		Level:  level,

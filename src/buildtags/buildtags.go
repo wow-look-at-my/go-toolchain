@@ -29,8 +29,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
-// Config is one set of build tags to run a phase under. A nil/empty Tags is the
-// default configuration -- what the toolchain used to run exclusively.
+// Config is one set of build tags to run a phase under. Empty Tags is the
+// default configuration.
 type Config struct {
 	Tags []string
 }
@@ -63,12 +63,10 @@ type Discovery struct {
 	UserTags []string
 }
 
-// platformIdents are constraint identifiers that describe the BUILD TARGET
-// rather than a project's own opt-in. A file gated only by these is excluded on
-// this host for a reason the pipeline cannot and should not override -- vetting
-// a windows-only file on linux is not what this package is for. Every other
-// identifier is treated as a user tag, so an unknown one fails safe by being
-// covered rather than skipped.
+// platformIdents are constraint identifiers naming the BUILD TARGET, not a
+// project's own opt-in. A file gated only by these stays excluded on this
+// host -- vetting a windows-only file on linux is out of scope here. Every
+// other identifier is a user tag, so an unknown one stays covered.
 var platformIdents = map[string]bool{
 	"cgo": true, "race": true, "msan": true, "asan": true,
 	"gc": true, "gccgo": true, "unix": true, "boringcrypto": true,
@@ -80,12 +78,7 @@ var platformIdents = map[string]bool{
 // constraint idents. Sourced from `go tool dist list`; a value missing here is
 // treated as a user tag, which over-covers rather than under-covers.
 var knownOS = set.Of(
-	// cosmo is the gosmopolitan fork's GOOS, so `go tool dist list` does not
-	// name it. It is a build target all the same, and one this host cannot
-	// stand in for: a `-tags cosmo` load here still satisfies every _linux.go
-	// filename constraint, so each cosmo variant collides with its linux
-	// sibling ("socketPeerPID redeclared"). The GOOS=cosmo matrix job compiles
-	// these files with the fork's toolchain, which is where they are checkable.
+	// cosmo: absent from `go tool dist list`; checked by the matrix job instead.
 	"cosmo",
 	"aix", "android", "darwin", "dragonfly",
 	"freebsd", "hurd", "illumos", "ios", "js",
@@ -136,11 +129,8 @@ func Scan(dir string) (*Discovery, error) {
 			if path != dir && skipDir(d.Name()) {
 				return fs.SkipDir
 			}
-			// A nested module's packages are not import paths of this one, so
-			// a pattern naming one fails to load ("main module does not
-			// contain package ..."). Its tags are its own module's business,
-			// not a configuration this module can be asked to vet itself
-			// under.
+			// A nested module's packages are not import paths of this one;
+			// its tags are its own module's business.
 			if path != dir && gomod.IsNestedModule(path) {
 				return fs.SkipDir
 			}
@@ -202,8 +192,7 @@ func fileTags(path string) ([]string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, nil, parser.PackageClauseOnly|parser.ParseComments)
 	if err != nil {
-		// A file that does not parse is not a tag problem; the type-check
-		// phase reports it with a far better message than this walk could.
+		// Not a tag problem; the type-check phase reports it better.
 		return nil, nil //nolint:nilerr // reported downstream, not here
 	}
 	seen := set.New[string]()
@@ -226,9 +215,7 @@ func fileTags(path string) ([]string, error) {
 			})
 		}
 	}
-	// Filename-based constraints (foo_windows.go, foo_amd64.go) are platform
-	// only, so nothing to add: they are handled by isPlatformIdent's callers
-	// never seeing them.
+	// Filename constraints (foo_windows.go) are platform only; nothing to add.
 	sort.Strings(tags)
 	return tags, nil
 }
@@ -249,16 +236,10 @@ func walkConstraint(e constraint.Expr, visit func(string)) {
 	}
 }
 
-// GatedPatterns returns the package patterns the EXTRA configurations need to
-// cover -- the directories holding gated files, as `./dir` patterns -- or nil
-// when nothing is gated.
-//
-// The default configuration always runs over the whole module. The extra ones
-// exist solely to reach files the default cannot, so running them over `./...`
-// would re-analyze and re-run the entire tree once per tag for no added
-// coverage. On a module with three tags that is four redundant full test runs.
-// Verify still checks the outcome, so narrowing the pattern cannot narrow the
-// guarantee: a gated file outside these directories fails the run.
+// GatedPatterns returns the `./dir` patterns the EXTRA configurations need
+// to cover -- the directories holding gated files -- or nil when nothing is
+// gated. Narrower than `./...`: the extra configs exist only to reach files
+// the default cannot.
 func (d *Discovery) GatedPatterns() []string {
 	seen := set.New[string]()
 	var pats []string
@@ -279,13 +260,8 @@ func (d *Discovery) GatedPatterns() []string {
 }
 
 // Verify reports the gated files that no configuration actually reached.
-//
-// This is the guarantee. Configs' enumeration is a heuristic; this check is
-// not. seen is the set of file paths (relative to the module root, slash
-// separated) that the phase genuinely analyzed or compiled across every
-// configuration. Any gated file missing from it is a file the pipeline cannot
-// see, and the caller must FAIL rather than continue -- otherwise the tag is
-// exactly the bypass this package exists to remove.
+// seen must hold every path the phase analyzed or compiled, across every
+// configuration.
 func Verify(d *Discovery, seen set.Set[string]) []File {
 	var missed []File
 	for _, f := range d.Gated {
@@ -311,6 +287,5 @@ func UnreachableError(missed []File, phase string) error {
 	return fmt.Errorf("%s", b.String())
 }
 
-// HostPlatform names the GOOS/GOARCH this process runs as, for messages that
-// need to explain why a platform-gated file was not considered.
+// HostPlatform names the GOOS/GOARCH this process runs as.
 func HostPlatform() string { return runtime.GOOS + "/" + runtime.GOARCH }

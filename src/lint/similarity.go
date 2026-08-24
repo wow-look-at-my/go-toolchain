@@ -28,10 +28,7 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 		}
 	}
 
-	// Bucket by approximate token count. Two blocks are only compared
-	// if their sizes fall in overlapping buckets. Bucket width is chosen
-	// so that blocks differing by more than 50% in size are never
-	// compared (they can't reach 0.85 similarity anyway).
+	// Blocks are only compared within overlapping size buckets; >50% size difference can't reach 0.85 similarity.
 	const bucketWidth = 8
 	buckets := make(map[int][]int) // bucket key -> indices into `all`
 	for i, e := range all {
@@ -41,8 +38,7 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 		buckets[key+1] = append(buckets[key+1], i)
 	}
 
-	// Track which pairs we've already compared to avoid duplicates
-	// from the overlapping bucket assignment.
+	// Tracks compared pairs to dedupe across the overlapping bucket assignment.
 	type pairKey struct{ a, b int }
 	seen := set.New[pairKey]()
 
@@ -95,9 +91,8 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 	return pairs
 }
 
-// Similarity computes the similarity between two symbol sequences using
-// the longest common subsequence (LCS). Returns a value in [0.0, 1.0].
-// Similarity = 2 * LCS_length / (len(a) + len(b)).
+// Similarity computes similarity between two symbol sequences using the
+// longest common subsequence (LCS): 2 * LCS_length / (len(a) + len(b)).
 func Similarity(a, b string) float64 {
 	if len(a) == 0 && len(b) == 0 {
 		return 1.0
@@ -206,9 +201,8 @@ func LCSDiff(a, b []Token) (diffA, diffB []int) {
 	return diffA, diffB
 }
 
-// posContains returns true if one block's source range entirely contains
-// the other's. This detects parent/child relationships (e.g. a function
-// body containing an if-block).
+// posContains reports whether one block's source range entirely contains the
+// other's (e.g. a function body containing an if-block).
 func posContains(a, b *Block) bool {
 	return (a.Pos <= b.Pos && a.End >= b.End) ||
 		(b.Pos <= a.Pos && b.End >= a.End)

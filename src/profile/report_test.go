@@ -67,8 +67,7 @@ func TestBuildReport_JoinAndTotals(t *testing.T) {
 }
 
 func TestBuildReport_NoOutcomes(t *testing.T) {
-	// A run without GOCACHEPROG (or a vet-only path) joins nothing: every row
-	// is unknown and the satisfied pct is 0, not NaN.
+	// A run without GOCACHEPROG (or a vet-only path) joins nothing: every row is unknown, satisfied pct is 0, not NaN.
 	r := BuildReport(testActions(), nil, nil, nil, 0)
 	assert.Equal(t, 4, r.Outcomes["unknown"])
 	assert.Equal(t, float64(0), r.SatisfiedPct)

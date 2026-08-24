@@ -87,8 +87,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
 
-	// Without a coverage profile we can't compute statement-weighted total.
-	// Total should be 0 rather than a misleading per-package average.
+	// No coverage profile means Total is 0, not a misleading per-package average.
 	assert.Equal(t, float32(0), result.Coverage.Total)
 
 	// Per-package percentages are still available from test output
@@ -124,8 +123,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
 
-	// Total from profile: 3 covered / 4 statements = 75%
-	// (statement-weighted, not per-package average)
+	// Statement-weighted from the profile: 3/4 = 75%, not a per-package average.
 	assert.Equal(t, float32(75.0), result.Coverage.Total)
 
 	// Verify statements are set correctly
@@ -229,9 +227,7 @@ func TestListTestPackages(t *testing.T) {
 	// Also create a dir with no test files
 	os.MkdirAll("notest", 0755)
 	os.WriteFile("notest/main.go", []byte("package notest\n"), 0644)
-	// And a nested module with its own go.mod and a test file: its packages
-	// belong to a different module and must not be listed as import paths of
-	// this one (go test would fail with "no required module provides package").
+	// A nested module's packages must not be listed as import paths of this one.
 	os.MkdirAll("nestedmod/sub", 0755)
 	os.WriteFile("nestedmod/go.mod", []byte("module example.com/othermodule\n\ngo 1.25\n"), 0644)
 	os.WriteFile("nestedmod/sub/foo_test.go", []byte("package sub\n"), 0644)

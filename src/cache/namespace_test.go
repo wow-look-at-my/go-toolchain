@@ -67,13 +67,11 @@ func TestActionKeyShapes(t *testing.T) {
 	assert.NotEqual(t, nsA.actionKey(raw), nsB.actionKey(raw))
 }
 
-// TestNamespaceSuffixPreservesBuildIDGuard pins the property that makes a
-// SUFFIX (rather than a hash-combined rewrite) the only safe namespace shape:
-// the build-id action guard derives its expectation from the first 15 bytes of
-// the hex-decoded store key, and a suffix leaves those bytes intact — so a
-// compiled package's stamped `build id "ACTION/..."` is still verified against
-// the REAL cmd/go action ID under a namespaced key. A rewrite that changed the
-// leading bytes would make the guard refuse every namespaced compiled package.
+// TestNamespaceSuffixPreservesBuildIDGuard pins why namespacing is a SUFFIX,
+// not a hash-combined rewrite: the build-id guard derives its expectation from
+// the first 15 bytes of the hex-decoded key, and a suffix leaves those bytes
+// intact, so a compiled package's stamped build id still verifies against the
+// real cmd/go action ID. Rewriting the leading bytes would break the guard.
 func TestNamespaceSuffixPreservesBuildIDGuard(t *testing.T) {
 	raw := bytes.Repeat([]byte{0x5c}, 32)
 	hexKey := fmt.Sprintf("%x", raw)
@@ -99,8 +97,7 @@ func TestServerNamespaceIsolation(t *testing.T) {
 	require.NoError(t, err)
 	remote := newMemBackend()
 
-	// One action ID, as computed identically by two different fork toolchain
-	// builds (the collision), plus an unnamespaced client of the same key.
+	// One action ID, as computed identically by two different fork toolchain builds (the collision).
 	actionID := bytes.Repeat([]byte{0x42}, 32)
 	bodyA := "object compiled by toolchain A"
 	sumA := sha256.Sum256([]byte(bodyA))
@@ -130,8 +127,7 @@ func TestServerNamespaceIsolation(t *testing.T) {
 	require.Len(t, resps, 3) // handshake, put, close
 	require.Empty(t, resps[1].Err, "put must succeed")
 
-	// The stored keys — local and remote — must be the namespaced form, so
-	// the entry is unreachable from any other namespace by construction.
+	// The stored keys, local and remote, must be namespaced, so the entry is unreachable from another namespace.
 	keyA := fmt.Sprintf("%x", actionID) + nsA
 	_, miss := lc.Peek(keyA)
 	require.False(t, miss)
@@ -162,9 +158,7 @@ func TestServerNamespaceIsolation(t *testing.T) {
 	require.False(t, resps[1].Miss, "the same namespace must keep hitting its own entries")
 	assert.Equal(t, sumA[:], resps[1].OutputID)
 
-	// Reverse direction: an unnamespaced client PUTs different content under
-	// the same action ID (what a colliding foreign build would upload).
-	// Toolchain A must still be served ITS OWN object, untouched.
+	// Reverse direction: an unnamespaced PUT under the same action ID must not touch toolchain A's object.
 	bodyU := "object compiled by an unnamespaced foreign build"
 	sumU := sha256.Sum256([]byte(bodyU))
 	resps = runServer(t, "", makePutRequest(Request{

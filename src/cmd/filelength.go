@@ -18,10 +18,7 @@ const (
 	fileLengthError = 750
 )
 
-// generatedFileRe matches the canonical "generated file" marker line. This is
-// the same rule used by `go help generate`, gofmt, and golang.org/x/tools: a
-// file is generated iff a line matching `^// Code generated .* DO NOT EDIT\.$`
-// appears in the file header (before the package clause).
+// generatedFileRe matches the canonical "// Code generated ... DO NOT EDIT." marker line, the same rule `go help generate` and gofmt use.
 var generatedFileRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 // isGeneratedFile reports whether r is a generated Go source file per the
@@ -113,9 +110,8 @@ func checkFileLength(root string) error {
 			return nil
 		}
 
-		// Skip generated files unless asked to count them. Detection reopens
-		// the file; line counting uses a second open below — simplest and
-		// keeps each pass straightforward.
+		// Skip generated files unless asked to count them; detection reopens the file, and
+		// line counting opens it again below.
 		if !countGenerated && isGeneratedPath(path) {
 			nSkipped++
 			return nil

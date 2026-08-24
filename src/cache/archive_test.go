@@ -58,18 +58,14 @@ func TestPkgbitsImportPath_TruncatedPayload(t *testing.T) {
 }
 
 func TestPkgbitsImportPath_WithSyncMarkersRoundTrip(t *testing.T) {
-	// Build a minimal pkgbits payload with sync markers enabled.
-	// This exercises the syncMarkers code paths (the real archive has sync=false).
+	// Build a minimal pkgbits payload with sync markers enabled (real archive has sync=false).
 	data, err := os.ReadFile("testdata/testpkg.a")
 	require.NoError(t, err)
 
-	// Locate and re-parse the real payload to generate a synthetic sync-enabled payload.
-	// We verify the non-sync path here; separate subtests cover the sync path via
-	// the real archive. This test simply ensures no panic on a V0 (no flags) payload.
+	// Re-parsed to build a synthetic sync-enabled payload; this test just checks no panic on a V0 (no-flags) payload.
 	_ = data
 
-	// Build a V0 payload (no flags, no sync) with a single SectionString element
-	// containing a known import path, and SectionPkg[0] referencing it.
+	// Build a V0 payload (no flags/sync) with one SectionString element and SectionPkg[0] referencing it.
 	importPath := "example.com/mypkg"
 	payload := buildMinimalPkgbitsV0(importPath)
 	got := pkgbitsImportPath(payload)
@@ -112,12 +108,7 @@ func buildAr(name string, body []byte) []byte {
 //	elemEnds: [len(importPath), <SectionPkg[0] elem size>]
 //	elemData: <importPath bytes> <SectionPkg[0] elem> <8-byte fingerprint>
 func buildMinimalPkgbitsV0(importPath string) []byte {
-	// SectionPkg[0] element body:
-	//   nrelocs=1 (uvarint)
-	//   reloc[0]: kind=0 (SectionString, uvarint), idx=0 (uvarint)
-	//   <opening marker SyncPkgDef: skipped, no sync>
-	//   <String(): SyncString, SyncUseReloc, SyncUint64: all skipped, no sync>
-	//   relocIdx=0 (uvarint)
+	// SectionPkg[0] body: nrelocs=1, reloc[0]{kind=0 SectionString, idx=0}, no sync markers, relocIdx=0.
 	pkgElem := []byte{
 		0x01,       // nrelocs = 1
 		0x00, 0x00, // reloc[0]: kind=0, idx=0
@@ -127,16 +118,11 @@ func buildMinimalPkgbitsV0(importPath string) []byte {
 
 	strElem := []byte(importPath)
 
-	// elemEnds offsets within elemData (not including fingerprint):
-	// SectionString[0] ends at len(strElem)
-	// SectionPkg[0] ends at len(strElem) + len(pkgElem)
+	// elemEnds offsets (excluding fingerprint): SectionString[0] ends at len(strElem), SectionPkg[0] len(pkgElem) further.
 	strEnd := uint32(len(strElem))
 	pkgEnd := strEnd + uint32(len(pkgElem))
 
-	// elemEndsEnds: accumulative per section (10 sections).
-	// SectionString (0) has 1 element → total so far = 1
-	// SectionPkg (3) has 1 element → total so far = 2
-	// All others: same as previous (0 elements in each)
+	// elemEndsEnds: cumulative per section (10 total); only SectionString(0) and SectionPkg(3) each add 1 element.
 	numSections := 10
 	eee := make([]uint32, numSections)
 	eee[0] = 1 // SectionString: 1 element

@@ -16,14 +16,10 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
-// Export converts timeline entries to OTel spans and emits them through
-// the shared tracer provider (see provider.go). It is a no-op if
-// OTEL_EXPORTER_OTLP_ENDPOINT is unset or if entries is empty.
-//
-// The shared provider owns the batcher and exporter for the whole
-// build, so this function doesn't build or shut down its own — the
-// build entrypoint calls Shutdown once, after Export, which flushes
-// every emitter's queued spans in a single OTLP round-trip.
+// Export converts timeline entries to OTel spans via the shared tracer provider (see
+// provider.go); a no-op when OTEL_EXPORTER_OTLP_ENDPOINT is unset or entries is empty. The
+// shared provider owns the batcher and exporter, so this function does not build or shut down
+// its own -- the build entrypoint calls Shutdown once, after Export.
 func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" || len(entries) == 0 {

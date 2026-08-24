@@ -36,10 +36,7 @@ func BuildSuggestion(pair DuplicatePair) Suggestion {
 		params = append(params, paramPair{valueA: vA, valueB: vB})
 	}
 
-	// First: find concrete-value differences at structurally matched positions.
-	// The LCS alignment tells us which indices are structurally paired.
-	// Tokens that match structurally (same symbol) but have different Concrete
-	// values represent the varying parameters we want to extract.
+	// LCS alignment pairs structurally matched tokens; a pair with differing Concrete values is a varying parameter.
 	matchedA, matchedB := lcsAlignment(pair.A.Tokens, pair.B.Tokens)
 	for i := 0; i < len(matchedA); i++ {
 		tA := pair.A.Tokens[matchedA[i]]

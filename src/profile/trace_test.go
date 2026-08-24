@@ -51,8 +51,7 @@ func TestAddTraceEvents_LanesAndArgs(t *testing.T) {
 func TestAddTraceEvents_NilTraceAndLaneSpill(t *testing.T) {
 	AddTraceEvents(nil, testActions(), nil) // must not panic
 
-	// More concurrent actions than lanes: all still recorded, spilling onto
-	// the earliest-free lane.
+	// More concurrent actions than lanes: all recorded, spilling onto the earliest-free lane.
 	t0 := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
 	var actions []Action
 	for i := 0; i < maxTraceLanes+5; i++ {

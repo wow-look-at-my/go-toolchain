@@ -2,17 +2,9 @@
 
 package cmd
 
-// GOOS=cosmo builds carry no persistent dependency-check cache:
-// modernc.org/sqlite depends on modernc.org/libc, hundreds of thousands of
-// lines of per-GOOS generated libc code with no cosmo target, so the sqlite
-// backend (depscache_sqlite.go) cannot compile here. Tradeoff accepted: the
-// cache only dedups module-proxy @latest lookups (up-to-date entries expire
-// after one minute anyway), so an uncached check costs one HTTP request per
-// pseudo-versioned direct dependency per run — small, and far cheaper than
-// porting a generated libc. Swap in a flat-file cache if this ever hurts.
+// cosmo has no persistent deps cache: sqlite's libc backend has no cosmo target; each check costs one HTTP request.
 
-// noopDepsCache implements depsCache without persistence: every lookup
-// misses, every store is dropped.
+// noopDepsCache implements depsCache without persistence: every lookup misses, every store is dropped.
 type noopDepsCache struct{}
 
 func openDepsCache() (depsCache, error) { return noopDepsCache{}, nil }

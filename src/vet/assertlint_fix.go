@@ -82,33 +82,22 @@ func generateASTFix(pass *analysis.Pass, ifStmt *ast.IfStmt, assertPkg, assertFu
 	}
 }
 
-// hoistableInit returns the if statement's init clause in a form that is legal
-// OUTSIDE the if.
+// hoistableInit returns the if's init clause in a form legal outside the if.
 //
-// An init clause declares into the if's own scope, so `if _, err := f();` is
-// legal even where an `err` already exists -- it shadows it. Lift that same
-// statement into the enclosing block verbatim and the shadowing is gone: Go
-// answers "no new variables on left side of :=" and the package no longer
-// compiles. The fixer wrote that into two files of a repo it was asked to
-// tidy, and the run died on its OWN output, after printing thirty green
-// "fixed:" lines.
+// An init clause declares into the if's scope, so `if _, err := f();` is legal even where err already
+// exists -- it shadows it. Lifting it verbatim into the enclosing block loses that shadow: if every
+// name is already defined there, Go rejects the bare `:=` with "no new variables on left side of :=".
 //
-// So when every name being defined already exists in an enclosing scope, the
-// hoisted statement assigns instead of defining. When ANY name is new, `:=`
-// stays correct (Go needs just one new variable on the left) and the statement
-// is returned untouched.
-//
-// The conversion means the outer variable is now written rather than shadowed.
-// That is inherent to flattening the if -- the assertion below it has to see
-// the value -- and it is what a person writes by hand when they make this same
-// edit.
+// So when every defined name already exists in the enclosing scope, the hoisted statement assigns
+// instead of defining. When any name is new, `:=` stays correct and the statement is untouched.
+// The outer variable is then written rather than shadowed -- inherent to flattening the if, since
+// the assertion below it must see the value.
 func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
 	assign, ok := ifStmt.Init.(*ast.AssignStmt)
 	if !ok || assign.Tok != token.DEFINE {
 		return ifStmt.Init
 	}
-	// Scopes[ifStmt] is the scope the init declares into; its parent is where
-	// the statement is about to land.
+	// Scopes[ifStmt] is the scope the init declares into; its parent is where the statement lands.
 	ifScope := pass.TypesInfo.Scopes[ifStmt]
 	if ifScope == nil || ifScope.Parent() == nil {
 		return ifStmt.Init // no type info: leave it exactly as it was

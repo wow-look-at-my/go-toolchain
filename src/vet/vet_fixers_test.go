@@ -34,8 +34,7 @@ func main() {
 	}
 }
 `
-	// The 'i' is only used as _ = i, but the range key 'i' IS referenced
-	// in the body, so it should NOT be replaced.
+	// 'i' is referenced in the body via _ = i, so it should not be replaced.
 	os.WriteFile(src, []byte(code), 0644)
 
 	fixed, err := fixFileUnusedRangeVars(src)
@@ -57,9 +56,7 @@ func main() {
 	_ = i
 }
 `
-	// Note: 'i' is used OUTSIDE the range body (which means the code wouldn't
-	// compile, but the AST analysis only looks inside the range body).
-	// But this actually won't compile. Let me use a version that will parse.
+	// 'i' is used outside the range body; AST parsing does not require the code to compile.
 	code = `package main
 
 func main() {
@@ -70,9 +67,7 @@ func main() {
 	_ = k
 }
 `
-	// Actually k is used outside the loop body so AST-wise it's not used inside.
-	// But this code wouldn't compile either. Let me just test the core:
-	// range key not used inside body → replaced with _
+	// Testing the core case: a range key unused inside the body gets replaced with _.
 	code = `package main
 
 func foo() {
@@ -221,19 +216,11 @@ func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
 
-// TestCheckFileCommittedByName_ManyFilesIndex pins support for repos whose
-// index was written under feature.manyFiles. On git >= 2.40 feature.manyFiles
-// implies index.skipHash, which writes .git/index with an all-zero trailer
-// hash; go-git v5 cannot read such an index (Status fails with "invalid
-// checksum" — the upstream fix, go-git#2181, is merged on the v6/main line
-// only and unreleased), so on modern git this exercises the
-// go-git-fails -> git-CLI-fallback path of checkFileCommittedByName end to
-// end: that fallback is the load-bearing support for feature.manyFiles.
-// index.skipHash is ALSO set explicitly: manyFiles is the user's real config,
-// and the explicit key guarantees the zero-hash trailer on any git >= 2.40
-// regardless of how the feature macro expands. On older gits that know
-// neither key the index stays normal and go-git succeeds directly — the
-// production contract asserted here holds either way.
+// Pins support for repos whose index was written under feature.manyFiles, which on git >= 2.40 implies
+// index.skipHash and writes an all-zero index trailer hash that go-git v5 cannot read ("invalid checksum";
+// unreleased upstream fix go-git#2181). This exercises checkFileCommittedByName's go-git-fails -> git-CLI
+// fallback path, which is load-bearing here. index.skipHash is set explicitly too, so the trigger holds
+// regardless of git version; on an older git the index stays normal and go-git succeeds directly.
 func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
@@ -254,8 +241,7 @@ func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 }
 
 func TestCheckFileCommittedFallback(t *testing.T) {
-	// checkFileCommitted should succeed even in a repo where go-git might struggle,
-	// as long as git CLI works. We test the happy path here — both paths agree.
+	// Happy path: both the go-git and git-CLI paths agree when git CLI works.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)

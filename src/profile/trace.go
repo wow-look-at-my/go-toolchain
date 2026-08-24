@@ -10,10 +10,7 @@ import (
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 )
 
-// maxTraceLanes caps the number of "go actions #NN" lanes in the Chrome
-// trace. cmd/go's scheduler runs about GOMAXPROCS actions concurrently, so
-// 32 lanes cover typical CI runners; rare spill-over lands on the
-// earliest-free lane and is clamped by the trace writer.
+// maxTraceLanes caps "go actions #NN" lanes; spill-over clamps to the earliest-free lane.
 const maxTraceLanes = 32
 
 // AddTraceEvents records one timed event per executed action into tr,

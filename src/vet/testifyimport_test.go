@@ -277,10 +277,7 @@ func TestFoo(t *testing.T) {
 	assert.Contains(t, string(src), "github.com/stretchr/testify/assert")
 	assert.NotContains(t, string(src), "wow-look-at-my/testify")
 
-	// go.mod now requires upstream; the fork is no longer vendored. (Lingering
-	// replace directives for the local stubs are a test artifact — the real
-	// consistency oracle is that the fork package is gone from modules.txt and
-	// from the vendor tree, while upstream is present.)
+	// go.mod now requires upstream testify; the fork is no longer vendored.
 	gomod, _ := os.ReadFile(filepath.Join(dir, "go.mod"))
 	assert.Contains(t, string(gomod), "require github.com/stretchr/testify")
 	post, err := os.ReadFile(modulesTxt)

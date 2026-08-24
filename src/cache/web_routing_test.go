@@ -1,11 +1,8 @@
 package cache
 
-// Tests for the index-driven fetch routing and upload-suppression policy:
-// keys an AUTHORITATIVE index lists route through the batch endpoint, keys it
-// does not list miss cleanly with no round-trip (a failed fetch keeps probing
-// enabled as the recovery path), an authoritative in-protocol absence — and
-// ONLY that — marks knownMiss and reclaims a stale index claim so the PUT
-// path re-uploads the object.
+// Tests index-driven fetch routing: keys the AUTHORITATIVE index lists route
+// through batch; keys it omits miss with no round-trip. Only an
+// in-protocol 404 marks knownMiss and reclaims a stale index claim.
 
 import (
 	"archive/tar"
@@ -33,9 +30,7 @@ import (
 func TestWebBackend_EmptyIndexSkipsBatch(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	var batchGets, puts atomic.Int64
-	// A REAL empty blob: the server authoritatively reports zero keys. (A 404
-	// index is different — that's a fetch failure, covered by
-	// TestWebBackend_IndexFetchFailureStillProbes.)
+	// A real empty blob: zero keys reported authoritatively. A 404 index is a fetch failure instead (see the sibling test).
 	srv := emptyIndexServer(t, &batchGets, &puts, marshalIndex(set.New[string]()))
 	defer srv.Close()
 
@@ -146,9 +141,7 @@ func TestWebBackend_EmptyIndexStillPuts(t *testing.T) {
 	err = b.Put("deadbeefdeadbeef", testOutputID(string(body)), bytes.NewReader(body), int64(len(body)))
 	require.NoError(t, err)
 
-	// Put is async: it enqueues onto the PUT coalescer and returns. Close drains
-	// the buffered upload (as one /_batch/put, which the server counts as a PUT)
-	// before we assert the remote actually received it.
+	// Put is async; Close drains the buffered upload as one /_batch/put before we assert the remote received it.
 	require.NoError(t, b.Close())
 
 	require.Equal(t, int64(1), puts.Load(),
@@ -222,17 +215,14 @@ func TestWebBackend_Reclaims404IndexedKey(t *testing.T) {
 	primeIndex(b, actionID) // the (stale) index claims this key
 	key := b.key(actionID)
 
-	// The GET routes via batch (indexed), the server 404s the batch endpoint,
-	// the fallback individual GET 404s the object: authoritative absence.
+	// GET routes via batch, batch 404s, the fallback individual GET 404s too: authoritative absence.
 	_, _, _, _, miss, err := b.Get(actionID)
 	require.NoError(t, err)
 	require.True(t, miss)
 	require.Equal(t, uint32(1), b.Reclaimed404.Load(), "the stale index claim must be counted as reclaimed")
 	require.False(t, b.keyKnown(key), "the stale index claim must be dropped")
 
-	// The PUT path must now re-upload instead of skipping as already-present.
-	// Put enqueues onto the PUT coalescer and returns; Close drains the buffered
-	// upload (as one /_batch/put) before we assert the remote received it.
+	// PUT must now re-upload, not skip as already-present; Close drains the buffered upload before we assert receipt.
 	body := largePayload(256)
 	require.NoError(t, b.Put(actionID, testOutputID(body), nopReader(body), int64(len(body))))
 	require.NoError(t, b.Close())

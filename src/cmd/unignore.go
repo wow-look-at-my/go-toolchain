@@ -14,17 +14,12 @@ import (
 var unignoreCmd = &cobra.Command{
 	Use:   "unignore",
 	Short: "Remove build-check exemptions",
-	// PersistentPreRunE is assigned in init(): its body must reference
-	// unignoreCmd, which inside this literal would be an initialization cycle.
+	// PersistentPreRunE is set in init(): referencing unignoreCmd here would be an initialization cycle.
 }
 
-// unignorePreRun confirms the removal interactively, after chaining to the
-// root command's PersistentPreRunE (agent output guard + cacheprog setup,
-// which defining a hook here would otherwise shadow). The chain must go
-// through unignoreCmd's OWN parent, not cmd.Parent(): cobra invokes the
-// nearest hook with cmd = the executed SUBcommand (e.g. "coverage"), whose
-// parent is unignoreCmd itself — following cmd.Parent() made this hook call
-// itself until the stack overflowed on every `unignore coverage` run.
+// unignorePreRun confirms interactively, then chains to the root PersistentPreRunE via unignoreCmd's OWN
+// parent, not cmd.Parent(): cobra passes cmd as the subcommand, whose parent is unignoreCmd, so
+// cmd.Parent() recursed forever.
 func unignorePreRun(cmd *cobra.Command, args []string) error {
 	if parent := unignoreCmd.Parent(); parent != nil && parent.PersistentPreRunE != nil {
 		if err := parent.PersistentPreRunE(cmd, args); err != nil {
@@ -38,8 +33,7 @@ func unignorePreRun(cmd *cobra.Command, args []string) error {
 // unignorePreRun so tests can exercise the prompt without triggering the
 // root hook's side effects (output guard, cacheprog).
 func confirmUnignore() error {
-	// Interactive confirmation prompt awaiting input mid-line (no trailing
-	// newline) -- bypasses the logger via rawStdout, see logging.go.
+	// Prompt awaits input mid-line (no trailing newline), so it bypasses the logger via rawStdout.
 	fmt.Fprint(rawStdout, "Remove exemption — are you sure? [y/N] ")
 	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')

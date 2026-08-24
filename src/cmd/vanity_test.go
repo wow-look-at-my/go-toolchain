@@ -93,8 +93,7 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 	assert.Contains(t, content, "replace gotest.tools/gotestsum")
 	assert.Contains(t, content, "github.com/gotestyourself/gotestsum")
 
-	// Corrupt go.sum to simulate what go mod tidy would do while the
-	// replace is active (swap vanity entries for replacement entries).
+	// Simulate go mod tidy swapping vanity entries for replacement entries while the replace is active.
 	os.WriteFile("go.sum", []byte("github.com/gotestyourself/gotestsum v1.13.0 h1:xxx=\n"), 0644)
 
 	// Remove
@@ -316,11 +315,7 @@ func TestInjectVanityReplacesSkipsNonDirectHost(t *testing.T) {
 	vanityHostChecker = func(host string) bool { return false }
 	defer func() { vanityHostChecker = oldChecker }()
 
-	// This vanity module's real repository is on go.googlesource.com, which is
-	// not a direct code host. Rewriting onto it would only swap one indirect
-	// host for another, so the replace must be skipped entirely. (google.golang.org
-	// modules can no longer reach this path — they are well-known and excluded
-	// before the reachability check.)
+	// go.googlesource.com is not a direct code host, so the replace must be skipped, not swapped.
 	oldResolver := vanityVCSResolver
 	vanityVCSResolver = func(modulePath, version string) (string, string, error) {
 		return "https://go.googlesource.com/widget", "vanity.test/widget", nil
@@ -422,14 +417,12 @@ func TestCheckDirtyInCIWithVanityRestored(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 	dir := t.TempDir()
-	// Best-effort cwd restore, matching this file's other tests: a prior test
-	// in the package can leave the process cwd deleted, making Getwd fail.
+	// Best-effort: a prior test can leave the process cwd deleted, making Getwd fail.
 	origDir, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 	require.NoError(t, os.Chdir(dir))
 
-	// Commit go.mod in modfile-canonical form so removeVanityReplaces's
-	// parse→drop→format round trip restores the committed bytes exactly.
+	// modfile-canonical form so removeVanityReplaces's parse-drop-format round trip restores the bytes exactly.
 	parsed, err := modfile.Parse("go.mod", []byte("module test\ngo 1.21\nrequire gotest.tools/gotestsum v1.13.0\n"), nil)
 	require.NoError(t, err)
 	gomod, err := parsed.Format()
@@ -463,25 +456,20 @@ func TestCheckDirtyInCIWithVanityRestored(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, state)
 
-	// Simulate go mod tidy while the replace is active: go.sum is rewritten
-	// onto the mirror path.
+	// Simulate go mod tidy rewriting go.sum onto the mirror path while the replace is active.
 	tidiedGoSum := "github.com/gotestyourself/gotestsum v1.13.0 h1:xxx=\n"
 	require.NoError(t, os.WriteFile("go.sum", []byte(tidiedGoSum), 0644))
 	activeGoMod, err := os.ReadFile("go.mod")
 	require.NoError(t, err)
 	require.Contains(t, string(activeGoMod), "replace gotest.tools/gotestsum")
 
-	// The defect this pins: the PLAIN check sees the transient injected state
-	// as dirt (the github-state-mirror run 29791671090 failure mode)...
+	// The defect this pins: the PLAIN check sees the transient injected state as dirt.
 	require.Error(t, checkDirtyInCI())
 
-	// ...while the headline invariant holds: go.mod/go.sum differ from HEAD
-	// only by the toolchain's own transient vanity mutation, so the
-	// restore-aware CI dirty check passes.
+	// The restore-aware check passes: go.mod/go.sum differ from HEAD only by the transient vanity mutation.
 	require.NoError(t, checkDirtyInCIWithVanityRestored(state))
 
-	// The active mirror state must survive the check so tidy's resolution
-	// keeps holding for the test and build phases.
+	// The active mirror state must survive the check for the test and build phases.
 	afterGoMod, err := os.ReadFile("go.mod")
 	require.NoError(t, err)
 	assert.Equal(t, string(activeGoMod), string(afterGoMod))
@@ -494,8 +482,7 @@ func TestCheckDirtyInCIWithVanityRestored(t *testing.T) {
 	assert.Error(t, checkDirtyInCIWithVanityRestored(state))
 	runVanityTestGit(t, "checkout", "-q", "--", "main.go")
 
-	// A go.mod change beyond the injected replaces (what tidy makes of an
-	// untidy tree) survives the restore and still fails.
+	// A go.mod change beyond the injected replaces survives the restore and still fails.
 	withExtra := append([]byte{}, activeGoMod...)
 	withExtra = append(withExtra, []byte("\nrequire example.com/extra v1.0.0\n")...)
 	require.NoError(t, os.WriteFile("go.mod", withExtra, 0644))
