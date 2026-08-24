@@ -38,7 +38,7 @@ func TestZZCommentSpanAudit(t *testing.T) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+		if strings.HasSuffix(path, ".go") && filepath.Base(path) != "zzaudit_test.go" {
 			files = append(files, path)
 		}
 		return nil
