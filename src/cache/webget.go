@@ -49,8 +49,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		resp.Body.Close()
 		b.Pool.Release()
 		b.MissHTTP404.Increment()
-		// Drop any stale index claim so the PUT path re-uploads the object;
-		// without this the key 404s forever and is never re-published.
+		// Drop the stale index claim so the PUT path re-uploads; otherwise the key 404s forever.
 		b.reclaimAbsent(key)
 		markSpanMiss(span, "http_404")
 		return "", nil, 0, time.Time{}, true, nil
@@ -65,9 +64,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	// Native metadata header, with a fallback to the deprecated S3-style header
-	// so a new client still reads the outputid from an older (not-yet-upgraded)
-	// cache server that only emits X-Amz-Meta-*.
+	// Fall back to the deprecated S3-style header for a cache server that predates X-Cache-Meta-Outputid.
 	outputID := resp.Header.Get("X-Cache-Meta-Outputid")
 	if outputID == "" {
 		outputID = resp.Header.Get("X-Amz-Meta-Outputid")
@@ -108,13 +105,9 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	// End-to-end integrity check: the body must hash to its advertised
-	// outputID (the go content hash). A mismatch means the remote object is
-	// corrupt — truncated, badly decoded, or poisoned/rotted in the remote cache — and
-	// serving it would feed the go command a damaged object (e.g. a module
-	// index -> "corrupt index"). Refuse to serve, and drop the key from the
-	// index so the next recompute re-uploads (overwrites) it clean instead of
-	// skipping the Put as already-present.
+	// Integrity check: the body must hash to its advertised outputID. A mismatch means the remote object is
+	// corrupt (truncated, poisoned, or rotted), which would feed cmd/go a damaged object. Refuse to serve and
+	// evict the key so the next recompute re-uploads it clean.
 	if got, ok := outputIDMatches(outputID, decompressed); !ok {
 		b.MissChecksum.Increment()
 		b.Stats.Corrupt.Increment()
@@ -125,13 +118,9 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	// Cross-contamination guard: a compiled package self-certifies its action
-	// key in its build id. A body that hashes to its outputID but whose build id
-	// belongs to a DIFFERENT action is a poisoned mapping (the wrong object under
-	// this key) that the hash check above cannot catch -- e.g. internal/reflectlite
-	// export data served for the `runtime` action, surfacing as "imported as
-	// reflectlite". Refuse it, and evict the key so a recompute re-uploads
-	// (overwrites) the correct object.
+	// Cross-contamination guard: a compiled package self-certifies its action key in its build id. A body
+	// whose build id belongs to a different action is a poisoned mapping the hash check cannot catch (e.g.
+	// reflectlite served for `runtime`, surfacing as "imported as reflectlite"). Refuse it and evict the key.
 	if act, ok := buildIDMatchesAction(actionID, decompressed); !ok {
 		b.MissBuildID.Increment()
 		b.Stats.Corrupt.Increment()
@@ -142,13 +131,9 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 		return "", nil, 0, time.Time{}, true, nil
 	}
 
-	// Module-index guard: a Go module index blob carries no build id and does not
-	// self-certify which directory it indexes, so neither the outputID hash nor
-	// the build-id check can prove it belongs under this key (see isGoModuleIndex).
-	// A wrong one is silently fatal at package load ("package runtime is not in
-	// std" / "corrupt index"), so refuse it from the shared cache and let cmd/go
-	// recompute it locally (a cheap directory read). Evict the claim so the
-	// recompute is free to re-Put.
+	// Module-index guard: a Go module index blob self-certifies neither its outputID nor its build id, so a
+	// wrong one is silently fatal at package load ("corrupt index"). Refuse it and let cmd/go recompute
+	// locally; evict the claim so the recompute is free to re-Put.
 	if isGoModuleIndex(decompressed) {
 		b.MissModuleIndex.Increment()
 		markSpanMiss(span, "module_index")
@@ -188,11 +173,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 	case r := <-respCh:
 		return r.outputID, r.body, r.size, r.t, r.miss, nil
 	case <-b.batchDone:
-		// Shutdown raced our enqueue: the coalescer exited and may never
-		// drain batchReqCh. If it DID process our request, the reply is
-		// already buffered in respCh (batchDone closes only after all
-		// sendBatch goroutines finish); otherwise degrade to a clean miss
-		// instead of blocking forever on a reply that will never come.
+		// Shutdown raced the enqueue: use the buffered reply if sendBatch already produced one, else degrade to a miss.
 		select {
 		case r := <-respCh:
 			return r.outputID, r.body, r.size, r.t, r.miss, nil

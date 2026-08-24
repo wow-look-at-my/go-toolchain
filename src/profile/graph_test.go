@@ -33,8 +33,7 @@ func writeGraph(t *testing.T, dir, name, content string) string {
 func TestLoadGraphs_ParsesAndMerges(t *testing.T) {
 	dir := t.TempDir()
 	g1 := writeGraph(t, dir, "g1.json", graphJSON)
-	// Second dump (the `go build` after `go test`): pkga appears again with
-	// the SAME ActionID but unexecuted (cache-satisfied this time) — the
+	// Second dump: pkga reappears with the SAME ActionID but unexecuted (cache-satisfied); the
 	// executed instance from g1 must win the merge.
 	g2 := writeGraph(t, dir, "g2.json", `[
 		{"ID":1,"Mode":"build","Package":"example.com/m/pkga","ActionID":"aaaaaaaaaaaaaaaaaaaa"}

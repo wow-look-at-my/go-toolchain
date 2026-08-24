@@ -229,12 +229,7 @@ func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
 	data, _ := io.ReadAll(body)
 	require.Equal(t, "entry one", string(data))
 
-	// The callback runs asynchronously (replies are distributed first) and
-	// receives ONLY the non-requested prefetch entry: the requested one is
-	// verified in the reply loop and written to the local tier by handleGet,
-	// so feeding it to the callback too would verify and store it twice.
-	// Close drains the coalescer (and the ingestion goroutine), making the
-	// read below race-free.
+	// Callback gets only the prefetch entry; Close drains it race-free.
 	require.NoError(t, b.Close())
 	require.Len(t, callbackEntries, 1)
 	require.Equal(t, "go-buildcache/v1aaaa000000000002", callbackEntries[0].Key)
@@ -298,8 +293,7 @@ func TestGetBatch_FallbackToIndividual(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Store a compressed entry and add the key to the index so
-	// getIndividual can find it.
+	// Store a compressed entry and add its key to the index for getIndividual.
 	compressed, _ := compressData([]byte("fallback data"))
 	store["go-buildcache/v1aabbccdd11223344"] = compressed
 	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": testOutputID("fallback data")}
@@ -347,9 +341,7 @@ func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The fake server 404s on /_index, so the index fetch fails and the key
-	// set is NOT authoritative — exactly the recovery case in which unknown
-	// keys must be batch-probed (the server may hold entries we can't see).
+	// Index fetch 404s, so unknown keys must be batch-probed, not fast-missed.
 	require.False(t, b.indexAuthoritative)
 
 	// Key is NOT in b.keys index (simulating a fresh cache).
@@ -425,9 +417,7 @@ func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The server 404s on /_index, so the index fetch fails and the key set is
-	// not authoritative — unknown keys take the batch-probe path this test
-	// exercises (with an authoritative index they would fast-miss instead).
+	// Index 404s, so unknown keys take the batch-probe path this test exercises.
 	require.False(t, b.indexAuthoritative)
 
 	// Fire N parallel Get calls for unknown keys.
@@ -442,9 +432,7 @@ func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 	}
 	wg.Wait()
 
-	// With batchMaxKeys=128 and the coalescer, N=200 callers should
-	// fit in 2 HTTP requests at most (128 + 72), and almost certainly 1
-	// if all goroutines arrive within the coalesce window.
+	// batchMaxKeys=128 plus coalescing should fit N=200 callers in ≤2 requests.
 	calls := atomic.LoadInt32(&batchHTTPCalls)
 	require.LessOrEqual(t, calls, int32(3),
 		"expected ≤3 HTTP requests for %d parallel Gets, got %d (no client-side batching)", N, calls)

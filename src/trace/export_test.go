@@ -70,8 +70,7 @@ func TestBuildSpanHierarchy(t *testing.T) {
 	}
 	require.True(t, rootFound, "root span not found")
 
-	// Worker spans should be children of root, all named "build.worker", and
-	// distinguished by the build.worker.id attribute.
+	// Worker spans are children of root, all named build.worker, distinguished by build.worker.id.
 	workerSpans := map[string]tracetest.SpanStub{}
 	for _, s := range spans {
 		if s.Parent.SpanID() == root.SpanContext.SpanID() {
@@ -201,8 +200,7 @@ func TestCompileLabelsBecomeStaticBuildCompile(t *testing.T) {
 	assert.True(t, workerIDs.Contains("worker-1"))
 	assert.True(t, workerIDs.Contains("worker-2"))
 
-	// All compile steps should share the static name "build.compile" and carry the
-	// platform as attributes rather than baking it into the span name.
+	// Compile steps share the static name build.compile; platform goes into attributes, not the span name.
 	type platform struct{ os, arch string }
 	gotPlatforms := set.New[platform]()
 	compileCount := 0

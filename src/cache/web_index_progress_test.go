@@ -65,20 +65,13 @@ func TestLoadOrFetchIndex_SlowButSteadyBodySucceeds(t *testing.T) {
 			if flusher != nil {
 				flusher.Flush()
 			}
-			// Steady progress, but slow: each gap is well under the stall
-			// window while the total transfer runs well past it.
+			// Each gap is well under the stall window, but the total transfer runs past it.
 			time.Sleep(chunkGap)
 		}
 	}))
 	defer srv.Close()
 
-	// Every budget except the ceiling is 200ms, against 40ms chunk gaps (5x
-	// headroom per chunk, so a scheduling hiccup does not flake the test)
-	// and a ~640ms total transfer. The ratio is the whole point, and it is
-	// what makes this test discriminating: under the old single-deadline
-	// bound, 200ms covering the WHOLE load kills this healthy transfer at
-	// chunk 5 — exactly what happened to the real ~29 MB index against a 5s
-	// budget. Only a per-chunk bound lets it finish.
+	// A single 200ms deadline over the whole transfer would kill it at chunk 5; only a per-chunk bound finishes it.
 	defer shrinkIndexBudgets(200*time.Millisecond, 200*time.Millisecond, 30*time.Second)()
 
 	b, err := NewWebBackend(WebConfig{

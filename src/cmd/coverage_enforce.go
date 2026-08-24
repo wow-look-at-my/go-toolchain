@@ -41,9 +41,7 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 	// Packages exist but no statements were measured.
 	if totalUncovered == 0 && len(report.Packages) > 0 {
 		if !gotest.HasCoverableStatements(".") {
-			// Nothing `go test -cover` could ever measure here (e.g. the
-			// module only embeds assets or declares types/constants).
-			// 0-of-0 statements is complete, not broken.
+			// Nothing to measure here (embed-only or declarations-only module); 0-of-0 is complete, not broken.
 			if !quiet {
 				logger.Info("⇒ No coverable statements in this module — nothing to measure, skipping coverage check")
 			}
@@ -56,14 +54,11 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 			}
 			return fmt.Errorf("%s", msg)
 		}
-		// Tests ran over coverable code, yet nothing was measured — the
-		// coverage profile is missing or broken.
+		// Tests ran over coverable code, yet nothing was measured -- the coverage profile is missing or broken.
 		panic(fmt.Sprintf("coverage %.1f%% is below minimum %.1f%% with 0 uncovered statements — coverage data is missing or broken", report.Total, effectiveMin))
 	}
 
-	// Allow reduced coverage if every file with uncovered statements has fewer than 10.
-	// Small files (e.g. main.go with just main()) can't easily reach
-	// the coverage minimum, so we warn instead of failing.
+	// Allow reduced coverage when every file has fewer than 10 uncovered statements (small files can't easily reach the minimum).
 	allSmall := true
 	for _, pkg := range report.Packages {
 		for _, f := range pkg.Files {
@@ -84,9 +79,7 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 	}
 
 	msg := fmt.Sprintf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
-	// Skip annotation in --json mode: the coverage report has already
-	// been written to stdout above, and a workflow command on stdout
-	// would corrupt the JSON payload.
+	// Skip annotation in --json mode: a workflow command on stdout would corrupt the already-written JSON payload.
 	if isGHA() && !quiet {
 		logError("", msg)
 	}

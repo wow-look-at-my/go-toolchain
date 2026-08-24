@@ -8,9 +8,7 @@ import (
 	"strings"
 )
 
-// diagnosticLineCap bounds a failure report. A panicking benchmark can print
-// megabytes, and a wall of stack traces buries the one line that names the
-// cause. Whatever is cut is counted and said out loud.
+// diagnosticLineCap bounds a failure report so a panic's stack trace does not bury the cause. Cuts are counted and reported.
 const diagnosticLineCap = 200
 
 // diagnosticEvent is the part of a `go test -json` event a failure needs. A

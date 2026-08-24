@@ -182,9 +182,8 @@ func fmtFloat(v float64, prec int) string {
 }
 
 // ConcurrencyTracker records the high watermark and a running total of
-// concurrency samples. Each Acquire/Release pair tracks one in-flight
-// operation. The peak and per-sample sum/count allow computing the
-// average concurrent usage.
+// concurrency samples; peak plus per-sample sum/count give the average
+// concurrent usage.
 type ConcurrencyTracker struct {
 	inFlight atomic.Int64
 	peak     atomic.Int64

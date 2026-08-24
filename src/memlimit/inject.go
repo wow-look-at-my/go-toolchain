@@ -30,18 +30,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
-// GuardFileName is the name of the generated file written into each main
-// package. The _gen suffix marks it as generated; it carries a build constraint
-// (go1.19) and is stdlib-only, so it compiles on every supported platform
-// (including both wasm ports, where it no-ops for lack of cgroup files).
-// Defined from gomod's constant: main-package discovery skips the guard by
-// name so an injected (or stale) guard — an unconstrained "package main"
-// file — can never make a host-only main dir look like a main package under
-// another target's build context (see gomod.MemLimitGuardFileName). Guards
-// are injected into HOST-context main packages only: a main that exists only
-// under some cross-compile context (e.g. //go:build js && wasm) gets no
-// guard, which is sound — the guard reads Linux cgroup limits and would be a
-// startup no-op there anyway.
+// GuardFileName names the generated guard; main-package discovery skips it so a stale copy is never misread as a real main package.
 const GuardFileName = gomod.MemLimitGuardFileName
 
 // guardSource is the exact content written into each main package.
@@ -116,12 +105,10 @@ func InjectAll() ([]string, error) {
 	return changed, nil
 }
 
-// CleanupAll removes the injected guard from every main package under the
-// current module, returning the directories a guard was removed from. It is the
-// inverse of InjectAll: go-toolchain injects the guard only for the duration of
-// the build and removes it immediately afterward, so the generated file never
-// lingers in the working tree or shows up as an uncommitted change. A guard that
-// is already absent is not an error, and when there is no module it is a no-op.
+// CleanupAll removes the injected guard from every main package under the current module, returning the
+// directories a guard was removed from. It is InjectAll's inverse, run immediately after the build so the
+// generated file never lingers or shows up as an uncommitted change. A guard already absent is not an error;
+// with no module it is a no-op.
 func CleanupAll() ([]string, error) {
 	dirs, err := mainPackageDirs()
 	if err != nil {

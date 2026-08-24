@@ -39,8 +39,7 @@ func (s *PackStore) evictPacksToBudget(ids []int, total int64) []int {
 			size = info.Size()
 		}
 		if err := os.Remove(path); err != nil {
-			// Cannot delete (permissions, races): stop rather than spin. The
-			// store still works, just over budget; say so below.
+			// Cannot delete (permissions, races): stop rather than spin; the store still works, just over budget.
 			logger.Warn("cacheprog: pack eviction: remove %s: %v", path, err)
 			break
 		}

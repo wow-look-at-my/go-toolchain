@@ -40,9 +40,7 @@ func TestIsGoModuleIndex(t *testing.T) {
 // module index, letting cmd/go recompute it locally. The key is also evicted.
 func TestWebBackend_GetRefusesModuleIndex(t *testing.T) {
 	const actionID = "aabbccdd11223344"
-	// A well-formed index whose body DOES hash to its advertised outputID, so it
-	// sails through outputIDMatches and buildIDMatchesAction — only the
-	// module-index guard can stop it.
+	// A well-formed index whose body hashes to its outputID: only the module-index guard can refuse it.
 	index := "go index v2\n" + largePayload(2048)
 	outputID := testOutputID(index)
 
@@ -262,8 +260,7 @@ func TestLocalServeGatesRefuseModuleIndex(t *testing.T) {
 	require.False(t, ok, "the loose tier must refuse a stored module index")
 	require.Contains(t, reason, "module index")
 
-	// The pack tier decides from memoized facts, so the index-ness of the body
-	// has to survive memoization.
+	// The pack tier decides from memoized facts, so index-ness must survive memoization.
 	vi := verifyInfoForPut(outputID, index)
 	require.True(t, vi.isModIndex)
 	require.False(t, vi.servableForAction(actionID))

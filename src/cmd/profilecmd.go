@@ -14,12 +14,9 @@ import (
 var noProfile bool
 
 var (
-	// profileCollector accumulates actiongraph dump paths for this run; nil
-	// when profiling is disabled or the command doesn't build.
+	// profileCollector accumulates actiongraph dump paths; nil when disabled.
 	profileCollector *profile.Collector
-	// profileGraph is the parsed+merged actiongraph, stashed by
-	// captureProfileTrace (which must run before the Chrome trace is written)
-	// and reused by emitBuildProfile for the final report.
+	// profileGraph is the parsed+merged actiongraph, stashed by captureProfileTrace and reused by emitBuildProfile.
 	profileGraph []profile.Action
 )
 
@@ -38,17 +35,15 @@ func initBuildProfile() {
 	}
 	profileCollector = profile.NewCollector(profileDir())
 	profile.SetActive(profileCollector)
-	// src/test can't import src/profile (cycle via src/trace → src/summary),
-	// so hand it the injection hook explicitly.
+	// src/test can't import src/profile (import cycle), so hand it the hook directly.
 	gotest.GraphArgFunc = profile.GraphArg
 }
 
 // captureProfileTrace parses the collected actiongraph dumps and records
 // per-action lane events into the Chrome trace. It must run BEFORE run()'s
 // deferred trace write; the parsed rows are stashed for emitBuildProfile.
-// The per-action cache outcomes read here are best-effort (the stats socket
-// may still have events in flight); the final report re-snapshots them after
-// the listener has drained.
+// The cache outcomes read here are best-effort (the stats socket may still
+// have events in flight); the final report re-snapshots after it drains.
 func captureProfileTrace() {
 	if profileCollector == nil {
 		return

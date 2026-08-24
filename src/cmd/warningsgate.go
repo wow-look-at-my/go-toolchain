@@ -7,26 +7,15 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// maxWarnings is the pipeline's warning budget: a run that emits more than
-// this many DISTINCT Warn-level messages through src/logger fails after the
-// pipeline completes. src/logger folds a repeated message into one.
-// Deliberately a constant — there is no flag or environment variable to
-// change it.
-// see docs/WARNINGS-GATE.md
+// maxWarnings is the pipeline's DISTINCT-warning budget; a constant on purpose. see docs/WARNINGS-GATE.md
 const maxWarnings = 15
 
 // checkWarningsGate fails the build when the run emitted more than
-// maxWarnings distinct warnings. It runs at the END of the pipeline commands
-// (the default root run and matrix), after all phases have completed, so the
-// user still sees every warning before the failure. Non-pipeline subcommands
-// (version, install, cacheprog, ...) are deliberately not gated — the
-// cacheprog subprocess is a separate process and never reaches this check.
-//
-// The failure RE-PRINTS every warning it is failing on, with the repeat count
-// of each. A bare count sends the reader hunting back through the log and
-// inviting a guess at which output was to blame — and the loudest lines in a
-// build log (the watchdog's STALLED banner, say) are usually not the counted
-// ones, because only src/logger's Warn/WarnFile reach the counter.
+// maxWarnings distinct warnings. It runs at the END of the pipeline commands,
+// after every phase has printed, so the user sees all warnings before the
+// failure. Non-pipeline subcommands are not gated. The failure re-prints
+// every warning with its repeat count, since a bare count sends the reader
+// hunting back through the log for which output was to blame.
 func checkWarningsGate() error {
 	n := logger.WarnCount()
 	if n <= maxWarnings {
@@ -34,13 +23,10 @@ func checkWarningsGate() error {
 	}
 	recap := warningsRecap(n, logger.TotalWarnCount(), logger.EmittedWarnings())
 	if jsonOutput {
-		// stdout carries the JSON payload; a block or an annotation there
-		// would corrupt it. rawStderr is the documented bypass.
+		// stdout carries the JSON payload; rawStderr is the documented bypass.
 		fmt.Fprintln(rawStderr, recap)
 	} else {
-		// In GHA this is ONE ::error annotation carrying the whole list
-		// (gha.go escapes the newlines, so it annotates intact); locally it
-		// is the same block on stderr.
+		// In GHA this is one ::error annotation carrying the whole list.
 		logError("", recap)
 	}
 	return fmt.Errorf("build failed: %d distinct warnings emitted (threshold: %d)", n, maxWarnings)

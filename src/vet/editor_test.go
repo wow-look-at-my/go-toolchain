@@ -63,8 +63,7 @@ func TestCheckEditorRequireRecordsAndNeverWrites(t *testing.T) {
 	got, _ := os.ReadFile(p)
 	assert.Equal(t, "old", string(got))
 
-	// Violation recorded with path + reason, plus a unified diff an agent (or
-	// human) with no code-execution capability can read to see the exact fix.
+	// Violation recorded with path + reason, plus a unified diff readable without running code.
 	require.Error(t, ed.Err())
 	msg := ed.Err().Error()
 	assert.Contains(t, msg, p)
@@ -91,8 +90,7 @@ func TestCheckEditorApplyIsNoop(t *testing.T) {
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))
 
 	ed := NewEditor(false)
-	// Apply changes are dropped on CI (their issue is reported via a diagnostic),
-	// so nothing is written and no violation is recorded.
+	// Apply changes are dropped on CI (reported via diagnostic instead); nothing is written or recorded.
 	wrote, err := ed.Apply(p, []byte("new"))
 	require.NoError(t, err)
 	assert.False(t, wrote)

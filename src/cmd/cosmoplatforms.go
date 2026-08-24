@@ -8,23 +8,17 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// cosmoPlatformsProbeValue is the sentinel the support probe sets
-// GOCOSMOPLATFORMS to. A toolchain that knows the variable echoes it back
-// through `go env`; one that does not prints an empty line.
+// cosmoPlatformsProbeValue is the sentinel `go env` must echo back if aware.
 const cosmoPlatformsProbeValue = "linux/amd64"
 
 // Test seam: the probe execs the fork toolchain, which tests do not have.
 var cosmoPlatformsSupportedFunc = cosmoPlatformsSupported
 
 // cosmoPlatformsSupported reports whether the gosmopolitan toolchain at
-// forkGoroot honors GOCOSMOPLATFORMS.
-//
-// The fork reads its GOCOSMO* variables with os.Getenv, so an older toolchain
-// ignores an unknown one silently and emits an APE covering every platform it
-// can. That is the whole reason this probe exists: without it a build reports
-// a platform set it did not actually restrict itself to. Support is declared
-// by reporting the variable through `go env`, which is the one channel a
-// caller can read without running a build.
+// forkGoroot honors GOCOSMOPLATFORMS. An older fork ignores an unknown
+// GOCOSMO* var silently and emits an APE covering every platform it can, so
+// without this probe a build would report a platform set it never enforced.
+// Support is declared by echoing the var back through `go env`.
 func cosmoPlatformsSupported(forkGoroot string) bool {
 	cmd := exec.Command(cosmoGoBinPath(forkGoroot), "env", cosmoPlatformsEnv)
 	cmd.Env = append(os.Environ(),

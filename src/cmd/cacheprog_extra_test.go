@@ -75,8 +75,7 @@ func TestCacheProgCommand(t *testing.T) {
 	exe := "/Applications/my tools/gt-ape" // space exercises the quoting
 	got, err := cacheProgCommand("cosmo", "darwin", exe)
 	require.NoError(t, err)
-	// The wrapper path contains no quotable characters, so the command IS the
-	// wrapper path; it must be an executable file re-execing the APE.
+	// The wrapper path has no quotable chars, so the command IS the wrapper path -- an executable re-execing the APE.
 	data, err := os.ReadFile(got)
 	require.NoError(t, err)
 	assert.Equal(t, "#!/bin/sh\nexec '"+exe+"' cacheprog\n", string(data))
@@ -84,8 +83,7 @@ func TestCacheProgCommand(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode().Perm()&0o111, "wrapper must be executable")
 
-	// A single quote in the executable path cannot be embedded safely: the
-	// cache is disabled (error) rather than a misquoted wrapper written.
+	// A single quote in the executable path cannot be embedded safely: the cache is disabled rather than misquoted.
 	_, err = cacheProgCommand("cosmo", "darwin", "/tmp/it's here/gt-ape")
 	require.Error(t, err)
 }

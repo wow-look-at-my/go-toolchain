@@ -28,12 +28,8 @@ var wellKnownHosts = set.Of(
 	"gopkg.in",
 )
 
-// directMirrorHosts are the hosts we are willing to rewrite a vanity module
-// *onto*. They serve plain git repositories that resolve without any further
-// vanity/meta indirection. If a vanity module's real repository lives anywhere
-// else (e.g. go.googlesource.com), rewriting to it merely swaps one indirect
-// host for another — and can break resolution that the module proxy would
-// otherwise satisfy for the original path — so we leave such modules untouched.
+// directMirrorHosts are hosts safe to rewrite a vanity module onto: plain
+// git repos with no further indirection.
 var directMirrorHosts = set.Of(
 	"github.com",
 	"gitlab.com",
@@ -54,12 +50,7 @@ type vanityReplace struct {
 	NewVersion string
 }
 
-// vanityState carries the replaces that were injected together with a
-// snapshot of go.sum as it existed prior to injection. The snapshot lets
-// removeVanityReplaces restore the original go.sum entries, which is
-// necessary because go mod tidy — run while the replace is active —
-// rewrites go.sum to reference the replacement path (e.g. github.com
-// mirror) instead of the original vanity path (e.g. gonum.org).
+// vanityState lets removeVanityReplaces undo tidy's rewrite of go.sum.
 type vanityState struct {
 	Replaces  []vanityReplace
 	OrigGoSum []byte
@@ -137,15 +128,7 @@ func isVanityHostReachable(host string) bool {
 func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
 	// Strategy 1: use go mod download -json via proxy to get Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
-	// Resolve in a scratch directory, outside the current module, so that
-	// downloading this one module does not load the main module's full
-	// requirement graph. On a cold machine that graph can pull in other
-	// uncached or unreachable vanity modules and make this call fail — which
-	// would force the go-import meta fallback below. That fallback cannot see a
-	// module's repository subdirectory, so it produces flat, colliding replaces
-	// for sub-modules (e.g. dropping "/sdk" from go.opentelemetry.io/auto/sdk,
-	// or mapping every go.opentelemetry.io/otel/* onto the same repo path). The
-	// proxy's Origin.Subdir is the authoritative source for that suffix.
+	// Outside the module dir, so this can't pull in the full requirement graph.
 	cmd.Dir = os.TempDir()
 	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct", "GOWORK=off", "GOFLAGS=")
 	output, err := cmd.Output()
@@ -212,9 +195,8 @@ func parseGoImportMeta(html, modulePath string) (repoURL, importPrefix string, e
 	return "", "", fmt.Errorf("no go-import meta found for %s", modulePath)
 }
 
-// vcsURLToModulePath strips the scheme and .git suffix from a VCS URL,
-// returning a bare module path.  e.g.
-// "https://github.com/gotestyourself/gotestsum" → "github.com/gotestyourself/gotestsum"
+// vcsURLToModulePath strips the scheme and .git suffix from a VCS URL to get
+// a bare module path.
 func vcsURLToModulePath(vcsURL string) string {
 	p := strings.TrimPrefix(vcsURL, "https://")
 	p = strings.TrimPrefix(p, "http://")
@@ -276,10 +258,8 @@ func injectVanityReplaces() (*vanityState, error) {
 				continue
 			}
 
-			// Only rewrite onto a direct code host. If the resolved repository
-			// lives elsewhere (e.g. go.googlesource.com), a replace would just
-			// move the indirection — and may break what the proxy could resolve
-			// for the original path — so skip it and let the proxy handle it.
+			// Only rewrite onto a direct code host; elsewhere a replace would just
+			// move the indirection, so let the proxy handle it instead.
 			if targetHost := strings.SplitN(ghPath, "/", 2)[0]; !directMirrorHosts.Contains(targetHost) {
 				if !jsonOutput {
 					logger.Info("    skipping %s: resolved host %s is not a direct mirror", m.Path, targetHost)
@@ -287,10 +267,8 @@ func injectVanityReplaces() (*vanityState, error) {
 				continue
 			}
 
-			// Append sub-module suffix: if the module path extends beyond
-			// the import prefix, the extra path identifies a sub-module
-			// directory within the repository (e.g. otel/trace in
-			// opentelemetry-go).
+			// The path beyond the import prefix names a sub-module directory
+			// within the repository (e.g. otel/trace).
 			if importPrefix != "" && strings.HasPrefix(m.Path, importPrefix+"/") {
 				ghPath += m.Path[len(importPrefix):]
 			}
@@ -351,9 +329,7 @@ func injectVanityReplaces() (*vanityState, error) {
 		return nil, nil
 	}
 
-	// Snapshot go.sum so we can restore it when the replaces are removed.
-	// go mod tidy, run while the replace is active, will rewrite go.sum to
-	// reference the replacement path; the snapshot lets us revert that.
+	// Snapshot go.sum before tidy rewrites it, so it can be restored later.
 	origGoSum, err := os.ReadFile("go.sum")
 	if err != nil {
 		return nil, err
@@ -394,9 +370,7 @@ func removeVanityReplaces(state *vanityState) error {
 		}
 	}
 
-	// Collapse the now-empty replace slots that DropReplace leaves behind so
-	// removal restores go.mod to its original shape, rather than leaving stray
-	// `replace ( ... )` blocks with blank lines festering in the user's file.
+	// Collapse the empty replace slots DropReplace leaves behind.
 	f.Cleanup()
 
 	newData, err := f.Format()
@@ -415,34 +389,22 @@ func removeVanityReplaces(state *vanityState) error {
 	return nil
 }
 
-// checkDirtyInCIWithVanityRestored runs the CI dirty-tree check against the
-// tree as removeVanityReplaces will restore it: with the injected replace
-// directives dropped from go.mod and go.sum back at its pre-injection
-// snapshot. The active (injected) state is put back on disk before returning,
-// so the mirror replaces keep resolving modules for the test and build phases
-// that follow. With no active vanity state — the overwhelmingly common case —
-// this is exactly checkDirtyInCI.
+// checkDirtyInCIWithVanityRestored runs the CI dirty-tree check against the tree as
+// removeVanityReplaces will leave it: injected replaces dropped from go.mod, go.sum
+// restored to its pre-injection snapshot. The active state is written back before
+// returning, so mirror replaces still resolve modules for later phases. With no
+// active vanity state, this is exactly checkDirtyInCI.
 //
-// This exists because the injected replaces are the toolchain's own transient
-// mutation, removed when RunTestsWithCoverage returns — but the fail-fast
-// dirty check (#293) runs mid-function, while they are still on disk. Any CI
-// run where a vanity host happened to be unreachable at probe time therefore
-// died with "working tree is dirty in CI ... M go.mod, M go.sum" on a
-// canonically tidy tree (github-state-mirror run 29791671090: modernc.org
-// probe failed, 14 gitlab.com/cznic replaces injected, tidy rewrote go.sum,
-// post-vet check fired), and an identical re-run passed once the host was
-// reachable again. Checking the restored tree instead makes this check agree
-// with the later checkDirtyInCI call sites (runBuildPhase, the matrix flow),
-// which already run after the deferred restore.
+// This exists because the injected replaces are transient, removed only when
+// RunTestsWithCoverage returns, while the fail-fast dirty check runs mid-function.
+// A run where a vanity host was unreachable at probe time would otherwise fail on a
+// canonically tidy tree. Checking the restored tree instead matches the later
+// checkDirtyInCI call sites, which run after the deferred restore.
 //
-// Real dirt still fails: removeVanityReplaces drops only the replaces this
-// run injected, so any other go.mod change (e.g. tidy updating requirements
-// on an untidy tree) survives the restore and is reported, and files other
-// than go.mod/go.sum are never touched. The one accepted narrowing is
-// inherent to the snapshot-based go.sum restore: while a vanity host is down,
-// legitimate go.sum drift is indistinguishable from the tidy path swap and is
-// restored away — the run leaves (and validates) exactly the committed
-// go.sum, and the drift fails the very next run with the host reachable.
+// Real dirt still fails: only this run's own injected replaces are dropped, so any
+// other go.mod change survives and is reported. One narrowing: while a vanity host
+// is down, go.sum drift is indistinguishable from tidy's path swap and gets
+// restored away; it fails on the very next run once the host is reachable.
 func checkDirtyInCIWithVanityRestored(state *vanityState) error {
 	if state == nil || len(state.Replaces) == 0 || os.Getenv("CI") == "" {
 		return checkDirtyInCI()
@@ -450,21 +412,16 @@ func checkDirtyInCIWithVanityRestored(state *vanityState) error {
 	activeGoMod, modErr := os.ReadFile("go.mod")
 	activeGoSum, sumErr := os.ReadFile("go.sum")
 	if modErr != nil || sumErr != nil {
-		// Cannot snapshot the active state; check the live tree rather than
-		// risk losing the mirror replaces mid-pipeline.
+		// Cannot snapshot state; check the live tree instead of risking data loss.
 		return checkDirtyInCI()
 	}
 	if err := removeVanityReplaces(state); err != nil {
-		// The restored tree could not be computed; the live tree is checked
-		// below instead, reporting at worst the same failure this run would
-		// have reported before the restore-aware check existed.
+		// Restore failed; fall back to checking the live tree below.
 		logger.Warn("⇒ Warning: could not restore vanity replaces for the dirty check: %v", err)
 	}
 	dirtyErr := checkDirtyInCI()
-	// Put the active mirror state back so module resolution through the
-	// replaces keeps holding for the phases that follow. The deferred
-	// removeVanityReplaces performs the final restore when the test phase
-	// returns, exactly as before.
+	// Restore the active mirror state so later phases keep resolving through the
+	// replaces. The deferred removeVanityReplaces does the final restore later.
 	if err := os.WriteFile("go.mod", activeGoMod, 0644); err != nil && dirtyErr == nil {
 		dirtyErr = fmt.Errorf("restore active go.mod after dirty check: %w", err)
 	}

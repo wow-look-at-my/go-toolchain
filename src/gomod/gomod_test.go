@@ -37,8 +37,7 @@ func newModule(t *testing.T, modPath string) string {
 
 func TestHasMainPackage_IgnoresBuildIgnoreMain(t *testing.T) {
 	root := t.TempDir()
-	// A directory whose ONLY package main file is //go:build ignore must not
-	// be reported as a main package.
+	// A dir whose only package main file is //go:build ignore is not a main package.
 	writeFile(t, root, "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
 	assert.False(t, hasMainPackage(root),
 		"//go:build ignore package main must not count as a main package")
@@ -60,8 +59,7 @@ func TestHasMainPackage_NormalMainIsFound(t *testing.T) {
 
 func TestHasMainPackage_RealMainAlongsideIgnoredGenerator(t *testing.T) {
 	root := t.TempDir()
-	// A real package main next to an //go:build ignore package main generator:
-	// the real main must still be discovered (cmd/... discovery unaffected).
+	// A real main next to an ignored generator main must still be discovered.
 	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, root, "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
 	assert.True(t, hasMainPackage(root),
@@ -70,8 +68,7 @@ func TestHasMainPackage_RealMainAlongsideIgnoredGenerator(t *testing.T) {
 
 func TestHasMainPackage_BenchDirWithOnlyIgnoredGeneratorIsNotMain(t *testing.T) {
 	root := t.TempDir()
-	// A package bench dir whose only package main file is an ignored generator
-	// must NOT be treated as a main package (the go-regex-compiler bug).
+	// A package bench dir with only an ignored generator main is not a main package.
 	writeFile(t, root, "bench_test.go", "package bench\n")
 	writeFile(t, root, "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
 	assert.False(t, hasMainPackage(root),
@@ -106,8 +103,7 @@ func TestHasMainPackage_OnlyConstraintChecksMainCandidates(t *testing.T) {
 	writeFile(t, root, "b.go", "package lib\n")
 	writeFile(t, root, "c.go", "package lib\n")
 	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
-	// A non-test file that is NOT package main must never reach the
-	// (expensive) build-constraint check; only the package-main file may.
+	// A non-main file must never reach the build-constraint check.
 	var checked []string
 	orig := matchFile
 	matchFile = func(dir, name string) (bool, error) {
@@ -131,11 +127,7 @@ func TestFindMainPackages_RootMain(t *testing.T) {
 	assert.Equal(t, []string{modPath}, pkgs)
 }
 
-// k8sHeader is a multi-line /* */ license header in the style the Kubernetes
-// project stamps on every file. The old hand-rolled package-clause scanner
-// skipped only the FIRST line of such a comment ("/*"): the continuation
-// lines matched none of its prefixes, so it bailed before reaching the
-// package clause and the main package silently vanished from the build.
+// k8sHeader is a multi-line /* */ license header, the style Kubernetes uses.
 const k8sHeader = `/*
 Copyright 2024 The Example Authors.
 
@@ -174,9 +166,7 @@ func TestPackageNameFromFile_Forms(t *testing.T) {
 
 func TestHasMainPackage_BlockCommentHeaderMain(t *testing.T) {
 	root := t.TempDir()
-	// The end-to-end shape of the bug: a main package whose ONLY file starts
-	// with a k8s-style block-comment header was silently not built (missed by
-	// ResolveBuildTargets and the memlimit guard injection).
+	// End-to-end: a main file behind a block-comment header must still be found.
 	writeFile(t, root, "main.go", k8sHeader+"package main\n\nfunc main() {}\n")
 	assert.True(t, hasMainPackage(root),
 		"a main package behind a block-comment license header must be discovered")
@@ -197,9 +187,7 @@ func TestFindMainPackages_SkipsNestedModule(t *testing.T) {
 	modPath := "example.com/outer"
 	newModule(t, modPath)
 	writeFile(t, "cmd/app", "main.go", "package main\n\nfunc main() {}\n")
-	// A nested module (e.g. a vendored compat copy like src/compat/go-isatty)
-	// may contain main packages of its own; they belong to that module and
-	// must not be reported as buildable import paths of the outer one.
+	// A nested module's own main packages belong to it, not the outer module.
 	writeFile(t, "compat/tool", "go.mod", "module example.com/tool\n\ngo 1.25\n")
 	writeFile(t, "compat/tool", "main.go", "package main\n\nfunc main() {}\n")
 
@@ -241,13 +229,10 @@ func TestFindMainPackagesForTarget(t *testing.T) {
 
 func TestFindMainPackagesSkipsMemLimitGuard(t *testing.T) {
 	newModule(t, "example.com/guarded")
-	// A host-only main dir carrying an injected memlimit guard (the guard is
-	// an UNCONSTRAINED package main file): the guard must not leak this dir
-	// into other targets' discovery.
+	// The unconstrained guard file must not leak this dir into other targets.
 	writeFile(t, "cmd/linuxonly", "main.go", "//go:build linux\n\npackage main\n\nfunc main() {}\n")
 	writeFile(t, "cmd/linuxonly", MemLimitGuardFileName, "package main\n")
-	// A dir whose ONLY main-ish file is a stale guard is not a main package
-	// in any context.
+	// A dir whose only main-ish file is a stale guard is not a main package.
 	writeFile(t, "cmd/stale", MemLimitGuardFileName, "package main\n")
 
 	js, err := FindMainPackagesForTarget("js", "wasm")
