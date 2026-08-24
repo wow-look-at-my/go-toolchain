@@ -88,8 +88,9 @@ tests:
 		"!stdout":
 			- "Build successful"
 
-	- desc: version stays exempt under {matrix.marker} (APE on a macOS host)
+	- desc: version is refused under {matrix.marker} (APE on a macOS host)
 	  cmd: 'cp ./gt-under-test {outputs.gt}; env {matrix.marker}=1 {outputs.gt} version raw'
+	  exit: 1
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]

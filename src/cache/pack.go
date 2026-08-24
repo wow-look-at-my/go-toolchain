@@ -17,33 +17,17 @@ import (
 // packNow returns the current unix time. It is a var so tests can pin it.
 var packNow = func() int64 { return time.Now().Unix() }
 
-// PackStore is a content-addressed object store that keeps every body in a
-// small number of append-only "pack" files instead of one file per entry. It
-// is the storage engine behind FuseCache, but it is deliberately FUSE-free and
-// portable so it can be unit-tested on any platform.
+// PackStore is a content-addressed object store that appends bodies into a
+// small number of pack files instead of one file per entry, avoiding
+// inode/block waste for the many tiny entries a build cache holds. It is the
+// storage engine behind FuseCache, but stays FUSE-free so it can be
+// unit-tested on any platform.
 //
-// Why pack at all? A build cache is dominated by tiny entries — source-file
-// lists, vet facts, export-data stubs — each far smaller than a filesystem
-// block. Stored one-file-per-entry they waste an inode, a directory entry, and
-// (rounding up to a block) most of a 4 KiB block apiece. Concatenating them
-// into pack files collapses thousands of tiny files into a handful of large
-// ones.
-//
-// On-disk record layout (all integers little-endian):
-//
-//	magic     uint32  = packRecordMagic ("GTPR")
-//	actionID  [32]byte
-//	outputID  [32]byte
-//	created   int64   (unix seconds)
-//	dataLen   uint64
-//	crc32     uint32  (IEEE crc of the body, verified before the body is served)
-//	data      [dataLen]byte
-//
-// The format is self-describing: the in-memory index is rebuilt purely by
-// scanning the packs at startup, so there is no separate index file to keep in
-// sync. A torn final record (from a crash mid-append) is detected — its
-// declared length runs past end-of-file — and ignored, so the store is
-// crash-safe by construction.
+// Record layout: magic(4) actionID(32) outputID(32) created(8) dataLen(8)
+// crc32(4) data(dataLen), all little-endian. The index rebuilds by scanning
+// packs at startup, so there is no separate index file to desync. A torn
+// final record (crash mid-append) is detected by its length running past
+// EOF, and ignored.
 type PackStore struct {
 	dir   string
 	Stats CacheStats
@@ -59,14 +43,12 @@ type PackStore struct {
 	pmu   sync.RWMutex
 	packs map[int]*os.File // packID -> open RW handle (used for ReadAt and append)
 
-	// verified memoizes per-record serve-gate facts so warm GETs and FUSE
-	// lookups don't re-read + re-hash bodies on every access (see verify.go).
+	// verified caches per-record serve-gate facts to avoid re-hashing on repeat GETs (see verify.go).
 	verified verifiedSet
 }
 
-// packLoc records where a body lives: which pack file, the byte offset of the
-// body (past the record header), and its length. created/outputID travel with
-// it so a Get can answer without touching disk.
+// packLoc records where a body lives: pack file, byte offset past the header,
+// and length. created/outputID travel with it so Get needs no disk access.
 type packLoc struct {
 	packID   int
 	dataOff  int64
@@ -77,17 +59,11 @@ type packLoc struct {
 }
 
 const (
-	// packRecordMagic ("GTPR") marks the start of a full record (header + body).
-	// A scan that reads neither this nor packAliasMagic has hit garbage or a
-	// torn write and stops.
+	// packRecordMagic ("GTPR") starts a full record; anything else is garbage or a torn write.
 	packRecordMagic = 0x47545052
-	// packAliasMagic ("GTAL") marks an alias record: a header with no body that
-	// maps an actionID onto an outputID whose body is already stored. This is how
-	// content dedup is persisted — without it, a deduped action would live only
-	// in memory and vanish on restart, missing on the next build.
+	// packAliasMagic ("GTAL") aliases an actionID to an existing outputID's body, so dedup survives a restart.
 	packAliasMagic = 0x4754414c
-	// packHeaderLen is the fixed header size preceding each body:
-	// magic(4) + actionID(32) + outputID(32) + created(8) + dataLen(8) + crc(4).
+	// packHeaderLen is the header size: magic+actionID+outputID+created+dataLen+crc.
 	packHeaderLen = 4 + 32 + 32 + 8 + 8 + 4
 	// hashLen is the byte length of an action/output ID (SHA-256).
 	hashLen = 32
@@ -99,27 +75,18 @@ const (
 // These are vars (not consts) so tests can shrink them to exercise rotation and
 // reset without writing gigabytes.
 var (
-	// maxPackBytes rotates to a fresh pack once the active one exceeds this,
-	// keeping individual files manageable for the OS and for backups.
+	// maxPackBytes rotates to a fresh pack once the active one exceeds this, keeping files manageable.
 	maxPackBytes int64 = 1 << 30 // 1 GiB
-	// packResetBytes bounds unbounded cross-build growth: if the packs total
-	// more than this at startup, whole packs are evicted OLDEST-FIRST down to
-	// ~80% of this budget (the newest pack is never evicted) — see
-	// evictPacksToBudget. Evicted records are recomputed on demand.
+	// packResetBytes caps total pack size; over it, oldest packs are evicted to ~80% (see evictPacksToBudget).
 	packResetBytes int64 = 8 << 30 // 8 GiB
 )
 
 var packCRC = crc32.MakeTable(crc32.IEEE)
 
-// maxInt is the largest value representable by int on this platform, used to
-// bound a body length before converting int64 -> int for make().
+// maxInt bounds a body length before converting int64 -> int for make().
 const maxInt = int(^uint(0) >> 1)
 
-// mmapVerifyThreshold is the body size at or above which CRC verification maps
-// the pack region (via go-mmap) instead of reading the whole body onto the
-// heap. Large bodies are compiled archives/export data; copying them per hit
-// would be serious allocation pressure under parallel builds. Tiny entries (the
-// common case) aren't worth the mmap/munmap syscalls and take a plain read.
+// mmapVerifyThreshold: CRC-verify large bodies via mmap instead of a heap copy, to avoid allocation pressure.
 const mmapVerifyThreshold = 1 << 16 // 64 KiB
 
 // OpenPackStore opens (or creates) a pack store rooted at dir, rebuilding the
@@ -140,9 +107,7 @@ func OpenPackStore(dir string) (*PackStore, error) {
 		return nil, err
 	}
 
-	// Bound cross-build growth: evict oldest packs (never the newest) until
-	// back under budget — see evictPacksToBudget. Evicted records are simply
-	// recomputed; the hot tail of the cache survives.
+	// Evict oldest packs (never newest) back under budget; evicted records are simply recomputed.
 	ids = s.evictPacksToBudget(ids, total)
 
 	for _, id := range ids {
@@ -240,15 +205,11 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 		dataLen := int64(binary.LittleEndian.Uint64(hdr[12+2*hashLen : 20+2*hashLen]))
 
 		if magic == packAliasMagic {
-			// Aliases carry no body; dataLen must be 0. A non-zero value means
-			// corruption — stop rather than advance by only the header and risk
-			// desyncing from the true record boundaries.
+			// Aliases carry no body; non-zero dataLen means corruption -- stop rather than desync record boundaries.
 			if dataLen != 0 {
 				break
 			}
-			// The body lives under outputID, written by an earlier full record
-			// (records are scanned in write order). Point the action at it. If
-			// the body record was lost/torn, the alias is orphaned — skip.
+			// The body lives under outputID from an earlier record; point the action there. Orphaned (lost body) is skipped.
 			if bodyLoc, ok := s.byOutput[outputID]; ok {
 				loc := bodyLoc
 				loc.created = created
@@ -271,11 +232,7 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 		}
 		off = dataOff + dataLen
 	}
-	// Reclaim a stranded tail: bytes after the last valid record (a torn/garbage
-	// append from a crash) are dead weight that inflates disk usage and the
-	// reset accounting, and future appends would start past them. Truncate back
-	// to the last good boundary. Best-effort — safe because the single-owner
-	// lock means no other process is using this pack.
+	// Truncate a stranded tail (crash mid-append) back to the last good record; sole owner makes this safe.
 	if off < size {
 		_ = f.Truncate(off)
 	}
@@ -293,9 +250,7 @@ func (s *PackStore) Get(actionID string) (packLoc, bool) {
 	return loc, ok
 }
 
-// GetByOutput returns the location of a body by its outputID. Used by the FUSE
-// layer to resolve a DiskPath (which is named by outputID) to its bytes. It
-// does not count as a hit — the originating Get already did.
+// GetByOutput resolves a body by outputID, for FUSE DiskPath lookups. Not counted as a hit -- the originating Get did.
 func (s *PackStore) GetByOutput(outputID string) (packLoc, bool) {
 	s.mu.RLock()
 	loc, ok := s.byOutput[outputID]
@@ -322,12 +277,8 @@ func (s *PackStore) ReadAt(loc packLoc, dest []byte, off int64) (int, error) {
 	return f.ReadAt(dest, loc.dataOff+off)
 }
 
-// fdForRead returns the pack file descriptor and absolute offset for serving a
-// read of loc starting at body-relative off, plus how many bytes remain. It
-// lets the FUSE layer hand the kernel a (fd, offset, size) so reads are served
-// zero-copy (fuse.ReadResultFd) straight from the pack — no copy through the
-// daemon. The fd stays valid for the store's lifetime; pread at an explicit
-// offset is safe for concurrent use.
+// fdForRead returns the pack fd and absolute offset for a body-relative read
+// of loc, so FUSE can serve it zero-copy; the fd stays valid for the store's life.
 func (s *PackStore) fdForRead(loc packLoc, off int64) (fd uintptr, absOff, avail int64) {
 	if off < 0 || off >= loc.dataLen {
 		return 0, 0, 0
@@ -341,9 +292,7 @@ func (s *PackStore) fdForRead(loc packLoc, off int64) (fd uintptr, absOff, avail
 
 // ReadAll returns the full body at loc.
 func (s *PackStore) ReadAll(loc packLoc) ([]byte, error) {
-	// dataLen comes from a scanned record (validated <= file size) or a Put
-	// (len of an in-memory slice), so it's always a sane non-negative value;
-	// guard anyway so a corrupt/overflowing length can't drive a bad make().
+	// dataLen is normally sane (scanned + validated, or a slice len); guard anyway against a corrupt/overflowing make().
 	if loc.dataLen < 0 || loc.dataLen > int64(maxInt) {
 		return nil, fmt.Errorf("pack read: invalid body length %d", loc.dataLen)
 	}

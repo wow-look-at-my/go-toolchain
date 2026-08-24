@@ -41,8 +41,7 @@ type putReq struct {
 func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
 	key := b.key(actionID)
 
-	// Atomically check-and-claim: if the key is already known (or being
-	// uploaded by another goroutine), skip immediately.
+	// Atomically check-and-claim: skip if the key is already known or being uploaded.
 	b.keysMu.Lock()
 	if b.keys.Contains(key) {
 		b.keysMu.Unlock()
@@ -57,11 +56,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		attribute.Int64("cacheprog.bytes_uncompressed", bodySize))
 	defer span.End()
 
-	// Release the optimistic claim unless the object is successfully queued for
-	// upload (enqueued onto the coalescer or, in fallback mode, dispatched on the
-	// single-PUT path). Each path sets queued=true once it has taken ownership of
-	// the claim; the coalescer/single-PUT path is then responsible for any later
-	// rollback (a per-object server error or a whole-batch final failure).
+	// Release the claim unless queued=true: a path sets that once it owns rollback.
 	var queued bool
 	defer func() {
 		if !queued {
@@ -75,12 +70,9 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		return fmt.Errorf("web put read: %w", err)
 	}
 
-	// Write-side cross-contamination guard: never publish a compiled package to
-	// the shared cache under a key that disagrees with the package's own build
-	// id. The body<->outputID hash is self-consistent for a mis-keyed object, so
-	// only this check stops a swapped (actionID, object) pair from poisoning the
-	// remote cache for every other consumer. The deferred removeClaimed releases
-	// the optimistic index claim, so a later correct Put for this key still runs.
+	// Cross-contamination guard: refuse to publish a package under a key that disagrees
+	// with its own build id. The body<->outputID hash alone cannot catch a swapped
+	// (actionID, object) pair, so this is the only defense against poisoning the cache.
 	if act, ok := buildIDMatchesAction(actionID, raw); !ok {
 		b.PutRefusedBuildID.Increment()
 		markSpanMiss(span, "buildid_mismatch")
@@ -89,12 +81,8 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		return nil
 	}
 
-	// Never publish a Go module index to the shared cache. It cannot be verified
-	// against an action key on the way back in (see isGoModuleIndex), so a
-	// consumer has no way to tell a correct one from a mis-keyed (build-breaking)
-	// one -- the read side refuses all of them. Uploading is therefore pure
-	// downside: wasted bytes plus a standing poison vector for any client. Every
-	// consumer recomputes the index locally, so dropping the upload costs nothing.
+	// Never publish a Go module index: the read side can't verify it, so it refuses every
+	// upload; recomputing locally is free.
 	if isGoModuleIndex(raw) {
 		b.PutRefusedModIndex.Increment()
 		markSpanMiss(span, "module_index")
@@ -113,10 +101,8 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	span.SetAttributes(attribute.Int("cacheprog.bytes_compressed", len(compressed)),
 		attribute.String("cacheprog.label", describeData(raw)))
 
-	// Assemble the manifest metadata map: lowercased meta names WITHOUT the
-	// X-Cache-Meta- prefix, the SAME values a single PUT sends as headers. The
-	// single-PUT fallback re-derives these as headers from this map (see
-	// metadataHeaders), so this map is the single source of truth for both paths.
+	// meta holds lowercased names without the X-Cache-Meta- prefix; metadataHeaders
+	// derives the single-PUT headers from this same map, keeping both paths in sync.
 	meta := map[string]string{
 		"outputid":    outputID,
 		"object-type": detectObjectType(raw),
@@ -150,17 +136,15 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		metadata:   meta,
 	}
 
-	// Server has no batch endpoint (learned from an earlier 404/405): fall back
-	// to the per-object single-PUT path. This keeps the client working against an
-	// un-upgraded server; the #272 retry is the floor.
+	// No batch endpoint (learned from an earlier 404/405): fall back to the per-object
+	// single-PUT path, keeping the client working against an un-upgraded server.
 	if b.batchPutUnsupported.Load() {
 		queued = true // putSingle owns the claim from here on.
 		return b.putSingle(pr)
 	}
 
-	// Enqueue onto the coalescer and return immediately. The coalescer owns the
-	// claim from here: it keeps it on stored/conflict/dropped and rolls it back
-	// on a per-object error or a whole-batch final failure.
+	// Enqueue onto the coalescer, which now owns the claim: kept on stored/conflict/dropped,
+	// rolled back on a per-object or whole-batch failure.
 	select {
 	case b.putBatchReqCh <- pr:
 		queued = true
@@ -170,11 +154,8 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 	return nil
 }
 
-// metadataHeaders renders a manifest metadata map back into the X-Cache-Meta-*
-// request headers a single PUT uses. The map keys are the lowercased meta names
-// without the prefix; this is the inverse of the map assembled in Put, so the
-// single-PUT fallback sends byte-identical metadata to what the batch manifest
-// carries. Header keys are canonicalized by net/http on Set.
+// metadataHeaders renders the meta map back into X-Cache-Meta-* headers, the inverse of
+// the map built in Put.
 func metadataHeaders(meta map[string]string) http.Header {
 	h := http.Header{}
 	for name, val := range meta {
@@ -183,12 +164,8 @@ func metadataHeaders(meta map[string]string) http.Header {
 	return h
 }
 
-// srcMetaMaxFiles / srcMetaMaxBytes bound the X-Cache-Meta-Src metadata value.
-// The uncapped list (every .go basename compiled into the archive) could run to
-// kilobytes for large packages and blow the cache server's ~4 KiB shared ext4
-// xattr block — the server now degrades gracefully by dropping the oversized
-// key, but then the provenance data is simply lost. A capped list keeps the
-// most useful prefix and always fits.
+// srcMetaMaxFiles/srcMetaMaxBytes bound the Src metadata value so it always fits the
+// cache server's ~4 KiB shared ext4 xattr block.
 const (
 	srcMetaMaxFiles = 8
 	srcMetaMaxBytes = 256

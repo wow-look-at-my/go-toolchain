@@ -7,16 +7,11 @@ import (
 	"unsafe"
 )
 
-// tcgets is the linux uapi TCGETS ioctl request (same value on amd64 and
-// arm64). The gosmopolitan fork's cosmo syscall package exports Ioctl and
-// Termios but no TCGETS constant, so it is defined locally.
+// tcgets is the linux TCGETS ioctl request; the fork's cosmo syscall package exports Ioctl/Termios but no TCGETS constant.
 const tcgets = 0x5401
 
-// isTerminal reports whether fd refers to a terminal — TCGETS parity with the
-// linux implementation, via the fork's stdlib syscall (golang.org/x/sys/unix
-// has no cosmo port). This path is only reachable on linux hosts: on darwin
-// the APE has no /proc, so inspectFD bails to sinkVisible before any
-// char-device check.
+// isTerminal mirrors the linux TCGETS check via the fork's stdlib syscall.
+// Only reached on linux; darwin bails to sinkVisible first (no /proc).
 func isTerminal(fd uintptr) bool {
 	var t syscall.Termios
 	return syscall.Ioctl(int(fd), tcgets, uintptr(unsafe.Pointer(&t))) == nil

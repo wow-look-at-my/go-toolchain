@@ -2,8 +2,7 @@ package build
 
 import "os"
 
-// inDockerCheck is the function used to detect Docker containers.
-// It is a variable so tests can override it.
+// inDockerCheck detects Docker containers; a variable so tests can override it.
 var inDockerCheck = defaultInDockerCheck
 
 func defaultInDockerCheck() bool {
@@ -23,17 +22,12 @@ func SetInDockerCheck(f func() bool) func() {
 	return func() { inDockerCheck = old }
 }
 
-// BinaryName returns name_goos_goarch with .exe appended for Windows.
+// BinaryName returns name_goos_goarch, with .exe appended on Windows.
 //
-// WebAssembly targets (GOARCH=wasm) deliberately swap the order to
-// name_wasm_<goos> (name_wasm_js, name_wasm_wasip1) with no extension: that
-// is buildhost's wasm artifact convention (os=wasm with arch=js/wasip1, see
-// wow-look-at-my/buildhost#166), and the buildhost-publish action parses
-// artifacts from the trailing two underscore-separated tokens after
-// stripping only a .exe suffix — so this bare form publishes as
-// os=wasm/arch=<goos>, while any extension would keep the file out of the
-// upload set entirely. The file is still a wasm module; only the name
-// carries no extension. See UnpublishableWasmName for the opt-out shape.
+// Wasm (GOARCH=wasm) swaps to name_wasm_<goos>, no extension: buildhost's
+// publish action parses os/arch from the trailing two underscore tokens
+// after stripping .exe, so this form publishes as os=wasm/arch=<goos>; any
+// extension excludes it from the upload set. UnpublishableWasmName is the opt-out.
 func BinaryName(name, goos, goarch string) string {
 	// The cosmo fat APE is the plain name. One file runs on every platform in
 	// the set, so a platform suffix would name a property it does not have,

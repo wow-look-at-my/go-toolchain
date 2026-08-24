@@ -9,23 +9,9 @@ import (
 	"io"
 )
 
-// This file implements the GOCACHEPROG wire reading for Server.Run: newline-
-// framed JSON request lines, and for PUTs a base64 body line. It exists to
-// replace the old bufio.Scanner loop, whose 64 MiB token cap killed the whole
-// protocol loop on any PUT body >= ~48 MiB raw (base64 line >= 64 MiB) — cmd/go
-// then failed the build with "GOCACHEPROG exited pre-Close". Worse, the body
-// scan failed BEFORE handlePut ran, so an EMPTY body was committed under the
-// request's real actionID/outputID and served as a "valid" hit forever after.
-//
-// Wire format per cmd/go/internal/cache/prog.go (verified against go1.25.0):
-// each request is one JSON line followed by an extra '\n'; a PUT with
-// BodySize > 0 then writes '"' + base64(body) + '"' + '\n'. Despite older
-// comments in this repo, go1.25.0 still writes the QUOTED form; the raw
-// (unquoted) base64 form is also accepted here for forward compatibility.
+// GOCACHEPROG wire reader: newline-framed JSON; PUT body is quoted base64. No Scanner cap (see readProtoLine).
 
-// badPutBodyError marks a malformed PUT body line. The framing (one full
-// line) was consumed, so the protocol stream is still aligned: the caller
-// fails only this PUT (Err reply, nothing stored) and keeps serving.
+// badPutBodyError marks a malformed PUT body line; framing stayed aligned, so only this PUT fails (Err reply).
 type badPutBodyError struct{ err error }
 
 func (e *badPutBodyError) Error() string { return e.err.Error() }
@@ -75,10 +61,7 @@ func readProtoLine(br *bufio.Reader, hint int) ([]byte, error) {
 	}
 }
 
-// expectedBodyLineLen returns the expected length of a PUT body line for a
-// declared BodySize: 4*ceil(n/3) base64 bytes plus the optional quotes. Used
-// purely as an allocation hint (capped so a corrupt BodySize cannot drive a
-// giant allocation); the line is still read to its actual newline.
+// expectedBodyLineLen returns an allocation-hint length for a PUT body line (4*ceil(n/3) base64 + quotes), capped against a bad size.
 func expectedBodyLineLen(bodySize int64) int {
 	const maxHint = 64 << 20
 	if bodySize <= 0 {
@@ -91,15 +74,10 @@ func expectedBodyLineLen(bodySize int64) int {
 	return int(l)
 }
 
-// readPutBody reads and decodes the base64 body line that follows a PUT
-// request line, skipping the blank separator line cmd/go writes. It returns:
-//
-//   - (body, nil) on success, with len(body) verified == bodySize;
-//   - (nil, *badPutBodyError) for a malformed line — bad base64, broken
-//     quoting, or a decoded-size mismatch. The stream is still line-aligned,
-//     so the caller replies Err for this PUT (storing NOTHING) and continues;
-//   - (nil, io.EOF or a read error) for a stream-level failure. Nothing was
-//     stored; the caller stops serving.
+// readPutBody decodes the base64 PUT body line, skipping cmd/go's blank
+// separator. Returns (body, nil) on success; (nil, *badPutBodyError) for a
+// malformed line (stream stays aligned, replies Err, keeps serving); or
+// (nil, io.EOF/read error) on a stream failure (caller stops serving).
 func readPutBody(br *bufio.Reader, bodySize int64) ([]byte, error) {
 	for {
 		line, err := readProtoLine(br, expectedBodyLineLen(bodySize))
@@ -130,9 +108,7 @@ func decodePutBody(line []byte, bodySize int64) ([]byte, error) {
 		}
 		inner := raw[1 : len(raw)-1]
 		if bytes.IndexByte(inner, '\\') >= 0 {
-			// The base64 alphabet needs no JSON escaping, so cmd/go never
-			// writes escapes — but accept any legal JSON string for
-			// compatibility with the old json.Unmarshal-based decoder.
+			// No JSON escaping needed for base64, but accept any legal JSON string (compat with the old decoder).
 			var s string
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return nil, fmt.Errorf("body line is not a valid JSON string: %w", err)

@@ -35,9 +35,7 @@ type branchPin struct {
 // deliberate version pin already names.
 type commitAnchor struct {
 	ref string
-	// branch is the marker's branch name, empty for the default branch. It
-	// separates two lines of one repository that deliberately follow different
-	// branches, which are two answers rather than one.
+	// branch is the marker's branch, empty for default; it lets two lines of one repo follow different branches.
 	branch string
 	hash   string
 	desc   string
@@ -52,18 +50,14 @@ func (a commitAnchor) fetch(r runner.CommandRunner, mod string) (*gitCommit, fun
 	return fetchCommit(r, mod, a.ref)
 }
 
-// repoResolution is one repository answered once: the commit every module in
-// it lands on, and the modules of it reachable from the require that asked.
+// repoResolution is one repository answered once: the commit every module lands on, plus its reachable modules.
 type repoResolution struct {
 	anchor   commitAnchor
 	commit   *gitCommit
 	siblings map[string]string
 }
 
-// repoResolver answers each repository ONCE. Which modules share a repository
-// is a property of the repository, read off it -- so nothing in go.mod has to
-// declare it, and a multi-module repo cannot land half on one commit and half
-// on another because two of its modules were resolved a moment apart.
+// repoResolver answers each repository ONCE, so a multi-module repo can't land half on one commit and half on another.
 type repoResolver struct {
 	r        runner.CommandRunner
 	main     string
@@ -93,9 +87,7 @@ func (rr *repoResolver) at(mod string, anchor commitAnchor) (*repoResolution, er
 	return res, nil
 }
 
-// close removes the temporary repositories. Every fetched tree stays readable
-// until then, because a resolution is reused by later modules of its
-// repository.
+// close removes the temporary repositories, kept readable until then since a resolution is reused by later modules.
 func (rr *repoResolver) close() {
 	for _, cleanup := range rr.cleanups {
 		cleanup()
@@ -170,10 +162,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 		mainModule = f.Module.Mod.Path
 	}
 
-	// Resolve everything first, write once. Which lines to touch is not known
-	// until every tracked line has been answered, since a tracked module can
-	// name siblings -- and a failure partway through then leaves go.mod
-	// untouched rather than half-moved.
+	// Resolve everything first, write once, so a failure partway through leaves go.mod untouched, not half-moved.
 	resolver := &repoResolver{r: r, main: mainModule}
 	defer resolver.close()
 

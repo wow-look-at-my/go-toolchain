@@ -26,9 +26,7 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
-// guard can refuse to run when the agent is hiding the output. It runs before the
-// output watchdog rewires fd 1, so it sees the real descriptor the shell set up.
+// Classifies where stdout (fd 1) is going, before the watchdog rewires it, so it sees the real descriptor the shell set up.
 func inspectStdout() outputSink {
 	return inspectFD(os.Stdout.Fd())
 }
@@ -61,18 +59,15 @@ func inspectFD(fd uintptr) outputSink {
 		}
 		return outputSink{kind: sinkPipe}
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
-		// A coding agent's own tool-execution plumbing (e.g. a socketpair for a
-		// spawned child's stdio, which is what opencode's bash tool uses) looks
-		// identical to a pipe from here — give it the same peer-identification
-		// chance a pipe gets, rather than assuming hidden outright. detail always
-		// carries something to show: the peer's name when resolved, else the raw
-		// fd target, so the refusal message is never left with nothing to say.
+		// Agent tool plumbing (e.g. opencode's bash tool) uses a socketpair,
+		// which looks identical to a pipe here -- give it the same
+		// peer-identification chance rather than assuming hidden. detail
+		// always shows something: the peer's name, else the raw fd target.
 		//
-		// Unlike a pipe(), the two ends of an AF_UNIX socketpair are separate
-		// sockets with DIFFERENT inodes — an fd-target string match can never
-		// find the other end. SO_PEERCRED gives the kernel's own record of who
-		// is on the other side, fixed at connection time, so it still resolves
-		// after the parent (opencode/Node) closes its copy of the child's fd.
+		// A socketpair's two ends are separate sockets with different inodes,
+		// so an fd-target string match can't find the other end. SO_PEERCRED
+		// gives the kernel's record of the peer, fixed at connection time, so
+		// it still resolves after the parent closes its copy of the child's fd.
 		if pid, ok := socketPeerPID(fd); ok {
 			name, _, _ := agent.CommPPID(pid)
 			if harnessIsPipeReader(name, pid) {
@@ -81,10 +76,7 @@ func inspectFD(fd uintptr) outputSink {
 			if name != "" {
 				return outputSink{kind: sinkHidden, detail: name}
 			}
-			// No name, but the pid can still answer: an agent that published
-			// this pid as its own, and a kernel that records it as this
-			// socket's peer, identify the reader between them without any
-			// process lookup at all.
+			// No name, but a pid an agent published as its own, matched by the kernel as peer, still identifies the reader.
 			if harnessIsPID(pid) {
 				return outputSink{kind: sinkVisible}
 			}
@@ -127,28 +119,8 @@ func inspectFD(fd uintptr) outputSink {
 	return outputSink{kind: sinkVisible} // unknown disposition — don't block
 }
 
-// unclassifiableSink answers for a descriptor this build could not classify.
-// Two different facts arrive here and must not be collapsed into one.
-//
-//   - "I looked and saw nothing": on a linux host /proc IS present, so a failed
-//     readlink is genuine uncertainty about one odd descriptor. Allow it, in
-//     silence. Refusing a run over one unreadable fd would be a false alarm,
-//     and a guard that cries wolf gets ignored on the run that mattered.
-//
-//   - "I am blind and know it": on a host with no /proc, nothing is
-//     classifiable — not this descriptor, all of them. The guard is inoperative
-//     for the whole run.
-//
-// Today both ALLOW, because a classifier with no mechanism has not earned a
-// refusal: it cannot tell a captured run from a legitimate one, and refusing
-// would break every agent-driven run on that host. But only the second is a
-// guard that is not running, and it says so out loud.
-//
-// The blind case is a placeholder, not a design. Once the host has a real
-// classifier (see docs/AGENT-OUTPUT-GUARD.md), a descriptor its primitives
-// cannot answer for is no longer "no mechanism" but a failed probe, and the
-// honest reply then is to REFUSE — the same fail-closed rule
-// claudeguard_darwin.go already applies to a FIFO it cannot resolve.
+// unclassifiableSink: one unreadable fd allows silently; no classifier at
+// all warns and allows -- a future classifier should refuse instead.
 func unclassifiableSink() outputSink {
 	if host := hostos.GOOS(); host != "linux" {
 		return blindClassifierSink(host)
@@ -169,10 +141,8 @@ func blindClassifierSink(host string) outputSink {
 	return outputSink{kind: sinkVisible}
 }
 
-// warnGuardInoperative reports, once per run, that the output guard cannot
-// classify anything on this host. It writes to the guard's own stderr writer
-// for the same reason the refusal does: the guard fires precisely when stdout
-// is captured, so stdout is the one place this must never go.
+// Reports once per run that the guard is blind on this host, via the
+// guard's stderr writer -- stdout is what it fires on capturing.
 func warnGuardInoperative(host string) {
 	guardInoperativeOnce.Do(func() {
 		fmt.Fprintf(agentGuardOut, guardInoperativeBanner, colorBoldRed, host, colorReset, host)
@@ -188,16 +158,12 @@ const guardInoperativeBanner = "\n%s⚠ go-toolchain's agent output guard is INO
 	"cannot tell whether its output is being captured and will not refuse a run\n" +
 	"that hides it. Read the output yourself; do not trust the guard here.\n\n"
 
-// socketPeerPID (declared per-platform: claudeguard_sockpeer_linux.go uses
-// golang.org/x/sys/unix, claudeguard_sockpeer_cosmo.go a raw syscall, since
-// x/sys/unix has no cosmo port) returns the pid the kernel recorded as the
-// other end of the AF_UNIX socket at fd, via SO_PEERCRED. For a socketpair(),
-// that credential is fixed at creation time — the pid of whichever process
-// called socketpair(), i.e. the real reader — so it still resolves after that
-// process closes its own copy of the fd it handed the child (the normal thing
-// for a coding agent's child_process to do, and why pipePeerName's inode match
-// cannot see it). ok is false for anything that isn't a SOCK_STREAM/SOCK_DGRAM
-// AF_UNIX socket, e.g. an anon_inode fd — never treated as a match.
+// socketPeerPID (per-platform: linux uses x/sys/unix, cosmo a raw syscall,
+// since x/sys/unix has no cosmo port) returns the SO_PEERCRED pid of the
+// AF_UNIX socket's other end. That credential is fixed at socketpair()
+// creation, so it resolves even after the creating process closes its own
+// copy of the fd -- unlike pipePeerName's inode match. ok is false for
+// anything that isn't a SOCK_STREAM/SOCK_DGRAM AF_UNIX socket.
 
 // pipePeerName returns the comm and pid of another process holding the same
 // pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends of

@@ -80,9 +80,8 @@ func (c *Config) WithQuiet() *Config {
 	return c
 }
 
-// WithOnFirstOutput sets a callback that is called before the first byte
-// of output is written to the console. Useful for progress indicators that
-// need to print a newline before subprocess output starts.
+// WithOnFirstOutput sets a callback invoked before the first output byte, for progress
+// indicators that print a newline before subprocess output starts.
 func (c *Config) WithOnFirstOutput(f func()) *Config {
 	c.OnFirstOutput = f
 	return c
@@ -115,10 +114,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	cmd := exec.Command(cfg.Name, cfg.Args...)
 
 	if cfg.Env != nil && cfg.Env.Len() > 0 {
-		// Build env list by merging overrides into the current environment.
-		// Remove existing entries that are being overridden, since duplicate
-		// keys have platform-dependent behavior (Linux getenv returns the
-		// first match, so appending wouldn't actually override).
+		// Merge overrides into the environment, dropping overridden keys first: a duplicate key's platform behavior varies.
 		overrides := set.New[string](cfg.Env.Len())
 		for k := range cfg.Env.All() {
 			overrides.Add(k)
@@ -188,9 +184,7 @@ func (p *process) Wait() error {
 		return p.err
 	}
 	if !p.quiet {
-		// Copy stdout and stderr concurrently so that stderr output
-		// (e.g. "go: downloading..." from go mod tidy) streams in
-		// real-time rather than buffering until stdout closes.
+		// Copy stdout/stderr concurrently so stderr (e.g. "go: downloading...") streams live instead of buffering.
 		var stdoutTarget io.Writer = os.Stdout
 		if p.stdoutWriter != nil {
 			stdoutTarget = p.stdoutWriter

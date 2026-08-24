@@ -19,7 +19,6 @@ import (
 )
 
 // buildVersion is derived from Go's built-in VCS stamping.
-// Other commands (update, cacheprog, dependabot) read this directly.
 var buildVersion = resolvedVersion()
 
 // vcsInfo reads Go's built-in VCS stamping from the binary.
@@ -80,11 +79,7 @@ func resolvedTimestamp() (int64, bool) {
 
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 
-// The staleness footer's commit queries. GO_TOOLCHAIN_GITHUB_API_URL points
-// them elsewhere, the same knob GO_TOOLCHAIN_BUILDHOST_URL is for the update
-// check: a caller that must not depend on api.github.com's latency (a CLI
-// suite under a wall-clock budget) aims it at an unreachable address and gets
-// the offline footer instantly.
+// Overrides where staleness-footer commit queries go; point it unreachable for an instant offline footer in tests.
 var githubAPIBase = envOr("GO_TOOLCHAIN_GITHUB_API_URL", "https://api.github.com")
 
 func setGithubAPIBase(base string) { githubAPIBase = base }

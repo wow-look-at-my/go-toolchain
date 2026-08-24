@@ -21,29 +21,23 @@ import (
 //
 // Why: the fork stamps a constant release version into every build, so cmd/go
 // derives identical tool build IDs for different fork toolchain builds and
-// their action IDs collide — a shared cache (org-wide web tier, or a warm
-// local tier) then serves objects compiled by an older toolchain into links
-// done by a newer one (the 2026-07-20 SIGSEGV-APE incident). Hashing the tool
-// binaries themselves captures exactly what the version-derived tool IDs
-// failed to: if any tool's bytes differ, the namespace differs and the two
-// builds share nothing; if every tool is byte-identical, the toolchains ARE
-// interchangeable and sharing is safe. Source-tree differences need no hashing
-// here — cmd/go already hashes package source into action IDs.
+// their action IDs collide, letting a shared cache serve objects compiled by
+// one toolchain into links done by another. Hashing the tool binaries
+// themselves captures exactly what the version-derived tool IDs miss: if any
+// tool's bytes differ, the namespace differs and the builds share nothing.
+// Source-tree differences need no hashing here — cmd/go already hashes
+// package source into action IDs.
 //
-// The hash covers VERSION plus every regular file under bin/ and pkg/tool/
-// (all compilers/linkers/assemblers live there), each framed with its
-// slash-relative path and size, in the deterministic lexical order
-// filepath.WalkDir guarantees. This works identically for a
-// GO_TOOLCHAIN_COSMO_GOROOT local build and a buildhost-downloaded toolchain,
-// and needs no sidecar state. Failure is an error, never a silent fallback:
-// an un-namespaced fork build would reopen cross-toolchain cache poisoning.
+// The hash covers VERSION plus every regular file under bin/ and pkg/tool/,
+// each framed with its slash-relative path and size, in the deterministic
+// lexical order filepath.WalkDir guarantees. Failure is an error, never a
+// silent fallback: an un-namespaced fork build would reopen cross-toolchain
+// cache poisoning.
 func forkToolchainCacheNamespace(goroot string) (string, error) {
 	start := time.Now()
 	h := sha256.New()
 
-	// VERSION: present in every distpack and make.bash GOROOT. Frame absence
-	// explicitly rather than failing — the tool binaries below are the load-
-	// bearing content.
+	// VERSION may be absent; frame that explicitly rather than failing, since the tool binaries below are load-bearing.
 	version, err := os.ReadFile(filepath.Join(goroot, "VERSION"))
 	switch {
 	case err == nil:
@@ -111,12 +105,8 @@ func hashFrame(h io.Writer, name string, data []byte) {
 	h.Write(data)
 }
 
-// daemonSockUnlessNamespaced returns the cache daemon socket a cacheprog
-// should proxy to, or "" when it must run standalone: either no daemon is
-// running, or a cache key namespace is active — the daemon is shared with
-// unnamespaced clients and its byte-pipe proxy cannot carry a namespace, so a
-// namespaced client proxying to it would bypass the namespace entirely.
-// Consumed by runCacheProg (cacheprog.go).
+// daemonSockUnlessNamespaced returns "" when namespaced, since the shared
+// daemon's byte-pipe proxy cannot carry a namespace.
 func daemonSockUnlessNamespaced(namespace string) string {
 	if namespace != "" {
 		return ""

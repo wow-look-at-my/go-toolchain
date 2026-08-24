@@ -9,33 +9,16 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// currentLocalCacheVersion stamps the content generation of the local cache
-// root (the "buildcache" dir holding both tiers: the pack store under packs/
-// and the loose-file tier's 00..ff bucket dirs). When the stamp on disk
-// differs, EnsureLocalCacheVersion deletes the cached DATA once and re-stamps,
-// mirroring go-s3-server's currentCacheVersion. Bump this to force every
-// machine to shed cache contents that a code change has made untrustworthy.
-//
-// Version history:
-//
-//	1: implicit — any root without a stamp file.
-//	2: the local tiers began SERVING Go module indexes (see verify.go). That is
-//	   sound only for locally-originated indexes, and the web ingestion guards
-//	   that enforce local origin (refusing index blobs on the individual GET,
-//	   batch GET, and prefetch paths) did not always exist — a root populated
-//	   by an older binary may hold web-originated, potentially mis-keyed
-//	   indexes, and pack bytes are otherwise immortal (evictions only drop
-//	   in-memory index entries; scanPack re-indexes everything at startup).
-//	   The purge also reclaims the duplicate-record bloat the old
-//	   accept-at-Put/refuse-at-Get modindex loop appended to the packs.
+// currentLocalCacheVersion stamps the local cache root's content generation.
+// When the on-disk stamp differs, EnsureLocalCacheVersion purges the cached
+// data once and re-stamps. Bump this to force every machine to shed cache
+// contents that a code change has made untrustworthy.
 const currentLocalCacheVersion = 2
 
 // localCacheVersionFile is the version stamp, directly under the cache root.
 const localCacheVersionFile = ".cache_version"
 
-// fuseLockName is the exclusive-owner lock file under the cache root. The FUSE
-// daemon flocks it for its lifetime (see newFuseCache); the version purge
-// flocks it briefly so it never deletes pack files out from under a live owner.
+// fuseLockName: the FUSE daemon holds this flock; the purge takes it briefly too.
 const fuseLockName = ".fuse.lock"
 
 // EnsureLocalCacheVersion runs the one-time local cache purge for root (the
@@ -65,11 +48,7 @@ func EnsureLocalCacheVersion(root string) {
 		return
 	}
 
-	// Take the same exclusive flock the FUSE daemon holds for its lifetime:
-	// purging while another live process owns the mount + pack store would
-	// delete pack files out from under it. When the lock is busy the purge is
-	// simply deferred — the stamp stays unwritten, so the next run (with no
-	// live owner) performs it.
+	// Take the FUSE daemon's flock; if busy, defer the purge to the next run.
 	release, ok := lockCacheRootForPurge(root)
 	if !ok {
 		logger.Info("cacheprog: local cache: another process owns %s; deferring version purge to the next run", root)

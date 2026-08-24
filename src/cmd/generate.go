@@ -145,10 +145,7 @@ func parseDirectives(path string) ([]generateDirective, error) {
 
 	for {
 		lineNum++
-		// ReadLine returns the start of a line. For lines longer than the
-		// internal buffer, isPrefix is true and subsequent calls return the
-		// rest. Generate directives are short, so the first chunk is always
-		// enough to detect and extract them.
+		// isPrefix means more chunks follow, but directives fit the first one.
 		chunk, isPrefix, err := reader.ReadLine()
 		if err == io.EOF {
 			break
@@ -247,13 +244,7 @@ func executeDirective(d generateDirective, quiet bool) error {
 	cmd.Dir = dir
 	cmd.Env = env
 
-	// Stream the child's output line by line as it arrives. Buffering it until
-	// exit hid every byte from the output watchdog, which monitors fd 1/2: a
-	// directive like `go run <tool>@latest` is silent for tens of seconds while
-	// it downloads modules, so the watchdog reported the build as STALLED once a
-	// second for the whole run. Stdout and Stderr share one writer, so os/exec
-	// hands the child a single pipe and the interleaving stays in order.
-	// Quiet mode still buffers: it must print nothing on success.
+	// Stream live so the output watchdog sees it; quiet mode buffers instead.
 	stream := &streamPrefixWriter{}
 	var buffered bytes.Buffer
 	if quiet {
@@ -374,15 +365,11 @@ func prefixOutput(output string) string {
 	return result.String()
 }
 
-// maxPendingLine bounds the partial line held while waiting for a newline, so a
-// child that never emits one (a \r progress bar) cannot grow the buffer without
-// limit or stay invisible to the watchdog.
+// maxPendingLine bounds a pending, newline-less line (e.g. a \r progress bar).
 const maxPendingLine = 32 << 10
 
-// streamPrefixWriter logs each complete line it receives, prefixed like
-// prefixOutput. It is the live counterpart of prefixOutput: generate directives
-// write through it so their output reaches the console (and the output watchdog)
-// while the command is still running.
+// streamPrefixWriter is prefixOutput's live counterpart: generate directives
+// write through it so output reaches the console and watchdog while running.
 type streamPrefixWriter struct {
 	pending []byte
 }

@@ -26,10 +26,7 @@ import (
 func buildPkgbitsWithSources(importPath string, srcPaths []string) []byte {
 	strs := append([]string{importPath}, srcPaths...)
 
-	// Element bodies, in element order: strings (raw bytes), one PosBase
-	// element per source path, then the Pkg element. Non-string elements are
-	// {nrelocs=1, reloc{kind=0 (SectionString), idx=K}, relocIdx=0}; all
-	// values fit single-byte uvarints for test-sized inputs.
+	// Element bodies: strings, then one PosBase per source path, then Pkg.
 	var elems [][]byte
 	for _, s := range strs {
 		elems = append(elems, []byte(s))
@@ -76,9 +73,8 @@ func buildPkgbitsWithSources(importPath string, srcPaths []string) []byte {
 }
 
 // provenanceAction returns a (hex actionID, build-id action) pair that agree:
-// the build-id action is base64.RawURLEncoding of the actionID's first 15
-// bytes, exactly the stamp `go build` writes (see expectedBuildIDAction), so
-// an archive carrying it passes the PUT-side build-id guard for this key.
+// action is base64.RawURLEncoding of actionID's first 15 bytes, the stamp
+// `go build` writes, so an archive carrying it passes the build-id guard.
 func provenanceAction() (actionHex, action string) {
 	raw15 := []byte("provenance-15bb") // exactly buildIDHashSize bytes
 	action = base64.RawURLEncoding.EncodeToString(raw15)

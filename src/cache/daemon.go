@@ -11,18 +11,16 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// noCloseBackend wraps an IBackend and suppresses Close calls.
-// Used by the daemon to prevent per-connection Server instances from
-// closing the shared remote backend.
+// noCloseBackend wraps an IBackend so per-connection Servers can't close
+// the shared remote backend.
 type noCloseBackend struct {
 	IBackend
 }
 
 func (n *noCloseBackend) Close() error { return nil }
 
-// ForgetStale forwards the staleKeyForgetter capability through the wrapper
-// so the PUT replace path can drop stale remote claims in daemon mode too
-// (interface embedding only promotes IBackend's own methods).
+// ForgetStale forwards staleKeyForgetter through the wrapper, since interface
+// embedding only promotes IBackend's own methods.
 func (n *noCloseBackend) ForgetStale(actionID string) {
 	if f, ok := n.IBackend.(staleKeyForgetter); ok {
 		f.ForgetStale(actionID)
@@ -78,11 +76,9 @@ func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, err
 			}
 		}
 	}
-	// Wire batch callbacks AND web-op latency tracking on the shared
-	// WebBackend exactly once, for the daemon's lifetime. Per-connection
-	// Servers must never touch these: each NewServer re-pointing wb.Latency
-	// at its own tracker was an unsynchronized shared write racing every
-	// other connection's in-flight web operations.
+	// Wire batch callbacks and latency tracking on the shared WebBackend once.
+	// Per-connection Servers must never touch these: re-pointing wb.Latency
+	// per connection is an unsynchronized write racing other connections.
 	if wb, ok := remote.(*WebBackend); ok {
 		wb.Latency = &d.latency
 		wireBatchCallbacks(wb, local, d)
@@ -123,9 +119,7 @@ func (d *Daemon) accept() {
 func (d *Daemon) handleConn(conn net.Conn) {
 	defer d.wg.Done()
 	defer conn.Close()
-	// Each connection gets its own Server with shared backends.
-	// The no-close wrapper prevents this Server from closing the shared
-	// web backend when the connection ends.
+	// Own Server per connection; the no-close wrapper protects the shared backend.
 	srv := NewServer(d.local, d.wrapped)
 	srv.Run(conn, conn)
 }
@@ -135,14 +129,10 @@ func (d *Daemon) Close() {
 	d.listener.Close()
 	d.wg.Wait()
 	if d.remote != nil {
-		// Print web backend hit/put/miss breakdown for diagnostics. The
-		// hits and puts numbers make it obvious whether the cache is
-		// actually working or whether everything is missing.
+		// Print the web backend hit/put/miss breakdown for diagnostics.
 		if wb, ok := d.remote.(*WebBackend); ok {
 			ws := wb.SummarySnapshot()
-			// MissTotal excludes the skipped-* counters: they are breakdowns
-			// of not-in-index (each such Get already incremented
-			// MissNotInIndex before the skip) — adding them would double-count.
+			// MissTotal excludes skipped-*: those already counted in MissNotInIndex.
 			missTotal := ws.MissTotal()
 			if ws.Hits > 0 || ws.Puts > 0 || missTotal > 0 {
 				logger.Output("cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d modindex=%d network=%d skipped-empty-index=%d skipped-not-in-index=%d skipped-batch-backoff=%d reclaimed-404=%d) put-skipped: known=%d modindex=%d buildid=%d",
@@ -150,19 +140,16 @@ func (d *Daemon) Close() {
 			}
 		}
 		d.remote.Close()
-		// Report the shared web-op latencies and the cumulative HTTP-pool
-		// usage exactly once, after the backend has fully drained. Doing this
-		// per connection (the old flushLatency behavior) merged the shared
-		// cumulative pool snapshot additively per connection at the listener,
-		// overcounting samples and sums N-fold for N connections.
+		// Report web-op latency and HTTP-pool usage once, after the backend
+		// drains — per-connection reporting would overcount N-fold.
 		if wb, ok := d.remote.(*WebBackend); ok {
 			snap := d.latency.Snapshot()
 			snap.Pool = wb.Pool.Snapshot()
 			d.sendStat(StatEvent{Latency: &snap})
 		}
 	}
-	// Unmount/close the local store after all connections have drained (so no
-	// in-flight compiler read can hit a closed FUSE mount or pack handle).
+	// Close the local store only after connections drain, so no in-flight
+	// read hits a closed FUSE mount.
 	if d.local != nil {
 		if err := d.local.Close(); err != nil {
 			logger.Warn("cacheprog: local cache close: %v", err)

@@ -19,11 +19,7 @@ import (
 	"gotest.tools/gotestsum/testjson"
 )
 
-// GraphArgFunc, when non-nil, returns an extra flag for the go test argv —
-// the build profiler's "-debug-actiongraph=<file>" dump (or "" for none).
-// Set by cmd when profiling is enabled; a function hook rather than a direct
-// profile import because src/profile depends on src/trace, which reaches
-// this package back through src/summary (an import cycle otherwise).
+// GraphArgFunc returns an extra go test flag when profiling is on; a hook avoids an import cycle through src/profile.
 var GraphArgFunc func() string
 
 const (
@@ -80,9 +76,7 @@ func listTestPackages(_ runner.CommandRunner) []string {
 		if !d.IsDir() {
 			return nil
 		}
-		// Skip hidden dirs, common non-source dirs, and nested modules
-		// (their packages belong to a different module and are not import
-		// paths of this one).
+		// Skip hidden dirs, non-source dirs, and nested modules (different module, not our import paths).
 		name := d.Name()
 		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir
@@ -135,10 +129,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	var merged *TestResult
 	var firstErr error
 	for i, tagCfg := range discovery.Configs {
-		// Coverage is collected on the default configuration only: a second
-		// -coverprofile pass would overwrite the first, and the aggregate is
-		// meant to stay comparable across runs. The extra configurations exist
-		// to make their tests RUN and FAIL, which they do either way.
+		// Coverage is collected only on the default config; extra configs still run and can fail, just uncovered.
 		cf := coverFile
 		cb := onOutput
 		var only []string
@@ -225,12 +216,9 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 			}
 		}
 	}
-	// An empty listing is not a verdict. A module holding gated files holds
-	// files, so the default configuration ALWAYS lists some -- zero across
-	// every configuration means the listing did not happen (no go command ran),
-	// and reporting every gated file as unreachable from that is a guard
-	// firing when it could not look. In production this branch is unreachable;
-	// what reaches it is a caller driving the phase without a real toolchain.
+	// An empty listing means the check itself didn't run (no go command executed),
+	// not that every gated file is unreachable -- reporting that would be a false
+	// positive from a guard that never looked.
 	if seen.IsEmpty() {
 		logger.Warn("tests: skipped the build-tag reachability check -- `go list` reported no files at all, so nothing could be verified")
 		return nil
@@ -245,9 +233,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(),
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
 ) (*TestResult, error) {
-	// Enumerate only packages that have test files to avoid the "no such tool
-	// covdata" error on main packages without tests. Also excludes packages
-	// where all non-test .go files are generated code (e.g. sqlc output).
+	// Enumerate only packages with test files, avoiding the "no such tool covdata" error and generated-only packages.
 	args := []string{"test", "-json", "-timeout=" + testTimeout.String()}
 	if arg := tagCfg.Arg(); arg != "" {
 		args = append(args, "-tags", arg)
@@ -260,14 +246,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// -count=1 disables Go's test-result cache for this invocation.
-		// Go#74873: when -coverpkg=./... is in play, cached coverprofile
-		// fragments reference stale line ranges of packages outside the
-		// cached test package. On any edit, the fresh and stale line ranges
-		// collide in our dedup map (coverage.go parseProfileBlocks), inflating
-		// totals and corrupting aggregate coverage. Compilation is still
-		// cached via GOCACHEPROG; only test-result replay is disabled, and
-		// only when coverage is being collected.
+		// -count=1 disables test-result caching only; Go#74873 stale coverprofile fragments corrupt aggregate coverage otherwise.
 		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
 	}
 	switch {
@@ -281,8 +260,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 
-	// Tee stderr to console (for compilation progress like "go: downloading"
-	// and build errors) while also capturing it in a buffer for error reporting.
+	// Tee stderr to console and a buffer, for progress and error reporting.
 	var stderrBuf bytes.Buffer
 	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
 	proc, err := runner.Cmd("go", args...).WithStderrWriter(stderrTee).Run(r)
@@ -313,8 +291,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		return nil, err
 	}
 
-	// Capture wait error but continue processing results.
-	// Wait() drains stderr into stderrBuf via WithStderrWriter.
+	// Wait() drains stderr into stderrBuf via WithStderrWriter while capturing the result.
 	waitErr := proc.Wait()
 
 	// Include captured stderr (build errors) in handler output.
@@ -364,14 +341,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 						pkg = pkg[:i]
 					}
 				}
-				// -o os.DevNull: this is a diagnostic compile to surface the real
-				// build error, not a build that should produce a binary. Without
-				// -o, `go build <main-pkg>` writes an executable named after the
-				// import path's last element into CWD; when that element is "src"
-				// (this module's main package) it collides with the src/ directory
-				// and fails with "build output \"src\" already exists and is a
-				// directory" — which would then mask the very error we are trying
-				// to capture. Discard the binary so only the compiler errors show.
+				// -o discards the binary; without it, `go build src` would write an executable colliding with the src/ directory.
 				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
@@ -397,9 +367,8 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		return nil, fmt.Errorf("no tests found (create *_test.go files with Test* functions)")
 	}
 
-	// If go test exited non-zero but no actual tests failed, the failure is
-	// from a non-test issue (e.g. missing "covdata" tool on a main package
-	// with no test files). Treat as success.
+	// A non-zero exit with no failed test is a non-test issue (e.g. missing
+	// "covdata" on a main package with no tests); treat it as success.
 	if waitErr != nil && handler.failedTest.IsEmpty() && handler.FailureOutput() == "" {
 		waitErr = nil
 	}

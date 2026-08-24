@@ -21,10 +21,7 @@ const (
 	siblingVersion = "v0.0.0-20260812203640-d8426ef8d505"
 )
 
-// repoURL is the one URL in these tests that is a repository. A module inside
-// it has a longer import path than the repository has a URL, so ls-remote must
-// fail for the deeper URLs the way a host does -- that failure is what tells
-// resolveGitURLAndRef where the repository stops and the subdirectory starts.
+// repoURL is the test repository; ls-remote failing on deeper paths tells resolveGitURLAndRef where the repo root ends.
 const repoURL = "https://github.com/wow-look-at-my/common-ai-api"
 
 // repoTreeMock answers ls-remote for repoURL, the plumbing fetchCommit needs,
@@ -103,9 +100,8 @@ func TestSiblingRequiresWalksTheRepositoryAtOneCommit(t *testing.T) {
 	sibs, err := siblingRequires(mock, c, "example.com/consumer")
 	require.NoError(t, err)
 
-	// core is in the same repository, so it comes along at THIS commit, not at
-	// the one client's own go.mod names. testify and xml-validator are other
-	// repositories and are left to their own lines.
+	// core is same-repo, so it comes at THIS commit, not the one client's
+	// go.mod names. testify/xml-validator are other repos, left alone.
 	assert.Equal(t, map[string]string{
 		"github.com/wow-look-at-my/common-ai-api/go/core": siblingVersion,
 	}, sibs)

@@ -28,8 +28,7 @@ func TestApeManifestEntries(t *testing.T) {
 	assert.Equal(t, []buildhostManifestEntry{{
 		File:      "mytool",
 		Platforms: []string{"linux/amd64", "darwin/arm64"},
-		// The APE lands under the plain name, so the served filename and the
-		// file are the same string.
+		// The APE lands under the plain name, so the served filename and the file are the same string.
 		Filename: "mytool",
 	}}, entries)
 }
@@ -38,8 +37,7 @@ func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
 	dir := t.TempDir()
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 
-	// A manifest naming a file that is not there fails the publish; catching
-	// it here says which artifact is missing instead.
+	// A manifest naming a file that is not there fails the publish; catching it here names the missing artifact.
 	_, err := apeManifestEntries(targets, dir, []buildPlatform{{OS: "linux", Arch: "amd64"}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mytool")
@@ -111,8 +109,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	require.NoError(t, runReleaseWithRunner(mock))
 
-	// Exactly one binary. Anything matching <name>_<os>_<arch> would be a
-	// duplicate copy of it.
+	// Exactly one binary; anything matching <name>_<os>_<arch> would be a duplicate copy.
 	entries, err := os.ReadDir(outDir)
 	require.NoError(t, err)
 	var binaries []string

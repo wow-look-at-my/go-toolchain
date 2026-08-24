@@ -6,11 +6,9 @@ import (
 	"strings"
 )
 
-// escapeGHAData escapes the message data of a GitHub Actions workflow command
-// per the runner's encoding: % first (so the escape sequences introduced
-// below are not themselves re-escaped), then CR and LF. Without this, a
-// multi-line message is truncated to its first line in the annotation and
-// the remaining lines leak into the log as plain text.
+// escapeGHAData escapes a workflow-command message: % first (so escapes below
+// are not re-escaped), then CR and LF, so a multi-line message annotates
+// intact instead of truncating to its first line.
 func escapeGHAData(s string) string {
 	s = strings.ReplaceAll(s, "%", "%25")
 	s = strings.ReplaceAll(s, "\r", "%0D")
@@ -18,9 +16,8 @@ func escapeGHAData(s string) string {
 	return s
 }
 
-// escapeGHAProperty escapes a workflow-command property value (e.g. the
-// file= property). Properties use the data encoding plus : and , which
-// delimit properties in the command line.
+// escapeGHAProperty escapes a property value (e.g. file=): the data encoding
+// plus : and , since those delimit properties in the command line.
 func escapeGHAProperty(s string) string {
 	s = escapeGHAData(s)
 	s = strings.ReplaceAll(s, ":", "%3A")
@@ -38,16 +35,14 @@ func emitGHA(w io.Writer, command, file, msg string) {
 	}
 }
 
-// EmitGHAWarning writes a GitHub Actions ::warning workflow command.
-// Per GHA docs, these must be written to stdout to be parsed by the runner.
-// If file is non-empty, the annotation is associated with that file.
+// EmitGHAWarning writes a ::warning workflow command to w (must be stdout
+// for the runner to parse it). If file is non-empty, it names the annotated file.
 func EmitGHAWarning(w io.Writer, file, msg string) {
 	emitGHA(w, "warning", file, msg)
 }
 
-// EmitGHAError writes a GitHub Actions ::error workflow command.
-// Per GHA docs, these must be written to stdout to be parsed by the runner.
-// If file is non-empty, the annotation is associated with that file.
+// EmitGHAError writes a ::error workflow command to w (must be stdout for
+// the runner to parse it). If file is non-empty, it names the annotated file.
 func EmitGHAError(w io.Writer, file, msg string) {
 	emitGHA(w, "error", file, msg)
 }

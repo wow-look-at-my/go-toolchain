@@ -11,31 +11,9 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// WriteRunsAnalyzer reports a document that a run of adjacent write calls
-// spells out one line at a time:
-//
-//	fmt.Fprintf(script, "  c=%s/$k\n", apeRunDir)
-//	script.WriteString("  p=\"$c/${0##*/}\"\n")
-//	script.WriteString("  if [ ! -x \"$p\" ]; then\n")
-//
-// The text is a document, so the escapes, the newlines and the writer name sit
-// between the reader and the shape of the output. A text/template holds the
-// same text as text, with the values named in it. A raw string constant does
-// the same for a document with no values in it.
-//
-// The first two writes are free. Each write after them gets one warning, at
-// the line of the write. A run is a group of adjacent statements that write to
-// the SAME writer: any other statement between them ends the run.
-//
-// A write joins a run when it spells its text in the source, as a string or a
-// character literal. A write of a computed value is a value the template names
-// instead, and a writer that digests its input -- a hash -- holds no document
-// at all, so neither one counts (see writeCall).
-//
-// This check never fails a build by itself. It warns, and a run long enough to
-// exhaust the warnings budget fails the build through the budget.
-//
-// Depth: docs/VET.md
+// WriteRunsAnalyzer flags 3+ adjacent statements writing literal text to the
+// same writer: render it with text/template instead. A computed value, or a
+// hash writer, never joins a run (see writeCall). Depth: docs/VET.md
 var WriteRunsAnalyzer = &analysis.Analyzer{
 	Name:       "writeruns",
 	Doc:        "reports a run of adjacent writes to one writer; render the text with text/template instead",
@@ -43,22 +21,16 @@ var WriteRunsAnalyzer = &analysis.Analyzer{
 	ResultType: reflect.TypeOf([]*ASTFixes{}),
 }
 
-// writeRunFree is the number of adjacent writes a run spends before the
-// warnings start. One write is a line. Two are a pair. The third makes the
-// text a document.
+// writeRunFree is the number of adjacent writes a run spends before it warns.
 const writeRunFree = 2
 
-// writeRunWarned records the file:line of every warning this run emitted, so
-// the four package variants that walk the same file spend one warning per
-// site. resetWriteRunWarnings clears it at the start of each vet run.
+// writeRunWarned records each warning's file:line, so the package variants that walk the same file warn once per site.
 var writeRunWarned sync.Map
 
-// resetWriteRunWarnings forgets the warnings of the previous run, so a re-run
-// after a fix reports its sites again.
+// resetWriteRunWarnings forgets the previous run's warnings, so a re-run after a fix reports its sites again.
 func resetWriteRunWarnings() { writeRunWarned.Clear() }
 
-// writeMethods are the writer methods that put text into the output. A call to
-// one of them, with its result dropped, is a write.
+// writeMethods are the writer methods that put text into the output.
 var writeMethods = set.Of("Write", "WriteString", "WriteByte", "WriteRune")
 
 // printfFuncs are the fmt functions whose first argument is the writer.
@@ -123,8 +95,7 @@ func writeCall(pass *analysis.Pass, stmt ast.Stmt) (*ast.CallExpr, string, bool)
 		return nil, "", false
 	}
 
-	// fmt.Fprintf(w, …) and io.WriteString(w, s) name the writer first; a
-	// method names it as its receiver.
+	// fmt.Fprintf(w, ...) names the writer first; a method names it as its receiver.
 	target, text := sel.X, call.Args
 	if id, isPkg := sel.X.(*ast.Ident); isPkg && writerFirstFunc(id.Name, sel.Sel.Name) {
 		if len(call.Args) == 0 {
@@ -149,8 +120,7 @@ func writerFirstFunc(pkg, fn string) bool {
 }
 
 // writesLiteral reports whether the text of a write is spelled in the source.
-// A write of a computed value -- one byte of an escape, a marshalled payload --
-// is not a line of a document, and no template renders it.
+// A write of a computed value is not a document line, and no template renders it.
 func writesLiteral(args []ast.Expr) bool {
 	for _, arg := range args {
 		lit, ok := arg.(*ast.BasicLit)
@@ -162,8 +132,7 @@ func writesLiteral(args []ast.Expr) bool {
 }
 
 // isHashWriter reports whether a writer digests its input instead of holding
-// it. The bytes a hash reads are framing, never a document: rendering them
-// through a template would change the digest and help nobody.
+// it. A hash's bytes are framing, not a document: templating them would change the digest.
 func isHashWriter(pass *analysis.Pass, e ast.Expr) bool {
 	if pass.TypesInfo == nil {
 		return false
@@ -187,10 +156,8 @@ func isHashWriter(pass *analysis.Pass, e ast.Expr) bool {
 	return sum && block
 }
 
-// writerName spells a writer expression, and returns "" for one it cannot
-// spell. A name that two different writers could share would group two runs
-// into one, so the shapes it accepts are the ones that name one writer: w,
-// s.buf, and a.b.c.
+// writerName spells a writer expression, or "" for a shape that could name
+// more than one writer. Accepted shapes: w, s.buf, a.b.c.
 func writerName(e ast.Expr) string {
 	switch v := e.(type) {
 	case *ast.Ident:

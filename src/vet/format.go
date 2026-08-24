@@ -75,14 +75,7 @@ func RunGofmt(ed Editor) (bool, error) {
 	return anyWrote, nil
 }
 
-// gofmt's doc-comment formatter (go/doc/comment, run since Go 1.19 whenever
-// go/printer reformats a top-level doc comment) rewrites TeX-style quote
-// digraphs into Unicode "smart" quotes: a doubled backtick becomes U+201C
-// (left double quote) and a doubled apostrophe becomes U+201D (right double
-// quote). That silently rewrites literal ASCII an author typed -- e.g. a POSIX
-// shell single-quote escape sequence has its doubled apostrophe turned into one
-// U+201D, which is wrong -- and turns an ASCII-only file into multi-byte UTF-8.
-// The values use \u escapes so this file itself stays printable ASCII.
+// gofmt turns doubled backtick/apostrophe into curly quotes; \u escapes here keep the file ASCII.
 const (
 	docQuoteLeft  = "\u201c" // gofmt synthesizes this from a doubled backtick
 	docQuoteRight = "\u201d" // gofmt synthesizes this from a doubled apostrophe

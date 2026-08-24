@@ -129,9 +129,7 @@ func TestIsRedundantCastChar(t *testing.T) {
 }
 
 func TestVetSemanticWithFixRecursive(t *testing.T) {
-	// assertlint will add a stretchr/testify import; resolve it to the local
-	// stub via a replace so the go mod tidy the fix triggers needs no network
-	// (the per-package test timeout is tight).
+	// Resolve testify to the local stub so the fix's go mod tidy needs no network.
 	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
 	require.NoError(t, err)
 

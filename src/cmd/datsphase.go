@@ -14,20 +14,13 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// datsSuiteDir is the directory (relative to the module root) where a
-// module's .dats command-line test suites live.
+// datsSuiteDir is the dats suites directory, relative to the module root.
 const datsSuiteDir = "dats"
 
-// datsRunFunc is the dats library entry point. dats is LINKED IN, not
-// downloaded and exec'd: the suites run in this process, so there is no
-// binary to resolve, no version to keep in step with, and no host that can
-// be missing one. Swapped in tests.
+// datsRunFunc is dats.Run, linked in rather than downloaded and exec'd. Swapped in tests.
 var datsRunFunc = dats.Run
 
-// datsBuildDirEnv is handed to every suite command: a throwaway
-// directory holding copies of the module's built binaries, named by their
-// bare output name (plus .exe on windows hosts). Suites exec the binaries
-// through it, e.g. `"$GO_TOOLCHAIN_DATS_BUILD_DIR/mytool" --help`.
+// datsBuildDirEnv names the env var pointing suite commands at the staged binaries dir.
 const datsBuildDirEnv = "GO_TOOLCHAIN_DATS_BUILD_DIR"
 
 // datsArtifact names one built binary to hand to dats suites.
@@ -45,13 +38,10 @@ func datsArtifactName(outputName, goos string) string {
 	return outputName
 }
 
-// hasDatsSuites reports whether the module rooted at dir has any dats suites:
-// non-hidden *.dats files under dats/, recursively, skipping hidden
-// directories. The walk mirrors dats' own discovery (which skips hidden
-// entries but nothing else), so this gate can never no-op a suite dats would
-// run — it only decides run-everything vs. nothing-to-run. A missing dats/
-// (or one that is a plain file) falls out naturally: the walk errors or
-// visits a single non-.dats file, and found stays false.
+// hasDatsSuites reports whether dir has any non-hidden *.dats files under
+// dats/, recursively, skipping hidden directories. The walk mirrors dats'
+// own discovery, so this gate never no-ops a suite dats would run. A missing
+// or non-directory dats/ falls out naturally: found stays false.
 func hasDatsSuites(dir string) bool {
 	root := filepath.Join(dir, datsSuiteDir)
 	found := false
@@ -75,36 +65,21 @@ func hasDatsSuites(dir string) bool {
 	return found
 }
 
-// datsStageDir is the staging directory the built binaries are copied into,
-// relative to the module root. It lives UNDER the build output dir, which
-// go-toolchain keeps gitignored in every repo it builds (see
-// ensureBuildDirInGitignore), so staging never dirties the tree.
+// datsStageDir is where built binaries are staged for dats, under the gitignored build output dir.
 const datsStageDir = ".dats-stage"
 
-// stageDatsArtifacts copies built binaries into a staging dir (the caller
-// removes it) for suites to exec. Copy-then-exec is mandatory: matrix cosmo
-// slot artifacts are fat APEs that self-assimilate (rewrite their own file)
-// on first exec, so nothing may ever execute a build/ artifact in place. A
-// missing source (e.g. a cross-only build with no host-runnable artifact) is
-// skipped with a debug log — the suite still runs and fails honestly if it
-// needed it.
+// stageDatsArtifacts copies built binaries into a staging dir (caller
+// removes it) for suites to exec. Copy-then-exec is mandatory: cosmo fat
+// APEs self-assimilate on first exec, so nothing may run a build/ artifact
+// in place.
 //
-// The staging dir must be INSIDE the module root, and the path handed to dats
-// absolute. dats sandboxes every test command, and of the host a sandboxed
-// command reaches only the working directory (mounted read-only) plus the
-// paths the run declares — a staging dir under $TMPDIR is invisible to every
-// backend, and every suite fails its setup command instead of running. An
-// absolute path under the working directory resolves identically inside and
-// outside all three backends.
+// The dir must sit INSIDE the module root, as an absolute path: dats
+// sandboxes every command, reaching only the working directory (read-only)
+// plus declared paths.
 //
-// The staged binaries are READABLE there, not writable -- the sandbox exposes
-// the working directory read-only and offers no way to declare otherwise. A
-// binary that rewrites itself on first exec (the cosmo artifact is an APE,
-// whose loader does exactly that and exits 121 on a read-only filesystem) must
-// therefore be copied into the sandbox's own writable temp space by the suite
-// that runs it -- one `cp` into `$(mktemp -d)`, which is what dats/README.md
-// tells suites to do. Do not "fix" any of this by passing --no-sandbox: that
-// turns the isolation off for every suite command in every consuming repo.
+// Staged binaries are READ-ONLY. A self-rewriting binary (the cosmo APE)
+// must be copied to the sandbox's own writable temp space by the suite that
+// runs it (`cp` into `$(mktemp -d)`, per dats/README.md).
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -122,8 +97,7 @@ func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 		dst := filepath.Join(dir, a.name)
 		copyErr := copyFile(a.sourcePath, dst)
 		if copyErr == nil {
-			// copyFile propagates the source mode; force the exec bit in
-			// case the artifact was staged from a mode-stripped filesystem.
+			// Force the exec bit in case copyFile staged from a mode-stripped source.
 			copyErr = os.Chmod(dst, 0o755)
 		}
 		if copyErr != nil {
@@ -133,9 +107,8 @@ func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	return dir, nil
 }
 
-// noteFirstWrite calls note once, before the first byte reaches w. It is how
-// the in-process dats report terminates the step's "..." line at exactly the
-// moment a subprocess's first output used to.
+// noteFirstWrite calls note once, on the first byte written to w, to end
+// the step's "..." line at the right moment.
 type noteFirstWrite struct {
 	w    io.Writer
 	note func()
@@ -149,21 +122,10 @@ func (n *noteFirstWrite) Write(p []byte) (int, error) {
 	return n.w.Write(p)
 }
 
-// runDatsOnly is the whole run for a repo that has dats suites but no go.mod:
-// a shell or TypeScript project whose CLI is still worth testing this way.
-// Refusing those outright pushed them into fetching a standalone dats binary
-// and wiring a CI step by hand -- work this toolchain already does, and a
-// version skew waiting to happen, since the dats linked in here is the one
-// that would drift from it.
-//
-// Nothing was built, so there are no artifacts to hand over: such a suite
-// exercises what is already in the tree, and $GO_TOOLCHAIN_DATS_BUILD_DIR is
-// an empty directory rather than a missing one.
-//
-// Staging still goes under the build output dir, because the sandbox exposes
-// only the working directory -- but the empty parent is removed afterwards, so
-// a non-Go repo is not left holding a stray build/ it never asked for and does
-// not gitignore.
+// runDatsOnly runs dats suites for a repo with dats/ but no go.mod. Nothing
+// was built, so $GO_TOOLCHAIN_DATS_BUILD_DIR is an empty directory. Staging
+// still uses the build output dir (the sandbox exposes only the working
+// directory); the empty parent is removed after, leaving no stray build/.
 func runDatsOnly() error {
 	logger.Info("⇒ No go.mod; running dats suites only")
 
@@ -211,9 +173,7 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 	}
 	defer os.RemoveAll(buildDir)
 
-	// The report goes to stdout, except under --json where stdout carries the
-	// JSON coverage payload — then it goes to stderr so it stays visible
-	// without corrupting it. Held writers, deliberately (see logging.go).
+	// stdout normally, or stderr under --json (stdout carries the payload). Held writer; see logging.go.
 	out := rawStdout
 	if quiet {
 		out = rawStderr
@@ -222,15 +182,9 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		out = &noteFirstWrite{w: out, note: st.noteOutput}
 	}
 
-	// Jobs stays 0 (serial) on purpose: the report is byte-deterministic and
-	// staged APE copies never race their first-exec self-assimilation. The
-	// sandbox is dats' default (auto) — whether a suite needs the host is the
-	// SUITE's declaration to make, never the toolchain's.
-	//
-	// GOCACHEPROG and GOCACHE_STATS_SOCK are cleared for every suite command
-	// so one that runs `go ...` cannot spawn cacheprog children of THIS binary
-	// against the outer daemon (stats pollution, stdout pipe stalls) — the
-	// same clearing the bench runner and embeddedFiles do.
+	// Serial (Jobs=0) so staged APE copies never race their self-assimilation.
+	// GOCACHEPROG/GOCACHE_STATS_SOCK are cleared so a suite's `go` cannot
+	// reach the outer cacheprog daemon.
 	res, err := datsRunFunc(context.Background(), dats.Options{
 		Paths:  []string{datsSuiteDir},
 		Output: out,
@@ -244,8 +198,7 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		return fail(err)
 	}
 	if !res.Ok() {
-		// dats already printed which tests failed and why; this is the line
-		// that fails the build.
+		// dats already printed which tests failed and why; this line fails the build.
 		return fail(fmt.Errorf("%d of %d tests failed", res.Failed, res.Passed+res.Failed))
 	}
 	if st != nil {

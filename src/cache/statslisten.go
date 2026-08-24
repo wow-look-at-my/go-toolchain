@@ -11,9 +11,7 @@ import (
 	"time"
 )
 
-// maxTrackedActions bounds the per-action outcome map. A very large build has
-// a few hundred thousand cache actions; past the cap new action IDs are
-// counted in actionsOverflow instead of growing the map without bound.
+// maxTrackedActions bounds the per-action outcome map; past it, new IDs count in actionsOverflow instead of growing it unbounded.
 const maxTrackedActions = 200_000
 
 // ActionOutcome aggregates the per-action cache events observed for one
@@ -21,25 +19,17 @@ const maxTrackedActions = 200_000
 // form cmd/go prints as ActionID in -debug-actiongraph dumps — the join key
 // for the build profile).
 type ActionOutcome struct {
-	// Get is the first GET outcome seen for the action this run:
-	// "hit-local", "hit-remote", or "miss" ("" when no GET was observed).
-	// First wins: an action that missed and was then re-fetched warm later in
-	// the same run still profiles as the miss that actually cost the rebuild.
+	// Get is the first GET outcome this run (hit-local, hit-remote, miss, or empty); first wins so a later warm re-fetch never hides the original miss.
 	Get string
-	// Put reports whether a NEW local put was recorded (the action's output
-	// was computed and stored this run; dedup re-puts of an already-cached
-	// entry do not count).
+	// Put reports whether a NEW local put was recorded this run; a dedup re-put of an already-cached entry doesn't count.
 	Put   bool
 	Bytes int64 // largest object size observed, bytes
 	GetUS int64 // duration of the first GET, microseconds
 	PutUS int64 // duration of the local put, microseconds
 }
 
-// truncateActionID renders a wire ActionID (32 bytes on real builds) in the
-// 20-char truncated form cmd/go uses everywhere a cache hash is displayed:
-// base64.RawURLEncoding(id[:15]) — identical to the actiongraph ActionID and
-// the build-id action field (see buildIDHashSize). Returns "" for IDs too
-// short to truncate.
+// truncateActionID renders a wire ActionID in cmd/go's 20-char truncated
+// form: base64.RawURLEncoding(id[:15]). Returns "" if too short.
 func truncateActionID(id []byte) string {
 	if len(id) < buildIDHashSize {
 		return ""
@@ -82,9 +72,8 @@ type StatsListener struct {
 	actionsOverflow uint64 // action IDs dropped once maxTrackedActions was hit
 }
 
-// SetHasRemote marks the listener as having a remote backend configured.
-// This controls whether Stats() includes the Remote field, regardless of
-// whether any remote events have actually been received yet.
+// SetHasRemote marks a remote backend as configured, so Stats() includes
+// the Remote field even before any remote event arrives.
 func (sl *StatsListener) SetHasRemote() {
 	sl.hasRemote.Store(true)
 }
@@ -112,9 +101,7 @@ func (sl *StatsListener) accept() {
 			return
 		}
 		sl.wg.Add(1)
-		// Ack the connection so the dialer knows it has been picked up.
-		// Once the dialer has read this byte, this connection is registered
-		// in sl.wg, so Close()'s wg.Wait deterministically covers it.
+		// Ack the connection so the dialer knows it's registered in sl.wg before Close()'s wg.Wait runs.
 		conn.Write([]byte{0})
 		go sl.handleConn(conn)
 	}
@@ -215,15 +202,12 @@ func (sl *StatsListener) ActionsOverflow() uint64 {
 	return sl.actionsOverflow
 }
 
-// Close stops the listener, waits for all connections to drain, and cleans up.
+// Close stops the listener, waits for connections to drain, and cleans up.
 //
-// Delivery is guaranteed by the accept-ack handshake: a dialer only keeps its
-// stats connection after reading the listener's 1-byte ack, which the accept
-// loop writes AFTER registering the connection in sl.wg — so wg.Wait() below
-// deterministically covers every connection whose dialer ever sent an event.
-// The 10ms accept-deadline drain is belt-and-suspenders for a dialer racing
-// Close itself: such a dialer degrades to stats-off via its ack timeout
-// instead of silently losing data.
+// The accept-ack handshake guarantees delivery: a dialer keeps its stats
+// connection only after reading the listener's ack, written after the accept
+// loop registers it in sl.wg -- so wg.Wait() below covers every connection
+// that ever sent an event. The 10ms drain covers a dialer racing Close.
 func (sl *StatsListener) Close() {
 	// Give the accept loop a short window to drain any connections that are
 	// already in the kernel accept queue. listener.Close() would drop them.

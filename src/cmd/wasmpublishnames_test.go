@@ -23,8 +23,7 @@ import (
 // the publish set entirely (for servers predating #166, where an os=wasm
 // upload 400s and one rejected artifact aborts the whole publish).
 func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
-	// The exact filter from the buildhost-publish action (wow-look-at-my
-	// actions), transcribed from the go-font-renderer failure run's logs.
+	// The exact filter from the buildhost-publish action, transcribed from its failure-run logs.
 	publishRe := regexp.MustCompile(`^(.+)_([a-z]+)_([a-z0-9]+)$`)
 	parse := func(name string) (osToken, archToken string, ok bool) {
 		m := publishRe.FindStringSubmatch(strings.TrimSuffix(name, ".exe"))
@@ -47,8 +46,7 @@ func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
 		assert.Equal(t, "wasm", osToken, "%s must parse as os=wasm", name)
 		assert.Equal(t, goos, archToken, "%s must parse arch=%s", name, goos)
 	}
-	// Hyphenated binary names keep parsing correctly (the pattern takes the
-	// trailing two tokens).
+	// Hyphenated binary names keep parsing correctly; the pattern takes the trailing two tokens.
 	osToken, archToken, ok := parse(build.BinaryName("my-tool", "js", "wasm"))
 	require.True(t, ok)
 	assert.Equal(t, "wasm", osToken)
@@ -60,9 +58,7 @@ func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
 	_, _, ok = parse(build.UnpublishableWasmName("my-tool", "wasip1"))
 	assert.False(t, ok, "opt-out wasm names must not match the publish pattern")
 
-	// The shipped js exec harness rides along in build/ and checksums.txt but
-	// must stay outside the publish set (its trailing token is "exec.js",
-	// which the pattern cannot match).
+	// wasm_exec.js rides along in build/ but must stay outside the publish set (trailing token "exec.js").
 	_, _, ok = parse("wasm_exec.js")
 	assert.False(t, ok, "wasm_exec.js must not match the publish pattern")
 

@@ -75,8 +75,8 @@ func isGHA() bool {
 	return os.Getenv("GITHUB_ACTIONS") == "true"
 }
 
-// logWarning prints a warning. In GHA it emits a ::warning annotation;
-// locally it prints yellow text. file is optional (used for GHA file annotations).
+// logWarning prints a warning: a ::warning annotation in GHA, yellow text otherwise.
+// file is optional, for GHA file annotations.
 func logWarning(file, msg string) {
 	if file != "" {
 		logger.WarnFile(file, "%s", msg)
@@ -85,8 +85,8 @@ func logWarning(file, msg string) {
 	}
 }
 
-// logError prints an error. In GHA it emits a ::error annotation;
-// locally it prints red text. file is optional (used for GHA file annotations).
+// logError prints an error: a ::error annotation in GHA, red text otherwise.
+// file is optional, for GHA file annotations.
 func logError(file, msg string) {
 	if file != "" {
 		logger.ErrorFile(file, "%s", msg)
@@ -95,8 +95,7 @@ func logError(file, msg string) {
 	}
 }
 
-// pipelineTimeline records start/end times for pipeline steps.
-// Initialized by InitTimeline(); nil until then.
+// pipelineTimeline records pipeline step times; nil until InitTimeline runs.
 var pipelineTimeline *summary.Timeline
 
 // InitTimeline creates the global pipeline timeline, anchored to now.
@@ -109,11 +108,9 @@ func GetTimeline() *summary.Timeline {
 	return pipelineTimeline
 }
 
-// step tracks progress for a long-running build step.
-// It prints "⇒ label..." initially, then " done. (Xs)" when finished.
-// If output was produced between start and finish, the done message
-// goes on a new line with the label repeated.
-// Sub-steps (created via logSubStep) print indented "    label Xs" instead.
+// step tracks progress for a build step: prints "⇒ label..." then " done. (Xs)".
+// A noisy step's done message starts on a new line with the label repeated.
+// Sub-steps (logSubStep) print indented "    label Xs" instead.
 type step struct {
 	label  string
 	thread string
@@ -138,9 +135,8 @@ func logStepOn(label, thread string) *step {
 	return &step{label: label, thread: thread, start: time.Now()}
 }
 
-// logSubStep creates a sub-step that prints as "    label Xs" when done.
-// It doesn't print anything on creation — only on completion.
-// Useful for recording sub-phases (e.g. vet phases) that have their own timing.
+// logSubStep creates a sub-step that prints "    label Xs" only on completion,
+// for recording sub-phases (e.g. vet phases) with their own timing.
 func logSubStep(label, thread string) *step {
 	if activeWatchdog != nil {
 		activeWatchdog.setStep(label)
@@ -148,9 +144,8 @@ func logSubStep(label, thread string) *step {
 	return &step{label: label, thread: thread, start: time.Now(), sub: true}
 }
 
-// noteOutput marks that visible output was produced during this step.
-// On the first call, it prints a newline to terminate the "..." line
-// so that subprocess output starts on its own line.
+// noteOutput marks visible output during this step. On the first call it
+// prints a newline so subprocess output starts on its own line.
 func (s *step) noteOutput() {
 	s.once.Do(func() {
 		s.noisy = true
@@ -196,11 +191,9 @@ func (s *step) failed() {
 	s.finish(colorRed + "failed!" + colorReset)
 }
 
-// timedLineWriter wraps a writer and appends elapsed time to each line.
-// When a complete line is seen, its content is written immediately (without
-// the trailing newline). The newline is deferred until the next content
-// arrives, at which point " <elapsed>\n" is written first. This way each
-// line's duration reflects the wall-clock time until the next line appeared.
+// timedLineWriter wraps a writer and appends elapsed time to each line. A line's
+// newline is deferred until the next content arrives, so its duration reflects
+// the wall-clock gap until the next line appeared.
 type timedLineWriter struct {
 	target      io.Writer
 	buf         bytes.Buffer

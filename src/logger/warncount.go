@@ -2,11 +2,7 @@ package logger
 
 import "sync"
 
-// MaxRecordedWarnings bounds how many DISTINCT warning messages are kept for
-// the gate's end-of-run recap. The distinct count itself is never bounded;
-// only the retained text is, so a pathological run cannot grow the slice
-// without limit. Callers report the difference between WarnCount and
-// len(EmittedWarnings) as the number of warnings not shown.
+// MaxRecordedWarnings bounds retained distinct warning text for the recap; the distinct count itself stays unbounded.
 const MaxRecordedWarnings = 200
 
 // Warning is one distinct emitted warning: the message text, and the number of
