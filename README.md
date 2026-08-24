@@ -6,7 +6,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 
 - **Coverage enforcement** — the build fails below 80% coverage, and the failure is annotated in the GitHub Actions run UI.
 - **Coverage watermarking** — optionally locks in a coverage floor (with a 2.5% grace period) so it can only go up.
-- **Warnings budget** — more than 15 warnings in a run fails the build, with a numbered recap. See [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md).
+- **Warnings budget** — more than 15 distinct warnings in a run fails the build, with a numbered recap. A repeated warning counts once. See [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md).
 - **One binary, every platform** — `matrix` builds a single fat APE that runs natively on Linux x64, macOS ARM64 and Windows x64; it's the org's only native output. See [docs/MATRIX.md](docs/MATRIX.md).
 - **WebAssembly targets** — `wasm/js` and `wasm/wasip1`, opted into alongside (or instead of) the APE. See [docs/WASM.md](docs/WASM.md).
 - **Benchmarks** — run automatically after builds, compared against previous results stored in git notes.

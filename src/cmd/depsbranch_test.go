@@ -336,7 +336,7 @@ replace example.com/foo => ../foo // go-toolchain:branch=master
 	assert.False(t, changed)
 	assert.Equal(t, gomod, string(readGoMod(t)))
 	require.Len(t, logger.EmittedWarnings(), 1)
-	assert.Contains(t, logger.EmittedWarnings()[0], "../foo")
+	assert.Contains(t, logger.EmittedWarnings()[0].Message, "../foo")
 }
 
 // An absolute replacement target is the same case wearing a different path.
