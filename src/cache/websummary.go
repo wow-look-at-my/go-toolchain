@@ -77,8 +77,7 @@ func (b *WebBackend) SummarySnapshot() WebSummary {
 	}
 }
 
-// WebSummary snapshots the shared web backend's counters (nil with no WebBackend remote);
-// meaningful after Close, an earlier call sees in-flight values.
+// WebSummary snapshots the web backend's counters (nil with no remote); meaningful after Close.
 func (d *Daemon) WebSummary() *WebSummary {
 	if wb, ok := d.remote.(*WebBackend); ok {
 		ws := wb.SummarySnapshot()

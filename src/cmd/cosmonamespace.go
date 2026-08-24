@@ -13,26 +13,22 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// forkToolchainCacheNamespace derives the cache key namespace for builds done
-// with the gosmopolitan fork toolchain rooted at goroot: 16 lowercase hex
-// chars of a SHA-256 over the toolchain's tool binaries. Every fork-toolchain
-// matrix job exports it as GO_TOOLCHAIN_CACHE_NAMESPACE (cache.KeyNamespaceEnv)
-// so the job's cacheprog scopes all cache keys to THIS toolchain build.
+// forkToolchainCacheNamespace derives the cache key namespace for builds
+// done with the gosmopolitan fork toolchain at goroot: 16 hex chars of a
+// SHA-256 over the toolchain's tool binaries. Every fork-toolchain matrix
+// job exports it as GO_TOOLCHAIN_CACHE_NAMESPACE so its cacheprog scopes
+// cache keys to THIS toolchain build.
 //
-// Why: the fork stamps a constant release version into every build, so cmd/go
-// derives identical tool build IDs for different fork toolchain builds and
-// their action IDs collide, letting a shared cache serve objects compiled by
-// one toolchain into links done by another. Hashing the tool binaries
-// themselves captures exactly what the version-derived tool IDs miss: if any
-// tool's bytes differ, the namespace differs and the builds share nothing.
-// Source-tree differences need no hashing here — cmd/go already hashes
-// package source into action IDs.
+// Why: the fork stamps a constant release version into every build, so
+// cmd/go derives identical tool build IDs across different fork builds,
+// letting a shared cache mix objects across toolchains. Hashing the tool
+// binaries catches what those IDs miss: any byte difference changes the
+// namespace. Source-tree differences need no hashing here.
 //
-// The hash covers VERSION plus every regular file under bin/ and pkg/tool/,
-// each framed with its slash-relative path and size, in the deterministic
-// lexical order filepath.WalkDir guarantees. Failure is an error, never a
-// silent fallback: an un-namespaced fork build would reopen cross-toolchain
-// cache poisoning.
+// The hash covers VERSION plus every file under bin/ and pkg/tool/, framed
+// with its slash-relative path and size, in WalkDir's lexical order.
+// Failure is an error, never silent: an un-namespaced build would reopen
+// cross-toolchain cache poisoning.
 func forkToolchainCacheNamespace(goroot string) (string, error) {
 	start := time.Now()
 	h := sha256.New()

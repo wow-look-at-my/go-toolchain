@@ -9,19 +9,10 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 )
 
-// buildhostManifestName is the sidecar buildhost-publish reads from the root
-// of the directory it publishes. It names the artifacts whose identity is a
-// platform SET rather than one os/arch pair — the fat APE — so each publishes
-// as ONE artifact row with one download link. A file listed here is removed
-// from the publish action's <binary>_<os>_<arch> filename scan, which is why
-// the APE keeps its <name> name without tripping buildhost's
-// os=cosmo rejection.
-//
-// See docs/BUILDHOST-MANIFEST.md for the wire contract.
+// buildhostManifestName is the sidecar buildhost-publish reads to list multi-platform artifacts; see docs/BUILDHOST-MANIFEST.md.
 const buildhostManifestName = "buildhost-artifacts.json"
 
-// buildhostManifestSchema is the only schema version buildhost accepts. It
-// fails the publish on any other value rather than ignoring the file.
+// buildhostManifestSchema is the only version buildhost accepts; other values fail the publish.
 const buildhostManifestSchema = 1
 
 type buildhostManifest struct {
@@ -30,17 +21,14 @@ type buildhostManifest struct {
 }
 
 // buildhostManifestEntry describes one multi-platform artifact.
-//
-// Kind is deliberately absent: it selects buildhost's repackaging vocabulary
-// (binary/library/assets/...) and defaults to binary, while APE-ness is a
-// property buildhost detects from the bytes. Sending a format there would be
-// wrong. There is no display-label field either — the badge renders from the
-// stored set, so a label could only ever disagree with it.
+// Kind is deliberately absent: it selects buildhost's repackaging vocabulary (binary/library/
+// assets/...) and defaults to binary, while APE-ness is a property buildhost detects from the
+// bytes. There is no display-label field either -- the badge renders from the stored set, so a
+// label could only ever disagree with it.
 type buildhostManifestEntry struct {
 	// File is the artifact's path relative to the published directory.
 	File string `json:"file"`
-	// Platforms are the os/arch pairs this one file runs on. The first is the
-	// row's canonical slot.
+	// Platforms are the os/arch pairs this file runs on; the first is the row's canonical slot.
 	Platforms []string `json:"platforms"`
 	// Filename is the name the download is served under: the plain binary
 	// name, not the on-disk <name>.

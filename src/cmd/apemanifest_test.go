@@ -180,8 +180,7 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 	platforms, _ := cosmoCfg.Env.Get(cosmoPlatformsEnv)
 	assert.Equal(t, "", platforms)
 
-	// The manifest still states where the binary runs, using the coverage a
-	// full APE actually has.
+	// The manifest still states where the binary runs, using the coverage a full APE actually has.
 	raw, err := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
 	require.NoError(t, err)
 	var m buildhostManifest
@@ -204,8 +203,7 @@ func TestHostRunnableArtifactFallsBackToTheAPE(t *testing.T) {
 	assert.Equal(t, native, hostRunnableArtifact(target, dir),
 		"a real native build wins over the APE")
 
-	// Neither present: the native path is returned so the caller reports the
-	// artifact it actually wanted.
+	// Neither present: the native path is returned so the caller reports the artifact it actually wanted.
 	require.NoError(t, os.Remove(ape))
 	require.NoError(t, os.Remove(native))
 	assert.Equal(t, native, hostRunnableArtifact(target, dir))

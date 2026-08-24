@@ -180,16 +180,14 @@ func TestFoo(t *testing.T) {
 // re-run — dies at the type-check with a package load error before any fixer
 // runs, so the tree can never converge.
 func TestVetSemanticCastAddsMissingImport(t *testing.T) {
-	// Resolve upstream testify to the local stub so the fixture type-checks
-	// hermetically (same pattern as TestVetSemanticWithFixRecursive).
+	// Resolve testify to the local stub so the fixture type-checks hermetically.
 	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
 	require.NoError(t, err)
 
 	dir := t.TempDir()
 
-	// info.Mode() is declared in io/fs (fs.FileInfo's method), so the operand's
-	// type is the origin io/fs.FileMode — not the os.FileMode alias — and the
-	// conversion must be spelled through the io/fs package.
+	// info.Mode()'s type is the origin io/fs.FileMode, not the os.FileMode
+	// alias, so the conversion must be spelled through the io/fs package.
 	code := `package main
 
 import (
@@ -205,10 +203,7 @@ func TestMode(t *testing.T) {
 }
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644))
-	// go 1.24 matches the stub module's go directive: the fixture imports
-	// testify from the start, so the strict (compiled/test) package load already
-	// needs the stub's module graph — an older go directive here fails the load
-	// with "updates to go.mod needed" before the analyzer ever runs.
+	// go 1.24 matches the stub's directive; older fails the load pre-analyzer.
 	gomod := "module testmod\n\ngo 1.24\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
 
@@ -218,8 +213,7 @@ func TestMode(t *testing.T) {
 
 	initGitRepo(t, dir)
 
-	// First run rewrites the literal; its internal verify re-run must load the
-	// rewritten file cleanly (this used to fail with "undefined: fs").
+	// The internal verify re-run must load the rewritten file cleanly.
 	changed, err := vetSemantic("./...", NewEditor(true), nil)
 	require.NoError(t, err)
 	assert.True(t, changed)

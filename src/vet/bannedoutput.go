@@ -8,22 +8,10 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// BannedOutputAnalyzer reports direct writes to os.Stdout / os.Stderr via
-// fmt.Printf/Println/Print, fmt.Fprintf|Fprintln|Fprint(os.Stdout|Stderr, …),
-// and log.Printf|Println|Print|Fatal*|Panic*.
-//
-// These are banned because all output must go through the logger package so
-// that level filtering, GHA annotations, and colour support work uniformly.
-//
-// The ban is scoped to the go-toolchain module itself: vetSemantic also runs
-// this analyzer on every consumer project go-toolchain builds, and consumers
-// have no src/logger to route output through — their fmt.Println is fine.
-// Packages whose module path differs from bannedOutputModule are skipped.
-//
-// Exemptions (filename-based):
-//   - any file under a src/logger/ directory (the logger must do real I/O)
-//   - src/cmd/console.go (terminal animation UI — needs fine-grained newline control)
-//   - *_test.go files (test code may print intentionally)
+// BannedOutputAnalyzer reports direct fmt/log writes to os.Stdout/os.Stderr;
+// use the logger package instead, for uniform filtering and GHA annotations.
+// Scoped to the go-toolchain module: consumer projects have no src/logger.
+// Exempt: src/logger/ itself, src/cmd/console.go, and *_test.go files.
 var BannedOutputAnalyzer = &analysis.Analyzer{
 	Name:       "bannedoutput",
 	Doc:        "bans direct writes to os.Stdout/os.Stderr; use the logger package instead",
@@ -31,17 +19,12 @@ var BannedOutputAnalyzer = &analysis.Analyzer{
 	ResultType: reflect.TypeOf([]*ASTFixes{}),
 }
 
-// bannedOutputModule is the only module the ban applies to. The logger-routing
-// convention is internal to go-toolchain; the diagnostic's remedy (the logger
-// package) does not exist in consumer modules.
+// bannedOutputModule is the only module the ban applies to: the logger package doesn't exist elsewhere.
 const bannedOutputModule = "github.com/wow-look-at-my/go-toolchain"
 
 func runBannedOutput(pass *analysis.Pass) (any, error) {
-	// Scope to the go-toolchain module. An empty module path means the driver
-	// supplied no module info (e.g. analysistest's GOPATH-mode fixtures) — the
-	// ban stays active there so the fixtures exercise the checks; the real
-	// driver (vetSemantic) loads packages with packages.NeedModule, so consumer
-	// modules carry their own path and are skipped.
+	// An empty module path (analysistest's GOPATH-mode fixtures) keeps the ban
+	// active so fixtures exercise the checks; a real consumer module is skipped.
 	if pass.Module != nil && pass.Module.Path != "" && pass.Module.Path != bannedOutputModule {
 		return []*ASTFixes(nil), nil
 	}

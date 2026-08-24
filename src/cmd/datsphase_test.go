@@ -71,9 +71,7 @@ func TestHasDatsSuites(t *testing.T) {
 	})
 
 	t.Run("nested module still counts", func(t *testing.T) {
-		// dats' own discovery does not skip nested Go modules, so the gate
-		// must not either — otherwise a suite dats would run could be
-		// silently no-opped.
+		// dats' own discovery does not skip nested Go modules, so the gate must not either.
 		dir := t.TempDir()
 		write(t, dir, "dats/fixturemod/go.mod")
 		write(t, dir, "dats/fixturemod/x.dats")

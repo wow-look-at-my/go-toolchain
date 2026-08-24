@@ -30,9 +30,7 @@ type branchPin struct {
 	marker  marker
 }
 
-// commitAnchor is the commit a require's siblings have to match, and how to
-// get it: a ref to resolve for a line that follows a branch, or the commit a
-// deliberate version pin already names.
+// commitAnchor is the commit a require's siblings must match: a ref to resolve, or a pin's own commit.
 type commitAnchor struct {
 	ref string
 	// branch is the marker's branch, empty for default; it lets two lines of one repo follow different branches.
@@ -193,9 +191,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 				unchecked = append(unchecked, req.Mod.Path+"@"+m.branch)
 			}
 		}
-		// A sibling carries the same marker as the line that brought it in, so
-		// it says what it follows and nothing about which module it came with.
-		// Its cohesion is the resolver's doing, not the comment's.
+		// A sibling carries the marker of the line that brought it in; cohesion is the resolver's doing.
 		for mod, version := range res.siblings {
 			siblings[mod] = branchPin{version, m}
 		}

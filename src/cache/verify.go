@@ -6,45 +6,20 @@ import (
 	"sync"
 )
 
-// This file holds the shared serve-path integrity gates used by the local
-// cache tiers. The pack store (pack.go) runs its gates over pack records; the
-// loose-file tier (local.go) runs verifyBodyForServe over each entry before
-// serving it. Both enforce the rot and build-id invariants the web ingestion
-// path also does: the cache never hands the compiler a damaged body, nor a
-// compiled package stamped for a different action key.
+// This file holds the serve-path integrity gates shared by the pack store
+// (pack.go) and the loose-file tier (local.go, via verifyBodyForServe): a
+// served body must match its content hash and its stamped build-id action.
 //
-// The Go module index is refused here as it is everywhere else (see
-// isGoModuleIndex): its action key hashes no content, so no gate below can tell
-// a right body from a wrong one under that key, and a wrong one hands the
-// package loader a package under another package's name. Local origin does not
-// help — it says where the bytes came from, not that this key returned the
-// right ones.
-//
-// What makes refusing here safe is that handlePut refuses FIRST, so nothing is
-// ever stored: this gate only sheds residue an older binary left behind. Adding
-// a serve-path refusal without the PUT refusal is what must not happen — cmd/go
-// re-stores every index it recomputes, so accept-at-Put/refuse-at-Get is a
-// permanent miss loop that spams the loose tier's eviction log and appends a
-// duplicate record to the packs on every build.
+// The Go module index is refused here too (see isGoModuleIndex): its action
+// key hashes no content, so no gate can tell a right body from a wrong one.
+// This is safe only because handlePut refuses the index FIRST, so nothing
+// bad is ever stored; this gate only sheds residue an older binary left.
 
-// verifyBodyForServe runs the local serve-path integrity gates over an
-// in-memory body about to be served for (actionID, outputID):
-//
-//   - content address: the body must hash (SHA-256) to outputID — the
-//     GOCACHEPROG invariant (outputID == sha256(body), see outputIDMatches).
-//     Catches truncation, rot, and mis-mapped bodies, including the empty
-//     bodies the old oversized-PUT bug committed under real IDs.
-//
-//   - build-id action: a compiled package's stamped build-id action must
-//     belong to actionID (see buildIDMatchesAction). Catches a self-consistent
-//     object filed under the wrong action key ("runtime imported as
-//     reflectlite").
-//
-//   - module index: never served, because neither gate above can say anything
-//     about a payload whose key hashes no content (see the file-top comment).
-//
-// On failure it returns ok == false and a human-readable reason for the
-// eviction log line.
+// verifyBodyForServe checks a body about to be served for (actionID,
+// outputID): content address (SHA-256 matches outputID, see
+// outputIDMatches), build-id action (a compiled package's stamped action
+// matches actionID, see buildIDMatchesAction), and module index (never
+// served). Returns ok == false with a human-readable eviction-log reason.
 func verifyBodyForServe(actionID, outputID string, body []byte) (reason string, ok bool) {
 	if isGoModuleIndex(body) {
 		return "module index (never served: its action key carries no content to verify against)", false
@@ -60,34 +35,16 @@ func verifyBodyForServe(actionID, outputID string, body []byte) (reason string, 
 	return "", true
 }
 
-// looseVerified records a loose-tier entry that passed verifyBodyForServe
-// this process, so repeat Gets (notably the PUT dedup check on warm rebuilds)
-// skip the body re-read + re-hash. An entry only short-circuits verification
-// while the on-disk sidecar still advertises the same outputID and the data
-// file still has the verified size; any replacement re-verifies.
+// looseVerified memoizes a loose-tier entry that already passed
+// verifyBodyForServe, skipping the re-read + re-hash on repeat Gets. Valid
+// only while the sidecar still advertises this outputID and size.
 type looseVerified struct {
 	outputID string
 	size     int64
 }
 
-// ---- pack-store verified-read memoization ----
-//
-// Every GET RPC used to re-read + CRC + guard-check the FULL body
-// (bodyServableForAction), and every first FUSE Lookup per outputID re-read +
-// SHA-256'd it (bodyMatchesOutputID) — including immediately after every PUT
-// (the compiler opens the DiskPath the PUT just returned) and after remote
-// ingestion that was already sha256-verified at the network boundary. A
-// pipeline run is 4-6 cmd/go invocations re-GETting the same actions, so the
-// same bytes were read and hashed many times per build.
-//
-// Memoizing is sound because pack records are physically immutable within a
-// process: packs are append-only, records are never rewritten in place,
-// truncation happens only at startup before serving, and eviction only
-// removes index entries. A (packID, dataOff) therefore names one fixed byte
-// range for the store's lifetime. The residual TOCTOU — bytes rotting on disk
-// AFTER a successful verification — is identical to what the kernel page
-// cache + FOPEN_KEEP_CACHE already accept on the FUSE read path (rot across
-// runs is still caught: a new process starts with an empty memo).
+// Verified-read memo: pack records are immutable once appended, so
+// (packID, dataOff) is a stable key for the store's lifetime.
 
 // verifyKey names a pack record by its physical location.
 type verifyKey struct {
@@ -125,10 +82,8 @@ func (vi verifyInfo) actionOK(actionIDHex string) bool {
 	return true
 }
 
-// servableForAction is the GET-RPC gate (the memoized equivalent of
-// bodyServableForAction): the body must be intact (CRC, or the strictly
-// stronger content-address proof), must not be a module index, and a compiled
-// package must be stamped for this action.
+// servableForAction is the GET-RPC gate: body intact (CRC or the stronger
+// content-address proof), not a module index, and stamped for this action.
 func (vi verifyInfo) servableForAction(actionIDHex string) bool {
 	if vi.isModIndex {
 		return false
@@ -161,9 +116,8 @@ func (v *verifiedSet) put(k verifyKey, vi verifyInfo) {
 	v.mu.Unlock()
 }
 
-// dropPack forgets every memoized record in packID. Called when a pack file
-// is deleted (startup budget eviction), so a later pack reusing the ID can
-// never inherit stale entries.
+// dropPack forgets every memoized record in packID, so a later pack reusing
+// the ID never inherits stale entries.
 func (v *verifiedSet) dropPack(packID int) {
 	v.mu.Lock()
 	for k := range v.m {
@@ -205,12 +159,9 @@ func (s *PackStore) verifiedInfo(loc packLoc) (verifyInfo, bool) {
 }
 
 // verifyInfoForPut computes the memo entry for bytes being appended by Put:
-// the CRC is by construction computed from these exact bytes, the content
-// address is checked directly (cmd/go derives outputID as sha256(body), and
-// every remote-ingestion path verified it at the network boundary — this
-// recheck keeps a mis-addressed direct Put from being pre-trusted), and the
-// structural facts come from the same in-memory buffer. This is what makes
-// the compiler's open-right-after-PUT lookup free of a full re-read + hash.
+// CRC holds by construction, and the content address is rechecked directly
+// (cmd/go derives outputID as sha256(body)) so a mis-addressed Put is never
+// pre-trusted. This is what makes the open-right-after-PUT lookup free.
 func verifyInfoForPut(outputID string, data []byte) verifyInfo {
 	vi := verifyInfo{crcOK: true}
 	_, vi.shaOK = outputIDMatches(outputID, data)

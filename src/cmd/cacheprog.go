@@ -118,8 +118,7 @@ func parseBuildCacheConfig() cache.WebConfig {
 }
 
 func runCacheProg(cmd *cobra.Command, args []string) error {
-	// Stdout is the GOCACHEPROG protocol pipe cmd/go parses; force stderr-only
-	// logging first so no "::warning" annotation corrupts the JSON stream.
+	// Stdout is the GOCACHEPROG pipe; force stderr-only logging so no annotation corrupts it.
 	level := logger.LevelInfo
 	if os.Getenv("GOCACHE_DEBUG") == "1" {
 		level = logger.LevelDebug

@@ -128,16 +128,7 @@ func revertDocCommentSmartQuotes(formatted []byte) []byte {
 	return b.Bytes()
 }
 
-// canonicalizeGoSource turns printed -- the raw output of go/printer for a
-// rewritten AST -- into gofmt-canonical bytes. go/printer's default mode uses
-// tabs for both indentation AND alignment, so this reruns go/format to restore
-// the canonical "tabs to indent, spaces to align" style (plus import sorting and
-// number normalization), then reverts gofmt's doc-comment smart-quote
-// substitution. Every vet rewriter routes its output through this so they all
-// emit identical canonical formatting and never corrupt literal quotes in
-// comments. If printed does not parse (an unexpected, transient bad render) the
-// revert is a no-op and printed is returned, leaving the unparseable file for go
-// vet to report rather than making it worse.
+// canonicalizeGoSource turns go/printer output into gofmt-canonical bytes and reverts gofmt's smart-quote substitution; unparseable input returns unchanged.
 func canonicalizeGoSource(printed []byte) []byte {
 	formatted, err := format.Source(printed)
 	if err != nil {

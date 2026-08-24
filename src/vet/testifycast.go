@@ -18,11 +18,9 @@ const (
 	upstreamRequirePkg = "github.com/stretchr/testify/require"
 )
 
-// TestifyCastAnalyzer inserts explicit conversions into testify Equal/NotEqual
-// and Greater/Less-family assertions so code written against the loosened
-// wow-look-at-my/testify fork still passes upstream testify's type-strict
-// comparisons. Fixes are surgical byte edits (CastEdits), not AST reprints, so
-// formatting and comments survive.
+// TestifyCastAnalyzer inserts conversions into testify Equal/NotEqual and
+// Greater/Less assertions so code written against the loosened fork still
+// passes upstream. Fixes are surgical byte edits (CastEdits), not reprints.
 var TestifyCastAnalyzer = &analysis.Analyzer{
 	Name:       "testifycast",
 	Doc:        "inserts type conversions for cross-type testify Equal/NotEqual and Greater/Less-family assertions so they pass against upstream testify",
@@ -191,8 +189,8 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 
 	switch {
 	case expNumeric && actNumeric:
-		// Rule 3: numeric mismatch. Convert the literal side to the other's type,
-		// else convert expected to actual's type to keep the tested value visible.
+		// Rule 3: numeric mismatch; convert the literal side, else convert
+		// expected to actual's type to keep the tested value visible.
 		if isUntypedLiteral(actExpr) && !isUntypedLiteral(expExpr) {
 			return buildCastEdit(pass, file, actExpr, actTV, expType)
 		}
@@ -328,8 +326,8 @@ func isForkNumeric(b *types.Basic) bool {
 	return false
 }
 
-// isUntypedLiteral reports whether expr is a bare literal. go/types loses
-// untyped-ness once literals become interface{} args, so AST shape is used.
+// isUntypedLiteral reports a bare literal expr. go/types loses untyped-ness
+// on interface{} args, so AST shape decides instead.
 func isUntypedLiteral(expr ast.Expr) bool {
 	_, ok := expr.(*ast.BasicLit)
 	return ok

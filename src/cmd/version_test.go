@@ -40,8 +40,7 @@ func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 }
 
 func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
-	// Guard files are ignored in every state — including the deletions that a
-	// repo migrating off committed guards produces — while real changes remain.
+	// Guard files are ignored in every state, including migration deletions, while real changes remain.
 	status := " M .gitignore\n" +
 		" D gomemlimit_gen.go\n" +
 		" D cmd/tool/gomemlimit_gen.go\n" +

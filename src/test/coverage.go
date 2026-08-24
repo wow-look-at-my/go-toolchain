@@ -101,8 +101,7 @@ type funcInfo struct {
 	endLine   int
 }
 
-// ParseProfile reads a Go coverage profile and returns total coverage and file coverage.
-// Each FileCoverage contains its functions with Parent pointers set.
+// ParseProfile reads a coverage profile and returns total plus per-file coverage, Parent pointers set.
 func ParseProfile(filename string) (float32, []FileCoverage, error) {
 	return ParseProfileFiltered(filename, set.Set[string]{})
 }
