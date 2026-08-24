@@ -16,8 +16,7 @@ const corruptIndexMarker = "corrupt index"
 // tailBufferCap bounds how much subprocess stderr tailBuffer retains.
 const tailBufferCap = 64 << 10
 
-// tailBuffer captures a stream's last tailBufferCap bytes, so an error
-// handler can inspect subprocess output without holding it unbounded.
+// tailBuffer keeps a stream's last tailBufferCap bytes, bounding memory use.
 type tailBuffer struct {
 	buf []byte
 }
@@ -32,8 +31,7 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 
 func (t *tailBuffer) String() string { return string(t.buf) }
 
-// disableGoModuleIndex turns off cmd/go's module index for this process and
-// its children. The index is purely derived: disabling it only slows scans.
+// disableGoModuleIndex disables cmd/go's module index for this process and its children; it only slows scans.
 func disableGoModuleIndex() {
 	godebug := os.Getenv("GODEBUG")
 	if godebug != "" {

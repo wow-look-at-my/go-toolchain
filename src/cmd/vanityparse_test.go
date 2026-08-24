@@ -132,11 +132,7 @@ google.golang.org/grpc v1.80.0 h1:ggg=
 `
 	os.WriteFile("go.sum", []byte(gosum), 0644)
 
-	// google.golang.org is a well-known host: its modules (genproto, grpc,
-	// protobuf, ...) always resolve via the Go proxy, so they must never be
-	// treated as rewritable vanity modules. Treating them as vanity caused a
-	// stale build to mis-rewrite them onto GitHub mirrors when a slow network
-	// made the reachability probe time out.
+	// google.golang.org is well-known: its modules must never be treated as rewritable vanity modules.
 	modules, err := parseVanityModulesFromSum()
 	require.Nil(t, err)
 	assert.Equal(t, 0, len(modules))
