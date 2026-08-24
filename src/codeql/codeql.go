@@ -24,8 +24,7 @@ func Enabled() bool {
 }
 
 // Extract runs the standalone Go extractor against ./..., populating the
-// CodeQL database referenced by CODEQL_EXTRACTOR_GO_WIP_DATABASE without
-// performing a `go build`. Walks packages via go/packages.
+// CodeQL database at CODEQL_EXTRACTOR_GO_WIP_DATABASE without a `go build`.
 func Extract(r runner.CommandRunner) error {
 	bin, err := extractorPath()
 	if err != nil {
@@ -98,8 +97,7 @@ func extractorPath() (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("CODEQL_EXTRACTOR_GO_ROOT not set")
 	}
-	// hostos, not runtime: the CodeQL bundle ships host-OS tool dirs, and a
-	// cosmo fat APE reports runtime.GOOS=="cosmo" on every host.
+	// hostos, not runtime: the bundle ships host-OS tool dirs, and a cosmo APE reports runtime.GOOS=="cosmo" everywhere.
 	return extractorPathFor(root, hostos.GOOS())
 }
 
@@ -145,10 +143,7 @@ func runWaitConfig(r runner.CommandRunner, cfg *runner.Config) error {
 	if err != nil {
 		return fmt.Errorf("spawn %s: %w", cfg.Name, err)
 	}
-	// Drain stdout and stderr concurrently. If we read one pipe to completion
-	// before touching the other, the subprocess can deadlock when the unread
-	// pipe's OS buffer fills (~64KB on Linux). The codeql extractor emits one
-	// stderr line per package, which trips this on real projects.
+	// Drain stdout/stderr concurrently: reading one to completion first can deadlock when the other's OS buffer fills.
 	var stderr []byte
 	done := make(chan struct{})
 	go func() {

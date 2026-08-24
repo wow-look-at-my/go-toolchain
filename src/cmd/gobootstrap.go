@@ -28,35 +28,15 @@ var (
 	verifyGoToolchainFunc = verifyGoToolchain
 )
 
-// resolvedGoMinor holds the minor version of the Go toolchain that
-// EnsureGoVersion resolved (e.g. 24 for Go 1.24.7, 25 for Go 1.25.0).
-// Set once during bootstrap; used by goSupportsFeature to avoid re-running
-// "go version" (which can fail to find the bootstrapped binary or mis-parse
-// non-standard version strings).
+// resolvedGoMinor caches the resolved Go minor version so goSupportsFeature avoids re-running "go version".
 var resolvedGoMinor int
 
-// poisonedGoVersions maps an exact Go version that is known to corrupt builds
-// to the known-good version go-toolchain must use instead. Go 1.24.13
-// intermittently cross-contaminates GOCACHEPROG cache entries -- it serves one
-// package's compiled object under another package's action key -- so a build
-// dies at package load with `"<pkg>" imported as <other>` (e.g. runtime
-// imported as reflectlite) or `package runtime is not in std`. The corruption
-// is specific to that patch release (1.24.7 and 1.25.0 are clean) and the
-// `go list runtime` integrity probe does NOT surface it (that probe runs
-// without the cacheprog), so the version must be blocklisted explicitly:
-// go-toolchain treats it as unusable and silently substitutes the replacement,
-// whether it is the runner's preinstalled Go or a go.mod requirement.
-// The replacement is a current 1.25.x rather than 1.25.0 so the substitution is
-// not a security downgrade: 1.24 is EOL (1.24.13 is the final 1.24.x, no
-// 1.24.14 will ship), and 1.24.13 itself carried CVE fixes that 1.25.0 predates.
+// poisonedGoVersions maps a corrupting Go version to a known-good replacement to substitute instead.
 var poisonedGoVersions = map[string]string{
 	"1.24.13": "1.25.11",
 }
 
-// unpoisonGoVersion returns the Go version go-toolchain should actually use for
-// the given requested/installed version: the version itself when clean, or its
-// known-good replacement when poisoned. The bool reports whether a substitution
-// was made.
+// unpoisonGoVersion returns the version to use: itself if clean, or its replacement if poisoned. The bool reports whether it substituted.
 func unpoisonGoVersion(version string) (string, bool) {
 	if replacement, ok := poisonedGoVersions[version]; ok {
 		return replacement, true
@@ -114,11 +94,8 @@ func EnsureGoVersion() error {
 			logger.Warn("go-bootstrap: installed Go %s is poisoned (corrupts the build cache); replacing with a known-good toolchain (>= %s)", installed, replacement)
 			return bootstrapGo(fmt.Sprintf("installed %s is poisoned", installed))
 		}
-		// Version is fine, but a fraction of GitHub-hosted runners ship a
-		// half-extracted Go whose binary runs and reports its version yet whose
-		// GOROOT std library is incomplete. Probe the toolchain before trusting
-		// it; if it's broken, treat it exactly like a missing/too-old Go and
-		// re-download a known-good copy.
+		// Some hosted runners ship a half-extracted Go: it runs and reports a version, but GOROOT is
+		// incomplete. Probe before trusting it, and re-download like a missing/too-old Go on failure.
 		if err := verifyGoToolchainFunc(goPath); err != nil {
 			logger.Warn("go-bootstrap: installed Go %s is present but broken (%v); re-downloading", installed, err)
 			return bootstrapGo(fmt.Sprintf("installed %s is broken: %v", installed, err))
@@ -132,23 +109,9 @@ func EnsureGoVersion() error {
 	return bootstrapGo(fmt.Sprintf("installed %s < required %s", installed, required))
 }
 
-// verifyGoToolchain confirms a Go toolchain's standard library is intact by
-// forcing it to load a core std package ("runtime"). It catches corrupted
-// hosted-tool-cache installs — e.g. GitHub-hosted runners that ship a
-// half-extracted Go whose GOROOT is missing or has an incomplete src/runtime,
-// where the go binary still runs and reports its version but the first real
-// compile dies with "package runtime is not in std".
-//
-// It runs the resolved goPath — the same binary the build will use — so it
-// exercises the actual toolchain, with:
-//   - GOTOOLCHAIN=local, so it probes the on-disk toolchain instead of letting
-//     Go auto-download a module toolchain that would mask the breakage;
-//   - a neutral working directory (no go.mod), so neither a local toolchain
-//     directive nor a module's version requirement can influence the result.
-//
-// On a healthy toolchain "go list runtime" is sub-second (~20ms) and exits zero;
-// on a broken one it exits non-zero, so this is cheap enough to run on every
-// invocation.
+// verifyGoToolchain loads the "runtime" package via goPath to catch a half-extracted GOROOT that
+// runs and reports a version but cannot compile. It sets GOTOOLCHAIN=local in a directory with no
+// go.mod, so neither an auto-downloaded toolchain nor a module directive can skew the result.
 func verifyGoToolchain(goPath string) error {
 	cmd := exec.Command(goPath, "list", "runtime")
 	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
@@ -192,9 +155,7 @@ func bootstrapGo(reason string) error {
 		return fmt.Errorf("bootstrap completed but go still not found in PATH: %w", err)
 	}
 
-	// Sanity assert: the freshly downloaded toolchain must pass the same integrity
-	// probe we use on preinstalled Go. If a clean download is somehow still broken,
-	// fail loudly here instead of limping into a guaranteed compile failure.
+	// A broken download must fail here loudly, not limp into a guaranteed compile failure.
 	if err := verifyGoToolchainFunc(newGoPath); err != nil {
 		return fmt.Errorf("bootstrapped Go %s at %s failed integrity probe: %w", required, goRoot, err)
 	}
@@ -216,9 +177,7 @@ func recordGoMinor(ver string) {
 			return
 		}
 	}
-	// Fallback: run "go version" for cases where we couldn't determine version.
-	// Force GOTOOLCHAIN=local so we get the real system Go version, not an
-	// auto-downloaded stripped toolchain module.
+	// Fallback when ver is unparseable: run "go version" with GOTOOLCHAIN=local for the real version.
 	fallback := exec.Command("go", "version")
 	fallback.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	out, err := fallback.Output()
@@ -289,9 +248,8 @@ func requiredGoVersion() (string, error) {
 	return normalizeGoVersion(goVer), nil
 }
 
-// normalizeGoVersion ensures the version has a patch component.
-// Starting with Go 1.21, release archives are named go1.X.0 rather than go1.X,
-// so "1.25" must become "1.25.0" for the download URL to work.
+// normalizeGoVersion appends a missing patch component: since Go 1.21 release archives are named
+// go1.X.0, so "1.25" must become "1.25.0" for the download URL.
 func normalizeGoVersion(v string) string {
 	parts := strings.Split(v, ".")
 	if len(parts) == 2 {
@@ -311,8 +269,7 @@ func ensureGoCached(version string) (string, error) {
 
 	goRoot := filepath.Join(cacheDir, "go"+version)
 	goBin := filepath.Join(goRoot, "bin", "go")
-	// hostos, not runtime: a GOOS=cosmo fat APE reports runtime.GOOS=="cosmo"
-	// on every host, but the downloaded toolchain layout follows the HOST OS.
+	// hostos, not runtime: a cosmo APE reports runtime.GOOS=="cosmo", but toolchain layout follows the host OS.
 	if hostos.GOOS() == "windows" {
 		goBin += ".exe"
 	}
@@ -349,18 +306,14 @@ func goCacheDir() (string, error) {
 }
 
 func downloadGo(version, cacheDir, goRoot string) error {
-	// hostos, not runtime: go.dev has no "cosmo" archives — a cosmo fat APE
-	// must download the toolchain for the host it is running on (e.g.
-	// go1.x.linux-amd64.tar.gz). runtime.GOARCH is correct as-is: the running
-	// payload of a fat APE always matches the host architecture.
+	// hostos, not runtime: go.dev has no "cosmo" archives, so download for the host OS; GOARCH is already correct.
 	archiveName := fmt.Sprintf("go%s.%s-%s.tar.gz", version, hostos.GOOS(), runtime.GOARCH)
 	urls := goDownloadURLsFunc(archiveName)
 
 	var resp *http.Response
 	var lastErr error
 	for _, url := range urls {
-		// Mid-line progress fragment (completed below on the same line):
-		// bypasses the logger via rawStderr, see logging.go.
+		// Mid-line progress fragment, completed below; bypasses the logger via rawStderr (see logging.go).
 		fmt.Fprintf(rawStderr, "go-bootstrap: downloading %s", url)
 		dlStart := time.Now()
 		resp, lastErr = http.Get(url)
@@ -383,13 +336,11 @@ func downloadGo(version, cacheDir, goRoot string) error {
 	}
 	defer resp.Body.Close()
 
-	// Extract tar.gz — Go archives contain a top-level "go/" directory.
-	// We extract into cacheDir then rename "go" -> "go<version>".
+	// Go archives have a top-level "go/" dir; extract into cacheDir, then rename "go" to "go<version>".
 	tmpRoot := filepath.Join(cacheDir, "go")
 	os.RemoveAll(tmpRoot) // clean any stale partial extraction
 
-	// Mid-line progress fragment (completed below on the same line):
-	// bypasses the logger via rawStderr, see logging.go.
+	// Mid-line progress fragment, completed below; bypasses the logger via rawStderr (see logging.go).
 	fmt.Fprintf(rawStderr, "go-bootstrap: extracting...")
 	extractStart := time.Now()
 	if err := extractTarGz(resp.Body, cacheDir); err != nil {

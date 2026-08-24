@@ -10,29 +10,10 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// invalidPackageNameMarker is what go/types reports when the EXPORT DATA for an
-// imported package declares an empty package name.
-//
-// Export data reaches the type-checker through cmd/go's build cache, which here
-// is the org's shared GOCACHEPROG tier. A damaged or truncated entry still has
-// a valid action key and still passes the cacheprog's content gates, so nothing
-// upstream rejects it and the failure only surfaces here — as a package that
-// suddenly has no name, followed by a cascade of "X redeclared in this block"
-// and dozens of undefined symbols in a package the change never touched.
-//
-// That cascade is why this needs naming rather than retrying by hand: it reads
-// exactly like a source error in someone's diff. Two runs in one session
-// (host-build and build, both in src/trace) were re-run as flakes before the
-// signature was recognized, and re-running a red is how a real failure
-// eventually gets waved through.
-//
-// This is the same CLASS as modindexretry.go's corrupt module index and a
-// DIFFERENT signature: that one damages a derived index and is cured by
-// GODEBUG=goindex=0, which does nothing here.
+// invalidPackageNameMarker: go/types' report for a damaged GOCACHEPROG export entry; see modindexretry.go's sibling signature.
 const invalidPackageNameMarker = `invalid package name: ""`
 
-// corruptExportPkgRe pulls the import paths out of the load errors, so the
-// warning names what was actually damaged.
+// corruptExportPkgRe pulls the import paths out of load errors, so the warning names what was damaged.
 var corruptExportPkgRe = regexp.MustCompile(`could not import ([^\s(]+) \(invalid package name: ""\)`)
 
 // isCorruptExportData reports whether err is the corrupt-export-data failure.
@@ -55,12 +36,7 @@ func corruptExportPackages(err error) []string {
 	return out
 }
 
-// disableSharedBuildCache unsets GOCACHEPROG for this process and everything it
-// spawns, and reports whether it was set. cmd/go then falls back to its own
-// on-disk build cache, which on a fresh runner is empty — so the retry rebuilds
-// the damaged packages from source instead of reading them back from the tier
-// that served the damage. Correctness never depends on a build cache, so this
-// costs time and nothing else.
+// Unsets GOCACHEPROG so cmd/go falls back to its own, often-empty, on-disk cache, forcing a rebuild from source. Costs time only.
 func disableSharedBuildCache() bool {
 	if os.Getenv("GOCACHEPROG") == "" {
 		return false

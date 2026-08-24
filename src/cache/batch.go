@@ -162,14 +162,8 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		attribute.Int("cacheprog.batch.requests", len(reqs)))
 	defer span.End()
 
-	// respondAllMiss replies miss to every caller after a TRANSIENT failure
-	// (network error, 5xx, marshal/parse failure). It must NOT mark keys as
-	// knownMiss: only an authoritative in-protocol "not present" (a 200
-	// response lacking the key) proves absence. Marking transients froze
-	// those keys for the rest of the run — one blip and they were never
-	// re-probed even after the backend recovered. reason, when non-nil, is
-	// bumped once per INDEXED key so the web summary's miss breakdown stays
-	// coherent (cold keys already counted MissNotInIndex in Get).
+	// Transient failure only; never marks knownMiss, since only an
+	// authoritative 200-without-key response proves absence.
 	respondAllMiss := func(reason *AtomicCounter) {
 		for _, r := range reqs {
 			if reason != nil && b.keyKnown(r.key) {
@@ -181,11 +175,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 
 	reqBody, _ := json.Marshal(batchGetRequest{Keys: keys, Prefetch: true})
 	batchURL := b.endpoint + "/" + b.bucket + "/_batch/get"
-	// POST, not GET-with-body: a body-carrying GET is proxy-hostile, and the
-	// cache server accepts both methods on /_batch/get (GET remains
-	// server-side for older clients). A server without the endpoint at all
-	// still answers 404/405 and takes the individual-GET fallback below. The
-	// retry loop rewinds the JSON body via GetBody, method-agnostically.
+	// POST, not GET-with-body, since a body-carrying GET is proxy-hostile.
 	httpReq, err := http.NewRequest("POST", batchURL, bytes.NewReader(reqBody))
 	if err != nil {
 		span.SetStatus(codes.Error, "build request")
@@ -219,9 +209,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			}
 			return
 		}
-		// 5xx etc. — coalesced via errLog. Use the first actionID as the
-		// representative; the count of affected requests is captured by the
-		// errLog group's total.
+		// 5xx etc. — coalesced via errLog; its group total covers the request count.
 		span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		for _, r := range reqs {
 			b.errLog.Record("web batch get", resp.StatusCode, r.actionID, "")
@@ -240,10 +228,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		return
 	}
 
-	// Feed the entry count to the consecutive-empty-batch backoff. A run of
-	// zero-entry batches means the remote — though healthy — holds nothing useful
-	// for this build, so after a threshold we stop probing for the rest of the
-	// run; any non-empty batch resets the streak.
+	// A run of zero-entry batches stops probing after a threshold; any non-empty batch resets it.
 	b.noteBatchEntries(len(entries))
 
 	var nPrefetch int
@@ -275,11 +260,8 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			attribute.String("cacheprog.action_id", shortID(r.actionID)))
 		e, ok := entryByKey[r.key]
 		if !ok {
-			// Authoritative absence: a healthy 200 response did not include
-			// this key. If our index claimed it, drop the stale claim so the
-			// PUT path re-uploads it (see reclaimAbsent) — that case counts as
-			// an http-404-class miss, since Get() recorded no miss reason for
-			// indexed keys. Cold probed keys already counted MissNotInIndex.
+			// Authoritative absence: a healthy 200 omitted this key. Drop any
+			// stale index claim (see reclaimAbsent) so the PUT path re-uploads it.
 			if b.reclaimAbsent(r.key) {
 				b.MissHTTP404.Increment()
 			}
@@ -288,10 +270,8 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			r.resp <- batchResp{miss: true}
 			continue
 		}
-		// Missing outputid metadata is a metadata gap, not a corrupt body —
-		// mirror getIndividual and count it as no-outputid (without marking the
-		// entry corrupt) rather than letting the integrity check below report a
-		// misleading checksum mismatch against an empty id.
+		// Missing outputid is a metadata gap, not a corrupt body — count it as
+		// no-outputid (mirroring getIndividual) rather than a misleading checksum mismatch below.
 		if e.OutputID == "" {
 			b.MissNoOutputID.Increment()
 			markSpanMiss(itemSpan, "no_outputid")
@@ -365,14 +345,10 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		}
 	}
 
-	// Hand NON-requested (prefetch) entries to the local-cache populator, in
-	// a goroutine so no caller waits on it. Requested entries are excluded:
-	// they are already verified once in the reply loop above and written to
-	// the local tier by handleGet — feeding them to the callback too meant
-	// every requested entry was decompressed, hash-verified, and build-id
-	// parsed TWICE. The goroutine joins batchHTTPWG, so the coalescer's
-	// shutdown (and therefore WebBackend.Close and the daemon's close order:
-	// remote before local) still waits for in-flight ingestion.
+	// Hand only NON-requested (prefetch) entries to the populator, async so no
+	// caller waits: a requested entry is already verified and written by
+	// handleGet, so feeding it here too would double the verify work. The
+	// goroutine joins batchHTTPWG, so shutdown still waits for ingestion.
 	if b.OnBatchEntries != nil {
 		requested := set.New[string](len(reqs))
 		for _, r := range reqs {

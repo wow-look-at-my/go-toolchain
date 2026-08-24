@@ -4,11 +4,9 @@ package cache
 
 import "os"
 
-// mapPackSpan is the GOOS=cosmo stand-in for the mmap fast path in
-// pack_mmap.go: wow-look-at-my/go-mmap has no cosmo implementation, so the
-// body is pread into a heap buffer instead. Correct but not zero-copy —
-// acceptable because the FUSE cache is compiled out under cosmo
-// (fusecache_other.go), so PackStore is never on the hot serve path there.
+// mapPackSpan is the cosmo stand-in for pack_mmap.go: go-mmap has no cosmo
+// port, so the body is pread into a heap buffer. Not zero-copy, but fine
+// since FUSE cache is compiled out under cosmo.
 func mapPackSpan(f *os.File, off, length int64) (body []byte, release func(), ok bool) {
 	buf := make([]byte, length)
 	if _, err := f.ReadAt(buf, off); err != nil {

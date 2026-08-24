@@ -71,11 +71,7 @@ func TestServer_PutRawBase64(t *testing.T) {
 }
 
 func TestServer_PutBodyOver64MiB(t *testing.T) {
-	// Regression for the 64 MiB bufio.Scanner cap: a PUT whose base64 body
-	// line exceeded the cap killed the whole protocol loop mid-build (cmd/go
-	// then fails with "GOCACHEPROG exited pre-Close") — after committing an
-	// EMPTY body under the request's real actionID/outputID. The body line is
-	// now read in full regardless of size and must round-trip byte-for-byte.
+	// Regression: a PUT body line over the old 64 MiB bufio.Scanner cap must still round-trip byte-for-byte.
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
@@ -183,9 +179,7 @@ func TestServer_PutMalformedBodyLine(t *testing.T) {
 }
 
 func TestServer_PutTruncatedAtEOF(t *testing.T) {
-	// Input ends mid-PUT (header line present, body line missing). The loop
-	// must exit cleanly WITHOUT storing anything for that action — the old
-	// scanner loop committed an empty body under the real IDs here.
+	// Input ends mid-PUT (header present, body missing); the loop must exit clean without storing anything.
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
@@ -210,12 +204,8 @@ func makeRequest(req Request) string {
 	return string(b) + "\n"
 }
 
-// makePutRequest serializes a PUT request the way cmd/go writes it (verified
-// against go1.25.0's prog.go): the JSON request line, a blank separator line,
-// then the body as a QUOTED base64 string on its own line. (The old helper
-// wrote json.Marshal(body) — the raw string quoted, not base64 — which is not
-// a legal wire body; the lenient old decoder silently stored an empty body
-// for it, masking the very poison bug the strict decoder now rejects.)
+// makePutRequest serializes a PUT the way cmd/go writes it: JSON header,
+// blank line, then body as a quoted base64 string.
 func makePutRequest(req Request, body string) string {
 	header, _ := json.Marshal(req)
 	encoded := base64.StdEncoding.EncodeToString([]byte(body))

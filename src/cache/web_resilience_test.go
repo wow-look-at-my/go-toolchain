@@ -72,8 +72,7 @@ func TestWebBackend_RemoteNeverDisabledAfterFailureBurst(t *testing.T) {
 		require.True(t, miss, "a failing remote GET degrades to a clean miss")
 	}
 
-	// The backend recovers. The very next GET MUST still attempt the remote and
-	// be served as a hit — proving the failure burst never disabled the tier.
+	// The backend recovers; the next GET must still attempt the remote and hit, proving the burst never disabled the tier.
 	failing.Store(false)
 	gotOutputID, body, size, _, miss, err := b.Get(actionID)
 	require.NoError(t, err)
@@ -201,9 +200,8 @@ func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound) // index etc.
 			return
 		}
-		// Shed the first two PUT attempts the way admission control does:
-		// 503 + Retry-After (0 keeps the test fast — the jittered base backoff
-		// still applies, so this exercises the retry path without a real wait).
+		// Shed the first two PUT attempts like admission control does: 503 +
+		// Retry-After=0 (fast test; the jittered base backoff still applies).
 		if putAttempts.Add(1) < 3 {
 			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -219,9 +217,7 @@ func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer b.Close()
-	// Drive the synchronous single-PUT retry path (the batch-unsupported
-	// fallback) so the 503-retry-then-store outcome is observable from the Put
-	// call directly. (The whole-batch 503 retry is covered in batchput_test.go.)
+	// Force the single-PUT retry path so the 503-retry-then-store outcome is observable directly.
 	b.batchPutUnsupported.Store(true)
 
 	payload := largePayload(1024)

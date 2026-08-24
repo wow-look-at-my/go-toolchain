@@ -25,20 +25,15 @@ var CommentSpanAnalyzer = &analysis.Analyzer{
 	ResultType: reflect.TypeOf([]*ASTFixes{}),
 }
 
-// commentSpanCharFloor is the char allowance every comment gets, whatever the
-// code's own size.
+// commentSpanCharFloor is the char allowance every comment gets, regardless of code size.
 const commentSpanCharFloor = 120
 
-// commentSpanWarned records the file:line of every warning this run emitted,
-// so the four package variants that walk the same file spend one warning per
-// site. resetCommentSpanWarnings clears it at the start of each vet run.
+// commentSpanWarned dedupes warnings to one per file:line, since 4 package variants walk the same file. Reset per run.
 var commentSpanWarned sync.Map
 
 func resetCommentSpanWarnings() { commentSpanWarned.Clear() }
 
-// commentSpanGeneratedRe is filelength.go's generated-file marker, duplicated
-// here because src/cmd already imports src/vet and the reverse import would
-// cycle.
+// Duplicates filelength.go's generated-file marker: src/cmd imports src/vet, so the reverse import would cycle.
 var commentSpanGeneratedRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 func runCommentSpan(pass *analysis.Pass) (any, error) {
@@ -152,11 +147,9 @@ func commentSpanText(g *ast.CommentGroup) (string, bool) {
 	return sb.String(), kept
 }
 
-// commentSpanMeasure counts the non-blank lines and non-whitespace characters
-// in s. A whitespace-only line documents nothing and is not counted; neither
-// is whitespace within a real line, so indentation and spacing carry no cost.
-// The same function measures a comment and the code it documents, so the two
-// numbers are directly comparable.
+// commentSpanMeasure counts non-blank lines and non-whitespace chars in s, so
+// indentation carries no cost. Used on both a comment and its code, so the
+// two counts are directly comparable.
 func commentSpanMeasure(s string) (lines, chars int) {
 	for _, line := range strings.Split(s, "\n") {
 		hasContent := false

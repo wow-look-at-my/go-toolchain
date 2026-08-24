@@ -156,9 +156,7 @@ func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
 func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com,direct")
-	// A PRIVATE checksum database, not sum.golang.org: configureGoEnv now
-	// REFUSES the public one outright (see TestUsesPublicSumDB), so this case
-	// exercises the supported configuration rather than the banned one.
+	// A private checksum database: configureGoEnv refuses the public one outright (see TestUsesPublicSumDB).
 	t.Setenv("GOSUMDB", "mydb+abc123 https://proxy.example.com/sumdb/mydb")
 	t.Setenv("GONOSUMDB", "leftover")
 	t.Setenv("GONOSUMCHECK", "leftover")
@@ -201,16 +199,14 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "https://other-proxy.example.com,direct")
-	// A private sumdb: the public one is refused outright now, so precedence
-	// is exercised with a value the toolchain will actually accept.
+	// A private sumdb, since the public one is refused outright; precedence is exercised with an accepted value.
 	t.Setenv("GOSUMDB", "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb")
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
 
 	configureGoEnv()
 
-	// Explicit GOPROXY/GOSUMDB take precedence over GO_PROXY_CONFIG.
-	// Trailing ",direct" is upgraded to "|direct" so 503s fall through.
+	// Explicit GOPROXY/GOSUMDB take precedence over GO_PROXY_CONFIG; ",direct" becomes "|direct" so 503s fall through.
 	assert.Equal(t, "https://other-proxy.example.com|direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb", os.Getenv("GOSUMDB"))
 }
@@ -268,9 +264,7 @@ func TestUsesPublicSumDB(t *testing.T) {
 	// Refused even under another name, if the URL points back at the public host.
 	assert.True(t, usesPublicSumDB("mydb+abc https://sum.golang.org/sumdb/mydb"))
 
-	// Allowed: the org proxy's mirror. The request goes to the proxy, so
-	// nothing is disclosed to a third party — this is the supported setup and
-	// must keep working.
+	// Allowed: the org proxy's mirror, since the request goes to the proxy and discloses nothing to a third party.
 	assert.False(t, usesPublicSumDB("sum.golang.org+033de0ae https://goproxy.example.com/sumdb/sum.golang.org"))
 	assert.False(t, usesPublicSumDB("mydb+abc123 https://goproxy.example.com/sumdb/mydb"))
 	assert.False(t, usesPublicSumDB("mydb+abc123"))

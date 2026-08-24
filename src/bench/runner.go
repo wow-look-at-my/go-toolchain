@@ -30,24 +30,19 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	// Always run with -json so we can parse results
 	goTestArgs = append([]string{goTestArgs[0], "-json"}, goTestArgs[1:]...)
 
-	// Clear GOCACHEPROG so the benchmark subprocess doesn't spawn a cacheprog
-	// child that inherits stdout and prevents io.ReadAll from completing.
+	// Clear GOCACHEPROG: a cacheprog child inheriting stdout blocks io.ReadAll.
 	proc, err := runner.Cmd("go", goTestArgs...).WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
 	if err != nil {
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}
-	// Tee stderr to console for compilation progress while draining to
-	// prevent deadlock on the OS pipe buffer. The copy is waited on before this
-	// returns: a process that dies with its complaint on stderr wins the race
-	// against the caller printing the error, and the complaint is the point.
+	// Tee stderr while draining it, so a dying process's complaint prints first.
 	stderrDone := make(chan struct{})
 	go func() {
 		defer close(stderrDone)
 		io.Copy(os.Stderr, proc.Stderr())
 	}()
 
-	// Read stdout line by line so benchmark results stream as they
-	// complete, rather than buffering everything until the process exits.
+	// Read stdout line by line so results stream as they complete.
 	var buf bytes.Buffer
 	var firstOnce sync.Once
 	scanner := bufio.NewScanner(proc.Stdout())
@@ -71,9 +66,7 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	output := buf.Bytes()
 
 	if waitErr != nil {
-		// Say what go test said. The console only ever saw the benchmark result
-		// lines, so without this a run that failed to build reports an exit
-		// status and nothing else.
+		// Say what go test said, or a build failure reports just an exit status.
 		err := fmt.Errorf("benchmarks failed: %w", waitErr)
 		if diag := Diagnostics(output); diag != "" {
 			err = fmt.Errorf("%w\n%s", err, diag)

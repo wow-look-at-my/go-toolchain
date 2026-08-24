@@ -19,7 +19,6 @@ import (
 )
 
 // buildVersion is derived from Go's built-in VCS stamping.
-// Other commands (update, cacheprog, dependabot) read this directly.
 var buildVersion = resolvedVersion()
 
 // vcsInfo reads Go's built-in VCS stamping from the binary.
@@ -80,11 +79,7 @@ func resolvedTimestamp() (int64, bool) {
 
 var githubRepo = envOr("GITHUB_REPOSITORY", "wow-look-at-my/go-toolchain")
 
-// The staleness footer's commit queries. GO_TOOLCHAIN_GITHUB_API_URL points
-// them elsewhere, the same knob GO_TOOLCHAIN_BUILDHOST_URL is for the update
-// check: a caller that must not depend on api.github.com's latency (a CLI
-// suite under a wall-clock budget) aims it at an unreachable address and gets
-// the offline footer instantly.
+// Overrides where staleness-footer commit queries go; point it unreachable for an instant offline footer in tests.
 var githubAPIBase = envOr("GO_TOOLCHAIN_GITHUB_API_URL", "https://api.github.com")
 
 func setGithubAPIBase(base string) { githubAPIBase = base }
@@ -112,11 +107,9 @@ func init() {
 		Short: "Print version info as JSON",
 		Run:   runVersionJSON,
 	})
-	// One APE runs on several hosts, so "which host does this binary think it
-	// is on, and how does it know" is a real question with a fallback answer
-	// that can be wrong. Printing the evidence makes it auditable from
-	// anywhere the binary runs -- including inside a sandbox, where the
-	// filesystem probes can be denied. No network, no Go bootstrap.
+	// One APE runs on several hosts, so "which host is this on" has a
+	// fallback answer that can be wrong. Printing the evidence makes it
+	// auditable anywhere the binary runs, including inside a sandbox.
 	versionCmd.AddCommand(&cobra.Command{
 		Use:   "host",
 		Short: "Print the detected host OS and the evidence for it",
@@ -299,23 +292,14 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 }
 
 // checkDirtyInCI returns an error if running in CI with a dirty working
-// tree. This prevents shipping binaries built from uncommitted changes.
+// tree, so binaries are never shipped built from uncommitted changes.
 //
-// The transient GOMEMLIMIT guard (memlimit.GuardFileName) is excluded in every
-// state — added, modified, or deleted. It is generated for the build and removed
-// afterward, so it must never count as a dirty change. The deleted case matters
-// for migration: a repo that committed the guard under an older go-toolchain
-// sheds it the first time the new cleanup runs, and that in-flight deletion must
-// not fail the build.
-//
-// A branch-tracked pin moving to its branch's current commit is excluded too.
-// `// go-toolchain:auto-branch` declares that the branch, not the recorded
-// pseudo-version, is what this dependency means; the version is a cache of the
-// last resolution, and every run re-answers it. Failing the build over it would
-// demand a commit whose entire content is a hash nobody chose, once per upstream
-// push. Only the version token moves under this exclusion — anything else the
-// working tree did to go.mod, and any go.sum line for a module that did not
-// move, is reported as before.
+// Excluded: the transient GOMEMLIMIT guard in any state (added, modified,
+// deleted -- it is generated for the build and removed after, so it must
+// never count), and a branch-tracked pin's version token moving to its
+// branch's current commit (a cache of the last resolution, not something a
+// human commits). Anything else in go.mod, and any go.sum line for a module
+// that did not move, still counts as dirty.
 func checkDirtyInCI() error {
 	if os.Getenv("CI") == "" {
 		return nil
@@ -338,9 +322,8 @@ func checkDirtyInCI() error {
 }
 
 // dirtyFilesExcludingToolchainWrites returns the trimmed `git status --short`
-// lines that represent real uncommitted changes, dropping the ones this
-// toolchain wrote itself and no human has to decide about: the GOMEMLIMIT
-// guard, and a branch-tracked pin following its branch. An empty result means
+// lines that represent real uncommitted changes, dropping the GOMEMLIMIT
+// guard and a branch-tracked pin following its branch. An empty result means
 // the tree is clean apart from those.
 func dirtyFilesExcludingToolchainWrites(statusOut string) string {
 	pins := trackedPinMoves(statusOut)
@@ -377,22 +360,15 @@ func statusLineIsToolchainWrite(line string, pins map[string][]string) bool {
 			return goSumFollowsPins(path, moved)
 		}
 	}
-	// removeFromGitignore strips the stale guard line from .gitignore during the
-	// build; a .gitignore whose only change vs HEAD is that removal is the
-	// toolchain's own migration cleanup, not a developer edit, so it must not
-	// count as a dirty tree — mirroring the guard-file exclusion above. (A repo
-	// finalizes the migration by committing the removal once.)
+	// A .gitignore diff that only drops the stale guard line is toolchain migration cleanup, not a developer edit.
 	if filepath.Base(path) == ".gitignore" && gitignoreChangeOnlyDropsGuard(path) {
 		return true
 	}
 	return false
 }
 
-// statusLinePath extracts the path from a `git status --short` porcelain line,
-// "XY <path>" or "XY <old> -> <new>" for a rename, where the new name is the
-// one that exists. It returns "" for a line too short to carry one. Paths are
-// relative to the working directory, which is the module directory go-toolchain
-// runs in.
+// statusLinePath extracts the path from a `git status --short` line ("XY
+// <path>", or a rename's new name). Returns "" for a line too short to carry one.
 func statusLinePath(line string) string {
 	if len(line) < 4 {
 		return ""
