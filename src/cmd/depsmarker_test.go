@@ -107,8 +107,8 @@ func TestReportUncheckedBranchesSaysItOnce(t *testing.T) {
 	reportUncheckedBranches([]string{"github.com/org/a@v1", "github.com/org/b@v1"})
 	warnings := logger.EmittedWarnings()
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "github.com/org/a@v1")
-	assert.Contains(t, warnings[0], "github.com/org/b@v1")
+	assert.Contains(t, warnings[0].Message, "github.com/org/a@v1")
+	assert.Contains(t, warnings[0].Message, "github.com/org/b@v1")
 }
 
 // A marker joins the comment already on the line rather than becoming a second

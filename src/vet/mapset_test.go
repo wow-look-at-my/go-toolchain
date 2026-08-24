@@ -127,7 +127,8 @@ func main() { seen["a"] = struct{}{} }
 	require.NoError(t, err)
 
 	resetMapSetWarnings()
-	before := logger.WarnCount()
+	before := logger.TotalWarnCount()
+	beforeDistinct := logger.WarnCount()
 	pass := &analysis.Pass{
 		Analyzer:  MapSetAnalyzer,
 		Fset:      fset,
@@ -138,16 +139,19 @@ func main() { seen["a"] = struct{}{} }
 	}
 	_, err = runMapSet(pass)
 	require.NoError(t, err)
-	require.Equal(t, before+1, logger.WarnCount())
+	require.Equal(t, before+1, logger.TotalWarnCount())
 
-	// Every package variant walks the same file. One site spends one warning
-	// of the budget, until the next run resets the record.
+	// Every package variant walks the same file. This check's own record keeps
+	// the site from printing again, until the next run clears it.
 	_, err = runMapSet(pass)
 	require.NoError(t, err)
-	require.Equal(t, before+1, logger.WarnCount())
+	require.Equal(t, before+1, logger.TotalWarnCount())
 
 	resetMapSetWarnings()
 	_, err = runMapSet(pass)
 	require.NoError(t, err)
-	require.Equal(t, before+2, logger.WarnCount())
+	require.Equal(t, before+2, logger.TotalWarnCount())
+
+	// The site printed twice, and it is one site. The budget counts it once.
+	require.Equal(t, beforeDistinct+1, logger.WarnCount())
 }
