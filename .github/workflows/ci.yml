@@ -83,21 +83,14 @@ jobs:
           sudo apt-get install -y ansifilter
           ansifilter "$RUNNER_TEMP/build-log.txt" > "$RUNNER_TEMP/build-log.clean.txt"
 
+      # cmd/go's own "go: " diagnostic lines never carry a duration themselves, so an
+      # "X.XXs" suffix on one means logx/timedLineWriter stamped a sub-1s line by mistake.
+      # go-toolchain's own named step/test timers (e.g. "vet: gofmt 0.17s") are exempt --
+      # only lines starting with "go: " are checked.
       - name: Verify no sub-1s duration stamps on go tool output
         uses: wow-look-at-my/actions@typescript#latest
         with:
           script: |
-            // cmd/go's own diagnostic lines ("go: downloading X", "go: found
-            // X", "go: added X", ...) always start with "go: " and NEVER
-            // carry a duration themselves -- so any "X.XXs" suffix on one of
-            // these lines was appended by OUR wrapping (logx's drain(), or
-            // timedLineWriter). Both are supposed to skip lines faster than a
-            // second (src/logx/logx.go, src/cmd/console.go) -- that's the
-            // regression this guards against. Deliberately narrower than "any
-            // duration under 1s anywhere in the log": go-toolchain's own
-            // named step/test timers (e.g. "vet: gofmt 0.17s") are
-            // intentionally unconditional -- a named operation's own time is
-            // always worth reporting -- and this check must not flag those.
             const text = fs.readFileSync(process.env.RUNNER_TEMP + '/build-log.clean.txt', 'utf-8');
             const goLines = text.split('\n').filter(l => l.startsWith('go: '));
             const downloadLines = goLines.filter(l => l.includes('go: downloading'));
