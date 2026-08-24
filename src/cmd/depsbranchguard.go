@@ -1,3 +1,18 @@
+// A branch that is the head of an open pull request is a branch with a
+// scheduled death: the merge that closes the PR deletes it. Tracking one
+// resolves fine until that moment and then resolves to nothing, on the
+// DEFAULT branch, after the change that broke it has already landed.
+//
+// So a named branch is checked against the open pull requests of the repo it
+// belongs to. In CI this FAILS, because CI is the last look at the change
+// before it merges and green there is what the merge is decided on. Locally it
+// only warns: developing two repos in tandem, pointed at each other's
+// unmerged branches, is a real workflow, and the warning is the reminder to
+// repoint before the pull request goes up.
+//
+// A bare auto-branch marker is never checked: it names no branch, so it
+// follows whatever the default branch is and cannot be pointed at a temporary
+// one.
 package cmd
 
 import (
