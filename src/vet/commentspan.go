@@ -58,6 +58,13 @@ func checkCommentSpanFile(pass *analysis.Pass, file *ast.File) {
 	if gomod.IsNestedModule(filepath.Dir(filename)) || commentSpanIsGenerated(file) {
 		return
 	}
+	// Test files carry long scenario-setting comments that routinely dwarf
+	// the one-line assertion they document. The analyzer is aimed at prod
+	// code docs, and a test file's comments are not API. Exempting them
+	// keeps the warnings budget from being spent on test prose.
+	if strings.HasSuffix(filename, "_test.go") {
+		return
+	}
 	src, err := os.ReadFile(filename)
 	if err != nil {
 		return

@@ -163,6 +163,33 @@ func TestCommentSpanAttachesToTheRightNode(t *testing.T) {
 	}
 }
 
+// TestCommentSpanExemptsTestFiles verifies that _test.go files are not
+// measured. Test files carry long scenario-setting comments that routinely
+// dwarf the one-line assertion they document, and the analyzer is aimed at
+// prod code docs.
+func TestCommentSpanExemptsTestFiles(t *testing.T) {
+	src := "package p\n\n" + fixtureComment(t, 1, 200) + "\nconst x = 1\n"
+	resetCommentSpanWarnings()
+	logger.ResetWarnCount()
+	t.Cleanup(logger.ResetWarnCount)
+
+	path := filepath.Join(t.TempDir(), "fixture_test.go")
+	require.NoError(t, os.WriteFile(path, []byte(src), 0o644))
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	require.NoError(t, err)
+	pass := &analysis.Pass{
+		Fset:  fset,
+		Files: []*ast.File{file},
+		Report: func(analysis.Diagnostic) {
+			t.Fatal("commentspan warns; it never fails a build")
+		},
+	}
+	_, err = runCommentSpan(pass)
+	require.NoError(t, err)
+	assert.Empty(t, logger.EmittedWarnings(), "a _test.go file must not be measured")
+}
+
 // TestCommentSpanWarnsOncePerSite mirrors writeruns' and mapset's own dedup
 // test: go/packages loads a package up to four ways, so a repeated run over
 // the same pass must not spend the budget again on a site already warned.
