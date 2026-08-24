@@ -35,10 +35,7 @@ func TestWatchdogDisabledByEnv(t *testing.T) {
 // stop(), stdoutR.Close() discarded any bytes forward() hadn't read yet,
 // causing the coverage block to vanish intermittently.
 func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
-	// Force single-threaded scheduling so the main goroutine and the forward
-	// goroutine compete for the same P. Without this, forward() drains the
-	// pipe fast enough on multicore machines that the race almost never
-	// triggers in 200 iterations.
+	// Forces single-threaded scheduling so forward() and main compete for one P; otherwise the race rarely triggers.
 	prevProcs := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() { runtime.GOMAXPROCS(prevProcs) })
 
@@ -66,11 +63,7 @@ func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 		errR, errW, err := os.Pipe()
 		require.NoError(t, err, "iter %d: pipe err", i)
 
-		// Redirect fd 1/2 to the capture pipes BEFORE startWatchdog so the
-		// watchdog's saved origStdout/origStderr become our capture targets.
-		// The saved *os.File values already have Fd() == 1/2, so reassigning
-		// os.Stdout/os.Stderr here is unnecessary — writes through them
-		// route to fd 1/2 which now point to the pipes via Dup2.
+		// Redirects fd 1/2 to the capture pipes before startWatchdog, so its saved origStdout/origStderr become our targets.
 		require.NoError(t, unix.Dup2(int(outW.Fd()), 1), "iter %d: dup2 out", i)
 		require.NoError(t, unix.Dup2(int(errW.Fd()), 2), "iter %d: dup2 err", i)
 		outW.Close()
@@ -82,8 +75,7 @@ func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 		fmt.Fprintln(os.Stdout, sentinel)
 		wd.stop()
 
-		// fd 1/2 still hold copies of the capture pipe write-ends. Restore
-		// real stdout/stderr so the readers see EOF.
+		// Restore real stdout/stderr so the pipe readers see EOF.
 		unix.Dup2(savedStdoutFd, 1)
 		unix.Dup2(savedStderrFd, 2)
 		os.Stdout = savedStdout

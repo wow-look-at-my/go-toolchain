@@ -47,25 +47,11 @@ type CacheTotals struct {
 }
 
 // Report is the build profile serialized to build/profile.json and
-// $TMPDIR/go-toolchain-profile/profile.json.
-//
-// Schema (stable; versioned by the schema field):
-//   - total_actions / executed_actions: merged actiongraph rows, and how many
-//     actually ran (carry timestamps).
-//   - cache_outcomes: row count per get outcome (hit-local / hit-remote /
-//     miss / unknown — unknown means no cache get was observed for the row,
-//     e.g. non-cached action modes or a run without GOCACHEPROG).
-//   - cache_satisfied_pct: (hit-local + hit-remote) / (hits + misses) * 100,
-//     over rows with a known outcome.
-//   - wall_ms_total: sum of per-action wall time (parallelism NOT folded out;
-//     this is total work, not elapsed time).
-//   - cache: the run-wide cache counters (see CacheTotals).
-//   - web: the remote tier's diagnostic counters + startup index state (see
-//     cache.WebSummary); absent when no web backend was configured. In the
-//     daemon flow these are final post-drain values; the standalone-cacheprog
-//     fallback cannot see child counters and omits the field too.
-//   - actions: the full join, sorted by wall time descending (executed rows
-//     first).
+// $TMPDIR/go-toolchain-profile/profile.json. Stable schema (versioned by the
+// Schema field): Outcomes tallies get outcomes; SatisfiedPct is
+// hits/(hits+misses)*100 over rows with a known outcome; WallMSTotal sums
+// per-action wall time without folding out parallelism; Web is absent with
+// no web backend configured; Actions is the full join, by wall time desc.
 type Report struct {
 	Schema          int               `json:"schema"`
 	Created         time.Time         `json:"created"`

@@ -11,18 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newTestLogger returns a logger with a long flush interval so that all
-// flushing happens via Close (deterministic for tests). No tracer is
-// attached — tests that need to exercise span emission construct their
-// own cacheTracer.
+// newTestLogger returns a logger that flushes only via Close. No tracer;
+// tests needing spans build their own.
 func newTestLogger(buf *bytes.Buffer) *httpErrLogger {
 	return newHTTPErrLogger(buf, time.Hour, nil)
 }
 
-// syncBuffer is a mutex-guarded bytes.Buffer for tests that read the buffer
-// while the logger's ticker goroutine may still be flushing into it. A plain
-// bytes.Buffer is not safe for that: the ticker-flush write races the test's
-// Len/String read (the intermittent -race failure in TickerFlush).
+// syncBuffer is a mutex-guarded bytes.Buffer, safe for a test to read while
+// the logger's ticker goroutine may still be flushing into it.
 type syncBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -114,9 +110,7 @@ func TestHTTPErrLogger_BodyNormalization(t *testing.T) {
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
-	// Five records with body variations that all normalize to the same key.
-	// Five > maxNamed=3, so we get an "and N more" tail and can verify
-	// the count reflects every record (including the whitespace variants).
+	// Five body variations normalize to the same key; 5 > maxNamed=3 gives an "and N more" tail.
 	l.Record("web put", 502, "aaaa1111", "error code: 502")
 	l.Record("web put", 502, "bbbb2222", "  error code: 502  ")
 	l.Record("web put", 502, "cccc3333", "\nerror code: 502\n")
@@ -147,8 +141,7 @@ func TestHTTPErrLogger_CloseIdempotent(t *testing.T) {
 }
 
 func TestHTTPErrLogger_TickerFlush(t *testing.T) {
-	// The buffer must be synchronized: the logger's ticker goroutine writes
-	// into it concurrently with this test's Eventually polling Len().
+	// buf must be synchronized: the ticker goroutine writes while Eventually polls Len().
 	var buf syncBuffer
 	l := newHTTPErrLogger(&buf, 10*time.Millisecond, nil)
 
@@ -207,8 +200,7 @@ func TestHTTPErrLogger_ShortIDSafe(t *testing.T) {
 func TestHTTPErrLogger_OTELOptOutByDefault(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	var buf bytes.Buffer
-	// Build the same way WebBackend does: the tracer is nil when the env
-	// var is unset, and newHTTPErrLogger accepts that nil directly.
+	// Same construction as WebBackend: tracer is nil when the env var is unset.
 	tracer := newCacheTracer(&buf)
 	require.Nil(t, tracer, "cacheTracer must be nil when OTEL endpoint is unset")
 	l := newHTTPErrLogger(&buf, time.Hour, tracer)

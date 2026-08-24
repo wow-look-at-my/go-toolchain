@@ -17,8 +17,7 @@ import (
 // gofmt's "tabs to indent, spaces to align" style and keep the author's literal
 // apostrophe-pair rather than corrupting the comment into U+201D.
 func TestVetSemanticFixKeepsDocCommentQuotesAndAlignment(t *testing.T) {
-	// assertlint adds a stretchr/testify import; resolve it to the local stub via
-	// a replace so the go mod tidy the fix triggers needs no network.
+	// assertlint adds a testify import; resolve it to the local stub so the triggered go mod tidy needs no network.
 	stub, err := filepath.Abs(filepath.Join("testdata", "src", "testifystub"))
 	require.NoError(t, err)
 
@@ -129,10 +128,7 @@ func TestVetSemanticFixHoistsInitLegally(t *testing.T) {
 	assert.Contains(t, got, "_, err = mayFail()", "a hoisted init whose names all exist must assign, not define")
 	assert.Contains(t, got, "_, err := mayFail()", "a hoisted init with a new name must keep :=")
 
-	// The assertion that matters: it COMPILES. "no new variables on left side
-	// of :=" is a type error, so only a real build catches it -- a string
-	// check would have passed on the broken output too. go vet compiles the
-	// test package with the module's replace in effect.
+	// The real assertion: it compiles. A string check would pass on broken output; only a build catches a := type error.
 	build := exec.Command("go", "vet", "./...")
 	build.Dir = dir
 	out, berr := build.CombinedOutput()

@@ -1,19 +1,7 @@
 package cache
 
-// Regression tests for the pack-store append/index ordering guarantees and
-// the atomic PutIfAbsent primitive.
-//
-// Background (CI run 29410024636, "golang.org/x/exp/slices: corrupt index" on
-// the warm second build): PackStore.Put used to append the record under the
-// write lock but update the in-memory index in a separate critical section.
-// Two racing Puts for the same action with different contents could therefore
-// commit their index updates in the OPPOSITE order of their file appends. The
-// live daemon then served one body while the next process's startup scan
-// ("last write wins" over file order) served the other — the poisoned mapping
-// surfaced only on the NEXT build, as an unrecoverable "corrupt index". The
-// racing writer pair in production is a cmd/go PUT vs the web prefetch
-// population (wireBatchCallbacks), which runs on the batch coalescer's
-// goroutine with no per-action serialization.
+// Regression tests for pack-store append/index ordering: racing Puts for the
+// same action must commit index updates in the same order as their appends.
 
 import (
 	"bytes"

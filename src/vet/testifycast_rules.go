@@ -105,9 +105,7 @@ func warnElementMismatch(pass *analysis.Pass, call *ast.CallExpr, name string, c
 	if elem == nil {
 		return
 	}
-	// For collection-vs-collection assertions (ElementsMatch/Subset/NotSubset)
-	// the second operand is itself a collection, so compare its element type;
-	// for value-in-collection (Contains) the second operand is a scalar value.
+	// For collection-vs-collection asserts, compare element types; for value-in-collection, the second operand is a scalar.
 	cmpType := types.Default(valTV.Type)
 	if e2 := elementType(valTV.Type); e2 != nil {
 		cmpType = types.Default(e2)

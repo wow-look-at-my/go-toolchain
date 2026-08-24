@@ -8,45 +8,23 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// LocalStore is the process-local cache tier that sits in front of the remote
-// (web) backend.
+// LocalStore is the process-local cache tier in front of the remote (web) backend.
 //
-// Every hit must return a DiskPath the Go toolchain can open and read
-// directly. That is the one hard constraint the GOCACHEPROG protocol places on
-// a cache: a GET response hands the compiler a *path* (Response.DiskPath), not
-// the bytes, and the compiler opens and mmaps it itself. A PUT body, by
-// contrast, arrives inline over the protocol (base64 after the JSON line).
+// Every hit must return a DiskPath the Go toolchain can open and mmap directly — the
+// GOCACHEPROG protocol hands the compiler a path (Response.DiskPath), never bytes.
 //
-// Two implementations exist:
-//
-//   - LocalCache writes one loose body file per entry plus a metadata sidecar.
-//     Simple and portable; it is the fallback used when FUSE is unavailable.
-//
-//   - FuseCache packs every body into append-only pack files and exposes them
-//     through a read-only FUSE mount. DiskPath points into the mount and the
-//     kernel materializes each body virtually on read, so there is no loose
-//     file and no sidecar per entry. This is the "virtual filesystem over the
-//     JSON protocol": it satisfies the DiskPath contract without ever writing a
-//     file per cache entry.
+// Two implementations exist: LocalCache writes one loose body file plus a metadata
+// sidecar (the portable fallback), and FuseCache packs bodies into append-only pack
+// files behind a read-only FUSE mount, materializing each body on read with no loose
+// file or sidecar per entry.
 type LocalStore interface {
 	// Get returns the cached entry for actionID, or miss == true.
 	Get(actionID string) (CacheMeta, bool)
-	// Peek is Get without counting a hit. The PUT dedup check uses it: a PUT
-	// that finds its action already stored serves the existing entry, but
-	// counting that as a cache "hit" inflated the hit rate on warm rebuilds
-	// (the caller just COMPUTED the object; nothing was saved). Verification
-	// and eviction semantics are identical to Get.
+	// Peek is Get without counting a hit, used by PUT dedup so a warm rebuild does not inflate the hit rate.
 	Peek(actionID string) (CacheMeta, bool)
-	// Put stores body under actionID/outputID and returns a DiskPath that the
-	// Go toolchain can open.
+	// Put stores body under actionID/outputID and returns a DiskPath the Go toolchain can open.
 	Put(actionID, outputID string, body io.Reader) (string, error)
-	// PutIfAbsent stores body under actionID/outputID only if the action is
-	// not already cached, atomically with respect to concurrent Puts, and
-	// reports whether this call stored it. It is the primitive the web
-	// prefetch population uses: a web-originated body must never displace a
-	// locally-originated entry (a plain check-then-Put can lose that race and
-	// silently replace what the local cmd/go just stored — the module-index
-	// trust model in verify.go forbids exactly that).
+	// PutIfAbsent atomically stores body only if actionID isn't already cached, so a web-originated body never displaces a local one.
 	PutIfAbsent(actionID, outputID string, body io.Reader) (stored bool, err error)
 	// StatsPtr returns the live hit/put counters for this store.
 	StatsPtr() *CacheStats
@@ -54,26 +32,17 @@ type LocalStore interface {
 	Close() error
 }
 
-// fuseStore is a LocalStore backed by a FUSE mount. The extra mountInfo method
-// lets NewLocalStore log a useful one-liner about where the virtual filesystem
-// is mounted. newFuseCache returns this concrete-ish type so the platform
-// stub (which returns a nil fuseStore) and the real implementation share a
-// signature.
+// fuseStore is a LocalStore backed by a FUSE mount, plus mountInfo so NewLocalStore can
+// log where it is mounted.
 type fuseStore interface {
 	LocalStore
 	mountInfo() string
 }
 
-// errFuseUnsupported is returned by newFuseCache on platforms without a FUSE
-// implementation (e.g. Windows). It signals NewLocalStore to fall back to the
-// loose-file cache silently, without logging a scary error.
+// errFuseUnsupported signals a platform with no FUSE support; NewLocalStore falls back to the loose-file cache silently.
 var errFuseUnsupported = errors.New("FUSE not supported on this platform")
 
-// errFuseBusy is returned by newFuseCache when another live process already
-// owns the FUSE mount + pack store for this cache dir (it holds the lock). The
-// second caller must NOT touch the mount; it falls back to the loose cache.
-// This is the normal, expected outcome for a nested go-toolchain run (e.g. in
-// tests) or a concurrent standalone invocation, so the fallback is silent.
+// errFuseBusy signals another process already owns the FUSE mount; the caller falls back to the loose cache silently.
 var errFuseBusy = errors.New("FUSE cache already owned by another process")
 
 // NewLocalStore returns the preferred local cache for dir: a FUSE-backed packed
@@ -85,16 +54,10 @@ var errFuseBusy = errors.New("FUSE cache already owned by another process")
 // loose cache rather than failing the build — the cache is an optimization,
 // never a correctness dependency.
 func NewLocalStore(dir string) (LocalStore, error) {
-	// One-time cache version purge, BEFORE the FUSE mount and before either
-	// tier opens (packs/ and the loose bucket dirs share this root), so no
-	// tier ever serves pre-purge data. See cacheversion.go. The standalone
-	// cacheprog path, which bypasses NewLocalStore on purpose (it must never
-	// grab the FUSE mount), calls this itself — see cmd/cacheprog.go.
+	// Purge stale cache versions before either tier opens, so neither ever serves pre-purge data (see cacheversion.go).
 	EnsureLocalCacheVersion(dir)
 
-	// Escape hatch: force the loose-file cache, skipping FUSE entirely. Lets an
-	// operator sidestep the FUSE tier wholesale if a mount misbehaves in some
-	// environment, without code changes.
+	// Escape hatch: force the loose-file cache, skipping FUSE entirely, if a mount misbehaves.
 	if os.Getenv("GOCACHE_NO_FUSE") == "1" {
 		logger.Info("cacheprog: local cache: loose-file (GOCACHE_NO_FUSE=1)")
 		return NewLocalCache(dir)

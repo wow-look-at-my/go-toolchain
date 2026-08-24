@@ -40,8 +40,7 @@ func TestCollector_RemovesStaleDump(t *testing.T) {
 	path := strings.TrimPrefix(arg, "-debug-actiongraph=")
 	require.NoError(t, os.WriteFile(path, []byte("stale"), 0o644))
 
-	// A new collector for the same pid re-issues the same seq-1 path and must
-	// clear the stale content so a failed go invocation can't resurrect it.
+	// A new collector for the same pid reissues the seq-1 path and clears stale content.
 	c2 := NewCollector(dir)
 	arg2 := c2.GraphArg()
 	require.Equal(t, arg, arg2)

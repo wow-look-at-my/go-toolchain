@@ -20,38 +20,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// The startup index load is bounded by PROGRESS, not by total elapsed time.
-//
-// The index is an optimization, never a correctness dependency, so a
-// slow-but-answering server must not hold NewWebBackend — and therefore the
-// daemon start — hostage for the ~94s the raw client policy allows (client
-// timeout 30s x up to 3 attempts + backoff). The original bound was a single
-// 5s deadline over the whole load, which was wrong in a way that only got
-// worse with scale: the blob is 32 bytes per advertised key, so a shared
-// cache holding ~900k keys serves ~29 MB, and no total deadline sized for a
-// small index can distinguish "the server is hung" from "the index is big
-// and is streaming down just fine". Builds against a healthy server started
-// losing the whole index to that deadline, and the fallout is not cosmetic:
-// a non-authoritative key set disables index-based routing, the cold-key
-// batch probes then trip the empty-batch backoff, and the run finishes with
-// zero remote cache hits.
-//
-// So the budget is split into two progress-based bounds plus an absolute
-// ceiling:
-//
-//   - indexHeaderBudget bounds the wait for response headers (connect, TLS,
-//     server think time) across the one bounded retry. A hung server is
-//     still abandoned in seconds.
-//   - indexStallTimeout bounds the gap between successive body chunks. A
-//     transfer that keeps delivering bytes keeps going, however large; one
-//     that goes silent is abandoned.
-//   - indexFetchCeiling caps the whole load regardless of progress, so even
-//     a pathological trickle cannot stall daemon start indefinitely.
-//
-// On exhaustion of any of them the backend proceeds with the disk-cached or
-// empty key set, which is non-authoritative — batch probing stays enabled and
-// the run recovers hits the index could not advertise. All three are vars so
-// tests can shrink them.
+// Progress-bounded via header/stall/ceiling budgets. Exhaustion falls back
+// to a non-authoritative key set; batch-probing stays on.
 var (
 	indexHeaderBudget = 10 * time.Second
 	indexStallTimeout = 10 * time.Second
@@ -60,9 +30,7 @@ var (
 
 const indexFetchRetries = 1
 
-// gbciKeyPrefix is the constant leading portion of every cacheprog cache
-// key. The wire format ships only the variable 32-byte action-ID hash that
-// follows this prefix; both client and server hardcode the same prefix.
+// gbciKeyPrefix leads every cacheprog key; the wire format carries only the 32-byte hash after it.
 const gbciKeyPrefix = "go-buildcache/v1"
 
 // gbciHashSize is the number of bytes per entry in the index body.
@@ -77,9 +45,7 @@ const gbciVersion = 1
 // gbciMagic is the four-byte file-format identifier "GBCI".
 var gbciMagic = [4]byte{'G', 'B', 'C', 'I'}
 
-// indexCachePath returns the path for the local on-disk index blob.
-// The hash makes the path unique per (endpoint, bucket, prefix) so multiple
-// daemons on the same machine targeting different caches don't collide.
+// indexCachePath hashes (endpoint, bucket, prefix), so daemons on the same machine with different caches don't collide.
 func (b *WebBackend) indexCachePath() string {
 	h := sha256.Sum256([]byte(b.endpoint + "/" + b.bucket + "/" + b.prefix))
 	name := "gocache-web-index-" + hex.EncodeToString(h[:8]) + ".bin"
@@ -100,9 +66,7 @@ func (b *WebBackend) loadOrFetchIndex() (set.Set[string], bool) {
 	path := b.indexCachePath()
 	diskBlob, diskKeys, diskETag := b.readDiskIndex(path)
 
-	// The absolute ceiling covers the whole load (conditional GET plus the
-	// rare unconditional refetch); each fetch additionally enforces the
-	// header and stall budgets. See the budget vars above.
+	// The absolute ceiling covers the whole load; each fetch also enforces the header and stall budgets above.
 	ctx, cancel := context.WithTimeout(context.Background(), indexFetchCeiling)
 	defer cancel()
 
@@ -118,8 +82,7 @@ func (b *WebBackend) loadOrFetchIndex() (set.Set[string], bool) {
 		if diskBlob != nil {
 			return diskKeys, true // server confirmed our disk copy is current
 		}
-		// Server claimed not-modified but we have no disk copy (likely a
-		// cleared /tmp between the ETag fetch and now). Refetch unconditionally.
+		// No disk copy despite a 304 (likely a cleared /tmp); refetch unconditionally.
 		blob, _, err = b.fetchIndexBlob(ctx, "")
 		if err != nil {
 			logger.Warn("cacheprog: web index refetch: %v", err)
@@ -162,11 +125,7 @@ func (b *WebBackend) readDiskIndex(path string) ([]byte, set.Set[string], string
 //	                                  so the caller can classify it)
 //	nil,  0, err                      for any transport failure
 func (b *WebBackend) fetchIndexBlob(ctx context.Context, ifNoneMatch string) ([]byte, int, error) {
-	// Progress watchdog: it starts armed for indexHeaderBudget (waiting for
-	// response headers) and is re-armed for indexStallTimeout before every
-	// body read, so a transfer that keeps delivering bytes is never cut off
-	// while one that goes silent is. Firing cancels the request context,
-	// which surfaces as a read error and unwinds the fetch.
+	// Watchdog re-arms per body read: bytes keep it alive, silence fires it and cancels the request.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var timedOut atomic.Bool
@@ -218,12 +177,8 @@ func (b *WebBackend) fetchIndexBlob(ctx context.Context, ifNoneMatch string) ([]
 	}
 }
 
-// stallGuardedReader re-arms a watchdog timer before every read, turning an
-// absolute deadline into a per-chunk stall deadline: the transfer may take as
-// long as it needs as long as it keeps making progress. Firing the watchdog
-// cancels the request, so the pending Read returns an error and the transfer
-// unwinds. A Reset that races an already-fired watchdog is harmless — the
-// context is cancelled either way and the read fails.
+// stallGuardedReader re-arms its watchdog every read: progress keeps it alive, silence fires it
+// and cancels the request.
 type stallGuardedReader struct {
 	r        io.Reader
 	watchdog *time.Timer
@@ -235,9 +190,8 @@ func (s *stallGuardedReader) Read(p []byte) (int, error) {
 	return s.r.Read(p)
 }
 
-// writeIndexBlob persists a GBCI v1 blob via tmp file + atomic rename.
-// Best-effort: failures are silently ignored, since a missing or stale on-disk
-// cache only forces the next start to do a fresh GET, never affects correctness.
+// writeIndexBlob persists a GBCI v1 blob via tmp file + atomic rename. Best-effort: a stale
+// on-disk cache only forces a fresh GET next time.
 func (b *WebBackend) writeIndexBlob(path string, blob []byte) {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, blob, 0644); err != nil {

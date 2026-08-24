@@ -3,9 +3,10 @@
 `src/cmd/claudeguard.go` (+ `claudeguard_proc.go` / `claudeguard_darwin.go` /
 `claudeguard_tty_linux.go` / `claudeguard_tty_cosmo.go` / `claudeguard_other.go`)
 implements the **agent output guard**: the root `PersistentPreRunE` calls
-`guardAgainstAgentOutputCapture()` (after the `skipCache` early-return, so
-`cacheprog`/`version`/`install`/`release` are exempt — `cacheprog` in particular
-*must* keep its stdout pipe for the GOCACHEPROG protocol) and aborts with exit 1
+`guardAgainstAgentOutputCapture()` for every command except `cacheprog`
+(`skipAgentGuard`) -- `cacheprog` alone is exempt, because its stdout IS the
+GOCACHEPROG protocol channel. `version`/`install`/`release` skip the build
+cache (`skipCache`) but are NOT exempt from the guard. It aborts with exit 1
 when go-toolchain runs under an AI coding agent **and** its stdout is anything
 other than the harness transcript or a terminal — i.e. any pipe, a `> file` /
 `>> file` redirect, `/dev/null`, or a `$(...)` capture.

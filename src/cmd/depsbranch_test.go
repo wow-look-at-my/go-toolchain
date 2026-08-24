@@ -303,8 +303,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 	assert.Equal(t, "v2.0.0-20260812203640-351d2159f8d8", f.Replace[0].New.Version)
 	assert.Equal(t, "github.com/wow-look-at-my/bubbletea/v2", f.Replace[0].New.Path)
 	assert.Equal(t, "master", trackedBranch(f.Replace[0].Syntax))
-	// The require names upstream; tracking its branch is never what the
-	// marker means, so it must not move.
+	// The require names upstream; the marker never tracks its branch, so it must not move.
 	require.Len(t, f.Require, 1)
 	assert.Equal(t, "v2.0.8", f.Require[0].Mod.Version)
 }

@@ -1,7 +1,6 @@
 package vet
 
-// Helpers for tests that need a real git repository (the uncommitted-changes
-// guard tests here and in canonicalize_integration_test.go).
+// Helpers for tests needing a real git repo (used here and in canonicalize_integration_test.go).
 
 import (
 	"os"
@@ -12,12 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// hermeticGitEnv returns an environment for child git processes that ignores
-// the host's global and system config by pointing both at an empty file (not
-// /dev/null — portable to Windows contributors). Without this the developer's
-// config leaks into test repos: e.g. feature.manyFiles/index.skipHash (git >=
-// 2.40) write a zero-hash index trailer go-git v5 cannot read, and
-// init.defaultBranch, gpg signing, hooks, or fsmonitor could equally interfere.
+// hermeticGitEnv points GIT_CONFIG_GLOBAL/SYSTEM at an empty file (not
+// /dev/null -- portable to Windows) so the host's config (default branch,
+// gpg signing, hooks, index.skipHash) can't leak into test repos.
 func hermeticGitEnv(t *testing.T) []string {
 	t.Helper()
 	emptyCfg := filepath.Join(t.TempDir(), "empty-gitconfig")

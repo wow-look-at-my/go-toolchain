@@ -44,10 +44,7 @@ func TestWebBackend_GetMissingMetadata(t *testing.T) {
 	require.True(t, miss)
 }
 
-// primeIndex forces a key into the in-memory index so subsequent Gets
-// take the getIndividual path instead of falling through to batch GET.
-// Test helper only — in production, keys enter the index via the GBCI
-// blob loaded by loadOrFetchIndex, or the check-and-claim step in Put.
+// primeIndex test-only: forces a key into the index so Gets take getIndividual instead of batch GET.
 func primeIndex(b *WebBackend, actionID string) {
 	b.keysMu.Lock()
 	b.keys.Add(b.key(actionID))
@@ -107,8 +104,7 @@ func TestWebBackend_GetIndividualMissPaths(t *testing.T) {
 // Put as already-present.
 func TestWebBackend_GetRejectsCorruptBody(t *testing.T) {
 	const actionID = "aabbccdd11223344"
-	// outputID advertises the hash of the CORRECT body, but the server serves a
-	// different (corrupt) body of the same length under it.
+	// outputID advertises the CORRECT body's hash, but the server serves a corrupt body of the same length.
 	good := largePayload(2048)
 	corrupt := good[:len(good)-10] + "XXXXXXXXXX"
 	outputID := testOutputID(good)

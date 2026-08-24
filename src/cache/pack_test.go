@@ -22,10 +22,7 @@ func hexID(seed byte) string {
 	return strings.ToLower(hexEncode(b))
 }
 
-// casID returns the content-addressed outputID for body: its lowercase hex
-// SHA-256. The GOCACHEPROG contract guarantees a cache entry's outputID is
-// sha256(body), so any test that exercises the content-address serve gate
-// (GetByOutputVerified) must store bodies under this id, as the go command does.
+// casID returns body's content-addressed outputID (lowercase hex SHA-256), matching what the go command uses.
 func casID(body []byte) string {
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
@@ -142,8 +139,7 @@ func TestPackStore_ContentDedup(t *testing.T) {
 	// Same content (outputID) => second Put reuses the first body's offset.
 	require.Equal(t, loc1.dataOff, loc2.dataOff)
 
-	// The body is stored once; the second Put adds only a header-only alias
-	// record (which is what makes the dedup survive a restart).
+	// The body is stored once; the second Put adds only a header-only alias record.
 	info, err := os.Stat(s.packPath(1))
 	require.Nil(t, err)
 	require.Equal(t, int64(packHeaderLen+len(body)+packHeaderLen), info.Size())
@@ -168,8 +164,7 @@ func TestPackStore_DedupPersistsAcrossReopen(t *testing.T) {
 	require.Nil(t, err)
 
 	empty := hexID(200) // outputID for empty content
-	// Many actions, all producing identical (empty) content — only the first
-	// writes a body; the rest are aliases.
+	// All produce identical (empty) content — only the first writes a body; the rest are aliases.
 	var actions []string
 	for i := 0; i < 50; i++ {
 		a := hexID(byte(i))
@@ -203,12 +198,10 @@ func TestPackStore_DedupPersistsAcrossReopen(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, body, data)
 	}
-	// The shared non-empty body is stored once (one full record + one alias),
-	// not twice.
+	// The shared non-empty body is stored once (one full record + one alias), not twice.
 	info, err := os.Stat(s2.packPath(1))
 	require.Nil(t, err)
-	// 50 empty: 1 full (header only) + 49 alias (header only) = 50 headers.
-	// shared: 1 full (header+body) + 1 alias (header). Total bytes:
+	// 50 empty headers + 1 shared full record + 1 shared alias header.
 	want := int64(50*packHeaderLen) + int64(packHeaderLen+len(body)) + int64(packHeaderLen)
 	require.Equal(t, want, info.Size())
 }
@@ -249,8 +242,7 @@ func TestPackStore_TornFinalRecordIgnored(t *testing.T) {
 	require.Nil(t, err)
 	require.Nil(t, s.Close())
 
-	// Append a bogus record header that claims a body far past EOF — exactly
-	// what a crash mid-append leaves behind.
+	// A bogus record header claiming a body past EOF, as a crash mid-append leaves behind.
 	f, err := os.OpenFile(s.packPath(1), os.O_WRONLY|os.O_APPEND, 0o644)
 	require.Nil(t, err)
 	torn := make([]byte, packHeaderLen)
@@ -322,8 +314,7 @@ func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
 	}
 	require.Nil(t, s.Close())
 
-	// Total is n*recBytes = 6000; budget 3000 → target 2400 → the 6 oldest
-	// packs must go, the 4 newest records must survive.
+	// n*recBytes=6000, budget 3000, target 2400: the 6 oldest packs must go.
 	packResetBytes = 3000
 
 	s2, err := OpenPackStore(dir)

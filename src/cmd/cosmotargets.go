@@ -8,19 +8,13 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// DefaultCosmoPlatforms is the host platform set the fat APE covers by
-// default. The fork emits a payload per architecture and a boot path per host
-// OS, so every platform left out of this set is code the APE does not carry.
+// DefaultCosmoPlatforms is the host platform set the fat APE covers by default; platforms left out carry no code.
 var DefaultCosmoPlatforms = []string{"linux/amd64", "darwin/arm64", "windows/amd64"}
 
-// cosmoPlatformsAll is the --cosmo-platforms value that asks for every
-// platform the fork can emit: GOCOSMOPLATFORMS is then left unset, which is
-// the fork's own everything-default.
+// cosmoPlatformsAll asks for every platform the fork can emit, leaving GOCOSMOPLATFORMS unset.
 const cosmoPlatformsAll = "all"
 
-// cosmoPlatformsEnv is the gosmopolitan variable naming the host platforms a
-// fat APE must cover. The fork is the authority on the value; it rejects a
-// token it cannot emit, which backstops the check below.
+// cosmoPlatformsEnv is gosmopolitan's variable naming a fat APE's covered host platforms; the fork rejects unemittable tokens.
 const cosmoPlatformsEnv = "GOCOSMOPLATFORMS"
 
 // cosmoRuntimeStatus maps a platform the fork can name to why it is not
@@ -91,11 +85,10 @@ func coverableCosmoPlatforms() []string {
 	return out
 }
 
-// apeCoverage returns the platforms a fat APE built with the given
-// --cosmo-platforms selection actually runs on. An empty selection is
-// "all", where the fork emits every payload it has: the coverage is then
-// every platform whose runtime is verified, never the unverified ones the
-// fork can also emit — a published set names where the binary RUNS.
+// apeCoverage returns the platforms a fat APE built with the given --cosmo-platforms selection
+// actually runs on. An empty selection means "all": coverage is then every platform whose
+// runtime is verified, never an unverified one the fork can also emit -- a published set names
+// where the binary RUNS.
 func apeCoverage(platforms []buildPlatform) []buildPlatform {
 	if len(platforms) > 0 {
 		return platforms

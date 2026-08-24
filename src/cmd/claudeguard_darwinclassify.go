@@ -6,19 +6,11 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// isCapturePathFn is the seam for "is this the harness's own transcript
-// capture", so the decision table can be driven in tests without a real agent.
+// isCapturePathFn: the seam for the harness's transcript-capture check, so tests can drive it without a real agent.
 var isCapturePathFn = agent.IsCapturePath
 
-// The darwin classifier's decision table, kept free of build constraints so it
-// is TESTED on every platform's CI rather than only on the one host that can
-// run it. The syscalls that answer these questions are per-build
-// (claudeguard_fdprobe_{darwin,cosmo}.go); what is decided from the answers is
-// not, and that is the part with branches worth pinning.
-//
-// POSIX file-type bits, spelled locally: the stdlib syscall package does not
-// export S_IF* on every GOOS this file compiles for, and the values are
-// identical on linux and darwin.
+// Decision table: build-constraint-free, so CI tests it everywhere.
+// File-type bits are spelled locally; stdlib omits S_IF* on some GOOS.
 const (
 	sIFMT   = 0xF000
 	sIFIFO  = 0x1000
@@ -35,10 +27,7 @@ type darwinFDProbes struct {
 	fileType func() (mode uint32, supported bool)
 	// socketPeer returns the pid the kernel recorded on the far end.
 	socketPeer func() (pid int, identified, supported bool)
-	// fifoPeer returns the pid holding the other end of a FIFO. nil, or
-	// identified=false, is "could not name the reader" and fails closed --
-	// never a missing-capability blind, because a FIFO without a reader
-	// identity is exactly `| cat`.
+	// fifoPeer: pid of a FIFO's other end. identified=false fails closed -- a nameless reader is `| cat`.
 	fifoPeer func() (pid int, identified, supported bool)
 	// isTerminal reports whether a character device is a real terminal.
 	isTerminal func() (terminal, supported bool)
@@ -46,11 +35,9 @@ type darwinFDProbes struct {
 	path func() (string, bool)
 	// peerName resolves a pid to its command name.
 	peerName func(pid int) (comm string, ok bool)
-	// isAgentReader reports whether that process is the agent reading our
-	// output, rather than something capturing it.
+	// isAgentReader: is that process the agent reading its own output, not something capturing it.
 	isAgentReader func(comm string, pid int) bool
-	// isAgentPID reports whether an agent named this pid as its own, which
-	// needs no process lookup: the agent put it in the environment.
+	// isAgentPID: did an agent name this pid as its own via env, needing no process lookup.
 	isAgentPID func(pid int) bool
 }
 
@@ -67,11 +54,8 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 
 	switch mode & sIFMT {
 	case sIFIFO:
-		// grok-build captures a child's stdout through Stdio::piped() -- a
-		// FIFO, not a socketpair. Without a reader identity that is
-		// indistinguishable from `| cat`, so an unidentified FIFO still
-		// fails CLOSED. A named reader gets the same agent-vs-filter
-		// decision a socket does.
+		// grok-build's stdout is a FIFO, not a socketpair. An unidentified
+		// reader is indistinguishable from `| cat`, so it fails closed too.
 		if p.fifoPeer == nil {
 			return outputSink{kind: sinkPipe}, true
 		}
@@ -82,10 +66,7 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 		return peerSink(p, pid, sinkPipe), true
 
 	case sIFSOCK:
-		// What a coding agent's tool-execution plumbing actually is: a
-		// socketpair for a spawned child's stdio. The kernel fixes the peer at
-		// connection time, so this still resolves after the parent closes its
-		// copy of the child's descriptor.
+		// Agent tool plumbing is a socketpair; the kernel fixes the peer at connect time, resolving after the parent's copy closes.
 		pid, identified, supported := p.socketPeer()
 		if !supported {
 			return outputSink{}, false
@@ -107,9 +88,7 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 		return outputSink{kind: sinkDiscard, detail: path}, true
 
 	case sIFREG:
-		// The path is what separates the harness's own transcript capture
-		// (visible) from an ordinary `> out.log` (hidden), so without it there
-		// is nothing to decide on.
+		// The path separates the harness's transcript capture from an ordinary redirect; without it there's nothing to decide.
 		path, supported := p.path()
 		if !supported {
 			return outputSink{}, false

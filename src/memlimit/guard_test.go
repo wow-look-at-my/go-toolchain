@@ -147,8 +147,7 @@ func main() {
 	bin := filepath.Join(dir, "guardprobe")
 	cmd := exec.Command("go", "build", "-o", bin, ".")
 	cmd.Dir = dir
-	// Neutralize inherited build settings (e.g. -mod=vendor) and avoid any
-	// toolchain download for the temp module.
+	// Neutralize inherited build settings (e.g. -mod=vendor); avoid a toolchain download for the temp module.
 	cmd.Env = append(os.Environ(), "GOFLAGS=", "GOTOOLCHAIN=local")
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "building guard probe:\n%s", out)

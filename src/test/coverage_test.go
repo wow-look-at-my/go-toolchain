@@ -213,8 +213,7 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// Simulate: main package imports pkg1, but pkg2 is behind a build tag
-	// and not reachable from the main entry point.
+	// Main package imports pkg1; pkg2 is behind a build tag and unreachable from the entry point.
 	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("cmd/app", 0755)
 	os.WriteFile("cmd/app/main.go", []byte("package main\n"), 0644)
@@ -266,8 +265,7 @@ func TestReachablePackagesModuleFailure(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-// newMockRunnerForReachable creates a mock runner for ReachablePackages tests.
-// Now only needs the depsOutput since module path and main packages come from filesystem.
+// newMockRunnerForReachable needs only depsOutput; module path and main packages come from the filesystem.
 func newMockRunnerForReachable(depsOutput string) *mockReachableRunner {
 	return &mockReachableRunner{depsOutput: depsOutput}
 }
