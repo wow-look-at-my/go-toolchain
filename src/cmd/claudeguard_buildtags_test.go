@@ -15,11 +15,9 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// claudeGuardTagSets are the release-relevant build contexts: the from-source
-// GOOS=linux build (CI `build` job, dev machines), the GOOS=cosmo fat APE
-// that every published "linux"/"windows" slot actually is, and native darwin
-// -- which has no /proc and so gets its own real classifier rather than
-// sharing linux/cosmo's.
+// claudeGuardTagSets are the release-relevant build contexts: the from-source GOOS=linux build,
+// the GOOS=cosmo fat APE that every published "linux"/"windows" slot actually is, and native
+// darwin, which has no /proc and gets its own classifier.
 var claudeGuardTagSets = map[string]map[string]bool{
 	"linux":  {"linux": true, "unix": true, "amd64": true},
 	"cosmo":  {"cosmo": true, "linux": true, "unix": true, "amd64": true},

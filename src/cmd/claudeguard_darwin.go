@@ -30,8 +30,8 @@ func inspectStdout() outputSink {
 	return inspectFD(uintptr(1))
 }
 
-// inspectFD is inspectStdout's logic, parameterized so tests can feed it
-// controlled pipes/files/devices. Algorithm: claudeguard_darwinhost.go.
+// inspectFD is inspectStdout's logic, parameterized for testing.
+// Algorithm: claudeguard_darwinhost.go.
 func inspectFD(fd uintptr) outputSink {
 	sink, ok := inspectFDDarwinHost(fd)
 	if !ok {

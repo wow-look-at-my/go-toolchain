@@ -33,7 +33,7 @@ func captureGuardOut(t *testing.T, f func()) string {
 // cannot see must not refuse a run — but silent is indistinguishable from running.
 //
 // Driven through blindClassifierSink, not unclassifiableSink, so the banner's content is
-// asserted on every platform, not only via linux-only host dispatch.
+// asserted on every platform, not via linux-only host dispatch.
 func TestBlindClassifierSinkAnnouncesItself(t *testing.T) {
 	var got outputSink
 	out := captureGuardOut(t, func() { got = blindClassifierSink("darwin") })

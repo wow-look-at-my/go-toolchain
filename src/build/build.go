@@ -75,13 +75,9 @@ func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	return targets, nil
 }
 
-// ResolveBuildTargetsForTarget resolves the main packages visible under an
-// explicit cross-compile target's build context (GOOS/GOARCH), so a main
-// package guarded e.g. "//go:build js && wasm" is discovered for js/wasm
-// targets while a "//go:build linux" main is discovered for linux targets —
-// regardless of the host platform. Unlike ResolveBuildTargets there is no
-// library-only fallback: an empty result means this target has no main
-// packages to build (the caller decides whether that is a skip or an error).
+// ResolveBuildTargetsForTarget resolves main packages under an explicit
+// GOOS/GOARCH context, regardless of host. Unlike ResolveBuildTargets, empty
+// means no main packages for this target (no library-only fallback).
 func ResolveBuildTargetsForTarget(goos, goarch string) ([]Target, error) {
 	moduleName := gomod.ReadModulePath()
 	pkgs, err := gomod.FindMainPackagesForTarget(goos, goarch)

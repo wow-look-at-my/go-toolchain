@@ -7,12 +7,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// maxWarnings is the pipeline's warning budget: a run that emits more than
-// this many DISTINCT Warn-level messages through src/logger fails after the
-// pipeline completes. src/logger folds a repeated message into one.
-// Deliberately a constant — there is no flag or environment variable to
-// change it.
-// see docs/WARNINGS-GATE.md
+// maxWarnings is the pipeline's DISTINCT-warning budget; a constant on purpose. see docs/WARNINGS-GATE.md
 const maxWarnings = 15
 
 // checkWarningsGate fails the build when the run emitted more than
