@@ -205,9 +205,11 @@ coverage.
   (`src/cmd/logging.go`, first thing in the root `PersistentPreRunE`) with level precedence: `--log-level` > `-v`/`--verbose` > `GOCACHE_DEBUG=1`
   (maps to debug) > info. `src/cmd/logging.go` also holds the documented held-writer bypasses (`rawStderr`/`rawStdout`) for mid-line progress
   fragments and interactive prompts the logger's auto-newline and level filtering would corrupt or hide. **Warnings budget** (`warncount.go` +
-  `src/cmd/warningsgate.go`): emitted Warn/WarnFile increment `logger.WarnCount` and are retained by `EmittedWarnings`; `checkWarningsGate` fails the
-  run past 15 warnings AND re-prints every counted warning as a numbered recap (one multi-line `::error` annotation in GHA). The watchdog's STALLED
-  banner bypasses the logger and is NOT counted -- see docs/WARNINGS-GATE.md
+  `src/cmd/warningsgate.go`): the budget counts DISTINCT messages -- byte-identical text folds into one `logger.WarnCount` with a repeat count, since
+  one root cause repeats per file, per package variant and (structurally) per pipeline pass, as vet's auto-fixer re-runs the whole run and would
+  otherwise double every warning. `TotalWarnCount` keeps every emission and nothing is suppressed; `checkWarningsGate` fails the run past 15 distinct
+  warnings AND re-prints each with its repeat count as a numbered recap (one multi-line `::error` annotation in GHA). The watchdog's STALLED banner
+  bypasses the logger and is NOT counted -- see docs/WARNINGS-GATE.md
 - `src/vet/` — custom vet checks (assert normalization, unused imports, gotest.tools migration, banned output, testify fixes) and the auto-fixer.
   Depth:
   `docs/VET.md`
