@@ -125,6 +125,8 @@ github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 h1:nS/I
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174/go.mod h1:ZCjJ1b6VfXIov0GZbfRE4QtIFQrPqkD3NK5qlkf6Ow8=
 github.com/wow-look-at-my/dats v0.0.1777263999 h1:ALBHSpe62+T62WvWy7oi57ZlqTDjhqUlVVXgxhRE/Xk=
 github.com/wow-look-at-my/dats v0.0.1777263999/go.mod h1:KJeHVSue/T3HFM2l9PwCZKJMouBgmnP2Gy3LbIV81sA=
+github.com/wow-look-at-my/dats v0.0.0-20260824054338-c02714621d80 h1:/9j1IWersl09R+5LYVDnc3sOeCKGOBC8YjiaWn3Xgd4=
+github.com/wow-look-at-my/dats v0.0.0-20260824054338-c02714621d80/go.mod h1:ig0+sQPw3C/esXWshYgj3ANOCrZjYaQebI4kaex6w0Y=
 github.com/wow-look-at-my/go-containers v0.0.0-20260820210621-2e1261867045 h1:1ir/Tf75SwE29xK4Fn5e85LksidQh9x/6GGGFOjzv7w=
 github.com/wow-look-at-my/go-containers v0.0.0-20260820210621-2e1261867045/go.mod h1:7j8wbDwrqh+uJnlENqD5iwsgYkF4y3kIgremn/ctvVE=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260820164452-9c1e07927997 h1:WEBCI/l9s6/w78TrAY1q3BAWrjY1cA8rOcIYdG4qXbw=
@@ -133,6 +135,10 @@ github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260814181250-68cd2d92b9a7 h1
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260814181250-68cd2d92b9a7/go.mod h1:mNwJ1GNTJYpiYf0Q6+UKGVdceA+ioKKxjdWZkt0YjB0=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb h1:kLSElPimf1wjuunb+noAlkV/xzrE65BzqnQr3Xr31u4=
 github.com/wow-look-at-my/testify v0.0.0-20260217010200-5fd2c08e3abb/go.mod h1:xlD/Hz0iizP83KvPMWiQ8dbEvfjRGQ2A5qsK+GBq9do=
+github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260823195827-77471848149d h1:kBdQkCHd3PPiwNSBQu7KtTkjz7S3sHY6P6me/lqi8h4=
+github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260823195827-77471848149d/go.mod h1:3j05MFMT9mnA+sOk8gfwDkQcfxnbxtDG5luYD5eoG6w=
+github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 h1:XQ7cCH5Ow4ZinZ20jBJCXvp91C9H6G74oeDFd9BBrnc=
+github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1/go.mod h1:2bR7Z7TOq+iM32ZCpIgJcoJ0iqZQcEAu/h0nzPBh7mk=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
 github.com/xanzy/ssh-agent v0.3.3/go.mod h1:6dzNDKs0J9rVPHPhaGCukekBHKqfl+L3KghI1Bc68Uw=
 gitlab.com/cznic/cc/v4 v4.27.3 h1:r/bFvZWN3cxpGfBvAL/wrbjZ6qZ6x1mUKiqoj7wq7e0=
