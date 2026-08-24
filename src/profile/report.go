@@ -47,15 +47,11 @@ type CacheTotals struct {
 }
 
 // Report is the build profile serialized to build/profile.json and
-// $TMPDIR/go-toolchain-profile/profile.json.
-//
-// Schema (stable; versioned by the schema field): cache_outcomes tallies rows
-// per get outcome (hit-local/hit-remote/miss/unknown, where unknown means no
-// cache get was observed). cache_satisfied_pct is hits/(hits+misses)*100 over
-// rows with a known outcome. wall_ms_total sums per-action wall time without
-// folding out parallelism. web holds the remote tier's counters
-// (cache.WebSummary), absent with no web backend configured. actions is the
-// full join, sorted by wall time descending.
+// $TMPDIR/go-toolchain-profile/profile.json. Stable schema (versioned by the
+// Schema field): Outcomes tallies get outcomes; SatisfiedPct is
+// hits/(hits+misses)*100 over rows with a known outcome; WallMSTotal sums
+// per-action wall time without folding out parallelism; Web is absent with
+// no web backend configured; Actions is the full join, by wall time desc.
 type Report struct {
 	Schema          int               `json:"schema"`
 	Created         time.Time         `json:"created"`

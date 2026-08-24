@@ -68,29 +68,20 @@ func FixBogusDepsVersions(r runner.CommandRunner) error {
 	return nil
 }
 
-// resolveLatestVersionViaGit fetches the latest commit from a git repo's
-// default branch and builds a proper pseudo-version with its timestamp.
+// resolveLatestVersionViaGit builds a pseudo-version from the repo's
+// default-branch HEAD commit and its timestamp.
 func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, error) {
 	return resolveVersionViaGit(r, mod, "HEAD")
 }
 
 // resolveGitURLAndRef discovers mod's git repository and the ref's ls-remote
-// output in one pass. It tries the full module path as the git URL first,
-// then backs off one path segment at a time if that URL is not a reachable
-// repository at all. This handles a module in a subdirectory of its
-// repository (its import path is longer than the repo root), for any host,
-// with no hardcoded table of host shapes.
-//
-// Backoff triggers only on a git-level failure (ls-remote exits non-zero),
-// not when the URL is a repository but ref just doesn't exist there -- that
-// empty result is final.
-//
-// Resolving HEAD asks --symref, which also reports the branch it points at
-// (needed by an older go-toolchain reading go.mod); this rides the same
-// lookup for free.
-//
-// When every candidate fails, the FIRST error (the full module path) is
-// reported, since it describes what the caller actually asked for.
+// output in one pass, trying the full module path as the git URL first and
+// backing off one path segment at a time -- handling a module in a
+// subdirectory of its repository, for any host, with no hardcoded table.
+// Backoff triggers only on a git-level failure, not an empty (but reachable)
+// ls-remote result. Resolving HEAD asks --symref, also reporting the branch
+// it points at, for an older go-toolchain reading go.mod. On total failure,
+// the FIRST error (the full module path) is reported.
 func resolveGitURLAndRef(r runner.CommandRunner, mod, ref string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var firstErr error
@@ -248,9 +239,9 @@ func fetchAt(r runner.CommandRunner, mod, gitURL, fullHash string) (*gitCommit, 
 	return c, cleanup, nil
 }
 
-// moduleSubdir returns the directory mod occupies inside the repository whose
-// module-path prefix is root. A "/vN" suffix names no directory, so it is
-// trimmed first (github.com/org/repo/go/core/v2 lives in go/core).
+// moduleSubdir returns the directory mod occupies inside the repository
+// whose module-path prefix is root. A "/vN" suffix is trimmed first, since
+// it names no directory.
 func moduleSubdir(mod, root string) string {
 	prefix, pathMajor, ok := module.SplitPathVersion(mod)
 	if ok && pathMajor != "" {

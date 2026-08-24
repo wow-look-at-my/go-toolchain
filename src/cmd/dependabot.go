@@ -186,7 +186,7 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 	return nil
 }
 
-// selfRepository is the only repo exempt from dependency-graph submission: its smoke tests build in a throwaway module, pinned to this name only.
+// selfRepository is the only repo exempt from dependency-graph submission.
 const selfRepository = "wow-look-at-my/go-toolchain"
 
 // insideWorkspace reports whether the working directory is inside

@@ -48,9 +48,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vanityErr != nil {
 		return false, nil, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
 	}
-	// Removes the injected vanity replaces (and restores go.sum) on every return
-	// path, including early ones, so a failed tidy can't leave mirror replaces
-	// festering in the user's go.mod.
+	// Removes the injected vanity replaces on every return path.
 	defer func() {
 		_ = removeVanityReplaces(vanity)
 	}()
@@ -161,9 +159,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		vetStep.done()
 	}
 
-	// Vet is the last file-modifying stage; fail fast here. Vanity replaces are
-	// still active (removal deferred to return), so a real uncommitted change
-	// still fails while the toolchain's own transient go.mod mutation doesn't.
+	// Vet is the last file-modifying stage; fail fast here.
 	if err := checkDirtyInCIWithVanityRestored(vanity); err != nil {
 		return false, nil, err
 	}

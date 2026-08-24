@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	// forkTestify is the in-house fork with loosened numeric equality; testifycast preserves that behavior via explicit casts during migration.
+	// forkTestify is the in-house fork with loosened numeric equality.
 	forkTestify = "github.com/wow-look-at-my/testify/"
 	// upstreamTestify is the canonical, widely-audited module.
 	upstreamTestify = "github.com/stretchr/testify/"

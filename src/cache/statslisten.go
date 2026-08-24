@@ -19,7 +19,7 @@ const maxTrackedActions = 200_000
 // form cmd/go prints as ActionID in -debug-actiongraph dumps — the join key
 // for the build profile).
 type ActionOutcome struct {
-	// Get is the first GET outcome this run (hit-local, hit-remote, miss, or empty); first wins so a later warm re-fetch never hides the original miss.
+	// Get is the first GET outcome this run; first wins so a later warm re-fetch never hides the original miss.
 	Get string
 	// Put reports whether a NEW local put was recorded this run; a dedup re-put of an already-cached entry doesn't count.
 	Put   bool

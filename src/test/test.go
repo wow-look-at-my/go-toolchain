@@ -216,9 +216,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 			}
 		}
 	}
-	// An empty listing means the check itself didn't run (no go command executed),
-	// not that every gated file is unreachable -- reporting that would be a false
-	// positive from a guard that never looked.
+	// Empty means the check itself didn't run, not that every file is unreachable.
 	if seen.IsEmpty() {
 		logger.Warn("tests: skipped the build-tag reachability check -- `go list` reported no files at all, so nothing could be verified")
 		return nil

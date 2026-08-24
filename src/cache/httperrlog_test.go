@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newTestLogger returns a logger with a long flush interval, so flushing
-// happens only via Close. No tracer; tests needing spans build their own.
+// newTestLogger returns a logger that flushes only via Close. No tracer;
+// tests needing spans build their own.
 func newTestLogger(buf *bytes.Buffer) *httpErrLogger {
 	return newHTTPErrLogger(buf, time.Hour, nil)
 }

@@ -108,9 +108,8 @@ func GetTimeline() *summary.Timeline {
 	return pipelineTimeline
 }
 
-// step tracks progress for a build step: prints "⇒ label..." then " done. (Xs)".
-// A noisy step's done message starts on a new line with the label repeated.
-// Sub-steps (logSubStep) print indented "    label Xs" instead.
+// step tracks progress for a build step, printed as "⇒ label..." then
+// " done.". Sub-steps print "    label Xs" instead.
 type step struct {
 	label  string
 	thread string
@@ -191,9 +190,8 @@ func (s *step) failed() {
 	s.finish(colorRed + "failed!" + colorReset)
 }
 
-// timedLineWriter wraps a writer and appends elapsed time to each line. A line's
-// newline is deferred until the next content arrives, so its duration reflects
-// the wall-clock gap until the next line appeared.
+// timedLineWriter appends elapsed time to each line. A line's newline is
+// deferred until the next content, reflecting the gap until it appeared.
 type timedLineWriter struct {
 	target      io.Writer
 	buf         bytes.Buffer

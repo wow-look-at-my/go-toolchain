@@ -28,9 +28,8 @@ var wellKnownHosts = set.Of(
 	"gopkg.in",
 )
 
-// directMirrorHosts are hosts safe to rewrite a vanity module onto. They serve
-// plain git repos with no further indirection; other hosts are left alone since
-// rewriting would only swap one indirection for another.
+// directMirrorHosts are hosts safe to rewrite a vanity module onto: plain
+// git repos with no further indirection.
 var directMirrorHosts = set.Of(
 	"github.com",
 	"gitlab.com",
@@ -51,9 +50,7 @@ type vanityReplace struct {
 	NewVersion string
 }
 
-// vanityState holds the injected replaces plus a go.sum snapshot from before
-// injection, so removeVanityReplaces can undo go mod tidy's rewrite of go.sum
-// to the replacement path.
+// vanityState lets removeVanityReplaces undo tidy's rewrite of go.sum.
 type vanityState struct {
 	Replaces  []vanityReplace
 	OrigGoSum []byte
@@ -131,8 +128,7 @@ func isVanityHostReachable(host string) bool {
 func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
 	// Strategy 1: use go mod download -json via proxy to get Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
-	// Resolve outside the module dir, so this download does not pull in the main
-	// module's full requirement graph and risk failing on other vanity modules.
+	// Outside the module dir, so this can't pull in the full requirement graph.
 	cmd.Dir = os.TempDir()
 	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct", "GOWORK=off", "GOFLAGS=")
 	output, err := cmd.Output()
@@ -374,8 +370,7 @@ func removeVanityReplaces(state *vanityState) error {
 		}
 	}
 
-	// Collapse the empty replace slots DropReplace leaves behind, so go.mod
-	// returns to its original shape.
+	// Collapse the empty replace slots DropReplace leaves behind.
 	f.Cleanup()
 
 	newData, err := f.Format()

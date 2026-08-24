@@ -217,7 +217,7 @@ func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer b.Close()
-	// Force the synchronous single-PUT retry path so the 503-retry-then-store outcome is observable directly (batch retry is covered elsewhere).
+	// Force the single-PUT retry path so the 503-retry-then-store outcome is observable directly.
 	b.batchPutUnsupported.Store(true)
 
 	payload := largePayload(1024)

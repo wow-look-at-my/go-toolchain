@@ -47,14 +47,12 @@ func fingerprintEnv() []string {
 // fingerprintFlags is the root command's flag set, wired up in root.go's init.
 var fingerprintFlags *pflag.FlagSet
 
-// volatileEnv holds shell-rewritten vars excluded from the fingerprint, or every
-// invocation would look different.
+// volatileEnv holds shell-rewritten vars excluded from the fingerprint.
 var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
 
-// flagFingerprint renders every root flag as name=value, sorted. Every flag is
-// folded in, not a hand-picked subset, so a flag added later needs no update
-// here. It reads fingerprintFlags (set in root.go's init) rather than rootCmd
-// directly, because rootCmd's init reaches this via saveFingerprint.
+// flagFingerprint renders every root flag as name=value, sorted, so a flag
+// added later needs no update here. Reads fingerprintFlags rather than
+// rootCmd directly, since rootCmd's init reaches this via saveFingerprint.
 func flagFingerprint() string {
 	if fingerprintFlags == nil {
 		return ""
