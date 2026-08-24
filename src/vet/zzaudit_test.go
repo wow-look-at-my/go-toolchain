@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"golang.org/x/tools/go/analysis"
 )
@@ -18,15 +19,12 @@ import (
 // TestZZCommentSpanAudit is a scratch aid, not part of the committed suite:
 // it walks every real .go file in the repo and dumps every commentspan
 // warning to a local file, bypassing go-toolchain's own truncated console
-// output. Removed before commit.
+// output and the 200-entry EmittedWarnings retention cap (drained per file,
+// so no single file's warnings can push an earlier file's out). Removed
+// before commit.
 func TestZZCommentSpanAudit(t *testing.T) {
 	root, err := filepath.Abs("../..")
-	require := func(cond bool, msg string) {
-		if !cond {
-			t.Fatal(msg)
-		}
-	}
-	require(err == nil, "abs failed")
+	require.NoError(t, err)
 
 	var files []string
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -45,31 +43,35 @@ func TestZZCommentSpanAudit(t *testing.T) {
 		}
 		return nil
 	})
-	require(err == nil, "walk failed")
+	require.NoError(t, err)
 
-	resetCommentSpanWarnings()
-	logger.ResetWarnCount()
-	t.Cleanup(logger.ResetWarnCount)
-
-	fset := token.NewFileSet()
+	var all []string
 	for _, f := range files {
+		resetCommentSpanWarnings()
+		logger.ResetWarnCount()
+
+		fset := token.NewFileSet()
 		astFile, perr := parser.ParseFile(fset, f, nil, parser.ParseComments)
 		if perr != nil {
 			continue
 		}
 		pass := &analysis.Pass{Fset: fset, Files: []*ast.File{astFile}, Report: func(analysis.Diagnostic) {}}
 		_, _ = runCommentSpan(pass)
-	}
 
-	warnings := logger.EmittedWarnings()
-	sort.Slice(warnings, func(i, j int) bool { return warnings[i].Message < warnings[j].Message })
+		for _, w := range logger.EmittedWarnings() {
+			all = append(all, w.Message)
+		}
+	}
+	t.Cleanup(logger.ResetWarnCount)
+
+	sort.Strings(all)
 
 	var sb strings.Builder
 	sb.WriteString("files scanned: " + strconv.Itoa(len(files)))
-	sb.WriteString("\ndistinct warnings: " + strconv.Itoa(len(warnings)) + "\n\n")
-	for _, w := range warnings {
-		sb.WriteString(w.Message)
+	sb.WriteString("\ndistinct warnings: " + strconv.Itoa(len(all)) + "\n\n")
+	for _, msg := range all {
+		sb.WriteString(msg)
 		sb.WriteString("\n---\n")
 	}
-	require(os.WriteFile("/tmp/commentspan-audit.txt", []byte(sb.String()), 0o644) == nil, "write failed")
+	require.NoError(t, os.WriteFile("/tmp/commentspan-audit.txt", []byte(sb.String()), 0o644))
 }
