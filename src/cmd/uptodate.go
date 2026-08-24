@@ -30,18 +30,13 @@ func fingerprintFile() string {
 	return filepath.Join(dir, hex.EncodeToString(h[:])+".sha256")
 }
 
-// runEnv is the process environment as it stood when the run started. The
-// pipeline sets variables of its own as it goes — the cacheprog's socket paths
-// carry the PID — so hashing os.Environ() at save time would stamp a
-// fingerprint no later run could ever match, silently disabling the skip.
-// captureRunEnv is called once, at the top of the root PersistentPreRunE,
-// ahead of both isUpToDate and saveFingerprint.
+// runEnv is captured once at run start, before the pipeline sets its own PID-derived vars.
 var runEnv []string
 
 func captureRunEnv() { runEnv = os.Environ() }
 
-// fingerprintEnv returns the captured environment, falling back to the live one
-// for direct callers (tests) that never went through PersistentPreRunE.
+// fingerprintEnv returns the captured environment, or the live one for callers
+// that skipped PersistentPreRunE.
 func fingerprintEnv() []string {
 	if runEnv != nil {
 		return runEnv
@@ -52,23 +47,12 @@ func fingerprintEnv() []string {
 // fingerprintFlags is the root command's flag set, wired up in root.go's init.
 var fingerprintFlags *pflag.FlagSet
 
-// volatileEnv names variables the shell rewrites on every command line, which
-// nothing in a build can read as configuration: `_` holds the previous
-// command's last argument, OLDPWD the previous directory, SHLVL the shell
-// nesting depth. Without this every invocation would look different.
+// volatileEnv holds shell-rewritten vars excluded from the fingerprint.
 var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
 
-// flagFingerprint renders every root-command flag as name=value, sorted. A run
-// invoked differently is a different run: --generate executes go:generate
-// directives, --cgo changes what gets built, --count-generated changes what the
-// file-length check fails on, --benchtime changes what the benchmarks measure.
-// Every flag is folded in rather than a hand-picked subset, so a flag added
-// later is covered without anyone remembering to add it here.
-//
-// The flag set arrives through fingerprintFlags, assigned in root.go's init,
-// rather than as a direct rootCmd reference: rootCmd's own initializer reaches
-// run -> saveFingerprint -> computeFingerprint, so naming rootCmd here closes
-// that into an initialization cycle.
+// flagFingerprint renders every root flag as name=value, sorted, so a flag
+// added later needs no update here. Reads fingerprintFlags rather than
+// rootCmd directly, since rootCmd's init reaches this via saveFingerprint.
 func flagFingerprint() string {
 	if fingerprintFlags == nil {
 		return ""
@@ -94,11 +78,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	fmt.Fprintf(h, "output:%s\n", outputDir)
 	fmt.Fprintf(h, "flags:%s\n", flagFingerprint())
 
-	// The environment decides what a run does as surely as the sources do: an
-	// env-gated test or benchmark you just switched on is a different pipeline,
-	// and skipping it reports a green run that never executed the thing you
-	// turned on. Which variables a project's tests read is unknowable from
-	// here, so everything is folded in except what the shell churns.
+	// Folds in every var except shell noise, so flipping an env-gated test counts as a different run.
 	env := append([]string(nil), fingerprintEnv()...)
 	sort.Strings(env)
 	for _, kv := range env {
@@ -124,19 +104,9 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 			return nil
 		}
 		name := d.Name()
-		// .dats suites and their .golden snapshot files are pipeline inputs
-		// (the dats phase runs them), so editing one must bust the
-		// fingerprint or the "Up to date" fast-exit would skip the re-run.
-		// action.yml is one too: tests read it as data (handoffname_test.go
-		// asserts the hand-off name templates), and it is not reachable by
-		// //go:embed from a package two directories down, so without this an
-		// action.yml edit fast-exits "Up to date" and its assertions never
-		// re-run locally -- a false green until CI catches it.
-		// Everything under a testdata directory is a test input by convention —
-		// the go command ignores those directories precisely so tests can read
-		// them at run time. No //go:embed covers them, so without this a
-		// changed golden or fixture leaves the run reporting "Up to date" and
-		// the test that would now fail never runs.
+		// .dats/.golden files, action.yml (read as test data, not embed-reachable),
+		// and testdata/ (convention-ignored by go, so no embed covers it) are
+		// pipeline inputs the fast-exit would otherwise miss.
 		if strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".dats") ||
 			strings.HasSuffix(name, ".golden") || name == "go.mod" || name == "go.sum" ||
 			name == "action.yml" || name == "action.yaml" || underTestdata(path) {
@@ -163,12 +133,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 		f.Close()
 	}
 
-	// Fold in files pulled in by //go:embed. They are compile inputs to the
-	// embedding package (and to that package's test binary), so an embed-only
-	// change must bust the fingerprint even though no .go file changed —
-	// otherwise the top-level "Up to date" skip fires and the rebuilt embedded
-	// bytes (and the affected package's tests) are never re-run. An error here
-	// (e.g. a broken build) is propagated so the caller declines to short-circuit.
+	// //go:embed files are compile inputs too; an embed-only change must still bust the fingerprint.
 	embeds, err := embeddedFiles(r)
 	if err != nil {
 		return "", err
@@ -202,20 +167,15 @@ func underTestdata(path string) bool {
 // embeddedFiles returns the absolute paths of every file referenced by a
 // //go:embed directive in the main module's packages, de-duplicated and sorted.
 //
-// It shells out to `go list -test -json ./...` and lets go list resolve the
-// embed patterns the way the compiler does (globs, directory trees, the all:
-// prefix, quoted names, multiple patterns/lines), rather than parsing //go:embed
-// comments by hand. The -test flag is required: without it go list leaves
-// TestEmbedFiles and XTestEmbedFiles unresolved (null). ./... without -deps
-// keeps the scope to the main module — dependency embeds are already pinned
-// through go.mod/go.sum. GOCACHEPROG is cleared so go list doesn't spawn a
-// cacheprog child that inherits stdout and stalls the io.ReadAll below (the
-// same precaution the benchmark runner takes).
+// It shells out to `go list -test -json ./...`, letting go list resolve the
+// embed patterns (globs, directory trees, the all: prefix) instead of parsing
+// //go:embed comments by hand. -test is required, or TestEmbedFiles and
+// XTestEmbedFiles stay unresolved. ./... without -deps keeps the scope to the
+// main module. GOCACHEPROG is cleared so go list doesn't spawn a cacheprog
+// child that inherits stdout and stalls the io.ReadAll below.
 //
-// Note: this covers only files a //go:embed directive names. A file a test
-// reads at run time is picked up by the walk above when it lives under a
-// testdata directory; one that lives anywhere else, under no embed directive,
-// is still untracked.
+// Note: files read at run time from a testdata directory are covered by the
+// walk above; one living elsewhere with no embed directive stays untracked.
 func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	proc, err := runner.Cmd("go", "list", "-test", "-json", "./...").
 		WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
@@ -275,18 +235,12 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
-	// A dependency tracking a branch has an input the fingerprint cannot see:
-	// that branch's HEAD, which lives on a remote. Everything else this run
-	// consumes is a file, so hashing the tree is a complete answer for it --
-	// but a tracked require whose branch has moved is stale on a tree that has
-	// not changed at all, and the fast exit then skips the update whose whole
-	// job is to notice.
+	// A branch-tracked dep's HEAD lives on a remote; an unchanged tree can still be stale if that branch moved.
 	if trackedBranchDepsMoved(r) {
 		return false
 	}
 
-	// An unchanged tree can still predate the branch-tracking requirement, and
-	// the run that would add the markers is exactly the one being skipped here.
+	// An unchanged tree can predate branch-tracking; skipping here would skip the run that adds the markers.
 	if len(untrackedOrgDeps()) > 0 {
 		return false
 	}

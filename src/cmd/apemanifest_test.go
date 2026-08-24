@@ -28,8 +28,7 @@ func TestApeManifestEntries(t *testing.T) {
 	assert.Equal(t, []buildhostManifestEntry{{
 		File:      "mytool",
 		Platforms: []string{"linux/amd64", "darwin/arm64"},
-		// The APE lands under the plain name, so the served filename and the
-		// file are the same string.
+		// The APE lands under the plain name, so the served filename and the file are the same string.
 		Filename: "mytool",
 	}}, entries)
 }
@@ -38,8 +37,7 @@ func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
 	dir := t.TempDir()
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 
-	// A manifest naming a file that is not there fails the publish; catching
-	// it here says which artifact is missing instead.
+	// A manifest naming a file that is not there fails the publish; catching it here names the missing artifact.
 	_, err := apeManifestEntries(targets, dir, []buildPlatform{{OS: "linux", Arch: "amd64"}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mytool")
@@ -111,8 +109,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	require.NoError(t, runReleaseWithRunner(mock))
 
-	// Exactly one binary. Anything matching <name>_<os>_<arch> would be a
-	// duplicate copy of it.
+	// Exactly one binary; anything matching <name>_<os>_<arch> would be a duplicate copy.
 	entries, err := os.ReadDir(outDir)
 	require.NoError(t, err)
 	var binaries []string
@@ -183,8 +180,7 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 	platforms, _ := cosmoCfg.Env.Get(cosmoPlatformsEnv)
 	assert.Equal(t, "", platforms)
 
-	// The manifest still states where the binary runs, using the coverage a
-	// full APE actually has.
+	// The manifest still states where the binary runs, using the coverage a full APE actually has.
 	raw, err := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
 	require.NoError(t, err)
 	var m buildhostManifest
@@ -207,8 +203,7 @@ func TestHostRunnableArtifactFallsBackToTheAPE(t *testing.T) {
 	assert.Equal(t, native, hostRunnableArtifact(target, dir),
 		"a real native build wins over the APE")
 
-	// Neither present: the native path is returned so the caller reports the
-	// artifact it actually wanted.
+	// Neither present: the native path is returned so the caller reports the artifact it actually wanted.
 	require.NoError(t, os.Remove(ape))
 	require.NoError(t, os.Remove(native))
 	assert.Equal(t, native, hostRunnableArtifact(target, dir))

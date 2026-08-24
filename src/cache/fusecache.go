@@ -17,16 +17,8 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-// FuseCache is a LocalStore that keeps object bodies in append-only pack files
-// (a PackStore) and exposes them through a read-only FUSE mount.
-//
-// This is the "virtual filesystem over the JSON protocol." The GOCACHEPROG GET
-// response hands the Go toolchain a DiskPath, which the compiler opens itself —
-// but nothing requires that path to be a real file. FuseCache returns
-// DiskPath = <mnt>/<outputID>; when the compiler opens it, the kernel routes
-// the read to this process, which serves the bytes straight out of a pack file
-// via ReadAt. No loose file and no metadata sidecar is ever written per entry,
-// so the tiny-file explosion that dominates a build cache disappears.
+// FuseCache is a LocalStore backed by a PackStore, served through a read-only
+// FUSE mount: DiskPath is a real path, with no loose file per cache entry.
 type FuseCache struct {
 	store    *PackStore
 	mnt      string
@@ -56,17 +48,14 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 	}
 	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		lockFile.Close()
-		// Only a would-block means another live owner holds the lock (-> fall
-		// back to loose quietly). Anything else (EBADF, permissions, fs issues)
-		// is a real error worth surfacing rather than masking as "busy".
+		// EWOULDBLOCK means another live owner holds the lock: fall back to
+		// loose. Any other error is real and must surface, not read as "busy".
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, errFuseBusy
 		}
 		return nil, fmt.Errorf("fuse cache lock %s: %w", filepath.Join(cacheDir, fuseLockName), err)
 	}
-	// We hold the lock, so any mount still on mnt is stale (left by a crashed
-	// owner whose flock the kernel already released). Clear it before mounting.
-	// This unmount is safe precisely because we own the lock — no live owner.
+	// Holding the lock means any mount left on mnt is stale; clear it first.
 	_ = syscall.Unmount(mnt, unmountDetach)
 
 	if err := os.MkdirAll(mnt, 0o755); err != nil {
@@ -79,14 +68,7 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 		return nil, err
 	}
 
-	// Cache timeouts are tuned for a content-addressed store that only ever
-	// *grows* during a build:
-	//   - Positive entries are immutable, so cache them aggressively.
-	//   - Negative lookups must NOT be cached: a name absent now (a body not yet
-	//     produced) may exist moments later, and the compiler will re-open it.
-	//     Caching "not found" would make a freshly-Put body invisible for the
-	//     timeout window — exactly the ENOENT-on-compile bug a parallel build
-	//     triggers.
+	// Positive entries cache long (immutable); a miss must never cache.
 	entryTimeout := time.Hour
 	negativeTimeout := time.Duration(0)
 	root := &fuseRoot{store: store}
@@ -95,17 +77,11 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 		AttrTimeout:     &entryTimeout,
 		NegativeTimeout: &negativeTimeout,
 		MountOptions: fuse.MountOptions{
-			// DirectMount uses the mount(2) syscall (works as root, e.g. in
-			// containers); go-fuse falls back to the fusermount helper when
-			// that fails (works for non-root CI runners). Not Strict, so the
-			// fallback is allowed.
+			// mount(2) direct as root; falls back to fusermount for non-root runners.
 			DirectMount: true,
 			FsName:      "go-toolchain-cache",
 			Name:        "gtcache",
-			// Big reads + readahead: the compiler mmaps cached archives, so each
-			// page fault becomes a read here. Larger max_read and readahead let
-			// the kernel pull big chunks per round-trip, which is what keeps a
-			// warm (all-hits) build fast despite the FUSE indirection.
+			// Big max_read/readahead: the compiler mmaps archives, so each page fault reads here.
 			MaxWrite:      1 << 20,
 			MaxReadAhead:  1 << 20,
 			DisableXAttrs: true,
@@ -133,9 +109,8 @@ func (c *FuseCache) mountInfo() string {
 	return fmt.Sprintf("mount=%s packs=%d", c.mnt, c.store.Len())
 }
 
-// Get resolves actionID to a DiskPath inside the FUSE mount. The body is
-// integrity-checked first (see PackStore.GetVerified): a corrupt body is evicted
-// and reported as a miss rather than handed to the toolchain.
+// Get resolves actionID to a DiskPath inside the FUSE mount. A corrupt body
+// (see PackStore.GetVerified) is evicted and reported as a miss.
 func (c *FuseCache) Get(actionID string) (CacheMeta, bool) {
 	loc, ok := c.store.GetVerified(actionID)
 	if !ok {
@@ -172,10 +147,8 @@ func (c *FuseCache) Put(actionID, outputID string, body io.Reader) (string, erro
 	return filepath.Join(c.mnt, loc.outputID), nil
 }
 
-// PutIfAbsent stores body only if actionID is not already cached — see
-// LocalStore.PutIfAbsent. The absence check and the store are atomic in the
-// pack store, so a prefetched body can never displace an entry a concurrent
-// PUT just stored.
+// PutIfAbsent stores body only if actionID is uncached — see LocalStore.PutIfAbsent.
+// The check and store are atomic: a prefetch can't displace a concurrent PUT.
 func (c *FuseCache) PutIfAbsent(actionID, outputID string, body io.Reader) (bool, error) {
 	_, stored, err := c.store.PutIfAbsent(actionID, outputID, body)
 	return stored, err
@@ -194,11 +167,7 @@ func (c *FuseCache) StatsPtr() *CacheStats { return &c.store.Stats }
 func (c *FuseCache) Close() error {
 	var firstErr error
 	if c.server != nil {
-		// Try a clean unmount (fusermount helper), then the unmount(2) syscall
-		// (we're root where there's no helper), then a lazy detach. Wait() for
-		// the serve loop only if the mount actually came down — once /dev/fuse
-		// closes the loop returns; if every attempt failed, Wait() would block
-		// forever, so we skip it.
+		// Try a clean unmount, then unmount(2), then a lazy detach.
 		unmounted := false
 		if err := c.server.Unmount(); err == nil {
 			unmounted = true
@@ -230,19 +199,14 @@ type fuseRoot struct {
 var _ = (fs.NodeLookuper)((*fuseRoot)(nil))
 
 func (r *fuseRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-	// GetByOutputVerified, not GetByOutput: this is the path the compiler reads
-	// through, so the body's CRC is checked here before it is exposed. A corrupt
-	// body is evicted and reported as ENOENT (a miss) rather than handed to the
-	// toolchain — the serve-path counterpart to GetVerified on the GET RPC.
+	// Verified: the compiler reads through here, so a corrupt body must evict as ENOENT, not be served.
 	loc, ok := r.store.GetByOutputVerified(name)
 	if !ok {
 		return nil, syscall.ENOENT
 	}
 	out.Attr.Mode = 0o444
 	out.Attr.Size = uint64(loc.dataLen)
-	// A stable inode per outputID (content hash) makes the kernel's dentry/page
-	// caching coherent: the same body always maps to the same inode, so the
-	// FOPEN_KEEP_CACHE pages are never reused across distinct contents.
+	// A stable inode per outputID keeps kernel page caching coherent across opens.
 	stable := fs.StableAttr{Mode: fuse.S_IFREG, Ino: inoFor(name)}
 	child := r.NewInode(ctx, &fuseFile{store: r.store, loc: loc}, stable)
 	return child, 0
@@ -287,10 +251,7 @@ func (f *fuseFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint3
 }
 
 func (f *fuseFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
-	// Zero-copy: hand the kernel the pack fd + offset so it reads/splices the
-	// bytes directly, instead of copying them through the daemon. This is what
-	// keeps a warm, all-hits build fast despite the FUSE indirection — the
-	// compiler mmaps these archives, so every page fault is a read here.
+	// Zero-copy: hand the kernel the pack fd + offset instead of copying through the daemon.
 	fd, absOff, avail := f.store.fdForRead(f.loc, off)
 	if avail <= 0 {
 		return fuse.ReadResultData(nil), 0

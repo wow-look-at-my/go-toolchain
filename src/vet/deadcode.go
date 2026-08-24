@@ -83,13 +83,7 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 	return []*ASTFixes(nil), nil
 }
 
-// canonicalize returns the identity an object should be tracked and matched
-// under. A generic type's own method calling a sibling method on the same
-// receiver (e.g. minNode called from Min) resolves through go/types as an
-// instantiated *types.Func distinct from the one recorded at the method's
-// declaration; Origin() maps it back to that declaration. Without this, the
-// Uses-side object for such a call never equals the Defs-side object, and
-// every private helper a generic type's own methods call looks dead.
+// canonicalize maps a generic method's instantiated *types.Func back to its Origin(), so calls resolve consistently.
 func canonicalize(obj types.Object) types.Object {
 	if fn, ok := obj.(*types.Func); ok {
 		return fn.Origin()
@@ -156,8 +150,7 @@ func objectKind(obj types.Object) string {
 func isTestEntryPoint(name string) bool {
 	for _, prefix := range []string{"Test", "Benchmark", "Fuzz", "Example"} {
 		if strings.HasPrefix(name, prefix) {
-			// Must have uppercase letter or nothing after the prefix
-			// (e.g., "Test" alone is valid, "TestFoo" is valid, "Testfoo" is not).
+			// Must have an uppercase letter or nothing after the prefix ("Test" alone is valid, "Testfoo" is not).
 			rest := name[len(prefix):]
 			if rest == "" || rest[0] < 'a' || rest[0] > 'z' {
 				return true

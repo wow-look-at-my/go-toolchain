@@ -17,11 +17,9 @@ import (
 
 // Environment variables controlling gosmopolitan toolchain resolution.
 const (
-	// cosmoGorootEnv points at a local gosmopolitan build's GOROOT (the
-	// directory containing bin/go). When set, no download happens.
+	// cosmoGorootEnv points at a local gosmopolitan build's GOROOT (dir with bin/go); when set, no download happens.
 	cosmoGorootEnv = "GO_TOOLCHAIN_COSMO_GOROOT"
-	// cosmoBranchEnv selects which buildhost branch the gosmopolitan
-	// toolchain tarball is downloaded from. Default: master.
+	// cosmoBranchEnv selects the buildhost branch the gosmopolitan tarball downloads from; default master.
 	cosmoBranchEnv = "GO_TOOLCHAIN_COSMO_BRANCH"
 )
 
@@ -39,9 +37,7 @@ var (
 	cosmoGoVersionFunc       = cosmoGoVersion
 )
 
-// cosmoHostPlatform returns the platform whose gosmopolitan tarball can run
-// here: the HOST os (a cosmo fat APE reports runtime.GOOS=="cosmo" on every
-// host) plus runtime.GOARCH (always the host arch, even inside a fat APE).
+// cosmoHostPlatform returns the runnable platform: hostos.GOOS() (a fat APE reports "cosmo" via runtime.GOOS) plus runtime.GOARCH.
 func cosmoHostPlatform() (goos, goarch string) {
 	return hostos.GOOS(), runtime.GOARCH
 }
@@ -137,15 +133,8 @@ func cosmoGoVersion(root string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// cosmoCacheKey derives the cache directory name for a buildhost download.
-// buildhost's dl endpoint redirects to a static URL whose query carries the
-// resolved release version (v=<N>); that version makes a stable, collision
-// free cache key (v<N>). When the redirect cannot be probed or parsed, the
-// key falls back to the branch name: that copy is downloaded once and then
-// reused as long as it exists (no staleness detection) rather than paying a
-// large download on every run. Shared keying: both the gosmopolitan
-// toolchain bootstrap (this file) and the dats bootstrap (datsbootstrap.go)
-// key their caches with it — keep changes compatible with both.
+// cosmoCacheKey derives the cache dir: redirect version (v<N>) if probeable, else the branch
+// name. Shared with the dats bootstrap -- keep compatible.
 func cosmoCacheKey(dlURL, branch string) string {
 	if v := probeCosmoVersion(dlURL); v != "" {
 		return "v" + v
@@ -207,8 +196,7 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 		return err
 	}
 
-	// Mid-line progress fragment (completed below on the same line):
-	// bypasses the logger via rawStderr, see logging.go.
+	// Mid-line progress fragment, completed below; bypasses the logger via rawStderr (see logging.go).
 	fmt.Fprintf(rawStderr, "cosmo-bootstrap: downloading %s", dlURL)
 	dlStart := time.Now()
 	client := &http.Client{Timeout: cosmoDownloadTimeout}

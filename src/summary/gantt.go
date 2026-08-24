@@ -90,8 +90,7 @@ func RenderGantt(entries []TimelineEntry) string {
 
 	var sb strings.Builder
 	if err := ganttTemplate.Execute(&sb, chart); err != nil {
-		// The caller renders this into a summary, so say what broke there.
-		// Silence would read as "the pipeline recorded no timeline".
+		// Say what broke here; silence would read as "the pipeline recorded no timeline".
 		return fmt.Sprintf("gantt chart failed to render: %v\n", err)
 	}
 	return sb.String()

@@ -25,8 +25,7 @@ func Register(root *cobra.Command) {
 	root.AddCommand(installCmd)
 	root.AddCommand(benchCmd)
 
-	// Silent aliases — these accept "go-toolchain build" and "go-toolchain test"
-	// without error, mapping them to the default pipeline behavior.
+	// Silent aliases: accept "go-toolchain build"/"test", mapped to the default pipeline.
 	for _, name := range []string{"build", "test"} {
 		root.AddCommand(&cobra.Command{
 			Use:    name,

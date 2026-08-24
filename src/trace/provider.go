@@ -16,12 +16,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Shared tracer-provider plumbing used by every OTel emitter in
-// go-toolchain: the timeline exporter (export.go) and the cacheprog
-// WebBackend (src/cache). Before this existed, each of those built its
-// own TracerProvider with its own batcher and exporter, so a single
-// build produced two independent OTLP streams. A single shared provider
-// funnels everything through one batcher and one gzip'd HTTP POST.
+// Shared tracer-provider plumbing for every OTel emitter: one batcher, one gzip'd HTTP POST per build.
 
 var (
 	providerOnce    sync.Once
@@ -74,10 +69,7 @@ func Shutdown(ctx context.Context) error {
 }
 
 func buildProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
-	// The exporter construction is build-tag split: provider_otlp.go (!cosmo)
-	// returns the real OTLP/HTTP exporter; provider_otlp_cosmo.go degrades to
-	// a span-dropping no-op because the otlptracehttp exporter cannot compile
-	// for GOOS=cosmo (see that file for the TODO).
+	// Exporter construction is build-tag split: see provider_otlp.go and provider_otlp_cosmo.go.
 	otlp, err := newOTLPExporter(ctx)
 	if err != nil {
 		return nil, err
@@ -101,11 +93,8 @@ func buildProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
 		sdktrace.WithResource(res),
 	}
 
-	// If OTEL_TRACEPARENT advertises a root spanID (as enableCacheProg
-	// does before starting subprocesses), force the first root span we
-	// create — the "go-toolchain" timeline root — to adopt that exact
-	// spanID. Otherwise cacheprog's already-emitted spans point at a
-	// parent spanID that doesn't exist in the trace.
+	// If OTEL_TRACEPARENT names a root spanID, force our first root span to adopt it, so
+	// cacheprog's already-emitted spans have a real parent.
 	if sc := ExtractParentSpanContext(); sc.IsValid() {
 		opts = append(opts, sdktrace.WithIDGenerator(newRootIDGenerator(sc.TraceID(), sc.SpanID())))
 	}
@@ -133,11 +122,8 @@ func buildProviderResource(ctx context.Context) (*resource.Resource, error) {
 	return resource.New(ctx, resource.WithAttributes(attrs...))
 }
 
-// loggingExporter wraps an OTLP SpanExporter and prints a one-line
-// diagnostic per export so operators can confirm batching is working.
-// Wrapping at the exporter layer (rather than inside the batch
-// processor) means the log counts the number of spans that went out in
-// a single HTTP POST, which is the actually-interesting number.
+// loggingExporter wraps an OTLP SpanExporter and logs one line per export: the span count
+// per HTTP POST batch, not per span.
 type loggingExporter struct {
 	inner sdktrace.SpanExporter
 	w     interface {
@@ -163,9 +149,7 @@ func (e *loggingExporter) Shutdown(ctx context.Context) error {
 	return e.inner.Shutdown(ctx)
 }
 
-// Tracer returns a tracer from the shared provider, or a no-op tracer
-// if the provider is disabled. Nil-safe for callers that haven't yet
-// initialized the provider.
+// Tracer returns a tracer from the shared provider, or nil if the provider isn't initialized.
 func Tracer(name string) trace.Tracer {
 	if providerTP == nil {
 		return nil
@@ -173,12 +157,8 @@ func Tracer(name string) trace.Tracer {
 	return providerTP.Tracer(name)
 }
 
-// rootIDGenerator returns a pre-determined (traceID, spanID) pair the
-// first time NewIDs is called and generates fresh random IDs for every
-// subsequent call. The SDK invokes NewIDs exactly once per root span;
-// forcing the first root to use the IDs from OTEL_TRACEPARENT makes the
-// go-toolchain span the real parent of cacheprog's already-emitted
-// spans (which recorded that same spanID as their parent).
+// rootIDGenerator returns a fixed (traceID, spanID) once, then random IDs after, so the
+// first root span can adopt a given ID.
 type rootIDGenerator struct {
 	traceID trace.TraceID
 	spanID  trace.SpanID

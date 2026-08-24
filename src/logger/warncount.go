@@ -2,11 +2,7 @@ package logger
 
 import "sync"
 
-// MaxRecordedWarnings bounds how many DISTINCT warning messages are kept for
-// the gate's end-of-run recap. The distinct count itself is never bounded;
-// only the retained text is, so a pathological run cannot grow the slice
-// without limit. Callers report the difference between WarnCount and
-// len(EmittedWarnings) as the number of warnings not shown.
+// MaxRecordedWarnings bounds retained distinct warning text for the recap; the distinct count itself stays unbounded.
 const MaxRecordedWarnings = 200
 
 // Warning is one distinct emitted warning: the message text, and the number of
@@ -16,15 +12,8 @@ type Warning struct {
 	Count   int
 }
 
-// The budget gates on warnDistinct; warnTotal counts every emission.
-// warnIndex maps a message to its slot in warnMessages, or to -1 once the
-// retention cap is full. It keeps an entry either way, so a repeat of an
-// unretained warning still folds.
-//
-// Identity is the recorded text, byte for byte. Never normalize it, and never
-// drop WarnFile's "<file>: " prefix: one warning per file over a thousand
-// files would fold into one, and the budget would stop seeing it.
-// see docs/WARNINGS-GATE.md
+// warnIndex maps a message to its slot, or -1 past the cap, so a repeat still
+// folds. Never normalize the text. see docs/WARNINGS-GATE.md
 var (
 	warnMu       sync.Mutex
 	warnDistinct int64
@@ -60,8 +49,7 @@ func recordWarn(msg string) {
 }
 
 // WarnCount returns the number of DISTINCT Warn-level messages emitted so far
-// in this process (across all Logger instances, after level filtering). The
-// warnings budget gates on this number.
+// in this process. The warnings budget gates on this number.
 func WarnCount() int64 {
 	warnMu.Lock()
 	defer warnMu.Unlock()
@@ -69,17 +57,15 @@ func WarnCount() int64 {
 }
 
 // TotalWarnCount returns every Warn-level message emitted so far, repeats
-// included. The budget gates on WarnCount; the recap reports this number
-// beside it, so a folded repeat stays visible.
+// included, so a folded repeat stays visible in the recap.
 func TotalWarnCount() int64 {
 	warnMu.Lock()
 	defer warnMu.Unlock()
 	return warnTotal
 }
 
-// EmittedWarnings returns the retained distinct warnings in first-emission
-// order (at most MaxRecordedWarnings of them), each with its repeat count.
-// The result is a copy.
+// EmittedWarnings returns the retained distinct warnings (at most
+// MaxRecordedWarnings), in first-emission order, each with its repeat count.
 func EmittedWarnings() []Warning {
 	warnMu.Lock()
 	defer warnMu.Unlock()
@@ -88,9 +74,7 @@ func EmittedWarnings() []Warning {
 	return out
 }
 
-// ResetWarnCount zeroes the process-wide warning counters and discards the
-// retained warnings. Intended for tests, which share one process and would
-// otherwise observe each other's warnings.
+// ResetWarnCount zeroes the process-wide counters, for tests sharing one process.
 func ResetWarnCount() {
 	warnMu.Lock()
 	defer warnMu.Unlock()

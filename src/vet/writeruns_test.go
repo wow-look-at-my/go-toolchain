@@ -37,8 +37,7 @@ func runWriteRunsOn(t *testing.T, src string) []int {
 	_, err = runWriteRuns(pass)
 	require.NoError(t, err)
 
-	// WarnFile records the file it annotates ahead of the message, so the
-	// position the message itself carries is the LAST one in the text.
+	// WarnFile puts the file ahead of the message, so the message's own position is last.
 	var lines []int
 	for _, w := range logger.EmittedWarnings() {
 		msg := w.Message
@@ -299,8 +298,7 @@ func emit(b *strings.Builder) {
 	logger.ResetWarnCount()
 	t.Cleanup(logger.ResetWarnCount)
 
-	// TotalWarnCount is the number of EMISSIONS, which is what this check's own
-	// file:line deduplication governs. WarnCount folds repeated text, so it
+	// TotalWarnCount counts emissions; WarnCount folds repeated text, so it
 	// cannot tell one emission from four.
 	for range 4 {
 		_, err = runWriteRuns(pass)
@@ -308,8 +306,7 @@ func emit(b *strings.Builder) {
 	}
 	require.EqualValues(t, 1, logger.TotalWarnCount())
 
-	// A later vet run reports the site again: a second emission the reader
-	// sees, and the same text, so the warnings budget still counts one.
+	// A later run reports the site again: a second emission, same text, still counts as one.
 	resetWriteRunWarnings()
 	_, err = runWriteRuns(pass)
 	require.NoError(t, err)

@@ -18,8 +18,7 @@ func TestOutputIDMatches(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, want, got)
 
-	// Case-insensitive: an upper-cased id (e.g. mangled in a header round-trip)
-	// still matches.
+	// Case-insensitive: an upper-cased id still matches.
 	_, ok = outputIDMatches(strings.ToUpper(want), body)
 	require.True(t, ok)
 

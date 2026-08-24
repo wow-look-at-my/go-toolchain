@@ -238,10 +238,8 @@ func nopReader(s string) io.Reader {
 	return strings.NewReader(s)
 }
 
-// testOutputID returns the cache outputID for a body: its lowercase-hex
-// SHA-256, exactly as the go command derives it. Web-tier GETs verify the
-// served body against this id (see outputIDMatches), so any test that exercises
-// a cache hit must advertise the body's real hash, not an arbitrary string.
+// testOutputID is the cache outputID for a body: its lowercase-hex SHA-256,
+// which GETs verify against (see outputIDMatches).
 func testOutputID(data string) string {
 	sum := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(sum[:])
