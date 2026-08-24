@@ -344,8 +344,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	defer os.Chdir(oldWd)
 	setupMockProject()
 
-	// Set watermark to 52% — grace = 49.5, effective = min(80, 49.5) = 49.5
-	// 50 > 49.5 → should pass
+	// Watermark 52% -> grace 49.5, effective min(80, 49.5) = 49.5; 50 passes.
 	gotest.SetWatermark(".", 52.0)
 
 	mock := newTestPassMock(50)

@@ -255,9 +255,7 @@ func TestServer_Lock(t *testing.T) {
 	mu2 := srv.lock("key1")
 	require.True(t, mu1 == mu2, "same key must map to the same shard mutex")
 
-	// Distinct keys MAY share a shard (a collision only coarsens
-	// serialization, never correctness), but across many keys the fixed
-	// table must actually spread load over multiple shards.
+	// Keys may collide onto a shared shard (coarser serialization, still correct), but load must spread across shards.
 	shards := set.New[*sync.Mutex]()
 	for i := 0; i < 4*lockShards; i++ {
 		shards.Add(srv.lock(fmt.Sprintf("key-%d", i)))
