@@ -285,12 +285,10 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 	setupMockProject()
-	// Coverable statements + test results below are what make the empty
-	// profile "broken" rather than a legitimately zero-statement module.
+	// Coverable statements below are what make the empty profile "broken".
 	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
 
-	// Mock that reports a passing test but writes an empty coverage profile
-	// (just "mode: set"). This simulates broken coverage data collection.
+	// A passing test that writes an empty ("mode: set" only) coverage profile.
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "test") {
