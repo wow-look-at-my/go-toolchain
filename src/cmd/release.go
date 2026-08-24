@@ -169,9 +169,7 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 
 	// Interactive confirmation when not in CI
 	if os.Getenv("CI") == "" {
-		// Interactive confirmation prompt: must reach the real stderr at any
-		// log level, and the final line awaits input mid-line (no trailing
-		// newline) -- bypasses the logger via rawStderr, see logging.go.
+		// Must reach stderr at any level with no trailing newline; bypasses the logger via rawStderr.
 		fmt.Fprintf(rawStderr, "Release: %s\nCommits: %d\n"+
 			"Are you sure you want to tag and push %s? [y/N] ", tag, len(commits), tag)
 

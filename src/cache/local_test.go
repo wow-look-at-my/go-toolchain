@@ -66,8 +66,7 @@ func TestLocalCache_Overwrite(t *testing.T) {
 	_, err = lc.Put(actionID, casID([]byte("first")), bytes.NewReader([]byte("first")))
 	require.Nil(t, err)
 
-	// Memoize the first entry, then overwrite: the Put must invalidate the
-	// memo so the new content is re-verified and served.
+	// Memoize the first entry, then overwrite: Put must invalidate the memo so new content is re-verified and served.
 	_, miss := lc.Get(actionID)
 	require.False(t, miss)
 
@@ -91,8 +90,7 @@ func TestLocalCache_RefusesChecksumMismatch(t *testing.T) {
 
 	actionID := "0102030401020304010203040102030401020304010203040102030401020304"
 	body := []byte("the body that was supposed to be stored")
-	// Sidecar advertises the hash of the correct body, but a different body
-	// (here: empty — the exact poison the old PUT bug committed) is on disk.
+	// Sidecar advertises the correct body's hash, but an empty body (the exact poison the old PUT bug wrote) is on disk.
 	diskPath, err := lc.Put(actionID, casID(body), bytes.NewReader(nil))
 	require.Nil(t, err)
 

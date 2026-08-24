@@ -46,8 +46,7 @@ func TestParseCosmoPlatforms(t *testing.T) {
 			want:    []buildPlatform{{OS: "linux", Arch: "amd64"}},
 		},
 		{
-			// The set is what tells a consumer where the binary runs, so a
-			// platform whose runtime was never proven cannot be in it.
+			// The set tells a consumer where the binary runs, so an unproven platform cannot be in it.
 			name:    "unverified darwin/amd64 is refused",
 			entries: []string{"darwin/amd64"},
 			wantErr: "darwin-Intel runtime is unverified",

@@ -16,10 +16,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// batchPutManifest is the JSON manifest (first tar member) the client sends to
-// the server's /_batch/put endpoint. Each entry names a storage key and carries
-// the same metadata a single PUT sends as X-Cache-Meta-* headers, keyed by the
-// lowercased meta name without the prefix.
+// batchPutManifest: first tar member sent to /_batch/put; entries carry the same metadata as X-Cache-Meta-* headers.
 type batchPutManifest struct {
 	Entries []batchPutManifestEntry `json:"entries"`
 }
@@ -41,11 +38,7 @@ type batchPutResult struct {
 	Message string `json:"message,omitempty"`
 }
 
-// batchPutWindow is the default coalescing window for PUTs. It is slightly
-// longer than the GET window (batchCoalesceWait, 10ms): PUTs are fire-and-forget
-// and not on the build's critical path, so a wider window coalesces more objects
-// per tar for the same negligible latency cost. Override (e.g. from a test that
-// wants every Put to land in one batch) via GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS.
+// batchPutWindow: PUT coalescing window, wider than GETs since PUTs are fire-and-forget and off the critical path.
 const batchPutWindow = 50 * time.Millisecond
 
 // putWindow returns the effective coalescing window, honoring a per-process
@@ -210,8 +203,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	b.signRequest(httpReq)
 
 	b.Pool.Acquire()
-	// Retry the WHOLE tar on a transient failure honoring Retry-After; doRetryPUT
-	// rebuilds the body reader from the in-memory tarBytes on each attempt.
+	// Retry the WHOLE tar on a transient failure (honors Retry-After); doRetryPUT rebuilds the body reader each attempt.
 	resp, err := b.doRetryPUT(httpReq, tarBytes)
 	if err != nil {
 		b.Pool.Release()
@@ -275,8 +267,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 		return
 	}
 
-	// Index results by key. An object the server omitted from the results is
-	// treated as an error (claim rolled back) so a later run re-uploads it.
+	// Index results by key; an object the server omitted is treated as an error and its claim rolled back.
 	resultByKey := make(map[string]batchPutResult, len(parsed.Results))
 	for _, res := range parsed.Results {
 		resultByKey[res.Key] = res
@@ -294,9 +285,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 			// Server refused (module index); keep the claim, do NOT retry — the
 			// client already filters indexes so this is rare.
 		default:
-			// "error" or an absent/unknown result: roll back this object's claim
-			// so a later run re-uploads it. Other objects in the batch are
-			// unaffected.
+			// "error" or an absent/unknown result: roll back the claim so a later run re-uploads it.
 			b.removeClaimed(r.key)
 			if res.Message != "" {
 				logger.Warn("cacheprog: web batch put %s: server error: %s", shortID(r.actionID), res.Message)
@@ -327,8 +316,7 @@ func (b *WebBackend) putSingle(pr putReq) error {
 
 	b.Pool.Acquire()
 	httpStart := time.Now()
-	// doRetryPUT rebuilds the body reader (from the in-memory compressed bytes)
-	// on each attempt, honoring a 503 admission shed's Retry-After.
+	// doRetryPUT rebuilds the body reader each attempt, honoring a 503 admission shed's Retry-After.
 	resp, err := b.doRetryPUT(req, pr.compressed)
 	b.Pool.Release()
 	if b.Latency != nil && err == nil {

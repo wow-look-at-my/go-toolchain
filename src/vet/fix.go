@@ -110,9 +110,7 @@ func (f *ASTFixes) Fprint(w io.Writer) error {
 		return true
 	})
 
-	// Remove comments that were inside replaced nodes. These comments are
-	// orphaned after the replacement and would be placed incorrectly by
-	// the printer since their positions refer to code that no longer exists.
+	// Orphaned comments (positions refer to replaced code) would be placed wrong by the printer.
 	f.removeOrphanedComments()
 
 	return printer.Fprint(w, f.Fset, f.File)
@@ -165,9 +163,7 @@ func (f *ASTFixes) Apply(ed Editor) (bool, error) {
 		return false, err
 	}
 
-	// f.Fprint uses go/printer directly, which tab-aligns and applies gofmt's
-	// doc-comment smart-quote substitution. Canonicalize to gofmt style and undo
-	// the quote rewrite so the written file is exactly what RunGofmt would accept.
+	// Canonicalize to gofmt style and undo the printer's smart-quote substitution before writing.
 	wrote, err := ed.Apply(filename, canonicalizeGoSource(buf.Bytes()))
 	if err != nil {
 		return false, err

@@ -108,8 +108,7 @@ func TestDecodeActionHash_Bad(t *testing.T) {
 }
 
 // indexFixture serves /<bucket>/_index from an in-memory blob with proper
-// ETag/304 semantics. PUT/GET on object keys are no-ops/404s — this fixture
-// is only for exercising the index-fetch path.
+// ETag/304 semantics; PUT/GET on object keys are no-ops/404s.
 type indexFixture struct {
 	t       *testing.T
 	bucket  string

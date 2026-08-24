@@ -46,10 +46,8 @@ func HasCoverableStatements(dir string) bool {
 		if isGeneratedFile(path) {
 			return nil
 		}
-		// Honor build constraints so a tag-excluded file (never compiled,
-		// never instrumented) cannot count as coverable. An error means
-		// "can't classify" — treat the file as included, matching
-		// gomod.fileMatchesBuild.
+		// A tag-excluded file is never compiled, so it is not coverable. A match
+		// error means "can't classify"; include it (see fileMatchesBuild).
 		if matched, matchErr := build.Default.MatchFile(filepath.Dir(path), name); matchErr == nil && !matched {
 			return nil
 		}

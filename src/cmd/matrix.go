@@ -18,6 +18,7 @@ var (
 	releaseParallel int
 )
 
+
 func init() {
 	matrixCmd := &cobra.Command{
 		Use:   "matrix",
@@ -64,22 +65,11 @@ type buildJob struct {
 	srcPath    string
 	outputPath string
 	ldflags    string
-	// forkGoroot is the gosmopolitan toolchain GOROOT for jobs built with the
-	// fork: GOOS=cosmo fat-APE jobs and wasm (js/wasm, wasip1/wasm) jobs.
-	// Empty for normal jobs, which build with the go on PATH.
+	// forkGoroot is the gosmopolitan GOROOT for fat-APE/wasm jobs; empty for normal jobs (go on PATH).
 	forkGoroot string
-	// cacheNamespace is the cache key namespace for fork-toolchain jobs — a
-	// content hash of the toolchain at forkGoroot (forkToolchainCacheNamespace),
-	// exported to the build as GO_TOOLCHAIN_CACHE_NAMESPACE so its cacheprog
-	// scopes every cache key to this exact toolchain build. REQUIRED whenever
-	// forkGoroot is set (runBuild refuses a fork job without it): an
-	// un-namespaced fork build would share action keys with other fork
-	// toolchain builds and reopen cross-build cache poisoning. Empty for
-	// normal jobs, whose toolchains have properly version-keyed tool IDs.
+	// cacheNamespace scopes cache keys per fork toolchain; required with forkGoroot or builds share keys and poison the cache.
 	cacheNamespace string
-	// cosmoPlatforms is the GOCOSMOPLATFORMS value for a fat-APE job: the
-	// host platforms the APE must cover. Empty leaves the variable unset,
-	// which is the fork's everything-default.
+	// cosmoPlatforms is GOCOSMOPLATFORMS for a fat-APE job; empty leaves it unset (the fork's everything-default).
 	cosmoPlatforms string
 }
 
@@ -91,9 +81,7 @@ type buildResult struct {
 
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
-	// Collect per-action build profiles for every cross-compile target. The
-	// matrix path has no Chrome trace, but the deferred capture still parses
-	// and stashes the graphs so printCacheStats can emit the final report.
+	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for printCacheStats.
 	initBuildProfile()
 	defer captureProfileTrace()
 	r := runner.New()
@@ -121,8 +109,6 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Warnings budget: fail the run — after every phase has completed and
-	// every warning has been printed — when it emitted more than maxWarnings
-	// warnings (same gate as the default pipeline).
+	// Fails the run once every phase has printed if warnings exceed maxWarnings (same gate as the default pipeline).
 	return checkWarningsGate()
 }

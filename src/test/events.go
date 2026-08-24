@@ -30,11 +30,7 @@ type coverageHandler struct {
 	timedOut    set.Set[string]     // tests that timed out
 	onOutput    func()              // called before the first visible output
 	stderrLines []string            // panics and other stderr noise
-	// buildOutput holds compiler/linker diagnostics. `go test -json` reports
-	// those as "build-output" events carrying ImportPath and an EMPTY Package,
-	// so they match neither the ActionOutput branch below nor any per-package
-	// buffer -- which is how a build failure used to print as a bare
-	// "FAIL <pkg> [build failed]" with the actual error nowhere on screen.
+	// buildOutput holds compiler/linker diagnostics from empty-Package build-output events (unmatched otherwise).
 	buildOutput []string
 	testCases   []TestCaseResult // per-test results for CI summary
 	timeline    TimelineRecorder // pipeline timeline for per-test spans

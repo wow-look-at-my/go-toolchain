@@ -15,9 +15,7 @@ import (
 )
 
 const (
-	// forkTestify is the in-house fork that loosened numeric equality. We are
-	// migrating off it back to upstream; the cast-inserting analyzer
-	// (testifycast) preserves the loose-equality behavior with explicit casts.
+	// forkTestify is the in-house fork with loosened numeric equality.
 	forkTestify = "github.com/wow-look-at-my/testify/"
 	// upstreamTestify is the canonical, widely-audited module.
 	upstreamTestify = "github.com/stretchr/testify/"
@@ -76,8 +74,7 @@ func FixTestifyImports(ed Editor) (bool, error) {
 		return false, err
 	}
 
-	// Sync the module graph only after we actually rewrote files, so upstream
-	// testify is the required module and any vendor tree stays consistent.
+	// Sync only after rewriting files, so upstream testify is required and any vendor tree stays consistent.
 	if anyWrote {
 		if err := syncModuleGraph(); err != nil {
 			return anyWrote, err
@@ -95,8 +92,7 @@ func renderTestifyImports(filename string) ([]byte, []importRewrite, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		// Unparseable file: the type-check/go vet pass reports the syntax error
-		// with a proper location; don't surface it here as an import problem.
+		// Unparseable: the vet pass reports the syntax error with a location; don't surface it here too.
 		return nil, nil, nil
 	}
 
@@ -118,9 +114,7 @@ func renderTestifyImports(filename string) ([]byte, []importRewrite, error) {
 	if err := printer.Fprint(&buf, fset, f); err != nil {
 		return nil, nil, err
 	}
-	// go/printer tab-aligns and rewrites doc-comment quotes; canonicalize to
-	// gofmt style and restore literal quotes so the rewritten file is what
-	// RunGofmt expects.
+	// go/printer tab-aligns and rewrites quotes; canonicalize to gofmt style so the output matches RunGofmt's expectations.
 	return canonicalizeGoSource(buf.Bytes()), changes, nil
 }
 

@@ -242,8 +242,7 @@ func TestInitSubprocess(t *testing.T) {
 
 	t.Setenv("GITHUB_ACTIONS", "true")
 
-	// The subprocess logger writes through the indirect stdout/stderr
-	// writers, so swap the real os.Stdout/os.Stderr for pipes.
+	// The subprocess logger writes through indirect writers; swap in pipes.
 	origStdout, origStderr := os.Stdout, os.Stderr
 	outR, outW, err := os.Pipe()
 	require.NoError(t, err)

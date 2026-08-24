@@ -140,8 +140,7 @@ func TestEnsureCosmoToolchainDownloadsAndCaches(t *testing.T) {
 	got, err := EnsureCosmoToolchain()
 	require.NoError(t, err)
 
-	// Cached under the buildhost version from the redirect (v42), extracted
-	// with the tarball's top-level go/ dir as the GOROOT.
+	// Cached under the buildhost redirect version (v42), using the tarball's top-level go/ dir as GOROOT.
 	assert.Equal(t, filepath.Join(cacheDir, "cosmo", "v42", "go"), got)
 	assert.FileExists(t, filepath.Join(got, "bin", "go"))
 	assert.Equal(t, int32(1), downloads.Load())
@@ -188,8 +187,7 @@ func TestEnsureCosmoToolchainFallsBackToBranchKey(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
-		// No redirect: the endpoint serves the tarball directly, so the
-		// version probe finds no Location to parse.
+		// No redirect: serves the tarball directly, so the version probe finds no Location header.
 		w.Write(tarball)
 	})
 	srv := httptest.NewServer(mux)

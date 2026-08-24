@@ -75,14 +75,7 @@ func RunGofmt(ed Editor) (bool, error) {
 	return anyWrote, nil
 }
 
-// gofmt's doc-comment formatter (go/doc/comment, run since Go 1.19 whenever
-// go/printer reformats a top-level doc comment) rewrites TeX-style quote
-// digraphs into Unicode "smart" quotes: a doubled backtick becomes U+201C
-// (left double quote) and a doubled apostrophe becomes U+201D (right double
-// quote). That silently rewrites literal ASCII an author typed -- e.g. a POSIX
-// shell single-quote escape sequence has its doubled apostrophe turned into one
-// U+201D, which is wrong -- and turns an ASCII-only file into multi-byte UTF-8.
-// The values use \u escapes so this file itself stays printable ASCII.
+// gofmt turns doubled backtick/apostrophe into curly quotes; \u escapes here keep the file ASCII.
 const (
 	docQuoteLeft  = "\u201c" // gofmt synthesizes this from a doubled backtick
 	docQuoteRight = "\u201d" // gofmt synthesizes this from a doubled apostrophe
@@ -135,16 +128,7 @@ func revertDocCommentSmartQuotes(formatted []byte) []byte {
 	return b.Bytes()
 }
 
-// canonicalizeGoSource turns printed -- the raw output of go/printer for a
-// rewritten AST -- into gofmt-canonical bytes. go/printer's default mode uses
-// tabs for both indentation AND alignment, so this reruns go/format to restore
-// the canonical "tabs to indent, spaces to align" style (plus import sorting and
-// number normalization), then reverts gofmt's doc-comment smart-quote
-// substitution. Every vet rewriter routes its output through this so they all
-// emit identical canonical formatting and never corrupt literal quotes in
-// comments. If printed does not parse (an unexpected, transient bad render) the
-// revert is a no-op and printed is returned, leaving the unparseable file for go
-// vet to report rather than making it worse.
+// canonicalizeGoSource turns go/printer output into gofmt-canonical bytes and reverts gofmt's smart-quote substitution; unparseable input returns unchanged.
 func canonicalizeGoSource(printed []byte) []byte {
 	formatted, err := format.Source(printed)
 	if err != nil {

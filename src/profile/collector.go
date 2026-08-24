@@ -15,9 +15,7 @@ import (
 	"sync/atomic"
 )
 
-// Collector accumulates the -debug-actiongraph dump files produced by the go
-// build/test invocations of one go-toolchain run. Safe for concurrent use
-// (matrix builds request dump paths from parallel workers).
+// Collector accumulates -debug-actiongraph dumps from one run's go invocations; safe for concurrent use.
 type Collector struct {
 	mu    sync.Mutex
 	dir   string
@@ -41,8 +39,7 @@ func (c *Collector) GraphArg() string {
 	}
 	c.seq++
 	path := filepath.Join(c.dir, fmt.Sprintf("actiongraph-%d-%d.json", os.Getpid(), c.seq))
-	// Drop any stale file from a previous run of this pid so a go invocation
-	// that fails before dumping can never join last run's graph.
+	// Drop any stale file from a previous run of this pid, so a failed invocation never joins last run's graph.
 	os.Remove(path)
 	c.files = append(c.files, path)
 	return "-debug-actiongraph=" + path
@@ -55,17 +52,13 @@ func (c *Collector) Files() []string {
 	return append([]string(nil), c.files...)
 }
 
-// active is the process-wide collector consulted by the argv injection sites
-// (src/cmd runBuild, src/test RunTests) via the package-level GraphArg. Nil
-// when profiling is disabled (--no-profile, or a command that doesn't build).
+// active is the process-wide collector the argv injection sites use via GraphArg; nil when profiling is off.
 var active atomic.Pointer[Collector]
 
 // SetActive installs (or, with nil, clears) the process-wide collector.
 func SetActive(c *Collector) { active.Store(c) }
 
-// GraphArg returns the -debug-actiongraph flag for a new go invocation, or ""
-// when no collector is active. This is the hook the build/test argv
-// constructors call, so they need no plumbing or awareness of profiling state.
+// GraphArg returns the -debug-actiongraph flag for a new invocation, or "" with no active collector.
 func GraphArg() string {
 	c := active.Load()
 	if c == nil {

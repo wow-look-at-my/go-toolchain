@@ -8,11 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// The authoritative signal outranks every probe. This is the seam
-// runtime.CosmoHostOS() plugs into: the fork's rt0 sets __hostos from the APE
-// boot path and dispatches every syscall on it, so unlike uname (ENOSYS on
-// darwin) and the filesystem probes (deniable by a sandbox) it cannot be wrong
-// or unavailable. Until it lands, the probes are all there is.
+// The authoritative signal outranks every probe: unlike uname (ENOSYS on
+// darwin) and the filesystem probes (deniable by a sandbox), it cannot be
+// wrong or unavailable.
 func TestHostSignalOutranksTheProbes(t *testing.T) {
 	old := hostSignalFunc
 	hostSignalFunc = func() string { return "darwin" }

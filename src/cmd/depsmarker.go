@@ -10,19 +10,10 @@ import (
 // choice. Each rides either the require line or, for a fork consumed through a
 // replacement, the replace line.
 const (
-	// autoBranchMarker follows the module's DEFAULT branch, resolved on every
-	// run. Bare, it names no branch at all -- which is the point: a branch's
-	// name lives on the remote, and a copy of it in go.mod is one more thing
-	// that goes stale the day the default branch is renamed. "=<branch>" names
-	// a different branch deliberately.
-	//
-	//	require github.com/wow-look-at-my/foo v0.0.0-... // go-toolchain:auto-branch
-	//	require github.com/wow-look-at-my/bar v0.0.0-... // go-toolchain:auto-branch=v1
+	// autoBranchMarker follows the module's DEFAULT branch (bare) or a named branch via "=<branch>"; resolved every run.
 	autoBranchMarker = "go-toolchain:auto-branch"
 
-	// legacyBranchMarker is the original spelling. It is still READ, so an
-	// unmigrated go.mod resolves correctly, and EnforceOrgBranchTracking
-	// rewrites it into the form above.
+	// legacyBranchMarker is the old spelling; still read, and EnforceOrgBranchTracking migrates it to the form above.
 	legacyBranchMarker = "go-toolchain:branch="
 )
 
@@ -30,11 +21,9 @@ const (
 type marker struct {
 	// tracks is true when either marker above is present.
 	tracks bool
-	// branch names the branch to follow. Empty with tracks set means the
-	// module's default branch, whatever it is called today.
+	// branch names the branch to follow; empty with tracks set means the module's current default branch.
 	branch string
-	// legacy is true for the old branch= spelling, which is what tells
-	// EnforceOrgBranchTracking there is something to migrate.
+	// legacy is true for the old branch= spelling, telling EnforceOrgBranchTracking there is something to migrate.
 	legacy bool
 }
 
@@ -70,9 +59,7 @@ func markerValue(rest string) string {
 	return fields[0]
 }
 
-// ref is the git ref this marker resolves against. A marker naming no branch
-// resolves HEAD, which IS the default branch and costs no extra lookup to
-// follow.
+// ref is the git ref this marker resolves against; naming no branch resolves HEAD (the default branch, no extra lookup).
 func (m marker) ref() string {
 	if m.branch == "" {
 		return "HEAD"
@@ -96,10 +83,8 @@ func (m marker) comment() string {
 	return autoBranchMarker
 }
 
-// trackedBranch reports the branch a line follows, or "" when it follows no
-// branch -- either because it carries no marker at all, or because it follows
-// the module's default branch, which names none. Callers that have to tell
-// those apart use parseMarker.
+// trackedBranch reports the followed branch, or "" for no marker or a default branch.
+// Callers telling those apart use parseMarker.
 func trackedBranch(line *modfile.Line) string {
 	return parseMarker(line).branch
 }

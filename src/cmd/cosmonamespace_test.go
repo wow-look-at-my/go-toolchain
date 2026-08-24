@@ -47,8 +47,7 @@ func TestForkToolchainCacheNamespace(t *testing.T) {
 	assert.Equal(t, base, fingerprintGoroot(t, baseFakeGorootFiles()),
 		"identical toolchain content must produce the identical namespace")
 
-	// A one-byte compiler difference — with the SAME version string, the
-	// exact incident shape — must change the namespace.
+	// A one-byte compiler difference, same version string, must change the namespace.
 	changed := baseFakeGorootFiles()
 	changed["pkg/tool/linux_amd64/compile"] = "compile binary content!"
 	assert.NotEqual(t, base, fingerprintGoroot(t, changed),

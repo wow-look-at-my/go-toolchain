@@ -10,17 +10,9 @@ import (
 	"strings"
 )
 
-// GOOS=cosmo (gosmopolitan) counts as `unix`, but the fork's stdlib syscall
-// package exposes no {Get,Set,Remove}xattr wrappers and golang.org/x/sys/unix
-// has no cosmo port — and a fat APE also lands on hosts (Windows via the
-// embedded payload aside, e.g. some macOS setups) where native xattr support
-// varies. So under cosmo the watermark is stored in a hidden sidecar file
-// NEXT TO the target instead: for target /a/b the attribute `attr` lives at
-// /a/.b.xattr.<sanitized attr>. Placing the sidecar in the target's PARENT
-// keeps it out of the target directory itself — the watermark target is the
-// module root, and a file inside it would show up in `git status` and trip
-// the pipeline's dirty-tree checks. Get/set/remove semantics (including the
-// "not found" path) mirror the windows ADS variant in xattr_windows.go.
+// cosmo has no native xattr syscalls, so the watermark for /a/b lives in a
+// sidecar file /a/.b.xattr.<attr> in the PARENT dir, keeping it out of the
+// module-root target dir and `git status`. Semantics mirror xattr_windows.go.
 
 // sidecarPath returns the sidecar file path holding attr for path.
 func sidecarPath(path, attr string) (string, error) {
