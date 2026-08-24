@@ -63,8 +63,8 @@ func Init(opts Options) *Logger {
 }
 
 // InitSubprocess is for a subprocess whose stdout is a protocol channel, e.g. cacheprog's
-// GOCACHEPROG JSON stream. Every message routes to stderr, and GHA annotations stay off, since
-// writing "::warning"/"::error" to Stdout would corrupt the protocol.
+// GOCACHEPROG JSON stream. Every message routes to stderr; GHA annotations stay off so
+// "::warning"/"::error" text cannot corrupt the protocol.
 func InitSubprocess(level Level) *Logger {
 	return Init(Options{
 		Level:  level,

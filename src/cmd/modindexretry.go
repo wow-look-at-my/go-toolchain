@@ -10,22 +10,15 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// corruptIndexMarker is the error cmd/go prints when a Go module index blob
-// read back from the build cache cannot be parsed (cmd/go/internal/modindex's
-// errCorrupt). The module index travels through the GOCACHEPROG like any other
-// cache object, but unlike a compiled package it carries no build id and does
-// not bind to its action key, so a damaged or mis-keyed entry passes every
-// content gate the cacheprog can apply and only fails here — aborting all
-// package loading (observed: CI run 29564502887, `go mod tidy` dying with
-// `golang.org/x/exp/slices: corrupt index` on a warm cache).
+// corruptIndexMarker is cmd/go's error for an unparseable cached module index;
+// it carries no build id, so a damaged entry passes every cacheprog content gate and only fails here.
 const corruptIndexMarker = "corrupt index"
 
 // tailBufferCap bounds how much subprocess stderr tailBuffer retains.
 const tailBufferCap = 64 << 10
 
-// tailBuffer captures the tail (last tailBufferCap bytes) of a stream so an
-// error handler can inspect what a subprocess printed without holding
-// unbounded output in memory.
+// tailBuffer captures a stream's last tailBufferCap bytes, so an error
+// handler can inspect subprocess output without holding it unbounded.
 type tailBuffer struct {
 	buf []byte
 }
@@ -40,9 +33,8 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 
 func (t *tailBuffer) String() string { return string(t.buf) }
 
-// disableGoModuleIndex turns off cmd/go's module index (GODEBUG=goindex=0)
-// for this process and everything it spawns. The index is a purely derived
-// cache: disabling it costs a slower package scan, never correctness.
+// disableGoModuleIndex turns off cmd/go's module index for this process and
+// its children. The index is purely derived: disabling it only slows scans.
 func disableGoModuleIndex() {
 	godebug := os.Getenv("GODEBUG")
 	if godebug != "" {
