@@ -41,9 +41,7 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 	// Packages exist but no statements were measured.
 	if totalUncovered == 0 && len(report.Packages) > 0 {
 		if !gotest.HasCoverableStatements(".") {
-			// Nothing `go test -cover` could ever measure here (e.g. the
-			// module only embeds assets or declares types/constants).
-			// 0-of-0 statements is complete, not broken.
+			// Nothing to measure here (embed-only or declarations-only module); 0-of-0 is complete, not broken.
 			if !quiet {
 				logger.Info("⇒ No coverable statements in this module — nothing to measure, skipping coverage check")
 			}

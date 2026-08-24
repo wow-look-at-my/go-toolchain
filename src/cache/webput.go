@@ -136,15 +136,13 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		metadata:   meta,
 	}
 
-	// No batch endpoint (learned from an earlier 404/405): fall back to the per-object
-	// single-PUT path, keeping the client working against an un-upgraded server.
+	// No batch endpoint (learned from an earlier 404/405): fall back to the single-PUT path.
 	if b.batchPutUnsupported.Load() {
 		queued = true // putSingle owns the claim from here on.
 		return b.putSingle(pr)
 	}
 
-	// Enqueue onto the coalescer, which now owns the claim: kept on stored/conflict/dropped,
-	// rolled back on a per-object or whole-batch failure.
+	// Enqueue onto the coalescer, which now owns the claim, until a per-object or whole-batch failure rolls it back.
 	select {
 	case b.putBatchReqCh <- pr:
 		queued = true

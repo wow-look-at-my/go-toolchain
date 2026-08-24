@@ -6,9 +6,8 @@ import (
 	"strings"
 )
 
-// escapeGHAData escapes a workflow-command message: % first (so escapes below
-// are not re-escaped), then CR and LF, so a multi-line message annotates
-// intact instead of truncating to its first line.
+// escapeGHAData escapes % first (so escapes below aren't re-escaped), then
+// CR/LF, so a multi-line message annotates intact.
 func escapeGHAData(s string) string {
 	s = strings.ReplaceAll(s, "%", "%25")
 	s = strings.ReplaceAll(s, "\r", "%0D")
@@ -35,14 +34,14 @@ func emitGHA(w io.Writer, command, file, msg string) {
 	}
 }
 
-// EmitGHAWarning writes a ::warning workflow command to w (must be stdout
-// for the runner to parse it). If file is non-empty, it names the annotated file.
+// EmitGHAWarning writes a ::warning command to w (stdout, for the runner).
+// If file is non-empty, it names the annotated file.
 func EmitGHAWarning(w io.Writer, file, msg string) {
 	emitGHA(w, "warning", file, msg)
 }
 
-// EmitGHAError writes a ::error workflow command to w (must be stdout for
-// the runner to parse it). If file is non-empty, it names the annotated file.
+// EmitGHAError writes a ::error command to w (stdout, for the runner).
+// If file is non-empty, it names the annotated file.
 func EmitGHAError(w io.Writer, file, msg string) {
 	emitGHA(w, "error", file, msg)
 }

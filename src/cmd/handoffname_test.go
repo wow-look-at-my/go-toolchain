@@ -66,8 +66,7 @@ func TestHandoffNameTemplates(t *testing.T) {
 	assert.False(t, perJob.ContinueOnError,
 		"the authoritative hand-off must fail loudly, never absorb a save conflict")
 
-	// The deprecated bare alias: unchanged, and tolerated-on-failure because
-	// the bare key is inherently racy in multi-producer runs.
+	// The deprecated bare alias: tolerated-on-failure since it is racy in multi-producer runs.
 	assert.Equal(t, legacyHandoffName, alias.With["name"])
 	assert.True(t, alias.ContinueOnError,
 		"the racy legacy alias must not fail the job on a save conflict")
@@ -88,8 +87,6 @@ func TestHandoffDeprecationNoticeNamesTheSavedHandoff(t *testing.T) {
 	}
 	require.NotNil(t, notice, "the legacy alias must keep its deprecation notice")
 
-	// The notice tells consumers which per-job hand-off replaced the bare
-	// alias; it must name exactly what the per-job step saves, or the
-	// migration hint drifts from reality.
+	// The notice must name exactly what the per-job step saves, or the migration hint drifts from reality.
 	assert.Contains(t, notice.Run, handoffNameTemplate)
 }

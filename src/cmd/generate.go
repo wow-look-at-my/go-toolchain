@@ -368,8 +368,7 @@ func prefixOutput(output string) string {
 // maxPendingLine bounds a pending, newline-less line (e.g. a \r progress bar).
 const maxPendingLine = 32 << 10
 
-// streamPrefixWriter is prefixOutput's live counterpart: generate directives
-// write through it so output reaches the console and watchdog while running.
+// streamPrefixWriter is prefixOutput's live counterpart, used while a command runs.
 type streamPrefixWriter struct {
 	pending []byte
 }
