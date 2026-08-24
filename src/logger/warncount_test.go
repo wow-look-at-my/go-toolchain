@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,17 +51,24 @@ func TestWarnCountIgnoresOtherLevels(t *testing.T) {
 	assert.Equal(t, int64(0), WarnCount())
 }
 
-// TestResetWarnCount verifies the reset helper zeroes the counter.
+// TestResetWarnCount verifies the reset helper zeroes both counters and the
+// deduplication set, so a repeat after a reset counts again.
 func TestResetWarnCount(t *testing.T) {
 	ResetWarnCount()
 
 	l, _, _ := captureLogger(LevelInfo, false)
 	l.Warn("one")
 	l.Warn("two")
+	l.Warn("two")
 	assert.Equal(t, int64(2), WarnCount())
+	assert.Equal(t, int64(3), TotalWarnCount())
 
 	ResetWarnCount()
 	assert.Equal(t, int64(0), WarnCount())
+	assert.Equal(t, int64(0), TotalWarnCount())
+
+	l.Warn("two")
+	assert.Equal(t, int64(1), WarnCount())
 }
 
 // TestEmittedWarningsRetainsMessages verifies that the text of every emitted
@@ -75,7 +83,77 @@ func TestEmittedWarningsRetainsMessages(t *testing.T) {
 	l.WarnFile("main.go", "second")
 	l.WithSubsystem("cache").Warn("third")
 
-	assert.Equal(t, []string{"first 1", "main.go: second", "cache: third"}, EmittedWarnings())
+	want := []Warning{
+		{Message: "first 1", Count: 1},
+		{Message: "main.go: second", Count: 1},
+		{Message: "cache: third", Count: 1},
+	}
+	assert.Equal(t, want, EmittedWarnings())
+}
+
+// TestWarnCountFoldsRepeats verifies the budget counts DISTINCT messages: one
+// root cause that repeats per file or per retry must not spend the whole
+// budget. The repeats are still emitted, still totalled, and carried on the
+// retained warning so the recap can name them.
+func TestWarnCountFoldsRepeats(t *testing.T) {
+	ResetWarnCount()
+	defer ResetWarnCount()
+
+	l, _, errBuf := captureLogger(LevelInfo, false)
+	l.Warn("cache: index fetch failed")
+	l.Warn("cache: index fetch failed")
+	l.Warn("cache: index fetch failed")
+	l.Warn("a different problem")
+
+	assert.Equal(t, int64(2), WarnCount())
+	assert.Equal(t, int64(4), TotalWarnCount())
+	want := []Warning{
+		{Message: "cache: index fetch failed", Count: 3},
+		{Message: "a different problem", Count: 1},
+	}
+	assert.Equal(t, want, EmittedWarnings())
+	// Folding governs the count only: every repeat still reached the user.
+	assert.Equal(t, 3, strings.Count(errBuf.String(), "cache: index fetch failed"))
+}
+
+// TestWarnFileFoldsPerFile verifies that the recorded "<file>: " prefix keeps
+// the same message about two files distinct, and folds the same message about
+// one file. A per-file warning names a per-file problem.
+func TestWarnFileFoldsPerFile(t *testing.T) {
+	ResetWarnCount()
+	defer ResetWarnCount()
+
+	l, _, _ := captureLogger(LevelInfo, false)
+	l.WarnFile("a.go", "line too long")
+	l.WarnFile("a.go", "line too long")
+	l.WarnFile("b.go", "line too long")
+
+	assert.Equal(t, int64(2), WarnCount())
+	assert.Equal(t, int64(3), TotalWarnCount())
+	want := []Warning{
+		{Message: "a.go: line too long", Count: 2},
+		{Message: "b.go: line too long", Count: 1},
+	}
+	assert.Equal(t, want, EmittedWarnings())
+}
+
+// TestWarnCountFoldsRepeatsPastRetention verifies that a repeat of a message
+// too late to be retained still folds. The deduplication set outlives the
+// retained text, so the budget cannot be inflated by repeating a warning that
+// arrived past MaxRecordedWarnings.
+func TestWarnCountFoldsRepeatsPastRetention(t *testing.T) {
+	ResetWarnCount()
+	defer ResetWarnCount()
+
+	l, _, _ := captureLogger(LevelInfo, false)
+	for i := range MaxRecordedWarnings + 1 {
+		l.Warn("warning %d", i)
+	}
+	l.Warn("warning %d", MaxRecordedWarnings) // the unretained one, again
+
+	assert.Equal(t, int64(MaxRecordedWarnings+1), WarnCount())
+	assert.Equal(t, int64(MaxRecordedWarnings+2), TotalWarnCount())
+	assert.Len(t, EmittedWarnings(), MaxRecordedWarnings)
 }
 
 // TestEmittedWarningsExcludesFiltered verifies that a warning suppressed by
@@ -107,7 +185,7 @@ func TestEmittedWarningsCapped(t *testing.T) {
 
 	assert.Equal(t, int64(MaxRecordedWarnings+5), WarnCount())
 	assert.Len(t, EmittedWarnings(), MaxRecordedWarnings)
-	assert.Equal(t, "warning 0", EmittedWarnings()[0])
+	assert.Equal(t, "warning 0", EmittedWarnings()[0].Message)
 }
 
 // TestResetWarnCountClearsMessages verifies the reset helper discards the
