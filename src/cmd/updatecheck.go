@@ -12,20 +12,14 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// go-toolchain binaries are published to buildhost (pazer.build). The background
-// update check asks buildhost for the newest published go-toolchain release and
-// compares it against this binary's own VCS-stamped commit, warning when a newer
-// build is available. The base URL can be overridden with
-// GO_TOOLCHAIN_BUILDHOST_URL (for a self-hosted buildhost); these stay vars so
-// tests can point them at a local server.
+// Background check compares this build's commit to buildhost's newest go-toolchain release; see GO_TOOLCHAIN_BUILDHOST_URL.
 var (
 	buildhostAPIBase = envOr("GO_TOOLCHAIN_BUILDHOST_URL", "https://pazer.build")
 	buildhostProject = "go-toolchain"
 )
 
-// updateCheck is a single in-flight background update check. The network work
-// runs in a goroutine; ReportUpdateCheck prints the result if the goroutine
-// finished, or cancels it if it did not. It never blocks the main flow.
+// updateCheck tracks one in-flight background check; ReportUpdateCheck prints or cancels
+// its result and never blocks the main flow.
 type updateCheck struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -33,16 +27,12 @@ type updateCheck struct {
 	once   sync.Once
 }
 
-// activeUpdateCheck is the process-wide background check started by
-// StartUpdateCheck, or nil when no check is running (disabled / not started).
+// activeUpdateCheck is the process-wide check started by StartUpdateCheck, or nil if none is running.
 var activeUpdateCheck *updateCheck
 
-// StartUpdateCheck kicks off a non-blocking background check for a newer
-// go-toolchain on buildhost. It returns immediately; the result is surfaced
-// later by ReportUpdateCheck. The work runs in a goroutine with a cancelable
-// context so it can be killed the moment the main work is done. The check
-// always runs (it cannot be disabled); it is silent on any error, so it never
-// gets in the way.
+// StartUpdateCheck starts a non-blocking background check for a newer go-toolchain on buildhost.
+// It runs in a cancelable goroutine, so ReportUpdateCheck can kill it if unfinished. Always runs
+// and is silent on any error, so it never gets in the way.
 func StartUpdateCheck() {
 	ctx, cancel := context.WithCancel(context.Background())
 	uc := &updateCheck{cancel: cancel, done: make(chan struct{})}
@@ -53,12 +43,9 @@ func StartUpdateCheck() {
 	}()
 }
 
-// ReportUpdateCheck surfaces the background check started by StartUpdateCheck.
-// If the check already finished, it prints a warning to stderr when a newer
-// release exists. If the check is still in flight, it cancels (kills) the
-// request and returns immediately — the update check must never delay or block
-// go-toolchain. Safe to call when no check was started, and idempotent, so it
-// can be invoked on every exit path.
+// ReportUpdateCheck surfaces the check started by StartUpdateCheck: prints a warning if a newer
+// release exists, or cancels the request if still in flight. The update check must never delay
+// or block go-toolchain. Safe when no check was started, and idempotent for every exit path.
 func ReportUpdateCheck() {
 	uc := activeUpdateCheck
 	if uc == nil {
@@ -72,8 +59,7 @@ func ReportUpdateCheck() {
 				logger.Warn("%s", uc.msg)
 			}
 		default:
-			// Not finished by the time the main work is done: kill it and move
-			// on without waiting on the goroutine.
+			// Not finished in time: kill it and move on without waiting on the goroutine.
 			uc.cancel()
 		}
 	})
@@ -100,8 +86,7 @@ func computeUpdateWarning(ctx context.Context) string {
 		return ""
 	}
 
-	// Different commit. Only warn when the latest release is genuinely newer than
-	// this build, so a binary built from an unpublished/ahead commit stays quiet.
+	// Only warn when the latest release is newer than this build, so an unpublished/ahead build stays quiet.
 	latestTime := latest.timestamp()
 	if latestTime.IsZero() || !latestTime.After(time.Unix(myTs, 0)) {
 		return ""
@@ -113,19 +98,8 @@ func computeUpdateWarning(ctx context.Context) string {
 	)
 }
 
-// ownVersion identifies THIS binary as compactly as the warning can: its
-// buildhost version when that is knowable, else its short commit.
-//
-// The warning has one job -- letting a reader decide whether to update -- so it
-// carries exactly the two versions and the distance between them. An earlier
-// wording gave the latest release's version and age but described this binary
-// as a git hash and a calendar date, so neither axis could be compared without
-// stopping to do arithmetic.
-//
-// The version is not stamped in: buildhost assigns it at publish time, after
-// the build. It is looked up by commit among the recent releases, best-effort
-// -- a failed lookup, or a build that was never published, falls back to the
-// commit, which is then the only identity there is.
+// ownVersion names this binary compactly: its buildhost version if knowable, else its short
+// commit. The version is looked up by commit among recent releases, falling back to the commit.
 func ownVersion(ctx context.Context, myCommit string) string {
 	if mine, ok := findOwnRelease(ctx, myCommit); ok {
 		return "v" + mine.Version
@@ -152,9 +126,7 @@ func findOwnRelease(ctx context.Context, myCommit string) (*buildhostRelease, bo
 	return nil, false
 }
 
-// ownReleaseLookupLimit bounds the release listing fetched to identify this
-// binary. It is a background request that is cancelled the moment the build
-// finishes, so the cost is usually zero -- but it should not be unbounded.
+// ownReleaseLookupLimit bounds the release listing fetched to identify this binary; not unbounded.
 const ownReleaseLookupLimit = 200
 
 // fetchBuildhostReleases lists a project's releases, newest first.

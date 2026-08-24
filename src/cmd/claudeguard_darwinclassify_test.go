@@ -54,13 +54,46 @@ func TestClassifyDarwinFD(t *testing.T) {
 		}
 	})
 
-	// A FIFO's reader cannot be identified on darwin, so it fails CLOSED --
-	// and it needs no probe beyond the file type, which is why this is the one
-	// case that works before the fork's darwin syscalls land.
+	// An unidentified FIFO still fails CLOSED -- `| cat` is indistinguishable
+	// from grok-build's capture until the reader is named.
 	t.Run("fifo fails closed", func(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(sIFIFO))
 		assert.True(t, ok)
 		assert.Equal(t, sinkPipe, sink.kind)
+	})
+
+	t.Run("fifo", func(t *testing.T) {
+		t.Run("the agent reading its own child is visible", func(t *testing.T) {
+			p := okProbes(sIFIFO)
+			p.fifoPeer = func() (int, bool, bool) { return 4242, true, true }
+			p.peerName = func(pid int) (string, bool) {
+				assert.Equal(t, 4242, pid)
+				return "grok-build", true
+			}
+			p.isAgentReader = func(comm string, pid int) bool { return comm == "grok-build" }
+			sink, ok := classifyDarwinFD(p)
+			assert.True(t, ok)
+			assert.Equal(t, sinkVisible, sink.kind)
+		})
+
+		t.Run("a filter is still a pipe, and named", func(t *testing.T) {
+			p := okProbes(sIFIFO)
+			p.fifoPeer = func() (int, bool, bool) { return 99, true, true }
+			p.peerName = func(int) (string, bool) { return "cat", true }
+			sink, ok := classifyDarwinFD(p)
+			assert.True(t, ok)
+			assert.Equal(t, sinkPipe, sink.kind)
+			assert.Equal(t, "cat", sink.detail)
+		})
+
+		t.Run("a nameless peer the agent claims as its own is visible", func(t *testing.T) {
+			p := okProbes(sIFIFO)
+			p.fifoPeer = func() (int, bool, bool) { return 77, true, true }
+			p.isAgentPID = func(pid int) bool { return pid == 77 }
+			sink, ok := classifyDarwinFD(p)
+			assert.True(t, ok)
+			assert.Equal(t, sinkVisible, sink.kind)
+		})
 	})
 
 	t.Run("socket", func(t *testing.T) {

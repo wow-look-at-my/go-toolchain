@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !cosmo
 
 // See claudeguard_proc.go's socketPeerPID doc comment. This is the plain-linux
 // implementation, backed by golang.org/x/sys/unix (no cosmo port, hence the

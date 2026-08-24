@@ -14,8 +14,7 @@ import (
 )
 
 func TestTruncateActionID(t *testing.T) {
-	// Golden pair from the build-id canary (see TestExpectedBuildIDAction_Golden):
-	// the truncated form MUST equal cmd/go's actiongraph ActionID rendering.
+	// Golden pair from the build-id canary; the truncated form must equal cmd/go's actiongraph ActionID rendering.
 	raw := hexToBytes("10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b")
 	assert.Equal(t, "EPlPwC3MJFgg3YYfTGwl", truncateActionID(raw))
 

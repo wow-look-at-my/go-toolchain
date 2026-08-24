@@ -47,11 +47,7 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 	os.Chdir(tmpDir)
 	t.Cleanup(func() { os.Chdir(oldWd) })
 
-	// A named module so ResolveBuildTargets derives a real binary name
-	// ("mytool"); without go.mod the output name degenerates to ".". The
-	// go.mod also makes vet's package load real, so main.go must be
-	// gofmt-canonical: in CI vet runs in check mode and would fail the run
-	// (locally it would silently rewrite the fixture instead).
+	// A named module so ResolveBuildTargets derives a real binary name; main.go must stay gofmt-canonical for vet's check mode in CI.
 	os.WriteFile("go.mod", []byte("module example.com/mytool\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n\nfunc main() {}\n"), 0644)
 
@@ -79,8 +75,7 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 	releaseParallel = 1
 	noBenchmark = true
 	ensureCosmoToolchainFunc = func() (string, error) { return fakeGoroot, nil }
-	// The fake GOROOT's bin/go is not executable, so the real probe would
-	// report "unsupported" and every cosmo test would carry its warning.
+	// The fake GOROOT's bin/go is not executable, so the real probe would report "unsupported".
 	cosmoPlatformsSupportedFunc = func(string) bool { return true }
 	t.Cleanup(func() {
 		matrixTargets, cosmoPlatforms = oldTargets, oldPlatforms
@@ -111,13 +106,15 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	require.NoError(t, err)
 
-	// The whole build directory. Exactly one binary exists as a file: the APE.
-	// The convenience names are symlinks TO it -- the distinction the deleted
-	// slot copier erased, since a copy is a second binary and a link is not.
-	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
-	require.Len(t, fatMatches, 1, "expected exactly one fat APE in %s", outDir)
-	fatName := filepath.Base(fatMatches[0])
-	name := strings.TrimSuffix(fatName, "_cosmo_fat")
+	// Exactly one binary exists as a file, the APE; the convenience names are symlinks to it.
+	var manifest buildhostManifest
+	manifestRaw, manifestErr := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
+	require.NoError(t, manifestErr)
+	require.NoError(t, json.Unmarshal(manifestRaw, &manifest))
+	require.Len(t, manifest.Artifacts, 1)
+	fatName := manifest.Artifacts[0].File
+	name := manifest.Artifacts[0].Filename
+	require.FileExists(t, filepath.Join(outDir, fatName))
 
 	entries, readErr := os.ReadDir(outDir)
 	require.NoError(t, readErr)
@@ -135,14 +132,8 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 		fatName, "checksums.txt", buildhostManifestName,
 	}, files, "a cosmo build writes one APE plus its checksums and manifest")
 
-	// The manifest carries the platform set the filename grammar cannot spell.
-	var manifest buildhostManifest
-	raw, readErr := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
-	require.NoError(t, readErr)
-	require.NoError(t, json.Unmarshal(raw, &manifest))
-	require.Len(t, manifest.Artifacts, 1)
-	assert.Equal(t, name+"_cosmo_fat", manifest.Artifacts[0].File)
-	assert.Equal(t, name, manifest.Artifacts[0].Filename)
+	// The APE lands under the plain name, so the file IS the served filename.
+	assert.Equal(t, name, manifest.Artifacts[0].File)
 	assert.Equal(t, DefaultCosmoPlatforms, manifest.Artifacts[0].Platforms)
 
 	// checksums.txt covers the one real file.
@@ -150,11 +141,9 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	assert.Nil(t, err2)
 	sumLines := strings.Split(strings.TrimSpace(string(sums)), "\n")
 	assert.Equal(t, 1, len(sumLines))
-	assert.Contains(t, string(sums), "_cosmo_fat")
+	assert.Contains(t, string(sums), fatName)
 
-	// The cosmo build must run the gosmopolitan go with the fat-APE env:
-	// GOOS=cosmo, no GOARCH, GOTOOLCHAIN=local, GOROOT + PATH pointing at the
-	// toolchain, and CGO_ENABLED forced to 0.
+	// The cosmo build must run the gosmopolitan go with the fat-APE env.
 	var cosmoCfg *runner.Config
 	for _, cfg := range mock.Calls() {
 		if cfg.Name == cosmoGo {
@@ -177,10 +166,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 		assert.True(t, strings.HasPrefix(path, filepath.Join(fakeGoroot, "bin")), "PATH must be prefixed with the cosmo GOROOT/bin")
 		cgo, _ := cosmoCfg.Env.Get("CGO_ENABLED")
 		assert.Equal(t, "0", cgo)
-		// Cache isolation: the cosmo build env must carry the cache key
-		// namespace derived from THIS toolchain's content, so its cacheprog
-		// can never share cache entries with a different fork toolchain build
-		// (the 2026-07-20 cross-build poisoning).
+		// Cache isolation: the env must carry the namespace derived from THIS toolchain's content.
 		wantNS, nsErr := forkToolchainCacheNamespace(fakeGoroot)
 		require.NoError(t, nsErr)
 		require.NotEmpty(t, wantNS)
@@ -211,27 +197,22 @@ func TestRunReleaseWithRunnerCosmoAndNativeTarget(t *testing.T) {
 
 	require.NoError(t, runReleaseWithRunner(mock))
 
-	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
-	require.Len(t, fatMatches, 1)
-	name := strings.TrimSuffix(filepath.Base(fatMatches[0]), "_cosmo_fat")
-
-	// Each file holds what its own build wrote: the native binary is a native
-	// binary, not a renamed copy of the APE.
-	data, err := os.ReadFile(filepath.Join(outDir, name+"_linux_amd64"))
-	assert.Nil(t, err)
-	assert.Equal(t, "NATIVE", string(data))
-	data, err = os.ReadFile(fatMatches[0])
-	assert.Nil(t, err)
-	assert.Equal(t, "FAT-APE", string(data))
-
-	// The manifest claims only the APE. The native binary publishes through
-	// the filename grammar, so listing it here would upload it twice.
+	// The manifest claims only the APE; the native binary publishes through the filename grammar.
 	var manifest buildhostManifest
 	raw, err := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(raw, &manifest))
 	require.Len(t, manifest.Artifacts, 1)
-	assert.Equal(t, name+"_cosmo_fat", manifest.Artifacts[0].File)
+	name := manifest.Artifacts[0].Filename
+	assert.Equal(t, name, manifest.Artifacts[0].File)
+
+	// Each file holds what its own build wrote, not a renamed copy of the APE.
+	data, err := os.ReadFile(filepath.Join(outDir, name+"_linux_amd64"))
+	assert.Nil(t, err)
+	assert.Equal(t, "NATIVE", string(data))
+	data, err = os.ReadFile(filepath.Join(outDir, name))
+	assert.Nil(t, err)
+	assert.Equal(t, "FAT-APE", string(data))
 
 	// checksums cover both real binaries.
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))

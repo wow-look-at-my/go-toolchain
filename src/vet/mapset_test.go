@@ -14,10 +14,8 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// TestMapSetAnalyzer runs the mapset analyzer over its fixture: an all-true
-// bool map literal and a made-empty bool map used only as a set must be
-// reported, while a lookup table, a comma-ok read, a computed value, a map
-// that escapes and a map[K]struct{} must not.
+// TestMapSetAnalyzer: an all-true or emptied-then-set-only bool map is reported; a lookup
+// table, comma-ok read, computed value, escaping map, or map[K]struct{} is not.
 func TestMapSetAnalyzer(t *testing.T) {
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
@@ -127,7 +125,8 @@ func main() { seen["a"] = struct{}{} }
 	require.NoError(t, err)
 
 	resetMapSetWarnings()
-	before := logger.WarnCount()
+	before := logger.TotalWarnCount()
+	beforeDistinct := logger.WarnCount()
 	pass := &analysis.Pass{
 		Analyzer:  MapSetAnalyzer,
 		Fset:      fset,
@@ -138,16 +137,18 @@ func main() { seen["a"] = struct{}{} }
 	}
 	_, err = runMapSet(pass)
 	require.NoError(t, err)
-	require.Equal(t, before+1, logger.WarnCount())
+	require.Equal(t, before+1, logger.TotalWarnCount())
 
-	// Every package variant walks the same file. One site spends one warning
-	// of the budget, until the next run resets the record.
+	// Every package variant walks the same file; the dedup record keeps this site from printing again until reset.
 	_, err = runMapSet(pass)
 	require.NoError(t, err)
-	require.Equal(t, before+1, logger.WarnCount())
+	require.Equal(t, before+1, logger.TotalWarnCount())
 
 	resetMapSetWarnings()
 	_, err = runMapSet(pass)
 	require.NoError(t, err)
-	require.Equal(t, before+2, logger.WarnCount())
+	require.Equal(t, before+2, logger.TotalWarnCount())
+
+	// The site printed twice, and it is one site. The budget counts it once.
+	require.Equal(t, beforeDistinct+1, logger.WarnCount())
 }

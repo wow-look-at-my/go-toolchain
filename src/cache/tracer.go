@@ -13,20 +13,10 @@ import (
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 )
 
-// noopTracer is returned by cacheTracer.Start when tracing is disabled,
-// so callers can use the standard `ctx, span := t.Start(...); defer span.End()`
-// idiom without nil guards. The trace.Span interface is sealed, so we
-// must use the official otel noop package rather than stubbing it.
+// noopTracer lets Start's ctx/span idiom skip nil guards; trace.Span is sealed, so this can't be stubbed.
 var noopTracer = noop.NewTracerProvider().Tracer("noop")
 
-// cacheTracer is a thin façade over the process-wide shared tracer
-// provider (src/trace). It exists only to:
-//   - hold the parent SpanContext parsed from OTEL_TRACEPARENT so the
-//     cache package can root its spans under the go-toolchain run;
-//   - route every Start through the shared provider, keeping cache ops
-//     and timeline spans in a single batcher and a single OTLP stream.
-//
-// All methods are nil-safe: a nil *cacheTracer behaves as no-op.
+// cacheTracer roots spans under the run's OTEL_TRACEPARENT via the shared provider; nil-safe (nil == no-op).
 type cacheTracer struct {
 	tracer        trace.Tracer
 	parentSpanCtx trace.SpanContext
@@ -52,10 +42,7 @@ func newCacheTracer(w io.Writer) *cacheTracer {
 	}
 }
 
-// Start begins a span rooted at the propagated parent trace context. The
-// returned context should be passed to any downstream spans so they nest
-// properly. Nil-safe: returns a fresh background context and a noop span
-// when tracing is disabled.
+// Start begins a span rooted at the parent trace context; pass the returned ctx to children so they nest. Nil-safe.
 func (t *cacheTracer) Start(name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	return t.StartFromCtx(nil, name, attrs...)
 }
@@ -80,15 +67,12 @@ func (t *cacheTracer) StartFromCtx(ctx context.Context, name string, attrs ...at
 	return t.tracer.Start(ctx, name, trace.WithAttributes(attrs...))
 }
 
-// Enabled reports whether OTel tracing is configured. Callers that need
-// to build expensive attribute sets can guard the work with this check.
+// Enabled reports whether OTel tracing is configured, so callers can guard expensive attribute sets.
 func (t *cacheTracer) Enabled() bool {
 	return t != nil && t.tracer != nil
 }
 
-// markSpanMiss tags a cache span as a miss with a structured reason. The
-// `cacheprog.miss_reason` attribute is the primary filter for miss
-// diagnostics — keep reason strings stable across releases.
+// markSpanMiss tags a cache-miss span with a structured reason; `cacheprog.miss_reason` is the primary diagnostic filter -- keep reason strings stable.
 func markSpanMiss(span trace.Span, reason string) {
 	span.SetAttributes(
 		attribute.Bool("cacheprog.miss", true),
@@ -96,17 +80,13 @@ func markSpanMiss(span trace.Span, reason string) {
 	)
 }
 
-// markSpanErr records err on the span and marks it failed at the named
-// stage. err must be non-nil — for error statuses without an underlying
-// Go error (HTTP status codes, etc.), call span.SetStatus directly.
+// markSpanErr records err and marks the span failed at stage; err must be non-nil (use SetStatus directly otherwise).
 func markSpanErr(span trace.Span, stage string, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, stage)
 }
 
-// extractParentSpanContext parses OTEL_TRACEPARENT (W3C Trace Context)
-// into a SpanContext suitable as a parent for cache-mode spans. Delegates
-// to the shared trace package, which is the authoritative parser.
+// extractParentSpanContext parses OTEL_TRACEPARENT (W3C Trace Context) into a parent SpanContext, delegating to the shared trace package.
 func extractParentSpanContext() trace.SpanContext {
 	if os.Getenv("OTEL_TRACEPARENT") == "" {
 		return trace.SpanContext{}

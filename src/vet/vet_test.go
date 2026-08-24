@@ -426,8 +426,7 @@ func TestFoo(t *testing.T) {
 	})
 	require.NotNil(t, ifStmt)
 
-	// Build replacement: assert.NotEqual(t, "", hostname)
-	// This simulates what generateASTFix produces for: if hostname == "" { t.Error(...) }
+	// Build the replacement generateASTFix produces for: if hostname == "" { t.Error(...) }
 	bin := ifStmt.Cond.(*ast.BinaryExpr)
 	assertCall := makeCall(
 		makeSelector("assert", "NotEqual"),

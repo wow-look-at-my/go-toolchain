@@ -95,8 +95,7 @@ func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, fp1, fp2, "enabling an env-gated test must force a run")
 
-	// Order is not a difference, and neither is a variable the shell rewrites
-	// on every command line.
+	// Order is not a difference, nor is a variable the shell rewrites on every command line.
 	runEnv = []string{"_=/usr/local/bin/go-toolchain", "RUN_INTEGRATION_TESTS=1", "SHLVL=3", "PATH=/usr/bin", "OLDPWD=/tmp"}
 	fp3, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
@@ -301,15 +300,13 @@ func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
 	base, err := computeFingerprint(withEmbed)
 	require.NoError(t, err)
 
-	// When asset.txt is tracked as an embed, changing its content (and nothing
-	// else) must change the fingerprint.
+	// When asset.txt is tracked as an embed, changing its content must change the fingerprint.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "asset.txt"), []byte("v2"), 0644))
 	changed, err := computeFingerprint(withEmbed)
 	require.NoError(t, err)
 	assert.NotEqual(t, base, changed, "embed content change must bust the fingerprint")
 
-	// When nothing embeds it, the same data file is invisible to the
-	// fingerprint — preserving today's behavior for modules with no embeds.
+	// When nothing embeds it, the same data file is invisible to the fingerprint.
 	fpA, err := computeFingerprint(noEmbed)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "asset.txt"), []byte("v3"), 0644))
@@ -330,8 +327,7 @@ func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 	// Keep go list hermetic: never download a toolchain, ignore any workspace.
 	t.Setenv("GOTOOLCHAIN", "local")
 	t.Setenv("GOWORK", "off")
-	// Force the non-Docker output-name scheme so build/<binary> is found
-	// regardless of where the test runs.
+	// Force the non-Docker output-name scheme so build/<binary> is found regardless of where the test runs.
 	defer build.SetInDockerCheck(func() bool { return false })()
 
 	dir := t.TempDir()

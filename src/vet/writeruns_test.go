@@ -37,10 +37,10 @@ func runWriteRunsOn(t *testing.T, src string) []int {
 	_, err = runWriteRuns(pass)
 	require.NoError(t, err)
 
-	// WarnFile records the file it annotates ahead of the message, so the
-	// position the message itself carries is the LAST one in the text.
+	// WarnFile puts the file ahead of the message, so the message's own position is last.
 	var lines []int
-	for _, msg := range logger.EmittedWarnings() {
+	for _, w := range logger.EmittedWarnings() {
+		msg := w.Message
 		at := strings.LastIndex(msg, "/pkg/write.go:")
 		require.GreaterOrEqual(t, at, 0, "warning names the file: %s", msg)
 		num, _, _ := strings.Cut(msg[at+len("/pkg/write.go:"):], ":")
@@ -90,8 +90,8 @@ func emit(b *strings.Builder) {
 	require.Equal(t, []int{8}, runWriteRunsOn(t, src))
 	warnings := logger.EmittedWarnings()
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "text/template")
-	assert.Contains(t, warnings[0], "write 3 in a row to b")
+	assert.Contains(t, warnings[0].Message, "text/template")
+	assert.Contains(t, warnings[0].Message, "write 3 in a row to b")
 }
 
 // TestWriteRunsBoundaries covers what starts a run, what ends one, and what is
@@ -266,7 +266,7 @@ func render(d doc) {
 
 	warnings := logger.EmittedWarnings()
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "write 3 in a row to d")
+	assert.Contains(t, warnings[0].Message, "write 3 in a row to d")
 }
 
 // TestWriteRunsSpendsOneWarningPerSite verifies the file:line deduplication.
@@ -298,15 +298,18 @@ func emit(b *strings.Builder) {
 	logger.ResetWarnCount()
 	t.Cleanup(logger.ResetWarnCount)
 
+	// TotalWarnCount counts emissions; WarnCount folds repeated text, so it
+	// cannot tell one emission from four.
 	for range 4 {
 		_, err = runWriteRuns(pass)
 		require.NoError(t, err)
 	}
-	require.EqualValues(t, 1, logger.WarnCount())
+	require.EqualValues(t, 1, logger.TotalWarnCount())
 
-	// A later vet run reports the site again.
+	// A later run reports the site again: a second emission, same text, still counts as one.
 	resetWriteRunWarnings()
 	_, err = runWriteRuns(pass)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, logger.WarnCount())
+	require.EqualValues(t, 2, logger.TotalWarnCount())
+	require.EqualValues(t, 1, logger.WarnCount())
 }

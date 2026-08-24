@@ -21,15 +21,9 @@ const (
 	httpErrShortIDLen    = 8
 )
 
-// httpErrLogger coalesces repetitive HTTP error messages from the web
-// backend so that a failing remote doesn't flood stderr with one line
-// per request. Each error is also exported as a short OTel span when
-// tracing is enabled on the shared cacheTracer, so the granular
-// per-request data is preserved out-of-band.
-//
-// The cacheTracer is owned by WebBackend and passed in so that HTTP
-// errors, cache operations, and batch HTTP requests all share a single
-// tracer provider (one exporter, one batcher, one parent span context).
+// httpErrLogger coalesces repetitive HTTP error messages so a failing remote
+// does not flood stderr with one line per request. Each error also exports
+// as an OTel span on the shared tracer WebBackend owns.
 type httpErrLogger struct {
 	tracer *cacheTracer // nil => no OTel spans emitted
 
@@ -201,10 +195,8 @@ func (l *httpErrLogger) flush() {
 	}
 }
 
-// Close stops the background ticker and flushes any pending groups.
-// Idempotent. The shared cacheTracer's shutdown is the WebBackend's
-// responsibility, not the logger's — multiple components share the
-// tracer and we can't tear it down here.
+// Close stops the ticker and flushes pending groups. Idempotent. It does not
+// shut down the shared cacheTracer; WebBackend owns that instead.
 func (l *httpErrLogger) Close() error {
 	l.mu.Lock()
 	if l.closed {

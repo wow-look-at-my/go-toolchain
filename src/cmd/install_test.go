@@ -70,8 +70,7 @@ func TestCopyFileLargeFile(t *testing.T) {
 }
 
 func TestRunInstallImplSymlink(t *testing.T) {
-	// runInstallImpl uses os.Executable() which returns the test binary
-	// We can test that it creates symlinks to the correct target
+	// os.Executable() returns the test binary; check it symlinks to the right target.
 	tmpDir := t.TempDir()
 
 	// Override HOME so it installs to our temp dir

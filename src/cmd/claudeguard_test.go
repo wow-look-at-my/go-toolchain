@@ -24,12 +24,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TestMain intercepts a re-exec of this test binary playing the "child" side
-// of a socketpair connection created by the parent (the real go-toolchain/
-// opencode topology). SO_PEERCRED only resolves the creator's pid when
-// queried from a genuinely separate process that inherited the fd via
-// fork/exec — a same-process socketpair can't reproduce that, so the
-// socket_* subtests below spawn a real second process instead of faking one.
+// TestMain re-execs this binary as the "child" side of a socketpair (the real
+// go-toolchain/opencode topology): SO_PEERCRED only resolves a peer pid
+// across a genuine fork/exec, so the socket_* subtests spawn a real process.
 func TestMain(m *testing.M) {
 	if os.Getenv("CLAUDEGUARD_TEST_HELPER") == "inspect_fd1" {
 		s := inspectFD(1)
@@ -80,11 +77,7 @@ func TestAgentOutputMessageVariants(t *testing.T) {
 	discard := agentOutputMessage("Claude", outputSink{kind: sinkDiscard, detail: "/dev/null"}, nil)
 	assert.Contains(t, discard, "discarded to `/dev/null`")
 
-	// sinkHidden (socket/anon-inode) previously fell through to the generic
-	// "captured instead of printed" line with detail silently dropped, even
-	// though the classifier always computed it -- the diagnostic gap that
-	// made this scenario (opencode's socket-based bash tool) look identical
-	// to every other capture in the refusal message.
+	// sinkHidden must still surface the reader's name in the message.
 	hiddenWithDetail := agentOutputMessage("opencode", outputSink{kind: sinkHidden, detail: "node"}, nil)
 	assert.Contains(t, hiddenWithDetail, "reader: `node`")
 
@@ -158,18 +151,14 @@ func TestAgentOutputViolation(t *testing.T) {
 	_, _, bad := agentOutputViolation()
 	assert.False(t, bad, "no violation when not running under an agent")
 
-	// Under an agent with visible output (a terminal or the harness capture):
-	// allowed. The exiting wrapper must be a no-op on this path — it would
-	// os.Exit the test process otherwise.
+	// Visible output isn't a violation; the exiting wrapper must no-op here or it kills the test.
 	runningUnderAgentFn = func() (string, bool) { return "Claude", true }
 	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkVisible} }
 	_, _, bad = agentOutputViolation()
 	assert.False(t, bad, "visible output is not a violation")
 	guardAgainstAgentOutputCapture()
 
-	// Hidden output is a violation under EVERY agent on the roster, reported
-	// with the agent's name and its sink. There is no env var or flag that can
-	// turn this off.
+	// Hidden output violates for every agent on the roster; no env var or flag turns this off.
 	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkPipe, detail: "head"} }
 	for _, a := range agent.Roster() {
 		runningUnderAgentFn = func() (string, bool) { return a.Name, true }
@@ -231,9 +220,7 @@ func TestPipePeerNameDetectsConsumer(t *testing.T) {
 }
 
 func TestPipeReaderAllowanceThroughTheGuard(t *testing.T) {
-	// The allowance the sink classifier depends on: an agent reading our pipe
-	// is the agent capturing our output, a filter is not. The rule itself is
-	// the library's; this pins that the guard still gets the answer it needs.
+	// Pins the classifier's rule: an agent reading our pipe counts as capture; a filter does not.
 	if runtime.GOOS != "linux" {
 		t.Skip("needs /proc (linux)")
 	}
@@ -279,8 +266,7 @@ func TestInspectFDClassification(t *testing.T) {
 
 	t.Run("harness_capture_file_is_allowed", func(t *testing.T) {
 		t.Setenv("CLAUDE_CODE_SESSION_ID", "SID-unit-test")
-		// A file whose path embeds the session id is the harness's transcript
-		// capture — the one redirect that does not hide output.
+		// A path embedding the session id is the harness's transcript capture, the one redirect that doesn't hide output.
 		f, err := os.CreateTemp(t.TempDir(), "SID-unit-test-*.output")
 		require.NoError(t, err)
 		defer f.Close()
@@ -302,25 +288,31 @@ func TestInspectFDClassification(t *testing.T) {
 	// pipe; see claudeguard_darwin.go's file header for why that matters on
 	// darwin too), so it now gets the exact same chance a pipe gets.
 	t.Run("socket_reader_that_is_not_an_agent_is_blocked", func(t *testing.T) {
-		// The peer resolved via SO_PEERCRED is this test binary's own parent
-		// invocation (the creator of the socketpair) — not a recognized agent
-		// by name, and no PID var claims it — so the guard must still refuse.
+		// The SO_PEERCRED peer is this binary's own parent, unnamed and unclaimed by any PID var, so the guard must refuse.
 		kind, detail := runSocketPeerHelper(t)
 		assert.Equal(t, sinkHidden, kind)
 		assert.NotEmpty(t, detail, "refusal message must name the unrecognized reader, not go silent")
 	})
 
 	t.Run("socket_reader_recognized_via_pid_var_is_allowed", func(t *testing.T) {
-		// The real opencode/Node case: the parent process (the creator SO_PEERCRED
-		// resolves to) names its own pid via OPENCODE_PID in the child's env.
+		// opencode/Node case: the SO_PEERCRED parent names its own pid via OPENCODE_PID in the child's env.
 		kind, _ := runSocketPeerHelper(t, "OPENCODE=1", "OPENCODE_PID="+strconv.Itoa(os.Getpid()))
 		assert.Equal(t, sinkVisible, kind)
 	})
 
 	t.Run("socket_reader_with_wrong_pid_var_is_still_blocked", func(t *testing.T) {
-		// A PID var naming some OTHER pid must not fool the guard — SO_PEERCRED
-		// is the kernel's own record and cannot be spoofed by the child's env.
+		// A PID var naming another pid must not fool the guard; SO_PEERCRED is the kernel's own record.
 		kind, _ := runSocketPeerHelper(t, "OPENCODE=1", "OPENCODE_PID=1")
+		assert.Equal(t, sinkHidden, kind)
+	})
+
+	t.Run("socket_reader_recognized_via_grok_pid_var_is_allowed", func(t *testing.T) {
+		kind, _ := runSocketPeerHelper(t, "GROK_AGENT=1", grokPIDEnv+"="+strconv.Itoa(os.Getpid()))
+		assert.Equal(t, sinkVisible, kind)
+	})
+
+	t.Run("socket_reader_with_wrong_grok_pid_var_is_still_blocked", func(t *testing.T) {
+		kind, _ := runSocketPeerHelper(t, "GROK_AGENT=1", grokPIDEnv+"=1")
 		assert.Equal(t, sinkHidden, kind)
 	})
 }

@@ -30,6 +30,14 @@ tests:
 	# CI step. A "linux" answer on this runner would mean every dependent
 	# decision -- including the output guard's whole classifier -- is silently
 	# taking the wrong branch under the sandbox the guard tests run in.
+	# What an ARM64 mac downloads IS the fat APE, not a native darwin build.
+	- desc: the shipped artifact carries the APE magic
+	  cmd: 'head -c 6 ./gt-under-test'
+	  timeout: 30s
+	  outputs:
+		stdout:
+			- "MZqFpD"
+
 	- desc: the APE detects a darwin host from inside the sandbox
 	  cmd: 'cp ./gt-under-test {outputs.gt}; {outputs.gt} version host'
 	  timeout: 30s
@@ -80,8 +88,9 @@ tests:
 		"!stdout":
 			- "Build successful"
 
-	- desc: version stays exempt under {matrix.marker} (APE on a macOS host)
+	- desc: version is refused under {matrix.marker} (APE on a macOS host)
 	  cmd: 'cp ./gt-under-test {outputs.gt}; env {matrix.marker}=1 {outputs.gt} version raw'
+	  exit: 1
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -89,7 +98,7 @@ tests:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		"!stderr":
+		stderr:
 			- "refused to run"
 
 	# EnsureGoVersion's version check runs `go list runtime` (verifyGoToolchain,

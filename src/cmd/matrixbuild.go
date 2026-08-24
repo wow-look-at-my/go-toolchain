@@ -15,13 +15,10 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// hostRunnableArtifact returns the artifact in outDir that runs on this host:
-// the native <name>_<hostos>_<hostarch> build when one exists, else the fat
-// APE, which runs here by construction. Without the fallback, a default matrix
-// run — one APE and no per-platform copies — would leave the dats phase and
-// the convenience symlinks with nothing to point at. The path is returned even
-// when neither exists, so callers report a missing artifact rather than a
-// wrong one.
+// hostRunnableArtifact returns the artifact in outDir that runs on this
+// host: the native <name>_<hostos>_<hostarch> build when it exists, else the
+// fat APE (which runs here by construction). Returned even when neither
+// exists, so callers report a missing artifact rather than a wrong one.
 func hostRunnableArtifact(target build.Target, outDir string) string {
 	native := filepath.Join(outDir, build.BinaryName(target.OutputName, hostos.GOOS(), runtime.GOARCH))
 	if _, err := os.Stat(native); err == nil {
@@ -35,9 +32,7 @@ func hostRunnableArtifact(target build.Target, outDir string) string {
 }
 
 func createHostSymlinks(targets []build.Target, outDir string) error {
-	// hostos, not runtime: the symlink must point at the matrix binary built
-	// for the OS this process is running on, and a cosmo fat APE reports
-	// runtime.GOOS=="cosmo" everywhere. runtime.GOARCH matches the host.
+	// hostos, not runtime: a cosmo fat APE reports runtime.GOOS=="cosmo" everywhere.
 	hostOS := hostos.GOOS()
 
 	for _, target := range targets {
@@ -58,6 +53,11 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 		for _, suffix := range []string{"_host", ""} {
 			linkName := target.OutputName + suffix + ext
 			linkPath := filepath.Join(outDir, linkName)
+			// A cosmo build writes the APE under the plain name, so it is a real
+			// binary, not a link slot -- overwriting it would delete the artifact.
+			if st, statErr := os.Lstat(linkPath); statErr == nil && st.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
 			os.Remove(linkPath) // remove any stale symlink
 			if err := os.Symlink(hostBinary, linkPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %w", linkName, err)
@@ -72,10 +72,9 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 // called when the compiler produces its first output (used for progress
 // indicators on the default build path).
 func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
-	// Last-chokepoint guard: a fork-toolchain job MUST carry a cache
-	// namespace (see buildJob.cacheNamespace). Refusing to build here means a
-	// future call site that forgets to fingerprint the toolchain fails loudly
-	// instead of silently re-opening cross-toolchain cache poisoning.
+	// Last-chokepoint guard: a fork-toolchain job MUST carry a cache namespace
+	// (buildJob.cacheNamespace), so a call site that forgets to fingerprint the
+	// toolchain fails loudly instead of reopening cross-toolchain cache poisoning.
 	if job.forkGoroot != "" && job.cacheNamespace == "" {
 		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
 	}
@@ -99,21 +98,13 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	cmd := runner.Cmd(goCmd, args...)
 	switch {
 	case job.forkGoroot != "" && job.goos == cosmoOS:
-		// GOOS=cosmo fat-APE build via the gosmopolitan toolchain. GOARCH is
-		// cleared: fat (amd64+arm64+windows payloads in one output) is the
-		// fork's default and the job's pseudo-arch "fat" is a naming artifact,
-		// not a GOARCH. GOCOSMOFAT is cleared too so an inherited =0 cannot
-		// silently produce a thin binary that the slot copies would mislabel.
-		// CGO_ENABLED=0 always: cosmopolitan has no cgo. The cache namespace
-		// keys this build's cacheprog to THIS toolchain's content (its
-		// cacheprog then skips the shared daemon and namespaces every key —
-		// see cache.KeyNamespaceEnv), because the fork's constant version
-		// stamp would otherwise collide its action IDs with every other fork
-		// toolchain build's.
-		// GOCOSMOPLATFORMS names the host platforms the APE must cover, so the
-		// fork skips building and merging the payloads nothing in the set
-		// needs. Always assigned, never left inherited: an ambient value would
-		// silently change which platforms the artifact claims to run on.
+		// GOOS=cosmo fat-APE build. GOARCH and GOCOSMOFAT are cleared: "fat"
+		// is a pseudo-arch, not a real GOARCH, and an inherited GOCOSMOFAT=0
+		// must not silently produce a thin binary. The cache namespace keys
+		// this build to this toolchain, since the fork's constant version
+		// stamp would otherwise collide action IDs across fork builds.
+		// GOCOSMOPLATFORMS is always assigned so the fork builds only the
+		// platforms needed.
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").
@@ -160,8 +151,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		return err
 	}
 	if onFirstOutput != nil {
-		// Non-quiet: let Wait() stream -v output to console in real-time.
-		// Compiler errors are printed to stderr as they occur.
+		// Non-quiet: Wait() streams -v output to console; compiler errors go to stderr.
 		return proc.Wait()
 	}
 	// Quiet (matrix): drain pipes manually, capture stderr for error messages

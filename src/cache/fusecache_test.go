@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build (linux && !cosmo) || darwin
 
 package cache
 
@@ -13,9 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newFuseCacheForTest mounts a FuseCache in a temp dir, skipping the test when
-// FUSE is unavailable (e.g. a sandbox without /dev/fuse). When it is available
-// (CI runners, dev containers) these tests exercise the real mount.
+// newFuseCacheForTest mounts a FuseCache, skipping the test when FUSE is unavailable (e.g. no /dev/fuse).
 func newFuseCacheForTest(t *testing.T) *FuseCache {
 	t.Helper()
 	fc, err := newFuseCache(t.TempDir())
@@ -92,9 +90,7 @@ func TestFuseCache_CorruptBodyNotServedThroughMount(t *testing.T) {
 	require.True(t, ok)
 	require.Nil(t, c.Close()) // unmount; releases the pack handles
 
-	// Rot one body byte in the pack, leaving the header (length + CRC)
-	// untouched. The remount's scan cannot catch it (length still fits), so
-	// the index still points at it.
+	// Rot one body byte, leaving header/CRC intact so the remount scan cannot catch it.
 	f, err := os.OpenFile(filepath.Join(dir, "packs", "pack-000001.data"), os.O_RDWR, 0o644)
 	require.Nil(t, err)
 	var b [1]byte
@@ -109,9 +105,7 @@ func TestFuseCache_CorruptBodyNotServedThroughMount(t *testing.T) {
 	c2 := fc2.(*FuseCache)
 	defer c2.Close()
 
-	// Reading through the mount is the compiler's exact path. It must NOT hand
-	// back the corrupt bytes: the entry is refused (ENOENT) so the go command
-	// treats it as a miss and recomputes, rather than consuming a damaged object.
+	// The compiler's exact read path must refuse corrupt bytes (ENOENT), not serve a damaged object.
 	got, err := os.ReadFile(filepath.Join(c2.mnt, oid))
 	require.NotNil(t, err, "corrupt body must not be served through the mount; got %d bytes back", len(got))
 }
@@ -157,8 +151,7 @@ func TestFuseCache_WriteRejected(t *testing.T) {
 	_, err := c.Put(hexID(4), oid, bytes.NewReader(body))
 	require.Nil(t, err)
 
-	// The mount is read-only: opening a body for writing must fail (EROFS as
-	// root, EACCES for an unprivileged user — either way, an error).
+	// The mount is read-only: opening for write must fail (EROFS as root, EACCES otherwise).
 	f, err := os.OpenFile(filepath.Join(c.mnt, oid), os.O_WRONLY, 0)
 	if err == nil {
 		f.Close()

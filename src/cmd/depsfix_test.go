@@ -238,13 +238,8 @@ func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-// TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError guards the
-// error-wrapping bug this exact scenario shipped with: mock.SetResponse's err
-// surfaces from the PROCESS's Wait(), not from Run() itself (see mock.go) --
-// exactly how a real failing git subprocess behaves. The buggy code wrapped
-// the stale, already-nil err from Run() instead, so every one of these
-// failures rendered as the meaningless "git ls-remote failed: %!w(<nil>)"
-// instead of naming what actually went wrong.
+// Guards the error-wrapping bug: mock.SetResponse's err surfaces from the process's
+// Wait(), not from Run(), so the real error must not get replaced by Run()'s stale nil.
 func TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError(t *testing.T) {
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
@@ -327,6 +322,10 @@ func TestResolveGitURLAndRef(t *testing.T) {
 
 		_, _, err := resolveGitURLAndRef(mock, "example.com/a/b/c", "HEAD")
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "https://example.com/a/b/c",
+			"the module path the caller declared is what failed; the bare host is a URL nobody asked for")
+		assert.NotContains(t, err.Error(), "https://example.com ",
+			"reporting the shortest candidate reads as a URL-construction bug")
 	})
 }
 
@@ -344,8 +343,7 @@ func TestResolveVersionViaGit_SubdirectoryModule(t *testing.T) {
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("git", "ls-remote") {
 			if cfg.Args[1] == "https://"+mod {
-				// The full import path is not a repository -- the exact 403
-				// this bug reproduced.
+				// The full import path is not a repository -- the exact 403 this bug reproduced.
 				return runner.MockProcess(nil, errors.New("exit status 128")), nil
 			}
 			require.Equal(t, repoRoot, cfg.Args[1], "ls-remote must fall back to the repo root")

@@ -12,12 +12,7 @@ import (
 )
 
 func TestEnableCacheProg(t *testing.T) {
-	// enableCacheProg opens the buildcache under cacheHome(), which without
-	// this is the DEVELOPER'S real one: the test would mount and scan every
-	// pack the machine has accumulated. That is slow enough to blow the
-	// package timeout on a warm machine (2.4 GB of packs took >30s here) and
-	// is not this test's business either way -- it asserts that the env
-	// plumbing gets set up, not what a real cache contains.
+	// Without XDG_CACHE_HOME, enableCacheProg would mount the developer's real cache and scan every pack -- slow, and not this test's concern.
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
 	origProg := os.Getenv("GOCACHEPROG")

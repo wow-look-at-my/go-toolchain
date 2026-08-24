@@ -1,17 +1,3 @@
-package cmd
-
-import (
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
-	"os"
-	"strings"
-	"time"
-
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
-)
-
 // A branch that is the head of an open pull request is a branch with a
 // scheduled death: the merge that closes the PR deletes it. Tracking one
 // resolves fine until that moment and then resolves to nothing, on the
@@ -27,6 +13,19 @@ import (
 // A bare auto-branch marker is never checked: it names no branch, so it
 // follows whatever the default branch is and cannot be pointed at a temporary
 // one.
+package cmd
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
+)
 
 // temporaryBranch is a tracked branch that an open pull request will delete.
 type temporaryBranch struct {

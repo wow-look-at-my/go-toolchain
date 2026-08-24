@@ -13,30 +13,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// MapSetAnalyzer reports a map[K]bool that carries no information in its
-// values, and so is a set spelled as a map. Two shapes are reported:
-//
-//   - a composite literal whose every value is the constant true. A literal
-//     that writes one false answers a question and stays.
-//   - a variable made with make(map[K]bool) whose every use in the package is
-//     a set operation: a write of true, delete, clear, len, a key-only range,
-//     or an index read. See mapSetUses for what disqualifies a candidate.
-//
-// The remedy is github.com/wow-look-at-my/go-containers/set. Its Set[T] holds
-// the membership operations a map spells out by hand: Contains, ContainsAll,
-// Union, Intersection, Difference, and the subset predicates.
-//
-// A map[K]struct{} gets a WARNING instead, never a diagnostic. It already
-// carries no value, so it is not the mistake this check fails a build over.
-// The default a map[K]bool picks is. The set package itself is exempt from
-// that warning: Set[T] IS the map[T]struct{} the warning points at.
-//
-// Severity follows the module. An org module has the remedy one require away,
-// so the map[K]bool findings FAIL its build. In anybody else's module the same
-// findings are warnings: the code is just as wasteful, but the fix would add a
-// dependency its author never chose, and that is their call to make.
-//
-// Depth: docs/VET.md
+// MapSetAnalyzer reports a map[K]bool used as a set: an all-true literal, or an
+// empty map whose every use is a set op. Org modules FAIL; others WARN. docs/VET.md
 var MapSetAnalyzer = &analysis.Analyzer{
 	Name:       "mapset",
 	Doc:        "detects a map[K]bool used as a set; use github.com/wow-look-at-my/go-containers/set instead",
@@ -47,13 +25,10 @@ var MapSetAnalyzer = &analysis.Analyzer{
 // setPackage is the remedy every diagnostic names.
 const setPackage = "github.com/wow-look-at-my/go-containers/set"
 
-// mapSetWarned records the file:line of every struct-map warning this run
-// emitted. Analyzers run concurrently across package variants, so the map is
-// a sync.Map and resetMapSetWarnings clears it at the start of each vet run.
+// mapSetWarned records file:line of every warning emitted this run; concurrent package variants need a sync.Map.
 var mapSetWarned sync.Map
 
-// resetMapSetWarnings forgets the warnings of the previous run, so a re-run
-// after a fix reports its sites again.
+// resetMapSetWarnings forgets prior warnings, so a re-run after a fix reports its sites again.
 func resetMapSetWarnings() { mapSetWarned.Clear() }
 
 func runMapSet(pass *analysis.Pass) (any, error) {
@@ -79,9 +54,7 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 		})
 	}
 
-	// The set package is the one place the advice cannot apply: Set[T] IS the
-	// map[T]struct{}. Its eight storage sites would spend half the warnings
-	// budget telling the remedy to use itself.
+	// The set package is exempt: Set[T] IS the map[T]struct{} the warning names.
 	if !isSetPackage(pass.Pkg) {
 		for _, file := range pass.Files {
 			warnEmptyStructMaps(pass, file)
@@ -97,11 +70,8 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 	return []*ASTFixes(nil), nil
 }
 
-// warnEmptyStructMaps warns about a map[K]struct{}. That map already carries
-// no value, so it is not the mistake this analyzer fails a build over: set.Set
-// still gives it the membership operations, and which of the two to write is
-// the author's call. The warning says so once per site and counts against the
-// warnings budget; it never fails the run by itself.
+// warnEmptyStructMaps warns about a map[K]struct{}: it already carries no value, so
+// which of the two spellings to write is the author's call. It never fails the run.
 func warnEmptyStructMaps(pass *analysis.Pass, file *ast.File) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		mt, ok := n.(*ast.MapType)
@@ -126,9 +96,8 @@ func warnAt(warned *sync.Map, pass *analysis.Pass, pos token.Pos, format string,
 	logger.WarnFile(p.Filename, "%s:%d: "+format, append([]any{p.Filename, p.Line}, args...)...)
 }
 
-// isOrgModule reports whether the module under analysis is org code, where the
-// remedy is a first-party dependency. A driver that supplies no module info
-// fails open to org, so the analysistest fixtures still expect diagnostics.
+// isOrgModule reports whether the module under analysis is org code. A driver
+// with no module info fails open to org, so fixtures still expect diagnostics.
 func isOrgModule(mod *analysis.Module) bool {
 	if mod == nil || mod.Path == "" {
 		return true

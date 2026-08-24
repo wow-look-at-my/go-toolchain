@@ -9,14 +9,12 @@ import (
 )
 
 // Action is one row of cmd/go's -debug-actiongraph JSON dump. Only the fields
-// the profiler consumes are declared — encoding/json ignores unknown fields,
-// so the parse is forward-compatible with new cmd/go fields, and absent
-// fields simply stay zero (backward-compatible with older dumps).
+// the profiler consumes are declared; unknown fields are ignored and absent
+// ones stay zero, so parsing stays compatible across cmd/go versions.
 //
-// ActionID is the 20-char truncated cache key,
-// base64.RawURLEncoding(wireActionID[:15]) — byte-identical to the truncated
-// form the cacheprog emits in its per-action stat events, which makes it the
-// join key between "what did the build do" and "what did the cache do".
+// ActionID is the 20-char base64.RawURLEncoding(wireActionID[:15]) truncated
+// cache key, byte-identical to what the cacheprog emits in its stat events --
+// the join key between "what did the build do" and "what did the cache do".
 type Action struct {
 	ID        int       `json:"ID"`
 	Mode      string    `json:"Mode"`
@@ -32,9 +30,7 @@ type Action struct {
 	Target    string    `json:"Target"`
 }
 
-// Executed reports whether the action actually ran (cmd/go stamped a start
-// and completion time on it). Cache-satisfied and pruned actions carry zero
-// times and contribute no wall time.
+// Executed reports whether cmd/go stamped a start and completion time; cache-satisfied actions carry zero times.
 func (a *Action) Executed() bool {
 	return !a.TimeStart.IsZero() && !a.TimeDone.IsZero() && !a.TimeDone.Before(a.TimeStart)
 }
@@ -48,12 +44,10 @@ func (a *Action) Wall() time.Duration {
 	return a.TimeDone.Sub(a.TimeStart)
 }
 
-// LoadGraphs parses every actiongraph dump the collector handed out and
-// merges rows that share an ActionID (the same compile appears in both the
-// `go test` and `go build` graphs; the executed instance wins). Parsing is
-// strictly best-effort: a missing file (the go invocation failed before
-// dumping) is skipped silently, a malformed one is skipped with a single
-// warning on warn — the profile must never fail a build.
+// LoadGraphs parses every actiongraph dump and merges rows sharing an
+// ActionID (the executed instance wins). Best-effort: a missing file is
+// skipped silently, a malformed one warns once -- the profile must never
+// fail a build.
 func LoadGraphs(files []string, warn io.Writer) []Action {
 	var all []Action
 	for _, path := range files {

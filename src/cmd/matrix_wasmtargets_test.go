@@ -17,8 +17,7 @@ import (
 func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm", "linux/amd64"})
 	t.Setenv("CI", "")
-	// The fork toolchain ships the js exec harness; a js/wasm build copies it
-	// next to the artifact.
+	// The fork toolchain ships the js exec harness; a js/wasm build copies it next to the artifact.
 	require.NoError(t, os.MkdirAll(filepath.Join(fakeGoroot, "lib", "wasm"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(fakeGoroot, "lib", "wasm", "wasm_exec.js"), []byte("// harness"), 0644))
 
@@ -42,9 +41,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	})
 	require.NoError(t, runErr)
 
-	// The build warns that publishing wasm artifacts requires buildhost wasm
-	// artifact support; the opt-out exclusion warning must NOT appear on the
-	// default path.
+	// Publishing requires wasm artifact support; the opt-out warning must not appear by default.
 	assert.Contains(t, output, "requires buildhost wasm artifact support")
 	assert.NotContains(t, output, "excluded from buildhost publishing")
 
@@ -64,14 +61,13 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		assert.Equal(t, content, string(data), "artifact %s content", name)
 	}
 
-	// No cosmo machinery may run for wasm targets: no fat APE, no manifest.
-	fatMatches, _ := filepath.Glob(filepath.Join(outDir, "*_cosmo_fat"))
-	assert.Empty(t, fatMatches, "wasm targets must not produce a cosmo fat artifact")
+	// No cosmo machinery runs for wasm targets. The manifest, not the filename, marks a cosmo build.
+	assert.NoFileExists(t, filepath.Join(outDir, buildhostManifestName),
+		"wasm targets must not produce a cosmo fat artifact")
 	assert.NoFileExists(t, filepath.Join(outDir, "mytool_linux_arm64"),
 		"no artifact may appear for a platform that was not requested")
 
-	// The fork's wasm_exec.js is shipped alongside the js artifact — it must
-	// byte-match the toolchain that built the wasm.
+	// wasm_exec.js ships alongside the js artifact and must byte-match the toolchain that built it.
 	harness, err := os.ReadFile(filepath.Join(outDir, "wasm_exec.js"))
 	require.NoError(t, err, "wasm_exec.js must be copied into the output dir for js/wasm builds")
 	assert.Equal(t, "// harness", string(harness))
@@ -84,9 +80,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	assert.Contains(t, string(sums), "mytool_wasm_wasip1")
 	assert.Contains(t, string(sums), "wasm_exec.js")
 
-	// Each wasm build must run the fork's bin/go with GOOS/GOARCH pinned
-	// explicitly (the fork defaults to GOOS=cosmo), GOTOOLCHAIN=local, GOROOT
-	// and PATH pointing at the toolchain, and CGO_ENABLED forced to 0.
+	// Each wasm build pins GOOS/GOARCH (fork defaults to cosmo), GOTOOLCHAIN=local, GOROOT/PATH, and CGO_ENABLED=0.
 	seenGOOS := set.New[string]()
 	for _, cfg := range mock.Calls() {
 		if cfg.Name != forkGo {
@@ -104,8 +98,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		assert.True(t, strings.HasPrefix(path, filepath.Join(fakeGoroot, "bin")), "PATH must be prefixed with the fork GOROOT/bin")
 		cgo, _ := cfg.Env.Get("CGO_ENABLED")
 		assert.Equal(t, "0", cgo)
-		// Wasm builds use the same constant-version fork, so they carry the
-		// same toolchain-content cache namespace as the cosmo build.
+		// Wasm builds share the cosmo build's toolchain-content cache namespace (same constant-version fork).
 		ns, _ := cfg.Env.Get(cache.KeyNamespaceEnv)
 		wantNS, nsErr := forkToolchainCacheNamespace(fakeGoroot)
 		require.NoError(t, nsErr)
@@ -114,9 +107,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	assert.True(t, seenGOOS.Contains("js"), "expected a js/wasm build via the fork toolchain")
 	assert.True(t, seenGOOS.Contains("wasip1"), "expected a wasip1/wasm build via the fork toolchain")
 
-	// The native target must NOT be routed through the fork toolchain — and
-	// must NOT carry the fork's cache namespace (normal toolchains have
-	// properly version-keyed tool IDs; their cache behavior stays untouched).
+	// The native target must skip the fork toolchain and its cache namespace; normal tool IDs are already version-keyed.
 	var nativeCfg *runner.Config
 	for _, cfg := range mock.Calls() {
 		if cfg.IsCmd("go", "build") && cfg.Name != forkGo {
@@ -132,12 +123,9 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
-	// Uses the canonical wasm/js spelling end to end (the other wasm tests
-	// pin the js/wasm GOOS-order alias); both produce the same artifact.
+	// Uses the canonical wasm/js spelling end to end; the js/wasm alias (other tests) produces the same artifact.
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"wasm/js"})
-	// An invalid --cosmo-platforms value must be ignored when no cosmo target
-	// is requested: it is a cosmo-only prerequisite. A wasm-only build also
-	// writes no manifest -- the manifest exists to publish an APE.
+	// --cosmo-platforms is a cosmo-only prerequisite, so an invalid value is ignored with no cosmo target requested.
 	cosmoPlatforms = []string{"not-a-pair"}
 
 	mock := newTestPassMock(0)
@@ -159,9 +147,7 @@ func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 
 func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm"})
-	// GO_TOOLCHAIN_WASM_PUBLISH=0: fall back to the excluded .wasm-suffixed
-	// naming, which never reaches the buildhost publish upload set (for
-	// consumers whose buildhost predates wasm artifact support).
+	// wasmPublishEnv=0 falls back to the excluded .wasm-suffixed name, skipping the buildhost publish upload set.
 	t.Setenv(wasmPublishEnv, "0")
 
 	mock := newTestPassMock(0)
@@ -181,16 +167,14 @@ func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
 	})
 	require.NoError(t, runErr)
 
-	// The opt-out shape is built (and checksummed); the publishable name is
-	// not produced.
+	// The opt-out shape is built and checksummed; the publishable name is not produced.
 	assert.FileExists(t, filepath.Join(outDir, "mytool_js_wasm.wasm"))
 	assert.NoFileExists(t, filepath.Join(outDir, "mytool_wasm_js"))
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	require.NoError(t, err)
 	assert.Contains(t, string(sums), "mytool_js_wasm.wasm")
 
-	// The exclusion warning fires, plus the wasm-only note that a buildhost
-	// publish step will find nothing to publish.
+	// The exclusion warning fires, plus the note that a wasm-only publish has nothing to publish.
 	assert.Contains(t, output, "excluded from buildhost publishing")
 	assert.Contains(t, output, "every target is wasm")
 	assert.NotContains(t, output, "requires buildhost wasm artifact support")
@@ -228,8 +212,7 @@ func writeConstrainedMain(t *testing.T, dir, constraint string) {
 func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "linux/amd64", "darwin/arm64"})
 	t.Setenv("CI", "")
-	// Alongside the unconstrained root main ("mytool"): a js&&wasm-only main
-	// (the go-font-renderer shape) and a linux-only main.
+	// Alongside the unconstrained root main ("mytool"): a js&&wasm-only main and a linux-only main.
 	writeConstrainedMain(t, "cmd/wasmonly", "//go:build js && wasm")
 	writeConstrainedMain(t, "cmd/linuxonly", "//go:build linux")
 
@@ -266,8 +249,7 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 		assert.NoFileExists(t, filepath.Join(outDir, name), "artifact %s must not be built", name)
 	}
 
-	// The memlimit guard (injected into HOST-context mains before discovery)
-	// must have been cleaned up and never linger in the js-only main dir.
+	// The memlimit guard (injected into host-context mains) must not linger in the js-only main dir.
 	assert.NoFileExists(t, filepath.Join("cmd", "wasmonly", "gomemlimit_gen.go"))
 	assert.NoFileExists(t, filepath.Join("cmd", "linuxonly", "gomemlimit_gen.go"))
 }
@@ -275,9 +257,7 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "linux/amd64"})
 	t.Setenv("CI", "")
-	// Replace the unconstrained root main with a linux-only one: the js/wasm
-	// target then has NO main packages and must be skipped with a warning,
-	// while linux/amd64 still builds.
+	// A linux-only root main leaves js/wasm with no main packages, skipped with a warning; linux/amd64 still builds.
 	require.NoError(t, os.Remove("main.go"))
 	writeConstrainedMain(t, ".", "//go:build linux")
 
@@ -310,8 +290,7 @@ func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
 
 func TestRunReleaseWithRunnerNoMainsForAnyTargetFails(t *testing.T) {
 	_, _ = setupCosmoMatrixTest(t, []string{"js/wasm"})
-	// Only a linux-guarded main: the js/wasm-only target list has nothing to
-	// build anywhere, which is an error (matching the historic behavior).
+	// Only a linux-guarded main: the js/wasm-only target list has nothing to build anywhere, which errors.
 	require.NoError(t, os.Remove("main.go"))
 	writeConstrainedMain(t, ".", "//go:build linux")
 
@@ -325,10 +304,7 @@ func TestRunReleaseWithRunnerNoMainsForAnyTargetFails(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmViaOsArchFlags(t *testing.T) {
-	// The action inputs os: wasm / arch: js flow through --os/--arch. This
-	// must behave exactly like --targets wasm/js: same fork toolchain, same
-	// <name>_wasm_js artifact, and the same per-target main discovery (the
-	// js&&wasm-guarded main is found even though --targets is unset).
+	// os:wasm/arch:js flows through --os/--arch like --targets wasm/js: same toolchain, artifact, and main discovery.
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
 	matrixOS, matrixArch = []string{"wasm"}, []string{"js"}
 	t.Setenv("CI", "")

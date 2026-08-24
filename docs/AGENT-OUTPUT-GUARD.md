@@ -3,9 +3,10 @@
 `src/cmd/claudeguard.go` (+ `claudeguard_proc.go` / `claudeguard_darwin.go` /
 `claudeguard_tty_linux.go` / `claudeguard_tty_cosmo.go` / `claudeguard_other.go`)
 implements the **agent output guard**: the root `PersistentPreRunE` calls
-`guardAgainstAgentOutputCapture()` (after the `skipCache` early-return, so
-`cacheprog`/`version`/`install`/`release` are exempt — `cacheprog` in particular
-*must* keep its stdout pipe for the GOCACHEPROG protocol) and aborts with exit 1
+`guardAgainstAgentOutputCapture()` for every command except `cacheprog`
+(`skipAgentGuard`) -- `cacheprog` alone is exempt, because its stdout IS the
+GOCACHEPROG protocol channel. `version`/`install`/`release` skip the build
+cache (`skipCache`) but are NOT exempt from the guard. It aborts with exit 1
 when go-toolchain runs under an AI coding agent **and** its stdout is anything
 other than the harness transcript or a terminal — i.e. any pipe, a `> file` /
 `>> file` redirect, `/dev/null`, or a `$(...)` capture.
@@ -42,12 +43,13 @@ platform that can actually introspect a file descriptor. A third platform
 
 - **Pipe** — allowed only when `isHarnessPipeReader` says the reader is the
   agent itself: an ancestor process whose name matches a roster prefix, or an
-  ancestor whose pid the agent exported (`OPENCODE_PID`). This allowance is
-  load-bearing, not a nicety: grok and opencode always pipe a command's stdout
-  back to themselves, so without it the guard would refuse every single run
-  under them. A filter in a shell pipeline is a sibling, and a `$(...)` reader
-  is a shell, so neither is an agent-named ancestor. An agent whose binary is
-  renamed beyond its roster prefixes and exports no pid var fails closed.
+  ancestor whose pid the agent exported (`OPENCODE_PID`, `GROK_AGENT_PID`).
+  This allowance is load-bearing, not a nicety: grok and opencode always pipe
+  a command's stdout back to themselves, so without it the guard would refuse
+  every single run under them. A filter in a shell pipeline is a sibling, and
+  a `$(...)` reader is a shell, so neither is an agent-named ancestor. An
+  agent whose binary is renamed beyond its roster prefixes and exports no pid
+  var fails closed.
 - **Socket / anon-inode** — gets the exact same `isHarnessPipeReader` chance a
   pipe gets, but NOT via `pipePeerName`: the two ends of an AF_UNIX
   `socketpair()` are separate sockets with different inodes (unlike a `pipe()`,
@@ -70,13 +72,15 @@ platform that can actually introspect a file descriptor. A third platform
 **`claudeguard_darwin.go`** (`//go:build darwin`) classifies fd 1 without
 `/proc`, which darwin does not have:
 
-- **FIFO (named/anonymous pipe)** — darwin has no cheap way to identify the
-  reader on the far end of a FIFO (that needs `libproc`, not implemented
-  here), so every FIFO fails CLOSED — unlike linux/cosmo, there is no "the
-  agent is reading its own pipe" allowance. This was the actual bug this file
-  fixes: without ANY darwin classifier, `inspectStdout` fell through to the
-  `!linux && !cosmo` no-op stub below, so a piped run under any agent, on real
-  macOS, was never refused at all.
+- **FIFO (named/anonymous pipe)** — grok-build captures a child's stdout
+  through Rust `Stdio::piped()`, which is a FIFO on darwin, not a socketpair.
+  The reader is identified by walking ancestors for the other end of this
+  pipe (`proc_info(PROC_PIDFDPIPEINFO)` on a native build; `lsof` from a
+  cosmo APE, the same "ask the host" pattern `CommPPID` uses for `ps`). A
+  reader that is the agent itself (`harnessIsPipeReader` / `GROK_AGENT_PID`)
+  is visible; `| cat` is a sibling and is not found, so it still fails
+  CLOSED. An unidentified FIFO fails CLOSED too — the same rule as an
+  agent renamed beyond its roster prefixes.
 - **UNIX-domain socket** — unlike a FIFO, `getsockopt(SOL_LOCAL,
   LOCAL_PEERPID)` gives the exact peer pid straight from the kernel, no
   `libproc` needed, so a socket DOES get the same allowance a pipe gets on
@@ -93,8 +97,7 @@ platform that can actually introspect a file descriptor. A third platform
   path itself (needed for `agent.IsCapturePath`) comes from the `F_GETPATH`
   fcntl, darwin's one substitute for `/proc/self/fd`'s readlink.
 - **Char device** — `isTerminal` uses the `github.com/mattn/go-isatty`
-  package already vendored at `src/compat/go-isatty` (its BSD/darwin variant),
-  not a hand-rolled ioctl.
+  package (its BSD/darwin variant), not a hand-rolled ioctl.
 
 ## Build constraints
 
@@ -208,14 +211,15 @@ flag to disable it.
   exported pid, the ancestry walk — is tested in is-this-an-agent.
 - `src/cmd/claudeguard_darwin_test.go` (`//go:build darwin`) — the darwin
   classifier's own sink classification, `fdPath`'s F_GETPATH recovery,
-  `socketPeerPID`'s raw getsockopt call against a real socketpair, and an
-  end-to-end subprocess test that reproduces opencode's actual plumbing (a
-  socketpair standing in for stdio, `OPENCODE_PID` naming the reader) proving
-  a recognized reader is let through while an unrecognized one still isn't.
-  Only runs when built and executed ON darwin — this repo's own CI never
-  builds+tests ITSELF on darwin (`build`/`host-build` are linux-only), so
-  this file needs a real Mac (or darwin CI runner) to execute, not just
-  cross-compile; it's a local-developer check, not a CI gate.
+  `socketPeerPID`'s raw getsockopt call against a real socketpair, and
+  end-to-end subprocess tests that reproduce opencode's plumbing
+  (`OPENCODE_PID`) and grok-build's (`GROK_AGENT` + `GROK_AGENT_PID`,
+  socket and pipe) proving a recognized reader is let through while
+  `| cat` and an unrecognized pid still refuse. Only runs when built and
+  executed ON darwin — this repo's own CI never builds+tests ITSELF on
+  darwin (`build`/`host-build` are linux-only), so this file needs a real
+  Mac (or darwin CI runner) to execute, not just cross-compile; it's a
+  local-developer check, not a CI gate.
 - `dats/cli.dats` — the shipped binary refusing a captured run under each
   agent's marker, the `version` exemption, and the build-output deletion, for
   the linux/cosmo classifier. The suite does not assert WHICH agent the

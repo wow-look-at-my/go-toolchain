@@ -59,8 +59,7 @@ func parseBuildCacheConfig() cache.WebConfig {
 	if raw == "" {
 		return cache.WebConfig{}
 	}
-	// Accept both standard and URL-safe base64, with or without padding,
-	// and with or without line wrapping (76-char lines).
+	// Accepts standard or URL-safe base64, padded or not, wrapped or not.
 	normalized := strings.NewReplacer("-", "+", "_", "/", "\n", "", "\r", "", " ", "").Replace(raw)
 	if m := len(normalized) % 4; m != 0 {
 		normalized += strings.Repeat("=", 4-m)
@@ -81,9 +80,7 @@ func parseBuildCacheConfig() cache.WebConfig {
 		return cache.WebConfig{}
 	}
 
-	// Resolve credentials, preferring the native username/password fields and
-	// falling back to the deprecated S3/AWS-style aliases. Collect which
-	// deprecated fields were used so we can warn about them in one message.
+	// Prefer native username/password; fall back to deprecated S3-style aliases.
 	var deprecated []string
 	username := cfg.Username
 	if username == "" && cfg.KeyID != "" {
@@ -115,49 +112,25 @@ func parseBuildCacheConfig() cache.WebConfig {
 		AccessKey: username,
 		SecretKey: password,
 		Version:   buildVersion,
-		// Provenance: stamp every uploaded object with the main module path
-		// (X-Cache-Meta-Module) so a server-side HEAD shows which repo
-		// produced it. Read from go.mod in the CWD — the repo root for the
-		// daemon, the module dir for a standalone cacheprog; empty (omitted)
-		// when there is no go.mod here, e.g. a multi-module workspace root.
+		// X-Cache-Meta-Module; empty (omitted) when the CWD has no go.mod.
 		Module: gomod.ReadModulePath(),
 	}
 }
 
 func runCacheProg(cmd *cobra.Command, args []string) error {
-	// FIRST: force the stderr-only, annotation-free logger before anything
-	// below can log. In this subprocess stdout is the GOCACHEPROG protocol
-	// pipe cmd/go parses — a GHA "::warning" workflow command there (the
-	// logger writes annotations to stdout when GITHUB_ACTIONS=true) corrupts
-	// the JSON stream. parseBuildCacheConfig below warns on the deprecated
-	// key_id/access_key/region config fields, which is exactly what
-	// go-s3-server's CI triggers. cmd/go invokes "<exe> cacheprog" bare, so
-	// CLI flags never reach this subprocess: GOCACHE_DEBUG=1 is the only
-	// verbosity knob. The root PersistentPreRunE already installs this same
-	// logger for cacheprog; re-initializing here keeps the guarantee local
-	// to the subprocess entry point.
+	// Stdout is the GOCACHEPROG pipe; force stderr-only logging so no annotation corrupts it.
 	level := logger.LevelInfo
 	if os.Getenv("GOCACHE_DEBUG") == "1" {
 		level = logger.LevelDebug
 	}
 	logger.InitSubprocess(level)
 
-	// Cache key namespace: fork-toolchain builds (matrix cosmo/wasm jobs) set
-	// GO_TOOLCHAIN_CACHE_NAMESPACE to a content hash of the toolchain in use
-	// (see forkToolchainCacheNamespace) so that different fork toolchain
-	// builds can never share cache entries — the fork's constant version stamp
-	// gives them colliding action IDs otherwise (the 2026-07-20 SIGSEGV-APE
-	// cross-build poisoning). See cache.KeyNamespaceEnv for the mechanics.
+	// Namespaces fork-toolchain builds so they never share cache entries.
 	namespace := cache.CanonicalKeyNamespace(os.Getenv(cache.KeyNamespaceEnv))
 
-	// Fast path: if a cache daemon is running, proxy to it.
-	// This avoids re-loading the web index for every go subprocess.
-	// A NAMESPACED cacheprog must never take this path: ProxyToDaemon is a raw
-	// byte pipe, the daemon knows nothing about this process's namespace, and
-	// it serves the pipeline's unnamespaced clients — proxying would silently
-	// drop the namespace and reopen cross-toolchain poisoning. Namespaced
-	// clients always run the standalone server below (their own web backend +
-	// the loose local tier, the same arrangement as any daemonless cacheprog).
+	// Fast path: proxy to a daemon instead of reloading the web index. Skip
+	// this for a namespaced cacheprog: the daemon is unnamespaced and would
+	// leak cache entries.
 	if sock := daemonSockUnlessNamespaced(namespace); sock != "" {
 		if err := cache.ProxyToDaemon(sock); err == nil {
 			return nil
@@ -167,16 +140,10 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 
-	// One-time cache version purge before the tier opens. The daemon path gets
-	// this via NewLocalStore; standalone mode constructs the loose cache
-	// directly (below), so it must run the check itself.
+	// The daemon path purges via NewLocalStore; standalone must do it itself.
 	cache.EnsureLocalCacheVersion(cacheDir)
 
-	// Standalone mode (no daemon) uses the loose-file cache, not the FUSE store:
-	// the virtual filesystem is owned by the single daemon process so that
-	// concurrent standalone cacheprog invocations can't collide on one mount
-	// point. In the normal go-toolchain flow a daemon is always started and
-	// this path is only the fallback.
+	// Standalone mode uses the loose-file cache; FUSE is daemon-owned only.
 	local, err := cache.NewLocalCache(cacheDir)
 	if err != nil {
 		return fmt.Errorf("local cache: %w", err)
@@ -213,30 +180,19 @@ var (
 	FeatureCacheProg = GoFeature{Name: "GOCACHEPROG", MinorVersion: 24}
 )
 
-// goSupportsFeature returns true if the resolved Go toolchain is new enough
-// to support the given feature. It uses resolvedGoMinor (set by EnsureGoVersion)
-// rather than shelling out to "go version", which avoids false negatives when
-// the bootstrapped Go isn't the first "go" in the original PATH.
+// goSupportsFeature checks resolvedGoMinor, avoiding a "go version" shell-out
+// that could pick the wrong PATH entry.
 func goSupportsFeature(f GoFeature) bool {
 	return resolvedGoMinor >= f.MinorVersion
 }
 
-// enableCacheProg sets the GOCACHEPROG environment variable so all child go
-// processes use this binary as the cache program server.
-// Requires Go 1.24+; on older versions it prints a warning and returns.
-// If the executable path can't be resolved, it silently falls back to
-// Go's default cache behavior.
-// statsListener is the unix socket listener that aggregates stats from
-// all cacheprog subprocesses. Created by enableCacheProg, read by printCacheStats.
+// statsListener aggregates stats from cacheprog subprocesses over a socket.
 var statsListener *cache.StatsListener
 
-// cacheDaemon is the shared cache daemon started by enableCacheProg.
-// It serves GOCACHEPROG requests over a Unix socket so child processes
-// don't each re-load the web index.
+// cacheDaemon is the shared Unix-socket daemon so children skip reloading the web index.
 var cacheDaemon *cache.Daemon
 
-// cacheEnabled tracks whether enableCacheProg was called (even if setup failed).
-// cacheSetupErr records why cache setup failed, if it did.
+// cacheEnabled: enableCacheProg ran. cacheSetupErr: why setup failed, if it did.
 var (
 	cacheEnabled  bool
 	cacheSetupErr error
@@ -268,12 +224,9 @@ func enableCacheProg() error {
 	statsListener = sl
 	os.Setenv("GOCACHE_STATS_SOCK", sockPath)
 
-	// Generate and propagate W3C trace context BEFORE the daemon (and
-	// its WebBackend) starts: the shared tracer provider reads
-	// OTEL_TRACEPARENT during init to force the timeline root span's
-	// spanID to match what cacheprog subprocesses will report as their
-	// parent. Setting this env var after the daemon starts would leave
-	// the provider's root-ID generator unconfigured.
+	// Set OTEL_TRACEPARENT before the daemon starts: the tracer provider reads
+	// it at init to fix the timeline root span's ID, matching what cacheprog
+	// subprocesses report as their parent.
 	if os.Getenv("OTEL_TRACEPARENT") == "" {
 		traceID, spanID := generateTraceIDs()
 		traceparent := fmt.Sprintf("00-%s-%s-01", traceID.String(), spanID.String())
@@ -306,25 +259,20 @@ func enableCacheProg() error {
 }
 
 // cacheProgCommand returns the GOCACHEPROG value that launches this binary's
-// cacheprog subcommand. Normally that is the bare self-exec ("<exe> cacheprog"),
-// but a cosmo fat APE running on a macOS host cannot be fork/exec'd directly:
-// on ARM64 macOS the APE never self-assimilates (it executes through its shell
-// header + the compiled APE loader, unlike Linux where the first exec rewrites
-// the file to a native ELF), so the file keeps its MZ polyglot magic and the
-// kernel rejects a direct execve with ENOEXEC. cmd/go has no shell fallback,
-// so every `go` invocation died with `error starting GOCACHEPROG program ...:
-// exec format error` — the visible half of the macOS APE pipeline wedge
-// (go-toolchain CI runs 28739021382/28739520377; localized by the run
-// 28741276162 debug job). The fix: write a #!/bin/sh wrapper that re-execs
-// the APE — the shell's ENOEXEC fallback interprets the APE header, the exact
-// mechanism by which `gt-ape version`/`--help` are proven to work on macs.
+// cacheprog subcommand: normally the bare self-exec ("<exe> cacheprog").
+//
+// A cosmo fat APE on a macOS host cannot be fork/exec'd directly: ARM64 macOS
+// never self-assimilates the APE into a native ELF (unlike Linux), so the
+// file keeps its MZ polyglot magic and execve fails with ENOEXEC. cmd/go has
+// no shell fallback, so every `go` invocation would die with "exec format
+// error". The fix wraps the APE in a #!/bin/sh script: the shell's ENOEXEC
+// fallback interprets the APE header directly.
 func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 	if goos != cosmoOS || hostGOOS != "darwin" {
 		return quoteExeForGOCACHEPROG(exe) + " cacheprog", nil
 	}
 	if strings.Contains(exe, "'") {
-		// Not representable inside the single-quoted wrapper line; disable
-		// the cache rather than misquote the exec.
+		// Not representable in the single-quoted wrapper; disable rather than misquote.
 		return "", fmt.Errorf("executable path %q cannot be embedded in the cacheprog wrapper", exe)
 	}
 	wrapper := filepath.Join(os.TempDir(), fmt.Sprintf("gocacheprog-wrapper-%d.sh", os.Getpid()))
@@ -336,9 +284,8 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 }
 
 // quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
-// parser (internal/quoted.Split: space-separated words, single or double
-// quotes, NO escape sequences). An unquoted path containing a space would be
-// split into two argv words and the cacheprog launch would fail fatally.
+// parser (space-separated words, single/double quotes, no escapes). An
+// unquoted path with a space would split into two argv words and fail.
 // A path with no spaces or quotes is returned unchanged.
 func quoteExeForGOCACHEPROG(exe string) string {
 	if !strings.ContainsAny(exe, " \t'\"") {
@@ -350,8 +297,7 @@ func quoteExeForGOCACHEPROG(exe string) string {
 	if !strings.Contains(exe, "'") {
 		return "'" + exe + "'"
 	}
-	// Contains BOTH quote kinds: not representable for quoted.Split. Return
-	// as-is — the launch fails loudly rather than silently misparsing.
+	// Both quote kinds present: not representable; return as-is to fail loudly.
 	return exe
 }
 
@@ -359,10 +305,7 @@ func quoteExeForGOCACHEPROG(exe string) string {
 // Returns the daemon, the remote endpoint (empty if no remote), and any error.
 func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
-	// The daemon is the single, shared cache process for the whole build, so it
-	// owns the FUSE mount: NewLocalStore prefers the FUSE-backed packed cache
-	// (the "virtual filesystem"), falling back to the loose-file cache when
-	// FUSE is unavailable.
+	// Daemon owns the FUSE mount; NewLocalStore prefers packed FUSE, falling back to loose files.
 	local, err := cache.NewLocalStore(cacheDir)
 	if err != nil {
 		return nil, "", err
@@ -412,11 +355,7 @@ func printCacheStats(close bool) {
 	if close && cacheDaemon != nil {
 		cacheDaemon.Close()
 	}
-	// Flush and shut down the process-wide OTel tracer provider now that
-	// the daemon has drained (and therefore no more cacheprog spans will
-	// be enqueued). Done here rather than in Daemon.Close so the timeline
-	// exporter spans emitted by src/trace.Export are included in the
-	// same final batch.
+	// Shut down the tracer provider once drained, so timeline spans land in the final batch.
 	if close {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -425,10 +364,8 @@ func printCacheStats(close bool) {
 	if close && statsListener != nil {
 		statsListener.Close()
 	}
-	// Emit the per-action build profile once everything has drained: the
-	// daemon Close above flushed the remote tier (final web counters) and the
-	// listener Close delivered every per-action outcome event. Emitting here
-	// rather than in run() is what makes build/profile.json's counters final.
+	// Emit the build profile once daemon Close (final web counters) and
+	// listener Close (final per-action events) have both drained.
 	if close {
 		emitBuildProfile()
 	}

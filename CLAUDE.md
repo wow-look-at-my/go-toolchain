@@ -57,8 +57,9 @@ coverage.
   every phase has printed) and of `runReleaseWithRunner`, covering a green build followed by a red dats suite / coverage / warnings gate; (3)
   `discardBuildOutputsFromCWD` on the two exits that never enter the pipeline — the agent output guard's abort (which also NAMES the deleted paths in
   its message, so the missing binary doesn't read as a different bug) and, via the exported `DiscardBuildOutputs`, main's bootstrap-failure exit. What
-  counts as an artifact is `isOutputArtifact`: the bare name, `<name>.exe`, or any `<name>_…` (BinaryName's `<name>_<goos>_<goarch>[.exe]`, the wasm
-  shapes, `<name>_cosmo_fat`, the `<name>_host` symlink), minus the `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
+  counts as an artifact is `isOutputArtifact`: the bare name (`<name>.exe` and the cosmo fat APE), any `<name>_…` (BinaryName's
+  `<name>_<goos>_<goarch>[.exe]`, the wasm shapes, the `<name>_host` symlink), and any `<name>.…` (the APE's sidecar ELFs), minus the
+  `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
   `trace.json` — a project whose binary is named `wasm` must not lose `wasm_exec.js`). Discovery is a directory scan keyed on target NAME rather than
   a re-derivation of the platform matrix, so artifacts of a previous run's platform set go too. `clearBuildOutputs` records `{dir, names}` per module
   (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module run. Removal failure is FATAL on the clear path (an
@@ -69,7 +70,7 @@ coverage.
   dats/README.md)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` defaults to ONE fat APE**, not a per-platform
-  product: no target flags means one `<name>_cosmo_fat` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
+  product: no target flags means one `<name>` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
   fork as `GOCOSMOPLATFORMS`; unverified hosts are refused, and an unaware toolchain is detected and warned about rather than silently ignoring
   the set). Naming `--os`/`--arch` selects the cartesian product; `--targets` an exact list. A cosmo build writes the APE and nothing else:
   no flag copies it onto per-platform names, so a duplicate is unreachable rather than checked for. Depth: `docs/CMD.md`
@@ -117,8 +118,8 @@ coverage.
 - `dats/` — this repo's own dats suite (`cli.dats` + committed `cli.snapshots/` goldens + README with the conventions): exercises the built binary's
   version/help surface, unknown-flag/-subcommand rejection (one stderr snapshot golden — regenerate with `dats --update test dats`), the
   agent-output-guard abort ("refused to run", exit 1, guard-positive via each agent's marker — `CLAUDECODE=1`, `GROK_AGENT=1`, `OPENCODE=1` — with
-  dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and the `version` exemption, and the
-  update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
+  dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and that `version` is NOT exempt (only
+  `cacheprog` is), and the update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
   so version tests assert only the stable `Version:`/`Commit:` lines), and that host detection is a MEASUREMENT rather than its linux fallback.
   These guard tests assume a linux host, because this suite only runs when this repo builds ITSELF (`build`/`host-build`, linux-only). A macOS host
@@ -151,7 +152,7 @@ coverage.
   filesystem walker uses to skip nested modules — `FindMainPackages`, test-package discovery (`listTestPackages` in src/test/test.go), the
   coverable-statements walk (`HasCoverableStatements` in src/test/coverable.go), build-target discovery's library-only fallback
   (`findAllPackagesByDir` in src/build), the vet fixers (gofmt, testify/gotest.tools import migrations, unused-range-vars), and the file-length check
-  all skip e.g. `src/compat/go-isatty`, whose files belong to their own module and must stay byte-identical to upstream (a nested module's packages
+  all skip any nested module, whose files belong to their own module and must stay byte-identical to upstream (a nested module's packages
   are not import paths of the outer module, so listing them fails `go test`/`go build` with `no required module provides package ...`)
 - `src/memlimit/` — injects a stdlib-only cgroup→GOMEMLIMIT startup guard into every main package built (discovered via `gomod.FindMainPackages`,
   which honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package)
@@ -204,9 +205,11 @@ coverage.
   (`src/cmd/logging.go`, first thing in the root `PersistentPreRunE`) with level precedence: `--log-level` > `-v`/`--verbose` > `GOCACHE_DEBUG=1`
   (maps to debug) > info. `src/cmd/logging.go` also holds the documented held-writer bypasses (`rawStderr`/`rawStdout`) for mid-line progress
   fragments and interactive prompts the logger's auto-newline and level filtering would corrupt or hide. **Warnings budget** (`warncount.go` +
-  `src/cmd/warningsgate.go`): emitted Warn/WarnFile increment `logger.WarnCount` and are retained by `EmittedWarnings`; `checkWarningsGate` fails the
-  run past 15 warnings AND re-prints every counted warning as a numbered recap (one multi-line `::error` annotation in GHA). The watchdog's STALLED
-  banner bypasses the logger and is NOT counted -- see docs/WARNINGS-GATE.md
+  `src/cmd/warningsgate.go`): the budget counts DISTINCT messages -- byte-identical text folds into one `logger.WarnCount` with a repeat count, since
+  one root cause repeats per file, per package variant and (structurally) per pipeline pass, as vet's auto-fixer re-runs the whole run and would
+  otherwise double every warning. `TotalWarnCount` keeps every emission and nothing is suppressed; `checkWarningsGate` fails the run past 15 distinct
+  warnings AND re-prints each with its repeat count as a numbered recap (one multi-line `::error` annotation in GHA). The watchdog's STALLED banner
+  bypasses the logger and is NOT counted -- see docs/WARNINGS-GATE.md
 - `src/vet/` — custom vet checks (assert normalization, unused imports, gotest.tools migration, banned output, testify fixes) and the auto-fixer.
   Depth:
   `docs/VET.md`
@@ -233,11 +236,6 @@ coverage.
   wire it to `hostSignalFunc` when it lands. Consumers: gobootstrap (go.dev archive name + `.exe` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host
   symlinks, root/uptodate in-docker binary names, and the agent output guard's classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE
   always runs the payload matching the host arch
-- `src/compat/go-isatty/` — nested module substituted for `github.com/mattn/go-isatty` via a root go.mod `replace`: upstream selects zero
-  implementation
-  files under GOOS=cosmo (empty package, breaking fatih/color ← gotestsum/testjson ← src/test), so this byte-identical copy of v0.0.20 adds one
-  `isatty_cosmo.go` (Fstat + S_IFCHR approximation). Non-cosmo builds compile the exact upstream files. Must be re-copied on dep bumps — see its
-  README.md
 - `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard. Depth:
   `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. Depth: `docs/CI.md`
@@ -253,8 +251,11 @@ coverage.
 - No Makefile — use `go run ./src` as the build entry point
 - Binaries are output to `build/` directory
 - Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go`, `_cosmo.go` suffixes (see `src/test/xattr_*.go`). GOOS=cosmo (gosmopolitan fat
-  APE) matches the `unix` build tag but NOT `linux`/`darwin` — and `golang.org/x/sys/unix` has no cosmo port, so any `//go:build unix` file that
-  imports it must be constrained `unix && !cosmo` with a `_cosmo.go` counterpart using stdlib `syscall`
+  APE) matches the `unix` build tag, and — since gosmopolitan's matchTag aliases GOOS=cosmo into `linux` — also matches `linux`, both by explicit
+  `//go:build` tag and by the `_linux.go`/`_linux_ARCH.go` filename convention. `golang.org/x/sys/unix` therefore now builds for cosmo like any other
+  linux target: reach for a plain `_linux.go` file first. A `_cosmo.go` file is for a genuine gap only — a dedicated implementation already exists
+  (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
+  (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
 
 ## Documentation
 
@@ -263,10 +264,13 @@ coverage.
 - When adding a new subcommand, add it to the Subcommands section and include a CLI usage example.
 - When adding a new flag, add it to the appropriate flags table (persistent or command-specific).
 - When changing action.yml inputs, update the Action Usage section accordingly.
-- When changing the build pipeline steps (e.g. adding a new check or phase), update the "How It Works" section.
+- When changing the build pipeline steps (e.g. adding a new check or phase), update `docs/PIPELINE.md`.
+- **The README is for a skimming human**: keep each bullet to about two rendered lines and point at `docs/` for the depth. A paragraph of internals
+  in a feature bullet belongs in a doc, not in the README.
 - **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
   wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
-  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`). Each entry appears exactly once — editing a bullet means
+  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`,
+  `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/TRACING.md`, `docs/BUILD-OUTPUTS.md`). Each entry appears exactly once — editing a bullet means
   updating it in place, never appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an
   edit shows up as a reviewable diff. A literal
   double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's

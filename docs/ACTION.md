@@ -18,6 +18,81 @@ reads pass scope-less. Both are in the documented consumer permissions block.
 
 That `actions: read` is the guard's requirement, not autorelease's.
 
+## 1b. The comment-wall guard
+
+The next step runs `wow-look-at-my/actions@yaml-comment-block#latest`. More than
+one comment line in a row in a GitHub Actions YAML file fails the job. It scans
+the calling repo's whole local call chain: every workflow file, every
+`action.yml` at any depth, and everything they reach through `uses: ./...`. A
+`uses:` into another repository is listed in the log and checked where it lives.
+
+A block is a maximal group of comment lines separated by nothing except blank
+lines, so a paragraph break does not split a wall. A `#` inside a `run:` script
+counts. The limit is a constant and no input raises it. The action needs no
+permissions, only a checkout.
+
+## 1c. Refusing a frozen ref
+
+A caller writing `@latest` or `@master` gets a frozen orphan tag, not a moving
+pointer. The default branch is `v1`, so neither name tracks anything. Nothing
+about that is visible from the calling workflow. The build simply runs old code,
+and an input only newer versions declare is dropped as an unknown `with:` key,
+which GitHub reports as a warning nobody reads. One repo built against a
+months-old action that way and only noticed when a `targets:` input silently did
+nothing.
+
+Refusing at the first step turns that into a failure naming the fix. A SHA pin,
+`v1`, or a local `./` reference (an empty `action_ref`) all pass.
+
+## 1d. Installing the binary
+
+The download goes straight to buildhost's `dl` endpoint with curl, and no npm is
+involved. `--compressed` advertises `Accept-Encoding`, zstd included where curl
+was built with it, so buildhost streams the stored zstd blob as-is and curl
+decompresses client-side. The server never pays the decompression cost. Where
+curl lacks zstd it just gets the plain binary. buildhost normalizes platform
+aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so
+those values pass through verbatim. It serves the branch tip `no-store`, so no
+cache-buster is needed.
+
+**The `?branch=v1` pin is load-bearing.** buildhost's apex "latest" resolves
+against a project's default branch. Until buildhost has learned that
+go-toolchain's default branch is `v1` it assumes `master`, which go-toolchain
+never publishes to, so the unqualified download 404s and hard-fails every
+consumer's build. Revert to the unqualified URL once buildhost has resolved the
+default branch to `v1`, which needs a buildhost deploy plus the next publish.
+
+The install runs only on a successful download. A failure is reported rather
+than hidden behind `|| true`, and it is non-fatal at that point. Gating with
+`if` keeps `set -e` from skipping the probe and the source-build fallback below,
+which surface the reason and decide whether the build fails.
+
+**The binary runs once BEFORE the root-owned install.** Since the fat-APE
+migration the linux and windows/amd64 slots serve an APE polyglot that
+self-assimilates on first exec by reopening ITSELF read-write. That works while
+the file is still runner-writable in `/tmp`. It is impossible for the non-root
+runner once the file is root-owned in `/usr/local/bin`, which gives
+`line 11: ... Permission denied`. After that run the installed file is a plain
+native binary. For a native slot such as darwin/arm64 the run is only an early
+version check. Its failures are tolerated with `|| true`, because the probe that
+follows is the single pass/fail gate and it surfaces the reason.
+
+The probe captures its output rather than discarding it, so the real reason the
+binary is unusable is shown: a 404, a missing PATH entry, or a crash. A source
+build happens only where the caller opted in. A silent fallback hides a
+buildhost outage and ships a locally-compiled toolchain that can differ from the
+released one.
+
+A caller-provided `binary:` is staged through `/tmp` and pre-run once for the
+same APE reason. Staging also keeps the caller's own file byte-identical. For a
+native binary this changes nothing.
+
+## 1e. The CodeQL permission probe
+
+The probe posts an empty body to the SARIF upload endpoint. 403 means the
+workflow lacks `security-events: write`. 422 means the permission is there and
+the body is invalid, which is expected, and no upload occurs.
+
 ## 2. Secrets, then the build
 
 Fetches secrets over OIDC, then runs `go-toolchain matrix`.
@@ -29,6 +104,10 @@ multi-platform artifact. `os` and `arch` are EMPTY by default; setting either
 switches to one native binary per platform. `targets` replaces both with an
 exact list. There is no input that copies the APE onto per-platform artifact
 names; the APE publishes under its own name, once.
+
+**The default target set.** No `targets` and no `os`/`arch` is the default: ONE
+fat APE covering `cosmo-platforms`, published as one multi-platform artifact.
+`--targets` replaces the `--os` by `--arch` matrix entirely.
 
 ## 3. Handing off `build/`
 
@@ -55,6 +134,25 @@ Being distinct per job *and* per matrix leg is the point: concurrent
 go-toolchain saves in one run — two jobs, or the legs of one matrix job — used
 to 409 on a shared key.
 
+**Downloading it** — `cache-download` with no `name` self-discovers the current
+run's hand-off through the run-scoped key prefix, and emits a `::notice` naming
+what it picked, so a consumer never has to know the producing job's id:
+
+```yaml
+- uses: wow-look-at-my/actions@cache-download#latest
+  with:
+    path: dist   # no name: self-discovers this run's hand-off
+```
+
+Nameless discovery is clean only when the run's hand-off set is unambiguous at
+download time (the exact ambiguity semantics belong to `cache-download` — see
+its docs; the deprecated bare alias below is itself a second saved name until it
+is removed). A run that saves several distinct hand-offs — several go-toolchain
+jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the
+build outputs, as this repo's own CI does — needs an explicit
+`name: go-build-<uploader job id>` (plus `.m<index>` for one leg of a matrix
+producer) on exactly those downloads.
+
 **Legacy bare alias** — a second save under the bare name `go-build`, for
 download-only consumers that still restore it (webhook-runner, buildhost,
 api-cli, github-state-mirror, publish-ghcr callers). It is preceded by a
@@ -64,11 +162,70 @@ second save's conflict is absorbed. The strict per-job/per-leg save stays the
 sole authoritative one. Proposed for removal once those consumers migrate to
 `go-build-<uploader job id>`.
 
+**Why the name carries the job id and a leg index.** The hand-off runs on EVERY
+go-toolchain run, through the org cache-upload action, which replaces
+`actions/upload-artifact`: cache storage is free and artifact storage is billed.
+The name carries the calling job's id, so the cache key
+(`cache-xfer-<run_id>-go-build-<job>-<run_attempt>`) is distinct per job.
+Concurrent jobs in one run, the standard linux plus darwin pattern, can then no
+longer collide. The old shared `go-build` name made the second finisher fail its
+save with a 409 Conflict.
+
+`github.job` alone does NOT distinguish matrix legs, so a matrix job's name
+additionally carries the leg's `strategy.job-index` as `.m<index>`. The matrix
+and strategy contexts ARE evaluable inside composite steps: the runner's
+action-manifest schema allows both in step expressions. For a non-matrix job
+`matrix` is null, so the suffix collapses to the empty string and the non-matrix
+name stays byte-identical to what it was.
+
+The dot makes the suffix collision-proof against job ids. A job id cannot
+contain a dot, so `go-build-<jobA>.m<i>` can never equal, or restore-prefix
+shadow, any `go-build-<jobB>`. `job-index` is 0-based in matrix definition order
+and identical across re-run attempts of the same leg, which keeps
+cache-download's cross-attempt fallback working.
+
+A downstream job cache-downloads with NO name, which self-discovers the current
+run's hand-off. That is the preferred mode when the run saves only one hand-off,
+and it needs no knowledge of the producing job's id. A run carrying several
+hand-offs needs an explicit `go-build-<uploader job id>`, or
+`go-build-<uploader job id>.m<index>` such as `go-build-build.m2`, because
+discovery would otherwise be ambiguous. A matrix producer is always such a case,
+because each leg saves its own name.
+
+**The legacy bare alias.** Single-producer consumers still download the bare name
+`go-build`: webhook-runner, buildhost, api-cli, github-state-mirror, and the
+publish-ghcr callers. The alias keeps being saved until they migrate to
+`go-build-<uploader job id>`. In a multi-producer run, several go-toolchain jobs
+or the legs of one matrix job, the bare key is inherently racy, because the
+second save hits an existing entry. That step therefore tolerates failure instead
+of failing the job. The collision-free per-job and per-leg hand-off is the
+authoritative one. Remove the alias step once the named consumers migrate.
+
 ## 4. Autorelease, and the permissions it needs
 
 `autorelease` (on by default) publishes the workspace `build/` **directly** to
 buildhost, through `wow-look-at-my/buildhost`'s buildhost-publish action and its
 local `path` input — no GitHub Actions artifact is involved.
+
+**`autorelease_args` is parsed, not spread.** A composite `with:` block is static
+YAML, so those args cannot be spread into the publish step dynamically. Each
+recognized key is parsed into a step output and mapped onto an explicit
+buildhost-publish input. An unknown key fails loudly, because a typo must never
+be silently ignored. An empty input leaves every output empty, and
+buildhost-publish treats an empty input as absent, so the publish stays
+byte-identical.
+
+**The grants are probed before the build.** A missing `deployments: write` or
+`artifact-metadata: write` used to surface as `Resource not accessible by
+integration` AFTER the whole build had run, which is expensive to rediscover. A
+step now probes both in the first seconds of the job, with an empty POST body.
+An empty body creates and records nothing: 403 means the grant is missing, and
+any other code means the request got past permission checking. The deployments
+probe posts to `/repos/{owner}/{repo}/deployments`, and the storage-record probe
+posts to `/orgs/{owner}/artifacts/metadata/storage-record`, which is the endpoint
+the publish itself uses. Each failure names the grant, the `autorelease: 'false'`
+alternative, and the job-level replacement rule. The probe only runs where
+`autorelease` is on.
 
 The publish step itself needs only `id-token: write`. But publishing also
 **registers a GitHub Deployment and posts an artifact storage record**, and

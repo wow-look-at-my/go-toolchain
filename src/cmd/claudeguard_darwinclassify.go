@@ -6,19 +6,11 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// isCapturePathFn is the seam for "is this the harness's own transcript
-// capture", so the decision table can be driven in tests without a real agent.
+// isCapturePathFn: the seam for the harness's transcript-capture check, so tests can drive it without a real agent.
 var isCapturePathFn = agent.IsCapturePath
 
-// The darwin classifier's decision table, kept free of build constraints so it
-// is TESTED on every platform's CI rather than only on the one host that can
-// run it. The syscalls that answer these questions are per-build
-// (claudeguard_fdprobe_{darwin,cosmo}.go); what is decided from the answers is
-// not, and that is the part with branches worth pinning.
-//
-// POSIX file-type bits, spelled locally: the stdlib syscall package does not
-// export S_IF* on every GOOS this file compiles for, and the values are
-// identical on linux and darwin.
+// Decision table: build-constraint-free, so CI tests it everywhere.
+// File-type bits are spelled locally; stdlib omits S_IF* on some GOOS.
 const (
 	sIFMT   = 0xF000
 	sIFIFO  = 0x1000
@@ -35,17 +27,17 @@ type darwinFDProbes struct {
 	fileType func() (mode uint32, supported bool)
 	// socketPeer returns the pid the kernel recorded on the far end.
 	socketPeer func() (pid int, identified, supported bool)
+	// fifoPeer: pid of a FIFO's other end. identified=false fails closed -- a nameless reader is `| cat`.
+	fifoPeer func() (pid int, identified, supported bool)
 	// isTerminal reports whether a character device is a real terminal.
 	isTerminal func() (terminal, supported bool)
 	// path recovers a descriptor's path (darwin's F_GETPATH).
 	path func() (string, bool)
 	// peerName resolves a pid to its command name.
 	peerName func(pid int) (comm string, ok bool)
-	// isAgentReader reports whether that process is the agent reading our
-	// output, rather than something capturing it.
+	// isAgentReader: is that process the agent reading its own output, not something capturing it.
 	isAgentReader func(comm string, pid int) bool
-	// isAgentPID reports whether an agent named this pid as its own, which
-	// needs no process lookup: the agent put it in the environment.
+	// isAgentPID: did an agent name this pid as its own via env, needing no process lookup.
 	isAgentPID func(pid int) bool
 }
 
@@ -62,16 +54,19 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 
 	switch mode & sIFMT {
 	case sIFIFO:
-		// A FIFO's reader cannot be identified on darwin without libproc, so
-		// an agent piping its own child's stdout back to itself is
-		// indistinguishable from `| grep`. Fails CLOSED.
-		return outputSink{kind: sinkPipe}, true
+		// grok-build's stdout is a FIFO, not a socketpair. An unidentified
+		// reader is indistinguishable from `| cat`, so it fails closed too.
+		if p.fifoPeer == nil {
+			return outputSink{kind: sinkPipe}, true
+		}
+		pid, identified, supported := p.fifoPeer()
+		if !supported || !identified {
+			return outputSink{kind: sinkPipe}, true
+		}
+		return peerSink(p, pid, sinkPipe), true
 
 	case sIFSOCK:
-		// What a coding agent's tool-execution plumbing actually is: a
-		// socketpair for a spawned child's stdio. The kernel fixes the peer at
-		// connection time, so this still resolves after the parent closes its
-		// copy of the child's descriptor.
+		// Agent tool plumbing is a socketpair; the kernel fixes the peer at connect time, resolving after the parent's copy closes.
 		pid, identified, supported := p.socketPeer()
 		if !supported {
 			return outputSink{}, false
@@ -79,24 +74,7 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 		if !identified {
 			return outputSink{kind: sinkHidden}, true
 		}
-		if comm, ok := p.peerName(pid); ok {
-			if p.isAgentReader(comm, pid) {
-				return outputSink{kind: sinkVisible}, true
-			}
-			return outputSink{kind: sinkHidden, detail: comm}, true
-		}
-		// The name is out of reach more often than it looks: darwin resolves it
-		// by running ps(1), which a sandbox can refuse outright (dats' seatbelt
-		// does, exit 126). Falling straight to hidden there refuses every
-		// agent-driven run inside such a sandbox. The pid on its own still
-		// answers the question when an agent named that pid as its own process,
-		// because the kernel fixed this socket's peer at creation time and the
-		// agent published the pid itself -- neither is something a `| head`
-		// could arrange.
-		if p.isAgentPID(pid) {
-			return outputSink{kind: sinkVisible}, true
-		}
-		return outputSink{kind: sinkHidden, detail: fmt.Sprintf("pid %d", pid)}, true
+		return peerSink(p, pid, sinkHidden), true
 
 	case sIFCHR:
 		terminal, supported := p.isTerminal()
@@ -110,9 +88,7 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 		return outputSink{kind: sinkDiscard, detail: path}, true
 
 	case sIFREG:
-		// The path is what separates the harness's own transcript capture
-		// (visible) from an ordinary `> out.log` (hidden), so without it there
-		// is nothing to decide on.
+		// The path separates the harness's transcript capture from an ordinary redirect; without it there's nothing to decide.
 		path, supported := p.path()
 		if !supported {
 			return outputSink{}, false
@@ -124,4 +100,23 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 	}
 
 	return outputSink{kind: sinkVisible}, true // unknown disposition -- don't block
+}
+
+// peerSink classifies a descriptor whose far-end pid is known: the agent
+// reading its own child is visible, anything else is `notAgent` (sinkPipe
+// for a FIFO, sinkHidden for a socket) and names the reader. A nameless
+// peer still answers when an agent published that pid as its own -- the
+// kernel fixed the peer and the agent named it, which `| cat` cannot
+// arrange.
+func peerSink(p darwinFDProbes, pid int, notAgent sinkKind) outputSink {
+	if comm, ok := p.peerName(pid); ok {
+		if p.isAgentReader(comm, pid) {
+			return outputSink{kind: sinkVisible}
+		}
+		return outputSink{kind: notAgent, detail: comm}
+	}
+	if p.isAgentPID != nil && p.isAgentPID(pid) {
+		return outputSink{kind: sinkVisible}
+	}
+	return outputSink{kind: notAgent, detail: fmt.Sprintf("pid %d", pid)}
 }

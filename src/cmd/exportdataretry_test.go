@@ -27,9 +27,7 @@ func TestIsCorruptExportData(t *testing.T) {
 	assert.True(t, isCorruptExportData(errors.New(realCorruptExportDataErr)))
 	assert.False(t, isCorruptExportData(nil))
 
-	// A genuine source error must never be mistaken for cache damage: the
-	// recovery below rebuilds the world, and a real compile error would then
-	// be reported as an infrastructure problem.
+	// A genuine source error must never be mistaken for cache damage, or it gets reported as infrastructure.
 	assert.False(t, isCorruptExportData(errors.New(`package load errors:
 src/cmd/foo.go:12:3: undefined: Bar`)))
 	assert.False(t, isCorruptExportData(errors.New("corrupt index")),
@@ -59,8 +57,7 @@ func TestDisableSharedBuildCache(t *testing.T) {
 		t.Setenv("GOCACHEPROG", "/usr/local/bin/go-toolchain cacheprog")
 		require.True(t, disableSharedBuildCache())
 		assert.Empty(t, os.Getenv("GOCACHEPROG"))
-		// Idempotent: a second call finds nothing, which is what bounds the
-		// retry to one.
+		// Idempotent: a second call finds nothing, bounding the retry to one.
 		assert.False(t, disableSharedBuildCache())
 	})
 }

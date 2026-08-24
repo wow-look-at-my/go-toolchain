@@ -22,8 +22,7 @@ func TestSimilarity_CompletelyDifferent(t *testing.T) {
 }
 
 func TestSimilarity_PartialMatch(t *testing.T) {
-	// "ABCDE" vs "ABXDE" — LCS is "ABDE" (length 4)
-	// similarity = 2*4 / (5+5) = 0.8
+	// "ABCDE" vs "ABXDE": LCS is "ABDE" (4), similarity = 2*4/(5+5) = 0.8
 	sim := Similarity("ABCDE", "ABXDE")
 	assert.InDelta(t, 0.8, sim, 0.001)
 }
@@ -65,8 +64,7 @@ func TestLCSDiff(t *testing.T) {
 		{Symbol: 'I'}, {Symbol: '_', Concrete: "y"}, {Symbol: 'R'},
 	}
 	diffA, diffB := LCSDiff(a, b)
-	// All symbols are identical (I, _, R) so LCS covers everything
-	// and there should be no structural diffs
+	// Symbols match (I, _, R), so LCS covers everything: no structural diffs.
 	assert.Empty(t, diffA)
 	assert.Empty(t, diffB)
 }

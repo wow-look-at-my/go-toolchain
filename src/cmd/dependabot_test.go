@@ -205,8 +205,7 @@ func TestPostDepSnapshot_APIError(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "HTTP 403")
 	assert.Contains(t, err.Error(), "Resource not accessible")
-	// 403 means the token lacks the required permission; the error must say
-	// which one and how to grant it.
+	// 403 means the token lacks a permission; the error must name it and how to grant it.
 	assert.Contains(t, err.Error(), "contents: write")
 }
 
@@ -328,8 +327,7 @@ func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 	setGithubAPIBase(srv.URL)
 	defer setGithubAPIBase(oldBase)
 
-	// Workspace and build directory are siblings, as on a real runner where the
-	// checkout is under GITHUB_WORKSPACE and the fixture under RUNNER_TEMP.
+	// Workspace and build dir are siblings, matching GITHUB_WORKSPACE vs RUNNER_TEMP.
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	elsewhere := filepath.Join(root, "smokemod")

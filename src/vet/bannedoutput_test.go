@@ -12,9 +12,8 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// TestBannedOutputAnalyzer runs the bannedoutput analyzer over its fixture:
-// direct fmt/log stdio writes must be reported, while Sprintf-style calls,
-// Fprint* to non-stdio writers, and writers held in variables must not.
+// TestBannedOutputAnalyzer checks the fixture: direct fmt/log stdio writes
+// report, Sprintf-style calls and non-stdio Fprint* writers must not.
 func TestBannedOutputAnalyzer(t *testing.T) {
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)

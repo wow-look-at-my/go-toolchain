@@ -87,7 +87,7 @@ func MigrateGotestTools(ed Editor) (bool, error) {
 		if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git" || d.Name() == "testdata") {
 			return filepath.SkipDir
 		}
-		// Never rewrite a nested module's files (e.g. src/compat/go-isatty).
+		// Never rewrite a nested module's files.
 		if d.IsDir() && gomod.IsNestedModule(p) {
 			return filepath.SkipDir
 		}
@@ -124,8 +124,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		// Unparseable file: skip; the type-check/go vet pass reports the syntax
-		// error with a proper location.
+		// Unparseable file: skip; the type-check/go vet pass reports the syntax error properly.
 		return false, nil
 	}
 
@@ -175,8 +174,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	// Record fixes to print only if the change is actually written (fix mode).
 	fixLog := [][2]string{{gotestAssert, testifyRequire}}
 
-	// Phase 2: Walk call expressions to rename functions and unwrap cmp calls.
-	// Track which idents should stay as "assert" (non-fatal Check paths).
+	// Phase 2: rename functions, unwrap cmp calls, and track idents that stay "assert" (Check paths).
 	keepAsAssert := set.New[*ast.Ident]()
 
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -281,9 +279,7 @@ func migrateFileGotestTools(ed Editor, filename string) (bool, error) {
 	if err := printer.Fprint(&buf, fset, f); err != nil {
 		return false, err
 	}
-	// go/printer tab-aligns, leaves the new imports unsorted, and rewrites
-	// doc-comment quotes; canonicalize to gofmt style and restore literal quotes
-	// so the rewritten file is what RunGofmt expects.
+	// go/printer output isn't gofmt-clean (tabs, unsorted imports, doc quotes); canonicalize it to match.
 	out := canonicalizeGoSource(buf.Bytes())
 	wrote, err := ed.Require(filename, out, "imports gotest.tools/v3/assert; migrate to github.com/stretchr/testify")
 	if err != nil {

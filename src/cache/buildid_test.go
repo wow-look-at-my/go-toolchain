@@ -20,33 +20,18 @@ func archiveWithBuildID(action string) []byte {
 	return buildAr("__.PKGDEF", []byte(body))
 }
 
-// archivePkgdefNoBuildID builds a Go package archive (ar + __.PKGDEF export
-// data) that carries NO `build id` line -- the shape of a corrupt object, or one
-// deliberately stripped to slip a different package's export data under a key
-// while evading the build-id cross-check.
+// archivePkgdefNoBuildID builds an archive with NO build id line: corrupt, or stripped to
+// slip export data under a foreign key.
 func archivePkgdefNoBuildID() []byte {
 	body := "go object linux amd64 go1.24.13\n\n\n$$B\nu\x00\x00\x00\n$$\n"
 	return buildAr("__.PKGDEF", []byte(body))
 }
 
-// hermeticOTel pins the shared tracer provider to disabled for this test.
-// trace.Provider is a process-global sync.Once gated on
-// OTEL_EXPORTER_OTLP_ENDPOINT at first-call time (see src/trace/provider.go).
-// These are the first tests alphabetically to construct a WebBackend -- which
-// initializes that provider via newCacheTracer -- so under CI (where the
-// go-toolchain action sets an OTEL endpoint) they must not let it memoize
-// ENABLED, or TestHTTPErrLogger_OTELOptOutByDefault, which runs later and
-// asserts the provider is disabled, would fail. Clearing the env here makes the
-// first init disabled, exactly as it is when that opt-out test is the first
-// caller on a clean branch.
+// hermeticOTel clears the OTEL endpoint so the process-global tracer provider's sync.Once memoizes disabled.
 func hermeticOTel(t *testing.T) { t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") }
 
-// TestExpectedBuildIDAction_Golden pins the encoding against a value captured
-// from a real `go build`: the cached compile action whose key is this 64-hex
-// SHA-256 was stamped by the toolchain with build id action
-// "EPlPwC3MJFgg3YYfTGwl" (verified with `go tool buildid` on the cached -d
-// object). If Go ever changed HashToString -- base64.RawURLEncoding(hash[:15]) --
-// this is the canary.
+// TestExpectedBuildIDAction_Golden pins the encoding against a real `go build` stamp, verified with
+// `go tool buildid`. If Go ever changes HashToString (base64.RawURLEncoding(hash[:15])), this catches it.
 func TestExpectedBuildIDAction_Golden(t *testing.T) {
 	const actionID = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b"
 	require.Equal(t, "EPlPwC3MJFgg3YYfTGwl", expectedBuildIDAction(actionID))
@@ -88,20 +73,15 @@ func TestBuildIDMatchesAction(t *testing.T) {
 	require.False(t, ok)
 	require.Equal(t, wantB, got)
 
-	// A non-archive body (vet facts, stdout, ...) has nothing to verify and must
-	// never be reported as a mismatch.
+	// A non-archive body has nothing to verify and must never be reported as a mismatch.
 	_, ok = buildIDMatchesAction(actionA, []byte("vet facts, not an archive"))
 	require.True(t, ok)
 
-	// A stamped archive but a too-short requested key (no derivable expectation)
-	// must not false-positive either.
+	// A too-short requested key (no derivable expectation) must not false-positive.
 	_, ok = buildIDMatchesAction("aabbccdd", archiveWithBuildID(wantB))
 	require.True(t, ok)
 
-	// A package archive with the build id STRIPPED, served under a real key,
-	// must be refused: the Go toolchain always stamps a build id into a compiled
-	// package, so a __.PKGDEF object without one is corrupt or a deliberate
-	// evasion. This closes the gap a bare "no build id -> pass" would leave.
+	// A stripped build id under a real key must be refused, not pass as "no build id".
 	_, ok = buildIDMatchesAction(actionA, archivePkgdefNoBuildID())
 	require.False(t, ok, "a package archive without a build id must be refused")
 
