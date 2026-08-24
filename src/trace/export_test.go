@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/summary"
 )
 
@@ -69,8 +70,7 @@ func TestBuildSpanHierarchy(t *testing.T) {
 	}
 	require.True(t, rootFound, "root span not found")
 
-	// Worker spans should be children of root, all named "build.worker", and
-	// distinguished by the build.worker.id attribute.
+	// Worker spans are children of root, all named build.worker, distinguished by build.worker.id.
 	workerSpans := map[string]tracetest.SpanStub{}
 	for _, s := range spans {
 		if s.Parent.SpanID() == root.SpanContext.SpanID() {
@@ -191,33 +191,32 @@ func TestCompileLabelsBecomeStaticBuildCompile(t *testing.T) {
 	require.Len(t, spans, 6)
 
 	// Worker spans use the static name "build.worker" with a build.worker.id attribute.
-	workerIDs := map[string]bool{}
+	workerIDs := set.New[string]()
 	for _, s := range spans {
 		if s.Name == "build.worker" {
-			workerIDs[attrString(s.Attributes, "build.worker.id")] = true
+			workerIDs.Add(attrString(s.Attributes, "build.worker.id"))
 		}
 	}
-	assert.True(t, workerIDs["worker-1"])
-	assert.True(t, workerIDs["worker-2"])
+	assert.True(t, workerIDs.Contains("worker-1"))
+	assert.True(t, workerIDs.Contains("worker-2"))
 
-	// All compile steps should share the static name "build.compile" and carry the
-	// platform as attributes rather than baking it into the span name.
+	// Compile steps share the static name build.compile; platform goes into attributes, not the span name.
 	type platform struct{ os, arch string }
-	gotPlatforms := map[platform]bool{}
+	gotPlatforms := set.New[platform]()
 	compileCount := 0
 	for _, s := range spans {
 		if s.Name == "build.compile" {
 			compileCount++
-			gotPlatforms[platform{
+			gotPlatforms.Add(platform{
 				os:   attrString(s.Attributes, "build.target.os"),
 				arch: attrString(s.Attributes, "build.target.arch"),
-			}] = true
+			})
 		}
 	}
 	assert.Equal(t, 3, compileCount, "all three matrix entries should produce build.compile spans")
-	assert.True(t, gotPlatforms[platform{"linux", "amd64"}])
-	assert.True(t, gotPlatforms[platform{"linux", "arm64"}])
-	assert.True(t, gotPlatforms[platform{"darwin", "amd64"}])
+	assert.True(t, gotPlatforms.Contains(platform{"linux", "amd64"}))
+	assert.True(t, gotPlatforms.Contains(platform{"linux", "arm64"}))
+	assert.True(t, gotPlatforms.Contains(platform{"darwin", "amd64"}))
 }
 
 func TestSpansUseInternalKind(t *testing.T) {

@@ -7,37 +7,20 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 )
 
-// Upstream testify package paths. The toolchain rewrites the in-house fork
-// (github.com/wow-look-at-my/testify) back to these before analysis runs, so by
-// the time this analyzer executes the calls resolve to upstream.
+// Upstream testify package paths. Calls resolve here once the toolchain
+// rewrites the in-house fork back to upstream before analysis runs.
 const (
 	upstreamAssertPkg  = "github.com/stretchr/testify/assert"
 	upstreamRequirePkg = "github.com/stretchr/testify/require"
 )
 
-// TestifyCastAnalyzer inserts explicit type conversions into the arguments of
-// upstream testify two-operand comparison assertions (assert/require
-// .Equal/.NotEqual and the ordering family .Greater/.GreaterOrEqual/.Less/
-// .LessOrEqual, plus their f-variants, in both package and *Assertions method
-// form).
-//
-// The wow-look-at-my/testify fork loosened its comparisons so that
-// numerically-equal (or ordered) values of different convertible types
-// compared fine (e.g. assert.Equal(t, 0, f) with f float64). Upstream testify
-// is type-strict on both paths: Equal/NotEqual use reflect.DeepEqual, and the
-// ordering assertions go through compareTwoValues, which fails with "Elements
-// should be the same type" when the operand kinds differ (e.g.
-// assert.Greater(t, v, 0) with v int16). To keep code that relied on the fork
-// compiling and passing against upstream, this analyzer makes the two
-// compared operands the same static type by wrapping one of them in a
-// conversion — mirroring exactly the cases the fork would have treated as
-// equal (or comparable).
-//
-// Fixes are emitted as surgical byte edits (CastEdits) rather than whole-file
-// AST reprints, so all surrounding formatting and comments are preserved.
+// TestifyCastAnalyzer inserts conversions into testify Equal/NotEqual and
+// Greater/Less assertions so code written against the loosened fork still
+// passes upstream. Fixes are surgical byte edits (CastEdits), not reprints.
 var TestifyCastAnalyzer = &analysis.Analyzer{
 	Name:       "testifycast",
 	Doc:        "inserts type conversions for cross-type testify Equal/NotEqual and Greater/Less-family assertions so they pass against upstream testify",
@@ -45,10 +28,8 @@ var TestifyCastAnalyzer = &analysis.Analyzer{
 	ResultType: reflect.TypeOf([]*CastEdits{}),
 }
 
-// CastEdit records a single conversion to insert: wrap the source span
-// [Start,End) in TypeName(...). AddImports lists the import paths that must be
-// added to the file for TypeName to resolve — empty when every package the
-// conversion names is already imported (or the type is package-local).
+// CastEdit wraps [Start,End) in TypeName(...). AddImports lists paths needed
+// to resolve TypeName when not already imported.
 type CastEdit struct {
 	Start, End token.Pos
 	TypeName   string
@@ -62,39 +43,30 @@ type CastEdits struct {
 	Edits    []CastEdit
 }
 
-// equalityFuncs are the testify assertions whose semantics changed in the fork
-// because they route argument comparison through ObjectsAreEqual. These are the
-// ones we rewrite with a conversion.
-var equalityFuncs = map[string]bool{
-	"Equal": true, "Equalf": true,
-	"NotEqual": true, "NotEqualf": true,
-}
+// equalityFuncs are the fork-loosened assertions rewritten with a conversion.
+var equalityFuncs = set.Of(
+	"Equal", "Equalf",
+	"NotEqual", "NotEqualf",
+)
 
-// orderingFuncs are the testify ordering assertions. Upstream routes them
-// through compareTwoValues, which requires the two operands to have the same
-// reflect kind and fails with "Elements should be the same type" otherwise —
-// so e.g. assert.Greater(t, v, 0) with v int16 fails upstream (0 is an int)
-// even though the fork's loose numeric comparison accepted it. They take the
-// same (expected, actual) operand shape as Equal and get the same conversion
-// treatment.
-var orderingFuncs = map[string]bool{
-	"Greater": true, "Greaterf": true,
-	"GreaterOrEqual": true, "GreaterOrEqualf": true,
-	"Less": true, "Lessf": true,
-	"LessOrEqual": true, "LessOrEqualf": true,
-}
+// orderingFuncs are the ordering assertions; upstream needs matching
+// reflect kinds, so they share equalityFuncs' conversion treatment.
+var orderingFuncs = set.Of(
+	"Greater", "Greaterf",
+	"GreaterOrEqual", "GreaterOrEqualf",
+	"Less", "Lessf",
+	"LessOrEqual", "LessOrEqualf",
+)
 
-// elementFuncs are testify assertions whose element comparison also uses
-// ObjectsAreEqual. Rewriting these soundly is much harder (it requires
-// reasoning about collection element types), so we only warn when we detect a
-// type-mismatched element comparison rather than silently changing behavior.
-var elementFuncs = map[string]bool{
-	"Contains": true, "Containsf": true,
-	"NotContains": true, "NotContainsf": true,
-	"ElementsMatch": true, "ElementsMatchf": true,
-	"Subset": true, "Subsetf": true,
-	"NotSubset": true, "NotSubsetf": true,
-}
+// elementFuncs need collection element-type reasoning to rewrite soundly, so
+// we only warn on a type-mismatched element comparison instead.
+var elementFuncs = set.Of(
+	"Contains", "Containsf",
+	"NotContains", "NotContainsf",
+	"ElementsMatch", "ElementsMatchf",
+	"Subset", "Subsetf",
+	"NotSubset", "NotSubsetf",
+)
 
 func runTestifyCast(pass *analysis.Pass) (any, error) {
 	fileToEdits := make(map[*ast.File]*CastEdits)
@@ -132,7 +104,7 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 			}
 
 			switch {
-			case equalityFuncs[name] || orderingFuncs[name]:
+			case equalityFuncs.Contains(name) || orderingFuncs.Contains(name):
 				if edit := castEditForEqual(pass, file, call, expIdx, actIdx); edit != nil {
 					ce := fileToEdits[file]
 					if ce == nil {
@@ -141,7 +113,7 @@ func runTestifyCast(pass *analysis.Pass) (any, error) {
 					}
 					ce.Edits = append(ce.Edits, *edit)
 				}
-			case elementFuncs[name]:
+			case elementFuncs.Contains(name):
 				warnElementMismatch(pass, call, name, expIdx, actIdx)
 			}
 			return true
@@ -200,8 +172,7 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 	expType := types.Default(expTV.Type)
 	actType := types.Default(actTV.Type)
 
-	// Rule 1: identical static types -> nothing to do (also makes the pass
-	// idempotent: an already-inserted conversion makes the types identical).
+	// Rule 1: identical types need no edit (keeps the pass idempotent).
 	if types.Identical(expType, actType) {
 		return nil
 	}
@@ -209,8 +180,7 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 	expBasic, expIsBasic := expType.Underlying().(*types.Basic)
 	actBasic, actIsBasic := actType.Underlying().(*types.Basic)
 	if !expIsBasic || !actIsBasic {
-		// At least one operand isn't a basic-kinded value. The fork only
-		// loosened convertible same-kind / numeric basics; leave others alone.
+		// Not a basic-kinded value; the fork only loosened same-kind numeric basics.
 		return nil
 	}
 
@@ -219,24 +189,20 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 
 	switch {
 	case expNumeric && actNumeric:
-		// Rule 3: numeric mismatch. Pick which side to convert. If the actual
-		// is an untyped literal and the expected is not, convert the actual
-		// (the literal) to the expected's type; otherwise convert the expected
-		// to the actual's type (keeps the value-under-test visible).
+		// Rule 3: numeric mismatch; convert the literal side, else convert
+		// expected to actual's type to keep the tested value visible.
 		if isUntypedLiteral(actExpr) && !isUntypedLiteral(expExpr) {
 			return buildCastEdit(pass, file, actExpr, actTV, expType)
 		}
 		return buildCastEdit(pass, file, expExpr, expTV, actType)
 
 	case expNumeric != actNumeric:
-		// One numeric, one not: the fork required matching kinds, so this pair
-		// compared false. No sound cast (rule 2).
+		// Rule 2: mismatched numeric-ness compared false in the fork; no sound cast.
 		return nil
 
 	default:
-		// Rule 5: neither numeric. The fork converts only when Kind() matches
-		// and the types are convertible, then DeepEqual. Mirror that for
-		// same-kind convertible named types (e.g. type Name string vs string).
+		// Rule 5: neither numeric. Mirror the fork: convert only same-Kind()
+		// convertible named types (e.g. type Name string vs string).
 		if expBasic.Kind() != actBasic.Kind() {
 			return nil
 		}
@@ -254,9 +220,8 @@ func castEditForEqual(pass *analysis.Pass, file *ast.File, call *ast.CallExpr, e
 // compares the original numeric values and would not have considered such a
 // pair equal.
 func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV types.TypeAndValue, target types.Type) *CastEdit {
-	// Guard numeric constants against value-changing conversions (truncation /
-	// overflow). Non-numeric conversions (e.g. string -> named string type) are
-	// always representable, so the guard only applies to numeric targets.
+	// Guard numeric constants against value-changing conversions (truncation or
+	// overflow); non-numeric conversions are always representable.
 	if argTV.Value != nil {
 		if tb, ok := target.Underlying().(*types.Basic); ok && tb.Info()&types.IsNumeric != 0 {
 			if !constRepresentable(argTV.Value, tb) {
@@ -275,41 +240,29 @@ func buildCastEdit(pass *analysis.Pass, file *ast.File, argExpr ast.Expr, argTV 
 		return q
 	})
 	if name == "" || strings.ContainsAny(name, " \t\n") || strings.Contains(name, "invalid") {
-		// Anything we can't spell as a bare conversion function: skip rather
-		// than emit something that won't compile.
+		// Skip rather than emit a conversion spelling that would not compile.
 		return nil
 	}
 
-	// Verify every package name the conversion uses actually resolves at the
-	// use site, recording the imports that must be added when one does not.
-	// The target type is not necessarily spelled through a package the file
-	// imports: os.FileMode is an alias for io/fs.FileMode, so an operand typed
-	// through the os API yields a conversion spelled fs.FileMode even in a
-	// file that only imports os. Writing that cast without its io/fs import
-	// leaves the file failing to load (undefined: fs), which blocks every
-	// subsequent vet run — including this fixer's own verify re-run — so the
-	// tree could never converge.
+	// Verify each package name resolves at the use site; record missing imports (e.g. os.FileMode aliases io/fs.FileMode).
 	var addImports []string
 	for p, local := range used {
 		switch obj := lookupAt(pass, argExpr.Pos(), local).(type) {
 		case *types.PkgName:
 			if obj.Imported().Path() != p.Path() {
-				// The name is taken by a different import here: adding another
-				// import cannot make this spelling resolve to target. Skip.
+				// Taken by a different import; adding one cannot make this spelling resolve.
 				return nil
 			}
 			// Already imported under this name: nothing to add.
 		case nil:
-			// Not in scope: the file lacks the import (or has it only
-			// blank-imported). Adding the import makes the bare package name
-			// resolve — sound only when that is the name the conversion uses.
+			// Not in scope: adding the import resolves it only when local is the bare
+			// package name the conversion uses.
 			if local != p.Name() {
 				return nil
 			}
 			addImports = append(addImports, p.Path())
 		default:
-			// Shadowed by a non-package identifier at the use site; the
-			// conversion would not resolve to the package. Skip.
+			// Shadowed by a non-package identifier here; the conversion cannot resolve.
 			return nil
 		}
 	}
@@ -347,20 +300,14 @@ func fileQualifier(self *types.Package, file *ast.File) types.Qualifier {
 			}
 			if imp.Name != nil && imp.Name.Name != "_" {
 				if imp.Name.Name == "." {
-					// Dot import: the package's identifiers are in file scope, so
-					// the type is spelled unqualified (Duration, not .Duration).
+					// Dot import: identifiers are in file scope, so spell unqualified (Duration, not .Duration).
 					return ""
 				}
 				return imp.Name.Name
 			}
 			return p.Name()
 		}
-		// Not imported in this file: fall back to the package name. The target
-		// type is the type of an existing operand, but its package is not
-		// necessarily imported here (e.g. an os.FileMode operand is spelled
-		// through io/fs, the alias's origin). buildCastEdit verifies the name
-		// resolves at the use site and records the import to add when it
-		// doesn't.
+		// Not imported here; fall back to the package name (buildCastEdit records the import to add if this spelling doesn't resolve).
 		return p.Name()
 	}
 }
@@ -379,10 +326,8 @@ func isForkNumeric(b *types.Basic) bool {
 	return false
 }
 
-// isUntypedLiteral reports whether expr is a bare untyped constant literal
-// (e.g. 0, 1.5, 'a', "x"). go/types records the *default* type for such
-// literals once they're used as interface{} arguments, so the AST shape is the
-// reliable signal here rather than types.IsUntyped.
+// isUntypedLiteral reports a bare literal expr. go/types loses untyped-ness
+// on interface{} args, so AST shape decides instead.
 func isUntypedLiteral(expr ast.Expr) bool {
 	_, ok := expr.(*ast.BasicLit)
 	return ok

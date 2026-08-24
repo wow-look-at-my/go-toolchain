@@ -82,9 +82,7 @@ func TestParseTargetList(t *testing.T) {
 			},
 		},
 		{
-			// The GOOS-order spellings are a quiet compatibility alias
-			// (already shipped in released consumers) and normalize to the
-			// same internal targets as the canonical wasm/js form.
+			// GOOS-order spellings are a compatibility alias, normalizing to the same targets as the canonical wasm/js form.
 			name:    "wasm targets GOOS-order alias",
 			entries: []string{"js/wasm", "wasip1/wasm"},
 			want: []buildPlatform{
@@ -93,8 +91,7 @@ func TestParseTargetList(t *testing.T) {
 			},
 		},
 		{
-			// Mixing the canonical spelling and its alias dedupes to ONE
-			// target — they are the same platform after normalization.
+			// Mixing the canonical spelling and its alias dedupes to one target.
 			name:    "wasm spellings dedupe to one target",
 			entries: []string{"wasm/js", "js/wasm", "wasip1/wasm", "wasm/wasip1"},
 			want: []buildPlatform{
@@ -174,76 +171,6 @@ func TestParseTargetListErrorNamesValidValues(t *testing.T) {
 	assert.Contains(t, err.Error(), "arm64")
 }
 
-func TestParseCosmoSlots(t *testing.T) {
-	tests := []struct {
-		name    string
-		entries []string
-		want    []buildPlatform
-		wantErr string
-	}{
-		{
-			name:    "defaults",
-			entries: DefaultCosmoSlots,
-			// darwin/arm64 is intentionally NOT a default slot: the full
-			// pipeline wedges under the APE on macOS (see DefaultCosmoSlots),
-			// so macs get a native binary by default until that is fixed.
-			want: []buildPlatform{
-				{OS: "linux", Arch: "amd64"},
-				{OS: "linux", Arch: "arm64"},
-				{OS: "windows", Arch: "amd64"},
-			},
-		},
-		{
-			name:    "none disables mapping",
-			entries: []string{"none"},
-			want:    nil,
-		},
-		{
-			name:    "none mixed with slots is rejected",
-			entries: []string{"none", "linux/amd64"},
-			wantErr: "must be the only value",
-		},
-		{
-			name:    "cosmo is not a slot",
-			entries: []string{"cosmo/fat"},
-			wantErr: "not a slot",
-		},
-		{
-			name:    "wasm is not a slot",
-			entries: []string{"js/wasm"},
-			wantErr: "not a wasm binary",
-		},
-		{
-			name:    "canonical wasm spelling is not a slot either",
-			entries: []string{"wasm/js"},
-			wantErr: "not a wasm binary",
-		},
-		{
-			name:    "unknown arch",
-			entries: []string{"linux/amd65"},
-			wantErr: "unknown architecture",
-		},
-		{
-			name:    "duplicate slot",
-			entries: []string{"linux/amd64", "linux/amd64"},
-			wantErr: "duplicate --cosmo-slots",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseCosmoSlots(tt.entries)
-			if tt.wantErr != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestResolveMatrixPlatformsCartesian(t *testing.T) {
 	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
 	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
@@ -296,8 +223,7 @@ func TestResolveMatrixPlatformsRejectsWasmInCartesian(t *testing.T) {
 	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
 	matrixTargets = nil
 
-	// GOOS js/wasip1 through --os point at the os=wasm pairing (and the
-	// canonical --targets spelling).
+	// GOOS js/wasip1 through --os hits the os=wasm pairing, same as the canonical --targets spelling.
 	matrixOS, matrixArch = []string{"js"}, []string{"amd64"}
 	_, err := resolveMatrixPlatforms()
 	require.Error(t, err)
@@ -341,9 +267,7 @@ func TestResolveMatrixPlatformsWasmCartesian(t *testing.T) {
 		{OS: "wasip1", Arch: "wasm"},
 	}, got)
 
-	// MIXED list: impossible cross combinations (wasm x native arch, native
-	// os x wasm flavor) are skipped with one aggregate warning; the possible
-	// ones build.
+	// MIXED list: impossible cross combos (wasm x native arch, native os x wasm flavor) are skipped with one warning; the rest build.
 	matrixOS, matrixArch = []string{"linux", "wasm"}, []string{"amd64", "js"}
 	var warnOut string
 	warnOut = captureCombinedOutput(func() {
@@ -357,8 +281,7 @@ func TestResolveMatrixPlatformsWasmCartesian(t *testing.T) {
 	assert.Contains(t, warnOut, "linux/js")
 	assert.Contains(t, warnOut, "wasm/amd64")
 
-	// os=wasm with no wasm flavor arch anywhere: nothing satisfiable, fail
-	// fast with the exact-pairing error.
+	// os=wasm with no wasm flavor arch anywhere: nothing satisfiable, fails fast with the exact-pairing error.
 	matrixOS, matrixArch = []string{"wasm"}, []string{"amd64"}
 	_, err = resolveMatrixPlatforms()
 	require.Error(t, err)
@@ -372,8 +295,7 @@ func TestResolveMatrixPlatformsWasmCartesian(t *testing.T) {
 	assert.Contains(t, err.Error(), "--os wasm --arch js")
 	assert.Contains(t, err.Error(), "--targets wasm/js")
 
-	// Mixed list where the wasm os gets no flavor: the native combos build,
-	// the wasm ones are skipped with the warning.
+	// Mixed list where the wasm os gets no flavor: native combos build, wasm ones are skipped with the warning.
 	matrixOS, matrixArch = []string{"linux", "wasm"}, []string{"amd64"}
 	warnOut = captureCombinedOutput(func() {
 		got, err = resolveMatrixPlatforms()
@@ -395,8 +317,7 @@ func TestBuildPlatformPredicates(t *testing.T) {
 	assert.True(t, wasip1.IsWasm())
 	assert.False(t, linux.IsWasm())
 
-	// The fork toolchain builds cosmo and wasm; everything else uses the go
-	// on PATH.
+	// The fork toolchain builds cosmo and wasm; everything else uses PATH's go.
 	assert.True(t, cosmo.NeedsForkToolchain())
 	assert.True(t, js.NeedsForkToolchain())
 	assert.True(t, wasip1.NeedsForkToolchain())

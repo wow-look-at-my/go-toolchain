@@ -156,7 +156,8 @@ func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
 func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com,direct")
-	t.Setenv("GOSUMDB", "sum.golang.org")
+	// A private checksum database: configureGoEnv refuses the public one outright (see TestUsesPublicSumDB).
+	t.Setenv("GOSUMDB", "mydb+abc123 https://proxy.example.com/sumdb/mydb")
 	t.Setenv("GONOSUMDB", "leftover")
 	t.Setenv("GONOSUMCHECK", "leftover")
 
@@ -164,7 +165,7 @@ func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 
 	// Trailing ",direct" is upgraded to "|direct" so 503s fall through.
 	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
-	assert.Equal(t, "sum.golang.org", os.Getenv("GOSUMDB"))
+	assert.Equal(t, "mydb+abc123 https://proxy.example.com/sumdb/mydb", os.Getenv("GOSUMDB"))
 	assert.Empty(t, os.Getenv("GONOSUMDB"))
 	assert.Empty(t, os.Getenv("GONOSUMCHECK"))
 }
@@ -198,16 +199,16 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "https://other-proxy.example.com,direct")
-	t.Setenv("GOSUMDB", "sum.golang.org")
+	// A private sumdb, since the public one is refused outright; precedence is exercised with an accepted value.
+	t.Setenv("GOSUMDB", "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb")
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
 
 	configureGoEnv()
 
-	// Explicit GOPROXY/GOSUMDB take precedence over GO_PROXY_CONFIG.
-	// Trailing ",direct" is upgraded to "|direct" so 503s fall through.
+	// Explicit GOPROXY/GOSUMDB take precedence over GO_PROXY_CONFIG; ",direct" becomes "|direct" so 503s fall through.
 	assert.Equal(t, "https://other-proxy.example.com|direct", os.Getenv("GOPROXY"))
-	assert.Equal(t, "sum.golang.org", os.Getenv("GOSUMDB"))
+	assert.Equal(t, "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb", os.Getenv("GOSUMDB"))
 }
 
 func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
@@ -250,4 +251,47 @@ func TestConfigureGoEnv_OffPassthrough(t *testing.T) {
 	configureGoEnv()
 
 	assert.Equal(t, "direct", os.Getenv("GOPROXY"))
+}
+
+// The public checksum database is never an option: it cannot hold a private
+// module, so it can only ever fail on one, and asking it about a module
+// announces that module's path to a third party.
+func TestUsesPublicSumDB(t *testing.T) {
+	// Refused: Go would contact sum.golang.org itself.
+	assert.True(t, usesPublicSumDB("sum.golang.org"))
+	assert.True(t, usesPublicSumDB("sum.golang.org+033de0ae+AkeyHere"))
+	assert.True(t, usesPublicSumDB("sum.golang.org+033de0ae https://sum.golang.org"))
+	// Refused even under another name, if the URL points back at the public host.
+	assert.True(t, usesPublicSumDB("mydb+abc https://sum.golang.org/sumdb/mydb"))
+
+	// Allowed: the org proxy's mirror, since the request goes to the proxy and discloses nothing to a third party.
+	assert.False(t, usesPublicSumDB("sum.golang.org+033de0ae https://goproxy.example.com/sumdb/sum.golang.org"))
+	assert.False(t, usesPublicSumDB("mydb+abc123 https://goproxy.example.com/sumdb/mydb"))
+	assert.False(t, usesPublicSumDB("mydb+abc123"))
+	assert.False(t, usesPublicSumDB(""))
+	assert.False(t, usesPublicSumDB("off"))
+}
+
+func TestSumDBURLHost(t *testing.T) {
+	assert.Equal(t, "sum.golang.org", sumDBURLHost("https://sum.golang.org/sumdb/x"))
+	assert.Equal(t, "sum.golang.org", sumDBURLHost("sum.golang.org"))
+	assert.Equal(t, "proxy.example.com", sumDBURLHost("http://proxy.example.com:8080/sumdb/x"))
+}
+
+// With nothing configured the default already disables sumdb phone-home, and
+// it must keep doing so via GONOSUMDB rather than GOSUMDB=off (which would
+// also break toolchain auto-downloads).
+func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
+	for _, k := range proxyEnvVars {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	t.Setenv("GO_PROXY_CONFIG", "")
+	os.Unsetenv("GO_PROXY_CONFIG")
+
+	configureGoEnv()
+
+	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
+	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
+	assert.Empty(t, os.Getenv("GOSUMDB"), "never set to the public database")
 }

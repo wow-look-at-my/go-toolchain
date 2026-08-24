@@ -39,8 +39,7 @@ func TestParseDirectivesLongLines(t *testing.T) {
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
-	// Build a file with a line far exceeding bufio's default 4KB buffer.
-	// The directive must still be found on lines before and after the long line.
+	// The directive must be found on lines before and after one exceeding bufio's 4KB buffer.
 	longLine := "var x = \"" + strings.Repeat("A", 100_000) + "\"\n"
 
 	content := "package main\n\n" +

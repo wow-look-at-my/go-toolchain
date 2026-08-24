@@ -13,6 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/integration"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -38,14 +39,22 @@ var (
 	countGenerated bool
 )
 
-// skipCache reports whether cmd or any of its ancestors is a command tree
-// that should not enable GOCACHEPROG. Cobra passes the leaf command to
-// PersistentPreRunE, so e.g. `version raw` arrives with cmd.Name() == "raw"
-// and must still inherit the skip from its parent `version`.
+// skipCache reports whether cmd or an ancestor should skip GOCACHEPROG.
+// A subcommand (e.g. `version raw`) must inherit its parent's skip.
 func skipCache(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
 		case "cacheprog", "version", "install", "release":
+			return true
+		}
+	}
+	return false
+}
+
+// skipAgentGuard: only cacheprog is exempt, since its stdout IS the protocol channel.
+func skipAgentGuard(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "cacheprog" {
 			return true
 		}
 	}
@@ -57,20 +66,20 @@ var rootCmd = &cobra.Command{
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Install the leveled global logger first — for EVERY command,
-		// including the skipCache-exempt ones, and before the Claude output
-		// guard — so all subsequent output honors the requested level.
+		// Install the logger first, before the output guard, so every
+		// command's output honors the requested level.
 		if err := initLogging(cmd); err != nil {
 			return err
+		}
+		// Snapshot env before phases add vars, so fingerprint matches what the next run checks.
+		captureRunEnv()
+		// Abort if the agent hides our output, unless this is cacheprog (see skipAgentGuard).
+		if !skipAgentGuard(cmd) {
+			guardAgainstAgentOutputCapture()
 		}
 		if skipCache(cmd) {
 			return nil
 		}
-		// Abort before doing any work if the agent running us is hiding our
-		// output — piping it, redirecting it to a file, or discarding it —
-		// instead of letting the coverage report and build/test failures print
-		// where it can read them.
-		guardAgainstAgentOutputCapture()
 		if cmd.Parent() == nil && isUpToDate(runner.New()) {
 			logger.Output("⇒ Up to date, nothing to do")
 			ReportUpdateCheck()
@@ -108,6 +117,9 @@ func init() {
 	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
 
+	// Fingerprint covers the invoked flags; see flagFingerprint for why it excludes rootCmd itself.
+	fingerprintFlags = rootCmd.Flags()
+
 	Register(rootCmd)
 }
 
@@ -120,11 +132,8 @@ func Execute() error {
 func run(cmd *cobra.Command, args []string) (err error) {
 	InitTimeline()
 
-	// A red run must not leave a runnable binary behind — including a failure
-	// AFTER the build phase wrote one (a failing dats suite, the warnings
-	// gate). Registered first so it runs last, once every phase has reported
-	// and printed. The outputs were already deleted before the pipeline
-	// started; this covers the window in which the build re-created them.
+	// Runs last (registered first) so a later phase's failure still discards
+	// the binary the build just re-created.
 	defer func() {
 		if err != nil {
 			discardBuildOutputs()
@@ -148,13 +157,8 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	modules := findGoModules()
 	if len(modules) == 0 {
-		// A repo with no go.mod can still own dats suites -- the CLI a suite
-		// exercises does not have to be Go, and dats is linked in here rather
-		// than distributed separately. Refusing outright pushed those repos
-		// into fetching a standalone dats binary and wiring their own CI step,
-		// which is this toolchain's job and a version skew waiting to happen.
-		// There is nothing to tidy, vet, cover or build, so the suites ARE the
-		// run.
+		// A repo can own dats suites with no go.mod (the tested CLI need not
+		// be Go); the suites ARE the run then.
 		if hasDatsSuites(".") {
 			return runDatsOnly()
 		}
@@ -180,11 +184,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		}
 	}()
 
-	// Collect per-action build profiles (unless --no-profile). The deferred
-	// capture parses the actiongraph dumps and records per-action lanes into
-	// the trace; registered AFTER the trace-write defer so it runs first
-	// (LIFO), even when the build fails. The final report (console + JSON)
-	// is emitted later by printCacheStats, once the cache daemon has drained.
+	// Collect per-action profiles; captureProfileTrace runs after WriteChrome (LIFO), before the final report.
 	initBuildProfile()
 	defer captureProfileTrace()
 
@@ -236,10 +236,8 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	os.Chdir(startDir)
 
-	// Warnings budget: fail the run — after every phase has completed and
-	// every warning has been printed — when it emitted more than maxWarnings
-	// warnings. Before saveFingerprint, so a gate-failed run is not stamped
-	// up-to-date (the next run must not fast-exit past the failure).
+	// Fail before saveFingerprint when warnings exceed budget, so a failed
+	// run is never stamped up-to-date.
 	if err := checkWarningsGate(); err != nil {
 		return err
 	}
@@ -279,10 +277,8 @@ func findGoModules() []string {
 
 func runWithRunner(r runner.CommandRunner, sd *summary.SummaryData) error {
 	setupCGOEnvironment()
-	// Delete this module's build outputs BEFORE any phase runs. From here on
-	// the only thing that can put a binary back at build/<target> is a build
-	// that actually happened, so a run that dies anywhere — a failing test, a
-	// crash, a kill — cannot leave one behind to be mistaken for its result.
+	// Delete outputs before any phase runs, so a run that dies anywhere
+	// leaves nothing behind to mistake for a result.
 	if err := clearBuildOutputs(r); err != nil {
 		return err
 	}
@@ -326,10 +322,12 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		return err
 	}
 
-	// Run the module's dats suites (if any) against the binaries just built.
-	// After the build phase so the transient memlimit guard is already
-	// cleaned up; an error here fails the run before saveFingerprint, so a
-	// failing suite is never stamped up-to-date.
+	if err := integration.Run(context.Background(), "tests"); err != nil {
+		return err
+	}
+
+	// Runs after the build phase (memlimit guard already cleaned up); a
+	// failing suite fails before saveFingerprint.
 	if err := runDatsPhase(quiet, builtArtifacts); err != nil {
 		return err
 	}
@@ -351,12 +349,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 // runBuildPhase builds every target and runs benchmarks. It also returns the
 // built artifacts so the dats phase can stage host-runnable copies for suites.
 func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArtifact, error) {
-	// Validate the working tree before go-toolchain writes any of its own
-	// build-time artifacts (the transient GOMEMLIMIT guard, the build/ output
-	// dir, the .gitignore upkeep below). checkDirtyInCI is meant to catch
-	// uncommitted source and the tidy/vet auto-fixes that ran earlier — not
-	// go-toolchain's own generated files, which would otherwise make a
-	// consumer's first CI build fail on artifacts it never authored.
+	// Runs before go-toolchain writes its own artifacts, catching only uncommitted source.
 	if err := checkDirtyInCI(); err != nil {
 		return nil, nil, err
 	}
@@ -364,8 +357,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 	if err := injectMemLimitGuard(quiet); err != nil {
 		return nil, nil, err
 	}
-	// The guard is a build-time-only artifact; remove it once the build below
-	// has compiled it in, so it never lingers in the working tree.
+	// Build-time-only artifact; remove once compiled in so it never lingers in the tree.
 	defer cleanupMemLimitGuards()
 
 	targets, err := build.ResolveBuildTargets(r)
@@ -382,8 +374,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 	for _, t := range targets {
 		outputName := t.OutputName
 		if inDocker {
-			// hostos: in-docker names carry the HOST platform, and a cosmo
-			// fat APE reports runtime.GOOS=="cosmo" on every host.
+			// In-docker names carry the HOST platform; a cosmo fat APE reports runtime.GOOS=="cosmo" everywhere.
 			outputName = build.BinaryName(outputName, hostos.GOOS(), runtime.GOARCH)
 		}
 		outPath := filepath.Join(outputDir, outputName)

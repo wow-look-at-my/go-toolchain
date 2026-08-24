@@ -15,15 +15,12 @@
 #
 # NOTE: the agent-output-guard tests below assume a linux host — this repo's
 # own self-build (the only thing that runs THIS suite) never runs on darwin.
-# darwin has its own real guard classifier (src/cmd/claudeguard_darwin.go),
-# covered by a sibling dats suite the smoke-macos job (.github/workflows/ci.yml)
-# writes inline into a throwaway module instead. It cannot live in this repo's
-# own dats/ — dats runs every suite it finds recursively under dats/, so a
-# suite referencing a native darwin binary would also run (and fail) during
-# this repo's own linux build/host-build jobs; it also can't be a checked-in
-# template copied in at CI time, because smoke-macos never runs
-# actions/checkout (only the release artifact download), so there is no repo
-# tree there to copy a template out of.
+# A macOS host is covered by the sibling fixture
+# .github/dats-fixtures/smoke-macos-agent-output-guard.dats, which the
+# smoke-macos job copies into a throwaway module. It cannot live under this
+# repo's own dats/: dats runs every suite it finds recursively there, so a
+# suite asserting darwin-host behavior would also run (and fail) during this
+# repo's own linux build/host-build jobs.
 
 # Sandboxed like every other suite (dats' default). The one adjustment: under
 # the docker backend the commands run in the IMAGE's filesystem, and every
@@ -42,12 +39,17 @@ setup:
 	- 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
 
 tests:
+	# The only test here that reaches the staleness footer, whose commit queries
+	# would otherwise ride api.github.com -- up to two round trips at a 10s
+	# client timeout each, spent inside the second-build wall-clock budget
+	# host-build enforces. Unreachable base = the offline footer, instantly.
 	- desc: version reports the build stamp
 	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version'
 	  timeout: 30s
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			GO_TOOLCHAIN_GITHUB_API_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
 			- "Version:"
@@ -55,17 +57,18 @@ tests:
 		"!stderr":
 			- "panic"
 
-	# `version raw` skips the staleness footer's GitHub query entirely, so this
-	# exemption test is fully offline (the whole version subtree is exempt).
-	- desc: version stays exempt from the agent output guard
+	# Only cacheprog is exempt from the guard; version is not, so a captured
+	# `version raw` under an agent must refuse just like the root command.
+	- desc: version is NOT exempt from the agent output guard
 	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
+	  exit: 1
 	  timeout: 30s
 	  inputs:
 		env:
 			CLAUDECODE: "1"
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		"!stderr":
+		stderr:
 			- "refused to run"
 
 	# The guard-positive case: a bare pipeline run under Claude with captured
@@ -193,6 +196,47 @@ tests:
 		stderr:
 			- "unknown command"
 
+	# Host detection, from inside the sandbox. hostos.Detect()'s filesystem
+	# probes are reads of absolute paths and its fallback is "linux", so a
+	# sandbox that denies them yields the right answer here for the WRONG
+	# reason. Asserting the method, not just the answer, is what catches that:
+	# under bwrap this must still be a measurement. The macOS fixture asserts
+	# the darwin direction under seatbelt.
+	- desc: host detection reports linux by measurement, not by fallback
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version host'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "host: linux"
+		"!stdout":
+			- "GUESSED"
+
+	# The default matrix builds ONE multi-platform APE; --os/--arch opt into a
+	# per-platform product. That is a promise made in --help, so pin it: the
+	# platform-set flag has to exist with the documented default, and --os/--arch
+	# must not carry defaults of their own (a default there would silently
+	# restore the cartesian product as the default build).
+	- desc: matrix --help documents the single-APE default
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" matrix --help'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "--cosmo-platforms"
+			- "linux/amd64,darwin/arm64,windows/amd64"
+		# The CLI cannot ask for a per-platform copy of the APE: there is no
+		# flag, because there is no copier behind one.
+		"!stdout":
+			- "--cosmo-slots"
+			- "(default [linux,darwin,windows])"
+			- "(default [amd64,arm64])"
+
+
 	# The guard covers every agent on the roster, each detected by its own
 	# environment marker: grok build (GROK_AGENT) and opencode (OPENCODE). Both
 	# pipe a command's stdout back to themselves, exactly as dats captures here.
@@ -217,9 +261,10 @@ tests:
 		"!stdout":
 			- "Build successful"
 
-	# version stays exempt under every agent, not only Claude.
-	- desc: version stays exempt under {matrix.marker}
+	# version is refused under every agent, not only Claude.
+	- desc: version is refused under {matrix.marker}
 	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw'
+	  exit: 1
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -227,7 +272,7 @@ tests:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		"!stderr":
+		stderr:
 			- "refused to run"
 
 	# A directory with neither a module nor suites is the one case that still

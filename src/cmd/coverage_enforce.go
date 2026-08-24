@@ -41,9 +41,7 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 	// Packages exist but no statements were measured.
 	if totalUncovered == 0 && len(report.Packages) > 0 {
 		if !gotest.HasCoverableStatements(".") {
-			// Nothing `go test -cover` could ever measure here (e.g. the
-			// module only embeds assets or declares types/constants).
-			// 0-of-0 statements is complete, not broken.
+			// Nothing to measure here (embed-only or declarations-only module); 0-of-0 is complete, not broken.
 			if !quiet {
 				logger.Info("⇒ No coverable statements in this module — nothing to measure, skipping coverage check")
 			}
@@ -56,24 +54,32 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 			}
 			return fmt.Errorf("%s", msg)
 		}
-		// Tests ran over coverable code, yet nothing was measured — the
-		// coverage profile is missing or broken.
+		// Tests ran over coverable code, yet nothing was measured -- the coverage profile is missing or broken.
 		panic(fmt.Sprintf("coverage %.1f%% is below minimum %.1f%% with 0 uncovered statements — coverage data is missing or broken", report.Total, effectiveMin))
 	}
 
-	// Allow reduced coverage if fewer than 10 statements are uncovered
-	// (e.g. small programs where main() can't be easily covered)
-	if totalUncovered < 10 {
+	// Allow reduced coverage when every file has fewer than 10 uncovered statements (small files can't easily reach the minimum).
+	allSmall := true
+	for _, pkg := range report.Packages {
+		for _, f := range pkg.Files {
+			if f.Uncovered() >= 10 {
+				allSmall = false
+				break
+			}
+		}
+		if !allSmall {
+			break
+		}
+	}
+	if allSmall {
 		if !quiet {
-			logger.Info("⇒ Coverage %.1f%% is below minimum %.1f%%, but only %d statements uncovered — allowing", report.Total, effectiveMin, totalUncovered)
+			logger.Info("⇒ Coverage %.1f%% is below minimum %.1f%%, but no file has 10+ uncovered statements — allowing", report.Total, effectiveMin)
 		}
 		return nil
 	}
 
 	msg := fmt.Sprintf("coverage %.1f%% is below minimum %.1f%%", report.Total, effectiveMin)
-	// Skip annotation in --json mode: the coverage report has already
-	// been written to stdout above, and a workflow command on stdout
-	// would corrupt the JSON payload.
+	// Skip annotation in --json mode: a workflow command on stdout would corrupt the already-written JSON payload.
 	if isGHA() && !quiet {
 		logError("", msg)
 	}

@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -16,12 +17,30 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
+// TestMain intercepts a re-exec of this test binary playing the child whose
+// stdout is a socket or pipe the parent holds -- the grok-build / opencode
+// topology -- so inspectFD and the guard run against a real far-end pid.
+func TestMain(m *testing.M) {
+	switch os.Getenv("CLAUDEGUARD_TEST_HELPER") {
+	case "inspect_fd1":
+		s := inspectFD(1)
+		os.Stderr.WriteString("HELPER_KIND=" + strconv.Itoa(int(s.kind)) + " HELPER_DETAIL=" + s.detail + "\n")
+		os.Exit(0)
+	case "guard":
+		if agentName, s, bad := agentOutputViolation(); bad {
+			fmt.Fprint(os.Stderr, agentOutputMessage(agentName, s, nil))
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 // Mirrors TestInspectFDClassification (claudeguard_test.go, linux-only): same
 // sink decisions, reached through fstat + F_GETPATH instead of /proc.
 func TestInspectFDClassificationDarwin(t *testing.T) {
 	t.Run("pipe_is_blocked", func(t *testing.T) {
-		// darwin cannot identify a pipe's reader (no libproc here), so every
-		// pipe fails closed -- there is no allowance to test on the other side.
+		// Both ends belong to this process, which is not its own ancestor: fail closed.
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		defer r.Close()
@@ -74,9 +93,7 @@ func TestFDPathRecoversRealPath(t *testing.T) {
 	defer f.Close()
 
 	got := fdPath(f.Fd())
-	// F_GETPATH can return a firmlink-resolved path (e.g. /private/var/...
-	// for a /var/... input) on darwin, so compare os.Stat identity rather than
-	// string equality.
+	// F_GETPATH may firmlink-resolve the path, so compare os.Stat identity, not strings.
 	wantInfo, err := os.Stat(f.Name())
 	require.NoError(t, err)
 	gotInfo, err := os.Stat(got)
@@ -85,8 +102,7 @@ func TestFDPathRecoversRealPath(t *testing.T) {
 }
 
 func TestFDPathEmptyOnPipe(t *testing.T) {
-	// A pipe has no path; F_GETPATH must fail rather than return garbage, and
-	// fdPath must surface that as "", never a made-up path.
+	// A pipe has no path; fdPath must surface "", never a made-up path.
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	defer r.Close()
@@ -116,13 +132,9 @@ func TestSocketPeerPIDOnNonSocketFails(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestPipeReaderAllowanceThroughTheGuardDarwin mirrors
-// TestPipeReaderAllowanceThroughTheGuard (claudeguard_test.go, linux) against
-// the sysctl-backed CommPPID this package now gets from is-this-an-agent:
-// os.Getppid() as both the ancestry target and the walk's start makes the
-// ancestry check trivially true, isolating the assertion to name/pid
-// matching -- proof the darwin lookup answers the same real questions the
-// linux one does, not just that it compiles.
+// TestPipeReaderAllowanceThroughTheGuardDarwin mirrors the linux
+// TestPipeReaderAllowanceThroughTheGuard, against the sysctl-backed CommPPID
+// from is-this-an-agent, isolating the assertion to name/pid matching.
 func TestPipeReaderAllowanceThroughTheGuardDarwin(t *testing.T) {
 	parent := os.Getppid()
 	assert.True(t, agent.IsPipeReader("opencode", parent))
@@ -147,20 +159,24 @@ func TestInspectFDSocketClassification(t *testing.T) {
 	assert.NotEmpty(t, s.detail, "detail must name the peer, not be silently empty")
 }
 
-// TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself is the actual
-// bug fix, end to end: opencode's own bash tool wires a child's stdout
-// through a socketpair (not a bare pipe), so a completely unpiped, unredirected
-// `go-toolchain` invocation was refused with "captured instead of printed to
-// the terminal" even though the reader IS the very agent that will show the
-// output to the user. Reproduces that exact plumbing -- this test process
-// holds the socket's other end and is the child's real parent, and the
-// child's OPENCODE_PID names this test process as opencode's own pid, the
-// same way opencode really exports it to its bash tool's children.
-func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) {
+// TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself reproduces
+// opencode's socketpair stdout plumbing: this process holds the socket's
+// other end and is the real parent, with OPENCODE_PID naming its own pid.
+func lookPathNativeDarwinToolchain(t *testing.T) string {
+	t.Helper()
 	bin, err := exec.LookPath("go-toolchain")
 	if err != nil {
 		t.Skip("go-toolchain not on PATH; build it first")
 	}
+	out, err := exec.Command("file", "-b", bin).Output()
+	if err != nil || !strings.Contains(string(out), "Mach-O") {
+		t.Skip("installed go-toolchain is not a native darwin binary")
+	}
+	return bin
+}
+
+func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) {
+	bin := lookPathNativeDarwinToolchain(t)
 
 	runWithSocketStdout := func(t *testing.T, recognizedPID bool) (exitErr error, stderr string) {
 		fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
@@ -174,12 +190,7 @@ func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) 
 		if recognizedPID {
 			pidVar = "OPENCODE_PID=" + strconv.Itoa(os.Getpid())
 		}
-		// A bare invocation (no subcommand) is what actually reaches the
-		// guard; run it from an empty dir so no real build is attempted --
-		// with no go.mod, EnsureGoVersion proceeds with whatever Go is
-		// already on PATH and control reaches the guard immediately after.
-		// Any failure past that point (no go.mod to build) is expected and
-		// irrelevant here; only the guard's own refusal is under test.
+		// A bare invocation reaches the guard; only its own refusal is under test.
 		cmd := exec.Command(bin)
 		cmd.Dir = t.TempDir()
 		cmd.Stdout = childStdout
@@ -214,16 +225,112 @@ func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) 
 // dats/cli.dats already covers on linux (matrix.marker), reproduced here
 // because that suite does not run on darwin.
 func TestAgentGuardRefusesPipedRunUnderOpencode(t *testing.T) {
-	bin, err := exec.LookPath("go-toolchain")
-	if err != nil {
-		t.Skip("go-toolchain not on PATH; build it first")
-	}
+	bin := lookPathNativeDarwinToolchain(t)
 	dir := t.TempDir()
-	cmd := exec.Command("sh", "-c", bin+" 2>&1 | cat")
+	cmd := exec.Command("sh", "-c", "set -o pipefail; \"$1\" 2>&1 | cat", "sh", bin)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "OPENCODE=1", "GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1")
 	out, err := cmd.CombinedOutput()
 	require.Error(t, err, "must exit non-zero when piped under OPENCODE=1; got output: %s", out)
 	assert.Contains(t, string(out), "refused to run")
-	assert.Contains(t, string(out), "opencode")
+	// Ancestry outranks the env marker, so the message may name grok build.
+}
+
+// TestAgentGuardAllowsPlainRunWhenSocketReaderIsGrok is the grok-build twin of
+// TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself: grok-build
+// exports GROK_AGENT=1 (no pid var of its own; measured) and captures stdout
+// through a socketpair or a pipe. The parent here holds the far end and names
+// itself in GROK_AGENT_PID, the OPENCODE_PID-shaped seam. A real `| cat` still
+// refuses.
+func TestAgentGuardAllowsPlainRunWhenSocketReaderIsGrok(t *testing.T) {
+	runWithSocketStdout := func(t *testing.T, recognizedPID bool) (exitErr error, stderr string) {
+		fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+		require.NoError(t, err)
+		readerEnd := os.NewFile(uintptr(fds[0]), "socket-reader")
+		defer readerEnd.Close()
+		childStdout := os.NewFile(uintptr(fds[1]), "socket-writer")
+		defer childStdout.Close()
+
+		pidVar := grokPIDEnv + "=0"
+		if recognizedPID {
+			pidVar = grokPIDEnv + "=" + strconv.Itoa(os.Getpid())
+		}
+		cmd := exec.Command(os.Args[0])
+		cmd.Dir = t.TempDir()
+		cmd.Stdout = childStdout
+		var errBuf strings.Builder
+		cmd.Stderr = &errBuf
+		cmd.Env = append(os.Environ(),
+			"CLAUDEGUARD_TEST_HELPER=guard",
+			"GROK_AGENT=1", pidVar,
+			"GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1",
+		)
+		err = cmd.Run()
+		childStdout.Close()
+		return err, errBuf.String()
+	}
+
+	t.Run("recognized_pid_is_allowed_through", func(t *testing.T) {
+		err, errOut := runWithSocketStdout(t, true)
+		assert.NotContains(t, errOut, "refused to run", "the agent reading its own socket must not be refused; stderr: %s", errOut)
+		_ = err
+	})
+
+	t.Run("unrecognized_pid_is_still_refused", func(t *testing.T) {
+		err, errOut := runWithSocketStdout(t, false)
+		require.Error(t, err)
+		assert.Contains(t, errOut, "refused to run")
+		assert.Contains(t, errOut, "grok")
+	})
+}
+
+func TestAgentGuardAllowsPlainRunWhenPipeReaderIsGrok(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer r.Close()
+	defer w.Close()
+
+	cmd := exec.Command(os.Args[0])
+	cmd.Dir = t.TempDir()
+	cmd.Stdout = w
+	var errBuf strings.Builder
+	cmd.Stderr = &errBuf
+	cmd.Env = append(os.Environ(),
+		"CLAUDEGUARD_TEST_HELPER=guard",
+		"GROK_AGENT=1", grokPIDEnv+"="+strconv.Itoa(os.Getpid()),
+		"GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1",
+	)
+	err = cmd.Start()
+	require.NoError(t, err)
+	w.Close()
+	err = cmd.Wait()
+	assert.NotContains(t, errBuf.String(), "refused to run", "the agent reading its own pipe must not be refused; stderr: %s", errBuf.String())
+	_ = err
+}
+
+func TestAgentGuardRefusesPipedRunUnderGrok(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "set -o pipefail; \"$1\" 2>&1 | cat", "sh", os.Args[0])
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(),
+		"CLAUDEGUARD_TEST_HELPER=guard",
+		"GROK_AGENT=1",
+		"GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1",
+	)
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "must exit non-zero when piped under GROK_AGENT=1; got output: %s", out)
+	assert.Contains(t, string(out), "refused to run")
+	assert.Contains(t, string(out), "grok")
+}
+
+func TestPipeHandlesMatchBothEnds(t *testing.T) {
+	p := make([]int, 2)
+	require.NoError(t, unix.Pipe(p))
+	defer unix.Close(p[0])
+	defer unix.Close(p[1])
+	wh, wp, ok := pipeHandles(os.Getpid(), p[1])
+	require.True(t, ok)
+	rh, rp, ok := pipeHandles(os.Getpid(), p[0])
+	require.True(t, ok)
+	assert.Equal(t, wh, rp)
+	assert.Equal(t, wp, rh)
 }

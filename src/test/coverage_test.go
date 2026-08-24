@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -131,10 +132,7 @@ func TestFilterBlocksByReachable(t *testing.T) {
 		{file: "example.com/pkg3/file.go", statements: 1, count: 1},
 	}
 
-	reachable := map[string]bool{
-		"example.com/pkg1": true,
-		"example.com/pkg3": true,
-	}
+	reachable := set.Of("example.com/pkg1", "example.com/pkg3")
 
 	filtered := filterBlocksByReachable(blocks, reachable)
 	assert.Equal(t, 2, len(filtered))
@@ -148,12 +146,12 @@ func TestFilterBlocksByReachableNil(t *testing.T) {
 		{file: "example.com/pkg2/file.go", statements: 3, count: 0},
 	}
 
-	// nil reachable should return all blocks
-	filtered := filterBlocksByReachable(blocks, nil)
+	// a zero-value set should return all blocks
+	filtered := filterBlocksByReachable(blocks, set.Set[string]{})
 	assert.Equal(t, 2, len(filtered))
 
 	// empty reachable should also return all blocks
-	filtered = filterBlocksByReachable(blocks, map[string]bool{})
+	filtered = filterBlocksByReachable(blocks, set.New[string]())
 	assert.Equal(t, 2, len(filtered))
 }
 
@@ -170,10 +168,7 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 `
 	require.NoError(t, os.WriteFile(coverFile, []byte(content), 0644))
 
-	reachable := map[string]bool{
-		"example.com/pkg1": true,
-		"example.com/pkg3": true,
-	}
+	reachable := set.Of("example.com/pkg1", "example.com/pkg3")
 
 	total, files, err := ParseProfileFiltered(coverFile, reachable)
 	require.NoError(t, err)
@@ -206,10 +201,10 @@ func TestReachablePackages(t *testing.T) {
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
-	assert.True(t, reachable["example.com/mymod/pkg2"])
-	assert.False(t, reachable["fmt"])
-	assert.False(t, reachable["strings"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
+	assert.True(t, reachable.Contains("example.com/mymod/pkg2"))
+	assert.False(t, reachable.Contains("fmt"))
+	assert.False(t, reachable.Contains("strings"))
 }
 
 func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
@@ -218,8 +213,7 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// Simulate: main package imports pkg1, but pkg2 is behind a build tag
-	// and not reachable from the main entry point.
+	// Main package imports pkg1; pkg2 is behind a build tag and unreachable from the entry point.
 	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("cmd/app", 0755)
 	os.WriteFile("cmd/app/main.go", []byte("package main\n"), 0644)
@@ -230,9 +224,9 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
 	// pkg2 is NOT reachable because it's not in the deps of main
-	assert.False(t, reachable["example.com/mymod/pkg2"])
+	assert.False(t, reachable.Contains("example.com/mymod/pkg2"))
 }
 
 func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
@@ -252,8 +246,8 @@ func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
 	reachable, err := ReachablePackages(mock)
 	require.NoError(t, err)
 
-	assert.True(t, reachable["example.com/mymod/pkg1"])
-	assert.True(t, reachable["example.com/mymod/pkg2"])
+	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
+	assert.True(t, reachable.Contains("example.com/mymod/pkg2"))
 }
 
 func TestReachablePackagesModuleFailure(t *testing.T) {
@@ -266,13 +260,12 @@ func TestReachablePackagesModuleFailure(t *testing.T) {
 	mock := newMockRunnerForReachable("")
 
 	reachable, err := ReachablePackages(mock)
-	// Empty module prefix returns nil, nil
-	assert.Nil(t, reachable)
+	// An empty module prefix reports an empty set, which filters nothing.
+	assert.True(t, reachable.IsEmpty())
 	assert.Nil(t, err)
 }
 
-// newMockRunnerForReachable creates a mock runner for ReachablePackages tests.
-// Now only needs the depsOutput since module path and main packages come from filesystem.
+// newMockRunnerForReachable needs only depsOutput; module path and main packages come from the filesystem.
 func newMockRunnerForReachable(depsOutput string) *mockReachableRunner {
 	return &mockReachableRunner{depsOutput: depsOutput}
 }

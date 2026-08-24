@@ -86,8 +86,8 @@ invisible to every backend, and every suite fails its setup command. `build/`
 is gitignored in every repo go-toolchain builds, so staging there never
 dirties the tree.
 
-Copies, never in-place execution: matrix cosmo slot artifacts are fat APEs
-that rewrite their own file on first exec, so nothing may ever execute a
+Copies, never in-place execution: the matrix cosmo artifact is a fat APE
+that rewrites its own file on first exec, so nothing may ever execute a
 `build/` artifact where it sits.
 
 Staged names are the bare `OutputName` plus `.exe` on windows hosts. The root
@@ -104,11 +104,13 @@ exec (an APE does, exiting 121 from a read-only path) copies it into the
 sandbox's private `/tmp` and execs the copy — `dats/cli.dats` does exactly
 that in every test.
 
-Never answer any of this by turning the sandbox off. Whether a suite needs the
-host is the SUITE's per-file declaration (`sandbox: false`, or `image:` for
-something specific of the docker backend); a toolchain-level opt-out would
-unsandbox every suite command in every consuming repo. This repo's own suite
-pins `image: golang:1.25` so the docker backend has a Go for the bootstrap.
+Never answer any of this by turning the sandbox off. A suite cannot even ask
+for that any more: dats removed the file-level opt-out, so the `sandbox:` block
+only NARROWS (`network`, or `image:` for something specific of the docker
+backend) and disabling is `--no-sandbox` on the run. A toolchain-level opt-out
+would unsandbox every suite command in every consuming repo, so this phase does
+not pass that flag. This repo's own suite pins `image: golang:1.25` so the
+docker backend has a Go for the bootstrap.
 
 ## How the run is configured
 

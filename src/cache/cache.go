@@ -53,16 +53,8 @@ type IBackend interface {
 	GetStats() *CacheStats
 }
 
-// staleKeyForgetter is the optional backend capability the PUT replace path
-// uses: when a fresh cmd/go PUT overwrites a local entry whose outputID
-// disagreed (a mis-keyed or stale body), the remote's optimistic "already
-// present" claim for that key is stale too — the object the server holds (or
-// that this client believes it holds) is NOT the content cmd/go just
-// computed. Forgetting the claim lets the immediately following remote Put
-// actually upload the fresh body instead of skipping it as known
-// (put-skipped: known), so the shared tier self-heals alongside the local
-// one. Module indexes still never upload (webput's content guard), which is
-// correct — they are refused on every read path too.
+// staleKeyForgetter drops a stale "already present" claim after a PUT
+// replace, so the next remote Put uploads instead of skipping it.
 type staleKeyForgetter interface {
 	ForgetStale(actionID string)
 }
@@ -78,10 +70,7 @@ type StatEvent struct {
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 
-	// Per-action outcome, piggybacked on the counter events handleGet and
-	// handlePut already emit (no extra socket writes). All optional: an old
-	// listener ignores them and an old sender simply never sets them, so the
-	// wire format stays compatible in both directions.
+	// Per-action outcome, piggybacked on the get/put counter events. All fields optional, so old senders and listeners stay wire-compatible.
 	Action  string `json:"a,omitempty"`  // 20-char truncated actionID (base64.RawURLEncoding(id[:15]))
 	Op      string `json:"op,omitempty"` // "get" | "put"
 	Outcome string `json:"o,omitempty"`  // "hit-local" | "hit-remote" | "miss" | "put"
@@ -89,26 +78,17 @@ type StatEvent struct {
 	DurUS   int64  `json:"d,omitempty"`  // operation duration, microseconds
 }
 
-// maxConcurrentPuts is the maximum number of concurrent remote put operations.
-// Matches the HTTP transport's MaxConnsPerHost to avoid connection churn.
+// maxConcurrentPuts matches the HTTP transport's MaxConnsPerHost to avoid connection churn.
 const maxConcurrentPuts = 64
 
-// lockShards is the size of the fixed per-action mutex table. The old
-// map[string]*sync.Mutex grew one entry per unique actionID for the
-// connection's lifetime (tens of MB across daemon connections on 100k-action
-// builds) and was never pruned. A fixed sharded table caps that at a constant:
-// hash collisions merely serialize two unrelated actions occasionally, which
-// is always safe.
+// lockShards caps the per-action mutex table; a shard collision only coarsens locking, which is safe.
 const lockShards = 256
 
 // Server implements the GOCACHEPROG JSON-over-stdio protocol.
 type Server struct {
 	local  LocalStore
 	remote IBackend // nil if no remote backend configured
-	// keyNamespace, when non-empty, is appended to every derived action key
-	// (see actionKey and KeyNamespaceEnv). Set via SetKeyNamespace before Run;
-	// only the standalone cacheprog path sets it — the daemon's per-connection
-	// Servers must never (the daemon serves unnamespaced clients).
+	// keyNamespace suffixes every derived action key (see actionKey); only the standalone path sets it.
 	keyNamespace string
 	locks        [lockShards]sync.Mutex
 	wg           sync.WaitGroup // tracks in-flight async remote puts
@@ -118,6 +98,12 @@ type Server struct {
 	Latency      LatencyStats
 	statsConn    net.Conn // persistent connection to parent's stats socket
 	statsMu      sync.Mutex
+
+	// IndexPutsRefused counts module-index PUTs the sink answered (see isGoModuleIndex). Large on any run; not a poison signal.
+	IndexPutsRefused AtomicCounter
+	// sinkDir holds refused index bodies; created on first refusal, removed on Run's return.
+	sinkMu  sync.Mutex
+	sinkDir string
 }
 
 // NewServer creates a cache server. remote may be nil for local-only mode.
@@ -132,11 +118,7 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 		remote: remote,
 		putSem: make(chan struct{}, maxConcurrentPuts),
 	}
-	// Wire sub-operation latency tracking and batch callbacks for standalone
-	// mode (direct WebBackend) only. In daemon mode the remote is wrapped in
-	// noCloseBackend and the Daemon wires BOTH once on the shared WebBackend:
-	// re-pointing wb.Latency here per connection was an unsynchronized write
-	// to shared state that raced every other connection's in-flight web ops.
+	// Standalone only: daemon mode wires this once on the shared WebBackend instead, to avoid a per-connection race.
 	if wb, ok := remote.(*WebBackend); ok {
 		wb.Latency = &s.Latency
 		wireBatchCallbacks(wb, local, s)
@@ -144,10 +126,7 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
 		if err == nil {
-			// Wait for the listener's accept-ack. A unix dial succeeds as
-			// soon as the kernel queues the connection — reading the ack
-			// guarantees the listener has accepted it and registered its
-			// reader, so stat events cannot be dropped in the accept queue.
+			// Wait for the accept-ack: a unix dial succeeds before accept(2) runs, so stat events could drop into an unread queue.
 			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 			var ack [1]byte
 			if _, err := conn.Read(ack[:]); err == nil {
@@ -167,9 +146,7 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
-		// e.Key is the full cache key (e.g. "go-buildcache/v1abcdef...").
-		// LocalCache is keyed by the bare action ID ("abcdef..."), which is
-		// what Server.handleGet uses. Strip the prefix so the paths match.
+		// e.Key carries the full cache key; LocalCache keys on the bare action ID, so strip the prefix.
 		keyPrefix := wb.prefix + "v1"
 		for _, e := range entries {
 			if e.OutputID == "" {
@@ -187,41 +164,19 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if err != nil {
 				continue
 			}
-			// Never prefetch a body that does not hash to its outputID into the
-			// local pack: a corrupt entry would then be served as a "valid"
-			// local hit and fail the build ("corrupt index"). Skip it — the
-			// real GET for this key re-fetches and self-heals if needed.
+			// A hash mismatch means a corrupt entry; skip it and let the real GET self-heal.
 			if _, ok := outputIDMatches(e.OutputID, decompressed); !ok {
 				continue
 			}
-			// Never prefetch a compiled object whose build id belongs to a
-			// different action than its key (cross-contamination the outputID
-			// hash cannot catch -- see buildIDMatchesAction). Populating it would
-			// seed a local hit that serves the wrong package's export data.
+			// A build-id mismatch is cross-contamination outputIDMatches cannot catch.
 			if _, ok := buildIDMatchesAction(actionID, decompressed); !ok {
 				continue
 			}
-			// Never prefetch a Go module index into the local pack: it cannot be
-			// verified to belong under this key (see isGoModuleIndex), and a
-			// mis-keyed one seeded as a local hit breaks package loading
-			// ("package runtime is not in std" / "corrupt index"). cmd/go
-			// recomputes the index locally, so skipping the prefetch is free.
-			// This filter is LOAD-BEARING: the local tier serves module indexes
-			// on the trust that they are locally-originated (see verify.go), so
-			// no web-originated body may carry one into the local store — here,
-			// or on the individual/batch GET paths (web.go / batch.go).
+			// A module index cannot be verified against this key; cmd/go recomputes it locally anyway.
 			if isGoModuleIndex(decompressed) {
 				continue
 			}
-			// PutIfAbsent, never Put: the Peek above is only an optimization,
-			// and this callback runs on the batch coalescer's goroutine with no
-			// per-action serialization against the GET/PUT RPC handlers. A
-			// plain Put here could race a concurrent cmd/go PUT for the same
-			// action and — depending on which side committed last — replace a
-			// locally-computed body with this web-originated one, either in the
-			// live index or (worse) only in the pack file's replay order, where
-			// the poison surfaces on the NEXT build as "corrupt index". The
-			// atomic if-absent store makes the local cmd/go's data always win.
+			// PutIfAbsent, never Put: this runs unserialized against GET/PUT RPC handlers, so a plain Put could race and lose.
 			stored, err := local.PutIfAbsent(actionID, e.OutputID, bytes.NewReader(decompressed))
 			if err != nil || !stored {
 				continue
@@ -234,8 +189,7 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 	}
 }
 
-// statsSink abstracts stat recording so batch callbacks can be wired to
-// either a per-connection Server or a long-lived Daemon stats connection.
+// statsSink lets batch callbacks wire to a Server or a Daemon stats connection.
 type statsSink interface {
 	recordBatchPop(n uint32)
 }
@@ -263,10 +217,8 @@ func (s *Server) closeStats() {
 	if s.statsConn == nil {
 		return
 	}
-	// Use CloseWrite to signal EOF to the reader while allowing buffered
-	// data to drain. A full Close() here would race with the listener's
-	// handleConn goroutine, potentially closing the fd before the reader
-	// finishes consuming the buffered stat events.
+	// CloseWrite drains buffered data; a full Close here could race handleConn
+	// and close the fd early.
 	if uc, ok := s.statsConn.(*net.UnixConn); ok {
 		uc.CloseWrite()
 	} else {
@@ -323,8 +275,7 @@ func (s *Server) Run(r io.Reader, w io.Writer) error {
 
 	br := bufio.NewReaderSize(r, 64*1024)
 
-	// Thread-safe response writer — multiple goroutines may respond
-	// concurrently for parallel GETs.
+	// Thread-safe: multiple goroutines respond concurrently for parallel GETs.
 	var writeMu sync.Mutex
 	writeResp := func(resp Response) {
 		writeMu.Lock()
@@ -364,6 +315,7 @@ loop:
 			}
 			s.flushLatency()
 			s.closeStats()
+			s.removeIndexSink()
 			return nil
 
 		case CmdPut:
@@ -377,10 +329,7 @@ loop:
 				body, err := readPutBody(br, req.BodySize)
 				if err != nil {
 					if bad := (*badPutBodyError)(nil); errors.As(err, &bad) {
-						// The stream is still line-aligned: fail only this
-						// PUT and store NOTHING — an empty or truncated body
-						// committed under the real actionID/outputID would be
-						// served as a "valid" hit forever — then keep serving.
+						// Stream stays line-aligned: fail only this PUT, store nothing, keep serving.
 						writeResp(Response{ID: req.ID, Err: "cacheprog: put body: " + bad.Error()})
 						continue
 					}
@@ -412,26 +361,17 @@ loop:
 	}
 	s.flushLatency()
 	s.closeStats()
+	s.removeIndexSink()
 	return readErr
 }
 
-// SetKeyNamespace scopes every action key this Server derives to the given
-// namespace (canonicalized via CanonicalKeyNamespace; "" means no namespace,
-// keys byte-identical to historic behavior). Must be called before Run. See
-// KeyNamespaceEnv for the design and why the namespace is a key suffix.
+// SetKeyNamespace scopes every derived action key to namespace. Call before Run.
 func (s *Server) SetKeyNamespace(namespace string) {
 	s.keyNamespace = CanonicalKeyNamespace(namespace)
 }
 
-// actionKey derives the store key for a request's raw ActionID: the
-// hex-encoded ID, plus the key namespace as a suffix when one is set. This is
-// the SINGLE choke point where a protocol ActionID becomes a store key — every
-// downstream consumer (local Get/Peek/Put/PutIfAbsent, remote Get/Put, the
-// batch GET coalescer, prefetch population, web index membership, knownMiss
-// claims, ForgetStale) receives this derived string, so no cache path can
-// bypass the namespace. Stat events deliberately keep the RAW ActionID (see
-// withAction): the per-action build profile joins cmd/go's actiongraph dumps
-// on cmd/go's own IDs.
+// actionKey is the single choke point turning a raw ActionID into a store
+// key (hex plus namespace); stat events keep the raw ID for profile joins.
 func (s *Server) actionKey(rawActionID []byte) string {
 	key := fmt.Sprintf("%x", rawActionID)
 	if s.keyNamespace != "" {
@@ -440,9 +380,8 @@ func (s *Server) actionKey(rawActionID []byte) string {
 	return key
 }
 
-// lock returns the shard mutex for key. Distinct keys may share a shard
-// (coarser serialization on a collision — always safe); the same key always
-// maps to the same mutex. Allocation-free inline FNV-1a.
+// lock returns key's shard mutex. A collision on the fixed shard table only
+// coarsens serialization; it is always safe. Allocation-free inline FNV-1a.
 func (s *Server) lock(key string) *sync.Mutex {
 	h := uint32(2166136261)
 	for i := 0; i < len(key); i++ {
@@ -452,12 +391,8 @@ func (s *Server) lock(key string) *sync.Mutex {
 	return &s.locks[h%lockShards]
 }
 
-// flushLatency sends a final latency snapshot over the stats socket. It
-// covers only this Server's own trackers; in standalone mode (direct
-// WebBackend) the shared HTTP-pool usage is attached too. In daemon mode the
-// Daemon reports the shared pool and web-op latencies exactly once at Close —
-// each connection flushing the shared CUMULATIVE pool snapshot made the
-// listener, which merges snapshots additively, overcount it N-fold.
+// flushLatency reports this Server's own trackers plus the shared HTTP pool
+// in standalone mode; in daemon mode the Daemon reports the pool once instead.
 func (s *Server) flushLatency() {
 	snap := s.Latency.Snapshot()
 	if wb, ok := s.remote.(*WebBackend); ok {

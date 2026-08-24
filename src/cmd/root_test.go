@@ -263,7 +263,6 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	err := runWithRunner(mock, nil)
 	assert.NotNil(t, err)
 }
-
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -286,12 +285,10 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 	setupMockProject()
-	// Coverable statements + test results below are what make the empty
-	// profile "broken" rather than a legitimately zero-statement module.
+	// Coverable statements below are what make the empty profile "broken".
 	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
 
-	// Mock that reports a passing test but writes an empty coverage profile
-	// (just "mode: set"). This simulates broken coverage data collection.
+	// A passing test that writes an empty ("mode: set" only) coverage profile.
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "test") {
@@ -313,7 +310,6 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 		runWithRunner(mock, nil) //nolint
 	})
 }
-
 func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -348,8 +344,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	defer os.Chdir(oldWd)
 	setupMockProject()
 
-	// Set watermark to 52% — grace = 49.5, effective = min(80, 49.5) = 49.5
-	// 50 > 49.5 → should pass
+	// Watermark 52% -> grace 49.5, effective min(80, 49.5) = 49.5; 50 passes.
 	gotest.SetWatermark(".", 52.0)
 
 	mock := newTestPassMock(50)

@@ -10,10 +10,7 @@ import (
 )
 
 func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
-	// Rot detection is a CROSS-PROCESS property: within one process a record
-	// that verified once is memoized (records are physically immutable; see
-	// verify.go), so this test corrupts the pack between a Close and a
-	// reopen — how rot actually manifests — and the fresh process must refuse.
+	// Rot detection is cross-process: a verified record memoizes in-process, so corrupt across a Close/reopen.
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -30,9 +27,7 @@ func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
 	require.Equal(t, oid, got.outputID)
 	require.Nil(t, s.Close())
 
-	// Corrupt one body byte in place: length and header (and thus the recorded
-	// CRC) are untouched, so the scan still indexes it — exactly the case the
-	// torn-tail check cannot catch (disk/overlay rot, or a partial overwrite).
+	// Flip one body byte: length, header, and CRC stay valid — the torn-tail check can't catch this rot.
 	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
 	require.Nil(t, err)
 	var b [1]byte
@@ -42,8 +37,7 @@ func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
 	require.Nil(t, err)
 	require.Nil(t, f.Close())
 
-	// The corrupt body must NOT be served: report a miss, bump the corruption
-	// counter, and evict from both the action and output indexes.
+	// Corrupt body must miss: bump the corruption counter and evict from both indexes.
 	s2, err := OpenPackStore(dir)
 	require.Nil(t, err)
 	defer s2.Close()
@@ -66,15 +60,13 @@ func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
 }
 
 func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
-	// Cross-process rot on the mmap verification path (see the sibling test
-	// for why corruption is applied across a Close/reopen).
+	// Mmap verification path; see the sibling test for why corruption spans a Close/reopen.
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
 
 	aid := hexID(9)
-	// Larger than mmapVerifyThreshold so verification takes the mmap path (a
-	// page-aligned region map indexed into), not the small-body read.
+	// Larger than mmapVerifyThreshold, so verification takes the mmap path, not the small-body read.
 	body := bytes.Repeat([]byte("go-toolchain pack-cache integrity probe; "), 4096) // ~168 KiB
 	require.Greater(t, len(body), mmapVerifyThreshold)
 	oid := casID(body)
@@ -86,8 +78,7 @@ func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
 	require.True(t, ok)
 	require.Nil(t, s.Close())
 
-	// Corrupt the final body byte: it sits well past the first page, so the
-	// page-alignment/offset math and the full mapped span are both exercised.
+	// Corrupt the final byte: past the first page, so page-alignment and the full mapped span are exercised.
 	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
 	require.Nil(t, err)
 	pos := loc.dataOff + loc.dataLen - 1
@@ -131,8 +122,7 @@ func TestPackStore_GetVerifiedRefusesCrossContaminatedPackage(t *testing.T) {
 	_, ok = s.GetByOutput(oid)
 	require.False(t, ok, "cross-contaminated body evicted from the output index too")
 
-	// A correctly build-id-stamped package for the SAME action IS served — the
-	// guard refuses only mis-keyed objects, never legitimate cache hits.
+	// A correctly-stamped package for the SAME action is still served; the guard refuses only mis-keyed objects.
 	good := archiveWithBuildID(expectedBuildIDAction(actionA))
 	goodOID := hexID(121)
 	_, err = s.Put(actionA, goodOID, bytes.NewReader(good))
@@ -141,44 +131,38 @@ func TestPackStore_GetVerifiedRefusesCrossContaminatedPackage(t *testing.T) {
 	require.True(t, ok, "a correctly-keyed package must still be served")
 }
 
-// TestPackStore_GetVerifiedServesLocalModuleIndex pins the local tier's
-// module-index policy: an index the local cmd/go stored is SERVED back, on both
-// decoupled read paths (the GET RPC and the FUSE Lookup byOutput path). Local
-// indexes are trustworthy by construction — every web->local ingestion path
-// refuses index blobs (web.go, batch.go, the prefetch filter in cache.go), so
-// only local cmd/go ever stores one here — and refusing them (as this tier once
-// did) created a permanent accept-at-Put/refuse-at-Get loop: guaranteed misses
-// for every index key on every build, plus unbounded duplicate-record append
-// churn in the packs. See verify.go's file-top comment.
-func TestPackStore_GetVerifiedServesLocalModuleIndex(t *testing.T) {
+// TestPackStore_GetVerifiedRefusesModuleIndex pins the pack tier's half of the
+// module-index policy: the GET RPC never serves one, so residue a binary that
+// predates the PUT refusal left in the packs cannot be handed back. An ordinary
+// body in the same pack is unaffected — the refusal is about the payload, not
+// about the store.
+func TestPackStore_GetVerifiedRefusesModuleIndex(t *testing.T) {
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
 	defer s.Close()
 
-	index := []byte("go index v2\n\x00\x00module-index payload the local tier must serve")
+	index := []byte("go index v2\n\x00\x00module-index payload from an older binary")
 	aid, oid := hexID(40), casID(index) // content-addressed, as cmd/go stores it
 	_, err = s.Put(aid, oid, bytes.NewReader(index))
 	require.Nil(t, err)
 
-	// GET RPC path.
-	loc, ok := s.GetVerified(aid)
-	require.True(t, ok, "a locally-stored module index must be served from the local pack")
+	_, ok := s.GetVerified(aid)
+	require.False(t, ok, "a stored module index must never be served from the local pack")
+
+	plain := []byte("an ordinary cached body sharing the pack")
+	paid, poid := hexID(41), casID(plain)
+	_, err = s.Put(paid, poid, bytes.NewReader(plain))
+	require.Nil(t, err)
+	loc, ok := s.GetVerified(paid)
+	require.True(t, ok, "an ordinary body must still be served")
 	data, err := s.ReadAll(loc)
 	require.Nil(t, err)
-	require.Equal(t, index, data)
-
-	// FUSE serve path (the bytes the compiler actually reads).
-	_, ok = s.GetByOutputVerified(oid)
-	require.True(t, ok, "a locally-stored module index must be served on the FUSE byOutput path")
-
-	require.Equal(t, uint32(0), s.Stats.Corrupt.Load(), "serving a local index must not count as corruption")
+	require.Equal(t, plain, data)
 }
 
 func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
-	// Cross-process rot on the compiler's serve path (see the GetVerified
-	// sibling test for why corruption is applied across a Close/reopen: a
-	// record that verified once is memoized within a process).
+	// Compiler serve path; corruption applied across Close/reopen since a verified record memoizes per-process.
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -194,9 +178,7 @@ func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 	require.Equal(t, oid, got.outputID)
 	require.Nil(t, s.Close())
 
-	// Rot one body byte in place: header length + recorded CRC stay intact, so
-	// the startup scan still indexes it (the disk/overlay-rot case the torn-tail
-	// check cannot catch).
+	// Flip one byte: header length and CRC stay intact, so the startup scan still indexes it (disk-rot case).
 	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
 	require.Nil(t, err)
 	var b [1]byte
@@ -210,13 +192,11 @@ func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 	require.Nil(t, err)
 	defer s2.Close()
 
-	// The unverified accessor (what Lookup used to call) cannot detect the rot —
-	// it would hand these bytes to the compiler. This is the gap.
+	// Unverified accessor cannot detect the rot — it would hand these bytes to the compiler.
 	_, stillThere := s2.GetByOutput(oid)
 	require.True(t, stillThere, "unverified GetByOutput cannot detect in-place rot")
 
-	// The verified accessor refuses it: report a miss, bump the corruption
-	// counter, and evict from the output index so the mount stops serving it.
+	// Verified accessor refuses it: miss, bump the corruption counter, evict from the output index.
 	_, ok = s2.GetByOutputVerified(oid)
 	require.False(t, ok, "corrupt body must not be served on the verified serve path")
 	require.Equal(t, uint32(1), s2.Stats.Corrupt.Load())
@@ -249,14 +229,12 @@ func TestPackStore_MemoizedVerificationStillChecksActionPerKey(t *testing.T) {
 	_, ok := s.GetVerified(actionA)
 	require.True(t, ok, "the correctly-stamped action must be served")
 
-	// Action B resolves to the SAME memoized record but must be refused: the
-	// stamp belongs to A.
+	// Action B hits the same memoized record but is refused: the stamp belongs to A.
 	_, ok = s.GetVerified(actionB)
 	require.False(t, ok, "an aliased archive stamped for another action must be refused on a memo hit")
 	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())
 
-	// And action A must still be served afterwards (B's eviction only removed
-	// B's mapping).
+	// Action A is still served after: B's eviction only removed B's mapping.
 	_, ok = s.GetVerified(actionA)
 	require.True(t, ok, "the stamped action must remain served after the alias refusal")
 }
@@ -275,22 +253,18 @@ func TestPackStore_GetByOutputVerifiedRejectsContentMismatch(t *testing.T) {
 	defer s.Close()
 
 	body := []byte("module-index bytes that do not hash to the outputID they are served under")
-	// Store the body under an outputID that is NOT sha256(body). Put does not
-	// enforce the invariant, so the record lands self-consistent with its own CRC
-	// — the exact shape the CRC gate cannot detect.
+	// outputID is NOT sha256(body): Put does not enforce that, so the record is CRC-consistent but content-mismatched.
 	wrongOID := hexID(200)
 	require.NotEqual(t, casID(body), wrongOID)
 	loc, err := s.Put(hexID(1), wrongOID, bytes.NewReader(body))
 	require.Nil(t, err)
 
-	// The CRC gate would accept it: the body matches its own recorded CRC, and the
-	// unverified accessor still resolves it.
+	// The CRC gate would accept it: body matches its own CRC, so the unverified accessor still resolves it.
 	require.True(t, s.bodyMatchesCRC(loc), "record is self-consistent with its CRC")
 	_, ok := s.GetByOutput(wrongOID)
 	require.True(t, ok)
 
-	// The content-address gate refuses it, bumps the corruption counter, and
-	// evicts it so the mount stops serving it.
+	// The content-address gate refuses it, bumps the corruption counter, and evicts it.
 	_, ok = s.GetByOutputVerified(wrongOID)
 	require.False(t, ok, "body that does not hash to its outputID must not be served")
 	require.Equal(t, uint32(1), s.Stats.Corrupt.Load())

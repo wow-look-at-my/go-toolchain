@@ -23,15 +23,7 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
-      # The dats phase sandboxes every suite command (dats' default), and the
-      # backend it picks decides what those commands can reach. Without
-      # bubblewrap it falls back to docker, which runs them in a container --
-      # no host Go for the bootstrap, and a ~350ms + image-pull tax per
-      # command. Installing it is what dats' own error message tells you to do
-      # on Linux, and the sysctl is the ubuntu-24.04 default that denies an
-      # unprivileged user namespace (silently, until bwrap fails its probe).
-      # The last line is the gate: an unusable bwrap fails the job here, with
-      # its own error, instead of degrading to the fallback unnoticed.
+      # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
         run: |
           sudo apt-get update && sudo apt-get install -y bubblewrap
@@ -53,10 +45,7 @@ jobs:
         env:
           OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
           OTEL_SERVICE_NAME: ${{ github.repository }}
-          # Dependency-graph submission needs a token with contents: write
-          # (granted at the workflow level above). A bare `go run ./src` does
-          # not inherit one, so pass it explicitly. Without it, submission can't
-          # authenticate and fails loudly -- this is what wires the feature up.
+          # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -128,17 +117,7 @@ jobs:
         uses: wow-look-at-my/actions@typescript#latest
         with:
           script: |
-            // Assert on the first build's per-action profile. Two classes of
-            // failure are gated here:
-            //   1. Poison tripwires: the remote SERVED an object a client-side
-            //      integrity guard had to refuse (checksum / build-id action /
-            //      module-index). Any nonzero value means the shared cache is
-            //      carrying poison and needs inspection. (put_refused_modindex
-            //      is NOT gated — refusing to UPLOAD module indexes is normal
-            //      and large on every cold run.)
-            //   2. Dead-remote signature: a populated advertised index
-            //      (>1000 keys) yielding ZERO web hits on a fresh runner's
-            //      first build — the remote tier is serving nothing.
+            // Assert on the first build's per-action profile.
             const path = 'build/profile.json';
             if (!fs.existsSync(path)) {
               core.setFailed(`${path} missing — the build profile did not run`);
@@ -154,10 +133,12 @@ jobs:
                 core.info(`web: hits=${web.hits} puts=${web.puts} index_keys=${web.index_keys} ` +
                   `authoritative=${web.index_authoritative} put_refused_modindex=${web.put_refused_modindex}`);
                 core.info(`tripwires: checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}`);
+                // Any nonzero tripwire means the remote SERVED an object a client-side integrity guard had to refuse (checksum, build-id action, or module index), so the shared cache is carrying poison and needs inspecting. put_refused_modindex is deliberately NOT gated: refusing to UPLOAD module indexes is normal, and large on every cold run.
                 if (web.miss_checksum > 0 || web.miss_buildid > 0 || web.miss_modindex > 0) {
                   core.setFailed(`cache poison tripwire: the remote served objects that failed integrity gates ` +
                     `(checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}) — inspect the cache server`);
                 }
+                // A populated advertised index yielding ZERO web hits on a fresh runner's first build is the dead-remote signature: the tier is serving nothing.
                 if (web.index_keys > 1000 && web.hits === 0) {
                   core.setFailed(`dead-remote signature: ${web.index_keys} advertised index keys but zero web hits ` +
                     `on the first build — the remote cache tier is serving nothing`);
@@ -166,16 +147,9 @@ jobs:
             }
 
       - name: Cache validation (second build)
-        # build/ in THIS job is the host-built native linux/amd64 binary from
-        # `go run ./src` above -- never the cosmo APE -- so executing it here is
-        # safe (APEs self-assimilate on exec; the APE artifacts are built in
-        # the `build` job and only ever executed as throwaway copies in the
-        # smoke jobs below).
+        # build/ in THIS job is the host-built native linux/amd64 binary from `go run ./src` above --... see docs/CI.md
         env:
-          # The second build re-invokes go-toolchain, which also submits the
-          # dependency snapshot; give it the same token so it succeeds rather
-          # than warning. Same job + correlator as the first submission, so it
-          # replaces it (idempotent) rather than duplicating.
+          # The second build re-invokes go-toolchain, which also submits the dependency snapshot; give... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           cp build/go-toolchain /usr/local/bin/go-toolchain
@@ -184,11 +158,9 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          # Limit raised 30s -> 45s when the dats phase landed: the second
-          # build now also runs the repo's CLI suite (~3-5s on top of a 26s
-          # baseline); a broken cache still blows way past 45s.
-          if [ "$elapsed" -gt 45 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 45s)"
+          # 60s is derived, not guessed. see docs/CI.md
+          if [ "$elapsed" -gt 60 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 60s)"
             exit 1
           fi
 
@@ -198,14 +170,7 @@ jobs:
           name: host-go-toolchain
           path: build/go-toolchain
 
-      # socketharness reproduces a coding agent's own tool-execution plumbing
-      # (a socketpair for a child's stdio, not a bare pipe -- see
-      # docs/AGENT-OUTPUT-GUARD.md) so smoke-linux/smoke-macos can prove the
-      # actual reported bug against the real shipped binaries. Cross-compiled
-      # here (this job already has Go set up) rather than via `setup-go` on
-      # smoke-macos, which would put Go on that runner's PATH before the
-      # "Full pipeline" step and quietly defeat the whole point of that job:
-      # proving go-toolchain's OWN bootstrap works on a genuinely Go-less mac.
+      # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
       - name: Cross-compile socketharness
         run: |
           mkdir -p harness
@@ -218,20 +183,7 @@ jobs:
           name: socketharness-build
           path: harness
 
-  # Build + test via the composite action, exercising the cosmo fat-APE target
-  # exactly as consumers get it: `targets: cosmo,...` builds ONE GOOS=cosmo APE
-  # (go-toolchain_cosmo_fat) and copies it onto the linux/amd64, linux/arm64
-  # and windows/amd64 slot names; darwin/arm64, darwin/amd64 and windows/arm64
-  # stay native cross-compiles (deliberate carve-outs: the pipeline WEDGES
-  # under the APE on macos-arm64 -- runs 28739021382/28739520377, silent
-  # >28-min hangs of a step that takes 26s on ubuntu -- so ARM64 macs keep a
-  # native binary until that is fixed; the Intel-mac cosmo runtime is
-  # unverified; the APE's PE payload is amd64-only).
-  #
-  # Publishing is NOT done here (autorelease: false): the dedicated `publish`
-  # job below is the single publish path, gated on the three smoke jobs that
-  # actually EXECUTE the APE artifacts on linux, macOS and Windows runners --
-  # a broken APE can fail loudly but can never be released.
+  # Build + test via the composite action with NO target inputs, which is exactly what a... see docs/CI.md
   build:
     needs: host-build
     runs-on: ubuntu-latest
@@ -242,15 +194,7 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
-      # The dats phase sandboxes every suite command (dats' default), and the
-      # backend it picks decides what those commands can reach. Without
-      # bubblewrap it falls back to docker, which runs them in a container --
-      # no host Go for the bootstrap, and a ~350ms + image-pull tax per
-      # command. Installing it is what dats' own error message tells you to do
-      # on Linux, and the sysctl is the ubuntu-24.04 default that denies an
-      # unprivileged user namespace (silently, until bwrap fails its probe).
-      # The last line is the gate: an unusable bwrap fails the job here, with
-      # its own error, instead of degrading to the fallback unnoticed.
+      # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
         run: |
           sudo apt-get update && sudo apt-get install -y bubblewrap
@@ -259,91 +203,54 @@ jobs:
             --ro-bind-try /lib64 /lib64 --ro-bind-try /etc /etc \
             --dev /dev --proc /proc --tmpfs /tmp --chdir / --unshare-pid --die-with-parent true
 
-      # Explicit name (host-build's "Upload host binary" hand-off): the strict
-      # cache-download hard-fails a nameless pick whenever the RUN holds
-      # several hand-offs, and on re-run attempts the go-build-* hand-offs
-      # from an earlier attempt's `./` action step already coexist with
-      # host-go-toolchain (run-scoped keys with cross-attempt fallback), so
-      # "only one saved at this point" only ever held on attempt 1.
+      # Explicit name (host-build's "Upload host binary" hand-off): the strict cache-download... see docs/CI.md
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
           name: host-go-toolchain
           path: build
 
-      # The go-toolchain action itself cache-uploads build/ under the per-job
-      # name `go-build-<job id>` on every run (unconditional) -- here that is
-      # `go-build-build`, which the smoke-linux/macos/windows and publish
-      # jobs below cache-download. The job id in the name keeps concurrent
-      # same-run invocations (in other repos: the linux + darwin two-job
-      # pattern) from colliding on one run-scoped key; there is no standalone
-      # upload step here.
+      # The go-toolchain action itself cache-uploads build/ under the per-job name `go-build-<job... see docs/CI.md
       - uses: ./
         with:
           binary: build/go-toolchain
-          targets: 'cosmo,darwin/amd64,darwin/arm64,windows/arm64'
           autorelease: 'false'
-          # The cosmo target additionally downloads + extracts the gosmopolitan
-          # toolchain and cold-compiles its stdlib; the default 10 minutes is
-          # too tight for a cold runner.
+          # The cosmo target additionally downloads + extracts the gosmopolitan toolchain and... see docs/CI.md
           timeout: '15'
 
-  # Cross-OS smoke of the actual release artifacts: download the build-output
-  # hand-off the `build` job uploaded (exactly what `publish` will ship) and RUN
-  # the APE on each host OS. APEs self-assimilate on first exec -- they
-  # rewrite their own header in place to the host's native format -- so every
-  # job runs a throwaway copy, never the downloaded file itself. These jobs
-  # have no checkout, so build/ lands in an otherwise empty workspace.
+  # Cross-OS smoke of the actual release artifacts: download the build-output hand-off the... see docs/CI.md
   smoke-linux:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      # Only for the dats fixture .github/dats-fixtures/*.dats copied in
-      # below -- this job otherwise runs entirely off the downloaded release
-      # artifact.
+      # Only for the dats fixture .github/dats-fixtures/*.dats copied in below -- this job otherwise... see docs/CI.md
       - uses: actions/checkout@v7
 
-      # Explicit name on purpose: by this point the run holds SEVERAL
-      # hand-offs (host-go-toolchain from host-build, the per-job
-      # go-build-build, and the deprecated bare go-build alias), so a
-      # nameless self-discovering download would be ambiguous here. Same
-      # for smoke-macos/smoke-windows/publish below.
+      # Explicit name on purpose: by this point the run holds SEVERAL hand-offs (host-go-toolchain... see docs/CI.md
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
           name: go-build-build
           path: dist
 
-      # socketharness reproduces a coding agent's own tool-execution plumbing
-      # (a socketpair for a child's stdio, not a bare pipe -- see
-      # docs/AGENT-OUTPUT-GUARD.md) so the guard fixture below can prove the
-      # actual reported bug against the real shipped APE, not a unit test's
-      # in-process fake. Cross-compiled in host-build (which already has Go
-      # set up) rather than via setup-go here -- see smoke-macos, where
-      # installing Go on that runner would defeat the point of that job.
+      # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
       - name: Download socketharness hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
           name: socketharness-build
           path: harness
 
-      - name: Run the APE (linux/amd64 slot)
+      # Staging only. see docs/CI.md
+      - name: Stage the APE
         run: |
           set -euo pipefail
-          # The linux/amd64 slot must BE the fat APE (magic MZqFpD), not a
-          # native ELF -- this is the consumer-visible contract of the migration.
-          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
-          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          cp dist/go-toolchain "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
-          "$RUNNER_TEMP/gt-ape" version
 
       - name: Full pipeline in a tiny module
         env:
-          # The smoke module is a synthetic consumer WITHOUT the org cache
-          # credentials (no secret-server step here on purpose); this documented
-          # knob downgrades the in-CI "caching not configured" error to a
-          # warning. The repo's own host-build/build jobs keep the shared cache.
+          # The smoke module is a synthetic consumer WITHOUT the org cache credentials (no secret-server... see docs/CI.md
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
@@ -386,58 +293,22 @@ jobs:
           	require.Equal(t, "hello, cosmo", got)
           }
           EOF
-          # --help runs INSIDE the module: go-toolchain bootstraps a Go
-          # toolchain before dispatching any root-command invocation, and on a
-          # runner without Go on PATH that needs a go.mod to pick a version.
-          "$RUNNER_TEMP/gt-ape" --help
-          # The agent output guard regression lives as a committed dats
-          # fixture (see smoke-macos), not hand-rolled bash: the released
-          # binaries ARE the cosmo APE, so the guard must fire in THIS
-          # artifact -- a GOOS=linux unit test cannot prove that (the guard
-          # once shipped as a `_linux.go` no-op while unit tests stayed
-          # green). Staged inside the module root so dats' sandbox (bwrap)
-          # can reach it, same reasoning as smoke-macos.
+          # The agent output guard regression lives as a committed dats fixture (see smoke-macos), not... see docs/CI.md
           cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
           cp "$GITHUB_WORKSPACE/harness/socketharness-linux-amd64" ./socketharness-under-test
           chmod +x ./socketharness-under-test
           mkdir -p dats
           cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-linux-agent-output-guard.dats" dats/agent-output-guard.dats
-          # Full default pipeline: bootstraps an official Go toolchain if the
-          # runner's is too old, then tidy/vet/test/coverage/build, then the
-          # dats phase above.
+          # Full default pipeline: bootstraps an official Go toolchain if the runner's is too old, then... see docs/CI.md
           "$RUNNER_TEMP/gt-ape"
 
-  # macos-latest is arm64. Two things are asserted here:
-  #
-  # 1. The NATIVE darwin/arm64 binary (what ARM64 macs are actually served --
-  #    darwin/arm64 is a native carve-out, not an APE slot) runs the FULL
-  #    default pipeline. This is the consumer-critical gate for mac users.
-  #
-  # 2. The APE still EXECUTES on darwin/arm64 (magic + `version` + `--help`
-  #    from inside a module; the --help path bootstraps a real official Go
-  #    toolchain first: go.dev download + extract + version probe under the
-  #    APE loader). This is a REDUCED gate on purpose: the full pipeline
-  #    WEDGES AT EXIT under the APE on macOS. Root cause (SIGQUIT goroutine
-  #    dumps from the run-28742069477 debug job; see issue #276): the
-  #    gosmopolitan runtime runs unix-socket fds in blocking mode with no
-  #    netpoller on darwin hosts, so the cache daemon's Listener.Close
-  #    deadlocks forever against its own Accept, blocked in raw accept4(2),
-  #    which a close never wakes on XNU. Every pipeline phase (tidy/vet/test/
-  #    build/bench) is green under the APE now that the GOCACHEPROG self-exec
-  #    goes through a sh wrapper (the APE keeps its MZ magic on macOS -- no
-  #    self-assimilation there -- so cmd/go's direct fork/exec of it ENOEXECs;
-  #    fixed in cacheProgCommand). That exit deadlock is why darwin/arm64
-  #    reverted to a native slot; the APE gate here proves the APE keeps
-  #    working for the surface it still serves, and guards the day the fork
-  #    fix restores the darwin/arm64 APE slot.
+  # macos-latest is arm64, and darwin/arm64 is in the APE's platform set, so the APE is what... see docs/CI.md
   smoke-macos:
     needs: build
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      # Only for the dats fixture .github/dats-fixtures/*.dats copied in
-      # below -- this job otherwise runs entirely off the downloaded release
-      # artifact.
+      # Only for the dats fixture .github/dats-fixtures/*.dats copied in below -- this job otherwise... see docs/CI.md
       - uses: actions/checkout@v7
 
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
@@ -447,41 +318,40 @@ jobs:
           name: go-build-build
           path: dist
 
-      # See smoke-linux for why this is a download, not a local build: no
-      # setup-go here, deliberately -- this job's whole point is proving
-      # go-toolchain's OWN bootstrap works with NO Go on this runner's PATH.
+      # See smoke-linux for why this is a download, not a local build: no setup-go here,... see docs/CI.md
       - name: Download socketharness hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
           name: socketharness-build
           path: harness
 
-      - name: Check slot formats + run the APE
+      # Staging only -- the assertions about this artifact live in... see docs/CI.md
+      - name: Stage the APE
         run: |
           set -euo pipefail
-          # The darwin/arm64 slot must be a NATIVE Mach-O arm64 binary (the
-          # macOS carve-out), NOT the APE.
-          [ "$(head -c 4 dist/go-toolchain_darwin_arm64 | xxd -p)" = "cffaedfe" ]
-          # The linux slots still carry the fat APE (magic MZqFpD); an APE is
-          # an APE regardless of slot name -- its loader picks the arm64
-          # payload at runtime -- so the linux/amd64 copy is what we execute
-          # here as a throwaway.
-          [ "$(head -c 6 dist/go-toolchain_linux_amd64)" = "MZqFpD" ]
-          cp dist/go-toolchain_linux_amd64 "$RUNNER_TEMP/gt-ape"
+          cp dist/go-toolchain "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
-          "$RUNNER_TEMP/gt-ape" version
 
-      - name: Full pipeline with the native darwin/arm64 binary
+      # One APE runs on several hosts, so everything host-specific it does -- toolchain archives,... see docs/CI.md
+      - name: Host detection (outside the sandbox)
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/gt-ape" version host
+          got=$("$RUNNER_TEMP/gt-ape" version host)
+          case "$got" in
+            *"host: darwin"*) ;;
+            *) echo "::error::the APE detects the wrong host on macos-latest: ${got}"; exit 1 ;;
+          esac
+          case "$got" in
+            *GUESSED*) echo "::error::host detection GUESSED on macos-latest: ${got}"; exit 1 ;;
+          esac
+
+      - name: Full pipeline with the APE
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
-          # Native Mach-O binaries do not self-assimilate, but run a copy
-          # anyway for symmetry with the APE smoke steps (and because
-          # download-artifact drops the executable bit either way).
-          cp dist/go-toolchain_darwin_arm64 "$RUNNER_TEMP/gt-native"
-          chmod +x "$RUNNER_TEMP/gt-native"
           mkdir -p "$RUNNER_TEMP/nativemod"
           cd "$RUNNER_TEMP/nativemod"
           cat > go.mod <<'EOF'
@@ -493,9 +363,8 @@ jobs:
           EOF
           cat > main.go <<'EOF'
           // Package main is a tiny module used to smoke-test the published
-          // native darwin/arm64 binary: the full go-toolchain pipeline
-          // (tidy/vet/test/build) must work when driven by the exact binary
-          // ARM64 mac users download.
+          // APE: the full go-toolchain pipeline (tidy/vet/test/build) must
+          // work when driven by the exact binary ARM64 mac users download.
           package main
 
           import "fmt"
@@ -522,30 +391,46 @@ jobs:
           	require.Equal(t, "hello, mac", got)
           }
           EOF
-          # The agent output guard regression lives as a committed dats
-          # fixture (.github/dats-fixtures/smoke-macos-agent-output-guard.dats),
-          # not hand-rolled bash: go-toolchain links dats in and runs any
-          # dats/ suite found (recursively) in the module it is building --
-          # there is no separate suite-running step, which is exactly why
-          # this fixture is copied in rather than checked in under this
-          # repo's OWN dats/: a suite referencing a native darwin binary
-          # would also run (and fail) during this repo's own linux
-          # build/host-build jobs, which discover every dats/ suite
-          # recursively with no filtering. dats sandboxes every command to
-          # the module root, so the binary under test must live INSIDE it:
-          # $RUNNER_TEMP is invisible to a sandboxed command (same reasoning
-          # as dats/README.md's build/.dats-stage/ staging).
-          cp "$RUNNER_TEMP/gt-native" ./gt-under-test
-          cp "$RUNNER_TEMP/gt-ape" ./gt-ape-under-test
+          # The agent output guard regression lives as a committed dats fixture... see docs/CI.md
+          cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
           cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" ./socketharness-under-test
           chmod +x ./socketharness-under-test
           mkdir -p dats
           cp "$GITHUB_WORKSPACE/.github/dats-fixtures/smoke-macos-agent-output-guard.dats" dats/agent-output-guard.dats
-          # Full default pipeline: macos-latest has no Go on PATH, so this is
-          # the job's first real bootstrap (downloads, extracts and probes
-          # go 1.24 from go.dev), then tidy/vet/test/coverage/build, then the
-          # dats phase above.
-          "$RUNNER_TEMP/gt-native"
+          # Full default pipeline: macos-latest has no Go on PATH, so this is the job's first real... see docs/CI.md
+          "$RUNNER_TEMP/gt-ape"
+
+      # The same two socket cases the fixture above runs, but OUTSIDE dats -- the shape a real... see docs/CI.md
+      - name: Agent output guard over a socket, unsandboxed
+        if: always()
+        run: |
+          set -uo pipefail
+          probe="$RUNNER_TEMP/sockprobe"
+          rm -rf "$probe" && mkdir -p "$probe/run"
+          # A go.mod in the RUN DIRECTORY ITSELF, or the child never reaches the guard: with no go on... see docs/CI.md
+          printf 'module example.com/sockprobe\n\ngo 1.24\n' > "$probe/run/go.mod"
+          # A copy per case, taken from the pristine artifact rather than from $RUNNER_TEMP/gt-ape: that... see docs/CI.md
+          cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" "$probe/run/harness"
+          cp "$GITHUB_WORKSPACE/dist/go-toolchain" "$probe/run/gt-right"
+          cp "$GITHUB_WORKSPACE/dist/go-toolchain" "$probe/run/gt-wrong"
+          chmod +x "$probe/run/harness" "$probe/run/gt-right" "$probe/run/gt-wrong"
+          cd "$probe/run"
+          export GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1
+
+          rc=0
+          echo "--- reader IS the agent (expect HARNESS_GUARD_REFUSED=false) ---"
+          ./harness ./gt-right > right.out 2> right.err || rc=$?
+          echo "harness exit: $rc"; echo "stdout:"; cat right.out; echo "stderr:"; cat right.err
+
+          wrc=0
+          echo "--- reader is NOT the agent (expect HARNESS_GUARD_REFUSED=true) ---"
+          ./harness --wrong-reader ./gt-wrong > wrong.out 2> wrong.err || wrc=$?
+          echo "harness exit: $wrc"; echo "stdout:"; cat wrong.out; echo "stderr:"; cat wrong.err
+
+          fail=0
+          grep -q "HARNESS_GUARD_REFUSED=false" right.out || { echo "::error::guard refused a run whose socket reader IS the agent"; fail=1; }
+          grep -q "HARNESS_GUARD_REFUSED=true"  wrong.out || { echo "::error::guard allowed a run whose socket reader is NOT the agent"; fail=1; }
+          exit $fail
 
   smoke-windows:
     needs: build
@@ -559,35 +444,19 @@ jobs:
           name: go-build-build
           path: dist
 
-      - name: Run the APE PE payload (windows/amd64 slot)
+      # These assertions stay in the workflow because dats cannot run here: its sandbox backends are... see docs/CI.md
+      - name: Run the APE PE payload
         shell: bash
         run: |
           set -euo pipefail
-          # The windows/amd64 slot IS the fat APE: an APE is simultaneously a
-          # valid PE, whose embedded payload is a native windows/amd64 build.
-          [ "$(head -c 6 dist/go-toolchain_windows_amd64.exe)" = "MZqFpD" ]
+          # An APE is simultaneously a valid PE, whose embedded payload is a native windows/amd64 build. see docs/CI.md
+          [ "$(head -c 6 dist/go-toolchain)" = "MZqFpD" ]
           mkdir -p smoke
-          cp dist/go-toolchain_windows_amd64.exe smoke/gt-ape.exe
+          cp dist/go-toolchain smoke/gt-ape.exe
           ./smoke/gt-ape.exe version
-          # Smoke contract (owner-ruled): gt must resolve the machine's
-          # EXISTING Go (windows-latest ships an image-default Go) via its
-          # own exec.LookPath on the NT side and bootstrap it -- broken
-          # pre-gosmopolitan#63 (unix-style ':' PATH walk with no .exe
-          # suffixing on NT hosts), fixed in fork v237+. Do NOT provision Go
-          # in this job (no setup-go -- that bypasses the bootstrap
-          # requirement); do NOT exempt commands from the bootstrap. If the
-          # image drops Go, the red is honest -- escalate to the owner.
+          # Smoke contract (owner-ruled): gt must resolve the machine's EXISTING Go (windows-latest... see docs/CI.md
           ./smoke/gt-ape.exe --help
-          # The full pipeline is deliberately NOT run on Windows: gobootstrap
-          # downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
-          # serve for windows (windows archives are .zip) -- a pre-existing
-          # bootstrap gap independent of the APE migration.
-
-  # The single publish path. Gated on the cross-OS smoke jobs above so a build
-  # whose APE cannot actually run on linux/macOS/Windows is never released.
-  # Downloads the same build-output hand-off the smoke jobs ran and publishes
-  # build/ straight to buildhost (no GHA artifact involved), authenticating
-  # with a GHA OIDC token (hence id-token: write).
+          # The full pipeline is deliberately NOT run on Windows: gobootstrap downloads... see docs/CI.md
   publish:
     needs: [smoke-linux, smoke-macos, smoke-windows]
     runs-on: ubuntu-latest
@@ -599,6 +468,8 @@ jobs:
       artifact-metadata: write
     steps:
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
+      - uses: actions/checkout@v7
+
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:

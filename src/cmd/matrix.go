@@ -16,10 +16,12 @@ var (
 	matrixOS        []string
 	matrixArch      []string
 	matrixTargets   []string
-	cosmoSlots      []string
+	cosmoPlatforms  []string
 	releaseParallel int
 )
 
+// DefaultOS / DefaultArch fill the product's other half; not flag defaults
+// (empty --os/--arch selects the single-APE default).
 var (
 	DefaultOS   = []string{"linux", "darwin", "windows"}
 	DefaultArch = []string{"amd64", "arm64"}
@@ -29,16 +31,17 @@ func init() {
 	matrixCmd := &cobra.Command{
 		Use:   "matrix",
 		Short: "Cross-compile for multiple platforms",
-		Long: `Builds binaries for multiple GOOS/GOARCH combinations in parallel.
+		Long: `Builds ONE fat Actually Portable Executable covering several platforms, or
+binaries for multiple GOOS/GOARCH combinations in parallel.
 
-Targets are the cartesian product of --os and --arch, unless --targets is set,
-in which case exactly the listed targets are built. Each --targets entry is an
-os/arch pair (e.g. darwin/amd64) or the special value "cosmo": one fat
-Actually Portable Executable built with the gosmopolitan Go fork, covering
-Linux, macOS and Windows in a single binary (artifact <name>_cosmo_fat). After
-a cosmo build the fat APE is also copied to the per-platform artifact names
-listed in --cosmo-slots, so per-platform consumers keep working; an explicit
-native target in --targets wins over a slot copy of the same name.
+By default the matrix builds a single cosmo APE (artifact <name>)
+covering --cosmo-platforms: linux/amd64, darwin/arm64 and windows/amd64. One
+file runs on all three; there is no per-platform copy.
+
+--os and --arch bring back the cartesian product of native per-platform
+binaries; naming either one selects it. --targets replaces both with an exact
+list, each entry an os/arch pair (e.g. darwin/amd64) or the special value
+"cosmo" for the fat APE.
 
 The WebAssembly targets wasm/js (browser/Node.js) and wasm/wasip1 (WASI) are
 also built with the gosmopolitan fork toolchain (it carries the org's wasm
@@ -66,10 +69,10 @@ buildhost publish upload set.`,
 // addMatrixTargetFlags registers the target-selection flags shared by the
 // matrix command and release --build.
 func addMatrixTargetFlags(cmd *cobra.Command) {
-	cmd.Flags().StringSliceVar(&matrixOS, "os", DefaultOS, "Target operating systems")
-	cmd.Flags().StringSliceVar(&matrixArch, "arch", DefaultArch, "Target architectures")
+	cmd.Flags().StringSliceVar(&matrixOS, "os", nil, "Target operating systems; naming either --os or --arch switches from the single-APE default to per-platform binaries (default linux,darwin,windows when only --arch is given)")
+	cmd.Flags().StringSliceVar(&matrixArch, "arch", nil, "Target architectures; naming either --os or --arch switches from the single-APE default to per-platform binaries (default amd64,arm64 when only --os is given)")
 	cmd.Flags().StringSliceVar(&matrixTargets, "targets", nil, `Exact build targets as os/arch pairs (incl. wasm/js and wasm/wasip1, built with the gosmopolitan toolchain) plus the special value "cosmo" (a gosmopolitan fat APE); replaces the --os x --arch product`)
-	cmd.Flags().StringSliceVar(&cosmoSlots, "cosmo-slots", DefaultCosmoSlots, `Per-platform artifact names that receive a copy of the cosmo fat APE ("none" disables slot mapping)`)
+	cmd.Flags().StringSliceVar(&cosmoPlatforms, "cosmo-platforms", DefaultCosmoPlatforms, `Host platforms the cosmo fat APE must cover, as os/arch pairs ("all" covers every platform the fork can emit)`)
 }
 
 type buildJob struct {
@@ -78,19 +81,12 @@ type buildJob struct {
 	srcPath    string
 	outputPath string
 	ldflags    string
-	// forkGoroot is the gosmopolitan toolchain GOROOT for jobs built with the
-	// fork: GOOS=cosmo fat-APE jobs and wasm (js/wasm, wasip1/wasm) jobs.
-	// Empty for normal jobs, which build with the go on PATH.
+	// forkGoroot is the gosmopolitan GOROOT for fat-APE/wasm jobs; empty for normal jobs (go on PATH).
 	forkGoroot string
-	// cacheNamespace is the cache key namespace for fork-toolchain jobs — a
-	// content hash of the toolchain at forkGoroot (forkToolchainCacheNamespace),
-	// exported to the build as GO_TOOLCHAIN_CACHE_NAMESPACE so its cacheprog
-	// scopes every cache key to this exact toolchain build. REQUIRED whenever
-	// forkGoroot is set (runBuild refuses a fork job without it): an
-	// un-namespaced fork build would share action keys with other fork
-	// toolchain builds and reopen cross-build cache poisoning. Empty for
-	// normal jobs, whose toolchains have properly version-keyed tool IDs.
+	// cacheNamespace scopes cache keys per fork toolchain; required with forkGoroot or builds share keys and poison the cache.
 	cacheNamespace string
+	// cosmoPlatforms is GOCOSMOPLATFORMS for a fat-APE job; empty leaves it unset (the fork's everything-default).
+	cosmoPlatforms string
 }
 
 type buildResult struct {
@@ -101,9 +97,7 @@ type buildResult struct {
 
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
-	// Collect per-action build profiles for every cross-compile target. The
-	// matrix path has no Chrome trace, but the deferred capture still parses
-	// and stashes the graphs so printCacheStats can emit the final report.
+	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for printCacheStats.
 	initBuildProfile()
 	defer captureProfileTrace()
 	r := runner.New()
@@ -131,8 +125,6 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Warnings budget: fail the run — after every phase has completed and
-	// every warning has been printed — when it emitted more than maxWarnings
-	// warnings (same gate as the default pipeline).
+	// Fails the run once every phase has printed if warnings exceed maxWarnings (same gate as the default pipeline).
 	return checkWarningsGate()
 }

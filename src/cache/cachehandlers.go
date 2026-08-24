@@ -66,12 +66,7 @@ func (s *Server) handleGet(req Request) Response {
 	cacheLog.Debug("HIT remote %s", actionID)
 	defer body.Close()
 
-	// Write to local cache for future hits. A remote body reaching this Put
-	// has already passed the web ingestion guards (sha256 vs outputID,
-	// build-id action, module-index refusal — web.go / batch.go): that is
-	// load-bearing, because the local tier SERVES module indexes on the trust
-	// that only local cmd/go ever stores one (see verify.go). A web-originated
-	// index must never be materialized here.
+	// Write to local cache; the remote body already passed web ingestion guards (sha256, build-id, module-index).
 	localPutStart := time.Now()
 	diskPath, err := s.local.Put(actionID, outputID, body)
 	s.Latency.LocalPut.Record(time.Since(localPutStart))
@@ -95,6 +90,12 @@ func (s *Server) handlePut(req Request) Response {
 	start := time.Now()
 	actionID := s.actionKey(req.ActionID)
 	outputID := fmt.Sprintf("%x", req.OutputID)
+
+	// A module index never enters the store; its content-free key means a served body cannot be verified (see isGoModuleIndex).
+	if isGoModuleIndex(req.Body) {
+		return s.refuseIndexPut(req, actionID, outputID)
+	}
+
 	mu := s.lock(actionID)
 
 	lockStart := time.Now()
@@ -102,21 +103,14 @@ func (s *Server) handlePut(req Request) Response {
 	s.Latency.LockWait.Record(time.Since(lockStart))
 	defer mu.Unlock()
 
-	// Dedup check: already cached locally? Peek, not Get — serving the entry
-	// the caller just recomputed is not a cache hit, and counting it inflated
-	// the hit rate on warm rebuilds.
+	// Dedup check via Peek, not Get: serving what the caller just recomputed is not a real cache hit.
 	localStart := time.Now()
 	meta, miss := s.local.Peek(actionID)
 	s.Latency.LocalGet.Record(time.Since(localStart))
 
 	cacheLog := logger.WithSubsystem("cache")
-	// Dedup ONLY when the stored entry is the same content cmd/go just
-	// computed. A stored outputID that differs from the incoming PUT's must be
-	// overwritten, not returned: cmd/go is the source of truth for its own
-	// action keys (a legitimate re-Put after a nondeterministic rebuild, or a
-	// mis-keyed body that slipped in — e.g. a web-prefetched object under a
-	// module-index key). The old unconditional dedup made such an entry sticky
-	// forever AND silently discarded the fresh correct body.
+	// Dedup only when the stored entry matches what cmd/go just computed; a differing outputID
+	// must be overwritten, since cmd/go owns its own action keys.
 	if !miss && meta.OutputID == outputID {
 		cacheLog.Debug("PUT  dedup  %s output=%s", actionID, shortID(meta.OutputID))
 		return Response{ID: req.ID, DiskPath: meta.DiskPath, Size: meta.Size}
@@ -124,9 +118,8 @@ func (s *Server) handlePut(req Request) Response {
 	if !miss {
 		cacheLog.Debug("PUT  replace %s stored-output=%s incoming-output=%s (stored entry does not match; overwriting)",
 			actionID, shortID(meta.OutputID), shortID(outputID))
-		// The remote claim for this key is as stale as the local entry was:
-		// drop it so the remote Put below re-uploads the fresh body instead
-		// of skipping it as already-present (see staleKeyForgetter).
+		// The remote claim is as stale as local; the Put below must re-upload, not skip an
+		// already-present body (see staleKeyForgetter).
 		if f, ok := s.remote.(staleKeyForgetter); ok {
 			f.ForgetStale(actionID)
 		}
@@ -181,9 +174,7 @@ func (s *Server) handlePut(req Request) Response {
 }
 
 func hexToBytes(h string) []byte {
-	// hex.DecodeString, not 32 reflective fmt.Sscanf calls per GET-hit
-	// response. On malformed input it returns the bytes decoded so far,
-	// matching the old best-effort behavior.
+	// hex.DecodeString, not 32 reflective fmt.Sscanf calls; on malformed input it returns bytes decoded so far.
 	b, _ := hex.DecodeString(h)
 	return b
 }

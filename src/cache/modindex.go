@@ -1,52 +1,90 @@
 package cache
 
-import "bytes"
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 
-// goModuleIndexMagic is the leading bytes of a Go module index blob. cmd/go's
-// modindex writer stamps a version line "go index vN\n" at the head of every
-// index it stores (see cmd/go/internal/modindex: indexVersion is "go index v2",
-// written verbatim followed by '\n'). Matching the version-less prefix keeps the
-// check correct across index format bumps (v1, v2, future vN).
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
+)
+
+// Leading bytes of a Go module index blob; the version-less prefix matches every index format (v1, v2, future vN).
 const goModuleIndexMagic = "go index v"
 
-// isGoModuleIndex reports whether body is a Go module index blob -- the on-disk
-// package/directory index that cmd/go stores and retrieves THROUGH the build
-// cache (cache.Default() is the GOCACHEPROG when one is set, so PutBytes/GetMmap
-// for the index flow over this protocol just like compiled objects do).
-//
-// The module index is the one cached payload that is both (a) unverifiable
-// against its action key and (b) catastrophic if mis-keyed:
-//
-//   - Unverifiable: unlike a compiled package archive, an index blob carries no
-//     build id, and it does not embed the directory it indexes in any form that
-//     can be checked against the requested action key (a dirHash over the Go
-//     version + path + file mtimes/sizes). outputIDMatches proves only that the
-//     body hashes to its advertised outputID -- internally self-consistent even
-//     for a blob filed under the wrong key -- and buildIDMatchesAction is a
-//     no-op on a non-archive. So a wrong-but-well-formed index served under a
-//     key cannot be detected, only refused.
-//
-//   - Catastrophic: the go command consults the index at package-load time via
-//     IsGoDir(). An index for a directory with no Go files served for, say,
-//     $GOROOT/src/runtime makes the loader report "package runtime is not in
-//     std" and fail the build before compilation even starts; a truncated or
-//     cross-version one yields "corrupt index". Neither is recoverable in-process.
-//
-// Because an index is cheap for the go command to recompute locally (a single
-// directory read), the safe response to one arriving from the shared remote
-// cache is to refuse it and let cmd/go rebuild it -- never to serve bytes whose
-// provenance under this key cannot be established. A false positive (some other
-// payload that happens to start with this magic) only costs a recompute, never
-// correctness, so the loose prefix match is deliberately conservative.
-//
-// The refusal is scoped to the SHARED tier: every web->local ingestion path
-// (web.go individual GET, batch.go batch GET, the prefetch filter in cache.go)
-// and the upload path (webput.go) consult this predicate. The LOCAL tiers do
-// NOT -- an index in the local store was, post the one-time version purge
-// (cacheversion.go), stored there by the local cmd/go under its own action key,
-// and is served back exactly like upstream GOCACHE serves its own directory
-// (see verify.go's file-top comment for the store/refuse loop that scoping
-// this wrongly caused).
+// Module index blobs are unverifiable and catastrophic if mis-keyed, so
+// every tier refuses them on both PUT and GET, never only one.
 func isGoModuleIndex(body []byte) bool {
 	return bytes.HasPrefix(body, []byte(goModuleIndexMagic))
+}
+
+// sinkIndexBody writes a refused module-index body to this Server's scratch
+// sink and returns the file's path.
+//
+// The GOCACHEPROG "put" reply must name a file holding the body that survives
+// until "close" (cmd/go rejects an empty DiskPath outright), so a refusal still
+// owes the caller a real file -- it just must not be one the cache can serve
+// back. The sink is a private temp directory, removed when the protocol loop
+// ends, and nothing ever looks a key up in it. Bodies are content-addressed by
+// outputID, so the same index recomputed by several go invocations on one
+// connection costs one file.
+func (s *Server) sinkIndexBody(outputID string, body []byte) (string, error) {
+	s.sinkMu.Lock()
+	defer s.sinkMu.Unlock()
+	if s.sinkDir == "" {
+		dir, err := os.MkdirTemp("", "go-toolchain-modindex-")
+		if err != nil {
+			return "", err
+		}
+		s.sinkDir = dir
+	}
+	f, err := os.CreateTemp(s.sinkDir, ".tmp-*")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	_, werr := f.Write(body)
+	cerr := f.Close()
+	if werr != nil || cerr != nil {
+		os.Remove(tmp)
+		if werr != nil {
+			return "", werr
+		}
+		return "", cerr
+	}
+	if outputID == "" {
+		return tmp, nil
+	}
+	final := filepath.Join(s.sinkDir, outputID)
+	if err := os.Rename(tmp, final); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	return final, nil
+}
+
+// removeIndexSink deletes the scratch sink after the protocol loop's close reply, when DiskPath's contract expires.
+func (s *Server) removeIndexSink() {
+	s.sinkMu.Lock()
+	dir := s.sinkDir
+	s.sinkDir = ""
+	s.sinkMu.Unlock()
+	if dir != "" {
+		os.RemoveAll(dir)
+	}
+}
+
+// refuseIndexPut answers a PUT carrying a module index: the body is sunk
+// outside the cache and the reply names it, so cmd/go's contract holds while
+// the cache stores nothing (see isGoModuleIndex).
+func (s *Server) refuseIndexPut(req Request, actionID, outputID string) Response {
+	path, err := s.sinkIndexBody(outputID, req.Body)
+	if err != nil {
+		// Fail loud: a broken TMPDIR must not be reported to cmd/go as a stored index.
+		return Response{ID: req.ID, Err: fmt.Sprintf("cacheprog: module-index sink: %v", err)}
+	}
+	s.IndexPutsRefused.Increment()
+	logger.WithSubsystem("cache").Debug("PUT  refuse %s output=%s size=%d (module index: recomputed, never cached)",
+		actionID, shortID(outputID), len(req.Body))
+	return Response{ID: req.ID, DiskPath: path}
 }

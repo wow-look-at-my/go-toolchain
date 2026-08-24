@@ -9,18 +9,10 @@ import (
 	"time"
 )
 
-// activeWatchdog is the current output watchdog, if any.
-// Accessed by the step system to report current step names.
+// activeWatchdog is the current output watchdog, if any; the step system reads it to report step names.
 var activeWatchdog *outputWatchdog
 
-// watchdogDisabled reports whether GO_TOOLCHAIN_NO_WATCHDOG=1 disables the
-// output watchdog. The watchdog dup2-redirects fd 1 and 2 through in-process
-// pipes; a supported off-switch is required when debugging output plumbing,
-// because a fault inside the watchdog's own forwarding path traps ALL output
-// — including crash dumps — in a pipe nobody drains (this is exactly the
-// bisection knob used for the darwin cosmo-APE pipeline wedge, go-toolchain
-// CI runs 28739021382/28739520377). With the watchdog off the build runs on
-// its real stdio and only loses the "STALLED: no output for Ns" warnings.
+// watchdogDisabled reports GO_TOOLCHAIN_NO_WATCHDOG=1: a fault in fd forwarding can trap all output, needing an off-switch.
 func watchdogDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_WATCHDOG") == "1" }
 
 // outputWatchdog monitors all stdout/stderr output and warns when the build
@@ -77,16 +69,9 @@ func (w *outputWatchdog) watchLoop(ctx context.Context) {
 				if v := w.stepName.Load(); v != nil {
 					step, _ = v.(string)
 				}
-				// These writes MUST go to the saved pre-redirect fd
-				// (w.origStderr), never through the logger: the logger writes
-				// to the current os.Stderr, which is fd 2 = the watchdog's own
-				// monitored pipe. Routing the warning there feeds it back into
-				// forward(), resetting the stall timer (self-defeating), and
-				// in the trapped-pipe failure mode -- the exact scenario
-				// origStderr exists for -- the warning would be lost in the
-				// undrained pipe. The bannedoutput vet analyzer deliberately
-				// does not flag writes to a writer held in a variable, so this
-				// stays analyzer-clean.
+				// Must write to origStderr, never the logger: the logger writes fd 2, the watchdog's own
+				// monitored pipe, which would reset the stall timer or get lost in a trapped pipe. Writing to a
+				// variable-held writer keeps this bannedoutput-clean.
 				if step != "" {
 					fmt.Fprintf(w.origStderr, "%s⚠ STALLED: no output for %ds (currently: %s)%s\n",
 						colorBoldRed, int(gap.Seconds()), step, colorReset)

@@ -75,6 +75,74 @@ func TestComputeFingerprintIncludesActionYML(t *testing.T) {
 	assert.NotEqual(t, fp1, fp2, "an action.yml edit must bust the fingerprint")
 }
 
+// The environment decides what a run does — an env-gated test switched on is a
+// pipeline the stored fingerprint never described — so the skip must not fire
+// across a changed variable.
+func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+
+	runEnv = []string{"PATH=/usr/bin", "RUN_INTEGRATION_TESTS="}
+	defer func() { runEnv = nil }()
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	runEnv = []string{"PATH=/usr/bin", "RUN_INTEGRATION_TESTS=1"}
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "enabling an env-gated test must force a run")
+
+	// Order is not a difference, nor is a variable the shell rewrites on every command line.
+	runEnv = []string{"_=/usr/local/bin/go-toolchain", "RUN_INTEGRATION_TESTS=1", "SHLVL=3", "PATH=/usr/bin", "OLDPWD=/tmp"}
+	fp3, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.Equal(t, fp2, fp3, "shell-churned variables must not bust the fingerprint")
+}
+
+// --generate runs go:generate directives; a stored fingerprint from a plain run
+// does not describe that run, and skipping it reports success for generators
+// that never executed.
+func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	require.NoError(t, rootCmd.Flags().Set("generate", "deadbeef"))
+	defer rootCmd.Flags().Set("generate", "")
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "a flag that changes what the run does must bust the fingerprint")
+}
+
+// A testdata fixture is read at run time by the test that would now fail, and
+// no //go:embed covers it.
+func TestComputeFingerprintIncludesTestdata(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	os.WriteFile("main.go", []byte("package main\n"), 0644)
+	require.NoError(t, os.MkdirAll(filepath.Join("pkg", "testdata"), 0o755))
+	fixture := filepath.Join("pkg", "testdata", "want.json")
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"n":1}`), 0o644))
+
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"n":2}`), 0o644))
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "a changed testdata fixture must force a run")
+}
+
 func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.Chdir(dir))
@@ -232,15 +300,13 @@ func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
 	base, err := computeFingerprint(withEmbed)
 	require.NoError(t, err)
 
-	// When asset.txt is tracked as an embed, changing its content (and nothing
-	// else) must change the fingerprint.
+	// When asset.txt is tracked as an embed, changing its content must change the fingerprint.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "asset.txt"), []byte("v2"), 0644))
 	changed, err := computeFingerprint(withEmbed)
 	require.NoError(t, err)
 	assert.NotEqual(t, base, changed, "embed content change must bust the fingerprint")
 
-	// When nothing embeds it, the same data file is invisible to the
-	// fingerprint — preserving today's behavior for modules with no embeds.
+	// When nothing embeds it, the same data file is invisible to the fingerprint.
 	fpA, err := computeFingerprint(noEmbed)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "asset.txt"), []byte("v3"), 0644))
@@ -261,8 +327,7 @@ func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 	// Keep go list hermetic: never download a toolchain, ignore any workspace.
 	t.Setenv("GOTOOLCHAIN", "local")
 	t.Setenv("GOWORK", "off")
-	// Force the non-Docker output-name scheme so build/<binary> is found
-	// regardless of where the test runs.
+	// Force the non-Docker output-name scheme so build/<binary> is found regardless of where the test runs.
 	defer build.SetInDockerCheck(func() bool { return false })()
 
 	dir := t.TempDir()

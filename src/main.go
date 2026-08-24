@@ -14,18 +14,13 @@ func init() {
 		return
 	}
 
-	// Let Go automatically download the correct toolchain when go.mod
-	// requires a newer version than the one installed.
+	// Let Go auto-download the toolchain go.mod requires.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Configure Go module proxy and checksum database settings,
-	// respecting user-configured proxies and sumdb (e.g. pazer.io).
+	// Configure the Go module proxy and sumdb, honoring user config.
 	configureGoEnv()
 
-	// Clear NO_PROXY so that all traffic (including *.google.com and
-	// *.googleapis.com) routes through the environment's egress proxy,
-	// which handles DNS resolution. Without this, Go tries to reach
-	// Google domains directly but DNS cannot resolve them.
+	// Clear NO_PROXY: Google domains must route through the egress proxy for DNS.
 	os.Setenv("NO_PROXY", "")
 	os.Setenv("no_proxy", "")
 }
@@ -73,9 +68,7 @@ func main() {
 	if needsGo() {
 		if err := cmd.EnsureGoVersion(); err != nil {
 			cmd.ReportUpdateCheck()
-			// Nothing was built, so nothing in build/ describes this run:
-			// drop the previous run's binaries rather than leave them to be
-			// executed as its result (see src/cmd/staleoutputs.go).
+			// Drop the previous run's binaries so a failed run can't be mistaken for one (see staleoutputs.go).
 			cmd.DiscardBuildOutputs()
 			logger.Error("go bootstrap: %v", err)
 			logx.Flush()
@@ -90,10 +83,8 @@ func main() {
 	}
 }
 
-// shouldCheckForUpdate reports whether to start the background update check. It
-// is skipped for the GOCACHEPROG subprocess (spawned by the Go build itself, not
-// a user invocation) and for the `version` command, which already reports its
-// own staleness.
+// shouldCheckForUpdate skips the GOCACHEPROG subprocess and `version`, which
+// already reports its own staleness.
 func shouldCheckForUpdate() bool {
 	if isCacheProgInvocation() {
 		return false

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // How long to cache "up-to-date" results before rechecking
@@ -24,13 +26,9 @@ const upToDateCacheDuration = time.Minute
 // drags in modernc.org/libc, whose per-GOOS generated code has no cosmo
 // target.
 type depsCache interface {
-	// lookup returns the cached entry for (path, version). found=false means
-	// no entry. update != "" means the module was cached as outdated (outdated
-	// entries never expire); update == "" means it was cached as up-to-date at
-	// checkedAt (unix seconds).
+	// lookup returns the cached entry: update != "" means cached outdated (never expires); found=false means no entry.
 	lookup(path, version string) (update string, checkedAt int64, found bool)
-	// store records a check result performed at checkedAt (unix seconds);
-	// update == "" means up-to-date.
+	// store records a check result at checkedAt (unix seconds); update == "" means up-to-date.
 	store(path, version, update string, checkedAt int64)
 	close()
 }
@@ -58,8 +56,7 @@ type DepChecker struct {
 	start        time.Time     // when the check was started (for timeline)
 }
 
-// CheckOutdatedDeps starts an async check for outdated dependencies.
-// Returns a DepChecker that can be used to wait for results with progress.
+// CheckOutdatedDeps starts an async check and returns a DepChecker to poll for progress.
 func CheckOutdatedDeps() *DepChecker {
 	dc := &DepChecker{
 		doneCh: make(chan struct{}),
@@ -119,11 +116,9 @@ func (dc *DepChecker) run() {
 			continue
 		}
 
-		// A dependency pinned to follow a branch is owned by
-		// UpdateTrackedBranchDeps (depsbranch.go); comparing it against the
-		// proxy's @latest here would silently drag it back onto the
-		// module's default branch on the next auto-update.
-		if dep.Branch != "" {
+		// Tracked deps are owned by UpdateTrackedBranchDeps; checking @latest here
+		// would drag one back onto the default branch.
+		if dep.Tracked {
 			continue
 		}
 
@@ -202,8 +197,7 @@ func checkDepLive(path string) (update string, needsUpdate bool, err error) {
 		proxy = "https://" + proxy
 	}
 
-	// Query $GOPROXY/<module>/@latest
-	// Module paths are case-encoded per https://pkg.go.dev/golang.org/x/mod/module#EscapePath
+	// Query $GOPROXY/<module>/@latest; module paths are case-encoded per module#EscapePath.
 	escapedPath, err := escapePath(path)
 	if err != nil {
 		return "", false, err
@@ -263,7 +257,7 @@ func escapePath(path string) (string, error) {
 type depInfo struct {
 	Path    string
 	Version string
-	Branch  string // set when the require line carries a go-toolchain:branch comment
+	Tracked bool // the line, or the replace covering it, carries a tracking marker
 }
 
 // findGoMod walks up from the current directory to find go.mod.
@@ -300,12 +294,24 @@ func listDirectDeps() ([]depInfo, error) {
 		return nil, err
 	}
 
+	// A require replaced by a tracked replacement is tracked too: the build uses the replacement's version.
+	replacedTracked := set.New[string]()
+	for _, rep := range f.Replace {
+		if isTracked(rep.Syntax) {
+			replacedTracked.Add(rep.Old.Path)
+		}
+	}
+
 	var deps []depInfo
 	for _, req := range f.Require {
 		if req.Indirect {
 			continue
 		}
-		deps = append(deps, depInfo{Path: req.Mod.Path, Version: req.Mod.Version, Branch: trackedBranch(req)})
+		deps = append(deps, depInfo{
+			Path:    req.Mod.Path,
+			Version: req.Mod.Version,
+			Tracked: isTracked(req.Syntax) || replacedTracked.Contains(req.Mod.Path),
+		})
 	}
 	return deps, nil
 }

@@ -30,18 +30,19 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	// Always run with -json so we can parse results
 	goTestArgs = append([]string{goTestArgs[0], "-json"}, goTestArgs[1:]...)
 
-	// Clear GOCACHEPROG so the benchmark subprocess doesn't spawn a cacheprog
-	// child that inherits stdout and prevents io.ReadAll from completing.
+	// Clear GOCACHEPROG: a cacheprog child inheriting stdout blocks io.ReadAll.
 	proc, err := runner.Cmd("go", goTestArgs...).WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
 	if err != nil {
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}
-	// Tee stderr to console for compilation progress while draining to
-	// prevent deadlock on the OS pipe buffer.
-	go io.Copy(os.Stderr, proc.Stderr())
+	// Tee stderr while draining it, so a dying process's complaint prints first.
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		io.Copy(os.Stderr, proc.Stderr())
+	}()
 
-	// Read stdout line by line so benchmark results stream as they
-	// complete, rather than buffering everything until the process exits.
+	// Read stdout line by line so results stream as they complete.
 	var buf bytes.Buffer
 	var firstOnce sync.Once
 	scanner := bufio.NewScanner(proc.Stdout())
@@ -61,16 +62,22 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	}
 
 	waitErr := proc.Wait()
+	<-stderrDone
 	output := buf.Bytes()
 
 	if waitErr != nil {
+		// Say what go test said, or a build failure reports just an exit status.
+		err := fmt.Errorf("benchmarks failed: %w", waitErr)
+		if diag := Diagnostics(output); diag != "" {
+			err = fmt.Errorf("%w\n%s", err, diag)
+		}
 		// Try to parse and return partial results on failure
 		if len(output) > 0 {
 			if report, parseErr := ParseBenchmarkOutput(output); parseErr == nil && report.HasResults() {
-				return report, fmt.Errorf("benchmarks failed: %w", waitErr)
+				return report, err
 			}
 		}
-		return nil, fmt.Errorf("benchmarks failed: %w", waitErr)
+		return nil, err
 	}
 
 	report, err := ParseBenchmarkOutput(output)

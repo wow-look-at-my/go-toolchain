@@ -10,11 +10,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// The persistent dependency-check cache, stored in
-// ~/.cache/go-toolchain/deps.db. This file carries the modernc.org/sqlite
-// driver import, which (via modernc.org/libc's per-GOOS generated code) has
-// no cosmo target — so the whole backend is excluded from GOOS=cosmo builds
-// and depscache_cosmo.go supplies a no-op cache instead.
+// Persistent dependency-check cache path; excluded from GOOS=cosmo since modernc.org/sqlite has no cosmo target.
 const (
 	cacheSubdir = "go-toolchain"
 	cacheFile   = "deps.db"

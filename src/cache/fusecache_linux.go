@@ -1,10 +1,8 @@
-//go:build linux
+//go:build linux && !cosmo
 
 package cache
 
 import "syscall"
 
-// unmountDetach performs a lazy unmount on Linux: detach the filesystem now and
-// clean up when it's no longer busy. Used to clear a stale mount left by a
-// crashed run.
+// unmountDetach: lazy unmount, detaching now and cleaning up when no longer busy, for a stale crashed-run mount.
 const unmountDetach = syscall.MNT_DETACH

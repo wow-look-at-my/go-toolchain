@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spf13/pflag"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -28,17 +30,63 @@ func fingerprintFile() string {
 	return filepath.Join(dir, hex.EncodeToString(h[:])+".sha256")
 }
 
-// computeFingerprint hashes all inputs that affect a go-toolchain run:
-// all .go files (including tests), go.mod, go.sum, .dats suites and their
-// .golden snapshots, Go version, CGO flag, and every file pulled in by a
-// //go:embed directive (resolved via go list).
+// runEnv is captured once at run start, before the pipeline sets its own PID-derived vars.
+var runEnv []string
+
+func captureRunEnv() { runEnv = os.Environ() }
+
+// fingerprintEnv returns the captured environment, or the live one for callers
+// that skipped PersistentPreRunE.
+func fingerprintEnv() []string {
+	if runEnv != nil {
+		return runEnv
+	}
+	return os.Environ()
+}
+
+// fingerprintFlags is the root command's flag set, wired up in root.go's init.
+var fingerprintFlags *pflag.FlagSet
+
+// volatileEnv holds shell-rewritten vars excluded from the fingerprint.
+var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
+
+// flagFingerprint renders every root flag as name=value, sorted, so a flag
+// added later needs no update here. Reads fingerprintFlags rather than
+// rootCmd directly, since rootCmd's init reaches this via saveFingerprint.
+func flagFingerprint() string {
+	if fingerprintFlags == nil {
+		return ""
+	}
+	var lines []string
+	fingerprintFlags.VisitAll(func(f *pflag.Flag) {
+		lines = append(lines, f.Name+"="+f.Value.String())
+	})
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
+}
+
+// computeFingerprint hashes all inputs that affect a go-toolchain run: all .go
+// files (including tests), go.mod, go.sum, .dats suites and their .golden
+// snapshots, everything under a testdata directory, Go version, the flags the
+// run was invoked with, the environment it was invoked in, and every file
+// pulled in by a //go:embed directive (resolved via go list).
 func computeFingerprint(r runner.CommandRunner) (string, error) {
 	h := sha256.New()
 
 	fmt.Fprintf(h, "go:%s\n", runtime.Version())
 	fmt.Fprintf(h, "toolchain:%s\n", buildVersion)
-	fmt.Fprintf(h, "cgo:%v\n", cgoEnabled)
 	fmt.Fprintf(h, "output:%s\n", outputDir)
+	fmt.Fprintf(h, "flags:%s\n", flagFingerprint())
+
+	// Folds in every var except shell noise, so flipping an env-gated test counts as a different run.
+	env := append([]string(nil), fingerprintEnv()...)
+	sort.Strings(env)
+	for _, kv := range env {
+		if name, _, ok := strings.Cut(kv, "="); ok && volatileEnv.Contains(name) {
+			continue
+		}
+		fmt.Fprintf(h, "env:%s\n", kv)
+	}
 
 	var files []string
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
@@ -56,17 +104,12 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 			return nil
 		}
 		name := d.Name()
-		// .dats suites and their .golden snapshot files are pipeline inputs
-		// (the dats phase runs them), so editing one must bust the
-		// fingerprint or the "Up to date" fast-exit would skip the re-run.
-		// action.yml is one too: tests read it as data (handoffname_test.go
-		// asserts the hand-off name templates), and it is not reachable by
-		// //go:embed from a package two directories down, so without this an
-		// action.yml edit fast-exits "Up to date" and its assertions never
-		// re-run locally -- a false green until CI catches it.
+		// .dats/.golden files, action.yml (read as test data, not embed-reachable),
+		// and testdata/ (convention-ignored by go, so no embed covers it) are
+		// pipeline inputs the fast-exit would otherwise miss.
 		if strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".dats") ||
 			strings.HasSuffix(name, ".golden") || name == "go.mod" || name == "go.sum" ||
-			name == "action.yml" || name == "action.yaml" {
+			name == "action.yml" || name == "action.yaml" || underTestdata(path) {
 			files = append(files, path)
 		}
 		return nil
@@ -90,12 +133,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 		f.Close()
 	}
 
-	// Fold in files pulled in by //go:embed. They are compile inputs to the
-	// embedding package (and to that package's test binary), so an embed-only
-	// change must bust the fingerprint even though no .go file changed —
-	// otherwise the top-level "Up to date" skip fires and the rebuilt embedded
-	// bytes (and the affected package's tests) are never re-run. An error here
-	// (e.g. a broken build) is propagated so the caller declines to short-circuit.
+	// //go:embed files are compile inputs too; an embed-only change must still bust the fingerprint.
 	embeds, err := embeddedFiles(r)
 	if err != nil {
 		return "", err
@@ -116,22 +154,28 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// underTestdata reports whether any directory component of path is "testdata".
+func underTestdata(path string) bool {
+	for dir := filepath.Dir(path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == "testdata" {
+			return true
+		}
+	}
+	return false
+}
+
 // embeddedFiles returns the absolute paths of every file referenced by a
 // //go:embed directive in the main module's packages, de-duplicated and sorted.
 //
-// It shells out to `go list -test -json ./...` and lets go list resolve the
-// embed patterns the way the compiler does (globs, directory trees, the all:
-// prefix, quoted names, multiple patterns/lines), rather than parsing //go:embed
-// comments by hand. The -test flag is required: without it go list leaves
-// TestEmbedFiles and XTestEmbedFiles unresolved (null). ./... without -deps
-// keeps the scope to the main module — dependency embeds are already pinned
-// through go.mod/go.sum. GOCACHEPROG is cleared so go list doesn't spawn a
-// cacheprog child that inherits stdout and stalls the io.ReadAll below (the
-// same precaution the benchmark runner takes).
+// It shells out to `go list -test -json ./...`, letting go list resolve the
+// embed patterns (globs, directory trees, the all: prefix) instead of parsing
+// //go:embed comments by hand. -test is required, or TestEmbedFiles and
+// XTestEmbedFiles stay unresolved. ./... without -deps keeps the scope to the
+// main module. GOCACHEPROG is cleared so go list doesn't spawn a cacheprog
+// child that inherits stdout and stalls the io.ReadAll below.
 //
-// Note: only files covered by a //go:embed directive are tracked. A file a test
-// reads at runtime via os.ReadFile that no //go:embed covers is still not
-// tracked — that is a separate, broader gap.
+// Note: files read at run time from a testdata directory are covered by the
+// walk above; one living elsewhere with no embed directive stays untracked.
 func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	proc, err := runner.Cmd("go", "list", "-test", "-json", "./...").
 		WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)
@@ -143,7 +187,7 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 		return nil, err
 	}
 
-	set := make(map[string]struct{})
+	embedded := set.New[string]()
 	dec := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var pkg struct {
@@ -163,15 +207,12 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 		}
 		for _, group := range [][]string{pkg.EmbedFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles} {
 			for _, rel := range group {
-				set[filepath.Join(pkg.Dir, rel)] = struct{}{}
+				embedded.Add(filepath.Join(pkg.Dir, rel))
 			}
 		}
 	}
 
-	embeds := make([]string, 0, len(set))
-	for f := range set {
-		embeds = append(embeds, f)
-	}
+	embeds := embedded.Values()
 	sort.Strings(embeds)
 	return embeds, nil
 }
@@ -191,6 +232,16 @@ func isUpToDate(r runner.CommandRunner) bool {
 	}
 
 	if strings.TrimSpace(string(stored)) != current {
+		return false
+	}
+
+	// A branch-tracked dep's HEAD lives on a remote; an unchanged tree can still be stale if that branch moved.
+	if trackedBranchDepsMoved(r) {
+		return false
+	}
+
+	// An unchanged tree can predate branch-tracking; skipping here would skip the run that adds the markers.
+	if len(untrackedOrgDeps()) > 0 {
 		return false
 	}
 

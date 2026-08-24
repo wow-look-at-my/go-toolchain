@@ -1,10 +1,7 @@
 package cache
 
 // This file holds the pack store's write path: Put, PutIfAbsent, and the
-// low-level append helpers. The ordering contract lives here — the pre/commit
-// hooks run under the append lock (wmu), so index updates always land in
-// pack-file record order and a startup rescan replays to exactly the state
-// the live index reached. See pack.go for the store itself and the read path.
+// append helpers. See pack.go for the store and the read path.
 
 import (
 	"encoding/binary"
@@ -69,22 +66,11 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 		return loc, nil
 	}
 
-	// New content: append a full record (header + body). The index update runs
-	// in the commit hook, i.e. under the same append lock as the write itself,
-	// so the record order in the pack file always matches the order the live
-	// index saw. Without that atomicity two racing Puts for the SAME action
-	// with DIFFERENT contents could commit map updates in the opposite order of
-	// their file appends: the live daemon then serves one body while the next
-	// process's startup scan ("last write wins" over file order) serves the
-	// other — a silent cross-build divergence that let a mis-keyed body (e.g. a
-	// prefetched module index) surface only on the NEXT build as "corrupt
-	// index".
+	// Commit hook runs under the append lock, so index order always matches pack-file write order.
 	var loc packLoc
 	_, _, err = s.appendRecordLoc(packRecordMagic, aid, oid, data, nil, func(l packLoc) {
 		loc = l
-		// Pre-memoize the serve-gate facts from the exact bytes just written,
-		// so the compiler's open of the DiskPath this Put returns (and every
-		// later GET this process) doesn't pay a full body re-read + hash.
+		// Pre-memoize serve-gate facts from the written bytes, so later reads skip a re-hash.
 		s.verified.put(verifyKey{packID: l.packID, dataOff: l.dataOff}, verifyInfoForPut(outputID, data))
 		s.mu.Lock()
 		s.byAction[actionID] = l
@@ -278,9 +264,7 @@ func (s *PackStore) appendRaw(hdr, body []byte, pre func() bool, commit func(id 
 		s.wmu.Lock()
 		if s.activeID == id { // not already rotated by another goroutine
 			if err := s.openActive(id + 1); err != nil {
-				// The active pack keeps growing past maxPackBytes until a
-				// later rotation succeeds — functional, but silent failure
-				// here previously let it grow unbounded with no trace.
+				// Pack keeps growing past maxPackBytes until a later rotation succeeds; warn rather than fail silently.
 				logger.Warn("cacheprog: pack rotation to %d failed: %v (active pack keeps growing)", id+1, err)
 			}
 		}

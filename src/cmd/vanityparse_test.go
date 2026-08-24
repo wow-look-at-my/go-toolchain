@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 func TestParseVanityModulesFromSum(t *testing.T) {
@@ -29,17 +30,16 @@ gopkg.in/yaml.v3 v3.0.1 h1:ggg=
 	modules, err := parseVanityModulesFromSum()
 	require.Nil(t, err)
 
-	// Should include vanity hosts: gotest.tools, modernc.org, dario.cat
-	// Should exclude: github.com, golang.org, gopkg.in
+	// Includes vanity hosts (gotest.tools, modernc.org, dario.cat), excludes github.com/golang.org/gopkg.in.
 	assert.Equal(t, 3, len(modules))
 
-	hosts := map[string]bool{}
+	hosts := set.New[string]()
 	for _, m := range modules {
-		hosts[m.Host] = true
+		hosts.Add(m.Host)
 	}
-	assert.True(t, hosts["gotest.tools"])
-	assert.True(t, hosts["modernc.org"])
-	assert.True(t, hosts["dario.cat"])
+	assert.True(t, hosts.Contains("gotest.tools"))
+	assert.True(t, hosts.Contains("modernc.org"))
+	assert.True(t, hosts.Contains("dario.cat"))
 }
 
 func TestParseVanityModulesFromSumNoFile(t *testing.T) {
@@ -132,11 +132,7 @@ google.golang.org/grpc v1.80.0 h1:ggg=
 `
 	os.WriteFile("go.sum", []byte(gosum), 0644)
 
-	// google.golang.org is a well-known host: its modules (genproto, grpc,
-	// protobuf, ...) always resolve via the Go proxy, so they must never be
-	// treated as rewritable vanity modules. Treating them as vanity caused a
-	// stale build to mis-rewrite them onto GitHub mirrors when a slow network
-	// made the reachability probe time out.
+	// google.golang.org is well-known: its modules must never be treated as rewritable vanity modules.
 	modules, err := parseVanityModulesFromSum()
 	require.Nil(t, err)
 	assert.Equal(t, 0, len(modules))

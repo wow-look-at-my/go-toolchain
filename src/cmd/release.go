@@ -32,8 +32,7 @@ func init() {
 	cmd.Flags().StringVar(&releaseTag, "tag", "", "Tag name for this release (required in CI, default: auto-generated)")
 	cmd.Flags().StringVar(&releaseFrom, "from", "", "Start ref for changelog (default: previous tag)")
 	cmd.Flags().BoolVar(&releaseBuild, "build", false, "Run matrix cross-compilation before releasing")
-	// The --build path reuses the matrix build, so it honors the same
-	// target-selection flags (--os/--arch/--targets/--cosmo-slots).
+	// --build reuses the matrix build, honoring the same target flags (--os/--arch/--targets/--cosmo-platforms).
 	addMatrixTargetFlags(cmd)
 	cmd.Flags().BoolVar(&releaseCosign, "cosign", false, "Include cosign signature files and verification section (default: auto, enabled on github.com)")
 	cmd.Flags().BoolVar(&releaseNoCosign, "no-cosign", false, "Skip cosign signature files and verification section in release notes")
@@ -169,12 +168,9 @@ func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error
 
 	// Interactive confirmation when not in CI
 	if os.Getenv("CI") == "" {
-		// Interactive confirmation prompt: must reach the real stderr at any
-		// log level, and the final line awaits input mid-line (no trailing
-		// newline) -- bypasses the logger via rawStderr, see logging.go.
-		fmt.Fprintf(rawStderr, "Release: %s\n", tag)
-		fmt.Fprintf(rawStderr, "Commits: %d\n", len(commits))
-		fmt.Fprintf(rawStderr, "Are you sure you want to tag and push %s? [y/N] ", tag)
+		// Must reach stderr at any level with no trailing newline; bypasses the logger via rawStderr.
+		fmt.Fprintf(rawStderr, "Release: %s\nCommits: %d\n"+
+			"Are you sure you want to tag and push %s? [y/N] ", tag, len(commits), tag)
 
 		scanner := bufio.NewScanner(stdin)
 		if !scanner.Scan() || !strings.EqualFold(strings.TrimSpace(scanner.Text()), "y") {

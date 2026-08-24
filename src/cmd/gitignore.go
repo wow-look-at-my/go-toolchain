@@ -11,16 +11,11 @@ import (
 )
 
 // ensureBuildDirInGitignore adds the build output directory to .gitignore
-// if the current working directory is inside a git repository and the
-// directory isn't already ignored. It's a best-effort operation: errors
-// are silently ignored so they never block the build.
+// when inside a git repo and not already ignored. Best-effort: errors are
+// silently ignored so they never block the build.
 func ensureBuildDirInGitignore() {
 	ensureGitignored("/" + outputDir + "/")
-	// Migration cleanup: older go-toolchain versions appended the transient
-	// GOMEMLIMIT guard to .gitignore. The guard is deliberately NOT gitignored
-	// now (the CI dirty-check excludes it instead — see checkDirtyInCI), so a
-	// lingering line is pure liability: it re-dirties the tree on every run.
-	// Strip any stale one a previous version left behind.
+	// Strip a stale GOMEMLIMIT guard entry an older version left behind (now excluded via checkDirtyInCI instead).
 	removeFromGitignore(memlimit.GuardFileName)
 }
 
@@ -54,8 +49,7 @@ func removeFromGitignore(entry string) {
 	if !removed {
 		return
 	}
-	// strings.Split/Join round-trips a trailing newline as a final "" element,
-	// so the file's final-newline state is preserved without special handling.
+	// Split/Join round-trips a trailing newline as a final "" element, so it's preserved with no special handling.
 	_ = os.WriteFile(gitignorePath, []byte(strings.Join(kept, "\n")), 0644)
 }
 

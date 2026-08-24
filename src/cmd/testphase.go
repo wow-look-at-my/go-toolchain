@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -31,6 +32,12 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		return false, nil, err
 	}
 
+	// An org dependency carrying a plain version pin gets the branch marker
+	// added first, so the re-resolution below owns it from this run on.
+	if _, err := EnforceOrgBranchTracking(r); err != nil {
+		return false, nil, err
+	}
+
 	// Re-resolve any dependency pinned to follow a branch (see depsbranch.go)
 	if _, err := UpdateTrackedBranchDeps(r); err != nil {
 		return false, nil, err
@@ -41,13 +48,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	if vanityErr != nil {
 		return false, nil, fmt.Errorf("vanity URL handling failed: %w", vanityErr)
 	}
-	// Remove the injected vanity replace directives (and restore go.sum) when
-	// this function returns, however it returns — including the early returns
-	// when `go mod tidy` fails below. Registering the cleanup here, rather than
-	// after tidy, is what guarantees a failed tidy cannot leave the injected
-	// GitHub/GitLab mirror replaces festering in the user's go.mod. The replaces
-	// stay active for tidy, generate, vet, tests, and build (all run before this
-	// function returns).
+	// Removes the injected vanity replaces on every return path.
 	defer func() {
 		_ = removeVanityReplaces(vanity)
 	}()
@@ -105,11 +106,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 		vetPhaseStep = logSubStep("vet: "+phase, "main")
 	}
-	// On CI (CI=true) run the fixers in check-only mode: vet never writes, and
-	// any change it would make — gofmt, a wow-look-at-my/testify fork or
-	// gotest.tools import migration, or a testify cross-type cast — becomes a
-	// hard error, so a non-canonical tree fails CI instead of passing green.
-	// Locally (CI unset) the fixers rewrite the tree as before.
+	// On CI (CI=true) fixers run check-only: any change (gofmt, import migration, testify cast) is a hard error, not an auto-fix.
 	fix := os.Getenv("CI") == ""
 	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
@@ -130,6 +127,26 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			}
 			filesChanged = false
 			err = nil
+		} else if isCorruptExportData(err) {
+			// A corrupt build-cache entry, not a source error. Retry once: drop
+			// the shared cache tier and rebuild from source, only if it was in play.
+			if !disableSharedBuildCache() {
+				return false, nil, corruptExportDataError(err, false)
+			}
+			logger.Warn("⇒ Warning: vet failed on CORRUPT BUILD CACHE data (%s), not on your source: %s. Disabling the shared build cache (GOCACHEPROG) for the rest of this run and rebuilding those packages from source. Repeated occurrences mean the shared cache tier is serving damaged entries and needs inspecting.",
+				invalidPackageNameMarker, strings.Join(corruptExportPackages(err), ", "))
+			if vetPhaseStep != nil {
+				vetPhaseStep.done()
+				vetPhaseStep = nil
+			}
+			vetPhaseStep = logSubStep("vet: retry without the shared build cache", "main")
+			filesChanged, err = vet.RunWithProgress(fix, vetProgress)
+			if err != nil {
+				if isCorruptExportData(err) {
+					return false, nil, corruptExportDataError(err, true)
+				}
+				return false, nil, fmt.Errorf("vet failed: %w", err)
+			}
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}
@@ -142,13 +159,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		vetStep.done()
 	}
 
-	// Vet is the last stage that can modify files (auto-fix). Fail fast here
-	// rather than after the full test run. The vanity replaces injected above
-	// are still active at this point (their removal is deferred to this
-	// function's return), so the check runs against the tree as that cleanup
-	// will restore it — the toolchain's own transient go.mod/go.sum mutation
-	// must never count as dirt, while every real uncommitted change still
-	// fails (see checkDirtyInCIWithVanityRestored).
+	// Vet is the last file-modifying stage; fail fast here.
 	if err := checkDirtyInCIWithVanityRestored(vanity); err != nil {
 		return false, nil, err
 	}
@@ -170,11 +181,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep = logStep("Running tests with coverage")
 	}
 
-	// Use a process-unique path to avoid collisions when tests call
-	// RunTestsWithCoverage with mock runners — they write and then delete
-	// this file, which would corrupt the outer go test's coverprofile.
-	// With -count=1 already disabling test-result caching, cache-key
-	// stability from a deterministic path is no longer required.
+	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.
 	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
 	os.MkdirAll(coverDir, 0o755)
 	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
@@ -199,19 +206,18 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 
 	// Record per-test events in the trace.
 	if activeTrace != nil && result != nil {
-		// Build set of tests that have subtests so we only trace leaf tests
-		// (parent durations include children and would overlap).
-		hasSubtest := make(map[string]bool)
+		// Only leaf tests are traced; parent durations include children and would overlap.
+		hasSubtest := set.New[string]()
 		for _, tc := range result.TestCases {
 			if i := strings.LastIndex(tc.Test, "/"); i > 0 {
-				hasSubtest[tc.Package+"."+tc.Test[:i]] = true
+				hasSubtest.Add(tc.Package + "." + tc.Test[:i])
 			}
 		}
 		for _, tc := range result.TestCases {
 			if tc.Elapsed <= 0 || tc.End.IsZero() {
 				continue
 			}
-			if hasSubtest[tc.Package+"."+tc.Test] {
+			if hasSubtest.Contains(tc.Package + "." + tc.Test) {
 				continue // skip parent, children cover the time
 			}
 			dur := time.Duration(tc.Elapsed * float64(time.Second))

@@ -42,8 +42,7 @@ func TestDaemon_LatencyWiredOnceOnSharedBackend(t *testing.T) {
 
 	require.Same(t, &d.latency, wb.Latency, "the daemon must wire the shared Latency sink once")
 
-	// A per-connection Server over the daemon's no-close wrapper must NOT
-	// re-point the shared backend's sink at its own tracker.
+	// A per-connection Server must not re-point the shared sink at its own tracker.
 	s := NewServer(lc, d.wrapped)
 	require.NotNil(t, s)
 	require.Same(t, &d.latency, wb.Latency, "per-connection Servers must not rewire the shared Latency sink")

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/astutil"
 )
@@ -50,14 +51,14 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 		var diagnostics []fileDiagnostic
 
 		// Build set of "else if" statements (if statements that are the Else of another if)
-		elseIfStmts := make(map[*ast.IfStmt]bool)
+		elseIfStmts := set.New[*ast.IfStmt]()
 		ast.Inspect(file, func(n ast.Node) bool {
 			ifStmt, ok := n.(*ast.IfStmt)
 			if !ok {
 				return true
 			}
 			if elseIf, ok := ifStmt.Else.(*ast.IfStmt); ok {
-				elseIfStmts[elseIf] = true
+				elseIfStmts.Add(elseIf)
 			}
 			return true
 		})
@@ -69,7 +70,7 @@ func runAssertLint(pass *analysis.Pass) (any, error) {
 			}
 
 			// Skip "else if" statements - they can't be auto-fixed safely
-			if elseIfStmts[ifStmt] {
+			if elseIfStmts.Contains(ifStmt) {
 				return true
 			}
 

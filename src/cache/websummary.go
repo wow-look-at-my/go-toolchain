@@ -11,9 +11,7 @@ type WebSummary struct {
 	Hits uint32 `json:"hits"`
 	Puts uint32 `json:"puts"`
 
-	// GET miss reasons. The three integrity-gate counters (miss_checksum,
-	// miss_buildid, miss_modindex) are the poison tripwires: any nonzero value
-	// means the remote SERVED an object a client-side guard had to refuse.
+	// GET miss reasons; miss_checksum/miss_buildid/miss_modindex are the poison tripwires (a served object a guard refused).
 	MissNotInIndex  uint32 `json:"miss_not_in_index"`
 	MissHTTP404     uint32 `json:"miss_http_404"`
 	MissHTTPError   uint32 `json:"miss_http_error"`
@@ -31,15 +29,12 @@ type WebSummary struct {
 	SkippedBatchBackoff uint32 `json:"skipped_batch_backoff"`
 	Reclaimed404        uint32 `json:"reclaimed_404"`
 
-	// PUT non-upload outcomes. put_refused_modindex is NORMAL and large on a
-	// cold run (cmd/go stores thousands of module-index blobs the client
-	// refuses to publish by design) — it is NOT a poison signal.
+	// PUT non-upload outcomes. put_refused_modindex reads 0 normally (handlePut refuses first); nonzero is a local gap.
 	PutSkippedKnown    uint32 `json:"put_skipped_known"`
 	PutRefusedModIndex uint32 `json:"put_refused_modindex"`
 	PutRefusedBuildID  uint32 `json:"put_refused_buildid"`
 
-	// Startup index state: how many keys the remote advertised, and whether
-	// that set came from a fresh server-confirmed fetch this run.
+	// Startup index state: advertised key count, and whether it came from a fresh fetch this run.
 	IndexKeys          int  `json:"index_keys"`
 	IndexAuthoritative bool `json:"index_authoritative"`
 }
@@ -82,9 +77,7 @@ func (b *WebBackend) SummarySnapshot() WebSummary {
 	}
 }
 
-// WebSummary returns a snapshot of the shared web backend's counters, or nil
-// when the daemon has no WebBackend remote. Meaningful after Close (all
-// buffered uploads drained); an earlier call sees in-flight values.
+// WebSummary snapshots the web backend's counters (nil with no remote); meaningful after Close.
 func (d *Daemon) WebSummary() *WebSummary {
 	if wb, ok := d.remote.(*WebBackend); ok {
 		ws := wb.SummarySnapshot()

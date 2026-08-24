@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // parsePutTar reads a /_batch/put request body (a tar) and returns the manifest
@@ -107,9 +108,7 @@ func claimed(b *WebBackend, actionID string) bool {
 // admission slot.
 func TestBatchPut_CoalescesAllObjects(t *testing.T) {
 	hermeticOTel(t)
-	// A long coalescing window so all 5 Puts land in ONE batch deterministically
-	// (the default 50ms window could split the batch under load / -race). The
-	// drain on Close flushes the buffer well before the window would elapse.
+	// Long window so all 5 Puts land in one batch deterministically; Close drains before it would elapse.
 	t.Setenv("GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS", "5000")
 
 	var batchReqs atomic.Int64
@@ -149,8 +148,7 @@ func TestBatchPut_CoalescesAllObjects(t *testing.T) {
 		require.NoError(t, b.Put(a, testOutputID(payload), strings.NewReader(payload), int64(len(payload))))
 	}
 
-	// Close drains the coalescer synchronously, shipping the whole buffer as one
-	// batch and waiting for the HTTP round-trip before returning.
+	// Close drains the coalescer synchronously: ships the buffer as one batch and waits for the round-trip.
 	require.NoError(t, b.Close())
 
 	require.Equal(t, int64(1), batchReqs.Load(), "all PUTs must coalesce into exactly one /_batch/put request")
@@ -214,7 +212,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 	hermeticOTel(t)
 
 	var batchAttempts atomic.Int64
-	gotSingle := map[string]bool{}
+	gotSingle := set.New[string]()
 	var mu sync.Mutex
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +223,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 		}
 		if r.Method == "PUT" {
 			mu.Lock()
-			gotSingle[r.URL.Path] = true
+			gotSingle.Add(r.URL.Path)
 			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 			return
@@ -247,15 +245,14 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(gotSingle) == len(first)
+		return gotSingle.Len() == len(first)
 	}, 2*time.Second, 10*time.Millisecond, "both first-wave objects must arrive as single PUTs after the 405")
 
 	require.True(t, b.batchPutUnsupported.Load(), "the 405 must set the sticky unsupported flag")
 	attemptsAfterFirstWave := batchAttempts.Load()
 	require.GreaterOrEqual(t, attemptsAfterFirstWave, int64(1), "the first wave must probe /_batch/put at least once")
 
-	// Second wave: flag is set, so these go straight to single PUTs, no further
-	// batch attempt.
+	// Second wave: flag is set, so this goes straight to a single PUT.
 	second := "aabbccdd11223302"
 	payload := largePayload(128)
 	require.NoError(t, b.Put(second, testOutputID(payload), strings.NewReader(payload), int64(len(payload))))
@@ -263,7 +260,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return gotSingle["/testbucket/go-buildcache/v1"+second]
+		return gotSingle.Contains("/testbucket/go-buildcache/v1" + second)
 	}, 2*time.Second, 10*time.Millisecond, "post-fallback PUT must go straight to the single-PUT path")
 
 	require.Equal(t, attemptsAfterFirstWave, batchAttempts.Load(), "once the flag sticks, no further /_batch/put is attempted")
@@ -280,8 +277,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 // that ends would lose buffered uploads.
 func TestBatchPut_DrainOnCloseFlushesPartialBuffer(t *testing.T) {
 	hermeticOTel(t)
-	// A long window so the buffer would NOT flush on its own before Close — the
-	// drain on Close is what must ship it.
+	// Long window so the buffer would not auto-flush; Close's drain must ship it.
 	t.Setenv("GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS", "30000")
 	var batchReqs atomic.Int64
 	gotKeys := map[string][]byte{}
@@ -326,9 +322,7 @@ func TestBatchPut_DrainOnCloseFlushesPartialBuffer(t *testing.T) {
 func TestBatchPut_WholeBatch503ThenSucceeds(t *testing.T) {
 	hermeticOTel(t)
 	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "3")
-	// A long window so the two Puts do NOT auto-flush on the timer (which under
-	// -race could split them across two batches → attempts==4). The explicit
-	// Close below drains the buffer and ships them as exactly ONE batch.
+	// Long window so the two Puts don't auto-flush (which under -race could split them into two batches); Close ships one.
 	t.Setenv("GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS", "30000")
 
 	var attempts atomic.Int64
@@ -357,9 +351,7 @@ func TestBatchPut_WholeBatch503ThenSucceeds(t *testing.T) {
 		require.NoError(t, b.Put(a, testOutputID(payload), strings.NewReader(payload), int64(len(payload))))
 	}
 
-	// Close drains the coalescer synchronously, shipping the two buffered objects
-	// as exactly one batch and waiting for the (retried) HTTP round-trip to finish
-	// before returning — so the attempts/Puts assertions below are deterministic.
+	// Close drains synchronously and waits for the retried round-trip, so the assertions below are deterministic.
 	require.NoError(t, b.Close())
 
 	require.Equal(t, int64(3), attempts.Load(), "the whole tar should be retried twice before the 3rd attempt is admitted")

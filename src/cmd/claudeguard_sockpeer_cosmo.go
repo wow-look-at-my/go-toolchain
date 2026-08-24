@@ -14,8 +14,7 @@ import (
 	"unsafe"
 )
 
-// soPeercred is the linux uapi SO_PEERCRED socket option — 0x11 on both amd64
-// and arm64, cosmo's only two build targets.
+// soPeercred is the linux uapi SO_PEERCRED socket option, 0x11 on amd64 and arm64.
 const soPeercred = 0x11
 
 func socketPeerPID(fd uintptr) (pid int, ok bool) {

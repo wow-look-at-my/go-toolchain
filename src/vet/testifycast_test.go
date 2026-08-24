@@ -23,15 +23,11 @@ import (
 // sets themselves (for asserting on recorded imports).
 func applyCastFixtures(t *testing.T) (output, stderrText string, all []*CastEdits) {
 	t.Helper()
-	// The fixture is a self-contained module (with a local replace to the stub
-	// testify), so load it module-mode: point analysistest at the module root
-	// with pattern ".", mirroring the assertnorm test.
+	// Self-contained module with a stub testify replace; load it module-mode like assertnorm.
 	dir, err := filepath.Abs(filepath.Join("testdata", "src", "testifycast"))
 	require.NoError(t, err)
 
-	// The element-mismatch notice is a logger.Warn, which under
-	// GITHUB_ACTIONS=true routes to stdout as a ::warning annotation; pin
-	// non-GHA mode so it lands on stderr for capture.
+	// Pin non-GHA mode so the warning lands on stderr, not a stdout annotation.
 	t.Setenv("GITHUB_ACTIONS", "")
 
 	// Capture os.Stderr so we can assert on element-mismatch warnings.
@@ -94,19 +90,15 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 		"assert.Equal(t, float64(getCelsius()), getFloat64())",
 		// Rule 5: non-numeric same-kind named type Name vs string.
 		`assert.Equal(t, string(getName()), "")`,
-		// Rule 5 with the literal on the expected side: wrap the string literal
-		// into the named type (numeric representability guard must not apply).
+		// Literal on the expected side: wrap into the named type, no numeric guard.
 		`assert.Equal(t, Name(""), getName())`,
 		// Cross-package named numeric type spelled with the import qualifier.
 		"assert.Equal(t, time.Duration(0), getDuration())",
 		// Dot-imported named type: spelled unqualified, not ".Duration".
 		"assert.Equal(t, Duration(0), getDot())",
-		// Named type from a package the asserting file does NOT import: the
-		// conversion is still inserted (the missing import is recorded on the
-		// edit and added when the fix is applied).
+		// Missing import for the named type's package is recorded and added on fix.
 		"assert.NotEqual(t, modes.Mode(0), getMode())",
-		// Ordering assertions (upstream compareTwoValues is kind-strict):
-		// int16 field vs untyped 0 — the go-font-renderer TestParseHhea shape.
+		// Ordering assertions: int16 field vs untyped 0 (compareTwoValues is kind-strict).
 		"assert.Greater(t, getInt16(), int16(0))",
 		// float64 vs untyped 0 — the go-font-renderer TestSuperRoundNegative shape.
 		"assert.Less(t, getFloat64(), float64(0))",
@@ -122,12 +114,10 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 	for _, w := range want {
 		assert.Contains(t, out, w)
 	}
-	// The dot-import conversion must not carry a stray "." qualifier (the buggy
-	// form would be "(t, .Duration(0)").
+	// Dot-import conversion must not carry a stray "." qualifier.
 	assert.NotContains(t, out, "(t, .Duration(0)")
 
-	// Element-comparison mismatches are warned about, not rewritten — for both
-	// value-in-collection (Contains) and collection-vs-collection (ElementsMatch).
+	// Element-comparison mismatches (Contains, ElementsMatch) are warned, not rewritten.
 	assert.Contains(t, stderr, "testifycast: warning")
 	assert.Contains(t, stderr, "Contains")
 	assert.Contains(t, stderr, "ElementsMatch")
@@ -153,9 +143,7 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 	assert.NotContains(t, out, "uint(uint(")
 	assert.NotContains(t, out, "int16(int16(")
 
-	// The notimported.go edit names a package that file doesn't import, so it
-	// must record the import to add; every other file's edits (types imported
-	// or package-local) must record none.
+	// notimported.go must record the import to add; every other file records none.
 	var notImported *CastEdits
 	for _, c := range all {
 		if strings.HasSuffix(c.Filename, "notimported.go") {
@@ -239,8 +227,7 @@ func TestConstRepresentable(t *testing.T) {
 	// Complex target is out of scope -> not representable.
 	assert.False(t, constRepresentable(mkInt(0), types.Typ[types.Complex128]))
 
-	// Float target width matters: a value finite in float64 but too large for
-	// float32 must not be cast to float32 (it would not compile).
+	// Float target width matters: a float64 value too large for float32 must not cast.
 	assert.True(t, constRepresentable(mkFloat(1e38), float32T))
 	assert.False(t, constRepresentable(mkFloat(1e100), float32T))
 	assert.True(t, constRepresentable(mkFloat(1e100), float64T))

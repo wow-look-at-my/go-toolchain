@@ -1,12 +1,7 @@
 package cmd
 
-// Regression test for the release no-op bug: released "linux" go-toolchain
-// binaries are GOOS=cosmo fat-APE slot copies (cosmo matches the `unix` build
-// tag but NOT `linux`), so guard code gated linux-only — by a `_linux.go`
-// filename suffix or a bare `//go:build linux` — is silently compiled out of
-// every shipped binary while the GOOS=linux unit tests stay green. This test
-// pins the build constraints themselves: the real classifier must be selected
-// for BOTH GOOS=linux and GOOS=cosmo, and the no-op stub for NEITHER.
+// Released "linux" binaries are GOOS=cosmo fat-APE slots, so linux-only-gated guard code can
+// silently compile out while GOOS=linux tests stay green; this test pins both selections.
 
 import (
 	"go/build/constraint"
@@ -17,35 +12,34 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// claudeGuardTagSets are the release-relevant build contexts: the from-source
-// GOOS=linux build (CI `build` job, dev machines), the GOOS=cosmo fat APE
-// that every published "linux"/"windows" slot actually is, and native darwin
-// -- which has no /proc and so gets its own real classifier rather than
-// sharing linux/cosmo's.
+// claudeGuardTagSets are the release-relevant build contexts: from-source GOOS=linux, the
+// GOOS=cosmo fat APE every published "linux"/"windows" slot actually is, and native darwin,
+// which has no /proc and gets its own classifier.
 var claudeGuardTagSets = map[string]map[string]bool{
 	"linux":  {"linux": true, "unix": true, "amd64": true},
-	"cosmo":  {"cosmo": true, "unix": true, "amd64": true},
+	"cosmo":  {"cosmo": true, "linux": true, "unix": true, "amd64": true},
 	"darwin": {"darwin": true, "unix": true, "amd64": true},
 }
 
 // knownGOOSSuffix lists GOOS values whose `_<goos>.go` filename suffix
 // imposes an implicit build constraint (upstream GOOS list plus the
 // gosmopolitan fork's cosmo).
-var knownGOOSSuffix = map[string]bool{
-	"aix": true, "android": true, "cosmo": true, "darwin": true,
-	"dragonfly": true, "freebsd": true, "hurd": true, "illumos": true,
-	"ios": true, "js": true, "linux": true, "netbsd": true, "openbsd": true,
-	"plan9": true, "solaris": true, "wasip1": true, "windows": true, "zos": true,
-}
+var knownGOOSSuffix = set.Of(
+	"aix", "android", "cosmo", "darwin",
+	"dragonfly", "freebsd", "hurd", "illumos",
+	"ios", "js", "linux", "netbsd", "openbsd",
+	"plan9", "solaris", "wasip1", "windows", "zos",
+)
 
 // knownGOARCHSuffix lists GOARCH values recognized in filename suffixes.
-var knownGOARCHSuffix = map[string]bool{
-	"386": true, "amd64": true, "arm": true, "arm64": true, "loong64": true,
-	"mips": true, "mips64": true, "mips64le": true, "mipsle": true,
-	"ppc64": true, "ppc64le": true, "riscv64": true, "s390x": true, "wasm": true,
-}
+var knownGOARCHSuffix = set.Of(
+	"386", "amd64", "arm", "arm64", "loong64",
+	"mips", "mips64", "mips64le", "mipsle",
+	"ppc64", "ppc64le", "riscv64", "s390x", "wasm",
+)
 
 // filenameGOOS returns the GOOS a file's `_<goos>[_<goarch>].go` suffix
 // implies, or "" when the name imposes no GOOS constraint. Mirrors go/build's
@@ -53,10 +47,10 @@ var knownGOARCHSuffix = map[string]bool{
 func filenameGOOS(name string) string {
 	name = strings.TrimSuffix(filepath.Base(name), ".go")
 	parts := strings.Split(name, "_")
-	if n := len(parts); n >= 2 && knownGOARCHSuffix[parts[n-1]] {
+	if n := len(parts); n >= 2 && knownGOARCHSuffix.Contains(parts[n-1]) {
 		parts = parts[:n-1]
 	}
-	if n := len(parts); n >= 2 && knownGOOSSuffix[parts[n-1]] {
+	if n := len(parts); n >= 2 && knownGOOSSuffix.Contains(parts[n-1]) {
 		return parts[n-1]
 	}
 	return ""
@@ -133,6 +127,83 @@ func TestClaudeGuardClassifierBuildsForEachPlatform(t *testing.T) {
 		assert.Len(t, selected, 1,
 			"GOOS=%s must select exactly one real classifier defining inspectFD, got %v — released binaries would either lack the guard or fail to build ambiguously",
 			goos, selected)
+	}
+}
+
+// claudeGuardDefiners returns the claudeguard*.go files defining decl.
+func claudeGuardDefiners(t *testing.T, decl string) []string {
+	t.Helper()
+	var out []string
+	for _, f := range claudeGuardSourceFiles(t) {
+		data, err := os.ReadFile(f)
+		require.NoError(t, err)
+		if strings.Contains(string(data), decl) {
+			out = append(out, f)
+		}
+	}
+	require.NotEmpty(t, out, "no claudeguard*.go file defines %q", decl)
+	return out
+}
+
+// claudeGuardSelected returns the subset of files selected for a GOOS.
+func claudeGuardSelected(t *testing.T, files []string, goos string, tags map[string]bool) []string {
+	t.Helper()
+	var selected []string
+	for _, f := range files {
+		if fg := filenameGOOS(f); fg != "" && fg != goos {
+			continue
+		}
+		if line := buildTagLine(t, f); line != "" && !evalTagLine(t, line, tags) {
+			continue
+		}
+		selected = append(selected, f)
+	}
+	return selected
+}
+
+// The same class of bug as inspectFD's, one layer down. A cosmo APE runs on
+// Linux AND macOS, so it decides its classifier at RUNTIME through
+// hostSpecificInspect; a GOOS=linux build answers "never". Exactly one
+// definition must be selected per platform: zero fails the build, two is
+// ambiguous, and the wrong one silently sends a Mac down the /proc path that
+// cannot work there.
+func TestClaudeGuardHostDispatchBuildsForEachPlatform(t *testing.T) {
+	files := claudeGuardDefiners(t, "func hostSpecificInspect(")
+	for goos, tags := range claudeGuardTagSets {
+		selected := claudeGuardSelected(t, files, goos, tags)
+		if goos == "darwin" {
+			assert.Empty(t, selected,
+				"GOOS=darwin has its own classifier and must not also select a host dispatch, got %v", selected)
+			continue
+		}
+		assert.Len(t, selected, 1,
+			"GOOS=%s must select exactly one hostSpecificInspect, got %v", goos, selected)
+	}
+}
+
+// The darwin-host classifier is SHARED by the native darwin build and the
+// cosmo APE that runs on a Mac. Pin that: if it ever stops being selected for
+// cosmo, the APE loses the only classifier that works on macOS while the
+// darwin unit tests stay green -- exactly the shape of the original bug.
+func TestClaudeGuardDarwinHostClassifierShared(t *testing.T) {
+	for _, decl := range []string{
+		"func inspectFDDarwinHost(",
+		"func fdFileTypeOnDarwinHost(",
+		"func socketPeerOnDarwinHost(",
+		"func fifoPeerOnDarwinHost(",
+		"func isTerminalOnDarwinHost(",
+		"func fdPathOnDarwinHost(",
+	} {
+		t.Run(decl, func(t *testing.T) {
+			files := claudeGuardDefiners(t, decl)
+			for _, goos := range []string{"darwin", "cosmo"} {
+				selected := claudeGuardSelected(t, files, goos, claudeGuardTagSets[goos])
+				assert.Len(t, selected, 1,
+					"GOOS=%s must select exactly one %s, got %v", goos, decl, selected)
+			}
+			assert.Empty(t, claudeGuardSelected(t, files, "linux", claudeGuardTagSets["linux"]),
+				"%s must not be selected for GOOS=linux, which uses the /proc classifier", decl)
+		})
 	}
 }
 

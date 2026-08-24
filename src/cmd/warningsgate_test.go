@@ -10,9 +10,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// warnGateLogger returns a logger at the given level that emits into
-// discarded buffers, so gate tests can drive the process-wide warning
-// counter without printing to the test output.
+// warnGateLogger returns a logger that emits into discarded buffers, so tests can drive
+// the process-wide warning counter without printing to the test output.
 func warnGateLogger(level logger.Level) *logger.Logger {
 	return logger.New(logger.Options{
 		Level:  level,
@@ -51,7 +50,54 @@ func TestWarningsGateOverThreshold(t *testing.T) {
 
 	err := checkWarningsGate()
 	require.Error(t, err)
-	assert.Equal(t, "build failed: 16 warnings emitted (threshold: 15)", err.Error())
+	assert.Equal(t, "build failed: 16 distinct warnings emitted (threshold: 15)", err.Error())
+}
+
+// TestWarningsGateFoldsRepeats verifies that one warning repeated far past the
+// budget does not fail the build. One root cause repeats per file, per module
+// or per retry; counting each repeat spends the budget on one problem and
+// hides every other warning in the run.
+func TestWarningsGateFoldsRepeats(t *testing.T) {
+	logger.ResetWarnCount()
+	defer logger.ResetWarnCount()
+
+	l := warnGateLogger(logger.LevelInfo)
+	for range maxWarnings * 10 {
+		l.Warn("cache: web index fetch failed")
+	}
+	require.Equal(t, int64(1), logger.WarnCount())
+	require.Equal(t, int64(maxWarnings*10), logger.TotalWarnCount())
+
+	assert.NoError(t, checkWarningsGate())
+}
+
+// TestWarningsGateRecapNamesRepeatCounts verifies the recap says how many
+// times a folded warning was emitted, and reports the total beside the
+// distinct count. Deduplication must not hide volume from the reader.
+func TestWarningsGateRecapNamesRepeatCounts(t *testing.T) {
+	logger.ResetWarnCount()
+	defer logger.ResetWarnCount()
+	t.Setenv("GITHUB_ACTIONS", "false")
+
+	out, errBuf := &strings.Builder{}, &strings.Builder{}
+	logger.Init(logger.Options{Level: logger.LevelInfo, Stdout: out, Stderr: errBuf, GHAAuto: true})
+	defer logger.Init(logger.Options{Level: logger.LevelInfo, GHAAuto: true})
+
+	l := warnGateLogger(logger.LevelInfo)
+	for i := range maxWarnings + 1 {
+		l.Warn("warning %d", i+1)
+	}
+	for range 4 {
+		l.Warn("warning 1")
+	}
+
+	require.Error(t, checkWarningsGate())
+
+	recap := errBuf.String()
+	assert.Contains(t, recap, "16 distinct warnings emitted (threshold: 15), 20 emitted in total")
+	assert.Contains(t, recap, "warning 1 (emitted 5 times)")
+	assert.Contains(t, recap, "2. warning 2")
+	assert.NotContains(t, recap, "warning 2 (emitted")
 }
 
 // TestWarningsGateIgnoresFilteredWarnings verifies that warnings suppressed
@@ -92,7 +138,7 @@ func TestWarningsGateReprintsEveryWarning(t *testing.T) {
 	require.Error(t, err)
 
 	recap := errBuf.String()
-	assert.Contains(t, recap, "17 warnings emitted (threshold: 15)")
+	assert.Contains(t, recap, "17 distinct warnings emitted (threshold: 15)")
 	for i := 0; i < maxWarnings+2; i++ {
 		assert.Contains(t, recap, fmt.Sprintf("distinct warning number %d", i+1))
 	}
@@ -126,12 +172,12 @@ func TestWarningsGateRecapAnnotatesInGHA(t *testing.T) {
 // TestWarningsRecapReportsUnrecorded verifies that warnings past the
 // retention cap are reported as a count rather than silently dropped.
 func TestWarningsRecapReportsUnrecorded(t *testing.T) {
-	recorded := make([]string, logger.MaxRecordedWarnings)
+	recorded := make([]logger.Warning, logger.MaxRecordedWarnings)
 	for i := range recorded {
-		recorded[i] = "recorded"
+		recorded[i] = logger.Warning{Message: fmt.Sprintf("recorded %d", i), Count: 1}
 	}
 
-	recap := warningsRecap(int64(logger.MaxRecordedWarnings+3), recorded)
+	recap := warningsRecap(int64(logger.MaxRecordedWarnings+3), int64(logger.MaxRecordedWarnings+3), recorded)
 
 	assert.Contains(t, recap, fmt.Sprintf("... and 3 more (only the first %d are recorded)", logger.MaxRecordedWarnings))
 }

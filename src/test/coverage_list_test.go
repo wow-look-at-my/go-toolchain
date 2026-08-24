@@ -72,8 +72,7 @@ func TestSortByUncovered(t *testing.T) {
 
 	sortByUncovered(files)
 
-	// foo.go has 5 uncovered, bar.go has 4 uncovered
-	// So foo should come first
+	// foo.go has 5 uncovered vs bar.go's 4, so foo comes first.
 	assert.Equal(t, "example.com/pkg/foo.go", files[0].File)
 }
 
@@ -334,8 +333,7 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 	assert.NotContains(t, output, "FullyCovered", "should not show covered function")
 	assert.NotContains(t, output, "full.go", "should not show fully covered file")
 
-	// Untested function (30 lines) should appear before partial (5 lines)
-	// because it has more uncovered lines and thus higher gain
+	// Untested (30 lines) outranks partial (5 lines): more uncovered lines, higher gain.
 	untestedIdx := strings.Index(output, "NeverCalled")
 	partialIdx := strings.Index(output, "NeedsCoverage")
 	assert.True(t, untestedIdx < partialIdx,

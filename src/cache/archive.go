@@ -3,12 +3,12 @@ package cache
 import (
 	"bytes"
 	"encoding/binary"
+	"github.com/wow-look-at-my/go-containers/set"
 	"path/filepath"
 )
 
-// parseImportPath extracts the Go package import path from the binary export
-// data embedded in a Go ar archive (the __.PKGDEF member). Returns "" if the
-// data is not a recognised Go archive or has no decodable import path.
+// parseImportPath extracts the import path from a Go ar archive's __.PKGDEF export data.
+// Returns "" if data is not a recognised Go archive.
 func parseImportPath(data []byte) string {
 	p := openPkgbits(data)
 	if p == nil {
@@ -25,7 +25,7 @@ func parseSourceFiles(data []byte) []string {
 		return nil
 	}
 	n := p.sectionLen(pbSectionPosBase)
-	seen := make(map[string]bool, n)
+	seen := set.New[string](n)
 	var files []string
 	for i := 0; i < n; i++ {
 		full := p.readSectionString(pbSectionPosBase, i, pbSyncPosBase)
@@ -33,8 +33,7 @@ func parseSourceFiles(data []byte) []string {
 			continue
 		}
 		base := filepath.Base(full)
-		if !seen[base] && filepath.Ext(base) == ".go" {
-			seen[base] = true
+		if filepath.Ext(base) == ".go" && seen.Add(base) {
 			files = append(files, base)
 		}
 	}
@@ -49,8 +48,7 @@ func arMember(data []byte, name string) []byte {
 	}
 	data = data[len(globalHdr):]
 
-	// Each member header is 60 bytes:
-	//   name[16], mtime[12], uid[6], gid[6], mode[8], size[10], end[2]
+	// Member header: name[16], mtime[12], uid[6], gid[6], mode[8], size[10], end[2] = 60 bytes.
 	const hdrSize = 60
 	for len(data) >= hdrSize {
 		rawName := bytes.TrimRight(data[:16], " ")
@@ -219,9 +217,7 @@ func (p *pkgbitsPayload) readSectionString(s, relIdx int, openingSync uint64) st
 	}
 	r := bytes.NewReader(p.elemData[start:end])
 
-	// Element header: reloc table.
-	// [sync(SyncRelocs)] [sync(SyncUint64)] nrelocs
-	// for each: [sync(SyncReloc)] [sync(SyncUint64)] kind [sync(SyncUint64)] idx
+	// Element header: reloc table -- [SyncRelocs][SyncUint64] nrelocs, then per-reloc fields.
 	if !skipSync(r, p.sync, pbSyncRelocs) {
 		return ""
 	}

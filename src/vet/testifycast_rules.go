@@ -17,6 +17,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/astutil"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -104,9 +105,7 @@ func warnElementMismatch(pass *analysis.Pass, call *ast.CallExpr, name string, c
 	if elem == nil {
 		return
 	}
-	// For collection-vs-collection assertions (ElementsMatch/Subset/NotSubset)
-	// the second operand is itself a collection, so compare its element type;
-	// for value-in-collection (Contains) the second operand is a scalar value.
+	// For collection-vs-collection asserts, compare element types; for value-in-collection, the second operand is a scalar.
 	cmpType := types.Default(valTV.Type)
 	if e2 := elementType(valTV.Type); e2 != nil {
 		cmpType = types.Default(e2)
@@ -179,12 +178,11 @@ func (c *CastEdits) rendered(src []byte) []byte {
 // neededImports returns the sorted union of the import paths the edits require
 // (recorded per edit when a conversion names a package the file doesn't import).
 func (c *CastEdits) neededImports() []string {
-	seen := make(map[string]bool)
+	seen := set.New[string]()
 	var paths []string
 	for _, e := range c.Edits {
 		for _, p := range e.AddImports {
-			if !seen[p] {
-				seen[p] = true
+			if seen.Add(p) {
 				paths = append(paths, p)
 			}
 		}

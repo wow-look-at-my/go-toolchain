@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 func TestCollector_GraphArgUniqueAndRecorded(t *testing.T) {
@@ -39,8 +40,7 @@ func TestCollector_RemovesStaleDump(t *testing.T) {
 	path := strings.TrimPrefix(arg, "-debug-actiongraph=")
 	require.NoError(t, os.WriteFile(path, []byte("stale"), 0o644))
 
-	// A new collector for the same pid re-issues the same seq-1 path and must
-	// clear the stale content so a failed go invocation can't resurrect it.
+	// A new collector for the same pid reissues the seq-1 path and clears stale content.
 	c2 := NewCollector(dir)
 	arg2 := c2.GraphArg()
 	require.Equal(t, arg, arg2)
@@ -60,11 +60,10 @@ func TestCollector_GraphArgConcurrent(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	seen := map[string]bool{}
+	seen := set.New[string]()
 	for _, a := range args {
 		require.NotEmpty(t, a)
-		assert.False(t, seen[a], "concurrent GraphArg calls must not collide")
-		seen[a] = true
+		assert.True(t, seen.Add(a), "concurrent GraphArg calls must not collide")
 	}
 	assert.Len(t, c.Files(), 16)
 }

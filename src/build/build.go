@@ -1,6 +1,7 @@
 package build
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -59,14 +60,7 @@ func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	}
 
 	if len(pkgs) > 0 {
-		byName := sortedmap.New[string, Target]()
-		for _, pkg := range pkgs {
-			name := binaryNameFromImportPath(pkg, moduleName)
-			if !byName.Contains(name) {
-				byName.Put(name, Target{ImportPath: pkg, OutputName: name})
-			}
-		}
-		return slices.Collect(byName.Values()), nil
+		return nameTargets(pkgs, moduleName)
 	}
 
 	// Library-only project: walk filesystem to find all packages
@@ -81,25 +75,46 @@ func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	return targets, nil
 }
 
-// ResolveBuildTargetsForTarget resolves the main packages visible under an
-// explicit cross-compile target's build context (GOOS/GOARCH), so a main
-// package guarded e.g. "//go:build js && wasm" is discovered for js/wasm
-// targets while a "//go:build linux" main is discovered for linux targets —
-// regardless of the host platform. Unlike ResolveBuildTargets there is no
-// library-only fallback: an empty result means this target has no main
-// packages to build (the caller decides whether that is a skip or an error).
+// ResolveBuildTargetsForTarget resolves main packages under an explicit
+// GOOS/GOARCH context, regardless of host. Unlike ResolveBuildTargets, empty
+// means no main packages for this target (no library-only fallback).
 func ResolveBuildTargetsForTarget(goos, goarch string) ([]Target, error) {
 	moduleName := gomod.ReadModulePath()
 	pkgs, err := gomod.FindMainPackagesForTarget(goos, goarch)
 	if err != nil {
 		return nil, err
 	}
+	return nameTargets(pkgs, moduleName)
+}
+
+// nameTargets assigns each main package the name its binary is written under.
+//
+// The module-derived name goes only to a package that is alone in wanting it.
+// Two mains one level below the module root -- `<mod>/cli` and
+// `<mod>/todo_driver`, say -- both derive the MODULE's name, and a build that
+// keeps whichever it saw first ships missing a binary while reporting success.
+// A contested name falls back to the package's own leaf directory, which is
+// unique among the packages of one module.
+//
+// A name still contested after that cannot happen from one module's packages,
+// so it is a hard error rather than a quiet loss.
+func nameTargets(pkgs []string, moduleName string) ([]Target, error) {
+	wanted := map[string]int{}
+	for _, pkg := range pkgs {
+		wanted[binaryNameFromImportPath(pkg, moduleName)]++
+	}
+
 	byName := sortedmap.New[string, Target]()
 	for _, pkg := range pkgs {
 		name := binaryNameFromImportPath(pkg, moduleName)
-		if !byName.Contains(name) {
-			byName.Put(name, Target{ImportPath: pkg, OutputName: name})
+		if wanted[name] > 1 {
+			name = filepath.Base(pkg)
 		}
+		if prev, taken := byName.Get(name); taken {
+			return nil, fmt.Errorf("main packages %s and %s both build to %q: rename one of their directories",
+				prev.ImportPath, pkg, name)
+		}
+		byName.Put(name, Target{ImportPath: pkg, OutputName: name})
 	}
 	return slices.Collect(byName.Values()), nil
 }
@@ -115,9 +130,7 @@ func findAllPackagesByDir(moduleName string) ([]string, error) {
 		if !d.IsDir() {
 			return nil
 		}
-		// Skip hidden dirs, testdata, vendor, and nested modules (their
-		// packages belong to a different module and are not import paths
-		// of this one).
+		// Skip hidden dirs, testdata, vendor, and nested modules (their packages belong to a different module).
 		base := d.Name()
 		if base != "." && (strings.HasPrefix(base, ".") || base == "testdata" || base == "vendor" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir

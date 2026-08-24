@@ -8,22 +8,28 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-func TestRunReleaseWithRunnerNoPlatforms(t *testing.T) {
-	oldOS := matrixOS
-	oldArch := matrixArch
-	matrixOS = []string{}
-	matrixArch = []string{}
+// With no target flags the run takes the single-APE path, which resolves the
+// gosmopolitan toolchain rather than building a per-platform product.
+func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
+	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
+	oldEnsure := ensureCosmoToolchainFunc
+	matrixOS, matrixArch, matrixTargets = nil, nil, nil
+	ensureCosmoToolchainFunc = func() (string, error) {
+		return "", fmt.Errorf("cosmo toolchain unavailable")
+	}
 	defer func() {
-		matrixOS = oldOS
-		matrixArch = oldArch
+		matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets
+		ensureCosmoToolchainFunc = oldEnsure
 	}()
 
 	mock := runner.NewMock()
 	err := runReleaseWithRunner(mock)
-	assert.NotNil(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cosmo toolchain unavailable")
 }
 
 func TestRunReleaseWithRunnerNoMainPackages(t *testing.T) {

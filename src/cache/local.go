@@ -22,9 +22,7 @@ type LocalCache struct {
 	vmu      sync.RWMutex
 	verified map[string]looseVerified // actionID -> verified (outputID, size)
 
-	// plocks stripes per-action write locks: Put and PutIfAbsent for the same
-	// action serialize on one stripe, making the if-absent check atomic with
-	// the write it guards.
+	// plocks stripes per-action write locks, making PutIfAbsent's check atomic.
 	plocks [64]sync.Mutex
 }
 
@@ -48,23 +46,8 @@ type CacheMeta struct {
 	DiskPath string
 }
 
-// Get looks up actionID in the local cache. If found it returns the metadata;
-// otherwise miss is true.
-//
-// A hit is integrity-verified before it is served (verifyBodyForServe): the
-// body must hash to its sidecar outputID (so truncation, rot, and the empty
-// bodies the old oversized-PUT bug committed are caught — the stat size that
-// used to overwrite m.Size hid exactly that), and a compiled package's build
-// id must belong to this action. (Module indexes are served like any other
-// entry: they are locally-originated by construction — see verify.go.) This is
-// the loose-tier counterpart of the pack store's GetVerified — previously this
-// fallback tier (Windows, missing /dev/fuse, GOCACHE_NO_FUSE=1, nested runs,
-// standalone cacheprog) served bodies with zero read-side checks, so poison
-// stuck forever. A failing entry is evicted (data + sidecar removed) and
-// reported as a miss, so the toolchain recomputes clean data.
-//
-// Verification results are memoized per process (see looseVerified), so the
-// PUT dedup check and warm-build re-Gets don't re-read and re-hash bodies.
+// Get verifies a hit before serving it; a failing entry is evicted and
+// reported as a miss so the toolchain recomputes it.
 func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
 	return c.get(actionID, true)
 }
@@ -95,8 +78,7 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 	}
 	m.DiskPath = dataPath
 
-	// Fast path: this exact (outputID, size) was verified earlier this
-	// process and the entry on disk still matches. Skip the body re-read.
+	// Fast path: skip the body re-read if this (outputID, size) already matched.
 	c.vmu.RLock()
 	v, vok := c.verified[actionID]
 	c.vmu.RUnlock()
@@ -113,8 +95,7 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 		return CacheMeta{}, true
 	}
 	if reason, ok := verifyBodyForServe(actionID, m.OutputID, body); !ok {
-		// Never serve a bad body: evict data + sidecar and miss, so the
-		// toolchain recomputes and re-Puts clean data (self-heal).
+		// Evict data + sidecar and miss, so the toolchain recomputes clean data.
 		os.Remove(dataPath)
 		os.Remove(metaPath)
 		c.vmu.Lock()
@@ -124,8 +105,7 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 		logger.Warn("cacheprog: local cache: evicting %s: %s; treating as miss", shortID(actionID), reason)
 		return CacheMeta{}, true
 	}
-	// Serve the verified byte count as the size — never the raw stat size,
-	// which would mask a truncated body behind a stale sidecar.
+	// Serve the verified byte count, never the raw stat size (masks truncation).
 	m.Size = int64(len(body))
 	c.vmu.Lock()
 	c.verified[actionID] = looseVerified{outputID: m.OutputID, size: m.Size}
@@ -136,13 +116,8 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 	return m, false
 }
 
-// Put writes body to the local cache under actionID and stores the metadata
-// sidecar. Returns the absolute disk path to the cached object.
-//
-// Writes for the same action are serialized on a striped per-action lock so
-// PutIfAbsent's existence check cannot interleave with a concurrent Put — a
-// prefetched body must never land on top of an entry the local cmd/go just
-// stored (see LocalStore.PutIfAbsent).
+// Put writes body under actionID with a metadata sidecar, returning the disk
+// path. Writes share a striped lock so PutIfAbsent's check can't interleave.
 func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, error) {
 	l := c.plock(actionID)
 	l.Lock()
@@ -220,8 +195,7 @@ func (c *LocalCache) putLocked(actionID, outputID string, body io.Reader) (strin
 		os.Remove(metaTmpName)
 	}
 
-	// The entry's content changed: drop any memoized verification so the
-	// next Get re-verifies the new bytes.
+	// Content changed: drop the memoized verification so Get re-verifies it.
 	c.vmu.Lock()
 	delete(c.verified, actionID)
 	c.vmu.Unlock()
@@ -233,8 +207,7 @@ func (c *LocalCache) putLocked(actionID, outputID string, body io.Reader) (strin
 // StatsPtr returns the live hit/put counters, satisfying LocalStore.
 func (c *LocalCache) StatsPtr() *CacheStats { return &c.Stats }
 
-// Close releases resources. The loose-file cache holds none, so this is a nop;
-// it exists to satisfy LocalStore (FuseCache uses it to unmount).
+// Close is a nop; it exists to satisfy LocalStore (FuseCache uses it to unmount).
 func (c *LocalCache) Close() error { return nil }
 
 // dataPath returns the absolute path for a cached object.

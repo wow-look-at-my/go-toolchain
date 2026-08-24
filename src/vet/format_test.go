@@ -31,14 +31,19 @@ func TestRunGofmtDetectsUnformatted(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "main.go"), "package main\nfunc main(){println(\"hello\")}\n")
 	chdir(t, dir)
 
-	// In check mode RunGofmt itself no longer errors; the unformatted file is
-	// recorded as a violation on the editor and never rewritten.
+	// Check mode: RunGofmt itself does not error; the violation is recorded on the editor, and nothing is rewritten.
 	ed := NewEditor(false)
 	changed, err := RunGofmt(ed)
 	require.NoError(t, err)
 	assert.False(t, changed)
 	require.Error(t, ed.Err())
-	assert.Contains(t, ed.Err().Error(), "main.go")
+	msg := ed.Err().Error()
+	assert.Contains(t, msg, "main.go")
+	// The violation carries a unified diff to the canonical content, readable without running go-toolchain.
+	assert.Contains(t, msg, "--- main.go")
+	assert.Contains(t, msg, "+++ main.go")
+	assert.Contains(t, msg, `-func main(){println("hello")}`)
+	assert.Contains(t, msg, `+func main() {`)
 }
 
 func TestRunGofmtFix(t *testing.T) {
@@ -134,9 +139,7 @@ func TestRunGofmtEmptyDir(t *testing.T) {
 	require.NoError(t, ed.Err())
 }
 
-// smartLeft and smartRight are the Unicode "smart" double quotes gofmt's
-// doc-comment formatter synthesizes from a doubled backtick / doubled apostrophe.
-// Spelled with \u escapes so this test file stays printable ASCII.
+// smartLeft/smartRight are gofmt's synthesized smart quotes; \u escapes keep this file printable ASCII.
 const (
 	smartLeft  = "\u201c"
 	smartRight = "\u201d"
@@ -225,9 +228,7 @@ func TestCanonicalizeGoSource(t *testing.T) {
 func TestRunGofmtPreservesShellQuotesInDocComment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "shell.go")
-	// ASCII-only, otherwise gofmt-clean file whose doc comment contains the POSIX
-	// single-quote escape 'foo'\''bar' (a doubled apostrophe). gofmt's doc-comment
-	// formatter turns the '' into U+201D; RunGofmt must leave it untouched.
+	// ASCII-only file whose doc comment holds 'foo'\''bar'; gofmt turns '' into U+201D, and RunGofmt must leave it untouched.
 	src := "package main\n\n" +
 		"// shellQuote quotes s for a POSIX shell.\n" +
 		"// Embedded single quotes use the one-quote-per-quote dance:\n" +
@@ -243,8 +244,7 @@ func TestRunGofmtPreservesShellQuotesInDocComment(t *testing.T) {
 	require.NoError(t, err)
 	gotStr := string(got)
 
-	// The exact ASCII the author typed survives; no smart quote was introduced;
-	// the file is still pure ASCII.
+	// The exact ASCII the author typed survives; no smart quote was introduced.
 	assert.Contains(t, gotStr, "// foo'bar becomes 'foo'\\''bar'.")
 	assert.NotContains(t, gotStr, smartLeft)
 	assert.NotContains(t, gotStr, smartRight)
@@ -288,9 +288,7 @@ func TestRunGofmtPreservesBacktickPairInDocComment(t *testing.T) {
 func TestRunGofmtHealsExistingSmartQuotesInDocComment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "broken.go")
-	// A doc comment already corrupted by an earlier (unfixed) run: it contains the
-	// curly quotes gofmt produces. The fix is curative -- RunGofmt must heal them
-	// back to ASCII digraphs even though this run did not introduce them.
+	// Simulates a doc comment already corrupted by a prior run; the fix heals it even without causing it.
 	src := "package main\n\n" +
 		"// quote wraps s in " + smartLeft + "smart" + smartRight + " quotes.\n" +
 		"func quote(s string) string { return s }\n"
@@ -322,8 +320,7 @@ func TestRunGofmtHealsExistingSmartQuotesInDocComment(t *testing.T) {
 func TestRunGofmtPreservesSmartQuotesInStringLiteral(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "lit.go")
-	// Curly quotes inside a string literal are real program data (here, a
-	// typographic-quote constant). They must NEVER be reverted -- only comments are.
+	// Curly quotes in a string literal are real data; they must never be reverted -- only comments are.
 	src := "package main\n\n" +
 		"// Quotes holds the smart double quotes.\n" +
 		"var Quotes = \"" + smartLeft + smartRight + "\"\n"
@@ -375,9 +372,7 @@ func TestRunGofmtUsesTabsToIndentSpacesToAlign(t *testing.T) {
 
 // helpers
 
-// assertPrintableASCII fails the test if s contains any byte outside the
-// printable-ASCII / whitespace range -- the regression guard for the formatter
-// turning an ASCII file into multi-byte UTF-8.
+// assertPrintableASCII fails if s has a byte outside printable ASCII, guarding against UTF-8 in the formatter's output.
 func assertPrintableASCII(t *testing.T, s string) {
 	t.Helper()
 	for i := 0; i < len(s); i++ {

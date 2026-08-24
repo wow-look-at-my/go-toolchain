@@ -7,60 +7,38 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// A binary in build/ must never outlive the run that produced it.
-//
-// go-toolchain reports a build through exactly two channels: its output and
-// its exit code. Throw both away — pipe stdout and stderr somewhere nobody
-// reads, ignore the status — and a binary left at build/<target> by an EARLIER
-// successful run is indistinguishable from one this run produced. Executing it
-// then "proves" a build that never happened, which is how a red pipeline gets
-// reported as done.
-//
-// So the toolchain deletes the binaries it is responsible for producing:
-//
-//   - before any phase runs, so a failure at tidy/vet/test/build/dats — or a
-//     crash, or a kill — leaves nothing runnable behind;
-//   - when the run fails AFTER the build phase already wrote them (a red dats
-//     suite, the coverage or warnings gate);
-//   - when the agent output guard refuses to run at all. That is the case
-//     this exists for: no phase executes, so only the deletion stands between
-//     a hidden failure and a false "build successful".
-//
-// The invariant: build/<target> exists only when the run that wrote it
-// finished green. There is deliberately no flag or environment variable to
-// turn this off.
+// Build outputs must never survive a failed run; see CLAUDE.md for why and how deletion is wired into every exit path.
 
-// nonBinaryOutputs are files the toolchain writes into the output directory
-// that are not build artifacts, even when a target's name is a prefix of
-// theirs (a project whose binary is named "wasm" must not lose wasm_exec.js).
-var nonBinaryOutputs = map[string]bool{
-	"checksums.txt": true,
-	"wasm_exec.js":  true,
-	"profile.json":  true,
-	"trace.json":    true,
-}
+// nonBinaryOutputs are non-artifact files the toolchain writes; a project named "wasm" must not lose wasm_exec.js.
+var nonBinaryOutputs = set.Of(
+	"checksums.txt",
+	"wasm_exec.js",
+	"profile.json",
+	"trace.json",
+)
 
 // isOutputArtifact reports whether base — a file name inside the output
-// directory — is an artifact go-toolchain produces for the target named name.
-// Every shape the toolchain writes is the bare name, the Windows "<name>.exe",
-// or "<name>_…": build.BinaryName's <name>_<goos>_<goarch>[.exe], the wasm
-// variants, the <name>_cosmo_fat APE, and the <name>_host convenience symlink.
+// directory — is an artifact go-toolchain produces for the target named
+// name: the bare name, "<name>_…" (goos/goarch variants, wasm, the _host
+// symlink), or "<name>.…" (the APE's sidecar ELFs).
 func isOutputArtifact(base, name string) bool {
-	if name == "" || nonBinaryOutputs[base] {
+	// The manifest dies with the artifacts it describes, or the next publish targets a file that is gone.
+	if base == buildhostManifestName {
+		return true
+	}
+	if name == "" || nonBinaryOutputs.Contains(base) {
 		return false
 	}
-	return base == name || base == name+".exe" || strings.HasPrefix(base, name+"_")
+	return base == name || strings.HasPrefix(base, name+"_") || strings.HasPrefix(base, name+".")
 }
 
-// clearedOutputs records where one module's build artifacts live, so the
-// failure path can delete whatever the build phase managed to write — from any
-// working directory, since a multi-module run clears each module from that
-// module's own directory.
+// clearedOutputs records one module's build-output location, so the failure path can delete it from any cwd.
 type clearedOutputs struct {
 	dir   string   // absolute path of the module's output directory
 	names []string // build target names whose artifacts live there
@@ -111,9 +89,7 @@ func removeBuildOutputsIn(dir string, names []string) ([]string, error) {
 	}
 	var removed []string
 	for _, e := range entries {
-		// Directories are never artifacts. A symlink reports its own type
-		// here (never the target's), so stale <name> / <name>_host links are
-		// matched and unlinked like any other artifact.
+		// Directories are never artifacts; a symlink reports its own type, so stale <name>/<name>_host links unlink too.
 		if e.IsDir() {
 			continue
 		}
@@ -194,12 +170,7 @@ func discardBuildOutputs() {
 	}
 }
 
-// discardBuildOutputsFromCWD deletes the build artifacts of the module in the
-// current directory on an exit path that never entered the pipeline — the
-// agent output guard's abort and a failed Go bootstrap. It returns what it
-// removed so the caller can say so, and is silent and best-effort: the exit
-// message is the priority, and a project with no resolvable targets simply has
-// nothing to delete.
+// discardBuildOutputsFromCWD deletes the module's artifacts on an exit path that skipped the pipeline (guard abort, failed bootstrap). Best-effort.
 func discardBuildOutputsFromCWD() []string {
 	dir, names, err := moduleOutputTargets(runner.New())
 	if err != nil {
@@ -209,11 +180,7 @@ func discardBuildOutputsFromCWD() []string {
 	return removed
 }
 
-// DiscardBuildOutputs deletes the build artifacts of the module in the current
-// directory. Exported for main's bootstrap-failure exit, which never reaches
-// the pipeline: a run that could not even resolve a Go toolchain built
-// nothing, so the previous run's binaries must not be left standing as its
-// result.
+// DiscardBuildOutputs deletes the module's artifacts for main's bootstrap-failure exit, which skips the pipeline.
 func DiscardBuildOutputs() {
 	discardBuildOutputsFromCWD()
 }
