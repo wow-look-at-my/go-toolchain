@@ -8,26 +8,15 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// LocalStore is the process-local cache tier that sits in front of the remote
-// (web) backend.
+// LocalStore is the process-local cache tier in front of the remote (web) backend.
 //
-// Every hit must return a DiskPath the Go toolchain can open and read
-// directly. That is the one hard constraint the GOCACHEPROG protocol places on
-// a cache: a GET response hands the compiler a *path* (Response.DiskPath), not
-// the bytes, and the compiler opens and mmaps it itself. A PUT body, by
-// contrast, arrives inline over the protocol (base64 after the JSON line).
+// Every hit must return a DiskPath the Go toolchain can open and mmap directly — the
+// GOCACHEPROG protocol hands the compiler a path (Response.DiskPath), never bytes.
 //
-// Two implementations exist:
-//
-//   - LocalCache writes one loose body file per entry plus a metadata sidecar.
-//     Simple and portable; it is the fallback used when FUSE is unavailable.
-//
-//   - FuseCache packs every body into append-only pack files and exposes them
-//     through a read-only FUSE mount. DiskPath points into the mount and the
-//     kernel materializes each body virtually on read, so there is no loose
-//     file and no sidecar per entry. This is the "virtual filesystem over the
-//     JSON protocol": it satisfies the DiskPath contract without ever writing a
-//     file per cache entry.
+// Two implementations exist: LocalCache writes one loose body file plus a metadata
+// sidecar (the portable fallback), and FuseCache packs bodies into append-only pack
+// files behind a read-only FUSE mount, materializing each body on read with no loose
+// file or sidecar per entry.
 type LocalStore interface {
 	// Get returns the cached entry for actionID, or miss == true.
 	Get(actionID string) (CacheMeta, bool)

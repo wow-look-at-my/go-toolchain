@@ -46,9 +46,8 @@ type CacheMeta struct {
 	DiskPath string
 }
 
-// Get looks up actionID. A hit is integrity-verified (verifyBodyForServe)
-// before serving; a failing entry is evicted and reported as a miss so the
-// toolchain recomputes it. Verification is memoized per process.
+// Get verifies a hit before serving it; a failing entry is evicted and
+// reported as a miss so the toolchain recomputes it.
 func (c *LocalCache) Get(actionID string) (meta CacheMeta, miss bool) {
 	return c.get(actionID, true)
 }
@@ -117,10 +116,9 @@ func (c *LocalCache) get(actionID string, countHit bool) (meta CacheMeta, miss b
 	return m, false
 }
 
-// Put writes body under actionID and stores the metadata sidecar, returning
-// the absolute disk path. Writes for one action are serialized on a striped
-// lock so PutIfAbsent's existence check cannot interleave with a concurrent
-// Put (see LocalStore.PutIfAbsent).
+// Put writes body under actionID with a metadata sidecar, returning the disk
+// path. Writes for one action share a striped lock so PutIfAbsent's check
+// can't interleave with a concurrent Put.
 func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, error) {
 	l := c.plock(actionID)
 	l.Lock()

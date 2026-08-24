@@ -158,8 +158,7 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "build"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "build", "mytool"), []byte("bin"), 0o755))
 
-	// Inspect the staged handoff dir DURING the call -- it is removed once
-	// the phase returns.
+	// Inspect the staged handoff dir DURING the call -- it is removed once the phase returns.
 	var stagedBinary string
 	old := datsRunFunc
 	datsRunFunc = func(_ context.Context, opts dats.Options) (*dats.Result, error) {
@@ -186,20 +185,13 @@ func TestRunDatsPhaseOptions(t *testing.T) {
 	opts := (*calls)[0].opts
 	assert.Equal(t, []string{datsSuiteDir}, opts.Paths)
 
-	// Serial on purpose: a deterministic report, and no concurrent first-exec
-	// self-assimilation of staged APE copies.
+	// Serial on purpose: a deterministic report, no concurrent APE self-assimilation.
 	assert.Zero(t, opts.Jobs)
 
-	// The sandbox is dats' default (auto). Passing SandboxNone here would
-	// unsandbox every suite command in every consuming repo -- whether a
-	// suite needs the host is the SUITE's declaration to make.
+	// Sandbox stays dats' default (auto); whether a suite needs the host is the SUITE's call.
 	assert.Equal(t, dats.Sandbox{}, opts.Sandbox)
 
-	// The handoff dir MUST be an absolute path inside the module root: dats
-	// sandboxes suite commands, and only the working directory is visible in
-	// the sandbox (docker mounts nothing else; bwrap binds the tool tree plus
-	// the cwd, with a private /tmp over it). A staging dir under $TMPDIR is
-	// invisible to every backend, and every suite fails its setup command.
+	// The handoff dir must be absolute and inside the module root: only the cwd is visible in the sandbox.
 	buildDir := datsEnvValue(t, opts.Env, datsBuildDirEnv)
 	assert.True(t, filepath.IsAbs(buildDir), "handoff dir must be absolute, got %q", buildDir)
 	rel, relErr := filepath.Rel(dir, buildDir)
@@ -273,9 +265,7 @@ func TestRunDatsPhaseQuietRoutesReportToStderr(t *testing.T) {
 
 	require.NoError(t, runDatsPhase(true, nil))
 	require.Len(t, *calls, 1)
-	// --json mode: stdout carries the JSON payload, so the dats report must
-	// go to stderr instead -- and unwrapped, since quiet prints no step line
-	// to terminate.
+	// --json mode: stdout carries the JSON payload, so the report goes to stderr, unwrapped.
 	assert.Equal(t, rawStderr, (*calls)[0].opts.Output)
 }
 

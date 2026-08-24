@@ -153,8 +153,7 @@ func TestEnsureGuardExcludedNoRepoIsNoOp(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 	require.NoError(t, os.Chdir(dir))
-	// GIT_CEILING keeps discovery from escaping the temp dir if an outer
-	// repo ever surrounds the test tmp root.
+	// GIT_CEILING keeps discovery from escaping the temp dir if an outer repo surrounds it.
 	t.Setenv("GIT_CEILING_DIRECTORIES", dir)
 
 	ensureGuardExcluded() // must not panic, create files, or error

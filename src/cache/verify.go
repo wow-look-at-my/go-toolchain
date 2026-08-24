@@ -35,9 +35,8 @@ func verifyBodyForServe(actionID, outputID string, body []byte) (reason string, 
 	return "", true
 }
 
-// looseVerified memoizes a loose-tier entry that already passed
-// verifyBodyForServe, skipping the re-read + re-hash on repeat Gets. Valid
-// only while the sidecar still advertises this outputID and size.
+// looseVerified memoizes a loose entry that already passed verification,
+// valid while the sidecar still names this outputID and size.
 type looseVerified struct {
 	outputID string
 	size     int64
@@ -158,10 +157,9 @@ func (s *PackStore) verifiedInfo(loc packLoc) (verifyInfo, bool) {
 	return vi, true
 }
 
-// verifyInfoForPut computes the memo entry for bytes being appended by Put:
-// CRC holds by construction, and the content address is rechecked directly
-// (cmd/go derives outputID as sha256(body)) so a mis-addressed Put is never
-// pre-trusted. This is what makes the open-right-after-PUT lookup free.
+// verifyInfoForPut computes the memo entry for bytes appended by Put: CRC
+// holds by construction, and the content address is rechecked directly so a
+// mis-addressed Put is never pre-trusted.
 func verifyInfoForPut(outputID string, data []byte) verifyInfo {
 	vi := verifyInfo{crcOK: true}
 	_, vi.shaOK = outputIDMatches(outputID, data)

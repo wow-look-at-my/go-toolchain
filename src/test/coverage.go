@@ -190,9 +190,7 @@ func ReachablePackages(r runner.CommandRunner) (set.Set[string], error) {
 		return set.Set[string]{}, nil
 	}
 
-	// Find main packages to use as roots for the dependency graph.
-	// Using entry points instead of ./... prevents build-tag-excluded
-	// packages from being counted toward coverage thresholds.
+	// Entry-point roots, not ./..., so build-tag-excluded packages never count toward coverage.
 	roots := "./..."
 	mainPkgs, _ := gomod.FindMainPackages()
 	if len(mainPkgs) > 0 {
@@ -341,8 +339,7 @@ func parseLineNum(s string) int {
 
 // parseFunctionsFromSource parses a Go source file and returns function locations
 func parseFunctionsFromSource(importPath string) []funcInfo {
-	// Try to find the source file - importPath is like "github.com/foo/bar/file.go"
-	// We need to find it relative to the module
+	// importPath looks like "github.com/foo/bar/file.go"; resolve it relative to the module.
 	srcPath := findSourceFile(importPath)
 	if srcPath == "" {
 		return nil
@@ -389,11 +386,9 @@ func receiverType(expr ast.Expr) string {
 
 // findSourceFile tries to locate the source file from an import path
 func findSourceFile(importPath string) string {
-	// The import path includes the file name, e.g. "github.com/foo/bar/pkg/file.go"
-	// We need to find it relative to the current module
+	// importPath includes the file name (e.g. "github.com/foo/bar/pkg/file.go"); resolve it relative to the module.
 
-	// First, try as a relative path from current directory
-	// Strip the module prefix to get relative path
+	// Try each suffix as a relative path, stripping one leading segment at a time.
 	parts := strings.Split(importPath, "/")
 	for i := range parts {
 		candidate := filepath.Join(parts[i:]...)

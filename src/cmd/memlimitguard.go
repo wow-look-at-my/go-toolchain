@@ -11,11 +11,10 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
-// injectMemLimitGuard writes the GOMEMLIMIT startup guard into every main package before the build, capping the Go
-// heap at the container's cgroup limit instead of an OOM kill. The guard is transient: cleanupMemLimitGuards deletes
-// it after the build, and checkDirtyInCI ignores it in every git state. ensureGuardExcluded (called first) also
-// hides it from git, so VCS stamping never sees it. Injection has no disable flag: a knob here would eventually ship
-// binaries that allocate unbounded; the correct opt-out is the runtime GOMEMLIMIT=off.
+// injectMemLimitGuard writes the GOMEMLIMIT startup guard into every main package before the build, capping the
+// Go heap at the container's cgroup limit instead of an OOM kill. The guard is transient: cleanupMemLimitGuards
+// deletes it after the build, and checkDirtyInCI ignores it. ensureGuardExcluded (called first) hides it from git
+// so VCS stamping never sees it. No disable flag: the opt-out is the runtime GOMEMLIMIT=off.
 func injectMemLimitGuard(quiet bool) error {
 	// Exclude BEFORE writing, so no git status during the build window (Go's version stamping) can see it.
 	ensureGuardExcluded()
@@ -71,8 +70,7 @@ func ensureGuardExcluded() {
 	_, _ = f.WriteString(entry)
 }
 
-// cleanupMemLimitGuards removes the guards injectMemLimitGuard wrote, once the build has compiled them in.
-// Best-effort: a failed removal is reported but never fails the build.
+// cleanupMemLimitGuards removes the guards injectMemLimitGuard wrote. Best-effort: a failed removal never fails the build.
 func cleanupMemLimitGuards() {
 	if _, err := memlimit.CleanupAll(); err != nil {
 		logger.Warn("  warning: failed to remove GOMEMLIMIT guard: %v", err)

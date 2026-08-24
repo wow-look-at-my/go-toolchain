@@ -11,8 +11,7 @@ var (
 	defaultLogger *Logger
 )
 
-// stdoutWriter is an io.Writer that always delegates to the current os.Stdout.
-// This allows tests to replace os.Stdout after logger initialization.
+// stdoutWriter always delegates to the current os.Stdout, so tests can replace it after logger init.
 type stdoutWriter struct{}
 
 func (stdoutWriter) Write(p []byte) (int, error) { return os.Stdout.Write(p) }
@@ -36,10 +35,7 @@ func Default() *Logger {
 	defaultMu.Lock()
 	defer defaultMu.Unlock()
 	if defaultLogger == nil {
-		// Use indirect writers so that tests replacing os.Stdout/os.Stderr
-		// are reflected in subsequent logger writes without re-initializing.
-		// GHAAuto=true means GHA mode is checked dynamically at emit time,
-		// so tests that set GITHUB_ACTIONS after init are correctly handled.
+		// Indirect writers reflect a test's os.Stdout/os.Stderr swap without reinit; GHAAuto checks GITHUB_ACTIONS at emit time.
 		defaultLogger = New(Options{
 			Level:   LevelInfo,
 			Stdout:  stdoutWriter{},
@@ -66,21 +62,15 @@ func Init(opts Options) *Logger {
 	return l
 }
 
-// InitSubprocess replaces the global default logger with one that is safe for
-// subprocesses whose stdout is a protocol channel rather than a human-readable
-// stream — e.g. the cacheprog subprocess, whose stdout carries the GOCACHEPROG
-// JSON protocol that cmd/go parses. Every message, including Info and Output,
-// is routed to stderr, and GitHub Actions annotations are disabled: annotations
-// are written to the Stdout writer, so a Warn/Error under GITHUB_ACTIONS=true
-// would otherwise inject a "::warning"/"::error" line into the protocol
-// stream. Returns the new logger for convenience.
+// InitSubprocess is for a subprocess whose stdout is a protocol channel, e.g. cacheprog's
+// GOCACHEPROG JSON stream. Every message routes to stderr, and GHA annotations stay off, since
+// writing "::warning"/"::error" to Stdout would corrupt the protocol.
 func InitSubprocess(level Level) *Logger {
 	return Init(Options{
 		Level:  level,
 		Stdout: stderrWriter{},
 		Stderr: stderrWriter{},
-		// GHA and GHAAuto are deliberately left false: annotation output must
-		// stay off regardless of the GITHUB_ACTIONS environment variable.
+		// GHA and GHAAuto are deliberately false: annotation output must stay off regardless of GITHUB_ACTIONS.
 	})
 }
 

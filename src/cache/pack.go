@@ -17,17 +17,13 @@ import (
 // packNow returns the current unix time. It is a var so tests can pin it.
 var packNow = func() int64 { return time.Now().Unix() }
 
-// PackStore is a content-addressed object store that appends bodies into a
-// small number of pack files instead of one file per entry, avoiding
-// inode/block waste for the many tiny entries a build cache holds. It is the
-// storage engine behind FuseCache, but stays FUSE-free so it can be
-// unit-tested on any platform.
+// PackStore is a content-addressed store that appends bodies into a small
+// number of pack files instead of one per entry, avoiding inode/block waste.
+// It backs FuseCache but stays FUSE-free for unit testing.
 //
-// Record layout: magic(4) actionID(32) outputID(32) created(8) dataLen(8)
-// crc32(4) data(dataLen), all little-endian. The index rebuilds by scanning
-// packs at startup, so there is no separate index file to desync. A torn
-// final record (crash mid-append) is detected by its length running past
-// EOF, and ignored.
+// Record: magic(4) actionID(32) outputID(32) created(8) dataLen(8) crc32(4)
+// data. The index rebuilds by scanning packs at startup; a torn final record
+// (crash mid-append) is detected by length past EOF and ignored.
 type PackStore struct {
 	dir   string
 	Stats CacheStats

@@ -42,9 +42,8 @@ func detectHostGOOS() Detection {
 		}
 	}
 
-	// CoreServices exists only on macOS; procfs only on Linux. A denying
-	// sandbox makes both fail silently to "linux" (Method records which);
-	// smoke jobs assert this in and out of dats' sandbox.
+	// CoreServices=macOS, procfs=Linux. A denying sandbox falls silently to
+	// "linux" (Method records which); smoke jobs assert both cases.
 	if _, err := os.Stat("/System/Library/CoreServices"); err == nil {
 		return Detection{OS: "darwin", Method: "coreservices", Uname: sysname}
 	}

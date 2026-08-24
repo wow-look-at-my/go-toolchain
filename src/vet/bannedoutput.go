@@ -36,8 +36,7 @@ func runBannedOutput(pass *analysis.Pass) (any, error) {
 		if strings.Contains(filename, "/src/logger/") {
 			continue
 		}
-		// Exempt: console.go — terminal animation UI that needs fine-grained
-		// newline control (same-line step progress and completion messages).
+		// Exempt: console.go's terminal UI needs fine-grained newline control.
 		if strings.HasSuffix(filename, "/src/cmd/console.go") {
 			continue
 		}

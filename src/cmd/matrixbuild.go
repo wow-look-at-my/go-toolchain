@@ -15,13 +15,10 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// hostRunnableArtifact returns the artifact in outDir that runs on this host:
-// the native <name>_<hostos>_<hostarch> build when one exists, else the fat
-// APE, which runs here by construction. Without the fallback, a default matrix
-// run — one APE and no per-platform copies — would leave the dats phase and
-// the convenience symlinks with nothing to point at. The path is returned even
-// when neither exists, so callers report a missing artifact rather than a
-// wrong one.
+// hostRunnableArtifact returns the artifact in outDir that runs on this
+// host: the native <name>_<hostos>_<hostarch> build when it exists, else the
+// fat APE (which runs here by construction). Returned even when neither
+// exists, so callers report a missing artifact rather than a wrong one.
 func hostRunnableArtifact(target build.Target, outDir string) string {
 	native := filepath.Join(outDir, build.BinaryName(target.OutputName, hostos.GOOS(), runtime.GOARCH))
 	if _, err := os.Stat(native); err == nil {
@@ -35,9 +32,7 @@ func hostRunnableArtifact(target build.Target, outDir string) string {
 }
 
 func createHostSymlinks(targets []build.Target, outDir string) error {
-	// hostos, not runtime: the symlink must point at the matrix binary built
-	// for the OS this process is running on, and a cosmo fat APE reports
-	// runtime.GOOS=="cosmo" everywhere. runtime.GOARCH matches the host.
+	// hostos, not runtime: a cosmo fat APE reports runtime.GOOS=="cosmo" everywhere.
 	hostOS := hostos.GOOS()
 
 	for _, target := range targets {
@@ -58,11 +53,8 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 		for _, suffix := range []string{"_host", ""} {
 			linkName := target.OutputName + suffix + ext
 			linkPath := filepath.Join(outDir, linkName)
-			// A cosmo build writes the APE under the plain name, so that name
-			// is a real binary and not a link slot. Overwriting it deletes the
-			// artifact -- and in a cosmo+native build the APE is not even the
-			// host binary, so the link would look correct while the APE was
-			// gone.
+			// A cosmo build writes the APE under the plain name, so it is a real
+			// binary, not a link slot -- overwriting it would delete the artifact.
 			if st, statErr := os.Lstat(linkPath); statErr == nil && st.Mode()&os.ModeSymlink == 0 {
 				continue
 			}
@@ -80,10 +72,9 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 // called when the compiler produces its first output (used for progress
 // indicators on the default build path).
 func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
-	// Last-chokepoint guard: a fork-toolchain job MUST carry a cache
-	// namespace (see buildJob.cacheNamespace). Refusing to build here means a
-	// future call site that forgets to fingerprint the toolchain fails loudly
-	// instead of silently re-opening cross-toolchain cache poisoning.
+	// Last-chokepoint guard: a fork-toolchain job MUST carry a cache namespace
+	// (buildJob.cacheNamespace), so a call site that forgets to fingerprint the
+	// toolchain fails loudly instead of reopening cross-toolchain cache poisoning.
 	if job.forkGoroot != "" && job.cacheNamespace == "" {
 		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
 	}

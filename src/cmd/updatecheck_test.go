@@ -113,8 +113,7 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 	defer srv.Close()
 	defer withMockBuildhost(t, srv)()
 
-	// With no listing to identify this build, its commit stands in for the
-	// version it cannot know.
+	// With no listing to identify this build, its commit stands in for the version it cannot know.
 	msg := computeUpdateWarning(context.Background())
 	assert.Contains(t, msg, "out of date")
 	assert.Contains(t, msg, "0000000 < v202")

@@ -30,8 +30,7 @@ type buildhostManifestEntry struct {
 	File string `json:"file"`
 	// Platforms are the os/arch pairs this file runs on; the first is the row's canonical slot.
 	Platforms []string `json:"platforms"`
-	// Filename is the name the download is served under: the plain binary
-	// name, not the on-disk <name>.
+	// Filename is the name the download is served under: the plain binary name, not the on-disk <name>.
 	Filename string `json:"filename"`
 }
 

@@ -76,9 +76,8 @@ func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, err
 			}
 		}
 	}
-	// Wire batch callbacks and latency tracking on the shared WebBackend once.
-	// Per-connection Servers must never touch these: re-pointing wb.Latency
-	// per connection is an unsynchronized write racing other connections.
+	// Wire batch callbacks and latency tracking on the shared WebBackend once;
+	// per-connection Servers must not touch these (racy shared write).
 	if wb, ok := remote.(*WebBackend); ok {
 		wb.Latency = &d.latency
 		wireBatchCallbacks(wb, local, d)

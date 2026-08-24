@@ -125,14 +125,12 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	}
 	logger.InitSubprocess(level)
 
-	// Namespaces fork-toolchain builds (see cache.KeyNamespaceEnv) so builds
-	// using different fork toolchains never share cache entries, since the
-	// fork's constant version stamp would otherwise collide their action IDs.
+	// Namespaces fork-toolchain builds so they never share cache entries.
 	namespace := cache.CanonicalKeyNamespace(os.Getenv(cache.KeyNamespaceEnv))
 
-	// Fast path: proxy to a running daemon, skipping a per-subprocess web
-	// index reload. Skipped for a namespaced cacheprog: the daemon is an
-	// unnamespaced raw byte pipe, and proxying would leak cache entries.
+	// Fast path: proxy to a daemon instead of reloading the web index. Skip
+	// this for a namespaced cacheprog: the daemon is unnamespaced and would
+	// leak cache entries.
 	if sock := daemonSockUnlessNamespaced(namespace); sock != "" {
 		if err := cache.ProxyToDaemon(sock); err == nil {
 			return nil
@@ -145,8 +143,7 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	// The daemon path purges via NewLocalStore; standalone must do it itself.
 	cache.EnsureLocalCacheVersion(cacheDir)
 
-	// Standalone mode uses the loose-file cache, not the FUSE store: the FUSE
-	// mount is daemon-owned so concurrent standalone invocations can't collide.
+	// Standalone mode uses the loose-file cache; FUSE is daemon-owned only.
 	local, err := cache.NewLocalCache(cacheDir)
 	if err != nil {
 		return fmt.Errorf("local cache: %w", err)
@@ -183,9 +180,9 @@ var (
 	FeatureCacheProg = GoFeature{Name: "GOCACHEPROG", MinorVersion: 24}
 )
 
-// goSupportsFeature checks resolvedGoMinor (set by EnsureGoVersion) instead
-// of shelling out to "go version", avoiding a false negative when the
-// bootstrapped Go isn't the first "go" on the original PATH.
+// goSupportsFeature checks resolvedGoMinor instead of shelling out to
+// "go version", avoiding a wrong pick when the bootstrapped Go isn't
+// first on PATH.
 func goSupportsFeature(f GoFeature) bool {
 	return resolvedGoMinor >= f.MinorVersion
 }
@@ -276,8 +273,7 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 		return quoteExeForGOCACHEPROG(exe) + " cacheprog", nil
 	}
 	if strings.Contains(exe, "'") {
-		// Not representable in the single-quoted wrapper; disable the cache
-		// rather than misquote the exec.
+		// Not representable in the single-quoted wrapper; disable rather than misquote.
 		return "", fmt.Errorf("executable path %q cannot be embedded in the cacheprog wrapper", exe)
 	}
 	wrapper := filepath.Join(os.TempDir(), fmt.Sprintf("gocacheprog-wrapper-%d.sh", os.Getpid()))
@@ -289,9 +285,8 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 }
 
 // quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
-// parser (internal/quoted.Split: space-separated words, single or double
-// quotes, NO escape sequences). An unquoted path containing a space would be
-// split into two argv words and the cacheprog launch would fail fatally.
+// parser (space-separated words, single/double quotes, no escapes). An
+// unquoted path with a space would split into two argv words and fail.
 // A path with no spaces or quotes is returned unchanged.
 func quoteExeForGOCACHEPROG(exe string) string {
 	if !strings.ContainsAny(exe, " \t'\"") {
@@ -303,8 +298,7 @@ func quoteExeForGOCACHEPROG(exe string) string {
 	if !strings.Contains(exe, "'") {
 		return "'" + exe + "'"
 	}
-	// Both quote kinds present: not representable, so return as-is and let
-	// the launch fail loudly rather than silently misparse.
+	// Both quote kinds present: not representable; return as-is to fail loudly.
 	return exe
 }
 
@@ -312,8 +306,7 @@ func quoteExeForGOCACHEPROG(exe string) string {
 // Returns the daemon, the remote endpoint (empty if no remote), and any error.
 func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
-	// The daemon owns the FUSE mount; NewLocalStore prefers the packed FUSE
-	// cache, falling back to loose files when FUSE is unavailable.
+	// Daemon owns the FUSE mount; NewLocalStore prefers packed FUSE, falling back to loose files.
 	local, err := cache.NewLocalStore(cacheDir)
 	if err != nil {
 		return nil, "", err
@@ -363,8 +356,7 @@ func printCacheStats(close bool) {
 	if close && cacheDaemon != nil {
 		cacheDaemon.Close()
 	}
-	// Shut down the OTel tracer provider now that the daemon has drained, so
-	// timeline exporter spans from src/trace.Export land in the final batch.
+	// Shut down the tracer provider once drained, so timeline spans land in the final batch.
 	if close {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
