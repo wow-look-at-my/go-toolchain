@@ -10,8 +10,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// corruptIndexMarker is cmd/go's error for an unparseable cached module index;
-// it carries no build id, so a damaged entry passes every cacheprog content gate and only fails here.
+// corruptIndexMarker is cmd/go's error for an unparseable cached module index; it has no build id to gate on.
 const corruptIndexMarker = "corrupt index"
 
 // tailBufferCap bounds how much subprocess stderr tailBuffer retains.

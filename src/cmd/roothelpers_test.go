@@ -121,8 +121,7 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 				"skipCache should return true for %q (Name=%q)", argv, leaf.Name())
 			assert.False(t, skipAgentGuard(leaf),
 				"skipAgentGuard should be false for %q -- only cacheprog is exempt", argv)
-			// End-to-end: PersistentPreRunE must not fail for this leaf
-			// even when CI cache vars are unset.
+			// End-to-end: PersistentPreRunE must not fail for this leaf even when CI cache vars are unset.
 			assert.NoError(t, rootCmd.PersistentPreRunE(leaf, nil))
 		})
 	}

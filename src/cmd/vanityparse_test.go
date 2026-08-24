@@ -30,8 +30,7 @@ gopkg.in/yaml.v3 v3.0.1 h1:ggg=
 	modules, err := parseVanityModulesFromSum()
 	require.Nil(t, err)
 
-	// Should include vanity hosts: gotest.tools, modernc.org, dario.cat
-	// Should exclude: github.com, golang.org, gopkg.in
+	// Includes vanity hosts (gotest.tools, modernc.org, dario.cat), excludes github.com/golang.org/gopkg.in.
 	assert.Equal(t, 3, len(modules))
 
 	hosts := set.New[string]()
