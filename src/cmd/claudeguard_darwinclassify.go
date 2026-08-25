@@ -82,6 +82,10 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 			return outputSink{}, false
 		}
 		if terminal {
+			// Same gap claudeguard_ptywrap.go closes on linux/cosmo.
+			if wrapper, ok := ptyWrapperAncestorFn(); ok {
+				return outputSink{kind: sinkHidden, detail: wrapper}, true
+			}
 			return outputSink{kind: sinkVisible}, true
 		}
 		path, _ := p.path() // best effort: only names the device in the message
