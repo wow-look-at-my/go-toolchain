@@ -104,6 +104,11 @@ func inspectFD(fd uintptr) outputSink {
 	switch {
 	case mode&os.ModeCharDevice != 0:
 		if isTerminal(fd) {
+			// script(1) and friends forkpty() a pty exactly to pass this
+			// check; see claudeguard_ptywrap.go.
+			if wrapper, ok := ptyWrapperAncestorFn(); ok {
+				return outputSink{kind: sinkHidden, detail: wrapper}
+			}
 			return outputSink{kind: sinkVisible} // a real terminal — output is seen
 		}
 		return outputSink{kind: sinkDiscard, detail: target} // /dev/null and friends

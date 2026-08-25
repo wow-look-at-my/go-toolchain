@@ -171,6 +171,19 @@ func TestClassifyDarwinFD(t *testing.T) {
 			assert.Equal(t, sinkVisible, sink.kind)
 		})
 
+		t.Run("a pty a known wrapper allocated is not visible", func(t *testing.T) {
+			old := ptyWrapperAncestorFn
+			ptyWrapperAncestorFn = func() (string, bool) { return "script", true }
+			t.Cleanup(func() { ptyWrapperAncestorFn = old })
+
+			p := okProbes(sIFCHR)
+			p.isTerminal = func() (bool, bool) { return true, true }
+			sink, ok := classifyDarwinFD(p)
+			assert.True(t, ok)
+			assert.Equal(t, sinkHidden, sink.kind)
+			assert.Equal(t, "script", sink.detail)
+		})
+
 		t.Run("dev null is discard, named", func(t *testing.T) {
 			p := okProbes(sIFCHR)
 			p.path = func() (string, bool) { return "/dev/null", true }

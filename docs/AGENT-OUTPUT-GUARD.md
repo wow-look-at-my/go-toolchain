@@ -67,7 +67,8 @@ platform that can actually introspect a file descriptor. A third platform
 - **Regular file** — allowed only if its path is the harness capture
   (`isHarnessCapturePath`: contains `CLAUDE_CODE_SESSION_ID`, or ends `.output`
   under a `claude` path).
-- **Char device** — allowed only if it is a real terminal.
+- **Char device** — allowed only if it is a real terminal AND no known
+  pty-wrapping tool is an ancestor (`claudeguard_ptywrap.go`; see below).
 
 **`claudeguard_darwin.go`** (`//go:build darwin`) classifies fd 1 without
 `/proc`, which darwin does not have:
@@ -98,6 +99,50 @@ platform that can actually introspect a file descriptor. A third platform
   fcntl, darwin's one substitute for `/proc/self/fd`'s readlink.
 - **Char device** — `isTerminal` uses the `github.com/mattn/go-isatty`
   package (its BSD/darwin variant), not a hand-rolled ioctl.
+
+## A pty cannot name its own reader: the `script(1)` bypass
+
+isatty answers one question -- "is this a terminal device" -- and a pty
+slave answers yes to it unconditionally, whoever allocated the pty and
+whatever they do with the master side. `script -qec "go-toolchain" out.log`
+(util-linux) forkpty()s a FRESH pty, dup2()s it onto the child's stdin,
+stdout AND stderr, and copies everything the pty produces to `out.log` --
+byte for byte, the same output the guard exists to keep out of a file. Before
+`claudeguard_ptywrap.go` existed, the char-device branch above stopped at
+`isTerminal(fd)` returning true and classified this as `sinkVisible`: a real
+terminal, nothing to refuse. It was not a real terminal a human was watching
+-- it was a recording device wearing a terminal's clothes, and go-toolchain's
+FULL output landed in `out.log` for an agent to read selectively instead of
+in its transcript.
+
+isatty cannot see the wrapper; ancestry can. `claudeguard_ptywrap.go` walks
+this process's parent chain (`agent.CommPPID`, the same lookup agent
+detection itself uses) and checks each comm against a short, exact-match
+roster of tools whose whole purpose is forkpty()-ing a child to make its
+isatty() checks pass: `script`, `scriptreplay`, `ttyrec`, `ttyplay`,
+`asciinema`, `unbuffer`, `expect`. A char device that passes isatty AND has
+one of these as an ancestor classifies as `sinkHidden` (detail: the wrapper's
+name) instead of `sinkVisible`.
+
+`tmux` and `screen` are deliberately absent from that roster: they also
+forkpty(), but they relay a real pty to another real display a human
+attends to, not to a file an agent can grep afterward. Adding them would
+refuse every developer's ordinary multiplexed session -- the same
+false-positive cost `isHarnessPipeReader`'s ancestry allowance exists to
+avoid on the pipe/socket side.
+
+This closes the same class of gap `isCapturePathFn`/`isHarnessCapturePath`
+polices on the regular-file side, from the opposite direction: there, a
+FILE that LOOKS hidden is let through because the harness itself owns it;
+here, a TERMINAL that looks visible is refused because a known wrapper, not
+a human, owns it. Both are advisory, exactly like agent detection itself
+(see the package comment in `is-this-an-agent`): a renamed wrapper binary,
+or one not on the roster, is a known gap, not a promise. Test coverage:
+`claudeguard_ptywrap_test.go` drives the ancestry walk itself against a fake
+process chain; `claudeguard_test.go`'s `TestScriptWrapperCannotFakeATerminal`
+reproduces the reported bypass verbatim, for real, against the actual
+`script(1)` binary; `claudeguard_darwinclassify_test.go` covers the same
+branch in the build-constraint-free darwin decision table.
 
 ## Build constraints
 
@@ -209,6 +254,16 @@ flag to disable it.
   skips itself outside `linux`, since it exercises `claudeguard_proc.go`
   specifically). The roster's own behavior — env markers, process prefixes,
   exported pid, the ancestry walk — is tested in is-this-an-agent.
+  `TestScriptWrapperCannotFakeATerminal` reproduces the reported `script(1)`
+  bypass for real, through the actual binary, via `runScriptWrapperHelper`.
+- `src/cmd/claudeguard_ptywrap_test.go` — `ptyWrapperAncestor`'s walk against
+  a fake process chain: finds a wrapper a few hops up, every roster name
+  matches, a fully-resolvable wrapper-free chain answers not-found, an
+  unresolvable ancestor ends the walk rather than guessing, `script` does not
+  match a `scripts-runner` prefix, `tmux`/`screen` are not treated as
+  recording wrappers, and a cycle terminates at `ptyWrapperMaxHops`.
+  Build-constraint-free — the walk logic needs no platform primitive itself
+  and runs on every OS this repo tests on.
 - `src/cmd/claudeguard_darwin_test.go` (`//go:build darwin`) — the darwin
   classifier's own sink classification, `fdPath`'s F_GETPATH recovery,
   `socketPeerPID`'s raw getsockopt call against a real socketpair, and
