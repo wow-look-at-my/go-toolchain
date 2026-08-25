@@ -30,7 +30,13 @@ import (
 func TestMain(m *testing.M) {
 	if os.Getenv("CLAUDEGUARD_TEST_HELPER") == "inspect_fd1" {
 		s := inspectFD(1)
-		os.Stderr.WriteString("HELPER_KIND=" + strconv.Itoa(int(s.kind)) + " HELPER_DETAIL=" + s.detail + "\n")
+		result := "HELPER_KIND=" + strconv.Itoa(int(s.kind)) + " HELPER_DETAIL=" + s.detail + "\n"
+		if path := os.Getenv("CLAUDEGUARD_TEST_RESULT_FILE"); path != "" {
+			// script(1) dup2s fd 2 onto the same pty as fd 1; use a plain file instead.
+			_ = os.WriteFile(path, []byte(result), 0o600)
+		} else {
+			os.Stderr.WriteString(result)
+		}
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
@@ -65,6 +71,62 @@ func runSocketPeerHelper(t *testing.T, extraEnv ...string) (sinkKind, string) {
 	k, err := strconv.Atoi(kindStr)
 	require.NoError(t, err)
 	return sinkKind(k), detail
+}
+
+// runScriptWrapperHelper reproduces the reported bypass verbatim:
+// `script -qec "<helper>" LOGFILE`. script(1) forkpty()s a fresh pty and
+// dup2s it onto the child's stdin/stdout/stderr, so isatty(1) passes inside
+// the helper even though script simultaneously writes everything the pty
+// produces to LOGFILE byte for byte -- the exact hole ptyWrapperAncestor
+// (claudeguard_ptywrap.go) closes. The helper reports what it saw through a
+// plain file, never stderr: under script, stderr is the SAME recorded pty as
+// stdout, so writing there would land in the log this test is trying to
+// prove is a problem.
+func runScriptWrapperHelper(t *testing.T, extraEnv ...string) (kind sinkKind, detail, log string) {
+	t.Helper()
+	if _, err := exec.LookPath("script"); err != nil {
+		t.Skip("script(1) not on PATH")
+	}
+	dir := t.TempDir()
+	logPath := dir + "/typescript.log"
+	resultPath := dir + "/result.txt"
+
+	cmd := exec.Command("script", "-qec", os.Args[0], logPath)
+	cmd.Env = append(append([]string{}, os.Environ()...), append(extraEnv,
+		"CLAUDEGUARD_TEST_HELPER=inspect_fd1",
+		"CLAUDEGUARD_TEST_RESULT_FILE="+resultPath,
+	)...)
+	require.NoError(t, cmd.Run())
+
+	out, err := os.ReadFile(resultPath)
+	require.NoError(t, err, "helper under script(1) never wrote a result")
+	rest, ok := strings.CutPrefix(strings.TrimSpace(string(out)), "HELPER_KIND=")
+	require.True(t, ok, "unexpected helper output: %q", out)
+	kindStr, d, ok := strings.Cut(rest, " HELPER_DETAIL=")
+	require.True(t, ok, "unexpected helper output: %q", out)
+	k, err := strconv.Atoi(kindStr)
+	require.NoError(t, err)
+
+	logBytes, _ := os.ReadFile(logPath)
+	return sinkKind(k), d, string(logBytes)
+}
+
+// TestScriptWrapperCannotFakeATerminal is the reported bypass, run for real:
+// `script -qec "go-toolchain" /tmp/gt-full3.log` (here, the test helper
+// standing in for go-toolchain). Before ptyWrapperAncestor existed, fd 1's
+// isatty() check alone would have classified this as sinkVisible -- a real
+// terminal -- because a pty slave IS one, regardless of who allocated it.
+func TestScriptWrapperCannotFakeATerminal(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs /proc (linux)")
+	}
+	kind, detail, log := runScriptWrapperHelper(t, "CLAUDECODE=1")
+	assert.Equal(t, sinkHidden, kind, "a pty script(1) allocated must not read as a real terminal")
+	assert.Equal(t, "script", detail)
+	// Sanity: script(1) really ran and recorded a typescript, proving this
+	// exercised the pty path rather than some other descriptor.
+	assert.Contains(t, log, "Script started")
+	assert.Contains(t, log, "Script done")
 }
 
 func TestAgentOutputMessageVariants(t *testing.T) {
