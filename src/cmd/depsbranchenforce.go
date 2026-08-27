@@ -203,7 +203,7 @@ func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version 
 	if !jsonOutput {
 		switch {
 		case !m.tracks:
-			logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, marked.describe())
+			logger.Info("⇒ %s: version pin %s is not branch-tracked, marking it to follow %s", mod, version, marked.meaning())
 		case m.legacy:
 			logger.Info("⇒ %s: %s%s becomes %s", mod, legacyBranchMarker, m.branch, marked.comment())
 		}

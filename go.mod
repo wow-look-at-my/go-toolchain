@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/dats v0.0.0-20260824152328-2d06e71148be // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-containers v0.0.0-20260820210621-2e1261867045 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-mmap v0.0.0-20260824191519-1d122070e11e // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260823195827-77471848149d // go-toolchain:auto-branch
 	go.opentelemetry.io/otel v1.45.0
