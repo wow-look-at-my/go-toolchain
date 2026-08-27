@@ -97,16 +97,13 @@ func TestFindGoModules_NoModules(t *testing.T) {
 // cache skip — cobra passes the leaf command to PersistentPreRunE, so the
 // skip check has to walk ancestors. Regression test for the release-job
 // "Determine tag" failure from `./build/go-toolchain version raw`.
-// version is NOT exempt from the agent output guard (only cacheprog is), so
-// running PersistentPreRunE end-to-end here stubs runningUnderAgentFn to
-// "not an agent" -- otherwise a real agent session running this test would
-// hit the guard's os.Exit(1) and kill the whole test binary.
+// version is exempt from the agent output guard too: it prints build metadata
+// and no build result, and this repository's own dats suite runs it -- dats
+// captures stdout to assert on it, so a guarded version fails the integration
+// phase of every run under an agent.
 func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 	defer saveCacheEnv(t)()
 	os.Setenv("CI", "true") // would fail validateCICacheConfig if reached
-	origUnder := runningUnderAgentFn
-	runningUnderAgentFn = func() (string, bool) { return "", false }
-	t.Cleanup(func() { runningUnderAgentFn = origUnder })
 
 	for _, argv := range [][]string{
 		{"version"},
@@ -119,8 +116,8 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 			require.NotNil(t, leaf)
 			assert.True(t, skipCache(leaf),
 				"skipCache should return true for %q (Name=%q)", argv, leaf.Name())
-			assert.False(t, skipAgentGuard(leaf),
-				"skipAgentGuard should be false for %q -- only cacheprog is exempt", argv)
+			assert.True(t, skipAgentGuard(leaf),
+				"skipAgentGuard should be true for %q -- it prints no build result", argv)
 			// End-to-end: PersistentPreRunE must not fail for this leaf even when CI cache vars are unset.
 			assert.NoError(t, rootCmd.PersistentPreRunE(leaf, nil))
 		})

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
@@ -51,10 +52,18 @@ func skipCache(cmd *cobra.Command) bool {
 	return false
 }
 
-// skipAgentGuard: only cacheprog is exempt, since its stdout IS the protocol channel.
+// unguardedCmds print no build result, so capturing their stdout hides nothing
+// the guard exists to protect. cacheprog's stdout IS a machine protocol.
+// version reports four lines of build metadata and is what this repository's
+// own dats suite runs -- dats captures a command's stdout to assert on it, so
+// a guarded `version` refuses inside the integration phase and fails the build
+// for the very reader the guard is for.
+var unguardedCmds = set.Of("cacheprog", "version")
+
+// skipAgentGuard reports whether cmd or an ancestor prints no build result.
 func skipAgentGuard(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "cacheprog" {
+		if unguardedCmds.Contains(c.Name()) {
 			return true
 		}
 	}
