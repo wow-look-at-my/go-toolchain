@@ -12,11 +12,6 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 )
 
-// The fixer rewrites a map or a slice the checks proved is a set. Every shape
-// it accepts has one set spelling, so the rewrite preserves behavior. A shape
-// it cannot spell blocks the whole variable: a half-rewritten variable does
-// not compile. Depth: docs/VET.md
-
 // setPkgName is the local name the rewrite spells the set package as.
 const setPkgName = "set"
 
@@ -93,7 +88,8 @@ func initializedVars(pass *analysis.Pass) map[ast.Expr]types.Object {
 }
 
 // setRewrites returns the edits that turn obj into a set, or nil when any use
-// of obj has no set spelling.
+// of obj has no set spelling. Half a rewrite does not compile, so one
+// unspellable use blocks the whole variable. Depth: docs/VET.md
 func setRewrites(pass *analysis.Pass, obj types.Object, kind setKind) []fileEdit {
 	if obj == nil {
 		return nil

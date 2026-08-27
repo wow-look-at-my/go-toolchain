@@ -14,9 +14,8 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// TestSliceSetAnalyzer: a slice the package builds and only asks membership of
-// is reported, and so are the literal lookup and the insert-if-absent append.
-// A slice read by position, handed away, or owned by a caller is not.
+// TestSliceSetAnalyzer runs the fixture: every shape the check reports, and
+// every neighbouring shape it must leave alone.
 func TestSliceSetAnalyzer(t *testing.T) {
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
