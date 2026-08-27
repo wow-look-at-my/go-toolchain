@@ -187,7 +187,7 @@ func rewriteSetDecl(id *ast.Ident, kind setKind, parent ast.Node) (*ASTFix, bool
 		if p.Type == nil {
 			return nil, false
 		}
-		elem := elementType(p.Type, kind)
+		elem := setElementType(p.Type, kind)
 		if elem == nil {
 			return nil, false
 		}
@@ -203,13 +203,13 @@ func constructorFix(value ast.Expr, kind setKind) (*ASTFix, bool) {
 		if len(v.Args) == 0 {
 			return nil, false
 		}
-		elem := elementType(v.Args[0], kind)
+		elem := setElementType(v.Args[0], kind)
 		if elem == nil {
 			return nil, false
 		}
 		return &ASTFix{OldNode: value, NewNodes: []ast.Node{setCall("New", elem)}}, true
 	case *ast.CompositeLit:
-		elem := elementType(v.Type, kind)
+		elem := setElementType(v.Type, kind)
 		if elem == nil {
 			return nil, false
 		}
@@ -243,9 +243,9 @@ func literalElements(lit *ast.CompositeLit, kind setKind) ([]ast.Expr, bool) {
 	return elems, true
 }
 
-// elementType returns the type the set holds, read off the container's type
+// setElementType returns the type the set holds, read off the container's type
 // expression. A slice with a length is a buffer, so it has none.
-func elementType(expr ast.Expr, kind setKind) ast.Expr {
+func setElementType(expr ast.Expr, kind setKind) ast.Expr {
 	switch t := expr.(type) {
 	case *ast.MapType:
 		if kind == setFromMap {

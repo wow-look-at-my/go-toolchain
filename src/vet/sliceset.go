@@ -89,7 +89,7 @@ func rewriteLiteralLookup(call *ast.CallExpr, lit *ast.CompositeLit) (ASTFix, bo
 	if sel.Sel.Name != "Contains" || len(call.Args) != 2 {
 		return ASTFix{}, false
 	}
-	elem := elementType(lit.Type, setFromSlice)
+	elem := setElementType(lit.Type, setFromSlice)
 	if elem == nil {
 		return ASTFix{}, false
 	}
