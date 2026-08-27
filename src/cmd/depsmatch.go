@@ -30,12 +30,22 @@ type branchMatcher struct {
 	r runner.CommandRunner
 	// branch is this repository's checked-out branch, empty when there is none to match.
 	branch string
+	// asked keeps the branch lookup lazy: a go.mod with no bare marker pays nothing.
+	asked bool
 	// seen maps a module path to the branch it matched, "" for the default branch.
 	seen map[string]string
 }
 
 func newBranchMatcher(r runner.CommandRunner) *branchMatcher {
-	return &branchMatcher{r: r, branch: currentBranch(r), seen: map[string]string{}}
+	return &branchMatcher{r: r, seen: map[string]string{}}
+}
+
+// here is this repository's branch, looked up the first time a line needs it.
+func (bm *branchMatcher) here() string {
+	if !bm.asked {
+		bm.branch, bm.asked = currentBranch(bm.r), true
+	}
+	return bm.branch
 }
 
 // currentBranch is the branch this repository is on, empty when there is none:
@@ -56,7 +66,7 @@ func currentBranch(r runner.CommandRunner) string {
 // the default branch. The answer is cached per module: a repository is asked
 // once however many of its modules a go.mod requires.
 func (bm *branchMatcher) match(mod string) string {
-	if bm.branch == "" {
+	if bm.here() == "" {
 		return ""
 	}
 	if branch, asked := bm.seen[mod]; asked {
