@@ -39,11 +39,28 @@ dependency someone deliberately pinned to a non-default branch would silently dr
 require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:auto-branch=v1
 ```
 
-**The marker names no branch by default.** `// go-toolchain:auto-branch` follows the module's
-*default* branch, asked of the remote on every run. A branch's name lives on the remote, and a copy
-of it in `go.mod` is one more thing that goes stale — the day a default branch is renamed, every
-hardcoded copy across the org resolves to nothing. `auto-branch=<name>` names a different branch
+**The marker names no branch by default.** A branch's name lives on the remote, and a copy of it in
+`go.mod` is one more thing that goes stale — the day a default branch is renamed, every hardcoded
+copy across the org resolves to nothing. `auto-branch=<name>` names a different branch
 deliberately, and that is the only form that hardcodes anything.
+
+**A bare marker follows the dependency's branch of *this repository's* name, when it has one, and
+its default branch otherwise** (`src/cmd/depsmatch.go`). Two repositories developed in tandem carry
+the same branch name: the change spans both, and neither half is finished without the other. So on
+the feature branch each side builds against the other's feature branch, and when the merge deletes
+that branch the match stops matching and both fall back to the default branch, which now carries
+the same code. Nothing was written down, so nothing has to be repointed — and nothing is left
+pointing at a branch that no longer exists.
+
+Three things all mean "follow the default branch": this repository is on a detached HEAD (or is not
+a repository), the dependency has no branch of that name, or the dependency's own HEAD already
+points at it. The matching branch and the default branch are one `ls-remote`, not two round trips,
+and the answer is cached per module. A `go.mod` with no branch-tracked line asks nothing at all.
+
+A matched branch is a *resolution*, never a rewrite: it is never written into `go.mod`. Writing it
+there would leave behind exactly the pin at a soon-deleted branch that the matching exists to avoid.
+`auto-branch=<name>` is never matched against — it says which branch, and that answer must not
+depend on where the reader is standing.
 
 **There is one marker, and it is the whole vocabulary.** A line either follows a branch or it does
 not, and the only thing it ever names is a branch that is not the default:
@@ -146,8 +163,11 @@ So a marker naming an explicit branch is checked against the open pull requests 
 it belongs to. In CI this FAILS, because CI is the last look at a change before it merges and green
 there is what the merge is decided on. Locally it only warns: developing two repos in tandem,
 pointed at each other's unmerged branches, is a real workflow, and the warning is the reminder to
-repoint before the pull request goes up. A bare `auto-branch` is never checked — it names no
-branch, so it cannot be pointed at a temporary one.
+repoint before the pull request goes up.
+
+A bare `auto-branch` is never checked. It *can* match a branch with an open pull request — that is
+the tandem workflow above — but it wrote nothing down, so the merge that deletes the branch is also
+what makes it stop matching. There is nothing to repoint, so there is nothing to warn about.
 
 The check needs the GitHub API, and it answers "cannot tell" as no finding plus a warning: a guard
 that turned an unreachable API into a failed build would fail runs over the network rather than
@@ -190,8 +210,8 @@ ran `go get`. These modules are co-developed with their consumers and have no re
 pin to, so nothing ever moves that snapshot forward and the consumer silently builds against
 month-old code. The branch pin is therefore the canonical form for them, and `go.mod` is
 rewritten into it: an org require or replace carrying a plain version gets the bare
-`// go-toolchain:auto-branch` comment appended. That costs no lookup — it names no branch, so there
-is nothing to ask until the line is resolved.
+`// go-toolchain:auto-branch` comment appended. Appending it costs no lookup — it names no branch,
+so there is nothing to ask until the line is resolved.
 
 A line already carrying the canonical marker is left exactly as it is. The legacy spelling is
 migrated, which is the one place this asks the remote anything (see above).
