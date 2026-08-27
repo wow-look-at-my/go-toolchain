@@ -103,8 +103,11 @@ coverage.
   resolves ONCE (`repoResolver`), so two of its modules cannot land on different commits. And the
   re-resolution is excluded from the CI dirty check, so it never demands a bump commit; the exclusion covers the version
   token on a same-marker line plus the `go.sum` hashes that follow it, nothing else. Depth: `docs/DEPS.md`
-- Markers (`src/cmd/depsmarker.go`): ONE marker is the whole vocabulary. `auto-branch` follows the module's DEFAULT branch
-  and names none, so a renamed default breaks nothing; `auto-branch=<name>` is the deliberate non-default choice. Nothing
+- Markers (`src/cmd/depsmarker.go`, `depsmatch.go`): ONE marker is the whole vocabulary. `auto-branch` names no branch:
+  it follows the dependency's branch of THIS repository's name when it has one, else the DEFAULT branch -- so two repos
+  developed in tandem build against each other while the change is in flight, and the merge that deletes the branch is
+  what ends the match. A matched branch is never written into `go.mod`. `auto-branch=<name>` is the deliberate
+  non-default choice and is never matched against. Nothing
   declares repository membership -- `repoResolver` reads that off the repository. The legacy `branch=<name>` spelling is
   still read and migrates itself, dropping a name that merely repeats the default branch. Respelling the marker again takes
   TWO releases (read it, then write it one release later): an older binary treats an unrecognized marker as an untracked

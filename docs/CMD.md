@@ -118,7 +118,8 @@ agent AND its stdout is hidden — any pipe not read by the agent itself, a
 WHICH agents, and how to spot one, is
 `github.com/wow-look-at-my/is-this-an-agent`, not this repo; add an agent there.
 
-Unconditional, no opt-out; `cacheprog`/`version`/`install`/`release` are exempt.
+Unconditional, no opt-out. `cacheprog` and `version` are exempt because neither
+prints a build result; `install`/`release` skip only the build cache.
 See `docs/AGENT-OUTPUT-GUARD.md` for the roster, the stdout classifier and the
 `linux||cosmo` build-tag requirement.
 

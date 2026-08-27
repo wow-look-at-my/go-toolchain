@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/codeql"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
@@ -51,10 +52,13 @@ func skipCache(cmd *cobra.Command) bool {
 	return false
 }
 
-// skipAgentGuard: only cacheprog is exempt, since its stdout IS the protocol channel.
+// unguardedCmds print no build result, so a capture hides nothing. Depth: docs/AGENT-OUTPUT-GUARD.md.
+var unguardedCmds = set.Of("cacheprog", "version")
+
+// skipAgentGuard reports whether cmd or an ancestor prints no build result.
 func skipAgentGuard(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "cacheprog" {
+		if unguardedCmds.Contains(c.Name()) {
 			return true
 		}
 	}

@@ -101,12 +101,13 @@ func (rr *repoResolver) close() {
 // shipping together, so a line held at an old version holds its siblings at
 // that same old commit. Following the branch there would pair a pinned module
 // with siblings from today, which is the mismatch the pin exists to avoid.
-func siblingAnchor(req *modfile.Require, m marker) (commitAnchor, bool) {
+func siblingAnchor(req *modfile.Require, m marker, bm *branchMatcher) (commitAnchor, bool) {
 	if req.Indirect {
 		return commitAnchor{}, false // an indirect line is somebody else's answer
 	}
 	if m.tracks {
-		return commitAnchor{ref: m.ref(), branch: m.branch, desc: m.describe()}, true
+		mod := req.Mod.Path
+		return commitAnchor{ref: bm.ref(mod, m), branch: bm.branchFor(mod, m), desc: bm.describe(mod, m)}, true
 	}
 	if !hasPinnedMarker(req.Syntax) || !isOrgModule(req.Mod.Path) {
 		return commitAnchor{}, false
@@ -163,6 +164,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	// Resolve everything first, write once, so a failure partway through leaves go.mod untouched, not half-moved.
 	resolver := &repoResolver{r: r, main: mainModule}
 	defer resolver.close()
+	bm := newBranchMatcher(r)
 
 	resolved := map[string]branchPin{}
 	siblings := map[string]branchPin{}
@@ -170,7 +172,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	var unchecked []string
 	for _, req := range f.Require {
 		m := parseMarker(req.Syntax)
-		anchor, isAnchor := siblingAnchor(req, m)
+		anchor, isAnchor := siblingAnchor(req, m, bm)
 		if !isAnchor {
 			continue
 		}
@@ -211,7 +213,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 			continue // this run owns the line; tidy is what marked it indirect
 		}
 		logger.Warn("%s follows %s but is marked indirect; make it a direct dependency, track it through a replace instead (replace %s => <repo> <version> // %s -- a replace is main-module-only, so it covers direct and indirect requires alike), or drop the %s comment",
-			req.Mod.Path, m.describe(), req.Mod.Path, m.comment(), autoBranchMarker)
+			req.Mod.Path, m.meaning(), req.Mod.Path, m.comment(), autoBranchMarker)
 	}
 
 	changed := false
@@ -221,7 +223,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 			continue
 		}
 		if !jsonOutput {
-			logger.Info("⇒ Updating %s (following %s): %s -> %s", req.Mod.Path, pin.marker.describe(), req.Mod.Version, pin.version)
+			logger.Info("⇒ Updating %s (following %s): %s -> %s", req.Mod.Path, bm.describe(req.Mod.Path, pin.marker), req.Mod.Version, pin.version)
 		}
 		if err := f.AddRequire(req.Mod.Path, pin.version); err != nil {
 			return false, fmt.Errorf("failed to update %s: %w", req.Mod.Path, err)
@@ -266,16 +268,16 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 			}
 		}
 
-		version, err := resolveVersionViaGit(r, rep.New.Path, m.ref())
+		version, err := resolveVersionViaGit(r, rep.New.Path, bm.ref(rep.New.Path, m))
 		if err != nil {
-			return changed, fmt.Errorf("failed to resolve %s at %s: %w", rep.New.Path, m.describe(), err)
+			return changed, fmt.Errorf("failed to resolve %s at %s: %w", rep.New.Path, bm.describe(rep.New.Path, m), err)
 		}
 		if version == rep.New.Version {
 			continue
 		}
 
 		if !jsonOutput {
-			logger.Info("⇒ Updating %s (following %s): %s -> %s", rep.New.Path, m.describe(), rep.New.Version, version)
+			logger.Info("⇒ Updating %s (following %s): %s -> %s", rep.New.Path, bm.describe(rep.New.Path, m), rep.New.Version, version)
 		}
 		if err := f.AddReplace(rep.Old.Path, rep.Old.Version, rep.New.Path, version); err != nil {
 			return changed, fmt.Errorf("failed to update %s: %w", rep.New.Path, err)
@@ -363,12 +365,13 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 	if err != nil {
 		return false
 	}
+	bm := newBranchMatcher(r)
 	for _, req := range f.Require {
 		m := parseMarker(req.Syntax)
 		if !m.tracks || req.Indirect {
 			continue // an indirect sibling moves with the direct line checked here
 		}
-		version, err := resolveVersionViaGit(r, req.Mod.Path, m.ref())
+		version, err := resolveVersionViaGit(r, req.Mod.Path, bm.ref(req.Mod.Path, m))
 		if err != nil {
 			continue
 		}
@@ -381,7 +384,7 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 		if !m.tracks || isLocalReplacement(rep.New) {
 			continue
 		}
-		version, err := resolveVersionViaGit(r, rep.New.Path, m.ref())
+		version, err := resolveVersionViaGit(r, rep.New.Path, bm.ref(rep.New.Path, m))
 		if err != nil {
 			continue
 		}
