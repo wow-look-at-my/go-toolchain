@@ -94,6 +94,91 @@ rules already leave a real map alone: write one `false`, read with `v, ok :=`,
 or hand the map to another function, and nothing fires.
 
 
+## sliceset: a slice the package asks membership of
+
+`src/vet/sliceset.go` closes the exit the map check used to leave open. Told
+that a `map[K]bool` is a set, the cheapest way out is a `[]K` and
+`slices.Contains`, which answers the same question by walking every element
+that was ever added. The remedy is the same package, so the check is the same
+shape: an org module FAILS, everybody else WARNS (`isOrgModule`).
+
+Three findings:
+
+- a slice literal spelled inside the lookup --
+  `slices.Contains([]string{"linux", "darwin"}, name)`. The literal exists for
+  that one question and has no other use.
+- `if !slices.Contains(s, v) { s = append(s, v) }`. Add-if-absent IS a set
+  insert, whatever `s` does afterwards, and it costs a scan per insert. The
+  absence test also reads `slices.Index(s, v) < 0` and `== -1`.
+- a slice the package creates whose every use is a set operation, and which
+  it asks membership of at least once.
+
+That last one is the map rule with slices' vocabulary. The uses it accepts are
+`append` back into the same variable, `len`, a value-only `range`, a
+comparison against `nil`, `slices.Contains`, and a `slices.Index` compared
+against a constant. A membership test is what makes the slice a set: append
+and range alone are a list, and a list stays a list.
+
+**Writing the scan out by hand does not escape the check.** A loop over a
+candidate whose body is one `if` comparing the element to a value IS
+`slices.Contains`, and it counts as the membership read that reports the
+slice.
+
+### What keeps a slice a slice
+
+Position and repetition are what a slice has and a set does not, so any use
+that could read either one drops the candidate: an index or a slice
+expression, a `range` whose key is used, the slice spread into somebody
+else's `append`, a `slices.Index` whose result is the answer, and the slice
+as an argument, a return, a field or a channel value. `validGOOS` in
+`src/cmd/targets.go` is the honest version of that last one: membership
+decides the flag, and `strings.Join` renders the error, so the order is part
+of what the variable is for.
+
+A parameter is not a candidate either. It arrives from a caller, and what to
+store it in is that caller's decision. A `[]byte` is a buffer, and an element
+type that is not comparable cannot be a set member.
+
+
+## The fixer: what the checks prove, they rewrite
+
+`src/vet/setfix.go` turns a reported map or slice into a set. It runs for both
+checks, because both name the same remedy.
+
+| before | after |
+| --- | --- |
+| `make(map[K]bool)`, `map[K]bool{}`, `make([]T, 0)`, `[]T{}` | `set.New[K]()` |
+| `map[K]bool{"a": true}`, `[]T{a, b}` | `set.Of[K]("a")`, `set.Of[T](a, b)` |
+| `var m map[K]bool` | `var m set.Set[K]` |
+| `m[k] = true`, `s = append(s, v)` | `m.Add(k)`, `s.Add(v)` |
+| `m[k]`, `slices.Contains(s, v)` | `m.Contains(k)`, `s.Contains(v)` |
+| `delete(m, k)`, `clear(m)`, `len(m)` | `m.Remove(k)`, `m.Clear()`, `m.Len()` |
+| `for k := range m`, `for _, v := range s` | `for k := range m.All()` |
+
+The type argument is written out. `set.Of(1, 2)` off a `[]float64` literal
+would infer `int`, and `set.Of[float64](1, 2)` cannot.
+
+**One use with no spelling blocks the whole variable.** Half a rewrite does not
+compile, so the finding stays a diagnostic and the file is untouched. The same
+answer covers a `slices.Index` read, a `nil` comparison, and an append whose
+result lands somewhere else.
+
+### What the fixer refuses to touch
+
+The rewrite is only safe when this pass sees every use (`setFixable`), so a
+package-level variable is fixed only when it is unexported AND its directory
+holds no `_test.go` file. An exported one is reachable from another package.
+An unexported one is reachable from the package's test files, which the plain
+package variant does not hold -- rewriting the declaration from that variant
+would leave the test files calling `m[k] = true` on a `Set`. A local variable
+is used where it is declared, so it is always fixable.
+
+A file that already binds the name `set` to something else keeps its
+diagnostic and loses its fix (`setNameFree`). The fix goes through the same
+`Editor` as every other AST fix: it writes locally, and on CI the analyzer's
+own diagnostic is what fails the build.
+
+
 ## writeruns: a document spelled one write at a time
 
 `src/vet/writeruns.go` reports the shape this repo wrote in five places before

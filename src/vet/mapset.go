@@ -39,6 +39,8 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 		}
 	}
 
+	var edits []fileEdit
+	inits := initializedVars(pass)
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			lit, ok := n.(*ast.CompositeLit)
@@ -50,6 +52,9 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			report(lit.Pos(), "map[…]bool with every value true is a set, not a map: use %s.Of(…) instead", setPackage)
+			if obj := inits[lit]; setFixable(pass, obj) {
+				edits = append(edits, setRewrites(pass, obj, setFromMap)...)
+			}
 			return true
 		})
 	}
@@ -61,13 +66,17 @@ func runMapSet(pass *analysis.Pass) (any, error) {
 		}
 	}
 
-	for _, c := range mapSetCandidates(pass) {
-		if c.writes > 0 && !c.disqualified {
-			report(c.pos, "map[…]bool is only ever used as a set: use %s.Set instead", setPackage)
+	for obj, c := range mapSetCandidates(pass) {
+		if c.writes == 0 || c.disqualified {
+			continue
+		}
+		report(c.pos, "map[…]bool is only ever used as a set: use %s.Set instead", setPackage)
+		if setFixable(pass, obj) {
+			edits = append(edits, setRewrites(pass, obj, setFromMap)...)
 		}
 	}
 
-	return []*ASTFixes(nil), nil
+	return setFixesByFile(pass, edits), nil
 }
 
 // warnEmptyStructMaps warns about a map[K]struct{}: it already carries no value, so

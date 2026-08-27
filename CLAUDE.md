@@ -221,7 +221,20 @@ coverage.
   every use is a `true` write, delete, clear, len, key-only range or index read. Both FAIL, naming `go-containers/set`. A `v, ok :=` read, a computed
   value, or the map escaping to another function keeps it a map. A `map[K]struct{}` only WARNS (deduplicated per file:line by
   `resetMapSetWarnings`; the `set` package itself is exempt, `isSetPackage`, since `Set[T]` IS that map) — it already carries no value. No opt-out marker, and no
-  module skips the check: an org module FAILS on the bool findings (`isOrgModule`), everyone else WARNS on them. Depth: `docs/VET.md`
+  module skips the check: an org module FAILS on the bool findings (`isOrgModule`), everyone else WARNS on them. A bool finding is also REWRITTEN
+  wherever every use is visible — see `src/vet/setfix.go`. Depth: `docs/VET.md`
+- `src/vet/sliceset.go` — the `sliceset` analyzer: told a `map[K]bool` is a set, the cheapest exit is a slice and `slices.Contains`, which answers the
+  same question by walking everything ever added. So a slice the package creates and asks membership of is a set too, on the same org-FAILS /
+  everyone-else-WARNS split. Three findings: a literal spelled inside the lookup, `if !slices.Contains(s, v) { s = append(s, v) }` (add-if-absent IS
+  an insert), and a slice whose every use is a set op. A loop comparing each element to one value IS `slices.Contains`, so writing the scan out by
+  hand does not escape. Position and repetition are what a slice has and a set does not, so an index, a keyed range, a spread, or the slice as an
+  argument or a return keeps it a slice — `validGOOS`'s `strings.Join` is the honest version of that. A parameter belongs to its caller. Depth:
+  `docs/VET.md`
+- `src/vet/setfix.go` — the fixer both set checks share: `make`→`set.New[K]()`, an all-true or element literal→`set.Of[K](…)`, `m[k]=true` and
+  `append`→`Add`, a read and `slices.Contains`→`Contains`, `delete`→`Remove`, `len`→`Len`, `range`→`range …All()`, and the import. The type argument
+  is explicit, because `set.Of(1, 2)` off a `[]float64` literal infers `int`. ONE use with no set spelling blocks the whole variable — half a rewrite
+  does not compile — and so does a package-level variable this pass cannot see every use of (exported, or a directory holding a `_test.go` the plain
+  package variant does not carry). Depth: `docs/VET.md`
 - `src/vet/writeruns.go` — the `writeruns` analyzer: three or more adjacent statements writing source-spelled text to ONE writer are a document
   nobody can read in the source, so the third and each later write WARNS and names `text/template`. Never a build failure by itself; a long run still
   fails through the warnings budget, which this repo's 25-write mermaid header did. A run ends at any other statement, at a different writer, and at
