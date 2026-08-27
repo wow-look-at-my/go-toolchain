@@ -37,6 +37,7 @@ func Analyzers() []*analysis.Analyzer {
 		CommentSpanAnalyzer,
 		MapSetAnalyzer,
 		RedundantCastAnalyzer,
+		SliceSetAnalyzer,
 		TestifyCastAnalyzer,
 		WriteRunsAnalyzer,
 	}
@@ -142,6 +143,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 
 	// Every build-tag config the module needs; buildtags.Verify below proves none was missed.
 	resetMapSetWarnings()
+	resetSliceSetWarnings()
 	resetWriteRunWarnings()
 	resetCommentSpanWarnings()
 	discovery, err := buildtags.Scan(".")
