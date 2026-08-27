@@ -57,18 +57,20 @@ tests:
 		"!stderr":
 			- "panic"
 
-	# Only cacheprog is exempt from the guard; version is not, so a captured
-	# `version raw` under an agent must refuse just like the root command.
-	- desc: version is NOT exempt from the agent output guard
+	# version prints build metadata and no build result, so it is exempt along
+	# with cacheprog: a captured `version raw` under an agent still answers.
+	# The test above asks the same thing with no marker set, and the two have to
+	# agree -- an agent is exactly who runs this suite, and the guard firing on
+	# version made that pair unsatisfiable.
+	- desc: version is exempt from the agent output guard
 	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
-	  exit: 1
 	  timeout: 30s
 	  inputs:
 		env:
 			CLAUDECODE: "1"
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		stderr:
+		"!stderr":
 			- "refused to run"
 
 	# The guard-positive case: a bare pipeline run under Claude with captured
@@ -256,10 +258,9 @@ tests:
 		"!stdout":
 			- "Build successful"
 
-	# version is refused under every agent, not only Claude.
-	- desc: version is refused under {matrix.marker}
+	# version answers under every agent, not only Claude.
+	- desc: version answers under {matrix.marker}
 	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw'
-	  exit: 1
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -267,7 +268,7 @@ tests:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		stderr:
+		"!stderr":
 			- "refused to run"
 
 	# A directory with neither a module nor suites is the one case that still

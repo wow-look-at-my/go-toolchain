@@ -108,10 +108,11 @@ func TestGithubRepoFromEnv(t *testing.T) {
 	assert.Equal(t, "other-org/other-repo", githubRepo)
 }
 
-// version is NOT exempt from the agent output guard (only cacheprog is), and
-// this test redirects a REAL os.Stdout pipe -- exactly what the guard exists
-// to catch. Stub the agent check so a real agent session running this test
-// doesn't hit the guard's os.Exit(1) and kill the whole test binary.
+// This test redirects a REAL os.Stdout pipe, so it would trip the guard if
+// version were not exempt from it (skipAgentGuard). Stubbing the agent check
+// keeps that independent of the exemption: a change there must fail
+// TestSkipCache_VersionSubcommandsSkip, not kill this whole test binary with
+// the guard's os.Exit(1).
 func TestVersionRaw(t *testing.T) {
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()

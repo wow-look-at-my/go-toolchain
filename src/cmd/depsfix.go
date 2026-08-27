@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -74,15 +75,17 @@ func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, err
 	return resolveVersionViaGit(r, mod, "HEAD")
 }
 
-// resolveGitURLAndRef discovers mod's git repository and the ref's ls-remote
+// resolveGitURLAndRef discovers mod's git repository and the refs' ls-remote
 // output in one pass, trying the full module path as the git URL first and
 // backing off one path segment at a time -- handling a module in a
 // subdirectory of its repository, for any host, with no hardcoded table.
 // Backoff triggers only on a git-level failure, not an empty (but reachable)
-// ls-remote result. Resolving HEAD asks --symref, also reporting the branch
-// it points at, for an older go-toolchain reading go.mod. On total failure,
-// the FIRST error (the full module path) is reported.
-func resolveGitURLAndRef(r runner.CommandRunner, mod, ref string) (gitURL string, output []byte, err error) {
+// ls-remote result. Asking for HEAD adds --symref, which also reports the
+// branch it points at. Several refs are one question, which is how a bare
+// marker learns the default branch and whether a matching one exists without
+// paying for two round trips. On total failure, the FIRST error (the full
+// module path) is reported.
+func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var firstErr error
 	keep := func(e error) {
@@ -92,10 +95,11 @@ func resolveGitURLAndRef(r runner.CommandRunner, mod, ref string) (gitURL string
 	}
 	for i := len(parts); i >= 2; i-- {
 		url := "https://" + strings.Join(parts[:i], "/")
-		args := []string{"ls-remote", url, ref}
-		if ref == "HEAD" {
-			args = []string{"ls-remote", "--symref", url, ref}
+		args := []string{"ls-remote"}
+		if slices.Contains(refs, "HEAD") {
+			args = append(args, "--symref")
 		}
+		args = append(append(args, url), refs...)
 		proc, runErr := runner.Cmd("git", args...).WithQuiet().Run(r)
 		if runErr != nil {
 			keep(fmt.Errorf("git ls-remote %s failed: %w", url, runErr))
@@ -130,12 +134,27 @@ type gitCommit struct {
 	dir string
 }
 
-// parseLsRemote reads a `git ls-remote` answer: the commit the ref points at,
-// and -- with --symref -- the branch a symbolic ref resolves to.
-//
-//	ref: refs/heads/master	HEAD
-//	<hash>	HEAD
+// parseLsRemote reads an answer covering ONE ref: its commit, and the branch a
+// symbolic HEAD resolves to (`ref: refs/heads/master\tHEAD`).
 func parseLsRemote(out []byte) (hash, branch string) {
+	branch = eachLsRemoteRef(out, func(h, _ string) {
+		if hash == "" {
+			hash = h
+		}
+	})
+	return hash, branch
+}
+
+// parseLsRemoteRefs reads an answer covering several refs: each ref's commit
+// by its full name, and the branch a symbolic HEAD resolves to.
+func parseLsRemoteRefs(out []byte) (refs map[string]string, branch string) {
+	refs = map[string]string{}
+	branch = eachLsRemoteRef(out, func(h, ref string) { refs[ref] = h })
+	return refs, branch
+}
+
+// eachLsRemoteRef walks the answer's ref lines and reports the symbolic HEAD's branch.
+func eachLsRemoteRef(out []byte, fn func(hash, ref string)) (branch string) {
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if rest, ok := strings.CutPrefix(line, "ref: "); ok {
@@ -144,11 +163,15 @@ func parseLsRemote(out []byte) (hash, branch string) {
 			}
 			continue
 		}
-		if fields := strings.Fields(line); len(fields) > 0 && hash == "" {
-			hash = fields[0]
+		switch fields := strings.Fields(line); len(fields) {
+		case 0:
+		case 1:
+			fn(fields[0], "")
+		default:
+			fn(fields[0], fields[1])
 		}
 	}
-	return hash, branch
+	return branch
 }
 
 // fetchCommit resolves ref (a branch, "HEAD", or any other ref git ls-remote

@@ -39,9 +39,11 @@ require (
 	assert.Equal(t, marker{}, got["example.com/pinned"], "a deliberate pin is a choice, not a tracked answer")
 }
 
-func TestMarkerRefIsHeadWhenItNamesNoBranch(t *testing.T) {
-	assert.Equal(t, "HEAD", marker{tracks: true}.ref(), "HEAD IS the default branch, so following it costs no extra lookup")
-	assert.Equal(t, "refs/heads/v1", marker{tracks: true, branch: "v1"}.ref())
+// What a bare marker resolves to depends on the dependency, so the comment's
+// own meaning has to state both halves rather than promise the default branch.
+func TestMarkerMeaning(t *testing.T) {
+	assert.Equal(t, "a branch of this repository's name, or the default branch", marker{tracks: true}.meaning())
+	assert.Equal(t, "branch v1", marker{tracks: true, branch: "v1"}.meaning())
 }
 
 func TestMarkerComment(t *testing.T) {
