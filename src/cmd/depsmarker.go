@@ -59,8 +59,8 @@ func markerValue(rest string) string {
 	return fields[0]
 }
 
-// meaning names what the COMMENT asks for. A message about a RESOLUTION uses
-// branchMatcher.describe: what a bare marker answers depends on the dependency.
+// meaning names what the COMMENT asks for. What a bare one RESOLVES to depends
+// on the dependency, and branchMatcher.describe names that.
 func (m marker) meaning() string {
 	if m.branch == "" {
 		return "a branch of this repository's name, or the default branch"

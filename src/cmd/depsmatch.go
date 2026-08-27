@@ -97,7 +97,7 @@ func (bm *branchMatcher) probe(mod string) string {
 }
 
 // branchFor is the branch a marker follows for mod: the one it names, or this
-// repository's when the dependency shares it. Empty is the default branch.
+// repository's when the dependency shares it. Empty is HEAD.
 func (bm *branchMatcher) branchFor(mod string, m marker) string {
 	if m.branch != "" {
 		return m.branch
