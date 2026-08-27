@@ -34,31 +34,36 @@ func runSliceSet(pass *analysis.Pass) (any, error) {
 		}
 	}
 
+	var edits []fileEdit
 	candidates := sliceSetCandidates(pass)
 	for _, file := range pass.Files {
-		reportSliceLiteralLookups(pass, file, report)
+		edits = append(edits, reportSliceLiteralLookups(pass, file, report)...)
 		reportInsertIfAbsent(pass, file, report)
 		sliceSetUses(pass, file, candidates)
 	}
 
-	for _, c := range candidates {
+	for obj, c := range candidates {
 		if c.membership == 0 || c.disqualified {
 			continue
 		}
 		if c.fromLiteral {
 			report(c.pos, "a slice the package only asks membership of is a set: use %s.Of(…) instead", setPackage)
-			continue
+		} else {
+			report(c.pos, "a slice is only ever used as a set: use %s.Set instead", setPackage)
 		}
-		report(c.pos, "a slice is only ever used as a set: use %s.Set instead", setPackage)
+		if setFixable(pass, obj) {
+			edits = append(edits, setRewrites(pass, obj, setFromSlice)...)
+		}
 	}
 
-	return []*ASTFixes(nil), nil
+	return setFixesByFile(pass, edits), nil
 }
 
 // reportSliceLiteralLookups reports a membership test against a slice spelled
 // on the spot. The literal exists for that one question, so it is a set with
 // no name and no other use.
-func reportSliceLiteralLookups(pass *analysis.Pass, file *ast.File, report func(token.Pos, string, ...any)) {
+func reportSliceLiteralLookups(pass *analysis.Pass, file *ast.File, report func(token.Pos, string, ...any)) []fileEdit {
+	var edits []fileEdit
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) == 0 || !isSlicesLookup(pass, call.Fun) {
@@ -69,8 +74,34 @@ func reportSliceLiteralLookups(pass *analysis.Pass, file *ast.File, report func(
 			return true
 		}
 		report(lit.Pos(), "a slice literal answering one membership question is a set: use %s.Of(…).Contains(…) instead", setPackage)
+		if fix, ok := rewriteLiteralLookup(call, lit); ok {
+			edits = append(edits, fileEdit{file: file, fix: fix})
+		}
 		return true
 	})
+	return edits
+}
+
+// rewriteLiteralLookup turns the lookup into one against a set literal. The
+// slice has no other use, so nothing else moves.
+func rewriteLiteralLookup(call *ast.CallExpr, lit *ast.CompositeLit) (ASTFix, bool) {
+	sel, _ := call.Fun.(*ast.SelectorExpr)
+	if sel.Sel.Name != "Contains" || len(call.Args) != 2 {
+		return ASTFix{}, false
+	}
+	elem := elementType(lit.Type, setFromSlice)
+	if elem == nil {
+		return ASTFix{}, false
+	}
+	elems, ok := literalElements(lit, setFromSlice)
+	if !ok {
+		return ASTFix{}, false
+	}
+	lookup := &ast.CallExpr{
+		Fun:  &ast.SelectorExpr{X: setCall("Of", elem, elems...), Sel: ast.NewIdent("Contains")},
+		Args: []ast.Expr{call.Args[1]},
+	}
+	return ASTFix{OldNode: call, NewNodes: []ast.Node{lookup}}, true
 }
 
 // reportInsertIfAbsent reports the add-if-not-present shape, whatever else the
