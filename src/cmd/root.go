@@ -53,11 +53,7 @@ func skipCache(cmd *cobra.Command) bool {
 }
 
 // unguardedCmds print no build result, so capturing their stdout hides nothing
-// the guard exists to protect. cacheprog's stdout IS a machine protocol.
-// version reports four lines of build metadata and is what this repository's
-// own dats suite runs -- dats captures a command's stdout to assert on it, so
-// a guarded `version` refuses inside the integration phase and fails the build
-// for the very reader the guard is for.
+// the guard protects. See docs/AGENT-OUTPUT-GUARD.md.
 var unguardedCmds = set.Of("cacheprog", "version")
 
 // skipAgentGuard reports whether cmd or an ancestor prints no build result.
