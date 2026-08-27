@@ -77,7 +77,7 @@ func RenderGantt(entries []TimelineEntry) string {
 				endMs = startMs + 100
 			}
 			section.Tasks = append(section.Tasks, ganttTask{
-				Label: sanitizeLabel(e.Label),
+				Label: sanitizeLabel(e.Label) + " (" + fmtGanttDuration(e.End.Sub(e.Start)) + ")",
 				Tag:   tag,
 				ID:    taskID,
 				Start: startMs,
@@ -164,12 +164,25 @@ var ganttTemplate = template.Must(template.New("gantt").Parse(
 		"{{end}}{{end}}" +
 		"```\n"))
 
-// sanitizeLabel removes characters that Mermaid interprets as syntax.
+// sanitizeLabel removes characters that Mermaid interprets as syntax
+// and collapses any resulting whitespace runs.
 func sanitizeLabel(s string) string {
 	r := strings.NewReplacer(
-		":", " ",
-		";", " ",
+		":", "",
+		";", "",
 		"#", "",
 	)
-	return r.Replace(s)
+	return strings.Join(strings.Fields(r.Replace(s)), " ")
+}
+
+// fmtGanttDuration formats a duration for display in Gantt bar labels.
+func fmtGanttDuration(d time.Duration) string {
+	switch {
+	case d >= time.Minute:
+		return fmt.Sprintf("%.1fm", d.Minutes())
+	case d >= time.Second:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	default:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
 }
