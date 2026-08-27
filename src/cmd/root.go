@@ -52,8 +52,7 @@ func skipCache(cmd *cobra.Command) bool {
 	return false
 }
 
-// unguardedCmds print no build result, so capturing their stdout hides nothing
-// the guard protects. See docs/AGENT-OUTPUT-GUARD.md.
+// unguardedCmds print no build result, so a capture hides nothing. Depth: docs/AGENT-OUTPUT-GUARD.md.
 var unguardedCmds = set.Of("cacheprog", "version")
 
 // skipAgentGuard reports whether cmd or an ancestor prints no build result.
