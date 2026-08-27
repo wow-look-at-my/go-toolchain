@@ -59,18 +59,12 @@ func markerValue(rest string) string {
 	return fields[0]
 }
 
-// ref is the git ref this marker resolves against; naming no branch resolves HEAD (the default branch, no extra lookup).
-func (m marker) ref() string {
+// meaning names what the COMMENT asks for, for a message about the comment
+// itself. What a bare marker resolves to depends on the dependency, so a
+// message about a resolution uses branchMatcher.describe instead.
+func (m marker) meaning() string {
 	if m.branch == "" {
-		return "HEAD"
-	}
-	return "refs/heads/" + m.branch
-}
-
-// describe names what a line follows, for a log or warning message.
-func (m marker) describe() string {
-	if m.branch == "" {
-		return "the default branch"
+		return "a branch of this repository's name, or the default branch"
 	}
 	return "branch " + m.branch
 }

@@ -10,9 +10,12 @@
 // unmerged branches, is a real workflow, and the warning is the reminder to
 // repoint before the pull request goes up.
 //
-// A bare auto-branch marker is never checked: it names no branch, so it
-// follows whatever the default branch is and cannot be pointed at a temporary
-// one.
+// A bare auto-branch marker is never checked. It can match a branch with an
+// open pull request -- that is the tandem workflow it exists for -- but it
+// wrote nothing down, so the merge that deletes the branch is also what makes
+// it stop matching, and the line falls back to the default branch that now
+// carries the change. There is nothing to repoint, so there is nothing to warn
+// about.
 package cmd
 
 import (
