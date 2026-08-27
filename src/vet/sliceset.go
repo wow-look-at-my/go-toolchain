@@ -387,8 +387,7 @@ func classifySliceSetCall(pass *analysis.Pass, c *sliceSetCandidate, id *ast.Ide
 	}
 }
 
-// comparedToConstant reports whether node compares its operand against an
-// integer constant, which is how slices.Index spells a membership answer.
+// comparedToConstant reports whether node compares against an integer constant.
 func comparedToConstant(node ast.Node) bool {
 	bin, ok := node.(*ast.BinaryExpr)
 	return ok && (isIntLiteral(bin.X) || isIntLiteral(bin.Y))
