@@ -134,11 +134,8 @@ type gitCommit struct {
 	dir string
 }
 
-// parseLsRemote reads a `git ls-remote` answer: the commit the ref points at,
-// and -- with --symref -- the branch a symbolic ref resolves to.
-//
-//	ref: refs/heads/master	HEAD
-//	<hash>	HEAD
+// parseLsRemote reads an answer covering ONE ref: its commit, and the branch a
+// symbolic HEAD resolves to (`ref: refs/heads/master\tHEAD`).
 func parseLsRemote(out []byte) (hash, branch string) {
 	branch = eachLsRemoteRef(out, func(h, _ string) {
 		if hash == "" {

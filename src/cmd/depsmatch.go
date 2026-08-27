@@ -63,8 +63,7 @@ func currentBranch(r runner.CommandRunner) string {
 }
 
 // match reports the dependency's branch of this repository's name, or "" for
-// the default branch. The answer is cached per module: a repository is asked
-// once however many of its modules a go.mod requires.
+// the default branch. Cached per module, so a repository is asked once.
 func (bm *branchMatcher) match(mod string) string {
 	if bm.here() == "" {
 		return ""
@@ -98,7 +97,7 @@ func (bm *branchMatcher) probe(mod string) string {
 }
 
 // branchFor is the branch a marker follows for mod: the one it names, or this
-// repository's when the dependency shares it. Empty means the default branch.
+// repository's when the dependency shares it. Empty is the default branch.
 func (bm *branchMatcher) branchFor(mod string, m marker) string {
 	if m.branch != "" {
 		return m.branch
