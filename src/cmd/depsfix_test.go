@@ -55,7 +55,7 @@ func TestFixBogusDepsVersions_DetectsBogusVersions(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// Create go.mod with v0.0.0 dependencies
+	// Create go.mod with placeholder-version dependencies
 	gomod := `module test
 go 1.21
 
@@ -79,7 +79,7 @@ require (
 	// Should fail because git ls-remote failed
 	assert.NotNil(t, err)
 
-	// Verify it tried to resolve the first v0.0.0 dep
+	// Verify it tried to resolve the leading placeholder-version dep
 	calls := mock.Calls()
 	require.GreaterOrEqual(t, len(calls), 1)
 	assert.False(t, calls[0].Name != "git" || calls[0].Args[0] != "ls-remote")
@@ -191,7 +191,7 @@ func TestFixBogusDepsVersions_NoV000Deps(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
-	// go.mod with no v0.0.0 dependencies
+	// go.mod with no placeholder-version dependencies
 	gomod := `module test
 go 1.21
 
@@ -343,7 +343,7 @@ func TestResolveVersionViaGit_SubdirectoryModule(t *testing.T) {
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("git", "ls-remote") {
 			if cfg.Args[1] == "https://"+mod {
-				// The full import path is not a repository -- the exact 403 this bug reproduced.
+				// The full import path is not a repository -- the exact git failure this bug reproduced.
 				return runner.MockProcess(nil, errors.New("exit status 128")), nil
 			}
 			require.Equal(t, repoRoot, cfg.Args[1], "ls-remote must fall back to the repo root")
@@ -369,9 +369,9 @@ func TestResolveVersionViaGit_SubdirectoryModule(t *testing.T) {
 	assert.Contains(t, version, fullHash[:12])
 }
 
-// A "/vN" module path demands a matching vN pseudo-version: the go command
-// rejects a v0 one with `go.mod has post-v0 module path "..." at revision`,
-// so every branch-tracked v2+ module got an unresolvable pin.
+// A major-version module path demands a matching pseudo-version: the go command
+// rejects a mismatched pin with `go.mod has post-v0 module path "..." at revision`,
+// so every branch-tracked major-suffixed module got an unresolvable pin.
 func TestPseudoVersionForDerivesTheMajorFromTheModulePath(t *testing.T) {
 	// Measured: go list -m github.com/wow-look-at-my/bubbletea/v2@master.
 	assert.Equal(t, "v2.0.0-20260812203640-351d2159f8d8", pseudoVersionFor(

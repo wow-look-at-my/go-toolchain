@@ -173,7 +173,7 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 // GoFeature represents a Go toolchain feature with a minimum version requirement.
 type GoFeature struct {
 	Name         string
-	MinorVersion int // minimum Go 1.X version required
+	MinorVersion int // minimum Go minor version required
 }
 
 var (
@@ -214,7 +214,7 @@ func enableCacheProg() error {
 		return nil
 	}
 
-	// Create stats socket first — the daemon's Server needs it.
+	// Create the stats socket up front — the daemon's Server needs it.
 	sockPath := filepath.Join(os.TempDir(), fmt.Sprintf("gocache-stats-%d.sock", os.Getpid()))
 	sl, err := cache.NewStatsListener(sockPath)
 	if err != nil {
@@ -285,7 +285,7 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 
 // quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
 // parser (space-separated words, single/double quotes, no escapes). An
-// unquoted path with a space would split into two argv words and fail.
+// unquoted path with a space would split into separate argv words and fail.
 // A path with no spaces or quotes is returned unchanged.
 func quoteExeForGOCACHEPROG(exe string) string {
 	if !strings.ContainsAny(exe, " \t'\"") {
@@ -333,7 +333,7 @@ func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 
 // validateCICacheConfig checks that web caching env vars are configured when
 // running in CI. Returns an error if any are missing, unless
-// GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1 is set (downgrades to warning).
+// GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED is set (downgrades to warning).
 func validateCICacheConfig() error {
 	if os.Getenv("CI") == "" {
 		return nil
@@ -355,7 +355,7 @@ func printCacheStats(close bool) {
 	if close && cacheDaemon != nil {
 		cacheDaemon.Close()
 	}
-	// Shut down the tracer provider once drained, so timeline spans land in the final batch.
+	// Shut down the tracer provider after the drain, so timeline spans land in the final batch.
 	if close {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -364,7 +364,7 @@ func printCacheStats(close bool) {
 	if close && statsListener != nil {
 		statsListener.Close()
 	}
-	// Emit the build profile once daemon Close (final web counters) and
+	// Emit the build profile after daemon Close (final web counters) and
 	// listener Close (final per-action events) have both drained.
 	if close {
 		emitBuildProfile()

@@ -13,15 +13,15 @@ import (
 // TestWasmArtifactNamesInBuildhostPublishSet pins the wasm publishing naming
 // contract. The buildhost-publish action selects its upload set by filename:
 // regular files (symlinks and checksums.txt are skipped) whose name, after
-// stripping a trailing .exe, matches ^(.+)_([a-z]+)_([a-z0-9]+)$, parsed as
-// <binary>_{os}_{arch} from the trailing two tokens (filter transcribed from
-// the go-font-renderer run 29396682812 logs). Default wasm names use
-// buildhost's wasm artifact scheme (wow-look-at-my/buildhost#166): os=wasm
+// stripping a trailing .exe, matches publishRe below, parsed as
+// <binary>_{os}_{arch} from its trailing tokens (filter transcribed from a
+// failing go-font-renderer publish run's logs). Default wasm names use
+// buildhost's wasm artifact scheme: os=wasm
 // with arch=js/wasip1, i.e. <name>_wasm_js — they MUST match the pattern and
-// parse as os=wasm. The GO_TOOLCHAIN_WASM_PUBLISH=0 opt-out shape
+// parse as os=wasm. The wasmPublishEnv opt-out shape
 // (<name>_<goos>_wasm.wasm) must NOT match, keeping those artifacts out of
-// the publish set entirely (for servers predating #166, where an os=wasm
-// upload 400s and one rejected artifact aborts the whole publish).
+// the publish set entirely (for a server predating that scheme, where an
+// os=wasm upload is rejected and a rejected artifact aborts the whole publish).
 func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
 	// The exact filter from the buildhost-publish action, transcribed from its failure-run logs.
 	publishRe := regexp.MustCompile(`^(.+)_([a-z]+)_([a-z0-9]+)$`)
@@ -46,7 +46,7 @@ func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
 		assert.Equal(t, "wasm", osToken, "%s must parse as os=wasm", name)
 		assert.Equal(t, goos, archToken, "%s must parse arch=%s", name, goos)
 	}
-	// Hyphenated binary names keep parsing correctly; the pattern takes the trailing two tokens.
+	// Hyphenated binary names keep parsing correctly; the pattern takes the trailing tokens.
 	osToken, archToken, ok := parse(build.BinaryName("my-tool", "js", "wasm"))
 	require.True(t, ok)
 	assert.Equal(t, "wasm", osToken)

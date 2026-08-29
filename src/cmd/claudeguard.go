@@ -39,7 +39,7 @@ var (
 )
 
 // detectAgent names the agent go-toolchain is running under, if any:
-// ancestry first, then the environment markers each agent exports.
+// ancestry, then the environment markers each agent exports.
 func detectAgent() (string, bool) {
 	a, ok := agent.Detect()
 	return a.Name, ok
@@ -145,7 +145,7 @@ func agentOutputMessage(agent string, s outputSink, removed []string) string {
 }
 
 // agentOutputTemplate is the abort message, held as text. The literals are
-// interpreted strings, not one raw string, because the message quotes shell
+// interpreted strings, not a raw string, because the message quotes shell
 // with backticks.
 var agentOutputTemplate = template.Must(template.New("agent-output").Parse(
 	"\n{{.Red}}✗ go-toolchain refused to run: its output is being {{.What}}.{{.Reset}}\n" +

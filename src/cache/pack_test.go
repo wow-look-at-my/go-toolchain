@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// hexID returns a deterministic 64-char hex action/output ID from a seed byte.
+// hexID returns a deterministic hex action/output ID from a seed byte.
 func hexID(seed byte) string {
 	b := make([]byte, hashLen)
 	for i := range b {
@@ -22,7 +22,7 @@ func hexID(seed byte) string {
 	return strings.ToLower(hexEncode(b))
 }
 
-// casID returns body's content-addressed outputID (lowercase hex SHA-256), matching what the go command uses.
+// casID returns body's content-addressed outputID (lowercase hex sha256), matching what the go command uses.
 func casID(body []byte) string {
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
@@ -88,7 +88,7 @@ func TestPackStore_ReadAtPartial(t *testing.T) {
 	require.Equal(t, 5, n)
 	require.Equal(t, "456789"[:5], string(buf[:n]))
 
-	// Reading at/after EOF returns io.EOF and zero bytes.
+	// Reading at/after EOF returns io.EOF and no bytes.
 	_, err = s.ReadAt(loc, buf, int64(len(body)))
 	require.NotNil(t, err)
 }
@@ -136,10 +136,10 @@ func TestPackStore_ContentDedup(t *testing.T) {
 	loc2, err := s.Put(hexID(2), oid, bytes.NewReader(body))
 	require.Nil(t, err)
 
-	// Same content (outputID) => second Put reuses the first body's offset.
+	// Same content (outputID) => the repeat Put reuses the stored body's offset.
 	require.Equal(t, loc1.dataOff, loc2.dataOff)
 
-	// The body is stored once; the second Put adds only a header-only alias record.
+	// The body is stored a single time; the repeat Put adds only a header-only alias record.
 	info, err := os.Stat(s.packPath(1))
 	require.Nil(t, err)
 	require.Equal(t, int64(packHeaderLen+len(body)+packHeaderLen), info.Size())
@@ -155,8 +155,8 @@ func TestPackStore_ContentDedup(t *testing.T) {
 }
 
 // TestPackStore_DedupPersistsAcrossReopen guards the warm-cache regression:
-// when two actions share content (the very common empty-output case), the
-// second is stored as an alias record. That alias MUST survive a reopen, or the
+// when separate actions share content (the very common empty-output case), the
+// later action is stored as an alias record. That alias MUST survive a reopen, or the
 // next build misses it and falls through to the (slow) network tier.
 func TestPackStore_DedupPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
@@ -164,7 +164,7 @@ func TestPackStore_DedupPersistsAcrossReopen(t *testing.T) {
 	require.Nil(t, err)
 
 	empty := hexID(200) // outputID for empty content
-	// All produce identical (empty) content — only the first writes a body; the rest are aliases.
+	// All produce identical (empty) content — only the earliest writes a body; the rest are aliases.
 	var actions []string
 	for i := 0; i < 50; i++ {
 		a := hexID(byte(i))
@@ -198,10 +198,10 @@ func TestPackStore_DedupPersistsAcrossReopen(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, body, data)
 	}
-	// The shared non-empty body is stored once (one full record + one alias), not twice.
+	// The shared non-empty body is stored a single time (a full record plus an alias), never duplicated.
 	info, err := os.Stat(s2.packPath(1))
 	require.Nil(t, err)
-	// 50 empty headers + 1 shared full record + 1 shared alias header.
+	// A header per empty action, plus the shared full record and its alias header.
 	want := int64(50*packHeaderLen) + int64(packHeaderLen+len(body)) + int64(packHeaderLen)
 	require.Equal(t, want, info.Size())
 }
@@ -252,7 +252,7 @@ func TestPackStore_TornFinalRecordIgnored(t *testing.T) {
 	require.Nil(t, err)
 	require.Nil(t, f.Close())
 
-	// Reopen must recover the good record and silently drop the torn one.
+	// Reopen must recover the good record and silently drop the torn record.
 	s2, err := OpenPackStore(dir)
 	require.Nil(t, err)
 	defer s2.Close()
@@ -293,7 +293,7 @@ func TestPackStore_Rotation(t *testing.T) {
 // TestPackStore_EvictsOldestPacksWhenOverBudget replaces the old wholesale
 // reset (which nuked EVERY pack the moment the total crossed the budget, so
 // a working set >= budget cold-cycled forever): the oldest packs are evicted
-// until the total is back under ~80% of the budget, and the newest records
+// until the total is back under the eviction target, and the newest records
 // survive.
 func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
 	origMax, origReset := maxPackBytes, packResetBytes
@@ -304,7 +304,7 @@ func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
 
-	// 10 records with DISTINCT content (dedup would alias them), one pack each.
+	// Records with DISTINCT content (dedup would alias them), a pack each.
 	const n = 10
 	recBytes := int64(packHeaderLen + 512)
 	for i := 0; i < n; i++ {
@@ -314,7 +314,7 @@ func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
 	}
 	require.Nil(t, s.Close())
 
-	// n*recBytes=6000, budget 3000, target 2400: the 6 oldest packs must go.
+	// The written total sits over the budget, so the oldest packs must go until it is under the target.
 	packResetBytes = 3000
 
 	s2, err := OpenPackStore(dir)

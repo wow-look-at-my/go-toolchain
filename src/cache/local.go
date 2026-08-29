@@ -14,7 +14,7 @@ import (
 )
 
 // LocalCache is a filesystem-based build cache. Objects are stored in a
-// two-level directory hierarchy keyed by the hex-encoded action ID.
+// nested directory hierarchy keyed by the hex-encoded action ID.
 type LocalCache struct {
 	dir   string
 	Stats CacheStats
@@ -26,8 +26,8 @@ type LocalCache struct {
 	plocks [64]sync.Mutex
 }
 
-// NewLocalCache creates a local cache rooted at dir. It pre-creates 256
-// subdirectories (00–ff) so that later writes never need to mkdir.
+// NewLocalCache creates a local cache rooted at dir. It pre-creates a
+// subdirectory per hex byte value so that later writes never need to mkdir.
 func NewLocalCache(dir string) (*LocalCache, error) {
 	for i := 0; i < 256; i++ {
 		sub := filepath.Join(dir, fmt.Sprintf("%02x", i))
@@ -127,13 +127,13 @@ func (c *LocalCache) Put(actionID, outputID string, body io.Reader) (string, err
 
 // PutIfAbsent stores body only if actionID is not already cached — see
 // LocalStore.PutIfAbsent. The existence check and the write happen under the
-// same per-action lock Put uses, so the two cannot interleave.
+// same per-action lock Put uses, so they cannot interleave.
 func (c *LocalCache) PutIfAbsent(actionID, outputID string, body io.Reader) (bool, error) {
 	l := c.plock(actionID)
 	l.Lock()
 	defer l.Unlock()
 	// Peek semantics: a present-and-servable entry blocks the store; a corrupt
-	// one was just evicted by the check and is fair game to fill.
+	// the entry was just evicted by the check and is fair game to fill.
 	if _, miss := c.get(actionID, false); !miss {
 		return false, nil
 	}
@@ -211,7 +211,7 @@ func (c *LocalCache) StatsPtr() *CacheStats { return &c.Stats }
 func (c *LocalCache) Close() error { return nil }
 
 // dataPath returns the absolute path for a cached object.
-// Layout: dir/{first-byte-hex}/v1{actionID}
+// Layout: dir/{leading-byte-hex}/v1{actionID}
 func (c *LocalCache) dataPath(actionID string) string {
 	bucket := "00"
 	if len(actionID) >= 2 {

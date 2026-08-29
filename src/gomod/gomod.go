@@ -86,7 +86,7 @@ func findMainPackages(match func(dir, name string) (bool, error)) ([]string, err
 			return filepath.SkipDir
 		}
 		// Skip nested modules: their main packages belong to their own module
-		// and are not buildable as import paths of this one.
+		// and are not buildable as import paths of the outer module.
 		if IsNestedModule(path) {
 			return filepath.SkipDir
 		}
@@ -129,7 +129,7 @@ func hasMainPackageMatch(dir string, match func(dir, name string) (bool, error))
 		if name == MemLimitGuardFileName {
 			continue
 		}
-		// Check the package name first: most files are not "package main", so this skips
+		// Check the package name up front: most files are not "package main", so this skips
 		// the build-constraint parse on every .go file in the tree.
 		if packageNameFromFile(filepath.Join(dir, name)) != "main" {
 			continue

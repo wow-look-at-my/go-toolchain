@@ -2,7 +2,7 @@
 
 // FIFO peer identification for a cosmo APE on a darwin host. The APE has no
 // proc_info syscall (cosmopolitan leaves it unwired), so this asks lsof the
-// same way CommPPID asks ps(1) when the APE cannot use sysctl. A sandbox that
+// same way CommPPID asks the ps tool when the APE cannot use sysctl. A sandbox that
 // refuses lsof is "not identified" and classifyDarwinFD fails closed.
 
 package cmd

@@ -193,7 +193,7 @@ func TestRealtimeTimeoutOutput(t *testing.T) {
 		timedOut:   set.New[string](),
 	}
 
-	// First, simulate timeout output event
+	// Simulate the timeout output event
 	outputEvent := testjson.TestEvent{
 		Action:  testjson.ActionOutput,
 		Package: "github.com/example/pkg",
@@ -339,7 +339,7 @@ func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
 	}
 
 	output := h.FailureOutput()
-	// stderr comes first
+	// stderr leads
 	assert.True(t, strings.Index(output, "compilation error") < strings.Index(output, "assert failed"))
 }
 

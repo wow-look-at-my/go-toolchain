@@ -11,9 +11,9 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// shrinkIndexBudgets temporarily replaces the three index-fetch budgets and
+// shrinkIndexBudgets temporarily replaces the index-fetch budgets and
 // returns a restore func. Tests use it instead of poking the vars directly so
-// no test can leave a shortened budget behind for the next one.
+// no test can leave a shortened budget behind for the tests after it.
 func shrinkIndexBudgets(header, stall, ceiling time.Duration) func() {
 	oh, os, oc := indexHeaderBudget, indexStallTimeout, indexFetchCeiling
 	indexHeaderBudget, indexStallTimeout, indexFetchCeiling = header, stall, ceiling
@@ -37,7 +37,7 @@ func testIndexBlob(n int) []byte {
 
 // TestLoadOrFetchIndex_SlowButSteadyBodySucceeds is the regression test for
 // the flaw that made every large-index build lose its cache: the fetch used
-// to be bounded by ONE total deadline, so an index big enough to take longer
+// to be bounded by a SINGLE total deadline, so an index big enough to take longer
 // than that deadline to stream down was thrown away even though the server
 // was healthy and the bytes were arriving. The bound is now per-chunk, so a
 // transfer that keeps making progress completes however long it takes — here
@@ -71,7 +71,7 @@ func TestLoadOrFetchIndex_SlowButSteadyBodySucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// A single 200ms deadline over the whole transfer would kill it at chunk 5; only a per-chunk bound finishes it.
+	// A single deadline over the whole transfer would kill it mid-stream; only a per-chunk bound finishes it.
 	defer shrinkIndexBudgets(200*time.Millisecond, 200*time.Millisecond, 30*time.Second)()
 
 	b, err := NewWebBackend(WebConfig{

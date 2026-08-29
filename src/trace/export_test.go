@@ -55,8 +55,7 @@ func TestBuildSpanHierarchy(t *testing.T) {
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exp.GetSpans()
-	// Expected: 1 root + 2 workers + 4 steps = 7 spans
-	require.Len(t, spans, 7, "expected 7 spans: 1 root + 2 workers + 4 steps")
+	require.Len(t, spans, 7, "expected the root span, a span per worker and a span per step")
 
 	// Find root span.
 	var root tracetest.SpanStub
@@ -187,7 +186,7 @@ func TestCompileLabelsBecomeStaticBuildCompile(t *testing.T) {
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exp.GetSpans()
-	// 1 root + 2 workers + 3 steps = 6
+	// The root span, a span per worker and a span per step
 	require.Len(t, spans, 6)
 
 	// Worker spans use the static name "build.worker" with a build.worker.id attribute.
@@ -287,7 +286,7 @@ func TestGitHubResourceAttributes(t *testing.T) {
 	assert.Equal(t, "12345", attrMap["github.run_id"])
 }
 
-// TestRootIDGenerator verifies that the first NewIDs call returns the
+// TestRootIDGenerator verifies that the opening NewIDs call returns the
 // pre-determined traceparent IDs — the invariant that makes cacheprog
 // spans nest under the go-toolchain root span instead of appearing as
 // a separate trace. Subsequent calls fall back to random IDs.

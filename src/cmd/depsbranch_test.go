@@ -227,7 +227,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 	assert.Error(t, err)
 }
 
-// gitLsRemoteMock answers ls-remote with one commit and the plumbing the
+// gitLsRemoteMock answers ls-remote with a fixed commit and the plumbing the
 // pseudo-version derivation needs, so a test can say "the branch is HERE now".
 func gitLsRemoteMock(t *testing.T, fullHash string) *runner.Mock {
 	t.Helper()
@@ -309,7 +309,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 }
 
 // A replacement into a local directory has no remote and no version. The
-// marker on one is a mistake, and a mistake gets said out loud.
+// marker on such a line is a mistake, and a mistake gets said out loud.
 func TestUpdateTrackedBranchDepsSkipsAFilesystemReplacement(t *testing.T) {
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
@@ -407,8 +407,8 @@ func writeTrackedGoMod(t *testing.T, version string) {
 	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
 }
 
-// The up-to-date fast exit hashes files, and a tracked branch's HEAD is not
-// one. Without this check a moved dependency was invisible: the tree was
+// The up-to-date fast exit hashes files, and a tracked branch's HEAD is not a
+// file. Without this check a moved dependency was invisible: the tree was
 // unchanged, so the run exited before the updater that exists to notice.
 func TestTrackedBranchDepsMovedSeesAMovedBranchOnAnUnchangedTree(t *testing.T) {
 	writeTrackedGoMod(t, "v0.0.0-20200101000000-000000000000")

@@ -45,8 +45,8 @@ func cosmoHostPlatform() (goos, goarch string) {
 // EnsureCosmoToolchain resolves a gosmopolitan Go toolchain (the Go fork that
 // builds GOOS=cosmo fat APEs) and returns its GOROOT. Resolution order:
 //
-//  1. GO_TOOLCHAIN_COSMO_GOROOT — a local build's GOROOT, used directly.
-//  2. Download from buildhost (dl.pazer.build/gosmopolitan, branch selected
+//   - GO_TOOLCHAIN_COSMO_GOROOT — a local build's GOROOT, used directly.
+//   - Download from buildhost (dl.pazer.build/gosmopolitan, branch selected
 //     by GO_TOOLCHAIN_COSMO_BRANCH, default master) and cache it under the
 //     same cache root the Go bootstrap uses (~/.cache/go-toolchain/cosmo/).
 //
@@ -54,7 +54,7 @@ func cosmoHostPlatform() (goos, goarch string) {
 // endpoint's redirect (v<N>), so a cached toolchain is never re-downloaded
 // and a new buildhost release is picked up automatically. If the redirect
 // cannot be parsed, the cache falls back to a branch-keyed directory that is
-// downloaded once and then reused as long as it exists.
+// downloaded a single time and then reused as long as it exists.
 func EnsureCosmoToolchain() (string, error) {
 	if root := os.Getenv(cosmoGorootEnv); root != "" {
 		return useLocalCosmoGoroot(root)
@@ -139,7 +139,7 @@ func cosmoCacheKey(dlURL, branch string) string {
 	return "branch-" + sanitizeCacheKey(branch)
 }
 
-// probeCosmoVersion issues one redirect-stopping HEAD request against the dl
+// probeCosmoVersion issues a redirect-stopping HEAD request against the dl
 // endpoint and extracts the release version from the Location's v query
 // parameter. Any failure returns "" (callers fall back to branch keying).
 // Used for every buildhost dl endpoint, not just gosmopolitan — the dats
@@ -170,7 +170,7 @@ func probeCosmoVersion(dlURL string) string {
 	return sanitizeCacheKey(v)
 }
 
-// sanitizeCacheKey replaces every character outside [A-Za-z0-9._-] with '-'
+// sanitizeCacheKey replaces every character outside the ASCII letters, digits, dot, underscore and hyphen with '-'
 // so branch names and version strings are safe directory names.
 func sanitizeCacheKey(s string) string {
 	return strings.Map(func(r rune) rune {
@@ -205,7 +205,7 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(rawStderr, "\n")
-		// A 404 is buildhost saying it publishes nothing for this host, which reads nothing like a network failure.
+		// A not-found reply is buildhost saying it publishes nothing for this host, which reads nothing like a network failure.
 		if resp.StatusCode == http.StatusNotFound {
 			return fmt.Errorf("HTTP 404: buildhost publishes no gosmopolitan toolchain for this host yet")
 		}

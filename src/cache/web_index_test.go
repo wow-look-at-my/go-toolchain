@@ -108,7 +108,7 @@ func TestDecodeActionHash_Bad(t *testing.T) {
 }
 
 // indexFixture serves /<bucket>/_index from an in-memory blob with proper
-// ETag/304 semantics; PUT/GET on object keys are no-ops/404s.
+// ETag revalidation semantics; PUT/GET on object keys are no-ops or misses.
 type indexFixture struct {
 	t       *testing.T
 	bucket  string
@@ -141,7 +141,7 @@ func newIndexFixture(t *testing.T, bucket string, initial set.Set[string]) *inde
 			w.Write(cur)
 			return
 		}
-		// Default: 404 for everything else (object Get/Put paths not exercised here).
+		// Default: not-found for everything else (object Get/Put paths not exercised here).
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(f.srv.Close)
@@ -203,7 +203,7 @@ func TestLoadOrFetchIndex_WarmCache304(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(tmp, "gocache-web-index-*.bin"))
 	require.NotEmpty(t, files)
 
-	// Second backend instance: should send If-None-Match and get 304.
+	// A fresh backend instance: should send If-None-Match and get a not-modified answer.
 	b2, err := NewWebBackend(WebConfig{
 		Bucket: "bk", Endpoint: f.srv.URL,
 		AccessKey: "k", SecretKey: "s",
@@ -329,7 +329,7 @@ func TestLoadOrFetchIndex_DiskBlobBeatsServerError(t *testing.T) {
 	broken.Store(true)
 
 	// Same endpoint URL → same disk path. Server now 500s, but the disk
-	// blob from the first run must still populate b.keys.
+	// blob from the earlier run must still populate b.keys.
 	b2, err := NewWebBackend(WebConfig{
 		Bucket: "bk", Endpoint: srv.URL,
 		AccessKey: "k", SecretKey: "s",

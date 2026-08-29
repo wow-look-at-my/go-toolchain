@@ -143,7 +143,7 @@ func runWaitConfig(r runner.CommandRunner, cfg *runner.Config) error {
 	if err != nil {
 		return fmt.Errorf("spawn %s: %w", cfg.Name, err)
 	}
-	// Drain stdout/stderr concurrently: reading one to completion first can deadlock when the other's OS buffer fills.
+	// Drain stdout/stderr concurrently: draining either alone can deadlock when the other's OS buffer fills.
 	var stderr []byte
 	done := make(chan struct{})
 	go func() {

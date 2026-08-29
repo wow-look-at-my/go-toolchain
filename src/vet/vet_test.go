@@ -123,7 +123,7 @@ func main() {
 	f, err := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
 	require.Nil(t, err)
 
-	// Find int(0) call
+	// Find the redundant int conversion
 	var call *ast.CallExpr
 	ast.Inspect(f, func(n ast.Node) bool {
 		if c, ok := n.(*ast.CallExpr); ok {
@@ -393,7 +393,7 @@ func TestSourceLocationShortLocAbsolute(t *testing.T) {
 	loc := SourceLocation{File: absPath, Line: 10}
 	short := loc.ShortLoc()
 
-	// The result should end with file.go:10
+	// The result should end with the file and its line
 	expected, _ := filepath.Rel(cwd, absPath)
 	assert.Equal(t, expected+":10", short)
 }

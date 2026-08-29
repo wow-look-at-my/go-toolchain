@@ -83,7 +83,7 @@ func TestParseTargetList(t *testing.T) {
 			},
 		},
 		{
-			// Mixing the canonical spelling and its alias dedupes to one target.
+			// Mixing the canonical spelling and its alias dedupes to a single target.
 			name:    "wasm spellings dedupe to one target",
 			entries: []string{"wasm/js", "js/wasm", "wasip1/wasm", "wasm/wasip1"},
 			want: []buildPlatform{

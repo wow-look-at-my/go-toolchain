@@ -39,7 +39,7 @@ func TestLocalCache_PutAndGet(t *testing.T) {
 
 	require.Equal(t, int64(len(body)), meta.Size)
 
-	// A second Get takes the memoized fast path and must serve identically.
+	// A repeat Get takes the memoized fast path and must serve identically.
 	meta2, miss := lc.Get(actionID)
 	require.False(t, miss)
 	require.Equal(t, meta, meta2)
@@ -66,7 +66,7 @@ func TestLocalCache_Overwrite(t *testing.T) {
 	_, err = lc.Put(actionID, casID([]byte("first")), bytes.NewReader([]byte("first")))
 	require.Nil(t, err)
 
-	// Memoize the first entry, then overwrite: Put must invalidate the memo so new content is re-verified and served.
+	// Memoize the entry, then overwrite: Put must invalidate the memo so new content is re-verified and served.
 	_, miss := lc.Get(actionID)
 	require.False(t, miss)
 
@@ -83,7 +83,7 @@ func TestLocalCache_Overwrite(t *testing.T) {
 // TestLocalCache_RefusesChecksumMismatch covers the loose-tier integrity gap:
 // a body that does not hash to its sidecar outputID (truncation, rot, or the
 // empty body the old oversized-PUT bug stored) must be refused and evicted,
-// never served. This tier used to serve bodies with ZERO read-side checks.
+// never served. This tier used to serve bodies with NO read-side checks.
 func TestLocalCache_RefusesChecksumMismatch(t *testing.T) {
 	lc, err := NewLocalCache(t.TempDir())
 	require.Nil(t, err)
@@ -155,7 +155,7 @@ func TestLocalCache_RefusesCrossContaminatedPackage(t *testing.T) {
 
 // TestLocalCache_RefusesStoredModuleIndex: the loose tier never serves a Go
 // module index, whatever put it there. An index key hashes no content, so no
-// gate can tell a right body from a wrong one under it, and a wrong one renames
+// gate can tell a right body from a wrong body under it, and a wrong body renames
 // a package at load time. Residue from a binary that predates the PUT refusal
 // is evicted on the way out, so the toolchain recomputes it.
 func TestLocalCache_RefusesStoredModuleIndex(t *testing.T) {
@@ -182,7 +182,7 @@ func TestLocalCache_SubdirCreation(t *testing.T) {
 	_, err := NewLocalCache(dir)
 	require.Nil(t, err)
 
-	// Verify 256 subdirs exist.
+	// Verify a subdir exists per hex byte value.
 	entries, _ := os.ReadDir(dir)
 	require.Equal(t, 256, len(entries))
 

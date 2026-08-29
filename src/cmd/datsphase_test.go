@@ -115,7 +115,7 @@ type datsCall struct {
 	opts dats.Options
 }
 
-// swapDatsRun replaces the dats library seam for one test, returning the
+// swapDatsRun replaces the dats library seam for a single test, returning the
 // recorded calls.
 func swapDatsRun(t *testing.T, res *dats.Result, err error) *[]datsCall {
 	t.Helper()
@@ -158,7 +158,7 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "build"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "build", "mytool"), []byte("bin"), 0o755))
 
-	// Inspect the staged handoff dir DURING the call -- it is removed once the phase returns.
+	// Inspect the staged handoff dir DURING the call -- it is removed when the phase returns.
 	var stagedBinary string
 	old := datsRunFunc
 	datsRunFunc = func(_ context.Context, opts dats.Options) (*dats.Result, error) {
@@ -236,7 +236,7 @@ func TestRunDatsPhaseFailingTestsFailBuild(t *testing.T) {
 
 func TestRunDatsPhaseTeardownFailureFailsBuild(t *testing.T) {
 	chdirWithSuite(t)
-	// Ok() is not Failed == 0: a file whose teardown failed fails the run even
+	// Ok() is not an empty Failed count: a file whose teardown failed fails the run even
 	// with every test green.
 	swapDatsRun(t, &dats.Result{
 		Passed: 1,
@@ -331,7 +331,7 @@ func TestRunDatsOnlyRunsSuitesWithoutAModule(t *testing.T) {
 }
 
 // Staging has to live under the working directory for the sandbox to see it,
-// but a non-Go repo does not gitignore build/ and never asked for one.
+// but a non-Go repo does not gitignore build/ and never asked for that directory.
 func TestRunDatsOnlyLeavesNoStrayBuildDir(t *testing.T) {
 	dir := chdirWithSuite(t)
 	swapDatsRun(t, okResult(1), nil)

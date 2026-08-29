@@ -28,7 +28,7 @@ func TestWebBackend_GetMiss(t *testing.T) {
 
 func TestWebBackend_GetMissingMetadata(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Return 200 but no outputid metadata.
+		// Serve the body but no outputid metadata.
 		w.WriteHeader(200)
 		w.Write([]byte("data"))
 	}))

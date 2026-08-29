@@ -149,7 +149,7 @@ func writeTestTable(sb *strings.Builder, cases []gotest.TestCaseResult, commitSH
 	// Build source location cache
 	locCache := buildTestLocationCache(cases, modulePath)
 
-	// Group tests by package, preserving order of first appearance
+	// Group tests by package, preserving order of appearance
 	pkgOrder := []string{}
 	pkgCases := make(map[string][]gotest.TestCaseResult)
 	for _, tc := range cases {

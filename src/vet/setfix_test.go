@@ -12,7 +12,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// TestSetFixRewritesEveryUse pins the rewrite. Each case is one whole file,
+// TestSetFixRewritesEveryUse pins the rewrite. Each case is a whole file,
 // so the output shows the declaration, the uses and the added import
 // together: that is what has to compile.
 func TestSetFixRewritesEveryUse(t *testing.T) {

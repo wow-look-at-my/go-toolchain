@@ -22,7 +22,7 @@ type proxyConfig struct {
 	SumDBKey string `json:"sumdb_key"`
 }
 
-// user returns the first non-empty user field.
+// user returns the earliest non-empty user field.
 func (c *proxyConfig) user() string {
 	if c.User != "" {
 		return c.User
@@ -33,7 +33,7 @@ func (c *proxyConfig) user() string {
 	return c.Login
 }
 
-// password returns the first non-empty password field.
+// password returns the earliest non-empty password field.
 func (c *proxyConfig) password() string {
 	if c.Password != "" {
 		return c.Password
@@ -143,7 +143,7 @@ func writeNetrc(host, user, password string) {
 }
 
 // ensureDirectFallback appends "|direct" so any proxy error falls through to
-// a direct download: pipe falls back on any error, comma only on 404/410. A
+// a direct download: pipe falls back on any error, comma only on not-found. A
 // trailing ",direct" is upgraded; any other "direct" value is untouched.
 func ensureDirectFallback(goproxy string) string {
 	if strings.HasSuffix(goproxy, ",direct") {
@@ -232,7 +232,7 @@ func configureGoEnv() {
 	// or disable sumdb phone-home.
 	if gosumdb != "" {
 		// The PUBLIC checksum database is never an option: querying it for a
-		// private module announces that module's path to a third party. This
+		// private module announces that module's path to an outside party. This
 		// is refused LOUDLY, not silently, so a misconfigured setting is not
 		// believed for months.
 		if usesPublicSumDB(gosumdb) {

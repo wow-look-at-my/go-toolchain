@@ -402,7 +402,7 @@ func TestEnsureGoVersionBrokenTakesBootstrap(t *testing.T) {
 	sysGo, err := exec.LookPath("go")
 	require.NoError(t, err)
 
-	// Probe fails only for the system Go; any freshly downloaded one is healthy.
+	// Probe fails only for the system Go; a freshly downloaded toolchain is healthy.
 	oldVerify := verifyGoToolchainFunc
 	verifyGoToolchainFunc = func(goPath string) error {
 		if goPath == sysGo {

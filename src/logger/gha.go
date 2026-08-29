@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// escapeGHAData escapes % first (so escapes below aren't re-escaped), then
+// escapeGHAData escapes % up front (so escapes below aren't re-escaped), then
 // CR/LF, so a multi-line message annotates intact.
 func escapeGHAData(s string) string {
 	s = strings.ReplaceAll(s, "%", "%25")

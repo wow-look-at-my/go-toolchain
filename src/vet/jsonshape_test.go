@@ -36,7 +36,7 @@ func TestIsJSONDocument(t *testing.T) {
 }
 
 // TestNormalizeVerbs pins what counts as a value entering a format string. A
-// doubled percent sign prints one and interpolates nothing.
+// doubled percent sign prints a literal sign and interpolates nothing.
 func TestNormalizeVerbs(t *testing.T) {
 	for _, c := range []struct {
 		name  string

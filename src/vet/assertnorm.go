@@ -58,12 +58,12 @@ func runAssertNorm(pass *analysis.Pass) (any, error) {
 				return true
 			}
 
-			// Need at least 2 args: (t, expr) — may have optional msg args after
+			// Need the (t, expr) pair at minimum — optional msg args may follow
 			if len(call.Args) < 2 {
 				return true
 			}
 
-			// Check if the second argument is a negation: !expr
+			// Check if the expr argument is a negation: !expr
 			unary, ok := call.Args[1].(*ast.UnaryExpr)
 			if !ok || unary.Op != token.NOT {
 				return true

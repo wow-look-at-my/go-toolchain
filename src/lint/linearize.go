@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Token is one element in a linearized AST sequence: structural nodes use a
+// Token is an element in a linearized AST sequence: structural nodes use a
 // single-char symbol; leaf nodes record "_" but keep their concrete value.
 type Token struct {
 	Symbol   byte   // structural symbol (e.g. 'I' for IfStmt)

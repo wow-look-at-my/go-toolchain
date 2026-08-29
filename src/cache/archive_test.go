@@ -65,7 +65,7 @@ func TestPkgbitsImportPath_WithSyncMarkersRoundTrip(t *testing.T) {
 	// Re-parsed to build a synthetic sync-enabled payload; this test just checks no panic on a V0 (no-flags) payload.
 	_ = data
 
-	// Build a V0 payload (no flags/sync) with one SectionString element and SectionPkg[0] referencing it.
+	// Build the earliest payload version (no flags/sync) with a lone SectionString element and a SectionPkg referencing it.
 	importPath := "example.com/mypkg"
 	payload := buildMinimalPkgbitsV0(importPath)
 	got := pkgbitsImportPath(payload)
@@ -100,41 +100,41 @@ func buildAr(name string, body []byte) []byte {
 }
 
 // buildMinimalPkgbitsV0 constructs a synthetic pkgbits V0 payload that encodes
-// importPath as the package path in SectionPkg[0], without sync markers.
-// Layout:
+// importPath as the package path in the pkg section's only element, without
+// sync markers. Layout:
 //
-//	version=0 (no flags)
-//	elemEndsEnds: SectionString=1, others cumulative up to total=2
-//	elemEnds: [len(importPath), <SectionPkg[0] elem size>]
-//	elemData: <importPath bytes> <SectionPkg[0] elem> <8-byte fingerprint>
+//	version (no flags)
+//	elemEndsEnds: the cumulative element count per section
+//	elemEnds: the end offset of each element
+//	elemData: the importPath bytes, then the pkg element, then the fingerprint
 func buildMinimalPkgbitsV0(importPath string) []byte {
-	// SectionPkg[0] body: nrelocs=1, reloc[0]{kind=0 SectionString, idx=0}, no sync markers, relocIdx=0.
+	// The pkg element: a lone relocation naming the string section's element, no sync markers.
 	pkgElem := []byte{
-		0x01,       // nrelocs = 1
-		0x00, 0x00, // reloc[0]: kind=0, idx=0
-		// String(): no sync markers, just relocIdx=0
-		0x00, // relocIdx = 0
+		0x01,       // nrelocs
+		0x00, 0x00, // the relocation: kind SectionString, and its element index
+		// String(): no sync markers, just the reloc index
+		0x00, // relocIdx
 	}
 
 	strElem := []byte(importPath)
 
-	// elemEnds offsets (excluding fingerprint): SectionString[0] ends at len(strElem), SectionPkg[0] len(pkgElem) further.
+	// elemEnds offsets (excluding fingerprint): the string element ends at its own length, the pkg element that much further.
 	strEnd := uint32(len(strElem))
 	pkgEnd := strEnd + uint32(len(pkgElem))
 
-	// elemEndsEnds: cumulative per section (10 total); only SectionString(0) and SectionPkg(3) each add 1 element.
+	// elemEndsEnds: cumulative per section; only the string and pkg sections carry an element.
 	numSections := 10
 	eee := make([]uint32, numSections)
-	eee[0] = 1 // SectionString: 1 element
+	eee[0] = 1 // the string section's element
 	for i := 1; i < 3; i++ {
-		eee[i] = 1 // sections 1,2 have 0 elements
+		eee[i] = 1 // the sections between it and pkg carry none
 	}
-	eee[3] = 2 // SectionPkg: 1 element (total = 2)
+	eee[3] = 2 // the pkg section's element
 	for i := 4; i < numSections; i++ {
-		eee[i] = 2 // rest have 0 elements
+		eee[i] = 2 // the trailing sections carry none
 	}
 
-	totalElems := int(eee[numSections-1]) // = 2
+	totalElems := int(eee[numSections-1])
 	elemEnds := make([]uint32, totalElems)
 	elemEnds[0] = strEnd
 	elemEnds[1] = pkgEnd
@@ -142,7 +142,7 @@ func buildMinimalPkgbitsV0(importPath string) []byte {
 	fingerprint := make([]byte, 8)
 
 	var buf []byte
-	// version = 0 (uint32 LE, no flags)
+	// version (uint32 LE, no flags)
 	vb := make([]byte, 4)
 	binary.LittleEndian.PutUint32(vb, 0)
 	buf = append(buf, vb...)
