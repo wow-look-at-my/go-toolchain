@@ -28,7 +28,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Coverage impact metrics** — each package, file and function shows how many percentage points it costs the total, so it is obvious what to test next.
 - **Colorized output** — coverage percentages on a red-to-green gradient.
 - **CI summary** — writes a GitHub Step Summary with test results, source links, coverage, benchmark deltas and a Gantt chart of the pipeline.
-- **Automatic Go toolchain bootstrap** — downloads the Go version `go.mod` asks for when the system Go is missing, older, or corrupt.
+- **One toolchain, one output shape** — every phase compiles with the gosmopolitan fork, and the only outputs are the fat APE and wasm. See [docs/MATRIX.md](docs/MATRIX.md).
 - **Web-backed build cache** — a GOCACHEPROG server that shares a build cache across CI runs, with a FUSE-backed local tier. See [docs/CACHE.md](docs/CACHE.md).
 - **Build profile** — per-action timings joined with cache outcomes: what the build spent its time on, and whether the cache helped. See [docs/PROFILE.md](docs/PROFILE.md).
 - **Vanity URL resolution** — resolves vanity-URL module dependencies via the Go proxy or go-import meta tags.

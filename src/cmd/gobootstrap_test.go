@@ -244,8 +244,7 @@ func TestEnsureGoVersionUsesTheForkAndPinsGOTOOLCHAIN(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
 	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
 
-	// Every variable EnsureGoVersion assigns goes through t.Setenv, so the
-	// GOROOT it points at a throwaway directory cannot outlive this test.
+	// t.Setenv, so the GOROOT this assigns cannot outlive the test.
 	t.Setenv("PATH", os.Getenv("PATH"))
 	t.Setenv("GOROOT", "")
 	t.Setenv("GOTOOLCHAIN", "auto")
@@ -341,8 +340,7 @@ func TestEnsureGoVersionBrokenForkFails(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
 	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
 
-	// Every variable EnsureGoVersion assigns goes through t.Setenv, so the
-	// GOROOT it points at a throwaway directory cannot outlive this test.
+	// t.Setenv, so the GOROOT this assigns cannot outlive the test.
 	t.Setenv("PATH", os.Getenv("PATH"))
 	t.Setenv("GOROOT", os.Getenv("GOROOT"))
 	t.Setenv("GOTOOLCHAIN", os.Getenv("GOTOOLCHAIN"))

@@ -80,13 +80,11 @@ func setupMockProject(t *testing.T) {
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("pkg", 0755)
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
-	// The build phase resolves the fork toolchain, so a project fixture
-	// without one sends every pipeline test to buildhost over the network.
+	// Without this, the build phase sends every pipeline test to buildhost.
 	stubForkToolchain(t)
 }
 
-// writeMockBuildOutput writes the file named by a go build's -o flag, as a
-// real exit-0 compiler does. The t-flavored variant is writeBuildOutput.
+// writeMockBuildOutput writes the -o file, as a real exit-0 compiler does.
 func writeMockBuildOutput(cfg runner.Config, content string) {
 	for i, arg := range cfg.Args {
 		if arg == "-o" && i+1 < len(cfg.Args) {
@@ -95,10 +93,9 @@ func writeMockBuildOutput(cfg runner.Config, content string) {
 	}
 }
 
-// isGoBuild recognizes a `go build`. Every build in this pipeline runs the
-// fork's own binary by absolute path, so the command name is
-// <forkGoroot>/bin/go rather than the bare "go" that IsCmd matches.
+// isGoBuild recognizes a `go build`.
 func isGoBuild(cfg runner.Config) bool {
+	// The fork's binary runs by absolute path, so the name is not the bare "go" IsCmd wants.
 	name := strings.TrimSuffix(filepath.Base(cfg.Name), ".exe")
 	return name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build"
 }

@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
-	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
@@ -37,19 +36,6 @@ func isCacheProgInvocation() bool {
 	return false
 }
 
-func needsGo() bool {
-	for _, arg := range os.Args[1:] {
-		if arg == "--" {
-			return true
-		}
-		switch arg {
-		case "version", "cacheprog":
-			return false
-		}
-	}
-	return true
-}
-
 func main() {
 	// Install the elapsed-duration pipeline. Skip it for GOCACHEPROG: its
 	// stdout is a JSON protocol pipe that must stay undecorated.
@@ -63,16 +49,7 @@ func main() {
 		cmd.StartUpdateCheck()
 	}
 
-	if needsGo() {
-		if err := cmd.EnsureGoVersion(); err != nil {
-			cmd.ReportUpdateCheck()
-			// Drop the previous run's binaries so a failed run can't be mistaken for one (see staleoutputs.go).
-			cmd.DiscardBuildOutputs()
-			logger.Error("go bootstrap: %v", err)
-			logx.Flush()
-			os.Exit(1)
-		}
-	}
+	// The toolchain resolves inside the root command, once cobra knows which one runs -- see skipToolchain.
 	err := cmd.Execute()
 	cmd.ReportUpdateCheck()
 	logx.Flush()

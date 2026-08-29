@@ -65,8 +65,7 @@ func EnsureGoVersion() error {
 
 // useForkAsPipelineToolchain points this process and everything it spawns at
 // goRoot. GOTOOLCHAIN=local is the half that makes it stick: without it the go
-// command silently downloads a stock toolchain to satisfy a go.mod directive,
-// which is the one way an unforked compiler could still build this module.
+// command downloads a stock toolchain to satisfy a go.mod directive.
 func useForkAsPipelineToolchain(goRoot string) {
 	os.Setenv("PATH", filepath.Join(goRoot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	os.Setenv("GOROOT", goRoot)

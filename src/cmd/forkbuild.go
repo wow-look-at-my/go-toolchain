@@ -11,15 +11,12 @@ import (
 // build phase and the matrix path resolve it through here rather than each
 // assembling their own half of it.
 type forkBuildEnv struct {
-	// goroot is the fork's GOROOT.
 	goroot string
-	// cacheNamespace keys cache entries to this toolchain. The fork stamps a
-	// constant version, so without it two fork builds collide on action IDs.
+	// The fork's version stamp is constant, so builds collide without this key.
 	cacheNamespace string
-	// apePlatforms is the GOCOSMOPLATFORMS value; empty means the fork's
-	// everything-default, and it is empty for a wasm-only build.
+	// GOCOSMOPLATFORMS; empty is the fork's everything-default, and wasm-only.
 	apePlatforms string
-	// coverage is the platform set the APE runs on, for the manifest and logs.
+	// The platform set the APE runs on, for the manifest and logs.
 	coverage []buildPlatform
 }
 

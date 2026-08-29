@@ -77,6 +77,12 @@ coverage.
   the set). `--targets` accepts only `cosmo` and the wasm targets (`wasm/js`, `wasm/wasip1`); a native `os/arch` pair is rejected, and no flag
   builds a per-platform native binary at all. A cosmo build writes the APE and nothing else:
   no flag copies it onto per-platform names, so a duplicate is unreachable rather than checked for. Depth: `docs/CMD.md`
+- `src/cmd/gobootstrap.go`, `src/cmd/forkbuild.go`, `src/cmd/matrixbuild.go` — **the gosmopolitan fork is the only compiler, and the APE and wasm
+  are the only outputs**. `EnsureGoVersion` resolves the fork onto PATH/GOROOT with `GOTOOLCHAIN=local` (the half that stops the go command
+  fetching a stock toolchain for a go.mod directive); no go.dev path remains, so a fork older than the go directive fails and names the repair.
+  `checkPortableJob` enforces the rule in `runBuild`, the one place anything compiles, and every compiler- or target-selecting variable is
+  assigned rather than inherited. The default build phase emits the same APE `matrix` publishes, so `build/<name>` is the APE everywhere. Depth:
+  `docs/MATRIX.md`
 - `src/cmd/apemanifest.go` — `build/buildhost-artifacts.json`: names the APE, its platform SET and the plain filename the download is served
   under, so buildhost publishes it as ONE artifact row with one download link instead of one row per platform. Depth: `docs/BUILDHOST-MANIFEST.md`
 - `src/cmd/exportdataretry.go` — a damaged export-data entry from the shared build cache surfaces as `invalid package name: ""` plus a cascade of
@@ -262,9 +268,9 @@ coverage.
   returns the METHOD alongside the answer, a guessed answer prints a one-time banner, and `go-toolchain version host` shows both; the smoke jobs
   assert it inside the sandbox and outside, so a stricter profile or a changed runner image fails CI instead of silently mis-picking every
   host-specific choice. `runtime.CosmoHostOS()` (the runtime's own `__hostos` — unsandboxable, cannot ENOSYS) removes the last filesystem dependency:
-  wire it to `hostSignalFunc` when it lands. Consumers: gobootstrap (go.dev archive name + `.exe` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host
-  symlinks, root/uptodate in-docker binary names, and the agent output guard's classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE
-  always runs the payload matching the host arch
+  wire it to `hostSignalFunc` when it lands. Consumers: cosmobootstrap (the buildhost os/arch and the fork's `bin/go` suffix), cgoenv (brew
+  pkgconfig), codeql (platform dirs), matrix host symlinks, and the agent output guard's classifier dispatch. `runtime.GOARCH` needs no wrapper — a
+  fat APE always runs the payload matching the host arch
 - `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard. Depth:
   `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. Depth: `docs/CI.md`
@@ -282,7 +288,10 @@ coverage.
 - Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go`, `_cosmo.go` suffixes (see `src/test/xattr_*.go`). GOOS=cosmo (gosmopolitan fat
   APE) matches the `unix` build tag, and — since gosmopolitan's matchTag aliases GOOS=cosmo into `linux` — also matches `linux`, both by explicit
   `//go:build` tag and by the `_linux.go`/`_linux_ARCH.go` filename convention. `golang.org/x/sys/unix` therefore now builds for cosmo like any other
-  linux target: reach for a plain `_linux.go` file first. A `_cosmo.go` file is for a genuine gap only — a dedicated implementation already exists
+  linux target: reach for a plain `_linux.go` file first. **Every build is a cosmo build now, so a `!cosmo` split turns a feature OFF in every
+  binary that ships** — before keeping one, compile the dependency for cosmo and confirm it still fails (`modernc.org/sqlite` and `go-git` both
+  build now; the splits excluding them were disabling the deps cache and vet's auto-fix check). A `_cosmo.go` file is for a genuine gap only —
+  `otlptracehttp` is the surviving one, via grpc's `syscall.TCP_INFO`. Either a dedicated implementation already exists
   (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
   (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
 

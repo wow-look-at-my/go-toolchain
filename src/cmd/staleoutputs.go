@@ -188,8 +188,3 @@ func discardBuildOutputsFromCWD() []string {
 	removed, _ := removeBuildOutputsIn(dir, names)
 	return removed
 }
-
-// DiscardBuildOutputs deletes the module's artifacts for main's bootstrap-failure exit, which skips the pipeline.
-func DiscardBuildOutputs() {
-	discardBuildOutputsFromCWD()
-}
