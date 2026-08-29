@@ -82,9 +82,8 @@ func buildProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
 	exporter := &loggingExporter{inner: otlp, w: os.Stderr}
 
 	opts := []sdktrace.TracerProviderOption{
-		// A single batcher for the whole build: extend the default timeout
-		// so a normal build emits very few exports total, and grow the
-		// queue/batch to fit the flood of cacheprog spans.
+		// A single batcher for the whole build: a longer timeout keeps
+		// exports rare, and the grown queue fits the cacheprog spans.
 		sdktrace.WithBatcher(exporter,
 			sdktrace.WithBatchTimeout(30*time.Second),
 			sdktrace.WithMaxQueueSize(8192),

@@ -92,11 +92,9 @@ func Install() {
 }
 
 // Flush closes the pipe write-ends and waits for drainer goroutines to
-// finish. os.Stdout and os.Stderr are restored to the original files so
-// any late writes (e.g. from panic handlers) still reach the terminal
-// without deadlocking on a closed pipe.
-//
-// Safe to call multiple times and before Install().
+// finish. os.Stdout and os.Stderr are restored, so a late write reaches the
+// terminal instead of deadlocking on a closed pipe. Safe to call repeatedly,
+// and before Install().
 func Flush() {
 	if !installed {
 		return

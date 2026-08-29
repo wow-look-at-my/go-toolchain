@@ -26,8 +26,8 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// inspectStdout reads the stdout descriptor directly: logx.Install() swaps
-// os.Stdout for its own pipe, so Fd() would misreport a real terminal as hidden.
+// inspectStdout reads the raw descriptor: logx.Install() swaps os.Stdout
+// for a pipe, so Fd() would misreport a real terminal as hidden.
 func inspectStdout() outputSink {
 	return inspectFD(1)
 }

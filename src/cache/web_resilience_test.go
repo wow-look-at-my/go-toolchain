@@ -200,8 +200,8 @@ func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound) // index etc.
 			return
 		}
-		// Shed the opening PUT attempts like admission control does, with an
-		// immediate Retry-After (fast test; the jittered base backoff still applies).
+		// Shed the opening PUTs like admission control does, with an
+		// immediate Retry-After (fast test; jittered backoff still applies).
 		if putAttempts.Add(1) < 3 {
 			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(http.StatusServiceUnavailable)

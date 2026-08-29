@@ -30,8 +30,8 @@ const (
 
 // noteBatchEntries feeds the entry count of a served /_batch/get response to the
 // consecutive-empty-batch backoff. An empty batch is a healthy remote that
-// holds none of this build's keys; after enough of them stack up, the remote has
-// demonstrably nothing useful for this run, so we disable further batch probing
+// holds none of this build's keys; after enough of them stack up, the remote
+// has nothing useful for this run, so we disable further batch probing
 // (logged a single time). Any non-empty batch resets the streak — the remote IS serving.
 // An empty-but-healthy response is not a backend failure: the backoff is purely a
 // "nothing here to fetch" optimization, orthogonal to the per-op retry path.

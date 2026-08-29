@@ -11,8 +11,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// Upstream testify package paths. Calls resolve here as soon as the toolchain
-// rewrites the in-house fork back to upstream before analysis runs.
+// Upstream testify package paths. Calls resolve here when the toolchain
+// rewrites the fork back to upstream, before analysis runs.
 const (
 	upstreamAssertPkg  = "github.com/stretchr/testify/assert"
 	upstreamRequirePkg = "github.com/stretchr/testify/require"

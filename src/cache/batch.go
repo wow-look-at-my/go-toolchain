@@ -260,8 +260,8 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			attribute.String("cacheprog.action_id", shortID(r.actionID)))
 		e, ok := entryByKey[r.key]
 		if !ok {
-			// Authoritative absence: a healthy response omitted this key. Drop any
-			// stale index claim (see reclaimAbsent) so the PUT path re-uploads it.
+			// Authoritative absence: a healthy response omitted this key. Drop the
+			// stale index claim (reclaimAbsent) so the PUT path re-uploads it.
 			if b.reclaimAbsent(r.key) {
 				b.MissHTTP404.Increment()
 			}

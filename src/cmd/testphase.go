@@ -128,7 +128,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			filesChanged = false
 			err = nil
 		} else if isCorruptExportData(err) {
-			// A corrupt build-cache entry, not a source error. Retry a single time: drop
+			// A corrupt build-cache entry, not a source error. Retry: drop
 			// the shared cache tier and rebuild from source, only if it was in play.
 			if !disableSharedBuildCache() {
 				return false, nil, corruptExportDataError(err, false)

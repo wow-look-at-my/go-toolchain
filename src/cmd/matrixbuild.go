@@ -106,7 +106,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	switch {
 	case job.forkGoroot != "" && job.goos == cosmoOS:
 		// GOOS=cosmo fat-APE build. GOARCH and GOCOSMOFAT are cleared: "fat"
-		// is a pseudo-arch, not a real GOARCH, and an inherited GOCOSMOFAT opt-out
+		// is a pseudo-arch, not a real GOARCH, and an inherited GOCOSMOFAT
 		// must not silently produce a thin binary. The cache namespace keys
 		// this build to this toolchain, since the fork's constant version
 		// stamp would otherwise collide action IDs across fork builds.

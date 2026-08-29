@@ -10,8 +10,8 @@ import (
 const buildIDHashSize = 15
 
 // expectedBuildIDAction derives the build-id ACTION field cmd/go would stamp
-// for cache action actionIDHex (the base64.RawURLEncoding of its leading bytes).
-// Returns "" when actionIDHex is too short to derive an action -- not a mismatch.
+// for cache action actionIDHex (base64.RawURLEncoding of its leading bytes).
+// Returns "" when actionIDHex is too short to derive -- not a mismatch.
 func expectedBuildIDAction(actionIDHex string) string {
 	raw, err := hex.DecodeString(actionIDHex)
 	if err != nil || len(raw) < buildIDHashSize {

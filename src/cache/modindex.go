@@ -13,7 +13,7 @@ import (
 const goModuleIndexMagic = "go index v"
 
 // Module index blobs are unverifiable and catastrophic if mis-keyed, so
-// every tier refuses them on both PUT and GET, never on just the write side.
+// every tier refuses them on GET as well as PUT, never on PUT alone.
 func isGoModuleIndex(body []byte) bool {
 	return bytes.HasPrefix(body, []byte(goModuleIndexMagic))
 }

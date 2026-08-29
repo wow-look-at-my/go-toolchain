@@ -12,7 +12,7 @@ type Warning struct {
 	Count   int
 }
 
-// warnIndex maps a message to its slot, or a negative slot past the cap, so a repeat still
+// warnIndex maps a message to its slot, or a sentinel past the cap, so a repeat
 // folds. Never normalize the text. see docs/WARNINGS-GATE.md
 var (
 	warnMu       sync.Mutex

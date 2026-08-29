@@ -193,8 +193,8 @@ func (c *CastEdits) neededImports() []string {
 
 // addImportsToSource returns src with the given import paths added to its
 // import declaration. Without the import an inserted conversion like
-// wrapping an untyped constant in fs.FileMode would not compile, and the load error would block every
-// subsequent vet run. This reprints the whole file (parse, astutil.AddImport,
+// wrapping an untyped constant in fs.FileMode would not compile, and the load
+// error blocks every later vet run. This reprints the whole file (parse, astutil.AddImport,
 // go/printer), so like every AST-reprinting fixer it emits through
 // canonicalizeGoSource.
 func addImportsToSource(src []byte, filename string, paths []string) ([]byte, error) {
