@@ -36,7 +36,7 @@ func (dc *DepChecker) WaitWithProgress() []OutdatedDep {
 		}
 	}()
 
-	// Wait with progress display (throttled per second, no reprints if unchanged)
+	// Wait with progress display (throttled, no reprints if unchanged)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 

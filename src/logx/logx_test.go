@@ -102,7 +102,7 @@ func TestInstallAppendsDurationToSlowStdoutLine(t *testing.T) {
 
 func TestInstallHandlesPartialLines(t *testing.T) {
 	// The prefix prints without a newline, then the completion prints
-	// its own duration; drain() must not append a further one.
+	// its own duration; drain() must not append a further suffix.
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stdout, "⇒ Running tests with coverage...")
 		fmt.Fprintf(os.Stdout, " done. 1.82s\n")
