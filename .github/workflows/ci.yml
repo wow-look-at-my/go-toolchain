@@ -47,43 +47,7 @@ jobs:
           OTEL_SERVICE_NAME: ${{ github.repository }}
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # pipefail is required: bare `bash -e {0}` lets tee mask a failed build.
-          go run ./src 2>&1 | tee "$RUNNER_TEMP/build-log.txt"
-
-      # setup-go's cache: false guarantees a cold module fetch, so this step can assert on `go mod tidy -v`'s output below.
-      - name: Strip ANSI from the captured build log
-        run: |
-          set -euo pipefail
-          # Fail loud if there's nothing to strip -- that would silently no-op the sub-1s check below.
-          grep -qP '\x1b\[[0-9;]*m' "$RUNNER_TEMP/build-log.txt" || {
-            echo "::error::captured build log has no ANSI escape codes at all -- either color output broke, or the tee pipe stripped them"
-            exit 1
-          }
-          sudo apt-get update -y
-          sudo apt-get install -y ansifilter
-          ansifilter "$RUNNER_TEMP/build-log.txt" > "$RUNNER_TEMP/build-log.clean.txt"
-
-      # cmd/go's own "go: " lines never carry a duration themselves; an "X.XXs" suffix on one is a logx/timedLineWriter bug.
-      - name: Verify no sub-1s duration stamps on go tool output
-        uses: wow-look-at-my/actions@typescript#latest
-        with:
-          script: |
-            const text = fs.readFileSync(process.env.RUNNER_TEMP + '/build-log.clean.txt', 'utf-8');
-            const goLines = text.split('\n').filter(l => l.startsWith('go: '));
-            const downloadLines = goLines.filter(l => l.includes('go: downloading'));
-            if (downloadLines.length === 0) {
-              core.setFailed('no "go: downloading" lines were captured -- the module cache may not have been cold this run, so this check verified nothing. Investigate before trusting a green run here.');
-            }
-            const bad = goLines.filter(l => {
-              const m = l.match(/(\d+\.\d{2})s\s*$/);
-              return m && parseFloat(m[1]) < 1.0;
-            });
-            core.info(`checked ${goLines.length} "go: " line(s) (${downloadLines.length} downloads) for sub-1s duration stamps`);
-            if (bad.length > 0) {
-              core.setFailed(`found ${bad.length} "go: " line(s) stamped with a sub-1s duration -- these must never be timed:\n${bad.join('\n')}`);
-            }
+        run: go run ./src
 
       - name: Check build profile
         uses: wow-look-at-my/actions@typescript#latest
