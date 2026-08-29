@@ -29,7 +29,6 @@ const (
 	cosmoDownloadTimeout = 10 * time.Minute
 )
 
-
 // Test seams — overridden in tests to avoid real downloads and version probes.
 var (
 	ensureCosmoToolchainFunc = EnsureCosmoToolchain
