@@ -65,8 +65,11 @@ toolchain:
    (`https://dl.pazer.build/gosmopolitan?branch=<GO_TOOLCHAIN_COSMO_BRANCH>`,
    default branch `master`) and cached under
    `~/.cache/go-toolchain/cosmo/v<N>/` keyed by the buildhost release version,
-   so it downloads once per release. Prebuilt toolchains exist for linux/amd64
-   hosts only today; on other hosts set `GO_TOOLCHAIN_COSMO_GOROOT`.
+   so it downloads once per release. Every host asks for its own `os`/`arch`;
+   buildhost decides what exists, and a host it publishes nothing for fails
+   with that answer plus the `GO_TOOLCHAIN_COSMO_GOROOT` escape. Nothing here
+   keeps a list of supported hosts — one went stale and refused darwin/arm64
+   while buildhost was serving it.
 
 **Build semantics.** The cosmo build always runs with `CGO_ENABLED=0`
 (cosmopolitan has no cgo; `--cgo` warns and is ignored for this target) and
