@@ -92,6 +92,20 @@ func writeMockBuildOutput(cfg runner.Config, content string) {
 	}
 }
 
+// handleGoBuild answers a go build the way an exit-0 compiler does: the -o
+// target is left behind. Every mock a test drives through the build phase
+// needs this, whatever that test is really about — runBuild commits the -o
+// onto the target name and fails the build when there is nothing to commit.
+// A mock that wants a different answer handles go build itself and never
+// reaches here (newBuildFailMock).
+func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
+	if !cfg.IsCmd("go", "build") {
+		return nil, false
+	}
+	writeMockBuildOutput(cfg, "bin")
+	return runner.MockProcess(nil, nil), true
+}
+
 // newTestPassMock creates a mock runner that passes tests with the given coverage percentage.
 // If pct is 0, it defaults to 100%.
 func newTestPassMock(pct float32) *runner.Mock {
@@ -105,13 +119,8 @@ func newTestPassMock(pct float32) *runner.Mock {
 			writeMockCoverProfile(cfg.Args, covPct)
 			return runner.MockProcess([]byte(mockTestEvents(covPct)), nil), nil
 		}
-		if cfg.IsCmd("go", "build") {
-			// The real compiler's contract: an exit-0 go build leaves its -o
-			// target behind, and runBuild refuses to commit a build that
-			// wrote nothing. Handlers that wrap this mock and write their own
-			// output content return before reaching here.
-			writeMockBuildOutput(cfg, "bin")
-			return runner.MockProcess(nil, nil), nil
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
@@ -186,6 +195,9 @@ func newTestFailMock() *runner.Mock {
 `
 			return runner.MockProcess([]byte(output), nil), nil
 		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
+		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
 		}
@@ -224,6 +236,9 @@ func newSmallMock(covered, uncovered int) *runner.Mock {
 		if cfg.IsCmd("go", "test") {
 			writeMockCoverProfileStmts(cfg.Args, covered, uncovered)
 			return runner.MockProcess([]byte(mockTestEvents(pct)), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
