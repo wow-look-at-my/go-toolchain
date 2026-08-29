@@ -11,43 +11,26 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// The cosmo pseudo-target: one GOOS=cosmo fat APE built with the gosmopolitan
-// toolchain. A fat APE covers linux/amd64, linux/arm64, darwin/arm64 and
-// windows/amd64 in a single binary, so it has no per-arch matrix entries; its
-// artifact is named <name>.
+// cosmoOS/cosmoFatArch: the pseudo-target for one fat APE, not a normal GOOS/GOARCH pair.
 const (
 	cosmoOS      = "cosmo"
 	cosmoFatArch = "fat"
 )
 
-// The WebAssembly targets: GOARCH=wasm paired with GOOS=js (browser/Node.js)
-// or GOOS=wasip1 (WASI runtimes). Like cosmo, wasm targets are built with the
-// gosmopolitan fork toolchain, which carries this org's wasm runtime fixes
-// (preemptible loops, Node.js fetch networking, DWARF debug info, ...).
-// Artifacts get a .wasm suffix (see build.BinaryName).
+// wasmArch: GOARCH=wasm, paired with GOOS=js or wasip1; built with the gosmopolitan fork toolchain.
 const wasmArch = "wasm"
 
 // isWasmGOOS reports whether goos only exists as a GOARCH=wasm pairing.
 func isWasmGOOS(goos string) bool { return goos == "js" || goos == "wasip1" }
 
-// wasmPublishEnv is the opt-out knob for buildhost publishing of wasm
-// artifacts. By default wasm artifacts use buildhost's publishable naming
-// (<name>_wasm_js / <name>_wasm_wasip1 — os=wasm with arch=js/wasip1, see
-// wow-look-at-my/buildhost#166). Uploading those requires a buildhost with
-// wasm artifact support; on an older server the upload 400s (`invalid os
-// "wasm"`) and one rejected artifact aborts the whole publish. Setting
-// GO_TOOLCHAIN_WASM_PUBLISH=0 falls back to the excluded naming
-// (<name>_<goos>_wasm.wasm), which never reaches the publish upload set but
-// still ships in build/, checksums.txt, and the CI artifact.
+// wasmPublishEnv, set to 0, opts out of buildhost's publishable wasm naming (for a buildhost too old to accept it).
 const wasmPublishEnv = "GO_TOOLCHAIN_WASM_PUBLISH"
 
-// wasmPublishOptOut reports whether GO_TOOLCHAIN_WASM_PUBLISH=0 disabled
-// buildhost publishing of wasm artifacts.
+// wasmPublishOptOut reports whether GO_TOOLCHAIN_WASM_PUBLISH=0 disabled buildhost publishing of wasm artifacts.
 func wasmPublishOptOut() bool { return os.Getenv(wasmPublishEnv) == "0" }
 
-// wasmArtifactName returns the wasm platform's artifact name: buildhost's
-// publishable convention by default, the excluded .wasm-suffixed shape under
-// GO_TOOLCHAIN_WASM_PUBLISH=0.
+// wasmArtifactName returns buildhost's publishable name by default, or the
+// excluded .wasm-suffixed name under GO_TOOLCHAIN_WASM_PUBLISH=0.
 func wasmArtifactName(name string, p buildPlatform) string {
 	if wasmPublishOptOut() {
 		return build.UnpublishableWasmName(name, p.OS)
@@ -55,9 +38,7 @@ func wasmArtifactName(name string, p buildPlatform) string {
 	return build.BinaryName(name, p.OS, p.Arch)
 }
 
-// validGOOS / validGOARCH mirror the target lists of the Go distribution
-// (`go tool dist list`), plus cosmo which is handled specially. Used to
-// validate --targets / --cosmo-platforms entries.
+// validGOOS / validGOARCH mirror `go tool dist list`, and validate --targets / --cosmo-platforms entries.
 var (
 	validGOOS = []string{
 		"aix", "android", "darwin", "dragonfly", "freebsd", "illumos", "ios",
@@ -70,8 +51,7 @@ var (
 	}
 )
 
-// buildPlatform is one resolved build target: a (GOOS, GOARCH) pair, or the
-// cosmo fat-APE pseudo-target represented as {cosmoOS, cosmoFatArch}.
+// buildPlatform is a resolved build target: a GOOS/GOARCH pair, or the cosmo fat-APE pseudo-target.
 type buildPlatform struct {
 	OS   string
 	Arch string
@@ -80,14 +60,10 @@ type buildPlatform struct {
 // IsCosmo reports whether the platform is the cosmo fat-APE pseudo-target.
 func (p buildPlatform) IsCosmo() bool { return p.OS == cosmoOS }
 
-// IsWasm reports whether the platform is a WebAssembly target (js/wasm or
-// wasip1/wasm).
+// IsWasm reports whether the platform is a WebAssembly target (js/wasm or wasip1/wasm).
 func (p buildPlatform) IsWasm() bool { return p.Arch == wasmArch }
 
-// NeedsForkToolchain reports whether the platform is built with the
-// gosmopolitan fork toolchain instead of the go on PATH: the cosmo fat APE
-// (the fork is the only compiler for GOOS=cosmo) and the wasm targets (the
-// fork carries the org's wasm runtime fixes).
+// NeedsForkToolchain reports whether the platform needs the gosmopolitan fork toolchain: cosmo or wasm.
 func (p buildPlatform) NeedsForkToolchain() bool { return p.IsCosmo() || p.IsWasm() }
 
 // parsePlatformPair validates a single "os/arch" entry of the given flag.
@@ -104,13 +80,9 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 		}
 		return buildPlatform{}, fmt.Errorf("invalid %s entry %q: this flag names the native platforms the fat APE covers, so %q itself is not one of them", flagName, entry, cosmoOS)
 	}
-	// Canonical wasm spelling: wasm/js and wasm/wasip1, matching buildhost's
-	// artifact scheme (os=wasm with arch=js/wasip1) and the published
-	// <name>_wasm_js naming. Normalized here to the internal GOOS/GOARCH form
-	// ({js, wasm} / {wasip1, wasm}); the GOOS-order spellings js/wasm and
-	// wasip1/wasm stay accepted below as quiet compatibility aliases (Go's
-	// own GOOS/GOARCH order, already shipped in released consumers) and
-	// normalize to the SAME target, so mixing spellings dedupes.
+	// Canonical spelling is wasm/js, wasm/wasip1 (buildhost's os=wasm scheme).
+	// js/wasm and wasip1/wasm are accepted as aliases and normalize to the
+	// same target, so mixing spellings still dedupes.
 	if goos == wasmArch {
 		if !isWasmGOOS(goarch) {
 			return buildPlatform{}, fmt.Errorf("invalid %s entry %q: wasm targets are %s/js or %s/wasip1", flagName, entry, wasmArch, wasmArch)
@@ -135,10 +107,8 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 }
 
 // parseTargetList parses the --targets flag: the special value "cosmo" (one
-// gosmopolitan fat APE) and/or wasm os/arch pairs. The org ships one APE as
-// its native output (see docs/MATRIX.md's shipping policy) — a native
-// os/arch pair is rejected here, pointing at --cosmo-platforms, which is how
-// the APE's own host coverage is chosen. Duplicates are rejected.
+// fat APE) and the wasm pairs. A native os/arch pair is rejected: the APE is
+// the only native output, and --cosmo-platforms picks the hosts it covers.
 func parseTargetList(entries []string) ([]buildPlatform, error) {
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("--targets requires at least one entry")
@@ -163,10 +133,8 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 			}
 		}
 		if first, dup := seen[p]; dup {
-			// The same entry twice is a mistake worth flagging; two different
-			// SPELLINGS of the same target (the canonical wasm/js and its
-			// js/wasm compatibility alias) are deliberate synonyms and dedupe
-			// silently to one target.
+			// The same entry twice is an error; two spellings of the same
+			// target (wasm/js and its js/wasm alias) dedupe silently instead.
 			if first == entry {
 				return nil, fmt.Errorf("duplicate target %q", entry)
 			}
@@ -178,12 +146,9 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 	return out, nil
 }
 
-// resolveMatrixPlatforms turns the target flags into the list of platforms to
-// build. With no flags at all the answer is ONE cosmo fat APE: a single
-// binary covering --cosmo-platforms. This is the org's only native output
-// (see docs/MATRIX.md's shipping policy); --targets exists only to add wasm
-// artifacts alongside it, or to build wasm alone by leaving "cosmo" out of
-// the list.
+// resolveMatrixPlatforms turns the target flags into the platforms to build.
+// With no flags the answer is ONE cosmo fat APE covering --cosmo-platforms;
+// --targets only adds wasm artifacts, or drops "cosmo" for wasm alone.
 func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	if len(matrixTargets) > 0 {
 		return parseTargetList(matrixTargets)
@@ -194,20 +159,16 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 // resolvePlatformTargets returns the main packages to build for each
 // platform, plus whether ANY platform has at least one.
 //
-// The cosmo pseudo-target keeps the host-context set (hostTargets, from
-// build.ResolveBuildTargets, including its library-only fallback): the fat
-// APE embeds several native platforms, so no single GOOS/GOARCH context
-// describes it. Every wasm platform gets discovery under its OWN GOOS/GOARCH
-// build context instead: a main package guarded "//go:build js && wasm" is
-// built for js/wasm targets and never attempted for wasip1/wasm (it has zero
-// files there, so building it would fail). An unconstrained main is in every
-// set. A platform whose context has no main packages is skipped with a
-// warning rather than failing the whole build.
+// The cosmo pseudo-target keeps the host set, since the fat APE embeds
+// several native platforms and no single context describes it. Wasm
+// platforms get per-target discovery under their own GOOS/GOARCH build
+// context, so a "//go:build js && wasm" main builds only for js/wasm
+// targets. A platform with no main packages is skipped with a warning
+// rather than failing the build.
 //
-// The memlimit guard never distorts these sets even though injection happens
-// earlier: discovery skips gomod.MemLimitGuardFileName by name, so the
-// unconstrained guard injected into the HOST-context main dirs cannot make a
-// host-only main dir look like a main package under a wasm target's context.
+// Discovery skips gomod.MemLimitGuardFileName, so the memlimit guard
+// injected into host-context main dirs cannot make a host-only dir look
+// like a main package under another target's context.
 func resolvePlatformTargets(platforms []buildPlatform, hostTargets []build.Target) (map[buildPlatform][]build.Target, bool, error) {
 	perPlatform := make(map[buildPlatform][]build.Target, len(platforms))
 	anyMains := false

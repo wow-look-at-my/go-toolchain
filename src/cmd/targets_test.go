@@ -55,10 +55,7 @@ func TestParseTargetList(t *testing.T) {
 			wantErr: "always one fat APE",
 		},
 		{
-			// A native os/arch pair is matrix mode: the APE is the org's only
-			// native output, so --targets rejects it and points at
-			// --cosmo-platforms instead (see docs/MATRIX.md's shipping
-			// policy).
+			// The APE is the only native output, so a native pair is rejected and points at --cosmo-platforms.
 			name:    "native pair is rejected",
 			entries: []string{"darwin/amd64"},
 			wantErr: "only accepts wasm targets",
@@ -77,9 +74,7 @@ func TestParseTargetList(t *testing.T) {
 			},
 		},
 		{
-			// The GOOS-order spellings are a quiet compatibility alias
-			// (already shipped in released consumers) and normalize to the
-			// same internal targets as the canonical wasm/js form.
+			// GOOS-order spellings are a compatibility alias, normalizing to the same targets as the canonical wasm/js form.
 			name:    "wasm targets GOOS-order alias",
 			entries: []string{"js/wasm", "wasip1/wasm"},
 			want: []buildPlatform{
@@ -88,8 +83,7 @@ func TestParseTargetList(t *testing.T) {
 			},
 		},
 		{
-			// Mixing the canonical spelling and its alias dedupes to ONE
-			// target — they are the same platform after normalization.
+			// Mixing the canonical spelling and its alias dedupes to one target.
 			name:    "wasm spellings dedupe to one target",
 			entries: []string{"wasm/js", "js/wasm", "wasip1/wasm", "wasm/wasip1"},
 			want: []buildPlatform{
@@ -188,8 +182,7 @@ func TestBuildPlatformPredicates(t *testing.T) {
 	assert.True(t, wasip1.IsWasm())
 	assert.False(t, linux.IsWasm())
 
-	// The fork toolchain builds cosmo and wasm; everything else uses the go
-	// on PATH.
+	// The fork toolchain builds cosmo and wasm; everything else uses PATH's go.
 	assert.True(t, cosmo.NeedsForkToolchain())
 	assert.True(t, js.NeedsForkToolchain())
 	assert.True(t, wasip1.NeedsForkToolchain())
