@@ -28,7 +28,7 @@ type coverageHandler struct {
 	testOutput  map[string][]string // buffer output per test/package until we know pass/fail
 	failedTest  set.Set[string]     // tests/packages that failed
 	timedOut    set.Set[string]     // tests that timed out
-	onOutput    func()              // called before the first visible output
+	onOutput    func()              // called before any visible output
 	stderrLines []string            // panics and other stderr noise
 	// buildOutput holds compiler/linker diagnostics from empty-Package build-output events (unmatched otherwise).
 	buildOutput []string
@@ -39,7 +39,7 @@ type coverageHandler struct {
 }
 
 func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Execution) error {
-	// Build diagnostics come first, before any test event: keep them in
+	// Build diagnostics lead, ahead of any test event: keep them in
 	// emission order, and show them live in verbose mode like test output.
 	if event.Action == testjson.ActionBuild && event.Output != "" {
 		h.buildOutput = append(h.buildOutput, event.Output)
@@ -173,7 +173,7 @@ func (h *coverageHandler) printFastSummary() {
 }
 
 // FailureOutput is everything worth showing about a failed run, in the order
-// a reader needs it: what actually went wrong first, the per-test detail after.
+// a reader needs it: what actually went wrong, then the per-test detail.
 // The compiler's own diagnostics lead -- a summary that arrives before the
 // error it summarizes is how "[build failed]" becomes the only thing anybody
 // sees.
