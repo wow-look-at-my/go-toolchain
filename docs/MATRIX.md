@@ -66,7 +66,8 @@ toolchain:
    default branch `master`) and cached under
    `~/.cache/go-toolchain/cosmo/v<N>/` keyed by the buildhost release version,
    so it downloads once per release. Prebuilt toolchains exist for linux/amd64
-   hosts only today; on other hosts set `GO_TOOLCHAIN_COSMO_GOROOT`.
+   and darwin/arm64 hosts; on any other host set `GO_TOOLCHAIN_COSMO_GOROOT` to
+   a local build's GOROOT.
 
 **Build semantics.** The cosmo build always runs with `CGO_ENABLED=0`
 (cosmopolitan has no cgo; `--cgo` warns and is ignored for this target) and

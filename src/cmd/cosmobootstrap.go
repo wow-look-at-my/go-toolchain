@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ const (
 	cosmoProbeTimeout    = 30 * time.Second
 	cosmoDownloadTimeout = 10 * time.Minute
 )
+
+// publishedCosmoHosts are the hosts buildhost serves a toolchain for; any other needs a local GOROOT.
+var publishedCosmoHosts = []string{"linux/amd64", "darwin/arm64"}
 
 // Test seams — overridden in tests to avoid real downloads and version probes.
 var (
@@ -61,8 +65,8 @@ func EnsureCosmoToolchain() (string, error) {
 	}
 
 	hostOS, hostArch := cosmoHostPlatformFunc()
-	if hostOS != "linux" || hostArch != "amd64" {
-		return "", fmt.Errorf("no prebuilt gosmopolitan toolchain is published for %s/%s hosts (only linux/amd64 today); set %s to a local gosmopolitan build's GOROOT", hostOS, hostArch, cosmoGorootEnv)
+	if !slices.Contains(publishedCosmoHosts, hostOS+"/"+hostArch) {
+		return "", fmt.Errorf("no prebuilt gosmopolitan toolchain is published for %s/%s hosts (published: %s); set %s to a local gosmopolitan build's GOROOT", hostOS, hostArch, strings.Join(publishedCosmoHosts, ", "), cosmoGorootEnv)
 	}
 
 	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)

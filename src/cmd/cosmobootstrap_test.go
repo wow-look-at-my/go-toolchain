@@ -104,12 +104,43 @@ func TestEnsureCosmoToolchainEnvGorootBrokenVersionProbe(t *testing.T) {
 
 func TestEnsureCosmoToolchainUnsupportedHost(t *testing.T) {
 	setupCosmoTest(t)
-	cosmoHostPlatformFunc = func() (string, string) { return "darwin", "arm64" }
+	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
 
 	_, err := EnsureCosmoToolchain()
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "windows/amd64")
+	// The error names the hosts that DO work, so a mac reader is not told to go find a local build.
 	assert.Contains(t, err.Error(), "darwin/arm64")
 	assert.Contains(t, err.Error(), cosmoGorootEnv)
+}
+
+// buildhost publishes a darwin/arm64 toolchain, so a mac host downloads it
+// like any other rather than being refused.
+func TestEnsureCosmoToolchainDownloadsForDarwinArm64Host(t *testing.T) {
+	cacheDir := setupCosmoTest(t)
+	cosmoHostPlatformFunc = func() (string, string) { return "darwin", "arm64" }
+	tarball := makeCosmoTarball(t)
+
+	var gotQuery atomic.Value
+	mux := http.NewServeMux()
+	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
+		gotQuery.Store(r.URL.RawQuery)
+		if r.Method == http.MethodHead {
+			w.Header().Set("Location", "/static?project=gosmopolitan&v=42&os=darwin&arch=arm64")
+			w.WriteHeader(http.StatusMovedPermanently)
+			return
+		}
+		w.Write(tarball)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cosmoDownloadBase = srv.URL + "/gosmopolitan"
+
+	got, err := EnsureCosmoToolchain()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(cacheDir, "cosmo", "v42", "go"), got)
+	assert.Contains(t, gotQuery.Load().(string), "os=darwin")
+	assert.Contains(t, gotQuery.Load().(string), "arch=arm64")
 }
 
 func TestEnsureCosmoToolchainDownloadsAndCaches(t *testing.T) {
