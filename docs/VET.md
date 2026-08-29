@@ -249,3 +249,105 @@ dependency, and the severity is the same in every module: a warning.
 There is no opt-out marker. Every package variant walks the same file, so the
 sites are deduplicated by `file:line` for the length of one vet run
 (`resetWriteRunWarnings`).
+
+## jsoninterp: a JSON document built out of string pieces
+
+`src/vet/jsoninterp.go` reports a JSON document assembled from text rather than
+marshaled from a value:
+
+```go
+{% raw %}
+fmt.Sprintf(`{"sha":%q}`, sha)
+`{"sha":"` + sha + `"}`
+template.New("body").Parse(`{"name":"{{.Name}}"}`)
+{% endraw %}
+```
+
+None of the three escapes anything for JSON. A value carrying a quote, a
+backslash or a newline does not corrupt the value; it corrupts the DOCUMENT,
+and the reader on the far side gets a parse error or a different object than
+the one that was sent. A value the user controls chooses that object.
+
+`%q` looks like the careful spelling and is not. It writes GO quoting, which is
+a different language: `strconv.Quote` emits escapes such as `\xff` that JSON
+has no syntax for, so a value that is not valid UTF-8 produces text no JSON
+parser accepts. The one finding this check made on `simple-llm-ui` was a `%q`
+in a test that fakes a GitHub repository listing.
+
+The remedy is `encoding/json`. Marshal a struct or a `map[string]any`; a
+fragment that is already JSON and must stay raw is a `json.RawMessage` field,
+which is exactly the case that type exists for.
+
+### There is no JSON context in any template package
+
+The question this check keeps answering: `html/template` escapes by context, so
+is there something equivalent for JSON?
+
+No. There is no `json/template`, and neither template package has a JSON
+context.
+
+- **`text/template` escapes nothing at all.** It has no notion of an output
+  language, and no reference to `encoding/json` anywhere in the package. Every
+  action writes its value verbatim. A JSON template is therefore the
+  concatenation case with extra steps.
+- **`html/template` escapes for HTML**, and its typed strings are the whole set
+  of languages it knows: `HTML`, `HTMLAttr`, `CSS`, `JS`, `JSStr`, `URL` and
+  `Srcset` (`content.go`). There is no `JSON` among them, and none for XML
+  either.
+- The one place the standard library JSON-escapes for a template is
+  `jsValEscaper` (`html/template/js.go`), which marshals the value with
+  `json.Marshal`. It is reachable only from `stateJS` (`escape.go`) -- that is,
+  a value inside a `<script>` element of an HTML document. Handed a bare JSON
+  document, `html/template` escapes it as HTML instead, which is a different
+  and equally wrong answer: a `<` in your data becomes `&lt;`.
+
+So a template whose text is JSON is reported like the other two shapes. This is
+the one place `writeruns` and `jsoninterp` point in opposite directions:
+`writeruns` names `text/template` as the remedy for a document written one line
+at a time, and that remedy is right for a shell script and wrong for JSON.
+
+### What counts as a document
+
+A finding needs a value entering the text AND text that is JSON.
+
+The value is a format verb (`fmt.Sprintf`, `Fprintf`, `Errorf`, `Printf`,
+`Appendf`), an operand of a `+` concatenation that is not a string literal, or
+a template action. A doubled `%%` interpolates nothing, and an expression the
+type checker folded to a constant carries no runtime value; neither is
+reported.
+
+The text is judged by `isJSONDocument` (`src/vet/jsonshape.go`), on the whole
+document rather than one piece of it: the literal parts of a concatenation are
+joined first, so `` `{"sha":"` + sha + `"}` `` is read as `{"sha":""}` and a
+fragment that means nothing alone is still read in place. Two things must hold.
+
+1. **Outside its quoted strings the text spells only JSON syntax** -- the
+   punctuation, a number, `true`/`false`/`null`, whitespace, and the holes the
+   values fill. This is what keeps prose out: `expected {"ok":true}, got %s`
+   has the word `expected` outside every string, so it is a message about JSON
+   rather than JSON.
+2. **It shows one of three shapes**: a quoted key (a closed string a colon
+   follows), an array holding a string or an object, or an object holding a
+   string.
+
+The second condition is why `fmt.Sprintf("{%s}", v)` and `fmt.Sprintf("[%s]",
+tag)` stay silent. Braces around one value are a notation this check cannot
+tell from set notation, a CSS rule or a log tag, and a check that cries wolf on
+ordinary formatting is one nobody reads. The cost is that a JSON array of bare
+values is missed; the shapes that carry a quote are the ones a value breaks.
+
+### Scope
+
+A document that is one string constant is never reported: it holds no value, so
+nothing can break it. Neither is a call this walk cannot read the text of -- a
+format string held in a variable, or `template.ParseFiles`, whose document is
+in another file.
+
+Only `fmt` is read. A logging call that formats JSON-looking text writes a log
+line, and a log line is not a document anybody parses.
+
+The remedy is the standard library, so it costs a consumer no dependency. The
+severity is still the split the set checks carry: an org module FAILS
+(`isOrgModule`), and everywhere else WARNS. There is no opt-out marker. Every
+package variant walks the same file, so warned sites are deduplicated by
+`file:line` for one vet run (`resetJSONInterpWarnings`).

@@ -35,6 +35,7 @@ func Analyzers() []*analysis.Analyzer {
 		DeadCodeAnalyzer,
 		BannedOutputAnalyzer,
 		CommentSpanAnalyzer,
+		JSONInterpAnalyzer,
 		MapSetAnalyzer,
 		RedundantCastAnalyzer,
 		SliceSetAnalyzer,
@@ -142,6 +143,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	}
 
 	// Every build-tag config the module needs; buildtags.Verify below proves none was missed.
+	resetJSONInterpWarnings()
 	resetMapSetWarnings()
 	resetSliceSetWarnings()
 	resetWriteRunWarnings()
