@@ -89,10 +89,8 @@ func writeMockBuildOutput(cfg runner.Config, content string) {
 	}
 }
 
-// handleGoBuild leaves the -o target behind, as an exit-0 compiler does.
-// Every mock a test drives through the build phase needs this: runBuild
-// fails a build that reports success and wrote nothing. A mock wanting a
-// different answer handles go build first (newBuildFailMock).
+// handleGoBuild leaves the -o target behind, as an exit-0 compiler does;
+// every mock reaching the build phase needs it. newBuildFailMock answers first.
 func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
 	if !cfg.IsCmd("go", "build") {
 		return nil, false
