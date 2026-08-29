@@ -15,8 +15,8 @@ import (
 // through its requirements, mapped to its pseudo-version at c's commit.
 //
 // A multi-module repo can't pin itself: a sibling require is written before
-// the commit it names exists, so it points at an earlier one -- at first
-// publish, one lacking the module entirely ("missing go.mod at revision").
+// the commit it names exists, so it points at an earlier commit -- at a
+// maiden publish, a commit lacking the module entirely ("missing go.mod at revision").
 // A replace fixes this only inside the repo. This resolves it for a consumer
 // instead: the consumer requires the siblings directly at the resolved
 // commit, and minimal version selection picks that over the stale pin.

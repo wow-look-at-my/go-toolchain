@@ -1,6 +1,6 @@
 //go:build darwin
 
-// The same four descriptor probes as claudeguard_fdprobe_cosmo.go, for a
+// The same descriptor probes as claudeguard_fdprobe_cosmo.go, for a
 // NATIVE darwin build. Here the darwin constants are the right ones to spell
 // -- there is no translating dispatcher in between, so SOL_LOCAL/LOCAL_PEERPID
 // is the real API rather than the trap it would be in Linux-shaped code.

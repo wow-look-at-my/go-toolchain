@@ -56,7 +56,7 @@ func lsRemoteAnswer(args []string, def, fullHash string, has []string) []byte {
 	return []byte(out.String())
 }
 
-// bareMarkerGoMod is one org require carrying the bare marker, the line whose
+// bareMarkerGoMod is an org require carrying the bare marker, the line whose
 // resolution the tests below are about.
 const bareMarkerGoMod = `module test
 go 1.21
@@ -64,7 +64,7 @@ go 1.21
 require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-toolchain:auto-branch
 `
 
-// Two repositories developed in tandem carry the same branch name, so a bare
+// A pair of repositories developed in tandem carry the same branch name, so a bare
 // marker follows the dependency's copy of it: that is what makes the marker
 // resolve to the other half of the change while it is still in flight.
 func TestBareMarkerFollowsTheDependencysBranchOfThisRepositorysName(t *testing.T) {
@@ -168,7 +168,7 @@ func TestTrackedBranchDepsMovedFollowsTheMatchingBranchToo(t *testing.T) {
 	assert.Contains(t, *lsRemote, "https://github.com/wow-look-at-my/foo refs/heads/claude/tandem")
 }
 
-// One repository is asked once however many of its modules go.mod requires.
+// A repository is asked a single time however many of its modules go.mod requires.
 func TestTheMatchIsProbedOncePerModule(t *testing.T) {
 	t.Chdir(t.TempDir())
 	gomod := `module test

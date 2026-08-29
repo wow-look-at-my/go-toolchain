@@ -389,7 +389,7 @@ func TestIsTerminalOnPipeIsFalse(t *testing.T) {
 }
 
 // TestInspectStdoutIgnoresStdoutVariableReassignment guards against
-// inspectStdout using os.Stdout.Fd() instead of the raw fd 1: logx.Install()
+// inspectStdout using os.Stdout.Fd() instead of the raw descriptor: logx.Install()
 // reassigns that variable, so following it would misclassify a real
 // terminal or capture file as a hidden sink under every agent.
 func TestInspectStdoutIgnoresStdoutVariableReassignment(t *testing.T) {

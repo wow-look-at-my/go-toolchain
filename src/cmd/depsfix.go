@@ -82,7 +82,7 @@ func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, err
 // Backoff triggers only on a git-level failure, not an empty (but reachable)
 // ls-remote result. Asking for HEAD adds --symref, which also reports the
 // branch it points at. Every ref is asked in the same question, which is how a
-// bare marker learns the default branch and whether a matching one exists
+// bare marker learns the default branch and whether a matching branch exists
 // without paying for a further round trip. On total failure, the EARLIEST
 // error (the full module path) is reported.
 func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gitURL string, output []byte, err error) {

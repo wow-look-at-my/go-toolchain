@@ -21,7 +21,7 @@ func TestCoverageBelowMinimum_GHAErrorAnnotation(t *testing.T) {
 	jsonOutput = false
 	defer func() { jsonOutput = false }()
 
-	// 60 covered / 40 uncovered = 60% (well below 80%, with >=10 uncovered)
+	// well below the minimum, with too many uncovered statements to excuse
 	mock := newSmallMock(60, 40)
 
 	var err error

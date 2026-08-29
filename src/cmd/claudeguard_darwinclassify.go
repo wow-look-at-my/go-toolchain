@@ -19,9 +19,9 @@ const (
 	sIFSOCK = 0xC000
 )
 
-// darwinFDProbes are the questions the classifier asks about one descriptor.
+// darwinFDProbes are the questions the classifier asks about a descriptor.
 // Each probe reports supported=false when this build cannot ask it at all --
-// which is different from a negative answer, and must not be treated as one.
+// which is different from a negative answer, and must not be read as such.
 type darwinFDProbes struct {
 	// fileType returns the descriptor's S_IFMT bits.
 	fileType func() (mode uint32, supported bool)

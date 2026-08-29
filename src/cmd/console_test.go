@@ -139,7 +139,7 @@ func TestLogStepFailedSilent(t *testing.T) {
 	assert.NotContains(t, output, "...\n")
 }
 
-// withTimedLineMinDuration lowers timedLineMinDuration for one test, so
+// withTimedLineMinDuration lowers timedLineMinDuration for a single test, so
 // it can exercise the slow-line path without sleeping for real.
 func withTimedLineMinDuration(t *testing.T, d time.Duration) {
 	t.Helper()
@@ -158,7 +158,7 @@ func TestTimedLineWriterFastLinesOmitDuration(t *testing.T) {
 	assert.NotContains(t, buf.String(), "\n")
 
 	w.Write([]byte("go: downloading bar v2.0\n"))
-	// First line closes with a bare newline: it took well under a second.
+	// The earlier line closes with a bare newline: it was far too quick to time.
 	output := buf.String()
 	assert.Contains(t, output, "go: downloading foo v1.0\n")
 	assert.NotContains(t, output, colorDimCyan)

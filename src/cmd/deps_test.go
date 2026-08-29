@@ -69,7 +69,7 @@ func TestShortenVersion(t *testing.T) {
 		version string
 		want    string
 	}{
-		// Pseudo-versions get shortened to first 7 chars of hash
+		// Pseudo-versions get shortened to the hash's short prefix
 		{"v0.0.0-20240101120000-abc123def456", "abc123d"},
 		{"v1.2.3-0.20240101120000-1234567890ab", "1234567"},
 
@@ -77,7 +77,7 @@ func TestShortenVersion(t *testing.T) {
 		{"v1.0.0", "v1.0.0"},
 		{"v2.3.4", "v2.3.4"},
 
-		// Short hash (less than 7 chars) stays as-is
+		// A hash already shorter than that prefix stays as-is
 		{"v0.0.0-20240101-abc", "abc"},
 	}
 
@@ -283,7 +283,7 @@ func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
 	dc := &DepChecker{cache: c}
 
 	// Insert an expired "up-to-date" entry (checked long ago)
-	c.store("github.com/spf13/cobra", "v1.10.2", "", 0) // timestamp 0 = expired
+	c.store("github.com/spf13/cobra", "v1.10.2", "", 0) // an empty timestamp reads as expired
 
 	// Should do a live check since cache is expired
 	_, _, err = dc.checkDep("github.com/spf13/cobra", "v1.10.2")
