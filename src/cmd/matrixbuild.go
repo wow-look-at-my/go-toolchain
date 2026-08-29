@@ -71,6 +71,12 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 // runBuild compiles a single binary. If onFirstOutput is non-nil, it is
 // called when the compiler produces its first output (used for progress
 // indicators on the default build path).
+//
+// The compiler never writes onto the target file (job.outputPath) directly:
+// its -o is the .tmp- spelling of that path (build.TmpPrefix), and only the
+// commit after the build succeeded moves the results onto the target name.
+// A failing or killed build can therefore never leave even a partial binary
+// at build/<name> for an agent or a later phase to pick up.
 func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
 	// Last-chokepoint guard: a fork-toolchain job MUST carry a cache namespace
 	// (buildJob.cacheNamespace), so a call site that forgets to fingerprint the
@@ -90,7 +96,8 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if job.ldflags != "" {
 		args = append(args, "-ldflags", job.ldflags)
 	}
-	args = append(args, "-o", job.outputPath, job.srcPath)
+	// -o is the temp spelling; the commit below is what makes the target exist.
+	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
 	goCmd := "go"
 	if job.forkGoroot != "" {
 		goCmd = filepath.Join(job.forkGoroot, "bin", "go")
@@ -147,21 +154,24 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		cmd = cmd.WithEnv("CGO_ENABLED", "0")
 	}
 	proc, err := cmd.Run(r)
-	if err != nil {
-		return err
-	}
-	if onFirstOutput != nil {
-		// Non-quiet: Wait() streams -v output to console; compiler errors go to stderr.
-		return proc.Wait()
-	}
-	// Quiet (matrix): drain pipes manually, capture stderr for error messages
-	io.Copy(io.Discard, proc.Stdout())
-	stderr, _ := io.ReadAll(proc.Stderr())
-	if err := proc.Wait(); err != nil {
-		if len(stderr) > 0 {
-			return fmt.Errorf("%w\n%s", err, stderr)
+	if err == nil {
+		if onFirstOutput != nil {
+			// Non-quiet: Wait() streams -v output to console; compiler errors go to stderr.
+			err = proc.Wait()
+		} else {
+			// Quiet (matrix): drain pipes manually, capture stderr for error messages
+			io.Copy(io.Discard, proc.Stdout())
+			stderr, _ := io.ReadAll(proc.Stderr())
+			if err = proc.Wait(); err != nil && len(stderr) > 0 {
+				err = fmt.Errorf("%w\n%s", err, stderr)
+			}
 		}
+	}
+	if err != nil {
+		// The target itself was never written, so it stays absent.
+		build.DiscardOutput(job.outputPath)
 		return err
 	}
-	return nil
+	// Only now do the outputs take the target's name.
+	return build.CommitOutput(job.outputPath)
 }
