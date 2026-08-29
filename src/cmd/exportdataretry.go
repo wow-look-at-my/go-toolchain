@@ -10,15 +10,35 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// invalidPackageNameMarker: go/types' report for a damaged GOCACHEPROG export entry; see modindexretry.go's sibling signature.
-const invalidPackageNameMarker = `invalid package name: ""`
+// One damaged GOCACHEPROG export entry, two reports, by how far the decode got.
+// Both have the same cure, so both must be recognized. Depth: docs/CI.md
+const (
+	// The header is unreadable, so the package has no name to report.
+	invalidPackageNameMarker = `invalid package name: ""`
+	// The header decoded and the type graph inside it did not.
+	internalImportErrorMarker = "internal error in importing"
+)
 
 // corruptExportPkgRe pulls the import paths out of load errors, so the warning names what was damaged.
-var corruptExportPkgRe = regexp.MustCompile(`could not import ([^\s(]+) \(invalid package name: ""\)`)
+var corruptExportPkgRe = regexp.MustCompile(`could not import ([^\s(]+) \([^)]*(?:invalid package name: ""|internal error in importing)`)
+
+// corruptExportSignature returns the marker err carries, or "" when it is not
+// this failure. The caller reports it, so the reader can tell the two apart.
+func corruptExportSignature(err error) string {
+	if err == nil {
+		return ""
+	}
+	for _, marker := range []string{invalidPackageNameMarker, internalImportErrorMarker} {
+		if strings.Contains(err.Error(), marker) {
+			return marker
+		}
+	}
+	return ""
+}
 
 // isCorruptExportData reports whether err is the corrupt-export-data failure.
 func isCorruptExportData(err error) bool {
-	return err != nil && strings.Contains(err.Error(), invalidPackageNameMarker)
+	return corruptExportSignature(err) != ""
 }
 
 // corruptExportPackages returns the sorted, deduplicated import paths the error
@@ -52,9 +72,9 @@ func disableSharedBuildCache() bool {
 // error.
 func corruptExportDataError(err error, retried bool) error {
 	pkgs := corruptExportPackages(err)
-	what := "the build cache served export data with no package name"
+	what := fmt.Sprintf("the build cache served damaged export data (%s)", corruptExportSignature(err))
 	if len(pkgs) > 0 {
-		what = fmt.Sprintf("the build cache served export data with no package name for %s", strings.Join(pkgs, ", "))
+		what = fmt.Sprintf("%s for %s", what, strings.Join(pkgs, ", "))
 	}
 	cause := "the shared build cache (GOCACHEPROG) was not enabled, so the damage is in the LOCAL build cache"
 	if retried {

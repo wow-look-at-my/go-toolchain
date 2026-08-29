@@ -85,10 +85,12 @@ coverage.
   `docs/MATRIX.md`
 - `src/cmd/apemanifest.go` — `build/buildhost-artifacts.json`: names the APE, its platform SET and the plain filename the download is served
   under, so buildhost publishes it as ONE artifact row with one download link instead of one row per platform. Depth: `docs/BUILDHOST-MANIFEST.md`
-- `src/cmd/exportdataretry.go` — a damaged export-data entry from the shared build cache surfaces as `invalid package name: ""` plus a cascade of
-  undefined symbols in an untouched package, which reads as a source error and gets re-run as a flake. Vet detects it, drops `GOCACHEPROG` for the
-  rest of the run, retries ONCE so those packages rebuild from source, and warns each time; unrecoverable cases name `go clean -cache`. Sibling of
-  `modindexretry.go` (different signature, different cure). Depth: `docs/CI.md`
+- `src/cmd/exportdataretry.go` — a damaged export-data entry from the shared build cache surfaces as a cascade of undefined symbols in an untouched
+  package, which reads as a source error and gets re-run as a flake. TWO reports, by how far the decode got: `invalid package name: ""` when the
+  header is unreadable, `internal error in importing` when the header survives and the type graph does not — matching only the first left the second
+  reading as a genuine compile error. Vet detects either, drops `GOCACHEPROG` for the rest of the run, retries ONCE so those packages rebuild from
+  source, and names the matched signature; unrecoverable cases name `go clean -cache`. Sibling of `modindexretry.go` (different signature, different
+  cure). Depth: `docs/CI.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
   version pin: an org require/replace carrying a plain version gets the bare `// go-toolchain:auto-branch` appended, which
   the rewrite-then-dirty-tree-fails-CI contract enforces. That costs no lookup, since the marker names no branch. A line

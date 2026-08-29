@@ -184,17 +184,33 @@ profile's home is the Step Summary table.
 ## Vet self-heals against cache-served export-data damage
 
 `src/cmd/exportdataretry.go`. A damaged export-data entry from the shared
-GOCACHEPROG tier makes go/types report `invalid package name: ""` for the
-imported package, followed by a cascade of "redeclared in this block" and
-undefined symbols — in a package the change never touched. It reads exactly
-like a source error, which is why two runs in one session were re-run as flakes
-before the signature was recognized.
+GOCACHEPROG tier makes go/types reject the imported package, followed by a
+cascade of "redeclared in this block" and undefined symbols — in a package the
+change never touched. It reads exactly like a source error, which is why two
+runs in one session were re-run as flakes before the signature was recognized.
+
+There are **two** reports, and which one appears depends on how far the decode
+got before it hit the damage:
+
+- `could not import <pkg> (invalid package name: "")` — the entry's header is
+  unreadable, so the package has no name to report.
+- `could not import <pkg> (reading <cachefile>: internal error in importing
+  "<pkg>" (function with type parameters cannot have a receiver); please report
+  an issue)` — the header decoded, so go/types names the package and then
+  chokes on the type graph inside it. The "please report an issue" wording
+  makes this one read like a toolchain bug rather than a cache problem.
+
+Both mean the same thing and take the same cure, so both are recognized.
+Matching only the first left the second surfacing as a genuine compile error
+against untouched code (`could not import math/rand/v2`), which is not
+something a reader can act on.
 
 `RunTestsWithCoverage` detects it, unsets `GOCACHEPROG` for the rest of the run
 so cmd/go falls back to its own on-disk cache, and retries the vet phase ONCE;
 the damaged packages then rebuild from source. It warns each time it fires,
-naming the packages, so a tier that is systematically serving bad entries shows
-up in logs instead of being absorbed. If the shared tier was not enabled, or the
+naming the packages **and which of the two signatures matched**, so a tier that
+is systematically serving bad entries shows up in logs instead of being
+absorbed. If the shared tier was not enabled, or the
 retry hits the same failure, the run stops with a message saying it is a corrupt
 cache and giving `go clean -cache`.
 

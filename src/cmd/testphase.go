@@ -134,7 +134,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 				return false, nil, corruptExportDataError(err, false)
 			}
 			logger.Warn("⇒ Warning: vet failed on CORRUPT BUILD CACHE data (%s), not on your source: %s. Disabling the shared build cache (GOCACHEPROG) for the rest of this run and rebuilding those packages from source. Repeated occurrences mean the shared cache tier is serving damaged entries and needs inspecting.",
-				invalidPackageNameMarker, strings.Join(corruptExportPackages(err), ", "))
+				corruptExportSignature(err), strings.Join(corruptExportPackages(err), ", "))
 			if vetPhaseStep != nil {
 				vetPhaseStep.done()
 				vetPhaseStep = nil
