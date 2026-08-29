@@ -61,9 +61,6 @@ func EnsureCosmoToolchain() (string, error) {
 	}
 
 	hostOS, hostArch := cosmoHostPlatformFunc()
-	if hostOS != "linux" || hostArch != "amd64" {
-		return "", fmt.Errorf("no prebuilt gosmopolitan toolchain is published for %s/%s hosts (only linux/amd64 today); set %s to a local gosmopolitan build's GOROOT", hostOS, hostArch, cosmoGorootEnv)
-	}
 
 	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)
 	dlURL := fmt.Sprintf("%s?branch=%s&os=%s&arch=%s", cosmoDownloadBase, url.QueryEscape(branch), hostOS, hostArch)
@@ -208,6 +205,10 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(rawStderr, "\n")
+		// A 404 is buildhost saying it publishes nothing for this host, which reads nothing like a network failure.
+		if resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("HTTP 404: buildhost publishes no gosmopolitan toolchain for this host yet")
+		}
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 

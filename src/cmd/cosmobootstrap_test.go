@@ -102,13 +102,63 @@ func TestEnsureCosmoToolchainEnvGorootBrokenVersionProbe(t *testing.T) {
 	assert.Contains(t, err.Error(), "go version failed")
 }
 
-func TestEnsureCosmoToolchainUnsupportedHost(t *testing.T) {
+// Every host asks buildhost for its own os/arch. No host list lives here: one
+// went stale and refused darwin/arm64 while buildhost served it.
+func TestEnsureCosmoToolchainDownloadsForEveryHost(t *testing.T) {
+	for _, host := range []struct{ goos, goarch string }{
+		{"linux", "amd64"},
+		{"darwin", "arm64"},
+		{"darwin", "amd64"},
+		{"windows", "amd64"},
+		{"linux", "arm64"},
+	} {
+		t.Run(host.goos+"/"+host.goarch, func(t *testing.T) {
+			cacheDir := setupCosmoTest(t)
+			cosmoHostPlatformFunc = func() (string, string) { return host.goos, host.goarch }
+			tarball := makeCosmoTarball(t)
+
+			var gotQuery atomic.Value
+			mux := http.NewServeMux()
+			mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
+				gotQuery.Store(r.URL.RawQuery)
+				if r.Method == http.MethodHead {
+					w.Header().Set("Location", "/static?project=gosmopolitan&v=42")
+					w.WriteHeader(http.StatusMovedPermanently)
+					return
+				}
+				w.Write(tarball)
+			})
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
+			cosmoDownloadBase = srv.URL + "/gosmopolitan"
+
+			got, err := EnsureCosmoToolchain()
+			require.NoError(t, err)
+			assert.Equal(t, filepath.Join(cacheDir, "cosmo", "v42", "go"), got)
+			assert.Contains(t, gotQuery.Load().(string), "os="+host.goos)
+			assert.Contains(t, gotQuery.Load().(string), "arch="+host.goarch)
+		})
+	}
+}
+
+// A host buildhost has no toolchain for gets buildhost's own answer, named as
+// such, plus the local-GOROOT escape -- never a refusal from a list here.
+func TestEnsureCosmoToolchainUnpublishedHostNamesTheEscape(t *testing.T) {
 	setupCosmoTest(t)
-	cosmoHostPlatformFunc = func() (string, string) { return "darwin", "arm64" }
+	cosmoHostPlatformFunc = func() (string, string) { return "plan9", "386" }
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cosmoDownloadBase = srv.URL + "/gosmopolitan"
 
 	_, err := EnsureCosmoToolchain()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "darwin/arm64")
+	assert.Contains(t, err.Error(), "os=plan9")
+	assert.Contains(t, err.Error(), "publishes no gosmopolitan toolchain for this host")
 	assert.Contains(t, err.Error(), cosmoGorootEnv)
 }
 
