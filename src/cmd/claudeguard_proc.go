@@ -26,9 +26,10 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// Classifies where stdout (fd 1) is going, before the watchdog rewires it, so it sees the real descriptor the shell set up.
+// inspectStdout reads fd 1 directly: logx.Install() swaps os.Stdout for
+// its own pipe, so Fd() would misreport a real terminal as hidden.
 func inspectStdout() outputSink {
-	return inspectFD(os.Stdout.Fd())
+	return inspectFD(1)
 }
 
 // inspectFD is inspectStdout's logic, parameterized on the descriptor so it can
