@@ -13,7 +13,7 @@ import (
 const goModuleIndexMagic = "go index v"
 
 // Module index blobs are unverifiable and catastrophic if mis-keyed, so
-// every tier refuses them on both PUT and GET, never only one.
+// every tier refuses them on both PUT and GET, never on just the write side.
 func isGoModuleIndex(body []byte) bool {
 	return bytes.HasPrefix(body, []byte(goModuleIndexMagic))
 }
@@ -23,11 +23,11 @@ func isGoModuleIndex(body []byte) bool {
 //
 // The GOCACHEPROG "put" reply must name a file holding the body that survives
 // until "close" (cmd/go rejects an empty DiskPath outright), so a refusal still
-// owes the caller a real file -- it just must not be one the cache can serve
+// owes the caller a real file -- it just must not be a file the cache can serve
 // back. The sink is a private temp directory, removed when the protocol loop
 // ends, and nothing ever looks a key up in it. Bodies are content-addressed by
-// outputID, so the same index recomputed by several go invocations on one
-// connection costs one file.
+// outputID, so the same index recomputed by several go invocations on a
+// connection costs a single file.
 func (s *Server) sinkIndexBody(outputID string, body []byte) (string, error) {
 	s.sinkMu.Lock()
 	defer s.sinkMu.Unlock()

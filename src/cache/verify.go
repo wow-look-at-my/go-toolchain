@@ -11,12 +11,12 @@ import (
 // served body must match its content hash and its stamped build-id action.
 //
 // The Go module index is refused here too (see isGoModuleIndex): its action
-// key hashes no content, so no gate can tell a right body from a wrong one.
-// This is safe only because handlePut refuses the index FIRST, so nothing
+// key hashes no content, so no gate can tell a right body from a wrong body.
+// This is safe only because handlePut refuses the index UP FRONT, so nothing
 // bad is ever stored; this gate only sheds residue an older binary left.
 
 // verifyBodyForServe checks a body about to be served for (actionID,
-// outputID): content address (SHA-256 matches outputID, see
+// outputID): content address (the sha256 matches outputID, see
 // outputIDMatches), build-id action (a compiled package's stamped action
 // matches actionID, see buildIDMatchesAction), and module index (never
 // served). Returns ok == false with a human-readable eviction-log reason.
@@ -42,7 +42,7 @@ type looseVerified struct {
 	size     int64
 }
 
-// Verified-read memo: pack records are immutable once appended, so
+// Verified-read memo: pack records are immutable after they are appended, so
 // (packID, dataOff) is a stable key for the store's lifetime.
 
 // verifyKey names a pack record by its physical location.
@@ -52,13 +52,13 @@ type verifyKey struct {
 }
 
 // verifyInfo memoizes every fact the serve gates need about a record's body,
-// computed from one body read (or from the in-memory bytes at Put time). The
+// computed from a single body read (or from the in-memory bytes at Put time). The
 // fields are FACTS about the bytes, not verdicts: each serve path applies its
 // own gate over them, so per-action decisions (an aliased archive stamped for
 // a different action) stay correct on memo hits.
 type verifyInfo struct {
 	crcOK        bool   // body matched the record-header CRC (rot-free w.r.t. append time)
-	shaOK        bool   // body hashed (SHA-256) to loc.outputID (content address proven)
+	shaOK        bool   // body hashed (sha256) to loc.outputID (content address proven)
 	isPkgArchive bool   // ar archive with a __.PKGDEF member
 	isModIndex   bool   // Go module index blob (never servable — see modindex.go)
 	stampAction  string // build-id action field ("" when none)
@@ -127,7 +127,7 @@ func (v *verifiedSet) dropPack(packID int) {
 	v.mu.Unlock()
 }
 
-// verifyRecordFull reads loc's body once and computes every serve-gate fact.
+// verifyRecordFull reads loc's body a single time and computes every serve-gate fact.
 // Returns ok == false on a read/map failure (nothing can be said about the
 // body; callers treat it as corrupt and do not memoize).
 func (s *PackStore) verifyRecordFull(loc packLoc) (verifyInfo, bool) {
@@ -143,7 +143,7 @@ func (s *PackStore) verifyRecordFull(loc packLoc) (verifyInfo, bool) {
 }
 
 // verifiedInfo returns the memoized facts for loc, computing and memoizing
-// them with one body read on first access.
+// them with a single body read on the earliest access.
 func (s *PackStore) verifiedInfo(loc packLoc) (verifyInfo, bool) {
 	k := verifyKey{packID: loc.packID, dataOff: loc.dataOff}
 	if vi, ok := s.verified.get(k); ok {

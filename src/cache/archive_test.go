@@ -65,7 +65,7 @@ func TestPkgbitsImportPath_WithSyncMarkersRoundTrip(t *testing.T) {
 	// Re-parsed to build a synthetic sync-enabled payload; this test just checks no panic on a V0 (no-flags) payload.
 	_ = data
 
-	// Build a V0 payload (no flags/sync) with one SectionString element and SectionPkg[0] referencing it.
+	// Build the earliest payload version (no flags/sync) with a lone SectionString element and a SectionPkg referencing it.
 	importPath := "example.com/mypkg"
 	payload := buildMinimalPkgbitsV0(importPath)
 	got := pkgbitsImportPath(payload)

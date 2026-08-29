@@ -13,7 +13,7 @@ import (
 // Every hit must return a DiskPath the Go toolchain can open and mmap directly — the
 // GOCACHEPROG protocol hands the compiler a path (Response.DiskPath), never bytes.
 //
-// Two implementations exist: LocalCache writes one loose body file plus a metadata
+// The implementations: LocalCache writes a loose body file plus a metadata
 // sidecar (the portable fallback), and FuseCache packs bodies into append-only pack
 // files behind a read-only FUSE mount, materializing each body on read with no loose
 // file or sidecar per entry.
@@ -24,7 +24,7 @@ type LocalStore interface {
 	Peek(actionID string) (CacheMeta, bool)
 	// Put stores body under actionID/outputID and returns a DiskPath the Go toolchain can open.
 	Put(actionID, outputID string, body io.Reader) (string, error)
-	// PutIfAbsent atomically stores body only if actionID isn't already cached, so a web-originated body never displaces a local one.
+	// PutIfAbsent atomically stores body only if actionID isn't already cached, so a web-originated body never displaces a local body.
 	PutIfAbsent(actionID, outputID string, body io.Reader) (stored bool, err error)
 	// StatsPtr returns the live hit/put counters for this store.
 	StatsPtr() *CacheStats

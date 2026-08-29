@@ -63,11 +63,11 @@ type WebBackend struct {
 	missesMu         sync.RWMutex
 	knownMiss        set.Set[string] // keys confirmed absent from remote this session
 
-	// emptyBatchBackoffThreshold: after this many empty batches in a row, stop probing for the run (0 disables).
-	emptyBatchBackoffThreshold int          // 0 disables the backoff
-	consecutiveEmptyBatches    atomic.Int64 // current run of zero-entry batches
-	batchProbingDisabled       atomic.Bool  // true once backoff has tripped
-	batchBackoffLogOnce        sync.Once    // logs the disable notice exactly once
+	// emptyBatchBackoffThreshold: after this many empty batches in a row, stop probing for the run (an unset value disables).
+	emptyBatchBackoffThreshold int          // an unset value disables the backoff
+	consecutiveEmptyBatches    atomic.Int64 // current run of empty batches
+	batchProbingDisabled       atomic.Bool  // true after the backoff has tripped
+	batchBackoffLogOnce        sync.Once    // logs the disable notice a single time
 
 	// OnBatchEntries lets the caller populate the local cache from a batch GET's prefetch entries.
 	OnBatchEntries func(entries []BatchEntry)
@@ -107,18 +107,18 @@ type WebBackend struct {
 	tracer *cacheTracer // nil when OTel is not configured
 	errLog *httpErrLogger
 
-	// batchReqCh funnels concurrent Get keys to a worker that ships them as one /_batch/get request.
+	// batchReqCh funnels concurrent Get keys to a worker that ships them as a single /_batch/get request.
 	batchReqCh  chan batchReq
 	batchStop   chan struct{}
 	batchDone   chan struct{}
 	batchHTTPWG sync.WaitGroup
 
-	// putBatchReqCh funnels prepped Put objects to a worker that ships them as one /_batch/put tar.
+	// putBatchReqCh funnels prepped Put objects to a worker that ships them as a single /_batch/put tar.
 	putBatchReqCh       chan putReq
 	putBatchStop        chan struct{}
 	putBatchDone        chan struct{}
 	putBatchHTTPWG      sync.WaitGroup
-	batchPutUnsupported atomic.Bool // sticky once the server 404/405s /_batch/put; Put then uses doRetryPUT
+	batchPutUnsupported atomic.Bool // sticky after the server refuses /_batch/put; Put then uses doRetryPUT
 }
 
 type batchReq struct {
@@ -169,8 +169,8 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 	}
 
 	// Tune the transport for high-throughput cache uploads. The default Go
-	// transport only keeps 2 idle connections per host, which forces a new
-	// TCP+TLS handshake for nearly every request. We allow up to 64
+	// transport keeps very few idle connections per host, which forces a new
+	// TCP+TLS handshake for nearly every request. We allow many more
 	// concurrent connections and keep them all alive in the idle pool.
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
@@ -197,7 +197,7 @@ func NewWebBackend(cfg WebConfig) (*WebBackend, error) {
 				if len(via) >= 10 {
 					return fmt.Errorf("stopped after 10 redirects")
 				}
-				// Preserve original method — Go changes PUT/POST to GET on 301/302.
+				// Preserve original method — Go changes PUT/POST to GET on a redirect.
 				orig := via[0]
 				req.Method = orig.Method
 				// orig.Body was already consumed; resend via GetBody or the retry
@@ -259,11 +259,11 @@ func (b *WebBackend) url(key string) string {
 //
 // Routing policy (the batch endpoint is the primary fetch path):
 //
-//   - Key in the index: fetch via the coalescing batch endpoint — one round-trip
+//   - Key in the index: fetch via the coalescing batch endpoint — a single round-trip
 //     serves many callers and carries prefetch entries from the same build.
 //     Servers without /_batch/get fall back to individual GETs (sendBatch).
 //
-//   - Key absent from an AUTHORITATIVE index (fresh 200/304 this run): miss
+//   - Key absent from an AUTHORITATIVE index (freshly fetched or revalidated this run): miss
 //     cleanly with no network.
 //
 //   - Key absent but the index fetch FAILED: batch-probe the key (the recovery
@@ -309,7 +309,7 @@ func (b *WebBackend) keyKnown(key string) bool {
 	return b.keys.Contains(key)
 }
 
-// reclaimAbsent records an authoritative absent answer (404, or missing from a batch
+// reclaimAbsent records an authoritative absent answer (a not-found, or missing from a batch
 // response) for key. It drops any stale index claim so Put re-uploads instead of
 // skipping, and marks the key knownMiss so Gets stop re-asking this run.
 func (b *WebBackend) reclaimAbsent(key string) bool {
@@ -335,10 +335,10 @@ func (b *WebBackend) ForgetStale(actionID string) {
 }
 
 // Close drains the batch coalescer and flushes the HTTP error logger.
-// The OTel tracer provider is process-wide and shuts down once by the
+// The OTel tracer provider is process-wide and shuts down a single time by the
 // build entrypoint, not per WebBackend.
 func (b *WebBackend) Close() error {
-	// Flush the PUT coalescer first: an unflushed upload was claimed in the index but never stored.
+	// Flush the PUT coalescer up front: an unflushed upload was claimed in the index but never stored.
 	if b.putBatchStop != nil {
 		close(b.putBatchStop)
 		<-b.putBatchDone

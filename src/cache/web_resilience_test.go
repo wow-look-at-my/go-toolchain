@@ -17,15 +17,15 @@ import (
 
 // TestWebBackend_RemoteNeverDisabledAfterFailureBurst is the regression for the
 // removed client-side remote-disable behavior. A burst of remote failures
-// (500/503) must NOT permanently disable the remote tier: every failure degrades
-// to a clean miss for that one operation, but the very next GET must still
+// (a fault or a shed) must NOT permanently disable the remote tier: every failure
+// degrades to a clean miss for that operation, but the very next GET must still
 // attempt the network. The old behavior turned a transient blip into "no cache
 // hits for the rest of the run". Here, after N failing GETs, the backend recovers
 // and the next GET must be served as a HIT (proving the remote was never
 // disabled).
 func TestWebBackend_RemoteNeverDisabledAfterFailureBurst(t *testing.T) {
 	hermeticOTel(t)
-	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "0") // 1 request per op: fast and deterministic
+	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "0") // a single request per op: fast and deterministic
 
 	const actionID = "deadbeef00000000"
 	objectPath := "/testbucket/go-buildcache/v1" + actionID
@@ -40,7 +40,7 @@ func TestWebBackend_RemoteNeverDisabledAfterFailureBurst(t *testing.T) {
 			return
 		}
 		if failing.Load() {
-			// Alternate 500 and 503 to cover both a genuine fault and a shed.
+			// Alternate the statuses to cover both a genuine fault and a shed.
 			if time.Now().UnixNano()%2 == 0 {
 				w.WriteHeader(http.StatusInternalServerError)
 			} else {
@@ -84,7 +84,7 @@ func TestWebBackend_RemoteNeverDisabledAfterFailureBurst(t *testing.T) {
 }
 
 // TestWebBackend_RetriesTransientThenRecovers proves bounded retries: a single
-// GET retries a transient 502 up to maxRetries times, and if the backend
+// GET retries a transient gateway error up to maxRetries times, and if the backend
 // recovers within that budget the GET succeeds rather than wastefully missing.
 func TestWebBackend_RetriesTransientThenRecovers(t *testing.T) {
 	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "3")
@@ -100,7 +100,7 @@ func TestWebBackend_RetriesTransientThenRecovers(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound) // index etc.
 			return
 		}
-		// Fail the first two object attempts, then serve the real body.
+		// Fail the opening object attempts, then serve the real body.
 		if objectReqs.Add(1) < 3 {
 			w.WriteHeader(http.StatusBadGateway)
 			return
@@ -131,13 +131,13 @@ func TestWebBackend_RetriesTransientThenRecovers(t *testing.T) {
 }
 
 // TestServer_RemoteOutageServesLocalCorrectly is the end-to-end regression for
-// the incident: a total remote outage (every index/get/put returns 502) must
+// the incident: a total remote outage (every index/get/put fails) must
 // never corrupt the build. The cache layer must degrade to clean misses, the
 // local tier must keep serving exactly what was stored, and a GET for a
 // never-stored key must miss — never a spurious hit or empty/garbage body.
 func TestServer_RemoteOutageServesLocalCorrectly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway) // 502 for index, batch get, get, put
+		w.WriteHeader(http.StatusBadGateway) // a gateway error for index, batch get, get, put
 	}))
 	defer srv.Close()
 
@@ -182,11 +182,11 @@ func TestServer_RemoteOutageServesLocalCorrectly(t *testing.T) {
 
 // TestWebBackend_PutRetriesTransient503ThenSucceeds is the regression for the
 // dropped-upload half of the CI-burst bug. The cache server's admission control
-// sheds excess concurrent requests with 503 + Retry-After. Before this fix,
-// WebBackend.Put issued a bare client.Do with NO retry, so a shed 503 silently
+// sheds excess concurrent requests with a Retry-After. Before this fix,
+// WebBackend.Put issued a bare client.Do with NO retry, so a shed silently
 // dropped the object — it was never stored, and the shared /_index never filled
-// under load. Put must now retry the 503 (honoring Retry-After) and store the
-// object once the server admits it.
+// under load. Put must now retry the shed (honoring Retry-After) and store the
+// object as soon as the server admits it.
 func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 	hermeticOTel(t)
 	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "3")
@@ -200,8 +200,8 @@ func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound) // index etc.
 			return
 		}
-		// Shed the first two PUT attempts like admission control does: 503 +
-		// Retry-After=0 (fast test; the jittered base backoff still applies).
+		// Shed the opening PUT attempts like admission control does, with an
+		// immediate Retry-After (fast test; the jittered base backoff still applies).
 		if putAttempts.Add(1) < 3 {
 			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -217,7 +217,7 @@ func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer b.Close()
-	// Force the single-PUT retry path so the 503-retry-then-store outcome is observable directly.
+	// Force the single-PUT retry path so the shed-retry-then-store outcome is observable directly.
 	b.batchPutUnsupported.Store(true)
 
 	payload := largePayload(1024)

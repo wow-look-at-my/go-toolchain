@@ -29,7 +29,7 @@ func TestServer_ConcurrentGets(t *testing.T) {
 
 	backend := &slowBackend{memBackend: newMemBackend(), getDelay: 50 * time.Millisecond}
 
-	// Pre-populate remote with 5 different keys.
+	// Pre-populate remote with a handful of different keys.
 	const n = 5
 	actionIDs := make([][]byte, n)
 	outputID := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
@@ -40,7 +40,7 @@ func TestServer_ConcurrentGets(t *testing.T) {
 		backend.Put(fmt.Sprintf("%x", id), fmt.Sprintf("%x", outputID), strings.NewReader(fmt.Sprintf("data-%d", i)), 6)
 	}
 
-	// Build input: 5 GETs (all remote hits) + CLOSE.
+	// Build input: a GET per key (all remote hits), then CLOSE.
 	var input strings.Builder
 	for i := range n {
 		input.WriteString(makeRequest(Request{
@@ -56,7 +56,7 @@ func TestServer_ConcurrentGets(t *testing.T) {
 	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
 	elapsed := time.Since(start)
 
-	// All 5 responses should be present.
+	// Every response should be present.
 	responses := parseResponses(t, out.Bytes())
 	var hits int
 	for _, r := range responses {
@@ -66,8 +66,8 @@ func TestServer_ConcurrentGets(t *testing.T) {
 	}
 	require.Equal(t, n, hits, "all GETs should be remote hits")
 
-	// If GETs were sequential: 5 × 50ms = 250ms minimum.
-	// If concurrent: ~50ms (1 round of latency).
+	// Sequential GETs would cost a full server delay each; concurrent GETs
+	// cost a single round of latency.
 	// Allow generous slack but ensure it's well under sequential time.
 	require.Less(t, elapsed, time.Duration(n)*backend.getDelay,
 		"concurrent GETs should complete faster than sequential (got %v, sequential would be >%v)",
@@ -82,7 +82,7 @@ func TestServer_PutEmpty(t *testing.T) {
 	actionID := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	outputID := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11}
 
-	// PUT with empty body (BodySize=0, no body line).
+	// PUT with an empty body (no BodySize, no body line).
 	var input strings.Builder
 	input.WriteString(makeRequest(Request{
 		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: outputID, BodySize: 0,

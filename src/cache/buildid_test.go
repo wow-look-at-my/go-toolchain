@@ -31,7 +31,7 @@ func archivePkgdefNoBuildID() []byte {
 func hermeticOTel(t *testing.T) { t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") }
 
 // TestExpectedBuildIDAction_Golden pins the encoding against a real `go build` stamp, verified with
-// `go tool buildid`. If Go ever changes HashToString (base64.RawURLEncoding(hash[:15])), this catches it.
+// `go tool buildid`. If Go ever changes HashToString, this catches it.
 func TestExpectedBuildIDAction_Golden(t *testing.T) {
 	const actionID = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b"
 	require.Equal(t, "EPlPwC3MJFgg3YYfTGwl", expectedBuildIDAction(actionID))
@@ -39,9 +39,9 @@ func TestExpectedBuildIDAction_Golden(t *testing.T) {
 
 func TestExpectedBuildIDAction_ShortOrInvalid(t *testing.T) {
 	require.Equal(t, "", expectedBuildIDAction(""))         // empty
-	require.Equal(t, "", expectedBuildIDAction("aabbccdd")) // < 15 bytes
+	require.Equal(t, "", expectedBuildIDAction("aabbccdd")) // shorter than buildIDHashSize
 	require.Equal(t, "", expectedBuildIDAction("zzzz"))     // not hex
-	// Exactly 15 bytes (30 hex chars) is the minimum that yields a value.
+	// Exactly buildIDHashSize bytes is the minimum that yields a value.
 	require.NotEqual(t, "", expectedBuildIDAction(strings.Repeat("ab", 15)))
 }
 
@@ -159,7 +159,7 @@ func TestWebBackend_GetRejectsBuildIDMismatch(t *testing.T) {
 
 // TestWebBackend_GetRejectsStrippedBuildID is the deliberate-evasion guard: a
 // package archive (loadable __.PKGDEF export data) that hashes to its advertised
-// outputID but carries NO build id -- a corrupt object, or one crafted with the
+// outputID but carries NO build id -- a corrupt object, or an object crafted with the
 // build id stripped to evade the cross-check -- must be refused as a miss and
 // its key evicted, exactly like a mismatched build id.
 func TestWebBackend_GetRejectsStrippedBuildID(t *testing.T) {

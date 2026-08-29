@@ -27,7 +27,7 @@ func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
 	require.Equal(t, oid, got.outputID)
 	require.Nil(t, s.Close())
 
-	// Flip one body byte: length, header, and CRC stay valid — the torn-tail check can't catch this rot.
+	// Flip a body byte: length, header, and CRC stay valid — the torn-tail check can't catch this rot.
 	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
 	require.Nil(t, err)
 	var b [1]byte
@@ -67,7 +67,7 @@ func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
 
 	aid := hexID(9)
 	// Larger than mmapVerifyThreshold, so verification takes the mmap path, not the small-body read.
-	body := bytes.Repeat([]byte("go-toolchain pack-cache integrity probe; "), 4096) // ~168 KiB
+	body := bytes.Repeat([]byte("go-toolchain pack-cache integrity probe; "), 4096) // well past mmapVerifyThreshold
 	require.Greater(t, len(body), mmapVerifyThreshold)
 	oid := casID(body)
 	loc, err := s.Put(aid, oid, bytes.NewReader(body))
@@ -78,7 +78,7 @@ func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
 	require.True(t, ok)
 	require.Nil(t, s.Close())
 
-	// Corrupt the final byte: past the first page, so page-alignment and the full mapped span are exercised.
+	// Corrupt the final byte: past the opening page, so page-alignment and the full mapped span are exercised.
 	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
 	require.Nil(t, err)
 	pos := loc.dataOff + loc.dataLen - 1
@@ -132,7 +132,7 @@ func TestPackStore_GetVerifiedRefusesCrossContaminatedPackage(t *testing.T) {
 }
 
 // TestPackStore_GetVerifiedRefusesModuleIndex pins the pack tier's half of the
-// module-index policy: the GET RPC never serves one, so residue a binary that
+// module-index policy: the GET RPC never serves an index, so residue a binary that
 // predates the PUT refusal left in the packs cannot be handed back. An ordinary
 // body in the same pack is unaffected — the refusal is about the payload, not
 // about the store.
@@ -178,7 +178,7 @@ func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 	require.Equal(t, oid, got.outputID)
 	require.Nil(t, s.Close())
 
-	// Flip one byte: header length and CRC stay intact, so the startup scan still indexes it (disk-rot case).
+	// Flip a byte: header length and CRC stay intact, so the startup scan still indexes it (disk-rot case).
 	f, err := os.OpenFile(filepath.Join(dir, "pack-000001.data"), os.O_RDWR, 0o644)
 	require.Nil(t, err)
 	var b [1]byte
@@ -204,9 +204,9 @@ func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 	require.False(t, ok, "corrupt body evicted from the output index")
 }
 
-// TestPackStore_MemoizedVerificationStillChecksActionPerKey guards the one
+// TestPackStore_MemoizedVerificationStillChecksActionPerKey guards the
 // subtlety of the verified-read memo: facts are memoized per RECORD, but the
-// build-id action gate is per KEY. Two actions aliased to the same archive
+// build-id action gate is per KEY. Separate actions aliased to the same archive
 // body (content dedup) must get independent verdicts — serving action B a
 // package stamped for action A on a memo hit would be cross-contamination.
 func TestPackStore_MemoizedVerificationStillChecksActionPerKey(t *testing.T) {
@@ -245,7 +245,7 @@ func TestPackStore_MemoizedVerificationStillChecksActionPerKey(t *testing.T) {
 // the outputID it is served under (a torn or mis-mapped record, or a poisoned
 // remote object). The CRC gate would hand those bytes to the compiler, surfacing
 // as "corrupt index" / "package ... is not in std" for a module index. The
-// content-address (SHA-256) gate must refuse and evict it.
+// content-address (sha256) gate must refuse and evict it.
 func TestPackStore_GetByOutputVerifiedRejectsContentMismatch(t *testing.T) {
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)

@@ -15,7 +15,7 @@ import (
 
 // Put stores body under actionID/outputID and returns its location.
 //
-// Three cases, cheapest first:
+// The cases, cheapest at the top:
 //   - The action already maps to this exact content (a warm-build re-populate):
 //     nothing is written.
 //   - The content (outputID) is already stored under some other action: a tiny
@@ -88,7 +88,7 @@ func (s *PackStore) Put(actionID, outputID string, body io.Reader) (packLoc, err
 // already indexed, and reports whether this call stored it. The absence check
 // runs under the same append lock as the write and index commit, so it is
 // atomic with respect to every other Put/PutIfAbsent: an existing mapping —
-// in particular one the local cmd/go just stored — is never replaced, in the
+// in particular a body the local cmd/go just stored — is never replaced, in the
 // live index or in the pack file's replay order. This is the primitive the
 // web-prefetch population uses: a web-originated body must never displace a
 // locally-originated entry (the module-index trust model in verify.go depends
@@ -169,7 +169,7 @@ func (s *PackStore) PutIfAbsent(actionID, outputID string, body io.Reader) (pack
 
 // appendRecordLoc appends a record (fixed header + optional body) and returns
 // the body's location within the pack. The header and body are written
-// separately rather than concatenated into one buffer, so a large body already
+// separately rather than concatenated into a single buffer, so a large body already
 // held in memory (e.g. an archive fetched from the remote tier) is not copied
 // again just to be written.
 //

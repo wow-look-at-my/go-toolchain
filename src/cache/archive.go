@@ -48,7 +48,7 @@ func arMember(data []byte, name string) []byte {
 	}
 	data = data[len(globalHdr):]
 
-	// Member header: name[16], mtime[12], uid[6], gid[6], mode[8], size[10], end[2] = 60 bytes.
+	// Member header: fixed-width name, mtime, uid, gid, mode, size and end marker.
 	const hdrSize = 60
 	for len(data) >= hdrSize {
 		rawName := bytes.TrimRight(data[:16], " ")

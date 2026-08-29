@@ -20,7 +20,7 @@ const (
 	// defaultMaxRetries caps extra attempts after a transient failure, to limit load on a struggling backend.
 	defaultMaxRetries = 2
 
-	// defaultEmptyBatchBackoff: consecutive empty /_batch/get responses before probing turns off; 0 disables it.
+	// defaultEmptyBatchBackoff: consecutive empty /_batch/get responses before probing turns off; an unset value disables it.
 	defaultEmptyBatchBackoff = 24
 
 	// retryBaseDelay / retryMaxDelay bound the exponential backoff between retries; full jitter on top (see sleepBackoff).
@@ -28,12 +28,12 @@ const (
 	retryMaxDelay  = 2 * time.Second
 )
 
-// noteBatchEntries feeds the entry count of one /_batch/get 200 response to the
-// consecutive-empty-batch backoff. A zero-entry batch is a healthy remote that
-// holds none of this build's keys; once enough of them stack up, the remote has
+// noteBatchEntries feeds the entry count of a served /_batch/get response to the
+// consecutive-empty-batch backoff. An empty batch is a healthy remote that
+// holds none of this build's keys; after enough of them stack up, the remote has
 // demonstrably nothing useful for this run, so we disable further batch probing
-// (logged once). Any non-empty batch resets the streak — the remote IS serving.
-// An empty-but-200 response is not a backend failure: the backoff is purely a
+// (logged a single time). Any non-empty batch resets the streak — the remote IS serving.
+// An empty-but-healthy response is not a backend failure: the backoff is purely a
 // "nothing here to fetch" optimization, orthogonal to the per-op retry path.
 func (b *WebBackend) noteBatchEntries(n int) {
 	if b.emptyBatchBackoffThreshold <= 0 || b.batchProbingDisabled.Load() {
@@ -60,7 +60,7 @@ func (b *WebBackend) batchProbingOff() bool {
 }
 
 // envInt reads an integer environment variable, falling back to def when unset
-// or unparseable. A negative value is clamped to 0 (feature disabled).
+// or unparseable. A negative value is clamped to nothing (feature disabled).
 func envInt(name string, def int) int {
 	v := os.Getenv(name)
 	if v == "" {
@@ -76,14 +76,14 @@ func envInt(name string, def int) int {
 	return n
 }
 
-// transientStatus reports whether a status is transient (5xx or 429); other 4xx, including 404, is definitive.
+// transientStatus reports whether a status is transient (a server error or a rate limit); another client error is definitive.
 func transientStatus(code int) bool {
 	return code >= 500 || code == http.StatusTooManyRequests
 }
 
 // parseRetryAfter extracts a backoff hint from a response's Retry-After header.
 // It handles the delta-seconds form (an integer number of seconds) and the
-// HTTP-date form, returning 0 when the header is absent or unparseable. The
+// HTTP-date form, returning no delay when the header is absent or unparseable. The
 // result is capped at retryMaxDelay so a server cannot pin a retry far into the
 // future.
 func parseRetryAfter(resp *http.Response) time.Duration {
@@ -125,7 +125,7 @@ func (b *WebBackend) doRetryGETN(req *http.Request, maxRetries int) (*http.Respo
 }
 
 // doRetryPUT issues an upload with doRetryGET's bounded-retry policy; PUT is idempotent here (key = content address).
-// The body is []byte so each retry rebuilds a fresh reader via req.GetBody, or a 503 admission shed silently drops it.
+// The body is []byte so each retry rebuilds a fresh reader via req.GetBody, or an admission shed silently drops it.
 func (b *WebBackend) doRetryPUT(req *http.Request, body []byte) (*http.Response, error) {
 	req.Body = io.NopCloser(bytes.NewReader(body))
 	req.ContentLength = int64(len(body))
@@ -141,10 +141,10 @@ func (b *WebBackend) doRetryPUT(req *http.Request, body []byte) (*http.Response,
 // Retry-After) capped at retryMaxDelay between attempts, and rewinds the
 // request body from req.GetBody on each retry. It returns the final
 // (resp, err) exactly as http.Client.Do would, so callers handle status codes
-// and bodies unchanged; it never retries a definitive (<500, non-429)
-// response. A 503 admission shed is transient and so is retried and backed
+// and bodies unchanged; it never retries a definitive client-error
+// response. An admission shed is transient and so is retried and backed
 // off (honoring Retry-After); if the retry budget is exhausted the caller
-// falls back to a local miss for that one operation.
+// falls back to a local miss for that operation alone.
 func (b *WebBackend) doRetry(req *http.Request, maxRetries int) (*http.Response, error) {
 	var (
 		resp *http.Response
@@ -165,7 +165,7 @@ func (b *WebBackend) doRetry(req *http.Request, maxRetries int) (*http.Response,
 		if attempt >= maxRetries {
 			return resp, err
 		}
-		// Honor a server Retry-After (e.g. a 503 admission shed), but never sleep less than the jittered backoff.
+		// Honor a server Retry-After (e.g. an admission shed), but never sleep less than the jittered backoff.
 		var retryAfter time.Duration
 		if err == nil {
 			retryAfter = parseRetryAfter(resp)
@@ -178,7 +178,7 @@ func (b *WebBackend) doRetry(req *http.Request, maxRetries int) (*http.Response,
 }
 
 // sleepBackoff waits before a retry (full jitter, so parallel builds don't sync into a thundering herd), returning
-// early on shutdown. A non-zero atLeast (a server Retry-After hint) raises the floor, still capped at retryMaxDelay.
+// early on shutdown. A set atLeast (a server Retry-After hint) raises the floor, still capped at retryMaxDelay.
 func (b *WebBackend) sleepBackoff(attempt int, atLeast time.Duration) {
 	d := retryBaseDelay << attempt
 	if d > retryMaxDelay || d <= 0 {
