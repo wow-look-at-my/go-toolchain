@@ -191,6 +191,9 @@ func TestRunReleaseWithRunnerCosmoAndNativeTarget(t *testing.T) {
 		}
 		if cfg.IsCmd("go", "build") {
 			writeBuildOutput(t, cfg, "NATIVE")
+			// This handler wrote the -o target itself; falling through to the
+			// inner mock would rewrite it.
+			return runner.MockProcess(nil, nil), nil
 		}
 		return origHandler(cfg)
 	}
@@ -262,6 +265,11 @@ func TestRunBuildForkEnvSetsCacheNamespace(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := runner.NewMock()
+			// The mocked fork build writes its -o output like the real compiler.
+			mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+				writeBuildOutput(t, cfg, "BIN")
+				return runner.MockProcess(nil, nil), nil
+			}
 			job := buildJob{
 				goos:           tc.goos,
 				goarch:         tc.goarch,
@@ -304,6 +312,11 @@ func TestRunBuildForkWithoutNamespaceRefuses(t *testing.T) {
 // cache behavior byte-identical — no namespace variable in their env.
 func TestRunBuildNonForkEnvHasNoNamespace(t *testing.T) {
 	mock := runner.NewMock()
+	// The plain mocked compiler writes its -o output like the real one.
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeBuildOutput(t, cfg, "BIN")
+		return runner.MockProcess(nil, nil), nil
+	}
 	job := buildJob{
 		goos:       "linux",
 		goarch:     "amd64",

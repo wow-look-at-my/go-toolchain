@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -26,7 +26,7 @@ func TestRunBuildCapturesStderr(t *testing.T) {
 		goos:       "linux",
 		goarch:     "amd64",
 		srcPath:    ".",
-		outputPath: "/tmp/test",
+		outputPath: filepath.Join(t.TempDir(), "out"),
 	}
 
 	err := runBuild(mock, job, nil)
@@ -37,15 +37,22 @@ func TestRunBuildCapturesStderr(t *testing.T) {
 
 func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 	mock := runner.NewMock()
+	// The mocked compiler obeys the real one's contract: an exit-0 go build
+	// materializes its -o target.
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
 	job := buildJob{
 		goos:       "linux",
 		goarch:     "amd64",
 		srcPath:    ".",
-		outputPath: "/tmp/test",
+		outputPath: filepath.Join(t.TempDir(), "out"),
 	}
 
 	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
+	assert.FileExists(t, job.outputPath, "the commit moved the build onto the target name")
 }
 
 func TestRunBuild(t *testing.T) {
@@ -54,11 +61,15 @@ func TestRunBuild(t *testing.T) {
 	defer func() { cgoEnabled = oldCgo }()
 
 	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
 	job := buildJob{
 		goos:       "linux",
 		goarch:     "amd64",
 		srcPath:    ".",
-		outputPath: "/tmp/test",
+		outputPath: filepath.Join(t.TempDir(), "out"),
 	}
 
 	err := runBuild(mock, job, nil)
@@ -77,11 +88,12 @@ func TestRunBuild(t *testing.T) {
 	assert.Equal(t, "amd64", goarch)
 	assert.Equal(t, "0", cgo)
 
-	// Verify -o flag
+	// Verify -o flag: the compiler builds to the .tmp- spelling of the
+	// output, never onto the target file itself.
 	hasOutput := false
 	for i, arg := range cfg.Args {
 		if arg == "-o" && i+1 < len(cfg.Args) {
-			hasOutput = strings.Contains(cfg.Args[i+1], "/tmp/test")
+			hasOutput = cfg.Args[i+1] == build.TempOutputPath(job.outputPath)
 		}
 	}
 	assert.True(t, hasOutput)
@@ -93,11 +105,15 @@ func TestRunBuildWithCgoEnabled(t *testing.T) {
 	defer func() { cgoEnabled = oldCgo }()
 
 	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
 	job := buildJob{
 		goos:       "linux",
 		goarch:     "amd64",
 		srcPath:    ".",
-		outputPath: "/tmp/test",
+		outputPath: filepath.Join(t.TempDir(), "out"),
 	}
 
 	err := runBuild(mock, job, nil)
@@ -179,4 +195,63 @@ func TestCreateHostSymlinksReplacesStale(t *testing.T) {
 	assert.Equal(t, hostBinary, linkTarget)
 	linkTarget, _ = os.Readlink(filepath.Join(tmpDir, "mytool"))
 	assert.Equal(t, hostBinary, linkTarget)
+}
+
+// TestRunBuildMovesOutputIntoPlace pins the write-then-move contract from
+// outside runBuild: the -o arg carries the .tmp- spelling, the result ends up
+// on the target file, and the temp name is gone.
+func TestRunBuildMovesOutputIntoPlace(t *testing.T) {
+	final := filepath.Join(t.TempDir(), "mytool")
+	var built string
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		for i, arg := range cfg.Args {
+			if arg == "-o" && i+1 < len(cfg.Args) {
+				built = cfg.Args[i+1]
+			}
+		}
+		require.Equal(t, build.TempOutputPath(final), built, "-o must carry the temp spelling")
+		require.NoError(t, os.WriteFile(built, []byte("BIN"), 0o755))
+		return runner.MockProcess(nil, nil), nil
+	}
+
+	require.NoError(t, runBuild(mock, buildJob{srcPath: ".", outputPath: final}, nil))
+
+	body, err := os.ReadFile(final)
+	require.NoError(t, err)
+	assert.Equal(t, "BIN", string(body), "the target file holds what the build wrote")
+	assert.NoFileExists(t, build.TempOutputPath(final), "the temp spelling must not survive the commit")
+}
+
+// TestRunBuildDeletesTempOutputOnFailure: a failed build leaves nothing —
+// what the compiler already wrote under the temp spelling is removed, and the
+// target file never appears.
+func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
+	final := filepath.Join(t.TempDir(), "mytool")
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("go", "build") {
+			writeMockBuildOutput(cfg, "PARTIAL")
+			return runner.MockProcessWithStderr(nil, []byte("./main.go:5:3: undefined: foo\n"), fmt.Errorf("exit status 1")), nil
+		}
+		return nil, nil
+	}
+
+	err := runBuild(mock, buildJob{srcPath: ".", outputPath: final}, nil)
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "undefined: foo")
+	assert.NoFileExists(t, build.TempOutputPath(final), "the failed build's temp output must be deleted")
+	assert.NoFileExists(t, final, "a failed build must not produce the target file")
+}
+
+// TestRunBuildRefusesToCommitMissingOutput: go build exiting 0 without
+// producing its -o target is not shippable — the run fails loudly instead of
+// reporting a build whose output nobody can find.
+func TestRunBuildRefusesToCommitMissingOutput(t *testing.T) {
+	final := filepath.Join(t.TempDir(), "mytool")
+	// A build that "succeeds" but writes nothing, unlike a real one.
+	mock := runner.NewMock()
+
+	assert.Error(t, runBuild(mock, buildJob{srcPath: ".", outputPath: final}, nil))
+	assert.NoFileExists(t, final)
 }

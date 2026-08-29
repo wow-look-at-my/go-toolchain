@@ -58,7 +58,9 @@ coverage.
   `discardBuildOutputsFromCWD` on the two exits that never enter the pipeline — the agent output guard's abort (which also NAMES the deleted paths in
   its message, so the missing binary doesn't read as a different bug) and, via the exported `DiscardBuildOutputs`, main's bootstrap-failure exit. What
   counts as an artifact is `isOutputArtifact`: the bare name (`<name>.exe` and the cosmo fat APE), any `<name>_…` (BinaryName's
-  `<name>_<goos>_<goarch>[.exe]`, the wasm shapes, the `<name>_host` symlink), and any `<name>.…` (the APE's sidecar ELFs), minus the
+  `<name>_<goos>_<goarch>[.exe]`, the wasm shapes, the `<name>_host` symlink), any `<name>.…` (the APE's sidecar ELFs), and the `.tmp-`-prefixed
+  spelling of all of those — the compiler's -o under its temp name, which `runBuild` commits onto the target only on success and deletes on
+  failure, so the sweeps only ever meet crash orphans (`build.TmpPrefix`) — minus the
   `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
   `trace.json` — a project whose binary is named `wasm` must not lose `wasm_exec.js`). Discovery is a directory scan keyed on target NAME rather than
   a re-derivation of the platform matrix, so artifacts of a previous run's platform set go too. `clearBuildOutputs` records `{dir, names}` per module
@@ -139,7 +141,11 @@ coverage.
   or one level below the module root, and from the leaf directory when deeper -- but `nameTargets` gives the module-derived name only
   to a package that is ALONE in wanting it. Two mains one level down both derive the module's name, and the old code kept whichever it
   saw first, so a build shipped missing a binary and still reported success. A contested name falls back to each package's own
-  directory; one still contested after that is a hard error, never a dropped target.
+  directory; one still contested after that is a hard error, never a dropped target. tmpoutput.go holds the write-then-move regime the outputs
+  follow (`runBuild` in matrixbuild.go is the one chokepoint that compiles anything): the compiler's -o is `build/.tmp-<name>` (hidden on
+  Windows; `TempOutputPath`), and `CommitOutput` renames it onto `build/<name>` — plus any `<base>.…` sidecar shape the cosmo fork derives from
+  the -o path, never a `<base>_…` shape, which belongs to another target's own build — only after the build succeeded, failing loudly when an
+  exit-0 go wrote nothing; on failure the temp spellings are deleted instead (`DiscardOutput`).
 - `tests/` — declarative CLI integration tests (.dats format)
 - `src/gomod/` — shared Go module utilities (module path reading, main package discovery). `FindMainPackages` → `hasMainPackage` →
   `packageNameFromFile`

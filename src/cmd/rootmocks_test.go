@@ -55,6 +55,19 @@ func setupMockProject() {
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
 }
 
+// writeMockBuildOutput writes the file named by a go build command's -o
+// flag, as a real (exit-0) compiler does. runBuild refuses to commit a build
+// that wrote nothing, so a mocked build must not skip this. For the
+// t-flavored variant used by the cosmo/wasm tests see writeBuildOutput in
+// matrix_cosmo_test.go.
+func writeMockBuildOutput(cfg runner.Config, content string) {
+	for i, arg := range cfg.Args {
+		if arg == "-o" && i+1 < len(cfg.Args) {
+			os.WriteFile(cfg.Args[i+1], []byte(content), 0o755)
+		}
+	}
+}
+
 // newTestPassMock creates a mock runner that passes tests with the given coverage percentage.
 // If pct is 0, it defaults to 100%.
 func newTestPassMock(pct float32) *runner.Mock {
@@ -71,6 +84,14 @@ func newTestPassMock(pct float32) *runner.Mock {
 {"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
 `, covPct)
 			return runner.MockProcess([]byte(output), nil), nil
+		}
+		if cfg.IsCmd("go", "build") {
+			// The real compiler's contract: an exit-0 go build leaves its -o
+			// target behind, and runBuild refuses to commit a build that
+			// wrote nothing. Handlers that wrap this mock and write their own
+			// output content return before reaching here.
+			writeMockBuildOutput(cfg, "bin")
+			return runner.MockProcess(nil, nil), nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil

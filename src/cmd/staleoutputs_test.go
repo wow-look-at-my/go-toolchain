@@ -23,6 +23,13 @@ func TestIsOutputArtifact(t *testing.T) {
 		"mytool_js_wasm.wasm",
 		"mytool_host",
 		"mytool_host.exe",
+		// The .tmp- spellings the compiler's -o goes through (build.TmpPrefix):
+		// a build killed before its commit leaves them behind.
+		".tmp-mytool",
+		".tmp-mytool.exe",
+		".tmp-mytool_linux_amd64",
+		".tmp-mytool.dbg",
+		".tmp-mytool.aarch64.elf",
 	} {
 		assert.True(t, isOutputArtifact(base, "mytool"), "%s is an artifact of mytool", base)
 	}
@@ -34,6 +41,11 @@ func TestIsOutputArtifact(t *testing.T) {
 		"mytool-notes.txt",
 		"checksums.txt",
 		"profile.json",
+		// The prefix does not make a non-artifact an artifact.
+		".tmp-mytoolx",
+		".tmp-mytool-notes.txt",
+		".tmp-checksums.txt",
+		".tmp-profile.json",
 	} {
 		assert.False(t, isOutputArtifact(base, "mytool"), "%s is not an artifact of mytool", base)
 	}
@@ -41,6 +53,9 @@ func TestIsOutputArtifact(t *testing.T) {
 	// A target name that prefixes a non-binary output must not consume it.
 	assert.False(t, isOutputArtifact("wasm_exec.js", "wasm"))
 	assert.True(t, isOutputArtifact("wasm_linux_amd64", "wasm"))
+	// Same refusal one level deep, under the temp spelling.
+	assert.False(t, isOutputArtifact(".tmp-wasm_exec.js", "wasm"))
+	assert.True(t, isOutputArtifact(".tmp-wasm_linux_amd64", "wasm"))
 
 	// An empty target name matches nothing -- no resolvable name must never sweep the whole output dir.
 	assert.False(t, isOutputArtifact("mytool", ""))
@@ -84,6 +99,23 @@ func TestRemoveBuildOutputsIn(t *testing.T) {
 	removed, err = removeBuildOutputsIn(filepath.Join(dir, "nope"), []string{"mytool"})
 	require.NoError(t, err)
 	assert.Empty(t, removed)
+}
+
+// A build killed between writing and committing leaves the .tmp- spelling of
+// its outputs behind (runBuild deletes its own only on a failure it sees);
+// the sweeps take them like any other artifact. See build.TmpPrefix.
+func TestRemoveBuildOutputsInSweepsTempSpellings(t *testing.T) {
+	dir := writeOutputDir(t, filepath.Join(t.TempDir(), "build"),
+		".tmp-mytool", ".tmp-mytool.elf", ".tmp-mytool_linux_amd64", "unrelated.txt")
+
+	removed, err := removeBuildOutputsIn(dir, []string{"mytool"})
+	require.NoError(t, err)
+	assert.Len(t, removed, 3, "removed: %v", removed)
+
+	assert.NoFileExists(t, filepath.Join(dir, ".tmp-mytool"))
+	assert.NoFileExists(t, filepath.Join(dir, ".tmp-mytool.elf"))
+	assert.NoFileExists(t, filepath.Join(dir, ".tmp-mytool_linux_amd64"))
+	assert.FileExists(t, filepath.Join(dir, "unrelated.txt"))
 }
 
 // setupOutputModule creates a temp module named mytool, chdirs into it, points
