@@ -14,10 +14,9 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// CommentNumbersAnalyzer reports a number written in a comment, in digits or in
-// words. A comment that counts what sits below it is wrong the moment an item
-// is added, and nothing tells the reader which comments have gone stale. Org
-// modules FAIL; others WARN. Depth: docs/VET.md
+// CommentNumbersAnalyzer reports a number in a comment, in digits or in words.
+// A comment that counts what sits below it is wrong the moment an item is
+// added. Org modules FAIL; others WARN. Depth: docs/VET.md
 var CommentNumbersAnalyzer = &analysis.Analyzer{
 	Name:       "commentnumbers",
 	Doc:        "reports a number in a comment; name what the code does instead of counting it",
@@ -91,8 +90,7 @@ type commentToken struct {
 	text   string
 }
 
-// nameMarkers are the characters that make a token a technical name rather than
-// prose: a selector, an import path, a label, a snake_case identifier.
+// nameMarkers join an identifier, an import path or a label into a name.
 const nameMarkers = "._/:"
 
 // commentNumbers finds every number in the text of a single comment line.
