@@ -199,6 +199,9 @@ type timedLineWriter struct {
 	lineEnd     time.Time // when the line content was written
 }
 
+// timedLineMinDuration mirrors logx's minDurationToShow: skip stamping fast lines.
+var timedLineMinDuration = time.Second
+
 // newTimedLineWriter creates a writer that appends elapsed time to each line.
 func newTimedLineWriter(target io.Writer) *timedLineWriter {
 	return &timedLineWriter{target: target}
@@ -230,9 +233,15 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// closeLine appends " <elapsed>\n" to finish the current open line.
+// closeLine finishes the current open line: " <elapsed>\n" once the gap
+// since its content was written reaches timedLineMinDuration, otherwise
+// just "\n".
 func (w *timedLineWriter) closeLine() {
-	fmt.Fprintf(w.target, " %s\n", fmtDuration(time.Since(w.lineEnd)))
+	if elapsed := time.Since(w.lineEnd); elapsed >= timedLineMinDuration {
+		fmt.Fprintf(w.target, " %s\n", fmtDuration(elapsed))
+	} else {
+		fmt.Fprintln(w.target)
+	}
 	w.awaitingEnd = false
 }
 
