@@ -23,22 +23,12 @@ inputs:
     description: 'Path to a pre-built go-toolchain binary (skips release download)'
     required: false
     default: ''
-  os:
-    description: >-
-      Comma-separated target operating systems (e.g. linux,darwin,windows).
-      Setting this OR arch switches from the default single multi-platform APE
-      to one native binary per platform. Empty (the default) builds the APE.
-    required: false
-    default: ''
-  arch:
-    description: >-
-      Comma-separated target architectures (e.g. amd64,arm64). Setting this OR
-      os switches from the default single multi-platform APE to one native
-      binary per platform. Empty (the default) builds the APE.
-    required: false
-    default: ''
   targets:
-    description: 'Comma-separated exact build targets, each an os/arch pair (e.g. darwin/amd64) or the special value "cosmo" (one fat APE built with the gosmopolitan toolchain). When non-empty this replaces the os/arch inputs.'
+    description: >-
+      Comma-separated wasm targets to add (wasm/js, wasm/wasip1, built with
+      the gosmopolitan toolchain) plus the special value "cosmo" (one fat
+      APE, the org's only native output). Empty (the default) builds the APE
+      alone.
     required: false
     default: ''
   cosmo-platforms:
@@ -267,15 +257,7 @@ runs:
         fi
         # The default builds ONE fat APE. see docs/ACTION.md
         if [ -n "${{ inputs.targets }}" ]; then
-          # --targets replaces the --os x --arch matrix entirely.
           ARGS="$ARGS --targets ${{ inputs.targets }}"
-        else
-          if [ -n "${{ inputs.os }}" ]; then
-            ARGS="$ARGS --os ${{ inputs.os }}"
-          fi
-          if [ -n "${{ inputs.arch }}" ]; then
-            ARGS="$ARGS --arch ${{ inputs.arch }}"
-          fi
         fi
         if [ -n "${{ inputs.cosmo-platforms }}" ]; then
           ARGS="$ARGS --cosmo-platforms ${{ inputs.cosmo-platforms }}"
