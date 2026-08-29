@@ -77,7 +77,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 	}
 
-	// Run tests with coverage first (same as default command)
+	// Run tests with coverage before building (same as the default command)
 	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
 		return err
 	}
@@ -121,13 +121,13 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 	ensureBuildDirInGitignore()
 
-	// Build job queue - one job per platform per main package
+	// Build job queue - a job per platform per main package
 	var jobs []buildJob
 	for _, p := range platforms {
 		for _, target := range platformTargets[p] {
 			outputName := build.BinaryName(target.OutputName, p.OS, p.Arch)
 			if p.IsWasm() {
-				// Publishable buildhost naming by default; .wasm-suffixed under GO_TOOLCHAIN_WASM_PUBLISH=0.
+				// Publishable buildhost naming by default; .wasm-suffixed under the wasmPublishEnv opt-out.
 				outputName = wasmArtifactName(target.OutputName, p)
 			}
 			job := buildJob{
@@ -216,9 +216,9 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
 	}
 
-	// One APE is one artifact whose identity is a platform SET, which the
-	// <binary>_<os>_<arch> naming can't spell. The manifest records it as one
-	// upload/row/link and excludes it from that filename scan, letting it
+	// The APE is a single artifact whose identity is a platform SET, which the
+	// <binary>_<os>_<arch> naming can't spell. The manifest records it as a
+	// lone upload/row/link and excludes it from that filename scan, letting it
 	// publish under the plain name.
 	if hasCosmo {
 		entries, err := apeManifestEntries(hostTargets, outputDir, apeCoverage(apePlatforms))
@@ -235,7 +235,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	// (<name>_wasm_js / <name>_wasm_wasip1), which needs a buildhost with
 	// wasm artifact support -- an older server rejects the upload and aborts
 	// the whole publish, so warn about the requirement and the opt-out.
-	// GO_TOOLCHAIN_WASM_PUBLISH=0 switches to the excluded .wasm-suffixed
+	// The wasmPublishEnv opt-out switches to the excluded .wasm-suffixed
 	// shape, which the publish upload set never matches (it only takes
 	// <binary>_{os}_{arch} after stripping .exe) but still ships in build/,
 	// checksums.txt, and the CI artifact.
@@ -266,7 +266,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 	}
 
-	// Generate SHA-256 checksums for release artifacts
+	// Generate sha256 checksums for release artifacts
 	if len(builtFiles) > 0 {
 		if _, err := generateChecksums(outputDir, builtFiles); err != nil {
 			return fmt.Errorf("checksum generation failed: %w", err)

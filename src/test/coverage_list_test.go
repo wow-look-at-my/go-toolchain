@@ -44,7 +44,7 @@ example.com/pkg/bar.go:14.1,16.1 4 0
 	total, files, err := ParseProfile(f.Name())
 	require.NoError(t, err)
 
-	// Verify total coverage: 13 covered / 22 total = 59.09%
+	// Verify total coverage, weighted by statements across both files
 	assert.InDelta(t, 59.09, float64(total), 0.1)
 
 	// Verify file-level statement counts
@@ -53,12 +53,10 @@ example.com/pkg/bar.go:14.1,16.1 4 0
 		fileMap[fc.File] = fc
 	}
 
-	// foo.go: 3 covered, 8 total (5 uncovered)
 	foo := fileMap["example.com/pkg/foo.go"]
 	assert.Equal(t, 8, foo.Statements)
 	assert.Equal(t, 3, foo.Covered)
 
-	// bar.go: 10 covered, 14 total (4 uncovered)
 	bar := fileMap["example.com/pkg/bar.go"]
 	assert.Equal(t, 14, bar.Statements)
 	assert.Equal(t, 10, bar.Covered)
@@ -66,13 +64,13 @@ example.com/pkg/bar.go:14.1,16.1 4 0
 
 func TestSortByUncovered(t *testing.T) {
 	files := []FileCoverage{
-		{baseCoverageItem: baseCoverageItem{Statements: 8, Covered: 3}, File: "example.com/pkg/foo.go"},   // 5 uncovered
-		{baseCoverageItem: baseCoverageItem{Statements: 14, Covered: 10}, File: "example.com/pkg/bar.go"}, // 4 uncovered
+		{baseCoverageItem: baseCoverageItem{Statements: 8, Covered: 3}, File: "example.com/pkg/foo.go"},
+		{baseCoverageItem: baseCoverageItem{Statements: 14, Covered: 10}, File: "example.com/pkg/bar.go"},
 	}
 
 	sortByUncovered(files)
 
-	// foo.go has 5 uncovered vs bar.go's 4, so foo comes first.
+	// foo.go leaves more statements uncovered than bar.go, so foo sorts ahead.
 	assert.Equal(t, "example.com/pkg/foo.go", files[0].File)
 }
 
@@ -115,42 +113,42 @@ func TestDimText(t *testing.T) {
 	assert.Equal(t, "\033[38;2;255;255;255m", dimText(1.0))
 	// Half brightness
 	assert.Equal(t, "\033[38;2;127;127;127m", dimText(0.5))
-	// Zero brightness
+	// No brightness
 	assert.Equal(t, "\033[38;2;0;0;0m", dimText(0.0))
 }
 
 func TestHsvToRGB(t *testing.T) {
-	// Red (0°)
+	// Red
 	r, g, b := hsvToRGB(0, 1.0, 1.0)
 	assert.Equal(t, uint8(255), r)
 	assert.Equal(t, uint8(0), g)
 	assert.Equal(t, uint8(0), b)
 
-	// Green (120°)
+	// Green
 	r, g, b = hsvToRGB(120, 1.0, 1.0)
 	assert.Equal(t, uint8(0), r)
 	assert.Equal(t, uint8(255), g)
 	assert.Equal(t, uint8(0), b)
 
-	// Blue (240°)
+	// Blue
 	r, g, b = hsvToRGB(240, 1.0, 1.0)
 	assert.Equal(t, uint8(0), r)
 	assert.Equal(t, uint8(0), g)
 	assert.Equal(t, uint8(255), b)
 
-	// Cyan (180°)
+	// Cyan
 	r, g, b = hsvToRGB(180, 1.0, 1.0)
 	assert.Equal(t, uint8(0), r)
 	assert.Equal(t, uint8(255), g)
 	assert.Equal(t, uint8(255), b)
 
-	// Magenta (300°)
+	// Magenta
 	r, g, b = hsvToRGB(300, 1.0, 1.0)
 	assert.Equal(t, uint8(255), r)
 	assert.Equal(t, uint8(0), g)
 	assert.Equal(t, uint8(255), b)
 
-	// Yellow (60°)
+	// Yellow
 	r, g, b = hsvToRGB(60, 1.0, 1.0)
 	assert.Equal(t, uint8(255), r)
 	assert.Equal(t, uint8(255), g)
@@ -158,15 +156,15 @@ func TestHsvToRGB(t *testing.T) {
 }
 
 func TestColorGain(t *testing.T) {
-	// High gain should be red (hue near 0) — most urgent
+	// High gain should be red — most urgent
 	high := colorGain(1.0)
 	assert.Contains(t, high, " 1.0%")
 
-	// Low gain should be green (hue near 120) — less urgent
+	// Low gain should be green — less urgent
 	low := colorGain(0.1)
 	assert.Contains(t, low, " 0.1%")
 
-	// Very high gain gets capped at red (hue=0)
+	// Very high gain gets capped at red
 	capped := colorGain(5.0)
 	assert.Contains(t, capped, " 5.0%")
 }
@@ -181,7 +179,7 @@ func TestShortFile(t *testing.T) {
 func TestPrintCapsAtFivePerGroup(t *testing.T) {
 	t.Setenv("CI", "true")
 
-	// Create 7 untested functions and 7 partial functions — only 5 of each should appear
+	// Create more untested and partial functions than a group displays — only the largest should appear
 	var files []FileCoverage
 	for i := range 7 {
 		f := FileCoverage{
@@ -226,13 +224,13 @@ func TestPrintCapsAtFivePerGroup(t *testing.T) {
 		report.Print()
 	})
 
-	// Untested: 5 largest should appear (Untested6=16, ..., Untested2=12)
+	// Untested: the largest should appear, down to the display cap
 	assert.Contains(t, output, "Untested6")
 	assert.Contains(t, output, "Untested2")
 	assert.NotContains(t, output, "Untested0")
 	assert.NotContains(t, output, "Untested1")
 
-	// Partial: 5 largest should appear (Partial6=25 uncov, ..., Partial2=21 uncov)
+	// Partial: the largest should appear, down to the display cap
 	assert.Contains(t, output, "Partial6")
 	assert.Contains(t, output, "Partial2")
 	assert.NotContains(t, output, "Partial0")
@@ -261,7 +259,7 @@ func TestPrintEmptyReport(t *testing.T) {
 func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 	t.Setenv("CI", "true")
 
-	// File with a partially-covered function (has Covered > 0)
+	// File with a partially-covered function (Covered is non-empty)
 	file1 := FileCoverage{
 		baseCoverageItem: baseCoverageItem{Statements: 20, Covered: 10},
 		File:             "example.com/pkg/partial.go",
@@ -287,7 +285,7 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 	}
 	file2.Functions = []FuncCoverage{fn2}
 
-	// File with a completely untested function (Covered == 0)
+	// File with a completely untested function (nothing covered)
 	file3 := FileCoverage{
 		baseCoverageItem: baseCoverageItem{Statements: 30, Covered: 0},
 		File:             "example.com/pkg/untested.go",
@@ -314,7 +312,7 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 		report.Print()
 	})
 
-	// Should show UNTESTED section header (for 0%-covered functions)
+	// Should show UNTESTED section header (for functions with nothing covered)
 	assert.Contains(t, output, "UNTESTED", "should show UNTESTED section")
 
 	// Should show PARTIAL section header (for partially-covered functions)
@@ -333,7 +331,7 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 	assert.NotContains(t, output, "FullyCovered", "should not show covered function")
 	assert.NotContains(t, output, "full.go", "should not show fully covered file")
 
-	// Untested (30 lines) outranks partial (5 lines): more uncovered lines, higher gain.
+	// The untested function outranks the partial: more uncovered lines, higher gain.
 	untestedIdx := strings.Index(output, "NeverCalled")
 	partialIdx := strings.Index(output, "NeedsCoverage")
 	assert.True(t, untestedIdx < partialIdx,

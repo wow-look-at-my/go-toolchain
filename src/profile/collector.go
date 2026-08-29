@@ -1,6 +1,6 @@
 // Package profile builds the per-action build profile: it injects
 // -debug-actiongraph dumps into the go build/test invocations of a run,
-// parses them defensively, joins each action (by its 20-char truncated
+// parses them defensively, joins each action (by its truncated
 // ActionID) with the cacheprog's per-action outcome events, and emits a
 // console summary, build/profile.json, Chrome-trace lanes, and a CI
 // step-summary table — answering "what is this build spending its time on,
@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 )
 
-// Collector accumulates -debug-actiongraph dumps from one run's go invocations; safe for concurrent use.
+// Collector accumulates -debug-actiongraph dumps from a run's go invocations; safe for concurrent use.
 type Collector struct {
 	mu    sync.Mutex
 	dir   string

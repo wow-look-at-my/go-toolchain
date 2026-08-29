@@ -13,7 +13,7 @@ import (
 
 // injectMemLimitGuard writes the GOMEMLIMIT startup guard into every main package before the build, capping the
 // Go heap at the container's cgroup limit instead of an OOM kill. The guard is transient: cleanupMemLimitGuards
-// deletes it after the build, and checkDirtyInCI ignores it. ensureGuardExcluded (called first) hides it from git
+// deletes it after the build, and checkDirtyInCI ignores it. ensureGuardExcluded (called up front) hides it from git
 // so VCS stamping never sees it. No disable flag: the opt-out is the runtime GOMEMLIMIT=off.
 func injectMemLimitGuard(quiet bool) error {
 	// Exclude BEFORE writing, so no git status during the build window (Go's version stamping) can see it.
@@ -31,7 +31,7 @@ func injectMemLimitGuard(quiet bool) error {
 
 // ensureGuardExcluded lists the transient guard in the repo's clone-local git exclude file
 // (.git/info/exclude, via `git rev-parse --git-path` for linked worktrees), so `git status`
-// never sees it. Without this, Go 1.24+'s version stamping runs `git status --porcelain`
+// never sees it. Without this, the go command's version stamping runs `git status --porcelain`
 // while the guard exists, sees an untracked file, and stamps every binary "+dirty" on a
 // clean checkout. The exclude file must be used instead of .gitignore: it lives under .git/,
 // outside the working tree, so writing it cannot itself dirty the tree. The entry is left in

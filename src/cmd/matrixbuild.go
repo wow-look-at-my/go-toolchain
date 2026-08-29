@@ -18,7 +18,7 @@ import (
 // hostRunnableArtifact returns the artifact in outDir that runs on this
 // host: the native <name>_<hostos>_<hostarch> build when it exists, else the
 // fat APE (which runs here by construction). Returned even when neither
-// exists, so callers report a missing artifact rather than a wrong one.
+// exists, so callers report a missing artifact rather than the wrong artifact.
 func hostRunnableArtifact(target build.Target, outDir string) string {
 	native := filepath.Join(outDir, build.BinaryName(target.OutputName, hostos.GOOS(), runtime.GOARCH))
 	if _, err := os.Stat(native); err == nil {
@@ -69,7 +69,7 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 }
 
 // runBuild compiles a single binary. If onFirstOutput is non-nil, it is
-// called when the compiler produces its first output (used for progress
+// called as soon as the compiler produces output (used for progress
 // indicators on the default build path).
 //
 // The compiler never writes onto the target file (job.outputPath) directly:
@@ -85,7 +85,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
 	}
 	args := []string{"build"}
-	// Dump the action graph for the build profile (one file per invocation;
+	// Dump the action graph for the build profile (a file per invocation;
 	// matrix targets each get their own). No-op when profiling is off.
 	if garg := profile.GraphArg(); garg != "" {
 		args = append(args, garg)
@@ -106,7 +106,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	switch {
 	case job.forkGoroot != "" && job.goos == cosmoOS:
 		// GOOS=cosmo fat-APE build. GOARCH and GOCOSMOFAT are cleared: "fat"
-		// is a pseudo-arch, not a real GOARCH, and an inherited GOCOSMOFAT=0
+		// is a pseudo-arch, not a real GOARCH, and an inherited GOCOSMOFAT
 		// must not silently produce a thin binary. The cache namespace keys
 		// this build to this toolchain, since the fork's constant version
 		// stamp would otherwise collide action IDs across fork builds.
@@ -124,7 +124,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	case job.forkGoroot != "":
 		// Wasm build (js/wasm or wasip1/wasm) via the gosmopolitan toolchain.
 		// The fork DEFAULTS to GOOS=cosmo, so GOOS and GOARCH are always
-		// pinned explicitly. CGO_ENABLED=0 always: wasm has no cgo. The cache
+		// pinned explicitly. cgo stays disabled always: wasm has no cgo. The cache
 		// namespace: same fork, same constant-version action-ID collisions,
 		// same isolation (see the cosmo case above).
 		cmd = cmd.WithEnv("GOOS", job.goos).

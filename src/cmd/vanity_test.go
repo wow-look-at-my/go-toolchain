@@ -404,7 +404,7 @@ func runVanityTestGit(t *testing.T, args ...string) {
 }
 
 // TestCheckDirtyInCIWithVanityRestored pins the invariant that broke
-// github-state-mirror run 29791671090: while vanity replaces are active (a
+// a github-state-mirror CI run: while vanity replaces are active (a
 // vanity host was unreachable, so go.mod carries injected replace directives
 // and go mod tidy rewrote go.sum onto the mirror paths), the post-vet CI
 // dirty check must pass on a canonically tidy tree — the mutation is the

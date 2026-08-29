@@ -2,7 +2,7 @@
 
 package cmd
 
-// cosmo has no persistent deps cache: sqlite's libc backend has no cosmo target; each check costs one HTTP request.
+// cosmo has no persistent deps cache: sqlite's libc backend has no cosmo target; each check costs an HTTP request.
 
 // noopDepsCache implements depsCache without persistence: every lookup misses, every store is dropped.
 type noopDepsCache struct{}

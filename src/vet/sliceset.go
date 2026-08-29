@@ -20,7 +20,7 @@ var SliceSetAnalyzer = &analysis.Analyzer{
 	ResultType: reflect.TypeOf([]*ASTFixes{}),
 }
 
-// sliceSetWarned records file:line of every warning this run, so the package variants that walk one file warn once per site.
+// sliceSetWarned records file:line of every warning this run, so the package variants that walk a file warn per site.
 var sliceSetWarned sync.Map
 
 // resetSliceSetWarnings forgets prior warnings, so a re-run after a fix reports its sites again.
@@ -60,7 +60,7 @@ func runSliceSet(pass *analysis.Pass) (any, error) {
 }
 
 // reportSliceLiteralLookups reports a membership test against a slice spelled
-// on the spot. The literal exists for that one question, so it is a set with
+// on the spot. The literal exists for that single question, so it is a set with
 // no name and no other use.
 func reportSliceLiteralLookups(pass *analysis.Pass, file *ast.File, report func(token.Pos, string, ...any)) []fileEdit {
 	var edits []fileEdit
@@ -82,7 +82,7 @@ func reportSliceLiteralLookups(pass *analysis.Pass, file *ast.File, report func(
 	return edits
 }
 
-// rewriteLiteralLookup turns the lookup into one against a set literal. The
+// rewriteLiteralLookup turns the lookup into a set-literal lookup. The
 // slice has no other use, so nothing else moves.
 func rewriteLiteralLookup(call *ast.CallExpr, lit *ast.CompositeLit) (ASTFix, bool) {
 	sel, _ := call.Fun.(*ast.SelectorExpr)
@@ -130,7 +130,7 @@ func absenceTest(pass *analysis.Pass, cond ast.Expr) types.Object {
 			return nil
 		}
 		return lookupTarget(pass, c.X)
-	case *ast.BinaryExpr: // slices.Index(s, v) < 0, == -1
+	case *ast.BinaryExpr: // slices.Index(s, v) compared against a not-found result
 		if c.Op != token.LSS && c.Op != token.EQL {
 			return nil
 		}
@@ -224,7 +224,7 @@ func isSetWorthySlice(t types.Type) bool {
 	return !isBasic || b.Kind() != types.Byte
 }
 
-// sliceSetCandidate is one slice variable and what the package does to it.
+// sliceSetCandidate is a slice variable and what the package does to it.
 type sliceSetCandidate struct {
 	pos          token.Pos
 	fromLiteral  bool
@@ -263,7 +263,7 @@ func sliceSetCandidates(pass *analysis.Pass) map[types.Object]*sliceSetCandidate
 }
 
 // sliceSetAddCandidate records name when it is a slice this package builds:
-// a bare var, a literal, or make with length zero. A make with a length holds
+// a bare var, a literal, or make with an empty length. A make with a length holds
 // elements the code reaches by index, so it is a buffer.
 func sliceSetAddCandidate(pass *analysis.Pass, candidates map[types.Object]*sliceSetCandidate, name, value ast.Expr) {
 	id, ok := name.(*ast.Ident)
@@ -289,7 +289,7 @@ func sliceSetAddCandidate(pass *analysis.Pass, candidates map[types.Object]*slic
 	candidates[obj] = c
 }
 
-// isZeroLiteral reports whether expr is the constant 0.
+// isZeroLiteral reports whether expr is the integer constant for nothing.
 func isZeroLiteral(expr ast.Expr) bool {
 	lit, ok := expr.(*ast.BasicLit)
 	return ok && lit.Kind == token.INT && lit.Value == "0"
@@ -331,7 +331,7 @@ func sliceSetUses(pass *analysis.Pass, file *ast.File, candidates map[types.Obje
 }
 
 // creditMembershipScan credits a loop that walks a candidate to compare each
-// element against one value. That loop IS slices.Contains, so writing it out
+// element against a single value. That loop IS slices.Contains, so writing it out
 // by hand never escapes this check.
 func creditMembershipScan(pass *analysis.Pass, rng *ast.RangeStmt, candidates map[types.Object]*sliceSetCandidate) {
 	id, ok := rng.X.(*ast.Ident)
@@ -372,7 +372,7 @@ func comparesToRangeValue(cond ast.Expr, name string) bool {
 	return false
 }
 
-// classifySliceSetUse records one use against the candidate. A use that reads
+// classifySliceSetUse records a use against the candidate. A use that reads
 // position or repetition, or that hands the slice to code this walk cannot
 // see, disqualifies it.
 func classifySliceSetUse(pass *analysis.Pass, c *sliceSetCandidate, id *ast.Ident, parent, grandparent ast.Node) {
@@ -425,7 +425,7 @@ func comparedToConstant(node ast.Node) bool {
 }
 
 // classifySliceSetAssign records an assignment naming the slice. Writing the
-// whole variable is a reset or an append back; writing one position is not.
+// whole variable is a reset or an append back; writing a position is not.
 func classifySliceSetAssign(pass *analysis.Pass, c *sliceSetCandidate, id *ast.Ident, assign *ast.AssignStmt) {
 	for _, lhs := range assign.Lhs {
 		if lhs == ast.Expr(id) {

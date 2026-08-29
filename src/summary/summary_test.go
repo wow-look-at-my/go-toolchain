@@ -285,7 +285,7 @@ func TestGenerateMarkdownMultiPackage(t *testing.T) {
 	// Each package gets its own collapsed section
 	assert.Contains(t, md, "cmd (2 passed)")
 	assert.Contains(t, md, "lib (1 passed, 1 failed)")
-	// Two separate <details> blocks
+	// Separate <details> blocks
 	assert.Equal(t, 2, strings.Count(md, "<details>"))
 	assert.Equal(t, 2, strings.Count(md, "</details>"))
 	// Summary rows

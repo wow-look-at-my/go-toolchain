@@ -20,7 +20,7 @@ type buildhostManifest struct {
 	Artifacts []buildhostManifestEntry `json:"artifacts"`
 }
 
-// buildhostManifestEntry describes one multi-platform artifact.
+// buildhostManifestEntry describes a multi-platform artifact.
 // Kind is deliberately absent: it selects buildhost's repackaging vocabulary (binary/library/
 // assets/...) and defaults to binary, while APE-ness is a property buildhost detects from the
 // bytes. There is no display-label field either -- the badge renders from the stored set, so a
@@ -28,7 +28,7 @@ type buildhostManifest struct {
 type buildhostManifestEntry struct {
 	// File is the artifact's path relative to the published directory.
 	File string `json:"file"`
-	// Platforms are the os/arch pairs this file runs on; the first is the row's canonical slot.
+	// Platforms are the os/arch pairs this file runs on; the leading pair is the row's canonical slot.
 	Platforms []string `json:"platforms"`
 	// Filename is the name the download is served under: the plain binary name, not the on-disk <name>.
 	Filename string `json:"filename"`

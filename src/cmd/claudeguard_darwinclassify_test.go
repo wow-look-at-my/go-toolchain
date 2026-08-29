@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// okProbes answers every question, so a case can override just the one it is
+// okProbes answers every question, so a case can override just the probe it is
 // about. Defaults are deliberately boring: a regular file at a non-capture
 // path, no socket peer, not a terminal.
 func okProbes(mode uint32) darwinFDProbes {
@@ -22,7 +22,7 @@ func okProbes(mode uint32) darwinFDProbes {
 }
 
 func TestClassifyDarwinFD(t *testing.T) {
-	// The one behavior the whole design turns on: a probe this build cannot
+	// The behavior the whole design turns on: a probe this build cannot
 	// make is NOT a negative answer. Answering "hidden" would refuse every
 	// legitimate agent run on a Mac; answering "visible" would leave the guard
 	// silently off. Both are worse than admitting blindness.
@@ -129,7 +129,7 @@ func TestClassifyDarwinFD(t *testing.T) {
 			assert.Equal(t, "pid 77", sink.detail)
 		})
 
-		// Naming the peer needs ps(1), which a sandbox can refuse; the pid the
+		// Naming the peer needs the ps tool, which a sandbox can refuse; the pid the
 		// agent published is the identification that survives that.
 		t.Run("a nameless peer the agent claims as its own is visible", func(t *testing.T) {
 			p := okProbes(sIFSOCK)
@@ -194,7 +194,7 @@ func TestClassifyDarwinFD(t *testing.T) {
 		})
 
 		// The path only names the device in the message, so losing it must not
-		// turn a decided classification into a blind one.
+		// turn a decided classification into a blind classification.
 		t.Run("an unaskable path still classifies", func(t *testing.T) {
 			p := okProbes(sIFCHR)
 			p.path = func() (string, bool) { return "", false }
@@ -225,7 +225,7 @@ func TestClassifyDarwinFD(t *testing.T) {
 		})
 	})
 
-	// An unrecognized type is real uncertainty about one descriptor, not a
+	// An unrecognized type is real uncertainty about a descriptor, not a
 	// missing capability: do not block on it.
 	t.Run("an unknown type does not block", func(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(0x3000))

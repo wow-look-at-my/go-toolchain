@@ -238,7 +238,7 @@ func nopReader(s string) io.Reader {
 	return strings.NewReader(s)
 }
 
-// testOutputID is the cache outputID for a body: its lowercase-hex SHA-256,
+// testOutputID is the cache outputID for a body: its lowercase-hex sha256,
 // which GETs verify against (see outputIDMatches).
 func testOutputID(data string) string {
 	sum := sha256.Sum256([]byte(data))

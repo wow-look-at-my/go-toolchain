@@ -9,7 +9,7 @@ import (
 // GetByOutputVerified is GetByOutput with a content-address integrity gate on
 // the path that actually feeds the compiler: the GET RPC's DiskPath is read
 // directly through the FUSE mount, bypassing GetVerified's RPC-level check.
-// It verifies the body's SHA-256 against outputID (the content-address
+// It verifies the body's sha256 against outputID (the content-address
 // invariant), stronger than the pack CRC -- it also catches a torn or
 // mis-mapped record that is CRC-consistent with itself but wrong content.
 // A mismatch evicts the entry and reports not-found, so the mount returns
@@ -35,7 +35,7 @@ func (s *PackStore) GetByOutputVerified(outputID string) (packLoc, bool) {
 	return loc, true
 }
 
-// GetVerified is like Get, but first confirms the body matches its header CRC; a mismatch evicts and misses.
+// GetVerified is like Get, but confirms the body matches its header CRC before serving; a mismatch evicts and misses.
 func (s *PackStore) GetVerified(actionID string) (packLoc, bool) {
 	return s.getVerifiedCounted(actionID, true)
 }
@@ -68,7 +68,7 @@ func (s *PackStore) getVerifiedCounted(actionID string, countHit bool) (packLoc,
 // verifyBody runs check over loc's stored body. Large bodies are verified via
 // an mmap of the pack region (see mmapVerifyThreshold); small bodies take a
 // plain read. A read or map error counts as a failure. check must not retain
-// the slice past its return -- a mapped body is unmapped once verifyBody returns.
+// the slice past its return -- a mapped body is unmapped as verifyBody returns.
 func (s *PackStore) verifyBody(loc packLoc, check func(body []byte) bool) bool {
 	if loc.dataLen >= mmapVerifyThreshold && loc.dataLen <= int64(maxInt) {
 		if f := s.pack(loc.packID); f != nil {

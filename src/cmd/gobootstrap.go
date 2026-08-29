@@ -165,7 +165,7 @@ func bootstrapGo(reason string) error {
 	return nil
 }
 
-// recordGoMinor parses a version string like "1.24.7" and stores its minor
+// recordGoMinor parses a dotted "X.Y.Z" version string and stores its minor
 // component in resolvedGoMinor so that goSupportsFeature can use it without
 // shelling out to "go version". If ver is empty or unparseable, it falls back
 // to running "go version".
@@ -208,7 +208,7 @@ func installedGoVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Output format: "go version go1.24.11 linux/amd64"
+	// Output format: "go version goX.Y.Z <goos>/<goarch>"
 	fields := strings.Fields(string(out))
 	if len(fields) < 3 || !strings.HasPrefix(fields[2], "go") {
 		return "", fmt.Errorf("unexpected go version output: %s", out)
@@ -219,8 +219,8 @@ func installedGoVersion() (string, error) {
 // requiredGoVersion reads the go.mod file and returns the Go version needed.
 // It prefers the "toolchain goX.Y.Z" directive (if present) over the "go X.Y.Z"
 // directive, since the toolchain directive specifies the exact version to use.
-// Since Go 1.21, release archives include the patch version (e.g. go1.25.0),
-// so if go.mod says "go 1.25" we normalize it to "1.25.0".
+// A release archive is named for its patch version, so a go.mod naming only
+// major and minor is normalized to carry an explicit patch component.
 func requiredGoVersion() (string, error) {
 	f, err := os.Open("go.mod")
 	if err != nil {
@@ -234,7 +234,7 @@ func requiredGoVersion() (string, error) {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "toolchain ") {
 			tc := strings.TrimSpace(strings.TrimPrefix(line, "toolchain "))
-			// "toolchain go1.25.0" -> "1.25.0"
+			// "toolchain goX.Y.Z" -> "X.Y.Z"
 			toolchainVer = strings.TrimPrefix(tc, "go")
 		} else if goVer == "" && strings.HasPrefix(line, "go ") {
 			goVer = strings.TrimSpace(strings.TrimPrefix(line, "go "))
@@ -248,12 +248,12 @@ func requiredGoVersion() (string, error) {
 	return normalizeGoVersion(goVer), nil
 }
 
-// normalizeGoVersion appends a missing patch component: since Go 1.21 release archives are named
-// go1.X.0, so "1.25" must become "1.25.0" for the download URL.
+// normalizeGoVersion appends a missing patch component: a release archive is named
+// "goX.Y.Z", so a bare "X.Y" must gain a patch component for the download URL.
 func normalizeGoVersion(v string) string {
 	parts := strings.Split(v, ".")
 	if len(parts) == 2 {
-		// Only major.minor (e.g. "1.25") — append ".0"
+		// Only major and minor — append the patch component
 		return v + ".0"
 	}
 	return v

@@ -1,7 +1,7 @@
-// Two repositories developed in tandem carry the same branch name: the change
-// spans both, and neither half is finished without the other. A bare
+// A pair of repositories developed in tandem carry the same branch name: the
+// change spans both, and neither half is finished without the other. A bare
 // auto-branch marker therefore follows the dependency's branch of THIS
-// repository's name when the dependency has one, and its default branch
+// repository's name when the dependency has such a branch, and its default branch
 // otherwise.
 //
 // That is what makes the marker work while the change is in flight and again
@@ -24,7 +24,7 @@ import (
 )
 
 // branchMatcher answers which ref a marker follows, asking each dependency
-// repository once. A run builds one and passes it along, so the fast-exit
+// repository a single time. A run builds a matcher and passes it along, so the fast-exit
 // check and the rewrite cannot disagree about what a line resolves to.
 type branchMatcher struct {
 	r runner.CommandRunner
@@ -40,7 +40,7 @@ func newBranchMatcher(r runner.CommandRunner) *branchMatcher {
 	return &branchMatcher{r: r, seen: map[string]string{}}
 }
 
-// here is this repository's branch, looked up the first time a line needs it.
+// here is this repository's branch, looked up as soon as a line needs it.
 func (bm *branchMatcher) here() string {
 	if !bm.asked {
 		bm.branch, bm.asked = currentBranch(bm.r), true
@@ -63,7 +63,7 @@ func currentBranch(r runner.CommandRunner) string {
 }
 
 // match reports the dependency's branch of this repository's name, or "" for
-// the default branch. Cached per module, so a repository is asked once.
+// the default branch. Cached per module, so a repository is asked a single time.
 func (bm *branchMatcher) match(mod string) string {
 	if bm.here() == "" {
 		return ""
@@ -76,8 +76,8 @@ func (bm *branchMatcher) match(mod string) string {
 	return branch
 }
 
-// probe asks the remote for the matching branch and the default branch in one
-// ls-remote. A remote that cannot answer, a dependency without the branch, and
+// probe asks the remote for the matching branch and the default branch in a
+// single ls-remote. A remote that cannot answer, a dependency without the branch, and
 // a dependency whose default branch IS that branch all mean the same thing:
 // follow HEAD, and say so in the plain words the marker had before.
 func (bm *branchMatcher) probe(mod string) string {
@@ -96,7 +96,7 @@ func (bm *branchMatcher) probe(mod string) string {
 	return bm.branch
 }
 
-// branchFor is the branch a marker follows for mod: the one it names, or this
+// branchFor is the branch a marker follows for mod: the branch it names, or this
 // repository's when the dependency shares it. Empty is HEAD.
 func (bm *branchMatcher) branchFor(mod string, m marker) string {
 	if m.branch != "" {

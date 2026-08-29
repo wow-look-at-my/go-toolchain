@@ -72,23 +72,23 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 
 	// Cases that MUST gain a conversion.
 	want := []string{
-		// Case 1: untyped literal vs float64 call result.
+		// An untyped literal vs a float64 call result.
 		"assert.Equal(t, float64(0), getFloat64())",
-		// Case 2: operands swapped — literal sits in the actual slot.
+		// Operands swapped — literal sits in the actual slot.
 		"assert.Equal(t, getFloat64(), float64(0))",
-		// Case 3: Equalf, format string and args left intact.
+		// Equalf, format string and args left intact.
 		`require.Equalf(t, float64(0), getFloat64(), "x=%d", k)`,
-		// Case 4: *Assertions method form (no leading t).
+		// The *Assertions method form (no leading t).
 		"a.Equal(float64(0), getFloat64())",
-		// Case 5: typed int32 vs int64 — expected wrapped.
+		// Typed int32 vs int64 — expected wrapped.
 		"assert.Equal(t, int64(getInt32()), getInt64())",
 		// task uint example — actual literal wrapped.
 		"require.Equal(t, getUint(), uint(10))",
 		// NotEqual handled identically.
 		"assert.NotEqual(t, float64(0), getFloat64())",
-		// Case 8: numeric named type Celsius vs float64.
+		// A numeric named type Celsius vs float64.
 		"assert.Equal(t, float64(getCelsius()), getFloat64())",
-		// Rule 5: non-numeric same-kind named type Name vs string.
+		// A non-numeric same-kind named type Name vs string.
 		`assert.Equal(t, string(getName()), "")`,
 		// Literal on the expected side: wrap into the named type, no numeric guard.
 		`assert.Equal(t, Name(""), getName())`,
@@ -98,9 +98,9 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 		"assert.Equal(t, Duration(0), getDot())",
 		// Missing import for the named type's package is recorded and added on fix.
 		"assert.NotEqual(t, modes.Mode(0), getMode())",
-		// Ordering assertions: int16 field vs untyped 0 (compareTwoValues is kind-strict).
+		// Ordering assertions: an int16 field vs an untyped constant (compareTwoValues is kind-strict).
 		"assert.Greater(t, getInt16(), int16(0))",
-		// float64 vs untyped 0 — the go-font-renderer TestSuperRoundNegative shape.
+		// float64 vs an untyped constant — the go-font-renderer TestSuperRoundNegative shape.
 		"assert.Less(t, getFloat64(), float64(0))",
 		// Typed width mismatch — e1 wrapped.
 		"assert.GreaterOrEqual(t, int64(getInt32()), getInt64())",
@@ -200,7 +200,7 @@ func TestConstRepresentable(t *testing.T) {
 	assert.False(t, constRepresentable(mkInt(256), int8T))
 	assert.False(t, constRepresentable(mkInt(-1), uint8T))
 	assert.False(t, constRepresentable(mkInt(256), uint8T))
-	// Fractional value cannot become an integer (rule 10).
+	// A fractional value cannot become an integer.
 	assert.False(t, constRepresentable(mkFloat(1.5), intT))
 	// Whole-valued float can.
 	assert.True(t, constRepresentable(mkFloat(2.0), intT))

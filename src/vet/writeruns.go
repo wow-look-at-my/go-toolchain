@@ -11,7 +11,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// WriteRunsAnalyzer flags 3+ adjacent statements writing literal text to the
+// WriteRunsAnalyzer flags a run of adjacent statements writing literal text to the
 // same writer: render it with text/template instead. A computed value, or a
 // hash writer, never joins a run (see writeCall). Depth: docs/VET.md
 var WriteRunsAnalyzer = &analysis.Analyzer{
@@ -24,7 +24,7 @@ var WriteRunsAnalyzer = &analysis.Analyzer{
 // writeRunFree is the number of adjacent writes a run spends before it warns.
 const writeRunFree = 2
 
-// writeRunWarned records each warning's file:line, so the package variants that walk the same file warn once per site.
+// writeRunWarned records each warning's file:line, so the package variants that walk the same file warn per site.
 var writeRunWarned sync.Map
 
 // resetWriteRunWarnings forgets the previous run's warnings, so a re-run after a fix reports its sites again.
@@ -33,7 +33,7 @@ func resetWriteRunWarnings() { writeRunWarned.Clear() }
 // writeMethods are the writer methods that put text into the output.
 var writeMethods = set.Of("Write", "WriteString", "WriteByte", "WriteRune")
 
-// printfFuncs are the fmt functions whose first argument is the writer.
+// printfFuncs are the fmt functions whose leading argument is the writer.
 var printfFuncs = set.Of("Fprint", "Fprintf", "Fprintln")
 
 func runWriteRuns(pass *analysis.Pass) (any, error) {
@@ -53,8 +53,8 @@ func runWriteRuns(pass *analysis.Pass) (any, error) {
 	return []*ASTFixes(nil), nil
 }
 
-// checkWriteRun walks one statement list and warns on the third and every
-// later write of each run.
+// checkWriteRun walks a statement list and warns on each write of a run past
+// the free allowance.
 func checkWriteRun(pass *analysis.Pass, list []ast.Stmt) {
 	target, length := "", 0
 	for _, stmt := range list {
@@ -76,7 +76,7 @@ func checkWriteRun(pass *analysis.Pass, list []ast.Stmt) {
 }
 
 // writeCall reports whether a statement writes a piece of the document, and
-// names the writer it writes to. Three things must hold. The result is
+// names the writer it writes to. Several things must hold. The result is
 // dropped, so the statement is an expression. The written text is spelled in
 // the source, so a call carrying no string or character literal writes a value
 // this check cannot render. And the writer holds text: a hash reads its input
@@ -95,7 +95,7 @@ func writeCall(pass *analysis.Pass, stmt ast.Stmt) (*ast.CallExpr, string, bool)
 		return nil, "", false
 	}
 
-	// fmt.Fprintf(w, ...) names the writer first; a method names it as its receiver.
+	// fmt.Fprintf(w, ...) leads with the writer; a method names it as its receiver.
 	target, text := sel.X, call.Args
 	if id, isPkg := sel.X.(*ast.Ident); isPkg && writerFirstFunc(id.Name, sel.Sel.Name) {
 		if len(call.Args) == 0 {
@@ -113,7 +113,7 @@ func writeCall(pass *analysis.Pass, stmt ast.Stmt) (*ast.CallExpr, string, bool)
 	return call, writer, true
 }
 
-// writerFirstFunc reports whether pkg.fn takes its writer as the first
+// writerFirstFunc reports whether pkg.fn takes its writer as the leading
 // argument.
 func writerFirstFunc(pkg, fn string) bool {
 	return (pkg == "fmt" && printfFuncs.Contains(fn)) || (pkg == "io" && fn == "WriteString")
@@ -157,7 +157,7 @@ func isHashWriter(pass *analysis.Pass, e ast.Expr) bool {
 }
 
 // writerName spells a writer expression, or "" for a shape that could name
-// more than one writer. Accepted shapes: w, s.buf, a.b.c.
+// more than a single writer. Accepted shapes: w, s.buf, a.b.c.
 func writerName(e ast.Expr) string {
 	switch v := e.(type) {
 	case *ast.Ident:

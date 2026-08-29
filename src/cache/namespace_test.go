@@ -15,7 +15,7 @@ func TestCanonicalKeyNamespace(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
-		want string // "" means: expect the 16-hex hash of the input
+		want string // "" means: expect the hex hash of the input
 	}{
 		{"empty stays empty", "", ""},
 		{"canonical 16-hex passes through", "0123456789abcdef", "0123456789abcdef"},
@@ -46,12 +46,12 @@ func TestCanonicalKeyNamespace(t *testing.T) {
 }
 
 // TestActionKeyShapes pins the key-shape invariants the namespace design
-// relies on: an unnamespaced key is the plain 64-hex action ID (byte-identical
+// relies on: an unnamespaced key is the plain hex action ID (byte-identical
 // to historic behavior), a namespaced key is that hex plus the namespace as a
 // suffix, and keys from different namespaces (or no namespace) can never be
 // equal for fixed-length action IDs.
 func TestActionKeyShapes(t *testing.T) {
-	raw := bytes.Repeat([]byte{0xab}, 32) // cmd/go action IDs are SHA-256: 32 bytes
+	raw := bytes.Repeat([]byte{0xab}, 32) // cmd/go action IDs are sha256 digests
 	hexKey := fmt.Sprintf("%x", raw)
 
 	plain := &Server{}
@@ -69,7 +69,7 @@ func TestActionKeyShapes(t *testing.T) {
 
 // TestNamespaceSuffixPreservesBuildIDGuard pins why namespacing is a SUFFIX,
 // not a hash-combined rewrite: the build-id guard derives its expectation from
-// the first 15 bytes of the hex-decoded key, and a suffix leaves those bytes
+// the leading bytes of the hex-decoded key, and a suffix leaves those bytes
 // intact, so a compiled package's stamped build id still verifies against the
 // real cmd/go action ID. Rewriting the leading bytes would break the guard.
 func TestNamespaceSuffixPreservesBuildIDGuard(t *testing.T) {
@@ -86,10 +86,10 @@ func TestNamespaceSuffixPreservesBuildIDGuard(t *testing.T) {
 }
 
 // TestServerNamespaceIsolation is the cross-toolchain poisoning regression
-// test: entries stored under one namespace must be invisible to every other
+// test: entries stored under a namespace must be invisible to every other
 // namespace (and to unnamespaced clients) on BOTH tiers — the local store and
-// the remote backend — in both directions. This is what makes two different
-// fork-toolchain builds (whose colliding action IDs caused the 2026-07-20
+// the remote backend — in both directions. This is what makes rival
+// fork-toolchain builds (whose colliding action IDs caused the summer
 // SIGSEGV-APE incident) structurally unable to share cache entries.
 func TestServerNamespaceIsolation(t *testing.T) {
 	dir := t.TempDir()
@@ -97,7 +97,7 @@ func TestServerNamespaceIsolation(t *testing.T) {
 	require.NoError(t, err)
 	remote := newMemBackend()
 
-	// One action ID, as computed identically by two different fork toolchain builds (the collision).
+	// A single action ID, as computed identically by rival fork toolchain builds (the collision).
 	actionID := bytes.Repeat([]byte{0x42}, 32)
 	bodyA := "object compiled by toolchain A"
 	sumA := sha256.Sum256([]byte(bodyA))
@@ -105,9 +105,9 @@ func TestServerNamespaceIsolation(t *testing.T) {
 	const nsA = "aaaa111122223333"
 	const nsB = "bbbb444455556666"
 
-	// runServer executes one protocol conversation against the SHARED stores
+	// runServer executes a protocol conversation against the SHARED stores
 	// under the given namespace ("" = unnamespaced) and returns the responses
-	// (handshake first). Each conversation uses a fresh Server, modeling a
+	// (handshake leading). Each conversation uses a fresh Server, modeling a
 	// fresh build's cacheprog process.
 	runServer := func(t *testing.T, namespace, script string) []Response {
 		t.Helper()

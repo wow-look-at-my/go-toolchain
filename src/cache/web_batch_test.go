@@ -156,7 +156,7 @@ func TestGetBatch_RejectsCorruptEntry(t *testing.T) {
 	require.NoError(t, err)
 	defer b.Close()
 
-	// Advertise the hash of one body but store a different one under it.
+	// Advertise the hash of a body but store different content under it.
 	compressed, _ := compressData([]byte("a totally different body"))
 	store["go-buildcache/v1aabbccdd11223344"] = compressed
 	meta["go-buildcache/v1aabbccdd11223344"] = map[string]string{"outputid": testOutputID("the correct body")}
@@ -221,7 +221,7 @@ func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
 		callbackEntries = append(callbackEntries, entries...)
 	}
 
-	// Request one entry — server should also return the other as prefetch.
+	// Request a single entry — server should also return the other as prefetch.
 	outputID, body, _, _, miss, err := b.getBatch("aaaa000000000001", "go-buildcache/v1aaaa000000000001")
 	require.NoError(t, err)
 	require.False(t, miss)
@@ -237,7 +237,7 @@ func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
 }
 
 func TestGetBatch_FallbackToIndividual(t *testing.T) {
-	// Server that doesn't support /_batch/get (returns 404).
+	// Server that doesn't support /_batch/get (answers not-found).
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -303,7 +303,7 @@ func TestGetBatch_FallbackToIndividual(t *testing.T) {
 	b.keys.Add("go-buildcache/v1aabbccdd11223344")
 	b.keysMu.Unlock()
 
-	// getBatch should fall back to getIndividual when batch returns 404.
+	// getBatch should fall back to getIndividual when batch is not found.
 	outputID, body, _, _, miss, err := b.getBatch("aabbccdd11223344", "go-buildcache/v1aabbccdd11223344")
 	require.NoError(t, err)
 	require.False(t, miss)
@@ -359,7 +359,7 @@ func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
 
 // TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest is the headline test
 // for client-side batching: many concurrent Get callers must funnel through
-// a single /_batch/get HTTP request rather than producing one request each.
+// a single /_batch/get HTTP request rather than producing a request each.
 func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 	const N = 200
 
@@ -432,7 +432,7 @@ func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
 	}
 	wg.Wait()
 
-	// batchMaxKeys=128 plus coalescing should fit N=200 callers in ≤2 requests.
+	// batchMaxKeys plus coalescing should fit every caller into a couple of requests.
 	calls := atomic.LoadInt32(&batchHTTPCalls)
 	require.LessOrEqual(t, calls, int32(3),
 		"expected ≤3 HTTP requests for %d parallel Gets, got %d (no client-side batching)", N, calls)

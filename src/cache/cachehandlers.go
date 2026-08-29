@@ -21,7 +21,7 @@ func (s *Server) handleGet(req Request) Response {
 	s.Latency.LockWait.Record(time.Since(lockStart))
 	defer mu.Unlock()
 
-	// Check local cache first.
+	// Check the local cache before the remote.
 	localStart := time.Now()
 	meta, miss := s.local.Get(actionID)
 	s.Latency.LocalGet.Record(time.Since(localStart))
@@ -174,7 +174,7 @@ func (s *Server) handlePut(req Request) Response {
 }
 
 func hexToBytes(h string) []byte {
-	// hex.DecodeString, not 32 reflective fmt.Sscanf calls; on malformed input it returns bytes decoded so far.
+	// hex.DecodeString, not a reflective fmt.Sscanf per byte; on malformed input it returns bytes decoded so far.
 	b, _ := hex.DecodeString(h)
 	return b
 }
@@ -187,7 +187,7 @@ func fileSize(path string) int64 {
 	return info.Size()
 }
 
-// describeFile reads the first 1024 bytes of a cached object on disk and
+// describeFile reads the leading bytes of a cached object on disk and
 // returns a human-readable label via describeData. Used in debug logs to
 // decode what a given actionID actually represents.
 func describeFile(path string) string {

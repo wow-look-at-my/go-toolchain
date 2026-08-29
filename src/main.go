@@ -66,7 +66,7 @@ func main() {
 	if needsGo() {
 		if err := cmd.EnsureGoVersion(); err != nil {
 			cmd.ReportUpdateCheck()
-			// Drop the previous run's binaries so a failed run can't be mistaken for one (see staleoutputs.go).
+			// Drop the previous run's binaries so a failed run cannot pass as a good build (see staleoutputs.go).
 			cmd.DiscardBuildOutputs()
 			logger.Error("go bootstrap: %v", err)
 			logx.Flush()

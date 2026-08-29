@@ -23,9 +23,9 @@ func TestVetSemanticFixKeepsDocCommentQuotesAndAlignment(t *testing.T) {
 
 	dir := t.TempDir()
 
-	// The file has (1) an assertlint-fixable comparison, (2) a top-level doc
-	// comment containing the POSIX 'foo'\''bar' escape, and (3) an already
-	// space-aligned struct.
+	// The file has an assertlint-fixable comparison, a top-level doc comment
+	// containing the POSIX 'foo'\''bar' escape, and an already space-aligned
+	// struct.
 	code := "package main\n\n" +
 		"import \"testing\"\n\n" +
 		"// Doc: foo'bar becomes 'foo'\\''bar' in a POSIX shell.\n" +
@@ -73,11 +73,11 @@ func TestVetSemanticFixKeepsDocCommentQuotesAndAlignment(t *testing.T) {
 // `if _, err := f(); err != nil { t.Fatal(...) }` declares into the if's own
 // scope, so it is legal beside an `err` that already exists. Hoisting that
 // statement out of the if verbatim is not: Go answers "no new variables on
-// left side of :=". The fixer did exactly that to two sites in one file and
+// left side of :=". The fixer did exactly that to a pair of sites in a file and
 // the run then died on its own output -- after reporting every rewrite as
 // fixed.
 //
-// Both shapes are in one file on purpose: the conversion must happen ONLY
+// Both shapes share a file on purpose: the conversion must happen ONLY
 // where every name already exists, because a genuinely new name still needs
 // `:=`. Compiling the result (go/types over the rewritten file) is the
 // assertion that matters -- a string check would have passed on the broken
@@ -124,7 +124,7 @@ func TestVetSemanticFixHoistsInitLegally(t *testing.T) {
 	require.NoError(t, err)
 	got := string(content)
 
-	// The shadowing site assigns; the fresh one still defines.
+	// The shadowing site assigns; the fresh site still defines.
 	assert.Contains(t, got, "_, err = mayFail()", "a hoisted init whose names all exist must assign, not define")
 	assert.Contains(t, got, "_, err := mayFail()", "a hoisted init with a new name must keep :=")
 

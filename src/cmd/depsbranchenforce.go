@@ -58,7 +58,7 @@ func hasPinnedMarker(line *modfile.Line) bool {
 // Indirect requires are out of scope. Branch tracking skips them (a per-line
 // branch pin on a transitively resolved dependency does not mean what it
 // looks like -- see UpdateTrackedBranchDeps), so demanding a marker there
-// would demand one that does nothing. A require whose version a replace
+// would demand a marker that does nothing. A require whose version a replace
 // overrides is out of scope too: the replacement supplies the version that
 // reaches the build, and the replace line is what gets marked instead. Only a
 // replace that NAMES A VERSION does that -- see versionReplaced.
@@ -134,8 +134,8 @@ func versionReplaced(f *modfile.File) set.Set[string] {
 
 // trackedSiblingOf reports whether mod ships from a repository that a tracked
 // direct require already follows. The sibling resolution owns the line from
-// there: it requires every module of that repository at one commit and marks
-// each one (siblingRequires).
+// there: it requires every module of that repository at the same commit and
+// marks each of them (siblingRequires).
 func trackedSiblingOf(f *modfile.File, mod string) bool {
 	owner, repo, ok := gitHubOwnerRepo(mod)
 	if !ok {
@@ -182,7 +182,7 @@ func warnIndirectOrgRequire(f *modfile.File, req *modfile.Require, coveredByRepl
 // that merely repeats the default branch: `branch=v1` becomes `auto-branch=v1`, while
 // `branch=master` on a repo whose default IS master becomes plain `auto-branch`.
 //
-// Telling those apart is the one lookup here; a remote that cannot answer keeps the name, so the
+// Telling those apart is the only lookup here; a remote that cannot answer keeps the name, so the
 // migration is never a change of meaning. It warns, since a kept name may be worth dropping later.
 func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version string) bool {
 	m := parseMarker(line)
@@ -214,7 +214,7 @@ func markBranchTracked(r runner.CommandRunner, line *modfile.Line, mod, version 
 
 // setMarker replaces any go-toolchain tracking comment on a line with m's.
 // A line with an existing suffix comment gets the marker JOINED to it, "// indirect;
-// go-toolchain:...", the same way x/mod's setIndirect does. A second Suffix comment would
+// go-toolchain:...", the same way x/mod's setIndirect does. A further Suffix comment would
 // render on its own line below, which corrupts the block.
 func setMarker(line *modfile.Line, m marker) {
 	kept := line.Suffix[:0]

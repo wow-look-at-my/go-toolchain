@@ -50,7 +50,7 @@ func scanJSONStrings(text string) (outside string, key bool) {
 }
 
 // closingQuote reports the index of the quote that closes a string opened
-// before start, or -1 when the text ends first.
+// before start, or a negative index when the text ends beforehand.
 func closingQuote(text string, start int) int {
 	for i := start; i < len(text); i++ {
 		if text[i] == '\\' {
@@ -94,7 +94,7 @@ func bracketed(s string, opens, closes byte) bool {
 const verbFlags = "+-# 0123456789.*[]"
 
 // normalizeVerbs replaces each format verb with a hole and reports how many it
-// found. A doubled percent sign prints one and interpolates nothing, so it is
+// found. A doubled percent sign prints a literal sign and interpolates nothing, so it is
 // not a verb.
 func normalizeVerbs(format string) (string, int) {
 	var out strings.Builder

@@ -112,7 +112,7 @@ func TestGithubRepoFromEnv(t *testing.T) {
 // version were not exempt from it (skipAgentGuard). Stubbing the agent check
 // keeps that independent of the exemption: a change there must fail
 // TestSkipCache_VersionSubcommandsSkip, not kill this whole test binary with
-// the guard's os.Exit(1).
+// the guard's own process exit.
 func TestVersionRaw(t *testing.T) {
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()

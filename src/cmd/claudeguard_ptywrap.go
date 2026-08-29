@@ -1,4 +1,4 @@
-// A pty slave passes isatty regardless of who allocated it. script(1) (and
+// A pty slave passes isatty regardless of who allocated it. The script tool (and
 // asciinema, ttyrec, unbuffer, expect) forkpty()s a fresh pty around a
 // child so the child's isatty checks pass, then copies the pty's output to
 // a file. `script -qec "go-toolchain" out.log` turns a would-be captured

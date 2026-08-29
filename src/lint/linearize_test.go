@@ -35,7 +35,7 @@ func foo() {
 
 	// Check that we have expected structural symbols
 	seq := SequenceString(tokens)
-	assert.Contains(t, seq, "A") // AssignStmt for x := 1
+	assert.Contains(t, seq, "A") // AssignStmt for x
 	assert.Contains(t, seq, "I") // IfStmt
 	assert.Contains(t, seq, "R") // ReturnStmt
 }
@@ -61,7 +61,7 @@ func foo() {
 }
 
 func TestLinearize_StripsConcretesFromSymbols(t *testing.T) {
-	// Two functions with same structure but different names/literals
+	// A pair of functions with same structure but different names/literals
 	// should produce identical symbol sequences.
 	src := `package p
 func foo() {
@@ -131,9 +131,8 @@ func bigger() {
 	assert.Len(t, blocks, 1)
 	assert.Equal(t, "bigger", blocks[0].FuncName)
 
-	// With minNodes=1, both functions + inner blocks are included
+	// With the smallest minNodes, both functions and their inner blocks are included
 	blocks = ExtractBlocks(f, fset, 1)
-	// tiny(1) + bigger(1) + bigger/if(1) + bigger/for(1) = 4
 	assert.Len(t, blocks, 4)
 }
 
@@ -331,10 +330,10 @@ func example() {
 `
 	f, fset := parseSource(t, src)
 
-	// Use minNodes=1 to capture all blocks
+	// Use the smallest minNodes to capture all blocks
 	blocks := ExtractBlocks(f, fset, 1)
 
-	// Should have: function-level + if-body + else-body = 3 blocks
+	// Should have the function-level, if-body and else-body blocks
 	assert.Len(t, blocks, 3)
 
 	names := make([]string, len(blocks))

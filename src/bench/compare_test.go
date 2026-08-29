@@ -50,13 +50,8 @@ func TestCompareWithPrevious(t *testing.T) {
 	d := deltas[0]
 	require.NotNil(t, d.Previous)
 
-	// 900 vs 1000 = -10%
 	assert.False(t, d.NsPerOpDelta < -10.1 || d.NsPerOpDelta > -9.9)
-
-	// 200 vs 250 = -20%
 	assert.False(t, d.BytesDelta < -20.1 || d.BytesDelta > -19.9)
-
-	// 4 vs 5 = -20%
 	assert.False(t, d.AllocsDelta < -20.1 || d.AllocsDelta > -19.9)
 }
 
@@ -75,7 +70,6 @@ func TestCompareRegression(t *testing.T) {
 	comp := Compare(current, previous)
 	d := comp.Packages["pkg"][0]
 
-	// 1100 vs 1000 = +10%
 	assert.False(t, d.NsPerOpDelta < 9.9 || d.NsPerOpDelta > 10.1)
 }
 

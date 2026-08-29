@@ -46,16 +46,16 @@ func movedTrackedPins(path string) ([]string, bool) {
 	return trackedPinMovement(head, work)
 }
 
-// trackedPinMovement compares two go.mod files and reports which
+// trackedPinMovement compares a pair of go.mod files and reports which
 // branch-tracked lines moved to a different commit, and whether restoring
-// those versions makes the two files identical.
+// those versions makes the files identical.
 //
 // Restoring and re-comparing is what makes this precise: anything else the
 // working tree changed -- a require added or dropped, a comment edited, a go
 // directive bumped, a marker that appeared or disappeared -- survives the
 // restore and is reported as the dirt it is. Only the version token on a line
 // that carries the same branch marker in both files is forgiven, because that
-// token is the one thing the marker says nobody chooses by hand.
+// token is the thing the marker says nobody chooses by hand.
 func trackedPinMovement(headData, workData []byte) ([]string, bool) {
 	hf, err := modfile.Parse("go.mod", headData, nil)
 	if err != nil {
@@ -147,8 +147,8 @@ func goSumFollowsPins(path string, moved []string) bool {
 	return sumDiffOnlyTouches(string(head), string(work), moved)
 }
 
-// sumDiffOnlyTouches reports whether the lines present in exactly one of two
-// go.sum files all belong to modules in moved.
+// sumDiffOnlyTouches reports whether the lines present in just a single
+// go.sum file of the pair all belong to modules in moved.
 func sumDiffOnlyTouches(head, work string, moved []string) bool {
 	allowed := set.Of(moved...)
 	headLines := sumLines(head)

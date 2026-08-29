@@ -1,5 +1,5 @@
 // socketharness reproduces a coding agent's own tool-execution plumbing: it
-// spawns the binary named by argv[1] with its stdout wired through a
+// spawns the binary its arguments name, with stdout wired through a
 // UNIX-domain socketpair (not a bare pipe) instead of a pipe/file/terminal,
 // exactly what a Node/Bun child_process does for a tool call's stdio. It
 // exports OPENCODE_PID naming itself as the reader (as opencode really does
@@ -64,13 +64,13 @@ func main() {
 		// execve returns ENOEXEC until the binary has assimilated itself into
 		// the host format. A POSIX shell answers ENOEXEC by running the file as
 		// a script, which is the whole reason an APE is runnable -- and it is
-		// how a real agent reaches one, since a tool call is spawned through a
+		// how a real agent reaches an APE, since a tool call is spawned through a
 		// shell. Go's os/exec has no such fallback, so do it explicitly rather
 		// than report a portability gap in this harness as a guard failure.
 		//
 		// This is the macOS path: there the arm64 APE boots through a compiled
 		// loader and stays a polyglot, so every exec of it needs the shell. On
-		// linux it assimilates to a native ELF on first run, so the direct exec
+		// linux it assimilates to a native ELF on its earliest run, so the direct exec
 		// above succeeds and this never fires.
 		shell := exec.Command("/bin/sh", append([]string{"-c", `"$0" "$@"`}, args...)...)
 		shell.Stdout = cmd.Stdout
@@ -102,8 +102,8 @@ func main() {
 	} else {
 		runErr = cmd.Wait()
 	}
-	// EOF arrives once every write end is closed, which the child's exit did --
-	// unless it left a grandchild holding one, so the wait is bounded and the
+	// EOF arrives when every write end is closed, which the child's exit did --
+	// unless it left a grandchild holding an end, so the wait is bounded and the
 	// close is what unblocks the read in that case.
 	select {
 	case <-drained:
@@ -131,15 +131,15 @@ func main() {
 	// Both of the child's streams, on ours so they travel with the verdict
 	// above. The guard names what it resolved the socket's reader to be, and
 	// that sentence is the difference between "the peer lookup failed" and "the
-	// peer resolved to something unrecognized" -- two bugs that look identical
+	// peer resolved to something unrecognized" -- rival bugs that look identical
 	// from the verdict alone. A run that ends some other way, before the guard,
 	// is equally invisible without them, and it says so on whichever stream it
-	// got to first.
+	// got to soonest.
 	echo("HARNESS_CHILD_STDERR: ", errBuf.String())
 	echo("HARNESS_CHILD_STDOUT: ", outBuf.String())
 }
 
-// echo prints text one prefixed line at a time, and says so when there was
+// echo prints text as prefixed lines, and says so when there was
 // none -- an empty stream is itself the finding when a child exits without
 // explaining itself.
 func echo(prefix, text string) {

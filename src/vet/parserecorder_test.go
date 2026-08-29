@@ -11,7 +11,7 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
-// x/tools calls ParseFile once per goroutine per file, so this is the shape the
+// x/tools calls ParseFile per goroutine per file, so this is the shape the
 // real loader uses. Unlocked, it dies with "fatal error: concurrent map
 // writes" -- a fatal error, not a panic, so no recover can hide it.
 func TestParseRecorderSurvivesConcurrentRecording(t *testing.T) {

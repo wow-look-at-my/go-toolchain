@@ -43,7 +43,7 @@ func TestWithAction(t *testing.T) {
 func TestRecordAction_MergePolicy(t *testing.T) {
 	sl := &StatsListener{}
 
-	// First get outcome wins; a later warm re-get must not overwrite it.
+	// The earliest get outcome wins; a later warm re-get must not overwrite it.
 	sl.recordAction(&StatEvent{Action: "a", Op: "get", Outcome: "miss", DurUS: 50})
 	sl.recordAction(&StatEvent{Action: "a", Op: "put", Outcome: "put", Bytes: 2048, DurUS: 90})
 	sl.recordAction(&StatEvent{Action: "a", Op: "get", Outcome: "hit-local", Bytes: 2048, DurUS: 10})
@@ -89,7 +89,7 @@ func TestStatsStreaming_PerAction(t *testing.T) {
 
 	t.Setenv("GOCACHE_STATS_SOCK", sockPath)
 
-	actionID := bytes.Repeat([]byte{0xab, 0xcd}, 16) // 32 bytes, like a real wire ID
+	actionID := bytes.Repeat([]byte{0xab, 0xcd}, 16) // hashLen bytes, like a real wire ID
 	missID := bytes.Repeat([]byte{0xff, 0x00}, 16)
 	sum := sha256.Sum256([]byte("hello"))
 

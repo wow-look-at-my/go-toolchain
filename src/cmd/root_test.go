@@ -129,7 +129,7 @@ func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
-	// Verify CGO_ENABLED=0 was set on the build command
+	// Verify cgo was disabled on the build command
 	for _, cfg := range mock.Calls() {
 		if cfg.IsCmd("go", "build") {
 			cgo, _ := cfg.Env.Get("CGO_ENABLED")
@@ -269,7 +269,7 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 	setupMockProject()
-	// Set watermark to 60% — grace = 57.5, effective = min(80, 57.5) = 57.5
+	// The watermark's grace floor lands under the configured minimum, so the floor is what applies.
 	gotest.SetWatermark(".", 60.0)
 	mock := newTestPassMock(50)
 	jsonOutput = false
@@ -316,8 +316,8 @@ func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 		cov, unc int
 		wantErr  bool
 	}{
-		{"5 uncovered allows", 12, 5, false}, // 70.6% < 80% but 5 < 10
-		{"40 uncovered fails", 60, 40, true}, // 60% < 80% and 40 >= 10
+		{"5 uncovered allows", 12, 5, false}, // under the minimum, but few enough uncovered statements to allow
+		{"40 uncovered fails", 60, 40, true}, // under the minimum, with too many uncovered statements
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
@@ -344,7 +344,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	defer os.Chdir(oldWd)
 	setupMockProject()
 
-	// Watermark 52% -> grace 49.5, effective min(80, 49.5) = 49.5; 50 passes.
+	// The watermark's grace floor lands under the run's coverage, so the run passes.
 	gotest.SetWatermark(".", 52.0)
 
 	mock := newTestPassMock(50)
@@ -367,7 +367,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	defer os.Chdir(oldWd)
 	setupMockProject()
 
-	// Set watermark to 50% — coverage is 100%, should ratchet up
+	// The run covers everything, so the watermark should ratchet up
 	gotest.SetWatermark(".", 50.0)
 
 	mock := newTestPassMock(0)

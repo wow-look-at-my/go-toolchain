@@ -128,7 +128,7 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 	installCopy = false
 	defer func() { installCopy = false }()
 
-	// Run install twice — second should replace the first
+	// Run install again — the repeat should replace what the earlier run left
 	require.NoError(t, runInstallImpl())
 	require.NoError(t, runInstallImpl())
 
@@ -142,7 +142,7 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 func TestFileHash(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create two identical files and one different
+	// Create a matching pair of files, plus a differing file
 	content := []byte("hello world")
 	f1 := filepath.Join(tmpDir, "a")
 	f2 := filepath.Join(tmpDir, "b")
@@ -183,7 +183,7 @@ func TestInstallStatusSymlinkCurrent(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
 
-	// Install via symlink first
+	// Install via symlink, before the copy variant below
 	installCopy = false
 	defer func() { installCopy = false }()
 	require.NoError(t, runInstallImpl())

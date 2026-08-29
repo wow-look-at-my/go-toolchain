@@ -102,7 +102,7 @@ func TestEnsureCosmoToolchainEnvGorootBrokenVersionProbe(t *testing.T) {
 	assert.Contains(t, err.Error(), "go version failed")
 }
 
-// Every host asks buildhost for its own os/arch. No host list lives here: one
+// Every host asks buildhost for its own os/arch. No host list lives here: a
 // went stale and refused darwin/arm64 while buildhost served it.
 func TestEnsureCosmoToolchainDownloadsForEveryHost(t *testing.T) {
 	for _, host := range []struct{ goos, goarch string }{
@@ -198,7 +198,7 @@ func TestEnsureCosmoToolchainDownloadsAndCaches(t *testing.T) {
 	assert.Contains(t, gotQuery.Load().(string), "os=linux")
 	assert.Contains(t, gotQuery.Load().(string), "arch=amd64")
 
-	// Second resolution: cache hit, no re-download.
+	// The repeat resolution: cache hit, no re-download.
 	got2, err := EnsureCosmoToolchain()
 	require.NoError(t, err)
 	assert.Equal(t, got, got2)

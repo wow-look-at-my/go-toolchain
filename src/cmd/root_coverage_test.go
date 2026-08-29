@@ -13,7 +13,7 @@ import (
 
 // TestRunWithRunnerActiveTrace exercises the per-test trace recording path in
 // RunTestsWithCoverage. It sets activeTrace, provides a mock with test-level
-// events covering all branches of the recording loop (zero-elapsed skip,
+// events covering all branches of the recording loop (an elapsed-free skip,
 // parent-has-subtest skip, and a normal recorded leaf test), and passes a
 // non-nil SummaryData to cover the summary accumulation code path.
 func TestRunWithRunnerActiveTrace(t *testing.T) {
@@ -31,9 +31,9 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "test") {
 			writeMockCoverProfile(cfg.Args, 100)
-			// TestNoElapsed: no Elapsed → 0, hits tc.Elapsed<=0 early-continue path.
+			// TestNoElapsed: no Elapsed, hits the early-continue path for an unmeasured test.
 			// TestParent/Sub: subtest pair, TestParent ends up in hasSubtest and is skipped.
-			// TestLeaf: plain test with Elapsed>0, gets recorded in the trace.
+			// TestLeaf: plain test with a measured Elapsed, gets recorded in the trace.
 			output := `{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestNoElapsed"}
 {"Time":"2024-01-01T00:00:00Z","Action":"pass","Package":"example.com/pkg","Test":"TestNoElapsed"}
 {"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg","Test":"TestParent"}
@@ -71,7 +71,7 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 
 // TestRunWithRunnerGenerateSkip exercises the needsGenerate() → true branch and
 // the generateHash="skip" path through runGenerate, including the post-generate
-// second mod-tidy step.
+// repeat mod-tidy step.
 func TestRunWithRunnerGenerateSkip(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -100,7 +100,7 @@ func TestRunWithRunnerGenerateSkip(t *testing.T) {
 
 // newNoTestFilesMock simulates `go test ./...` on a module with no test
 // files: the package appears in the JSON stream only as a skip
-// ("?   pkg [no test files]"), the run exits 0, and the coverage profile
+// ("?   pkg [no test files]"), the run exits clean, and the coverage profile
 // stays empty (just "mode: set") because no test binary ever ran.
 func newNoTestFilesMock() *runner.Mock {
 	mock := runner.NewMock()
@@ -131,7 +131,7 @@ func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject() // pkg/main.go is "package main\n" — zero coverable statements
+	setupMockProject() // pkg/main.go is "package main\n" — no coverable statements
 
 	mock := newNoTestFilesMock()
 	jsonOutput = true

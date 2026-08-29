@@ -33,7 +33,7 @@ func writeGraph(t *testing.T, dir, name, content string) string {
 func TestLoadGraphs_ParsesAndMerges(t *testing.T) {
 	dir := t.TempDir()
 	g1 := writeGraph(t, dir, "g1.json", graphJSON)
-	// Second dump: pkga reappears with the SAME ActionID but unexecuted (cache-satisfied); the
+	// The later dump: pkga reappears with the SAME ActionID but unexecuted (cache-satisfied); the
 	// executed instance from g1 must win the merge.
 	g2 := writeGraph(t, dir, "g2.json", `[
 		{"ID":1,"Mode":"build","Package":"example.com/m/pkga","ActionID":"aaaaaaaaaaaaaaaaaaaa"}
@@ -43,7 +43,7 @@ func TestLoadGraphs_ParsesAndMerges(t *testing.T) {
 	actions := LoadGraphs([]string{g1, g2}, &warn)
 	require.Empty(t, warn.String())
 
-	// 3 rows: the ActionID-less root, pkga (merged), pkgb.
+	// The rows: the ActionID-less root, pkga (merged), pkgb.
 	require.Len(t, actions, 3)
 	var pkga *Action
 	for i := range actions {

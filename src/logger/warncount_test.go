@@ -91,7 +91,7 @@ func TestEmittedWarningsRetainsMessages(t *testing.T) {
 	assert.Equal(t, want, EmittedWarnings())
 }
 
-// TestWarnCountFoldsRepeats verifies the budget counts DISTINCT messages: one
+// TestWarnCountFoldsRepeats verifies the budget counts DISTINCT messages: a
 // root cause that repeats per file or per retry must not spend the whole
 // budget. The repeats are still emitted, still totalled, and carried on the
 // retained warning so the recap can name them.
@@ -117,8 +117,8 @@ func TestWarnCountFoldsRepeats(t *testing.T) {
 }
 
 // TestWarnFileFoldsPerFile verifies that the recorded "<file>: " prefix keeps
-// the same message about two files distinct, and folds the same message about
-// one file. A per-file warning names a per-file problem.
+// the same message about separate files distinct, and folds the same message
+// about a single file. A per-file warning names a per-file problem.
 func TestWarnFileFoldsPerFile(t *testing.T) {
 	ResetWarnCount()
 	defer ResetWarnCount()
@@ -149,7 +149,7 @@ func TestWarnCountFoldsRepeatsPastRetention(t *testing.T) {
 	for i := range MaxRecordedWarnings + 1 {
 		l.Warn("warning %d", i)
 	}
-	l.Warn("warning %d", MaxRecordedWarnings) // the unretained one, again
+	l.Warn("warning %d", MaxRecordedWarnings) // the unretained message, again
 
 	assert.Equal(t, int64(MaxRecordedWarnings+1), WarnCount())
 	assert.Equal(t, int64(MaxRecordedWarnings+2), TotalWarnCount())

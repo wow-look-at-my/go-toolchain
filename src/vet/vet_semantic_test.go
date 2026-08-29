@@ -203,7 +203,7 @@ func TestMode(t *testing.T) {
 }
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644))
-	// go 1.24 matches the stub's directive; older fails the load pre-analyzer.
+	// This go directive matches the stub's; an older directive fails the load pre-analyzer.
 	gomod := "module testmod\n\ngo 1.24\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
 
@@ -223,7 +223,7 @@ func TestMode(t *testing.T) {
 	assert.Contains(t, string(content), "assert.NotEqual(t, fs.FileMode(0), info.Mode()&os.ModeSymlink)")
 	assert.Contains(t, string(content), `"io/fs"`)
 
-	// Second run: the rewritten tree is canonical — it must load and no-op.
+	// The repeat run: the rewritten tree is canonical — it must load and no-op.
 	changed, err = vetSemantic("./...", NewEditor(true), nil)
 	require.NoError(t, err)
 	assert.False(t, changed)

@@ -110,7 +110,7 @@ func TestHTTPErrLogger_BodyNormalization(t *testing.T) {
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
-	// Five body variations normalize to the same key; 5 > maxNamed=3 gives an "and N more" tail.
+	// Several body variations normalize to the same key; past maxNamed this gives an "and N more" tail.
 	l.Record("web put", 502, "aaaa1111", "error code: 502")
 	l.Record("web put", 502, "bbbb2222", "  error code: 502  ")
 	l.Record("web put", 502, "cccc3333", "\nerror code: 502\n")
@@ -234,7 +234,7 @@ func TestHTTPErrLogger_BatchHTTPCoalescedMisses(t *testing.T) {
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
-	// Three all-miss batch HTTP requests. Totals: 300 keys, 120ms.
+	// Several all-miss batch HTTP requests, whose keys and durations the summary totals.
 	l.RecordBatchHTTP(100, 0, 0, 30*time.Millisecond)
 	l.RecordBatchHTTP(80, 0, 0, 50*time.Millisecond)
 	l.RecordBatchHTTP(120, 0, 0, 40*time.Millisecond)
@@ -249,7 +249,7 @@ func TestHTTPErrLogger_BatchHTTPCoalescedHits(t *testing.T) {
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
-	// Totals: 200 keys, 55 entries, 11 prefetched, 97ms.
+	// The summary totals the keys, entries, prefetches and duration.
 	l.RecordBatchHTTP(100, 25, 5, 47*time.Millisecond)
 	l.RecordBatchHTTP(100, 30, 6, 50*time.Millisecond)
 	require.NoError(t, l.Close())

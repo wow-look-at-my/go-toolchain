@@ -12,9 +12,9 @@ type Suggestion struct {
 	Parameters  []string `json:"parameters"`
 }
 
-// BuildSuggestion analyzes two near-duplicate blocks and produces a
+// BuildSuggestion analyzes a pair of near-duplicate blocks and produces a
 // refactoring suggestion. It identifies the concrete values that differ
-// between the two blocks — these become parameters of a proposed
+// between the blocks — these become parameters of a proposed
 // extracted function.
 func BuildSuggestion(pair DuplicatePair) Suggestion {
 	type paramPair struct {
@@ -46,7 +46,7 @@ func BuildSuggestion(pair DuplicatePair) Suggestion {
 		}
 	}
 
-	// Second: find structural diffs (positions not in the LCS).
+	// Then find structural diffs (positions not in the LCS).
 	diffA, diffB := LCSDiff(pair.A.Tokens, pair.B.Tokens)
 	minDiffs := len(diffA)
 	if len(diffB) < minDiffs {

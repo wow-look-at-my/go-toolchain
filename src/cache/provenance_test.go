@@ -18,7 +18,7 @@ import (
 )
 
 // buildPkgbitsWithSources constructs a synthetic pkgbits V0 payload (no sync
-// markers) that encodes importPath as SectionPkg[0]'s package path and each
+// markers) that encodes importPath as the SectionPkg element's package path and each
 // srcPaths entry as a SectionPosBase file name — enough structure for
 // parseImportPath and parseSourceFiles to decode real values, so the
 // provenance tests exercise the same extraction path a genuine `go build`
@@ -26,7 +26,7 @@ import (
 func buildPkgbitsWithSources(importPath string, srcPaths []string) []byte {
 	strs := append([]string{importPath}, srcPaths...)
 
-	// Element bodies: strings, then one PosBase per source path, then Pkg.
+	// Element bodies: strings, then a PosBase per source path, then Pkg.
 	var elems [][]byte
 	for _, s := range strs {
 		elems = append(elems, []byte(s))
@@ -36,7 +36,7 @@ func buildPkgbitsWithSources(importPath string, srcPaths []string) []byte {
 	}
 	elems = append(elems, []byte{0x01, 0x00, 0x00, 0x00})
 
-	// Cumulative element counts per section: String(0), PosBase(2), Pkg(3).
+	// Cumulative element counts per section, in section order: String, PosBase, Pkg.
 	nStr := uint32(len(strs))
 	nPos := uint32(len(srcPaths))
 	eee := make([]uint32, pbNumSections)
@@ -60,7 +60,7 @@ func buildPkgbitsWithSources(importPath string, srcPaths []string) []byte {
 		binary.LittleEndian.PutUint32(b, v)
 		return b
 	}
-	buf = append(buf, le(0)...) // version 0: no flags word, no sync markers
+	buf = append(buf, le(0)...) // the earliest version: no flags word, no sync markers
 	for _, v := range eee {
 		buf = append(buf, le(v)...)
 	}
@@ -73,7 +73,7 @@ func buildPkgbitsWithSources(importPath string, srcPaths []string) []byte {
 }
 
 // provenanceAction returns a (hex actionID, build-id action) pair that agree:
-// action is base64.RawURLEncoding of actionID's first 15 bytes, the stamp
+// action is base64.RawURLEncoding of actionID's leading bytes, the stamp
 // `go build` writes, so an archive carrying it passes the build-id guard.
 func provenanceAction() (actionHex, action string) {
 	raw15 := []byte("provenance-15bb") // exactly buildIDHashSize bytes
@@ -229,7 +229,7 @@ func TestCapSrcList(t *testing.T) {
 	require.Equal(t, "a.go b.go", capSrcList([]string{"a.go", "b.go"}))
 	require.Equal(t, "", capSrcList(nil))
 
-	// More than srcMetaMaxFiles names: first 8 plus a "+N more" summary.
+	// More than srcMetaMaxFiles names: the leading ones plus a "+N more" summary.
 	var many []string
 	for i := 0; i < 20; i++ {
 		many = append(many, fmt.Sprintf("f%02d.go", i))

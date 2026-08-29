@@ -103,12 +103,12 @@ func claimed(b *WebBackend, actionID string) bool {
 }
 
 // TestBatchPut_CoalescesAllObjects is the core regression: many Put calls must
-// be shipped as ONE /_batch/put tar containing every object, each stored, and
-// every optimistic claim kept. This is what turns a thousand-PUT storm into one
+// be shipped as a SINGLE /_batch/put tar containing every object, each stored,
+// and every optimistic claim kept. This is what turns a PUT storm into a single
 // admission slot.
 func TestBatchPut_CoalescesAllObjects(t *testing.T) {
 	hermeticOTel(t)
-	// Long window so all 5 Puts land in one batch deterministically; Close drains before it would elapse.
+	// Long window so every Put lands in a single batch deterministically; Close drains before it would elapse.
 	t.Setenv("GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS", "5000")
 
 	var batchReqs atomic.Int64
@@ -148,7 +148,7 @@ func TestBatchPut_CoalescesAllObjects(t *testing.T) {
 		require.NoError(t, b.Put(a, testOutputID(payload), strings.NewReader(payload), int64(len(payload))))
 	}
 
-	// Close drains the coalescer synchronously: ships the buffer as one batch and waits for the round-trip.
+	// Close drains the coalescer synchronously: ships the buffer as a single batch and waits for the round-trip.
 	require.NoError(t, b.Close())
 
 	require.Equal(t, int64(1), batchReqs.Load(), "all PUTs must coalesce into exactly one /_batch/put request")
@@ -170,7 +170,7 @@ func TestBatchPut_CoalescesAllObjects(t *testing.T) {
 func TestBatchPut_PerObjectErrorRollsBackOnlyThatClaim(t *testing.T) {
 	hermeticOTel(t)
 
-	t.Setenv("GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS", "5000") // one batch; flushed on Close
+	t.Setenv("GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS", "5000") // a single batch; flushed on Close
 	const badAction = "aabbccdd11223300"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +197,7 @@ func TestBatchPut_PerObjectErrorRollsBackOnlyThatClaim(t *testing.T) {
 		require.NoError(t, b.Put(a, testOutputID(payload), strings.NewReader(payload), int64(len(payload))))
 	}
 
-	require.NoError(t, b.Close()) // drains the one batch and applies per-object results
+	require.NoError(t, b.Close()) // drains the batch and applies per-object results
 
 	require.False(t, claimed(b, badAction), "the errored object's claim must be rolled back so a later run re-uploads it")
 	require.True(t, claimed(b, "aabbccdd11223301"), "a sibling stored object keeps its claim")
@@ -218,7 +218,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/testbucket/_batch/put" {
 			batchAttempts.Add(1)
-			w.WriteHeader(http.StatusMethodNotAllowed) // 405: no batch endpoint
+			w.WriteHeader(http.StatusMethodNotAllowed) // no batch endpoint
 			return
 		}
 		if r.Method == "PUT" {
@@ -235,7 +235,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 	b := newTestBackend(t, srv.URL)
 	defer b.Close()
 
-	// First wave: hits the batch endpoint (405), then re-issues these as singles.
+	// The opening wave: hits the batch endpoint, is refused, then re-issues these as singles.
 	first := []string{"aabbccdd11223300", "aabbccdd11223301"}
 	for _, a := range first {
 		payload := largePayload(128)
@@ -252,7 +252,7 @@ func TestBatchPut_FallsBackToSinglePUTsOn405(t *testing.T) {
 	attemptsAfterFirstWave := batchAttempts.Load()
 	require.GreaterOrEqual(t, attemptsAfterFirstWave, int64(1), "the first wave must probe /_batch/put at least once")
 
-	// Second wave: flag is set, so this goes straight to a single PUT.
+	// The wave after it: flag is set, so this goes straight to a single PUT.
 	second := "aabbccdd11223302"
 	payload := largePayload(128)
 	require.NoError(t, b.Put(second, testOutputID(payload), strings.NewReader(payload), int64(len(payload))))
@@ -316,13 +316,13 @@ func TestBatchPut_DrainOnCloseFlushesPartialBuffer(t *testing.T) {
 	require.Equal(t, uint32(1), b.Stats.Puts.Load())
 }
 
-// TestBatchPut_WholeBatch503ThenSucceeds proves a 503 admission shed on the
+// TestBatchPut_WholeBatch503ThenSucceeds proves an admission shed on the
 // WHOLE tar is retried (honoring Retry-After) and the batch ultimately stores.
-// Retry-After:0 keeps the test fast.
+// An immediate Retry-After keeps the test fast.
 func TestBatchPut_WholeBatch503ThenSucceeds(t *testing.T) {
 	hermeticOTel(t)
 	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "3")
-	// Long window so the two Puts don't auto-flush (which under -race could split them into two batches); Close ships one.
+	// Long window so the Puts don't auto-flush (which under -race could split them apart); Close ships them together.
 	t.Setenv("GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS", "30000")
 
 	var attempts atomic.Int64
@@ -332,7 +332,7 @@ func TestBatchPut_WholeBatch503ThenSucceeds(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		// Shed the first two whole-tar attempts the way admission control does.
+		// Shed the opening whole-tar attempts the way admission control does.
 		if attempts.Add(1) < 3 {
 			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(http.StatusServiceUnavailable)

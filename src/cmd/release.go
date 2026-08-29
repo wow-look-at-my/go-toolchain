@@ -134,7 +134,7 @@ func runReleaseCmd(cmd *cobra.Command, args []string) error {
 }
 
 func runReleaseCmdImpl(stdin io.Reader, ex releaseExecutor, noCosign bool) error {
-	// Optional: run matrix build first
+	// Optional: run the matrix build before releasing
 	if releaseBuild {
 		r := runner.New()
 		if err := runMatrixModules(r); err != nil {
@@ -228,7 +228,7 @@ func parseCommitLines(output string) []string {
 		if line == "" {
 			continue
 		}
-		// Strip the short hash prefix (everything before first space)
+		// Strip the short hash prefix (everything up to the leading space)
 		if idx := strings.IndexByte(line, ' '); idx >= 0 {
 			line = line[idx+1:]
 		}
