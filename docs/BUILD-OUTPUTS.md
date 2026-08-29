@@ -6,7 +6,7 @@ keep that true, go-toolchain deletes the artifacts of its own build targets
 - **before the pipeline starts**, so a failure at any phase — or a crash, or a
   kill — leaves nothing runnable behind;
 - **when the run fails after the build phase already wrote them** (a red dats
-  suite, the coverage or warnings gate);
+  suite, the coverage or warnings gate); 
 - **when the agent output guard refuses to run**, or when the Go bootstrap
   fails before the pipeline is reached.
 
