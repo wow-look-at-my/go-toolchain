@@ -33,7 +33,7 @@ func constRepresentable(v constant.Value, b *types.Basic) bool {
 	case b.Info()&types.IsInteger != 0:
 		iv := constant.ToInt(v)
 		if iv.Kind() != constant.Int {
-			return false // not an integral value (e.g. 1.5)
+			return false // not an integral value (a fraction)
 		}
 		return intInRange(iv, b.Kind())
 	case b.Info()&types.IsFloat != 0:
@@ -55,7 +55,7 @@ func constRepresentable(v constant.Value, b *types.Basic) bool {
 }
 
 // intInRange reports whether the integer constant v fits in the integer basic
-// kind k. types.Int/Uint/Uintptr are treated as 64-bit, matching the analysis
+// kind k. types.Int/Uint/Uintptr are treated as word-width, matching the analysis
 // host and the platforms go-toolchain targets.
 func intInRange(v constant.Value, k types.BasicKind) bool {
 	switch k {
@@ -105,7 +105,7 @@ func warnElementMismatch(pass *analysis.Pass, call *ast.CallExpr, name string, c
 	if elem == nil {
 		return
 	}
-	// For collection-vs-collection asserts, compare element types; for value-in-collection, the second operand is a scalar.
+	// For collection-vs-collection asserts, compare element types; for value-in-collection, the member operand is a scalar.
 	cmpType := types.Default(valTV.Type)
 	if e2 := elementType(valTV.Type); e2 != nil {
 		cmpType = types.Default(e2)
@@ -193,7 +193,7 @@ func (c *CastEdits) neededImports() []string {
 
 // addImportsToSource returns src with the given import paths added to its
 // import declaration. Without the import an inserted conversion like
-// fs.FileMode(0) would not compile, and the load error would block every
+// wrapping an untyped constant in fs.FileMode would not compile, and the load error would block every
 // subsequent vet run. This reprints the whole file (parse, astutil.AddImport,
 // go/printer), so like every AST-reprinting fixer it emits through
 // canonicalizeGoSource.

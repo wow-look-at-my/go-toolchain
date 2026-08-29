@@ -86,7 +86,7 @@ const (
 // doubled apostrophe wherever they appear inside a Go comment. This is curative,
 // not merely preventive: gofmt's doc-comment formatter is the ONLY thing that
 // produces these runes in Go source, and only inside comments, so a curly quote
-// in a comment is always a gofmt artifact -- no author types one there by hand.
+// in a comment is always a gofmt artifact -- no author types it there by hand.
 // It therefore also heals comments that an earlier, unfixed run already
 // corrupted, not just the file currently being formatted.
 //

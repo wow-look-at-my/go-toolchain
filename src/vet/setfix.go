@@ -23,14 +23,14 @@ const (
 	setFromSlice
 )
 
-// fileEdit is one rewrite and the file it belongs to.
+// fileEdit is a rewrite and the file it belongs to.
 type fileEdit struct {
 	file *ast.File
 	fix  ASTFix
 }
 
 // setFixable reports whether this pass sees every use of obj. A local
-// variable is used where it is declared. A package-level one is reachable
+// variable is used where it is declared. A package-level variable is reachable
 // from the package's test files, which this pass holds only when the package
 // has none, and from another package when it is exported.
 func setFixable(pass *analysis.Pass, obj types.Object) bool {
@@ -56,7 +56,7 @@ func setFixable(pass *analysis.Pass, obj types.Object) bool {
 	return true
 }
 
-// initializedVars maps each initializer expression to the one variable it
+// initializedVars maps each initializer expression to the variable it
 // initializes, which is how a reported literal finds its name.
 func initializedVars(pass *analysis.Pass) map[ast.Expr]types.Object {
 	inits := make(map[ast.Expr]types.Object)
@@ -88,7 +88,7 @@ func initializedVars(pass *analysis.Pass) map[ast.Expr]types.Object {
 }
 
 // setRewrites returns the edits that turn obj into a set, or nil when any use
-// of obj has no set spelling. Half a rewrite does not compile, so one
+// of obj has no set spelling. Half a rewrite does not compile, so an
 // unspellable use blocks the whole variable. Depth: docs/VET.md
 func setRewrites(pass *analysis.Pass, obj types.Object, kind setKind) []fileEdit {
 	if obj == nil {
@@ -136,8 +136,8 @@ func parentOf(stack []ast.Node, depth int) ast.Node {
 	return stack[len(stack)-depth]
 }
 
-// rewriteSetSite returns the edit one mention of the variable needs. The
-// second result is false when the mention has no set spelling. A nil edit with
+// rewriteSetSite returns the edit a mention of the variable needs. The
+// ok result is false when the mention has no set spelling. A nil edit with
 // a true result is a mention another edit already covers.
 func rewriteSetSite(pass *analysis.Pass, id *ast.Ident, def bool, kind setKind, parent, grandparent ast.Node) (*ASTFix, bool) {
 	if def {
@@ -255,7 +255,7 @@ func setElementType(expr ast.Expr, kind setKind) ast.Expr {
 	return nil
 }
 
-// rewriteMapIndex rewrites m[k], which either writes a member or reads one.
+// rewriteMapIndex rewrites m[k], which either writes a member or reads it.
 func rewriteMapIndex(pass *analysis.Pass, id *ast.Ident, index *ast.IndexExpr, grandparent ast.Node) (*ASTFix, bool) {
 	if index.X != ast.Expr(id) {
 		return nil, false
@@ -298,7 +298,7 @@ func rewriteSetCallSite(pass *analysis.Pass, id *ast.Ident, kind setKind, call *
 }
 
 // rewriteAppend turns the write-back append into an insert. Only the append
-// that lands in the same variable has one, since a set is what that variable
+// that lands in the same variable has an insert, since a set is what that variable
 // becomes.
 func rewriteAppend(pass *analysis.Pass, id *ast.Ident, call *ast.CallExpr, grandparent ast.Node) (*ASTFix, bool) {
 	assign, ok := grandparent.(*ast.AssignStmt)
@@ -375,7 +375,7 @@ func setType(elem ast.Expr) ast.Expr {
 }
 
 // method builds <name of id>.<call>(args...). The receiver is a fresh
-// identifier: reusing the one being replaced puts a node inside its own
+// identifier: reusing the identifier being replaced puts a node inside its own
 // replacement.
 func method(id *ast.Ident, name string, args ...ast.Expr) *ast.CallExpr {
 	return &ast.CallExpr{

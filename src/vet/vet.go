@@ -119,7 +119,7 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 		}
 	}
 
-	// Migrates testify/gotest.tools imports first, so CI fails on old-fork usage instead of passing green.
+	// Migrates testify/gotest.tools imports up front, so CI fails on old-fork usage instead of passing green.
 	report("fix imports")
 	fixed, err := FixTestifyImports(ed)
 	if err != nil {
@@ -319,7 +319,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	return filesChanged, nil
 }
 
-// finishSemantic applies the post-analysis steps once, after every build-tag
+// finishSemantic applies the post-analysis steps a single time, after every build-tag
 // configuration has run: re-run on a rewritten tree, then render the collected
 // diagnostics and editor violations.
 func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
@@ -406,7 +406,7 @@ type Diagnostic struct {
 }
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
-// Tries go-git first, falls back to the git CLI on go-git infrastructure errors.
+// Tries go-git, then falls back to the git CLI on go-git infrastructure errors.
 func checkFileCommitted(fixes *ASTFixes) error {
 	filename := fixes.Fset.Position(fixes.File.Pos()).Filename
 	return checkFileCommittedByName(filename)
@@ -442,7 +442,7 @@ func checkFileCommittedExec(filename string) error {
 	return nil
 }
 
-// moduleRoot is the module's absolute path, resolved once so per-file
+// moduleRoot is the module's absolute path, resolved a single time so per-file
 // coverage records can key on module-relative paths.
 var moduleRootOnce struct {
 	sync.Once

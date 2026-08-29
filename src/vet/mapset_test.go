@@ -63,7 +63,7 @@ type Set[T comparable] struct {
 }
 
 // TestMapSetSeverityFollowsTheModule verifies no module escapes the check, and
-// that what the module decides is severity. An org module has the remedy one
+// that what the module decides is severity. An org module has the remedy a
 // first-party require away, so its findings fail the build; anywhere else the
 // same finding is a warning, because the fix would add a dependency the author
 // never chose.
@@ -149,6 +149,6 @@ func main() { seen["a"] = struct{}{} }
 	require.NoError(t, err)
 	require.Equal(t, before+2, logger.TotalWarnCount())
 
-	// The site printed twice, and it is one site. The budget counts it once.
+	// The site printed repeatedly, and it is a single site. The budget counts it as such.
 	require.Equal(t, beforeDistinct+1, logger.WarnCount())
 }

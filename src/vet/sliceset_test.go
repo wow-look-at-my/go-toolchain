@@ -23,7 +23,7 @@ func TestSliceSetAnalyzer(t *testing.T) {
 }
 
 // TestSliceSetSeverityFollowsTheModule verifies the slice findings carry the
-// same severity split as the map ones: an org module has the remedy one
+// same severity split as the map checks: an org module has the remedy a
 // first-party require away, so it fails; anywhere else the fix would add a
 // dependency the author never chose, so it warns.
 func TestSliceSetSeverityFollowsTheModule(t *testing.T) {
@@ -58,7 +58,7 @@ func main() { _ = slices.Contains(known, "a") }
 }
 
 // TestSliceSetLeavesUncertainSlicesAlone pins the shapes that must stay
-// silent. Each one reads position or repetition, or puts the slice somewhere
+// silent. Each shape reads position or repetition, or puts the slice somewhere
 // this walk cannot follow, so a set is not provably what the author meant.
 func TestSliceSetLeavesUncertainSlicesAlone(t *testing.T) {
 	for _, c := range []struct {
@@ -81,7 +81,7 @@ func TestSliceSetLeavesUncertainSlicesAlone(t *testing.T) {
 
 // runSliceSetOnSource type-checks src and returns what the analyzer reports.
 // The import of slices stays unresolved: supplying it means building its
-// export data first, and the analyzer reads a slices call off the selector
+// export data up front, and the analyzer reads a slices call off the selector
 // when the type checker could not resolve it.
 func runSliceSetOnSource(t *testing.T, src string, module *analysis.Module) []analysis.Diagnostic {
 	t.Helper()

@@ -216,9 +216,9 @@ func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
 
-// Pins support for repos whose index was written under feature.manyFiles, which on git >= 2.40 implies
-// index.skipHash and writes an all-zero index trailer hash that go-git v5 cannot read ("invalid checksum";
-// unreleased upstream fix go-git#2181). This exercises checkFileCommittedByName's go-git-fails -> git-CLI
+// Pins support for repos whose index was written under feature.manyFiles, which on a recent git implies
+// index.skipHash and writes an empty index trailer hash that go-git v5 cannot read ("invalid checksum";
+// unreleased upstream fix https://github.com/go-git/go-git/pull/2181). This exercises checkFileCommittedByName's go-git-fails -> git-CLI
 // fallback path, which is load-bearing here. index.skipHash is set explicitly too, so the trigger holds
 // regardless of git version; on an older git the index stays normal and go-git succeeds directly.
 func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {

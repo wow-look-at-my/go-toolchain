@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-// Editor is the single sink for vet's autofixes. It is built once from whether
+// Editor is the single sink for vet's autofixes. It is built from whether
 // go-toolchain may rewrite the tree (locally) or must only verify it (CI), so
 // individual fixers never branch on CI themselves: they compute the canonical
 // bytes for a file and hand them to the Editor, which either applies the change
-// or reports it. This is the one place the apply-vs-report decision lives.
+// or reports it. This is the only place the apply-vs-report decision lives.
 type Editor interface {
 	// Require writes canonical content locally, or records a CI violation; use when this is the issue's only detector.
 	Require(path string, want []byte, reason string) (wrote bool, err error)
