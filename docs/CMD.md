@@ -160,16 +160,16 @@ things split:
 ## The matrix cosmo target
 
 `targets.go` + `cosmotargets.go` + `cosmobootstrap.go`. `matrix` resolves its
-platforms in three cases:
+platforms in two cases:
 
 - **No target flags — the default.** ONE `GOOS=cosmo` fat APE built with the
   gosmopolitan fork (artifact `<name>`, no `.exe`), covering
   `--cosmo-platforms`. One file, three platforms, one published artifact.
-- **`--os` or `--arch` named.** The `--os`×`--arch` cartesian product of native
-  per-platform binaries. Naming only one fills the other from `DefaultOS` /
-  `DefaultArch`, so `--arch arm64` alone still means "every OS, arm64".
-- **`--targets`.** An exact, validated list of `os/arch` pairs plus the special
-  entry `cosmo` (`--os cosmo` is rejected with a pointer to `--targets`).
+- **`--targets`.** An exact, validated list containing `cosmo` and/or the wasm
+  targets (`wasm/js`, `wasm/wasip1`) — nothing else. The fat APE is the
+  command's only native output, so a native `os/arch` pair is rejected with a
+  pointer to `--cosmo-platforms`, which is how the APE's own host coverage is
+  chosen.
 
 ### --cosmo-platforms
 
