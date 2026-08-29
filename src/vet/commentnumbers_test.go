@@ -70,10 +70,10 @@ func TestCommentNumbersLeavesNamesAlone(t *testing.T) {
 	}
 }
 
-// TestCommentNumbersSeverityFollowsTheModule verifies the split the other
-// comment-shape checks carry: an org module is bound by this convention and
-// fails, and everybody else hears a warning.
-func TestCommentNumbersSeverityFollowsTheModule(t *testing.T) {
+// TestCommentNumbersWarnsInEveryModule pins the severity: a stale count is
+// prose, so it never fails a build by itself, in org code or anywhere else.
+// The warnings budget is what turns a repo full of them red.
+func TestCommentNumbersWarnsInEveryModule(t *testing.T) {
 	const src = `package main
 
 // holds three entries
@@ -82,35 +82,39 @@ var m = map[string]int{}
 func main() { _ = m }
 `
 	for _, c := range []struct {
-		name        string
-		module      *analysis.Module
-		wantReports int
-		wantWarns   int64
+		name   string
+		module *analysis.Module
 	}{
-		{"org module fails", &analysis.Module{Path: "github.com/wow-look-at-my/go-toolchain"}, 1, 0},
-		{"PazerOP module fails", &analysis.Module{Path: "github.com/PazerOP/tool"}, 1, 0},
-		{"third-party module warns", &analysis.Module{Path: "example.com/consumer"}, 0, 1},
-		{"nil module fails", nil, 1, 0},
+		{"org module", &analysis.Module{Path: "github.com/wow-look-at-my/go-toolchain"}},
+		{"PazerOP module", &analysis.Module{Path: "github.com/PazerOP/tool"}},
+		{"third-party module", &analysis.Module{Path: "example.com/consumer"}},
+		{"unknown module", nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			resetCommentNumbersWarnings()
-			logger.ResetWarnCount()
-			t.Cleanup(logger.ResetWarnCount)
-			before := logger.WarnCount()
-			reports := runCommentNumbersOnSource(t, src, c.module)
-			require.Len(t, reports, c.wantReports)
-			assert.Equal(t, before+c.wantWarns, logger.WarnCount())
+			// The helper fails the test on a diagnostic, so this counts warnings.
+			assert.Len(t, runCommentNumbersOnSource(t, src, c.module), 1)
 		})
 	}
+}
+
+// TestCommentNumbersSpendsAWarningPerLine pins the file:line dedup the budget
+// depends on: a line naming several numbers is a sentence to rewrite.
+func TestCommentNumbersSpendsAWarningPerLine(t *testing.T) {
+	const src = `package main
+
+// three of the five slots stay empty
+func main() {}
+`
+	require.Len(t, runCommentNumbersOnSource(t, src, nil), 1)
 }
 
 // TestCommentNumbersNamesTheRemedy pins that a finding quotes the number and
 // says what to do instead, since the author has to rewrite the sentence.
 func TestCommentNumbersNamesTheRemedy(t *testing.T) {
-	reports := runCommentNumbersOnSource(t, "package main\n\n// runs the probe twice\nfunc main() {}\n", nil)
-	require.Len(t, reports, 1)
-	assert.Contains(t, reports[0].Message, `"twice" is a number in a comment`)
-	assert.Contains(t, reports[0].Message, commentNumbersRemedy)
+	warnings := runCommentNumbersOnSource(t, "package main\n\n// runs the probe twice\nfunc main() {}\n", nil)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0].Message, `"twice" is a number in a comment`)
+	assert.Contains(t, warnings[0].Message, commentNumbersRemedy)
 }
 
 // TestCommentNumbersSkipsMachineText pins the comments that are not prose: a
@@ -130,23 +134,27 @@ func TestCommentNumbersSkipsMachineText(t *testing.T) {
 	}
 }
 
-// runCommentNumbersOnSource parses src and returns what the analyzer reports.
-// No type information is needed: the check reads comments.
-func runCommentNumbersOnSource(t *testing.T, src string, module *analysis.Module) []analysis.Diagnostic {
+// runCommentNumbersOnSource parses src and returns the warnings the analyzer
+// emitted. A diagnostic fails the test: this check never fails a build itself.
+// No type information is needed, since the check reads comments.
+func runCommentNumbersOnSource(t *testing.T, src string, module *analysis.Module) []logger.Warning {
 	t.Helper()
+	resetCommentNumbersWarnings()
+	logger.ResetWarnCount()
+	t.Cleanup(logger.ResetWarnCount)
+
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "/consumer/main.go", src, parser.ParseComments)
 	require.NoError(t, err)
 
-	var reports []analysis.Diagnostic
 	pass := &analysis.Pass{
 		Analyzer: CommentNumbersAnalyzer,
 		Fset:     fset,
 		Files:    []*ast.File{file},
-		Report:   func(d analysis.Diagnostic) { reports = append(reports, d) },
+		Report:   func(analysis.Diagnostic) { t.Fatal("commentnumbers warns; it never fails a build") },
 		Module:   module,
 	}
 	_, err = runCommentNumbers(pass)
 	require.NoError(t, err)
-	return reports
+	return logger.EmittedWarnings()
 }

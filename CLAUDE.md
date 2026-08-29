@@ -257,8 +257,9 @@ coverage.
   today, and the edit that adds an item leaves it wrong — so it is banned, and the message names the remedy (describe what the code does and
   let the reader count). A digit run touching a letter is a name (`sha256`, `amd64`, `10ms`), as is a qualified name (`net/http`,
   `example.com/mod/v2`) and anything inside a URL, which is how a reference carrying a number survives. A whole word naming a number is
-  reported, so `once` and `One` go and `someone` stays. Directives and generated files are skipped. Org modules FAIL, everyone else WARNS, no
-  opt-out marker. Depth: `docs/VET.md`
+  reported, so `once` and `One` go and `someone` stays. Directives and generated files are skipped. A WARNING in every module — stale prose must
+  not fail a build by itself, and the warnings budget is what turns a repo full of them red. A warning is spent per file:line, so a sentence
+  naming several numbers costs one. No opt-out marker. Depth: `docs/VET.md`
 - `src/hostos/` — `hostos.GOOS()`, the host operating system as opposed to `runtime.GOOS` (what the binary was compiled for). Identical for every
   normal
   build; for a GOOS=cosmo fat APE — which reports `runtime.GOOS == "cosmo"` on Linux and macOS hosts (Windows runs the embedded native windows
