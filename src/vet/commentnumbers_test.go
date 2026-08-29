@@ -97,9 +97,8 @@ func main() { _ = m }
 	}
 }
 
-// TestCommentNumbersSpendsAWarningPerLine pins the file:line deduplication a
-// budget counting distinct messages depends on: a line naming several numbers
-// is a single sentence to rewrite, not a pile of findings.
+// TestCommentNumbersSpendsAWarningPerLine pins the file:line dedup the budget
+// depends on: a line naming several numbers is a sentence to rewrite.
 func TestCommentNumbersSpendsAWarningPerLine(t *testing.T) {
 	const src = `package main
 
