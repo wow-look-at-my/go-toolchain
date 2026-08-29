@@ -27,13 +27,13 @@ import (
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
-	// Fix any v0.0.0 dependencies before go mod tidy
+	// Fix any placeholder-version dependencies before go mod tidy
 	if err := FixBogusDepsVersions(r); err != nil {
 		return false, nil, err
 	}
 
 	// An org dependency carrying a plain version pin gets the branch marker
-	// added first, so the re-resolution below owns it from this run on.
+	// added up front, so the re-resolution below owns it from this run on.
 	if _, err := EnforceOrgBranchTracking(r); err != nil {
 		return false, nil, err
 	}
@@ -110,8 +110,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	fix := os.Getenv("CI") == ""
 	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
 	if err != nil {
-		// If in-process vet fails due to Go version mismatch (e.g. binary built
-		// with Go 1.24 but project requires Go 1.25), fall back to external go vet
+		// If in-process vet fails due to a Go version mismatch (a binary built
+		// with an older Go than the project requires), fall back to external go vet
 		// which uses the bootstrapped Go version.
 		if strings.Contains(err.Error(), "package requires newer Go version") {
 			if vetPhaseStep != nil {
@@ -128,7 +128,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			filesChanged = false
 			err = nil
 		} else if isCorruptExportData(err) {
-			// A corrupt build-cache entry, not a source error. Retry once: drop
+			// A corrupt build-cache entry, not a source error. Retry a single time: drop
 			// the shared cache tier and rebuild from source, only if it was in play.
 			if !disableSharedBuildCache() {
 				return false, nil, corruptExportDataError(err, false)
@@ -261,7 +261,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		logger.Output("\n⇒ Total coverage: %s", colorPct(ColorPct{Pct: report.Total, Format: "%.1f%%"}))
 	}
 
-	// Coverage enforcement: default 80%, or watermark-2.5% if lower.
+	// Coverage enforcement: the default minimum below, or the watermark's grace floor if lower.
 	var effectiveMin float32 = 80.0
 	wm, wmExists, wmErr := gotest.GetWatermark(".")
 	if wmErr != nil {

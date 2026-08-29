@@ -15,9 +15,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TestWatchdogDisabledByEnv pins the GO_TOOLCHAIN_NO_WATCHDOG=1 off-switch:
-// startWatchdog must decline to touch fd 1/2 and return nil (the build then
-// runs on its real stdio). Only the exact value "1" disables.
+// TestWatchdogDisabledByEnv pins the GO_TOOLCHAIN_NO_WATCHDOG off-switch:
+// startWatchdog must decline to touch stdout/stderr and return nil (the build then
+// runs on its real stdio). Only the exact value the test sets disables it.
 func TestWatchdogDisabledByEnv(t *testing.T) {
 	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "1")
 	require.True(t, watchdogDisabled())
@@ -35,7 +35,7 @@ func TestWatchdogDisabledByEnv(t *testing.T) {
 // stop(), stdoutR.Close() discarded any bytes forward() hadn't read yet,
 // causing the coverage block to vanish intermittently.
 func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
-	// Forces single-threaded scheduling so forward() and main compete for one P; otherwise the race rarely triggers.
+	// Forces single-threaded scheduling so forward() and main compete for the same P; otherwise the race rarely triggers.
 	prevProcs := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() { runtime.GOMAXPROCS(prevProcs) })
 
@@ -63,7 +63,7 @@ func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
 		errR, errW, err := os.Pipe()
 		require.NoError(t, err, "iter %d: pipe err", i)
 
-		// Redirects fd 1/2 to the capture pipes before startWatchdog, so its saved origStdout/origStderr become our targets.
+		// Redirects stdout/stderr to the capture pipes before startWatchdog, so its saved origStdout/origStderr become our targets.
 		require.NoError(t, unix.Dup2(int(outW.Fd()), 1), "iter %d: dup2 out", i)
 		require.NoError(t, unix.Dup2(int(errW.Fd()), 2), "iter %d: dup2 err", i)
 		outW.Close()
