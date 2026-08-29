@@ -23,8 +23,7 @@ func TestIsOutputArtifact(t *testing.T) {
 		"mytool_js_wasm.wasm",
 		"mytool_host",
 		"mytool_host.exe",
-		// The .tmp- spellings the compiler's -o goes through (build.TmpPrefix):
-		// a build killed before its commit leaves them behind.
+		// .tmp- spellings a build killed before its commit leaves behind.
 		".tmp-mytool",
 		".tmp-mytool.exe",
 		".tmp-mytool_linux_amd64",

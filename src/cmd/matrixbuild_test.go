@@ -88,8 +88,7 @@ func TestRunBuild(t *testing.T) {
 	assert.Equal(t, "amd64", goarch)
 	assert.Equal(t, "0", cgo)
 
-	// Verify -o flag: the compiler builds to the .tmp- spelling of the
-	// output, never onto the target file itself.
+	// -o is the .tmp- spelling, never the target file itself.
 	hasOutput := false
 	for i, arg := range cfg.Args {
 		if arg == "-o" && i+1 < len(cfg.Args) {

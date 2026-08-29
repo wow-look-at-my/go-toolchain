@@ -31,8 +31,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 		}
 		if cfg.IsCmd("go", "build") {
 			writeBuildOutput(t, cfg, "NATIVE")
-			// This handler wrote the -o target itself; falling through to the
-			// inner mock would rewrite it.
+			// This handler already wrote -o; the inner mock would rewrite it.
 			return runner.MockProcess(nil, nil), nil
 		}
 		return origHandler(cfg)
@@ -229,8 +228,7 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 		}
 		if cfg.IsCmd("go", "build") {
 			writeBuildOutput(t, cfg, "NATIVE")
-			// This handler wrote the -o target itself; falling through to the
-			// inner mock would rewrite it.
+			// This handler already wrote -o; the inner mock would rewrite it.
 			return runner.MockProcess(nil, nil), nil
 		}
 		return origHandler(cfg)
@@ -277,8 +275,7 @@ func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
 		}
 		if cfg.IsCmd("go", "build") {
 			writeBuildOutput(t, cfg, "NATIVE")
-			// This handler wrote the -o target itself; falling through to the
-			// inner mock would rewrite it.
+			// This handler already wrote -o; the inner mock would rewrite it.
 			return runner.MockProcess(nil, nil), nil
 		}
 		return origHandler(cfg)

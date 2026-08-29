@@ -96,8 +96,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if job.ldflags != "" {
 		args = append(args, "-ldflags", job.ldflags)
 	}
-	// -o carries the temp spelling of the target file: the commit below is
-	// what ever makes build/<name> exist (see build.CommitOutput).
+	// -o is the temp spelling; the commit below is what makes the target exist.
 	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
 	goCmd := "go"
 	if job.forkGoroot != "" {
@@ -169,13 +168,10 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		}
 	}
 	if err != nil {
-		// Whatever the compiler managed to write under the temp spelling dies
-		// with the failed build. The target file itself was never written, so
-		// it stays exactly the way clearBuildOutputs left it: absent.
+		// The target itself was never written, so it stays absent.
 		build.DiscardOutput(job.outputPath)
 		return err
 	}
-	// Only now do the outputs take the target's name — build/<name> appears
-	// whole, or the build fails and nothing is left behind.
+	// Only now do the outputs take the target's name.
 	return build.CommitOutput(job.outputPath)
 }

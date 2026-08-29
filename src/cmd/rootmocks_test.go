@@ -79,11 +79,8 @@ func setupMockProject() {
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
 }
 
-// writeMockBuildOutput writes the file named by a go build command's -o
-// flag, as a real (exit-0) compiler does. runBuild refuses to commit a build
-// that wrote nothing, so a mocked build must not skip this. For the
-// t-flavored variant used by the cosmo/wasm tests see writeBuildOutput in
-// matrix_cosmo_test.go.
+// writeMockBuildOutput writes the file named by a go build's -o flag, as a
+// real exit-0 compiler does. The t-flavored variant is writeBuildOutput.
 func writeMockBuildOutput(cfg runner.Config, content string) {
 	for i, arg := range cfg.Args {
 		if arg == "-o" && i+1 < len(cfg.Args) {
@@ -92,12 +89,10 @@ func writeMockBuildOutput(cfg runner.Config, content string) {
 	}
 }
 
-// handleGoBuild answers a go build the way an exit-0 compiler does: the -o
-// target is left behind. Every mock a test drives through the build phase
-// needs this, whatever that test is really about — runBuild commits the -o
-// onto the target name and fails the build when there is nothing to commit.
-// A mock that wants a different answer handles go build itself and never
-// reaches here (newBuildFailMock).
+// handleGoBuild leaves the -o target behind, as an exit-0 compiler does.
+// Every mock a test drives through the build phase needs this: runBuild
+// fails a build that reports success and wrote nothing. A mock wanting a
+// different answer handles go build first (newBuildFailMock).
 func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
 	if !cfg.IsCmd("go", "build") {
 		return nil, false
