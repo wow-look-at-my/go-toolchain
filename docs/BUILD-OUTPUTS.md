@@ -14,7 +14,7 @@ Only the target's own artifacts are touched: the bare name (`<name>.exe` and
 the fat APE), every `<name>_…` shape the toolchain writes
 (`<name>_<goos>_<goarch>`, the wasm names, the `<name>_host` symlink), and the
 APE's `<name>.…` sidecar ELFs. `checksums.txt`,
-`wasm_exec.js`, `profile.json` and anything else in `build/` are left alone.
+`wasm_exec.js`, `profile.json` and anything else in `build/` are left alone. 
 
 The target file is never written directly. The compiler's `-o` is
 `build/.tmp-<name>`, and only a build that succeeded moves the result — plus
