@@ -210,11 +210,9 @@ tests:
 		"!stdout":
 			- "GUESSED"
 
-	# The default matrix builds ONE multi-platform APE; --os/--arch opt into a
-	# per-platform product. That is a promise made in --help, so pin it: the
-	# platform-set flag has to exist with the documented default, and --os/--arch
-	# must not carry defaults of their own (a default there would silently
-	# restore the cartesian product as the default build).
+	# The matrix builds ONE multi-platform APE, and --help promises it. Pin the
+	# promise: the platform-set flag exists with the documented default, and no
+	# --os/--arch flag exists to silently reintroduce a cartesian product.
 	- desc: matrix --help documents the single-APE default
 	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" matrix --help'
 	  timeout: 60s
@@ -229,8 +227,8 @@ tests:
 		# flag, because there is no copier behind one.
 		"!stdout":
 			- "--cosmo-slots"
-			- "(default [linux,darwin,windows])"
-			- "(default [amd64,arm64])"
+			- "--os "
+			- "--arch "
 
 
 	# The guard covers every agent on the roster, each detected by its own

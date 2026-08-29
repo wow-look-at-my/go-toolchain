@@ -97,17 +97,14 @@ the body is invalid, which is expected, and no upload occurs.
 
 Fetches secrets over OIDC, then runs `go-toolchain matrix`.
 
-**What the target inputs build.** With none of them set — the default — the run
+**What the target inputs build.** With `targets` unset — the default — the run
 produces ONE fat APE covering `cosmo-platforms`
 (`linux/amd64,darwin/arm64,windows/amd64`), published as a single
-multi-platform artifact. `os` and `arch` are EMPTY by default; setting either
-switches to one native binary per platform. `targets` replaces both with an
-exact list. There is no input that copies the APE onto per-platform artifact
-names; the APE publishes under its own name, once.
-
-**The default target set.** No `targets` and no `os`/`arch` is the default: ONE
-fat APE covering `cosmo-platforms`, published as one multi-platform artifact.
-`--targets` replaces the `--os` by `--arch` matrix entirely.
+multi-platform artifact. The fat APE is the action's only native output:
+`targets` adds wasm artifacts alongside it (`wasm/js`, `wasm/wasip1`), or
+replaces it entirely with wasm alone by leaving `cosmo` out of the list.
+There is no input that copies the APE onto per-platform artifact names; the
+APE publishes under its own name, once.
 
 ## 3. Handing off `build/`
 
