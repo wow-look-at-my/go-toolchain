@@ -123,9 +123,7 @@ func TestScriptWrapperCannotFakeATerminal(t *testing.T) {
 	kind, detail, log := runScriptWrapperHelper(t, "CLAUDECODE=1")
 	assert.Equal(t, sinkHidden, kind, "a pty script(1) allocated must not read as a real terminal")
 	assert.Equal(t, "script", detail)
-	// Sanity: script(1) really ran and recorded a typescript, proving this
-	// exercised the pty path rather than some other descriptor.
-	assert.Contains(t, log, "Script started")
+	assert.Contains(t, log, "Script started", "script(1) must have really run, so this exercised the pty path")
 	assert.Contains(t, log, "Script done")
 }
 
