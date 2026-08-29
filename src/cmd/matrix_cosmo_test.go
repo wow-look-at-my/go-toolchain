@@ -65,12 +65,10 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 	})
 
 	oldTargets, oldPlatforms := matrixTargets, cosmoPlatforms
-	oldOS, oldArch := matrixOS, matrixArch
 	oldOutput, oldParallel, oldBench := outputDir, releaseParallel, noBenchmark
 	oldEnsure, oldSupported := ensureCosmoToolchainFunc, cosmoPlatformsSupportedFunc
 	matrixTargets = targets
 	cosmoPlatforms = DefaultCosmoPlatforms
-	matrixOS, matrixArch = nil, nil
 	outputDir = outDir
 	releaseParallel = 1
 	noBenchmark = true
@@ -79,7 +77,6 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 	cosmoPlatformsSupportedFunc = func(string) bool { return true }
 	t.Cleanup(func() {
 		matrixTargets, cosmoPlatforms = oldTargets, oldPlatforms
-		matrixOS, matrixArch = oldOS, oldArch
 		outputDir, releaseParallel, noBenchmark = oldOutput, oldParallel, oldBench
 		ensureCosmoToolchainFunc, cosmoPlatformsSupportedFunc = oldEnsure, oldSupported
 	})
@@ -88,7 +85,7 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 
 // A cosmo build produces ONE file. This pins that outcome from the outside --
 // the build directory itself -- rather than from any flag: a copy of the APE
-// under a per-platform name is a thing this repo can no longer express.
+// under a per-platform name is a thing this repo cannot express.
 func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo"})
 
@@ -173,53 +170,6 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 		ns, _ := cosmoCfg.Env.Get(cache.KeyNamespaceEnv)
 		assert.Equal(t, wantNS, ns, "cosmo build env must set %s from the toolchain content hash", cache.KeyNamespaceEnv)
 	}
-}
-
-// A native target named ALONGSIDE the APE stays its own binary. The APE is
-// published by the manifest and the native binary by its filename, so the two
-// publishing paths never contend for one artifact row.
-func TestRunReleaseWithRunnerCosmoAndNativeTarget(t *testing.T) {
-	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo", "linux/amd64"})
-
-	mock := newTestPassMock(0)
-	origHandler := mock.Handler
-	cosmoGo := filepath.Join(fakeGoroot, "bin", "go")
-	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
-			writeBuildOutput(t, cfg, "FAT-APE")
-			return runner.MockProcess(nil, nil), nil
-		}
-		if cfg.IsCmd("go", "build") {
-			writeBuildOutput(t, cfg, "NATIVE")
-			// This handler already wrote -o; the inner mock would rewrite it.
-			return runner.MockProcess(nil, nil), nil
-		}
-		return origHandler(cfg)
-	}
-
-	require.NoError(t, runReleaseWithRunner(mock))
-
-	// The manifest claims only the APE; the native binary publishes through the filename grammar.
-	var manifest buildhostManifest
-	raw, err := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(raw, &manifest))
-	require.Len(t, manifest.Artifacts, 1)
-	name := manifest.Artifacts[0].Filename
-	assert.Equal(t, name, manifest.Artifacts[0].File)
-
-	// Each file holds what its own build wrote, not a renamed copy of the APE.
-	data, err := os.ReadFile(filepath.Join(outDir, name+"_linux_amd64"))
-	assert.Nil(t, err)
-	assert.Equal(t, "NATIVE", string(data))
-	data, err = os.ReadFile(filepath.Join(outDir, name))
-	assert.Nil(t, err)
-	assert.Equal(t, "FAT-APE", string(data))
-
-	// checksums cover both real binaries.
-	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
-	assert.Nil(t, err)
-	assert.Equal(t, 2, len(strings.Split(strings.TrimSpace(string(sums)), "\n")))
 }
 
 func TestRunReleaseWithRunnerCosmoToolchainFailureFailsFast(t *testing.T) {
