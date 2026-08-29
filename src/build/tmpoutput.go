@@ -47,12 +47,9 @@ func CommitOutput(final string) error {
 		}
 		src := filepath.Join(dir, n)
 		dst := filepath.Join(dir, strings.TrimPrefix(n, TmpPrefix))
-		// Not a result yet: keep it out of sight until the move (Windows only).
-		hideFile(src)
 		if err := os.Rename(src, dst); err != nil {
 			return fmt.Errorf("moving build output into place (%s): %w", dst, err)
 		}
-		revealFile(dst)
 		moved++
 	}
 	if moved == 0 {

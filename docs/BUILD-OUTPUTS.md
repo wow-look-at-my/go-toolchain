@@ -17,9 +17,9 @@ APE's `<name>.…` sidecar ELFs. `checksums.txt`,
 `wasm_exec.js`, `profile.json` and anything else in `build/` are left alone.
 
 The target file is never written directly. The compiler's `-o` is
-`build/.tmp-<name>` (hidden on Windows), and only a build that succeeded moves
-the result — plus any sidecar the cosmo APE build names after its `-o` path —
-onto `build/<name>`. A failing build deletes what it wrote; a build killed
+`build/.tmp-<name>`, and only a build that succeeded moves the result — plus
+any sidecar the cosmo APE build names after its `-o` path — onto
+`build/<name>`. A failing build deletes what it wrote; a build killed
 before it could commit is swept on the next delete, because the `.tmp-`
 spelling of every artifact shape above counts as an artifact too. So
 `build/<name>` appears whole or not at all, and only when a build actually

@@ -142,8 +142,8 @@ coverage.
   to a package that is ALONE in wanting it. Two mains one level down both derive the module's name, and the old code kept whichever it
   saw first, so a build shipped missing a binary and still reported success. A contested name falls back to each package's own
   directory; one still contested after that is a hard error, never a dropped target. tmpoutput.go holds the write-then-move regime the outputs
-  follow (`runBuild` in matrixbuild.go is the one chokepoint that compiles anything): the compiler's -o is `build/.tmp-<name>` (hidden on
-  Windows; `TempOutputPath`), and `CommitOutput` renames it onto `build/<name>` — plus any `<base>.…` sidecar shape the cosmo fork derives from
+  follow (`runBuild` in matrixbuild.go is the one chokepoint that compiles anything): the compiler's -o is `build/.tmp-<name>`
+  (`TempOutputPath`), and `CommitOutput` renames it onto `build/<name>` — plus any `<base>.…` sidecar shape the cosmo fork derives from
   the -o path, never a `<base>_…` shape, which belongs to another target's own build — only after the build succeeded, failing loudly when an
   exit-0 go wrote nothing; on failure the temp spellings are deleted instead (`DiscardOutput`).
 - `tests/` — declarative CLI integration tests (.dats format)
