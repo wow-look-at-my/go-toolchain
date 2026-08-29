@@ -78,7 +78,7 @@ func checkPortableJob(job buildJob) error {
 }
 
 // runBuild compiles a single binary. If onFirstOutput is non-nil, it is
-// called when the compiler produces its first output (used for progress
+// called as soon as the compiler produces output (used for progress
 // indicators on the default build path).
 //
 // The compiler never writes onto the target file (job.outputPath) directly:
@@ -97,7 +97,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
 	}
 	args := []string{"build"}
-	// Dump the action graph for the build profile (one file per invocation;
+	// Dump the action graph for the build profile (a file per invocation;
 	// matrix targets each get their own). No-op when profiling is off.
 	if garg := profile.GraphArg(); garg != "" {
 		args = append(args, garg)

@@ -52,7 +52,7 @@ func TestIsOutputArtifact(t *testing.T) {
 	// A target name that prefixes a non-binary output must not consume it.
 	assert.False(t, isOutputArtifact("wasm_exec.js", "wasm"))
 	assert.True(t, isOutputArtifact("wasm_linux_amd64", "wasm"))
-	// Same refusal one level deep, under the temp spelling.
+	// Same refusal a level deeper, under the temp spelling.
 	assert.False(t, isOutputArtifact(".tmp-wasm_exec.js", "wasm"))
 	assert.True(t, isOutputArtifact(".tmp-wasm_linux_amd64", "wasm"))
 
@@ -89,7 +89,7 @@ func TestRemoveBuildOutputsIn(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, "unrelated"))
 	assert.DirExists(t, filepath.Join(dir, "mytool_dir"), "directories are never artifacts")
 
-	// Idempotent: a second pass removes nothing and does not error.
+	// Idempotent: a repeat pass removes nothing and does not error.
 	removed, err = removeBuildOutputsIn(dir, []string{"mytool"})
 	require.NoError(t, err)
 	assert.Empty(t, removed)
@@ -251,7 +251,7 @@ func TestPipelineDeletesStaleBinaryWhenBuildFails(t *testing.T) {
 
 func TestPipelineKeepsTheBinaryItJustBuilt(t *testing.T) {
 	buildDir, binary := setupPipelineOutputTest(t)
-	// The stale binary is deleted up front; what must survive is the one this run's build writes.
+	// The stale binary is deleted up front; what must survive is the binary this run's build writes.
 	writeOutputDir(t, buildDir, binary)
 
 	mock := newTestPassMock(0)

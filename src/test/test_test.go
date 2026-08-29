@@ -14,7 +14,7 @@ import (
 func TestRunTestsWithMock(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
-	// Create coverage file for ParseProfile - 17 covered, 3 uncovered = 85%
+	// Create a coverage file for ParseProfile: mostly covered statements
 	coverContent := `mode: set
 example.com/pkg/main.go:10.20,12.2 17 1
 example.com/pkg/main.go:14.20,16.2 3 0
@@ -87,7 +87,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
 
-	// No coverage profile means Total is 0, not a misleading per-package average.
+	// No coverage profile means Total stays empty, not a misleading per-package average.
 	assert.Equal(t, float32(0), result.Coverage.Total)
 
 	// Per-package percentages are still available from test output
@@ -97,9 +97,8 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 func TestRunTestsNoStatementsMarkedCorrectly(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
-	// Profile only has pkg1 and pkg2 data; pkg3 has no statements
-	// pkg1: 1 covered + 1 uncovered = 50%, pkg2: 2 covered = 100%
-	// total: 3 covered / 4 statements = 75%
+	// Profile only has pkg1 and pkg2 data; pkg3 has no statements. pkg1 is
+	// partly covered and pkg2 is fully covered, so the total is weighted.
 	coverContent := `mode: set
 example.com/pkg1/main.go:10.20,12.2 1 1
 example.com/pkg1/main.go:14.20,16.2 1 0
@@ -123,7 +122,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
 
-	// Statement-weighted from the profile: 3/4 = 75%, not a per-package average.
+	// Statement-weighted from the profile, not a per-package average.
 	assert.Equal(t, float32(75.0), result.Coverage.Total)
 
 	// Verify statements are set correctly
@@ -160,7 +159,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 	result, err := RunTests(mock, false, coverFile, nil, nil)
 	require.Nil(t, err)
 
-	// Total comes from ParseProfile: 1 covered / 2 statements = 50%
+	// Total comes from ParseProfile, weighted by statements
 	assert.Equal(t, float32(50.0), result.Coverage.Total)
 
 	// Verify statements are set on the right package
@@ -173,7 +172,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 func TestRunTestsPackagesContainFiles(t *testing.T) {
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
-	// Coverage profile with two files in pkg1 and one in pkg2
+	// Coverage profile with a pair of files in pkg1 and a single file in pkg2
 	coverContent := `mode: set
 example.com/pkg1/foo.go:10.20,12.2 2 1
 example.com/pkg1/bar.go:10.20,12.2 3 1
@@ -227,7 +226,7 @@ func TestListTestPackages(t *testing.T) {
 	// Also create a dir with no test files
 	os.MkdirAll("notest", 0755)
 	os.WriteFile("notest/main.go", []byte("package notest\n"), 0644)
-	// A nested module's packages must not be listed as import paths of this one.
+	// A nested module's packages must not be listed as import paths of the outer module.
 	os.MkdirAll("nestedmod/sub", 0755)
 	os.WriteFile("nestedmod/go.mod", []byte("module example.com/othermodule\n\ngo 1.25\n"), 0644)
 	os.WriteFile("nestedmod/sub/foo_test.go", []byte("package sub\n"), 0644)

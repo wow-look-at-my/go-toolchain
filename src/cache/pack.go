@@ -18,10 +18,10 @@ import (
 var packNow = func() int64 { return time.Now().Unix() }
 
 // PackStore is a content-addressed store that appends bodies into a small
-// number of pack files instead of one per entry, avoiding inode/block waste.
+// number of pack files instead of a file per entry, avoiding inode/block waste.
 // It backs FuseCache but stays FUSE-free for unit testing.
 //
-// Record: magic(4) actionID(32) outputID(32) created(8) dataLen(8) crc32(4)
+// Record: magic, actionID, outputID, created, dataLen, crc32 (widths in packHeaderLen)
 // data. The index rebuilds by scanning packs at startup; a torn final record
 // (crash mid-append) is detected by length past EOF and ignored.
 type PackStore struct {
@@ -61,9 +61,9 @@ const (
 	packAliasMagic = 0x4754414c
 	// packHeaderLen is the header size: magic+actionID+outputID+created+dataLen+crc.
 	packHeaderLen = 4 + 32 + 32 + 8 + 8 + 4
-	// hashLen is the byte length of an action/output ID (SHA-256).
+	// hashLen is the byte length of an action/output ID (a sha256 digest).
 	hashLen = 32
-	// packFilePrefix/Suffix name the pack files: pack-000001.data, ...
+	// packFilePrefix/Suffix name the pack files: pack-<id>.data
 	packFilePrefix = "pack-"
 	packFileSuffix = ".data"
 )
@@ -71,10 +71,10 @@ const (
 // These are vars (not consts) so tests can shrink them to exercise rotation and
 // reset without writing gigabytes.
 var (
-	// maxPackBytes rotates to a fresh pack once the active one exceeds this, keeping files manageable.
-	maxPackBytes int64 = 1 << 30 // 1 GiB
-	// packResetBytes caps total pack size; over it, oldest packs are evicted to ~80% (see evictPacksToBudget).
-	packResetBytes int64 = 8 << 30 // 8 GiB
+	// maxPackBytes rotates to a fresh pack as soon as the active pack exceeds this, keeping files manageable.
+	maxPackBytes int64 = 1 << 30
+	// packResetBytes caps total pack size; over it, oldest packs are evicted back under the target (see evictPacksToBudget).
+	packResetBytes int64 = 8 << 30
 )
 
 var packCRC = crc32.MakeTable(crc32.IEEE)
@@ -83,7 +83,7 @@ var packCRC = crc32.MakeTable(crc32.IEEE)
 const maxInt = int(^uint(0) >> 1)
 
 // mmapVerifyThreshold: CRC-verify large bodies via mmap instead of a heap copy, to avoid allocation pressure.
-const mmapVerifyThreshold = 1 << 16 // 64 KiB
+const mmapVerifyThreshold = 1 << 16
 
 // OpenPackStore opens (or creates) a pack store rooted at dir, rebuilding the
 // in-memory index by scanning every pack file.
@@ -177,7 +177,7 @@ func (s *PackStore) openActive(id int) error {
 
 // scanPack rebuilds the index from a single pack file and returns its size.
 // Scanning reads only the fixed-size record headers (never the bodies), so it
-// is cheap even for multi-gigabyte packs. It stops at the first torn or corrupt
+// is cheap even for multi-gigabyte packs. It stops at the earliest torn or corrupt
 // record, treating everything after as absent.
 func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 	info, err := f.Stat()
@@ -201,7 +201,7 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 		dataLen := int64(binary.LittleEndian.Uint64(hdr[12+2*hashLen : 20+2*hashLen]))
 
 		if magic == packAliasMagic {
-			// Aliases carry no body; non-zero dataLen means corruption -- stop rather than desync record boundaries.
+			// Aliases carry no body; a dataLen means corruption -- stop rather than desync record boundaries.
 			if dataLen != 0 {
 				break
 			}
@@ -221,7 +221,7 @@ func (s *PackStore) scanPack(id int, f *os.File) (int64, error) {
 		}
 		crc := binary.LittleEndian.Uint32(hdr[20+2*hashLen : packHeaderLen])
 		loc := packLoc{packID: id, dataOff: dataOff, dataLen: dataLen, created: created, outputID: outputID, crc: crc}
-		// Last write wins for an action; content dedup keeps the first sighting.
+		// Last write wins for an action; content dedup keeps the earliest sighting.
 		s.byAction[actionID] = loc
 		if _, ok := s.byOutput[outputID]; !ok {
 			s.byOutput[outputID] = loc
@@ -274,7 +274,7 @@ func (s *PackStore) ReadAt(loc packLoc, dest []byte, off int64) (int, error) {
 }
 
 // fdForRead returns the pack fd and absolute offset for a body-relative read
-// of loc, so FUSE can serve it zero-copy; the fd stays valid for the store's life.
+// of loc, so FUSE can serve it without a copy; the fd stays valid for the store's life.
 func (s *PackStore) fdForRead(loc packLoc, off int64) (fd uintptr, absOff, avail int64) {
 	if off < 0 || off >= loc.dataLen {
 		return 0, 0, 0
@@ -331,7 +331,7 @@ func (s *PackStore) packPath(id int) string {
 	return filepath.Join(s.dir, fmt.Sprintf("%s%06d%s", packFilePrefix, id, packFileSuffix))
 }
 
-// parsePackName extracts the numeric id from "pack-000001.data".
+// parsePackName extracts the numeric id from a "pack-<id>.data" name.
 func parsePackName(name string) (int, bool) {
 	if !strings.HasPrefix(name, packFilePrefix) || !strings.HasSuffix(name, packFileSuffix) {
 		return 0, false
@@ -350,7 +350,7 @@ func parsePackName(name string) (int, bool) {
 	return id, true
 }
 
-// decodeHash decodes a 64-char hex action/output ID into 32 raw bytes.
+// decodeHash decodes a hex action/output ID into its raw bytes (hashLen of them).
 func decodeHash(hexID string) ([]byte, error) {
 	if len(hexID) != hashLen*2 {
 		return nil, fmt.Errorf("expected %d hex chars, got %d", hashLen*2, len(hexID))

@@ -61,7 +61,7 @@ func Inject(dir string) (bool, error) {
 
 // mainPackageDirs returns the directory, relative to the module root, of every
 // main package under the current module: "." for the root package, "cmd/tool"
-// for a nested one, and so on. It is the shared discovery used by both InjectAll
+// for a nested package, and so on. It is the shared discovery used by InjectAll
 // and CleanupAll. When there is no module (no go.mod) it returns nil.
 func mainPackageDirs() ([]string, error) {
 	pkgs, err := gomod.FindMainPackages()

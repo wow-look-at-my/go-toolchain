@@ -166,7 +166,7 @@ func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	// Each OK line should show [N/2] counter and duration in seconds (no parentheses)
+	// Each OK line should show its progress counter and a duration (no parentheses)
 	okPattern := regexp.MustCompile(`OK\s+\[(\d+)/2\].*\d+\.\d+s`)
 	okMatches := okPattern.FindAllString(output, -1)
 	assert.Equal(t, 2, len(okMatches), "expected 2 OK lines with progress counters and durations, got: %v", okMatches)
@@ -194,6 +194,6 @@ func TestMatrixOutputFailureShowsDuration(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 
-	// FAIL line should show [1/1] counter and duration (no parentheses)
+	// The FAIL line should show its progress counter and a duration (no parentheses)
 	assert.Regexp(t, `FAIL \[1/1\].*\d+\.\d+s`, output)
 }

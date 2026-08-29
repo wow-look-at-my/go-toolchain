@@ -69,7 +69,7 @@ var rootCmd = &cobra.Command{
 	Short:        "Build Go projects with coverage enforcement",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Install the logger first, before the output guard, so every
+		// Install the logger ahead of the output guard, so every
 		// command's output honors the requested level.
 		if err := initLogging(cmd); err != nil {
 			return err
@@ -135,7 +135,7 @@ func Execute() error {
 func run(cmd *cobra.Command, args []string) (err error) {
 	InitTimeline()
 
-	// Runs last (registered first) so a later phase's failure still discards
+	// Runs last (registered at the head) so a later phase's failure still discards
 	// the binary the build just re-created.
 	defer func() {
 		if err != nil {
@@ -191,7 +191,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	initBuildProfile()
 	defer captureProfileTrace()
 
-	// Accumulate summary data across all modules; write once at the end.
+	// Accumulate summary data across all modules; write it at the end.
 	var allSummary summary.SummaryData
 
 	for i, modDir := range modules {
@@ -222,7 +222,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		allSummary.Timeline = tl.Entries()
 	}
 
-	// Write GitHub Step Summary once after all modules complete
+	// Write the GitHub Step Summary after all modules complete
 	if writeErr := summary.Write(&allSummary); writeErr != nil {
 		logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 	}
@@ -251,7 +251,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 // findGoModules searches for go.mod files in the current directory and subdirectories.
 func findGoModules() []string {
-	// Check current directory first
+	// Check the current directory before walking subdirectories
 	if _, err := os.Stat("go.mod"); err == nil {
 		return []string{"."}
 	}
@@ -292,7 +292,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 	quiet := jsonOutput
 
 	// Check for dep updates before tests so we don't run the full
-	// test suite twice when a dependency is outdated.
+	// test suite again when a dependency is outdated.
 	if !quiet && !isRetry {
 		depChecker := CheckOutdatedDeps()
 		if WaitForOutdatedDeps(depChecker) {
@@ -360,7 +360,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 	if err := injectMemLimitGuard(quiet); err != nil {
 		return nil, nil, err
 	}
-	// Build-time-only artifact; remove once compiled in so it never lingers in the tree.
+	// Build-time-only artifact; remove it as soon as it is compiled in, so it never lingers in the tree.
 	defer cleanupMemLimitGuards()
 
 	targets, err := build.ResolveBuildTargets(r)

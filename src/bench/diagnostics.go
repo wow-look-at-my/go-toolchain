@@ -26,7 +26,7 @@ type diagnosticEvent struct {
 // It exists because the stream is filtered on the way to the console — only
 // benchmark result lines are shown — so a run that never produced a result
 // showed the user nothing at all. A build that cannot link (a full disk is the
-// case that found this) then reported as "benchmarks failed: exit status 1"
+// case that found this) then reported as a bare "benchmarks failed" exit
 // with no benchmarks and no reason, which is a failure with the evidence
 // removed.
 //
@@ -69,7 +69,7 @@ func Diagnostics(data []byte) string {
 	return out
 }
 
-// isRoutineBenchLine reports whether a line is one a passing benchmark run
+// isRoutineBenchLine reports whether a passing benchmark run prints this line
 // prints anyway. A result line, the goos/goarch/pkg/cpu header, and the
 // per-test progress lines say nothing about why a run failed.
 func isRoutineBenchLine(line string) bool {

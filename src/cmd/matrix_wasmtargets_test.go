@@ -75,7 +75,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 	assert.Contains(t, string(sums), "mytool_wasm_wasip1")
 	assert.Contains(t, string(sums), "wasm_exec.js")
 
-	// Each wasm build pins GOOS/GOARCH (fork defaults to cosmo), GOTOOLCHAIN=local, GOROOT/PATH, and CGO_ENABLED=0.
+	// Each wasm build pins GOOS/GOARCH (fork defaults to cosmo), GOTOOLCHAIN=local, GOROOT/PATH, and disables cgo.
 	seenGOOS := set.New[string]()
 	for _, cfg := range mock.Calls() {
 		if cfg.Name != forkGo {
@@ -128,7 +128,7 @@ func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 
 func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm"})
-	// wasmPublishEnv=0 falls back to the excluded .wasm-suffixed name, skipping the buildhost publish upload set.
+	// The wasmPublishEnv opt-out falls back to the excluded .wasm-suffixed name, skipping the buildhost publish upload set.
 	t.Setenv(wasmPublishEnv, "0")
 
 	mock := newTestPassMock(0)

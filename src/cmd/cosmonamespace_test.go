@@ -33,21 +33,21 @@ func fingerprintGoroot(t *testing.T, files map[string]string) string {
 }
 
 // TestForkToolchainCacheNamespace pins the namespace derivation: identical
-// toolchain content yields the identical namespace (so one toolchain build
+// toolchain content yields the identical namespace (so a toolchain build
 // keeps hitting its own cache entries across runs and machines), and ANY
-// tool-binary difference yields a different namespace (so two different fork
+// tool-binary difference yields a different namespace (so rival fork
 // toolchain builds can never share cache entries — regardless of the version
 // string they stamp, which is the constant-version collision that caused the
-// 2026-07-20 cross-build poisoning).
+// cross-build poisoning).
 func TestForkToolchainCacheNamespace(t *testing.T) {
 	base := fingerprintGoroot(t, baseFakeGorootFiles())
 
-	// Deterministic and canonical: 16 lowercase hex chars.
+	// Deterministic and canonical: lowercase hex of the length the pattern below fixes.
 	assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{16}$`), base)
 	assert.Equal(t, base, fingerprintGoroot(t, baseFakeGorootFiles()),
 		"identical toolchain content must produce the identical namespace")
 
-	// A one-byte compiler difference, same version string, must change the namespace.
+	// The smallest compiler difference, same version string, must change the namespace.
 	changed := baseFakeGorootFiles()
 	changed["pkg/tool/linux_amd64/compile"] = "compile binary content!"
 	assert.NotEqual(t, base, fingerprintGoroot(t, changed),

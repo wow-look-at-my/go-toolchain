@@ -93,7 +93,7 @@ func parseBatchResponse(r io.Reader) ([]BatchEntry, error) {
 }
 
 // batchCoalescer collects incoming batchReqs on a short coalescing window
-// and dispatches each batch as one HTTP request to the server's batch
+// and dispatches each batch as a single HTTP request to the server's batch
 // endpoint. Up to batchMaxKeys keys per HTTP request.
 func (b *WebBackend) batchCoalescer() {
 	defer close(b.batchDone)
@@ -148,7 +148,7 @@ func (b *WebBackend) batchCoalescer() {
 	}
 }
 
-// sendBatch issues one HTTP request to /_batch/get for all keys in reqs,
+// sendBatch issues a single HTTP request to /_batch/get for all keys in reqs,
 // distributes the matching entries back to the waiting callers via their
 // reply channels, and feeds prefetched entries to OnBatchEntries.
 func (b *WebBackend) sendBatch(reqs []batchReq) {
@@ -163,7 +163,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	defer span.End()
 
 	// Transient failure only; never marks knownMiss, since only an
-	// authoritative 200-without-key response proves absence.
+	// authoritative OK-without-key response proves absence.
 	respondAllMiss := func(reason *AtomicCounter) {
 		for _, r := range reqs {
 			if reason != nil && b.keyKnown(r.key) {
@@ -199,7 +199,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 	if resp.StatusCode != 200 {
 		resp.Body.Close()
 		b.Pool.Release()
-		// 404/405 → server has no batch endpoint; fall back to individual
+		// Not-found or method-not-allowed → server has no batch endpoint; fall back to individual
 		// GETs for every caller in this batch.
 		if resp.StatusCode == 404 || resp.StatusCode == 405 {
 			span.SetAttributes(attribute.Bool("cacheprog.batch.fallback_individual", true))
@@ -228,7 +228,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		return
 	}
 
-	// A run of zero-entry batches stops probing after a threshold; any non-empty batch resets it.
+	// A run of empty batches stops probing after a threshold; any non-empty batch resets it.
 	b.noteBatchEntries(len(entries))
 
 	var nPrefetch int
@@ -241,27 +241,27 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 		attribute.Int("cacheprog.batch.prefetched", nPrefetch))
 	b.errLog.RecordBatchHTTP(len(reqs), len(entries), nPrefetch, time.Since(start))
 
-	// Index returned entries by key for O(1) lookup.
+	// Index returned entries by key for constant-time lookup.
 	entryByKey := make(map[string]*BatchEntry, len(entries))
 	for i := range entries {
 		entryByKey[entries[i].Key] = &entries[i]
 	}
 
-	// Distribute responses to the waiting compiler goroutines FIRST; prefetch
+	// Distribute responses to the waiting compiler goroutines AHEAD of anything else; prefetch
 	// ingestion is housekeeping and runs asynchronously below. (It used to run
 	// inline before the reply loop, so every caller blocked on decompress +
 	// hash + pack-append work for entries nobody was waiting on.)
 	//
 	// Each request gets its own cacheprog.web.get child span so the batch
-	// span has one child per individual cache request it served — making the
+	// span has a child per individual cache request it served — making the
 	// parent/child hierarchy in OTel match the build's logical structure.
 	for _, r := range reqs {
 		_, itemSpan := b.tracer.StartFromCtx(ctx, "cacheprog.web.get",
 			attribute.String("cacheprog.action_id", shortID(r.actionID)))
 		e, ok := entryByKey[r.key]
 		if !ok {
-			// Authoritative absence: a healthy 200 omitted this key. Drop any
-			// stale index claim (see reclaimAbsent) so the PUT path re-uploads it.
+			// Authoritative absence: a healthy response omitted this key. Drop the
+			// stale index claim (reclaimAbsent) so the PUT path re-uploads it.
 			if b.reclaimAbsent(r.key) {
 				b.MissHTTP404.Increment()
 			}
@@ -319,7 +319,7 @@ func (b *WebBackend) sendBatch(reqs []batchReq) {
 			continue
 		}
 		// Module-index guard (see isGoModuleIndex): an index blob cannot be proven
-		// to belong under this key, and a wrong one is fatal at package load.
+		// to belong under this key, and the wrong index is fatal at package load.
 		// Refuse it and let cmd/go recompute the index locally.
 		if isGoModuleIndex(decompressed) {
 			b.MissModuleIndex.Increment()

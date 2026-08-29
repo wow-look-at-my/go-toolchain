@@ -230,7 +230,7 @@ func TestMockProcessWait(t *testing.T) {
 	err := proc.Wait()
 	assert.Nil(t, err)
 
-	// Second wait should also work
+	// A repeat wait should also work
 	err = proc.Wait()
 	assert.Nil(t, err)
 }

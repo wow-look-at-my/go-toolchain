@@ -113,7 +113,7 @@ require github.com/wow-look-at-my/foo v1.2.3
 }
 
 // The legacy spelling always names a branch, so migrating it asks the remote
-// one question: is that name merely the default branch? A name that repeats
+// a single question: is that name merely the default branch? A name that repeats
 // the default is dropped, and the line stops caring what the branch is called.
 // A name that does not is kept, because it was a deliberate choice.
 func TestEnforceOrgBranchTrackingMigratesTheLegacySpelling(t *testing.T) {
@@ -170,7 +170,7 @@ require github.com/wow-look-at-my/foo v1.2.3 // indirect
 	assert.Contains(t, warnings[0].Message, pinnedMarker)
 }
 
-// The two ways out of that warning, plus the case where the module is not the
+// Both ways out of that warning, plus the case where the module is not the
 // org's problem: each silences it, because each is a real answer.
 func TestEnforceOrgBranchTrackingIndirectWarningRespectsItsOwnEscapes(t *testing.T) {
 	for _, tc := range []struct {
@@ -344,10 +344,10 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard
 	assert.Empty(t, mock.Calls())
 }
 
-// The migration's one question is whether a name repeats the default branch.
+// The migration's only question is whether a name repeats the default branch.
 // A remote that cannot answer it keeps the name, which follows exactly what
 // the line followed before, so an unreachable remote never changes what the
-// build resolves. It warns, because a name kept for that reason is one
+// build resolves. It warns, because a name kept for that reason is a name
 // somebody may want to drop later.
 func TestEnforceOrgBranchTrackingKeepsTheNameWhenTheRemoteIsUnreachable(t *testing.T) {
 	t.Chdir(t.TempDir())

@@ -205,7 +205,7 @@ func TestPostDepSnapshot_APIError(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "HTTP 403")
 	assert.Contains(t, err.Error(), "Resource not accessible")
-	// 403 means the token lacks a permission; the error must name it and how to grant it.
+	// A forbidden reply means the token lacks a permission; the error must name it and how to grant it.
 	assert.Contains(t, err.Error(), "contents: write")
 }
 
@@ -227,7 +227,7 @@ func TestPostDepSnapshot_APIErrorNon403(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "HTTP 500")
 	assert.Contains(t, err.Error(), "boom")
-	// The permissions guidance is 403-specific.
+	// The permissions guidance belongs to the forbidden reply alone.
 	assert.NotContains(t, err.Error(), "contents: write")
 }
 
@@ -313,8 +313,8 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 
 // This repo's own smoke jobs drive the full pipeline inside a throwaway module
 // under RUNNER_TEMP; submitting there would publish the fixture's dependencies
-// as this repository's dependency graph. That carve-out exists for exactly one
-// repository -- see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
+// as this repository's dependency graph. That carve-out exists for this
+// repository alone -- see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
 func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -348,9 +348,9 @@ func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 	assert.Equal(t, 0, requests, "the smoke fixture must not be submitted as this repository's dependency graph")
 }
 
-// The load-bearing one. "Build somewhere other than the checkout" must not
+// The load-bearing case. "Build somewhere other than the checkout" must not
 // become the opt-out that GO_TOOLCHAIN_NO_DEP_SUBMISSION was: for every
-// repository but this one it is a hard failure, never a quiet skip. Without
+// repository but this repository it is a hard failure, never a quiet skip. Without
 // this, any repo could dodge dependency submission by cd-ing to a temp dir and
 // stay green while dropping out of vulnerability scanning.
 func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {

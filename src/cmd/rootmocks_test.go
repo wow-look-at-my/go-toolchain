@@ -86,7 +86,7 @@ func setupMockProject(t *testing.T) {
 }
 
 // writeMockBuildOutput writes the file named by a go build's -o flag, as a
-// real exit-0 compiler does. The t-flavored variant is writeBuildOutput.
+// successful compiler does. The t-flavored variant is writeBuildOutput.
 func writeMockBuildOutput(cfg runner.Config, content string) {
 	for i, arg := range cfg.Args {
 		if arg == "-o" && i+1 < len(cfg.Args) {
@@ -114,7 +114,7 @@ func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
 }
 
 // newTestPassMock creates a mock runner that passes tests with the given coverage percentage.
-// If pct is 0, it defaults to 100%.
+// An unset pct defaults to full coverage.
 func newTestPassMock(pct float32) *runner.Mock {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {

@@ -26,8 +26,8 @@ const repoURL = "https://github.com/wow-look-at-my/common-ai-api"
 
 // repoTreeMock answers ls-remote for repoURL, the plumbing fetchCommit needs,
 // and `git cat-file -p <hash>:<path>` from files, keyed by repository-relative
-// path. A path the map does not hold fails the way git does for one the commit
-// does not carry.
+// path. A path the map does not hold fails the way git does for a path the
+// commit does not carry.
 func repoTreeMock(t *testing.T, files map[string]string) *runner.Mock {
 	t.Helper()
 	mock := runner.NewMock()
@@ -65,8 +65,8 @@ func repoTreeMock(t *testing.T, files map[string]string) *runner.Mock {
 	return mock
 }
 
-// The modules of one repository, as they pin each other: client's require on
-// core names an OLDER commit than the one being published, because the commit
+// The modules of a shared repository, as they pin each other: client's require
+// on core names an OLDER commit than the commit being published, because the commit
 // publishing them both did not exist when the line was written.
 func commonAPITree() map[string]string {
 	return map[string]string{
@@ -100,7 +100,7 @@ func TestSiblingRequiresWalksTheRepositoryAtOneCommit(t *testing.T) {
 	sibs, err := siblingRequires(mock, c, "example.com/consumer")
 	require.NoError(t, err)
 
-	// core is same-repo, so it comes at THIS commit, not the one client's
+	// core is same-repo, so it comes at THIS commit, not the commit client's
 	// go.mod names. testify/xml-validator are other repos, left alone.
 	assert.Equal(t, map[string]string{
 		"github.com/wow-look-at-my/common-ai-api/go/core": siblingVersion,
@@ -147,8 +147,8 @@ func TestModuleSubdir(t *testing.T) {
 	assert.Equal(t, "", moduleSubdir(root+"/v3", root))
 }
 
-// The end-to-end shape: a consumer tracking one module of a multi-module repo
-// ends up requiring the whole repo at one commit, so the stale pin inside the
+// The end-to-end shape: a consumer tracking a module of a multi-module repo
+// ends up requiring the whole repo at the same commit, so the stale pin inside the
 // dependency loses minimal version selection and is never fetched.
 func TestUpdateTrackedBranchDepsRequiresSiblingsAtTheSameCommit(t *testing.T) {
 	t.Chdir(t.TempDir())
@@ -230,9 +230,9 @@ require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260101000000-00
 	assert.Equal(t, siblingVersion, core.Mod.Version)
 }
 
-// Two DIRECT modules of one repository is the case that needs the resolver:
-// resolving each on its own would ask the remote twice, and a branch that
-// moved between the two answers would land them on different commits. Which
+// A pair of DIRECT modules of a shared repository is the case that needs the
+// resolver: resolving each on its own would ask the remote again, and a branch
+// that moved between the answers would land them on different commits. Which
 // modules share a repository is read off the repository, so neither line has
 // to say anything about the other.
 func TestUpdateTrackedBranchDepsResolvesEachRepositoryOnce(t *testing.T) {

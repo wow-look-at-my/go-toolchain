@@ -71,7 +71,7 @@ type StatEvent struct {
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 
 	// Per-action outcome, piggybacked on the get/put counter events. All fields optional, so old senders and listeners stay wire-compatible.
-	Action  string `json:"a,omitempty"`  // 20-char truncated actionID (base64.RawURLEncoding(id[:15]))
+	Action  string `json:"a,omitempty"`  // truncated actionID (see truncateActionID)
 	Op      string `json:"op,omitempty"` // "get" | "put"
 	Outcome string `json:"o,omitempty"`  // "hit-local" | "hit-remote" | "miss" | "put"
 	Bytes   int64  `json:"b,omitempty"`  // object size in bytes
@@ -101,7 +101,7 @@ type Server struct {
 
 	// IndexPutsRefused counts module-index PUTs the sink answered (see isGoModuleIndex). Large on any run; not a poison signal.
 	IndexPutsRefused AtomicCounter
-	// sinkDir holds refused index bodies; created on first refusal, removed on Run's return.
+	// sinkDir holds refused index bodies; created on the earliest refusal, removed on Run's return.
 	sinkMu  sync.Mutex
 	sinkDir string
 }
@@ -111,14 +111,14 @@ type Server struct {
 //
 // For standalone mode (direct WebBackend), this also wires up batch
 // callbacks. In daemon mode, use Daemon.wireBatchCallbacks instead —
-// callbacks must be set once on the shared WebBackend, not per-connection.
+// callbacks must be set a single time on the shared WebBackend, not per-connection.
 func NewServer(local LocalStore, remote IBackend) *Server {
 	s := &Server{
 		local:  local,
 		remote: remote,
 		putSem: make(chan struct{}, maxConcurrentPuts),
 	}
-	// Standalone only: daemon mode wires this once on the shared WebBackend instead, to avoid a per-connection race.
+	// Standalone only: daemon mode wires this on the shared WebBackend instead, to avoid a per-connection race.
 	if wb, ok := remote.(*WebBackend); ok {
 		wb.Latency = &s.Latency
 		wireBatchCallbacks(wb, local, s)
@@ -126,7 +126,7 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
 		if err == nil {
-			// Wait for the accept-ack: a unix dial succeeds before accept(2) runs, so stat events could drop into an unread queue.
+			// Wait for the accept-ack: a unix dial succeeds before accept runs, so stat events could drop into an unread queue.
 			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 			var ack [1]byte
 			if _, err := conn.Read(ack[:]); err == nil {
@@ -324,7 +324,7 @@ loop:
 			// unquoted base64 is also accepted — see readloop.go). The body
 			// must be read synchronously before the next request. The line
 			// is read in full whatever its length, so bodies past the old
-			// 64 MiB scanner cap no longer kill the protocol loop.
+			// scanner cap no longer kill the protocol loop.
 			if req.BodySize > 0 {
 				body, err := readPutBody(br, req.BodySize)
 				if err != nil {
@@ -392,7 +392,7 @@ func (s *Server) lock(key string) *sync.Mutex {
 }
 
 // flushLatency reports this Server's own trackers plus the shared HTTP pool
-// in standalone mode; in daemon mode the Daemon reports the pool once instead.
+// in standalone mode; in daemon mode the Daemon reports the pool instead.
 func (s *Server) flushLatency() {
 	snap := s.Latency.Snapshot()
 	if wb, ok := s.remote.(*WebBackend); ok {

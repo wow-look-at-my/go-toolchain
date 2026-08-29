@@ -48,7 +48,7 @@ func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty platform set")
 }
 
-// The manifest is a wire contract with buildhost-publish: schema 1, and only
+// The manifest is a wire contract with buildhost-publish: a pinned schema, and only
 // the fields buildhost reads. kind is deliberately absent (it selects
 // repackaging and defaults to binary; APE-ness is detected from the bytes).
 func TestWriteBuildhostManifestShape(t *testing.T) {
@@ -77,7 +77,7 @@ func TestWriteBuildhostManifestShape(t *testing.T) {
 	assert.Equal(t, []any{"linux/amd64", "darwin/arm64", "windows/amd64"}, entry["platforms"])
 }
 
-// The manifest describes the artifacts, so it must not outlive them: one left
+// The manifest describes the artifacts, so it must not outlive them: a manifest left
 // behind would send the next publish after a file that is gone.
 func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
 	dir := t.TempDir()
@@ -90,7 +90,7 @@ func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, buildhostManifestName))
 }
 
-// End to end on the default path: one APE, one manifest, no per-platform
+// End to end on the default path: a lone APE, a lone manifest, no per-platform
 // copies, and GOCOSMOPLATFORMS carrying the requested set.
 func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
@@ -109,7 +109,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	require.NoError(t, runReleaseWithRunner(mock))
 
-	// Exactly one binary; anything matching <name>_<os>_<arch> would be a duplicate copy.
+	// A lone binary; anything matching <name>_<os>_<arch> would be a duplicate copy.
 	entries, err := os.ReadDir(outDir)
 	require.NoError(t, err)
 	var binaries []string
@@ -121,7 +121,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 	}
 	assert.Equal(t, []string{"mytool"}, binaries)
 
-	// checksums.txt lists the APE once, under its real filename.
+	// checksums.txt lists the APE a single time, under its real filename.
 	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimSpace(string(sums)), "\n")

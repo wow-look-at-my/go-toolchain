@@ -6,7 +6,7 @@ package cache
 // profile (build/profile.json) so CI can assert on the poison tripwires
 // (miss_checksum / miss_buildid / miss_modindex — a served object failing an
 // integrity gate) and the dead-remote signature (a populated advertised index
-// yielding zero hits).
+// yielding no hits).
 type WebSummary struct {
 	Hits uint32 `json:"hits"`
 	Puts uint32 `json:"puts"`
@@ -29,7 +29,7 @@ type WebSummary struct {
 	SkippedBatchBackoff uint32 `json:"skipped_batch_backoff"`
 	Reclaimed404        uint32 `json:"reclaimed_404"`
 
-	// PUT non-upload outcomes. put_refused_modindex reads 0 normally (handlePut refuses first); nonzero is a local gap.
+	// PUT non-upload outcomes. put_refused_modindex reads empty normally (handlePut refuses earlier); a count is a local gap.
 	PutSkippedKnown    uint32 `json:"put_skipped_known"`
 	PutRefusedModIndex uint32 `json:"put_refused_modindex"`
 	PutRefusedBuildID  uint32 `json:"put_refused_buildid"`

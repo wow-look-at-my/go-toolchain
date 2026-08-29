@@ -40,7 +40,7 @@ func TestServer_Stats(t *testing.T) {
 	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
 
 	stats := srv.GetStats()
-	// local.Put was called once (the PUT), local.Get was called twice (the GET + the dedupe check in handlePut)
+	// local.Put was called for the PUT; local.Get was called for the GET and for the dedupe check in handlePut
 	require.Equal(t, uint32(1), stats.Local.Puts.Load())
 	require.Equal(t, uint32(1), stats.Local.Hits.Load())
 	require.Equal(t, uint32(1), stats.Misses.Load())
@@ -125,7 +125,7 @@ func TestSetHasRemote(t *testing.T) {
 	stats := sl.Stats()
 	require.Nil(t, stats.Remote, "Remote should be nil before SetHasRemote")
 
-	// After SetHasRemote: Stats().Remote should be non-nil (with zero values).
+	// After SetHasRemote: Stats().Remote should be non-nil, with empty counters.
 	sl.SetHasRemote()
 	stats = sl.Stats()
 	require.NotNil(t, stats.Remote, "Remote should be non-nil after SetHasRemote")
@@ -166,19 +166,19 @@ func TestServer_Latency(t *testing.T) {
 
 	snap := srv.Latency.Snapshot()
 
-	// Lock wait should have 3 entries (PUT, GET, GET).
+	// Lock wait should have an entry per request (PUT, GET, GET).
 	require.Equal(t, uint64(3), snap.LockWait.Count)
 
-	// Local get: 3 calls (dedup check in PUT, local hit GET, local miss GET).
+	// Local get is called for the dedup check in PUT, the local hit GET and the local miss GET.
 	require.Equal(t, uint64(3), snap.LocalGet.Count)
 
-	// Local put: 2 calls (PUT, write-through from remote hit).
+	// Local put is called for the PUT and for the write-through from the remote hit.
 	require.Equal(t, uint64(2), snap.LocalPut.Count)
 
-	// Remote get: 1 call (the missID lookup that hits remote).
+	// Remote get is called for the missID lookup that hits remote.
 	require.Equal(t, uint64(1), snap.RemoteGet.Count)
 
-	// All latencies should be non-zero.
+	// Every latency should be recorded.
 	require.Greater(t, snap.LockWait.MinUs, uint64(0))
 	require.Greater(t, snap.LocalGet.MinUs, uint64(0))
 	require.Greater(t, snap.LocalPut.MinUs, uint64(0))
@@ -252,10 +252,10 @@ func TestStatsStreamingLatency(t *testing.T) {
 	require.NotNil(t, got.Latency)
 
 	snap := got.Latency.Snapshot()
-	// PUT + GET = 2 lock waits
+	// A lock wait for the PUT and for the GET
 	require.Equal(t, uint64(2), snap.LockWait.Count)
-	// dedup check in PUT + GET = 2 local gets
+	// A local get for the dedup check in PUT and for the GET
 	require.Equal(t, uint64(2), snap.LocalGet.Count)
-	// 1 local put from the PUT command
+	// A local put from the PUT command
 	require.Equal(t, uint64(1), snap.LocalPut.Count)
 }

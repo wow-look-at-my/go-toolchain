@@ -107,7 +107,7 @@ func init() {
 		Short: "Print version info as JSON",
 		Run:   runVersionJSON,
 	})
-	// One APE runs on several hosts, so "which host is this on" has a
+	// The APE runs on several hosts, so "which host is this on" has a
 	// fallback answer that can be wrong. Printing the evidence makes it
 	// auditable anywhere the binary runs, including inside a sandbox.
 	versionCmd.AddCommand(&cobra.Command{
@@ -214,7 +214,7 @@ func printStaleness() {
 
 // newGitHubRequest creates an HTTP GET request, adding an Authorization
 // header if a GitHub token is discovered in the environment. This raises
-// the rate limit from 60 to 5 000 requests/hour.
+// the hourly rate limit from the anonymous allowance to the authenticated allowance.
 func newGitHubRequest(url string) (*http.Request, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -368,7 +368,7 @@ func statusLineIsToolchainWrite(line string, pins map[string][]string) bool {
 }
 
 // statusLinePath extracts the path from a `git status --short` line ("XY
-// <path>", or a rename's new name). Returns "" for a line too short to carry one.
+// <path>", or a rename's new name). Returns "" for a line too short to carry a path.
 func statusLinePath(line string) string {
 	if len(line) < 4 {
 		return ""
@@ -392,7 +392,7 @@ func gitignoreChangeOnlyDropsGuard(path string) bool {
 }
 
 // diffOnlyDropsGuard parses a unified diff and reports whether every content
-// change is the removal of the guard line: at least one guard line removed, no
+// change is the removal of the guard line: a guard line removed, no
 // additions, and nothing else removed (blank-line churn aside). It is split out
 // from the git invocation so it can be unit-tested without a repository.
 func diffOnlyDropsGuard(diff string) bool {

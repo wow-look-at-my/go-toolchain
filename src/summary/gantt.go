@@ -30,7 +30,7 @@ func RenderGantt(entries []TimelineEntry) string {
 		threadEntries[e.Thread] = append(threadEntries[e.Thread], e)
 	}
 
-	// Sort threads: "main" first, then alphabetical
+	// Sort threads: "main" at the head, then alphabetical
 	threads := make([]string, 0, len(threadEntries))
 	for t := range threadEntries {
 		threads = append(threads, t)
@@ -129,7 +129,7 @@ type (
 
 // ganttTemplate is the chart itself, held as text. The theme block sets the
 // colours of the done, active and crit bars. The literals are interpreted
-// strings, not one raw string, because the mermaid fence is three backticks.
+// strings, not a raw string, because the mermaid fence is made of backticks.
 var ganttTemplate = template.Must(template.New("gantt").Parse(
 	"```mermaid\n" +
 		"---\n" +

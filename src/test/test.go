@@ -114,11 +114,11 @@ func listTestPackages(_ runner.CommandRunner) []string {
 // Running only the default configuration meant a test behind `//go:build
 // sometag` never compiled and never ran, so it could not fail -- a bypass by
 // omission. The tag sets come from buildtags.Scan, and verifyTagCoverage then
-// PROVES every gated file was compiled by one of them; an unreachable file
+// PROVES every gated file was compiled by some configuration; an unreachable file
 // fails the run rather than being skipped.
 //
 // coverFile is the path where the coverage profile will be written.
-// onOutput is an optional callback called before the first visible test output
+// onOutput is an optional callback called before any visible test output
 // (used by the progress indicator to finish the "..." line).
 func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(), timeline TimelineRecorder) (*TestResult, error) {
 	discovery, err := buildtags.Scan(".")
@@ -157,8 +157,8 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 	return merged, nil
 }
 
-// mergeTestResults folds one configuration's results into the accumulator,
-// keeping the first configuration's coverage report (the only one collected).
+// mergeTestResults folds a configuration's results into the accumulator,
+// keeping the default configuration's coverage report (the only report collected).
 func mergeTestResults(acc, next *TestResult) *TestResult {
 	if next == nil {
 		return acc
@@ -227,7 +227,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 	return nil
 }
 
-// runTestsOnce executes go test for one build-tag configuration.
+// runTestsOnce executes go test for a single build-tag configuration.
 func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(),
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
 ) (*TestResult, error) {
@@ -244,7 +244,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// -count=1 disables test-result caching only; Go#74873 stale coverprofile fragments corrupt aggregate coverage otherwise.
+		// -count disables result caching only; stale coverprofile fragments otherwise corrupt coverage (https://go.dev/issue/74873).
 		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
 	}
 	switch {
@@ -294,7 +294,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 
 	// Include captured stderr (build errors) in handler output.
 	// Filter out noise that is not actual build/test errors:
-	//  - "no such tool covdata" from Go 1.25+ coverage on main packages
+	//  - "no such tool covdata" from recent Go coverage on main packages
 	//  - "# pkg" header lines that precede filtered errors
 	//  - "cacheprog:" messages from GOCACHEPROG subprocesses
 	if stderrBuf.Len() > 0 {
@@ -365,7 +365,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		return nil, fmt.Errorf("no tests found (create *_test.go files with Test* functions)")
 	}
 
-	// A non-zero exit with no failed test is a non-test issue (e.g. missing
+	// A failing exit code with no failed test is a non-test issue (e.g. missing
 	// "covdata" on a main package with no tests); treat it as success.
 	if waitErr != nil && handler.failedTest.IsEmpty() && handler.FailureOutput() == "" {
 		waitErr = nil
@@ -412,7 +412,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		packages = append(packages, p)
 	}
 
-	// Sort by uncovered statements (most uncovered first)
+	// Sort by uncovered statements, the most uncovered at the top
 	sort.Slice(packages, func(i, j int) bool {
 		if packages[i].Uncovered() != packages[j].Uncovered() {
 			return packages[i].Uncovered() > packages[j].Uncovered()

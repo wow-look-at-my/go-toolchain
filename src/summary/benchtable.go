@@ -82,7 +82,7 @@ func benchDisplayName(name, shortPkg string) string {
 	if strings.HasPrefix(n, "Benchmark") {
 		n = n[9:]
 	}
-	// Strip CPU suffix (e.g. "-8")
+	// Strip the CPU-count suffix (e.g. "-N")
 	if idx := strings.LastIndex(n, "-"); idx > 0 {
 		// Only strip if suffix is all digits
 		suffix := n[idx+1:]

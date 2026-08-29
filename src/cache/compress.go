@@ -35,7 +35,7 @@ func detectObjectType(data []byte) string {
 		return "elf-binary"
 	}
 	if len(data) >= 4 {
-		// Mach-O 64-bit (little-endian and big-endian) and 32-bit.
+		// Mach-O, in its wide (little-endian and big-endian) and narrow forms.
 		m := uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])
 		switch m {
 		case 0xcffaedfe, 0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcafebabe:
@@ -53,7 +53,7 @@ func detectObjectType(data []byte) string {
 
 // describeData returns a short human-readable label for a cache entry from
 // its raw bytes: object type, optional import path, Go version, and target
-// (e.g. "go-archive github.com/foo/bar go1.24.0 linux/amd64"). Falls back to
+// (e.g. "go-archive github.com/foo/bar <goversion> linux/amd64"). Falls back to
 // just the object type for binaries and unknown formats.
 func describeData(data []byte) string {
 	objType := detectObjectType(data)
@@ -84,7 +84,7 @@ func describeData(data []byte) string {
 
 // parseArchiveHeader scans a Go archive for the "go object" line inside
 // __.PKGDEF. Returns Go version and target (GOOS/GOARCH), or empty strings
-// if not found. Only scans the first 1024 bytes.
+// if not found. Only scans the leading bytes.
 func parseArchiveHeader(data []byte) (goVersion, target string) {
 	limit := 1024
 	if len(data) < limit {
@@ -98,7 +98,7 @@ func parseArchiveHeader(data []byte) (goVersion, target string) {
 		if idx < 0 {
 			break
 		}
-		// Ensure it's at the start of a line (idx == 0 or preceded by newline).
+		// Ensure it's at the start of a line (at the head, or preceded by a newline).
 		if idx > 0 && window[idx-1] != '\n' {
 			window = window[idx+len(prefix):]
 			continue

@@ -86,7 +86,7 @@ func TestIsTerminalOnPipeIsFalseDarwin(t *testing.T) {
 
 // fdPath is darwin's F_GETPATH-based stand-in for /proc/self/fd's readlink;
 // this pins that it actually recovers the real path rather than garbage or a
-// silently-wrong one.
+// silently-wrong answer.
 func TestFDPathRecoversRealPath(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "fdpath-*.log")
 	require.NoError(t, err)
@@ -208,7 +208,7 @@ func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) 
 	t.Run("recognized_pid_is_allowed_through", func(t *testing.T) {
 		err, errOut := runWithSocketStdout(t, true)
 		assert.NotContains(t, errOut, "refused to run", "the agent reading its own socket must not be refused; stderr: %s", errOut)
-		_ = err // may still fail/exit non-zero for unrelated reasons (no go.mod); only the guard's own refusal is under test
+		_ = err // may still fail for unrelated reasons (no go.mod); only the guard's own refusal is under test
 	})
 
 	t.Run("unrecognized_pid_is_still_refused", func(t *testing.T) {
@@ -221,7 +221,7 @@ func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) 
 
 // End-to-end: the actual built binary, run as a real subprocess so its stdout
 // fd is a genuine OS-level pipe/file/tty rather than a Go-level *os.File,
-// refuses when OPENCODE=1 is set and its output is piped -- the scenario
+// refuses when the OPENCODE marker is set and its output is piped -- the scenario
 // dats/cli.dats already covers on linux (matrix.marker), reproduced here
 // because that suite does not run on darwin.
 func TestAgentGuardRefusesPipedRunUnderOpencode(t *testing.T) {
@@ -238,7 +238,7 @@ func TestAgentGuardRefusesPipedRunUnderOpencode(t *testing.T) {
 
 // TestAgentGuardAllowsPlainRunWhenSocketReaderIsGrok is the grok-build twin of
 // TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself: grok-build
-// exports GROK_AGENT=1 (no pid var of its own; measured) and captures stdout
+// exports the GROK_AGENT marker (no pid var of its own; measured) and captures stdout
 // through a socketpair or a pipe. The parent here holds the far end and names
 // itself in GROK_AGENT_PID, the OPENCODE_PID-shaped seam. A real `| cat` still
 // refuses.

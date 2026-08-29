@@ -14,8 +14,8 @@ import (
 )
 
 // forkToolchainCacheNamespace derives the cache key namespace for builds
-// done with the gosmopolitan fork toolchain at goroot: 16 hex chars of a
-// SHA-256 over the toolchain's tool binaries. Every fork-toolchain matrix
+// done with the gosmopolitan fork toolchain at goroot: a hex prefix of a
+// sha256 over the toolchain's tool binaries. Every fork-toolchain matrix
 // job exports it as GO_TOOLCHAIN_CACHE_NAMESPACE so its cacheprog scopes
 // cache keys to THIS toolchain build.
 //
@@ -90,7 +90,7 @@ func hashTreeInto(h io.Writer, root, rel string) (int, error) {
 	return files, err
 }
 
-// hashFrame writes one length-framed file record: path, NUL, decimal size,
+// hashFrame writes a length-framed file record: path, NUL, decimal size,
 // NUL, content. The framing makes file boundaries unambiguous, so content
 // cannot alias across concatenated files or paths.
 func hashFrame(h io.Writer, name string, data []byte) {

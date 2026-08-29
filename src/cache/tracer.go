@@ -28,7 +28,7 @@ type cacheTracer struct {
 // check for nil before invoking methods.
 func newCacheTracer(w io.Writer) *cacheTracer {
 	if _, err := gotrace.Provider(context.Background()); err != nil {
-		// Surface init failures once; downstream Start becomes a no-op.
+		// Surface an init failure a single time; downstream Start becomes a no-op.
 		w.Write([]byte("cacheprog: otel init failed: " + err.Error() + "\n"))
 		return nil
 	}

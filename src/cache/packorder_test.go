@@ -31,11 +31,11 @@ func mkActionID(rng *rand.Rand) string {
 	return hex.EncodeToString(a[:])
 }
 
-// TestPackStore_ConcurrentSameActionPutRescanConsistency drives two
+// TestPackStore_ConcurrentSameActionPutRescanConsistency drives rival
 // concurrent Puts for the SAME action with DIFFERENT contents and asserts the
 // live index and a fresh rescan of the pack files agree on which body the
 // action maps to. Before the commit-under-append-lock fix this diverged in
-// roughly 1 in 1500 iterations (live=A, rescan=B).
+// in a small fraction of iterations (live=A, rescan=B).
 func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	const iters = 1500
@@ -76,8 +76,8 @@ func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
 	}
 }
 
-// TestPackStore_PutIfAbsent covers the primitive's three shapes: filling an
-// absent action, refusing to replace a present one, and reusing an existing
+// TestPackStore_PutIfAbsent covers the primitive's shapes: filling an absent
+// action, refusing to replace a present action, and reusing an existing
 // body via an alias record — with the result surviving a rescan.
 func TestPackStore_PutIfAbsent(t *testing.T) {
 	rng := rand.New(rand.NewSource(2))
@@ -101,7 +101,7 @@ func TestPackStore_PutIfAbsent(t *testing.T) {
 	require.False(t, stored)
 	require.Equal(t, outA, loc.outputID, "PutIfAbsent must never displace an existing entry")
 
-	// Alias shape: a second action for content that is already stored.
+	// Alias shape: another action for content that is already stored.
 	action2 := mkActionID(rng)
 	loc, stored, err = s.PutIfAbsent(action2, outA, bytes.NewReader(bodyA))
 	require.NoError(t, err)
@@ -199,7 +199,7 @@ func TestLocalCache_PutIfAbsent(t *testing.T) {
 // the stored entry's must overwrite it, not be dedup-discarded. cmd/go is the
 // source of truth for its own action keys; the old unconditional dedup made a
 // mis-keyed body (e.g. a web-prefetched object under a module-index key)
-// sticky forever while silently dropping the freshly computed correct one.
+// sticky forever while silently dropping the freshly computed correct body.
 func TestServer_PutReplacesMismatchedOutputID(t *testing.T) {
 	lc, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)

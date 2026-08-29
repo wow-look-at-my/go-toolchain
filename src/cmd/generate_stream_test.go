@@ -13,13 +13,13 @@ import (
 
 // A directive's output must reach the console while the command is still
 // running. It used to be buffered until exit, which hid it from the output
-// watchdog (it monitors fd 1/2) and made every slow directive -- `go run
-// <tool>@latest` downloading modules, say -- print one STALLED banner per
-// second for its whole duration.
+// watchdog (it monitors stdout and stderr) and made every slow directive -- `go run
+// <tool>@latest` downloading modules, say -- print a repeating STALLED banner
+// for its whole duration.
 //
 // The helper announces itself and then waits, bounded, for the test to react to
 // that announcement. Buffered output means the reaction never arrives in time
-// and the helper exits non-zero, so this fails on regression rather than
+// and the helper exits with a failure, so this fails on regression rather than
 // racing a wall-clock deadline.
 func TestExecuteDirectiveStreamsOutputWhileRunning(t *testing.T) {
 	dir := t.TempDir()
@@ -69,7 +69,7 @@ func TestExecuteDirectiveStreamsOutputWhileRunning(t *testing.T) {
 func TestStreamPrefixWriter(t *testing.T) {
 	var w streamPrefixWriter
 
-	// A complete line is emitted on arrival; a partial one waits for Flush.
+	// A complete line is emitted on arrival; a partial line waits for Flush.
 	out := captureStdout(func() {
 		n, err := w.Write([]byte("first\nsecond"))
 		require.NoError(t, err)

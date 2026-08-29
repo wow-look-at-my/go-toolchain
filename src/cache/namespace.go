@@ -12,7 +12,7 @@ const KeyNamespaceEnv = "GO_TOOLCHAIN_CACHE_NAMESPACE"
 const canonicalNamespaceMaxLen = 64
 
 // CanonicalKeyNamespace maps raw to a canonical hex suffix ("" for empty,
-// SHA-256-derived otherwise). Length stays even -- callers hex-decode it
+// sha256-derived otherwise). Length stays even -- callers hex-decode it
 // whole for the build-id expectation.
 func CanonicalKeyNamespace(raw string) string {
 	if raw == "" {
@@ -26,7 +26,7 @@ func CanonicalKeyNamespace(raw string) string {
 }
 
 // isCanonicalNamespace reports whether s is already in canonical suffix form:
-// lowercase hex, even length, 2..canonicalNamespaceMaxLen chars.
+// lowercase hex, even length, up to canonicalNamespaceMaxLen chars.
 func isCanonicalNamespace(s string) bool {
 	if len(s) < 2 || len(s) > canonicalNamespaceMaxLen || len(s)%2 != 0 {
 		return false

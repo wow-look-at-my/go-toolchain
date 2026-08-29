@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The real failure, copied from CI run 31823981402's host-build job: one
+// The real failure, copied from a CI host-build job: an
 // "invalid package name" per damaged package, then the cascade of redeclared
 // and undefined symbols that makes it read like a source error.
 const realCorruptExportDataErr = `package load errors:
@@ -34,7 +34,7 @@ src/cmd/foo.go:12:3: undefined: Bar`)))
 		"the module-index failure is a different signature with a different cure")
 }
 
-// The warning names what was damaged, so a reader can tell a one-off from a
+// The warning names what was damaged, so a reader can tell an isolated case from a
 // tier that is systematically serving bad entries.
 func TestCorruptExportPackages(t *testing.T) {
 	assert.Equal(t, []string{
@@ -57,7 +57,7 @@ func TestDisableSharedBuildCache(t *testing.T) {
 		t.Setenv("GOCACHEPROG", "/usr/local/bin/go-toolchain cacheprog")
 		require.True(t, disableSharedBuildCache())
 		assert.Empty(t, os.Getenv("GOCACHEPROG"))
-		// Idempotent: a second call finds nothing, bounding the retry to one.
+		// Idempotent: a repeat call finds nothing, so the retry cannot happen again.
 		assert.False(t, disableSharedBuildCache())
 	})
 }

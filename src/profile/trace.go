@@ -13,7 +13,7 @@ import (
 // maxTraceLanes caps "go actions #NN" lanes; spill-over clamps to the earliest-free lane.
 const maxTraceLanes = 32
 
-// AddTraceEvents records one timed event per executed action into tr,
+// AddTraceEvents records a timed event per executed action into tr,
 // assigning concurrent actions to numbered lanes with a greedy interval
 // scheduler — the Chrome writer clamps overlapping events within a single
 // thread, so without lanes a parallel compile phase would collapse into a
@@ -48,7 +48,7 @@ func AddTraceEvents(tr *gotrace.Trace, actions []Action, outcomes map[string]cac
 				laneEnds = append(laneEnds, time.Time{})
 				lane = len(laneEnds) - 1
 			} else {
-				// All lanes busy: spill onto the one that frees up first.
+				// All lanes busy: spill onto the lane that frees up earliest.
 				lane = 0
 				for i := range laneEnds {
 					if laneEnds[i].Before(laneEnds[lane]) {

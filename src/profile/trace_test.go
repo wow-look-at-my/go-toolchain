@@ -13,7 +13,7 @@ import (
 func TestAddTraceEvents_LanesAndArgs(t *testing.T) {
 	t0 := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
 	actions := []Action{
-		// Two overlapping compiles → two lanes; a third after both → lane 1 reused.
+		// Overlapping compiles each take a lane; a later compile reuses a freed lane.
 		{Mode: "build", Package: "example.com/m/a", ActionID: "aaaaaaaaaaaaaaaaaaaa",
 			TimeStart: t0, TimeDone: t0.Add(2 * time.Second)},
 		{Mode: "build", Package: "example.com/m/b", ActionID: "bbbbbbbbbbbbbbbbbbbb",

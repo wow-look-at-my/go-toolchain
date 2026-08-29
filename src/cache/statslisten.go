@@ -14,22 +14,22 @@ import (
 // maxTrackedActions bounds the per-action outcome map; past it, new IDs count in actionsOverflow instead of growing it unbounded.
 const maxTrackedActions = 200_000
 
-// ActionOutcome aggregates the per-action cache events observed for one
-// truncated action ID (base64.RawURLEncoding(actionID[:15]), the same 20-char
+// ActionOutcome aggregates the per-action cache events observed for a
+// truncated action ID (see truncateActionID, the same
 // form cmd/go prints as ActionID in -debug-actiongraph dumps — the join key
 // for the build profile).
 type ActionOutcome struct {
-	// Get is the first GET outcome this run; first wins so a later warm re-fetch never hides the original miss.
+	// Get is the earliest GET outcome this run; it wins so a later warm re-fetch never hides the original miss.
 	Get string
 	// Put reports whether a NEW local put was recorded this run; a dedup re-put of an already-cached entry doesn't count.
 	Put   bool
 	Bytes int64 // largest object size observed, bytes
-	GetUS int64 // duration of the first GET, microseconds
+	GetUS int64 // duration of the earliest GET, microseconds
 	PutUS int64 // duration of the local put, microseconds
 }
 
-// truncateActionID renders a wire ActionID in cmd/go's 20-char truncated
-// form: base64.RawURLEncoding(id[:15]). Returns "" if too short.
+// truncateActionID renders a wire ActionID in cmd/go's truncated form: the
+// base64.RawURLEncoding of its leading bytes. Returns "" if too short.
 func truncateActionID(id []byte) string {
 	if len(id) < buildIDHashSize {
 		return ""
@@ -38,7 +38,7 @@ func truncateActionID(id []byte) string {
 }
 
 // withAction attaches per-action outcome fields to a counter StatEvent, so
-// the existing one-event-per-protocol-op stream also carries the build
+// the existing per-protocol-op event stream also carries the build
 // profile's join data without extra socket writes.
 func withAction(ev StatEvent, actionID []byte, op, outcome string, bytes int64, dur time.Duration) StatEvent {
 	if id := truncateActionID(actionID); id != "" {
@@ -69,7 +69,7 @@ type StatsListener struct {
 
 	actionsMu       sync.Mutex
 	actions         map[string]*ActionOutcome
-	actionsOverflow uint64 // action IDs dropped once maxTrackedActions was hit
+	actionsOverflow uint64 // action IDs dropped after maxTrackedActions was hit
 }
 
 // SetHasRemote marks a remote backend as configured, so Stats() includes
@@ -147,8 +147,8 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 	}
 }
 
-// recordAction folds one per-action event into the bounded outcome map.
-// Merge policy: the FIRST get outcome wins (see ActionOutcome.Get), put is
+// recordAction folds a per-action event into the bounded outcome map.
+// Merge policy: the EARLIEST get outcome wins (see ActionOutcome.Get), put is
 // sticky, and the largest observed size is kept — so an action that missed,
 // was rebuilt, stored, and later re-read warm still reports the miss+put that
 // actually cost this run time.
@@ -183,7 +183,7 @@ func (sl *StatsListener) recordAction(ev *StatEvent) {
 }
 
 // Actions returns a snapshot copy of the aggregated per-action outcomes,
-// keyed by the 20-char truncated action ID.
+// keyed by the truncated action ID.
 func (sl *StatsListener) Actions() map[string]ActionOutcome {
 	sl.actionsMu.Lock()
 	defer sl.actionsMu.Unlock()

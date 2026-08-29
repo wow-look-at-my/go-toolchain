@@ -184,7 +184,7 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 	assert.Nil(t, err)
 
 	s := string(result)
-	// Should have exactly one require import, not two
+	// Should have a single require import, never a duplicate
 	count := strings.Count(s, `"github.com/stretchr/testify/require"`)
 	assert.Equal(t, 1, count, "should have exactly one require import, got %d", count)
 }

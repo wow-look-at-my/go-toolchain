@@ -15,7 +15,7 @@ import (
 	"golang.org/x/mod/module"
 )
 
-// FixBogusDepsVersions detects dependencies with v0.0.0 versions in go.mod and
+// FixBogusDepsVersions detects dependencies with a placeholder version in go.mod and
 // resolves them to actual pseudo-versions. This happens when someone adds a
 // git-based dependency without a proper version tag.
 func FixBogusDepsVersions(r runner.CommandRunner) error {
@@ -76,15 +76,15 @@ func resolveLatestVersionViaGit(r runner.CommandRunner, mod string) (string, err
 }
 
 // resolveGitURLAndRef discovers mod's git repository and the refs' ls-remote
-// output in one pass, trying the full module path as the git URL first and
-// backing off one path segment at a time -- handling a module in a
+// output in a single pass, trying the full module path as the git URL, then
+// backing off a path segment at a time -- handling a module in a
 // subdirectory of its repository, for any host, with no hardcoded table.
 // Backoff triggers only on a git-level failure, not an empty (but reachable)
 // ls-remote result. Asking for HEAD adds --symref, which also reports the
-// branch it points at. Several refs are one question, which is how a bare
-// marker learns the default branch and whether a matching one exists without
-// paying for two round trips. On total failure, the FIRST error (the full
-// module path) is reported.
+// branch it points at. Every ref is asked in the same question, which is how a
+// bare marker learns the default branch and whether a matching branch exists
+// without paying for a further round trip. On total failure, the EARLIEST
+// error (the full module path) is reported.
 func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gitURL string, output []byte, err error) {
 	parts := strings.Split(mod, "/")
 	var firstErr error
@@ -115,7 +115,7 @@ func resolveGitURLAndRef(r runner.CommandRunner, mod string, refs ...string) (gi
 	return "", nil, firstErr
 }
 
-// gitCommit is one module's repository, the commit a ref points at, and where
+// gitCommit is a module's repository, the commit a ref points at, and where
 // the module sits inside it. The commit is fetched into a temporary bare
 // repository, so anything else committed alongside the module -- a sibling
 // module's go.mod, say -- can be read at the same commit without a checkout.
@@ -134,7 +134,7 @@ type gitCommit struct {
 	dir string
 }
 
-// parseLsRemote reads an answer covering ONE ref: its commit, and the branch a
+// parseLsRemote reads an answer covering a SINGLE ref: its commit, and the branch a
 // symbolic HEAD resolves to (`ref: refs/heads/master\tHEAD`).
 func parseLsRemote(out []byte) (hash, branch string) {
 	branch = eachLsRemoteRef(out, func(h, _ string) {
@@ -204,8 +204,8 @@ func defaultBranchOf(r runner.CommandRunner, mod string) (string, error) {
 	return branch, nil
 }
 
-// fetchCommitAt fetches one named commit of a module's repository, for a
-// version that already names one. The ls-remote is still what finds where the
+// fetchCommitAt fetches the named commit of a module's repository, for a
+// version that already names a commit. The ls-remote is still what finds where the
 // repository stops and the module's subdirectory inside it starts.
 func fetchCommitAt(r runner.CommandRunner, mod, hash string) (*gitCommit, func(), error) {
 	gitURL, _, err := resolveGitURLAndRef(r, mod, "HEAD")
@@ -229,7 +229,7 @@ func fetchAt(r runner.CommandRunner, mod, gitURL, fullHash string) (*gitCommit, 
 		ShortHash: fullHash[:12],
 	}
 
-	// Shallow fetch just the commit: --depth=1 still carries its whole tree.
+	// The shallowest fetch of the commit still carries its whole tree.
 	tmpDir, err := os.MkdirTemp("", "resolve-*")
 	if err != nil {
 		return nil, nil, err
@@ -263,7 +263,7 @@ func fetchAt(r runner.CommandRunner, mod, gitURL, fullHash string) (*gitCommit, 
 }
 
 // moduleSubdir returns the directory mod occupies inside the repository
-// whose module-path prefix is root. A "/vN" suffix is trimmed first, since
+// whose module-path prefix is root. A major-version suffix is trimmed, since
 // it names no directory.
 func moduleSubdir(mod, root string) string {
 	prefix, pathMajor, ok := module.SplitPathVersion(mod)

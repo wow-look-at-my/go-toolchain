@@ -17,10 +17,8 @@ func TestParseProfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
-	// Build test data with known coverage:
-	// file1: 2 statements, 1 covered (50%)
-	// file2: 2 statements, 2 covered (100%)
-	// total: 4 statements, 3 covered (75%)
+	// Build test data with known coverage: file1 partly covered, file2 fully
+	// covered, and a statement-weighted total across both.
 	lines := []struct {
 		file       string
 		statements int
@@ -102,9 +100,9 @@ func TestParseProfileMergesDuplicates(t *testing.T) {
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
-	// Simulate Go 1.25 -coverpkg=./... output where each block appears once
-	// per test package. Block at line 10 is covered by one test package,
-	// block at line 14 is never covered.
+	// Simulate a recent Go's -coverpkg=./... output, where each block reappears
+	// per test package. The leading block is covered by a single test package,
+	// the block below it is never covered.
 	content := `mode: set
 example.com/pkg/file1.go:10.20,12.2 1 0
 example.com/pkg/file1.go:10.20,12.2 1 0
@@ -118,7 +116,7 @@ example.com/pkg/file1.go:14.20,16.2 1 0
 	total, files, err := ParseProfile(coverFile)
 	require.NoError(t, err)
 
-	// After merging: 2 unique blocks, 1 covered → 50%
+	// After merging, the duplicates collapse into the unique blocks
 	assert.Equal(t, float32(50), total)
 	assert.Equal(t, 1, len(files))
 	assert.Equal(t, 2, files[0].Statements)
@@ -146,7 +144,7 @@ func TestFilterBlocksByReachableNil(t *testing.T) {
 		{file: "example.com/pkg2/file.go", statements: 3, count: 0},
 	}
 
-	// a zero-value set should return all blocks
+	// an unset set should return all blocks
 	filtered := filterBlocksByReachable(blocks, set.Set[string]{})
 	assert.Equal(t, 2, len(filtered))
 
@@ -159,8 +157,7 @@ func TestParseProfileFiltered(t *testing.T) {
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
-	// 3 packages: pkg1 (1 covered), pkg2 (0 covered), pkg3 (1 covered)
-	// Only pkg1 and pkg3 are reachable
+	// pkg1 and pkg3 are covered, pkg2 is not; only pkg1 and pkg3 are reachable
 	content := `mode: set
 example.com/pkg1/file.go:10.20,12.2 1 1
 example.com/pkg2/file.go:10.20,12.2 1 0
@@ -173,11 +170,11 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 	total, files, err := ParseProfileFiltered(coverFile, reachable)
 	require.NoError(t, err)
 
-	// Should only include pkg1 and pkg3: 2/2 = 100%
+	// Should only include pkg1 and pkg3, which are fully covered
 	assert.Equal(t, float32(100), total)
 	assert.Equal(t, 2, len(files))
 
-	// Without filtering: 2/3 = 66.67%
+	// Without filtering, the uncovered package drags the total down
 	totalUnfiltered, filesUnfiltered, err := ParseProfile(coverFile)
 	require.NoError(t, err)
 	assert.Equal(t, 3, len(filesUnfiltered))

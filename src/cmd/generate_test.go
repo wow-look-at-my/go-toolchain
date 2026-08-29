@@ -39,7 +39,7 @@ func TestParseDirectivesLongLines(t *testing.T) {
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
-	// The directive must be found on lines before and after one exceeding bufio's 4KB buffer.
+	// The directive must be found on lines before and after a line exceeding bufio's buffer.
 	longLine := "var x = \"" + strings.Repeat("A", 100_000) + "\"\n"
 
 	content := "package main\n\n" +
@@ -249,7 +249,7 @@ func TestRunGenerateWithHash(t *testing.T) {
 		"//go:generate sh -c \"echo generated > generated.txt\"\n"
 	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
-	// First, get the hash by finding directives
+	// Get the hash by finding directives
 	directives, err := findGenerateDirectives(".")
 	require.Nil(t, err)
 	hash := computeDirectivesHash(directives)

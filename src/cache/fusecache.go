@@ -29,8 +29,8 @@ type FuseCache struct {
 // newFuseCache opens the pack store under cacheDir/packs and mounts a read-only
 // FUSE filesystem at cacheDir/mnt.
 //
-// It first takes an exclusive, non-blocking flock on cacheDir/.fuse.lock. Only
-// the lock holder owns the mount and pack store; a second caller on the same
+// It starts by taking an exclusive, non-blocking flock on cacheDir/.fuse.lock.
+// Only the lock holder owns the mount and pack store; a later caller on the same
 // cacheDir gets errFuseBusy and falls back to the loose cache. This is the
 // safety interlock that prevents a nested go-toolchain run (e.g. a test that
 // calls enableCacheProg, inheriting the same XDG_CACHE_HOME) from unmounting
@@ -55,7 +55,7 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 		}
 		return nil, fmt.Errorf("fuse cache lock %s: %w", filepath.Join(cacheDir, fuseLockName), err)
 	}
-	// Holding the lock means any mount left on mnt is stale; clear it first.
+	// Holding the lock means any mount left on mnt is stale; clear it before mounting.
 	_ = syscall.Unmount(mnt, unmountDetach)
 
 	if err := os.MkdirAll(mnt, 0o755); err != nil {
@@ -77,7 +77,7 @@ func newFuseCache(cacheDir string) (fuseStore, error) {
 		AttrTimeout:     &entryTimeout,
 		NegativeTimeout: &negativeTimeout,
 		MountOptions: fuse.MountOptions{
-			// mount(2) direct as root; falls back to fusermount for non-root runners.
+			// the mount syscall direct as root; falls back to fusermount for non-root runners.
 			DirectMount: true,
 			FsName:      "go-toolchain-cache",
 			Name:        "gtcache",
@@ -162,12 +162,12 @@ func (c *FuseCache) StatsPtr() *CacheStats { return &c.store.Stats }
 //
 // go-fuse's Unmount shells out to the fusermount helper, which is absent in
 // root/direct-mount environments (containers, this CI). When it fails we unmount
-// with the unmount(2) syscall directly (we're root if there's no fusermount),
-// then wait for the serve loop to drain once /dev/fuse closes.
+// with the unmount syscall directly (we're root if there's no fusermount),
+// then wait for the serve loop to drain as soon as /dev/fuse closes.
 func (c *FuseCache) Close() error {
 	var firstErr error
 	if c.server != nil {
-		// Try a clean unmount, then unmount(2), then a lazy detach.
+		// Try a clean unmount, then the unmount syscall, then a lazy detach.
 		unmounted := false
 		if err := c.server.Unmount(); err == nil {
 			unmounted = true
@@ -212,7 +212,7 @@ func (r *fuseRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 	return child, 0
 }
 
-// inoFor derives a stable, non-zero inode number from an outputID.
+// inoFor derives a stable, non-empty inode number from an outputID.
 func inoFor(name string) uint64 {
 	h := fnv.New64a()
 	h.Write([]byte(name))
@@ -222,7 +222,7 @@ func inoFor(name string) uint64 {
 	return 1
 }
 
-// fuseFile serves one cached body, reading on demand from the pack store.
+// fuseFile serves a cached body, reading on demand from the pack store.
 type fuseFile struct {
 	fs.Inode
 	store *PackStore
@@ -251,7 +251,7 @@ func (f *fuseFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint3
 }
 
 func (f *fuseFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
-	// Zero-copy: hand the kernel the pack fd + offset instead of copying through the daemon.
+	// No copying: hand the kernel the pack fd + offset instead of copying through the daemon.
 	fd, absOff, avail := f.store.fdForRead(f.loc, off)
 	if avail <= 0 {
 		return fuse.ReadResultData(nil), 0

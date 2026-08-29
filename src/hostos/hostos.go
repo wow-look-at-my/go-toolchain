@@ -2,8 +2,8 @@
 
 // Package hostos reports the operating system of the HOST the binary is
 // actually running on, as opposed to runtime.GOOS, which reports what the
-// binary was compiled for. The two differ only for GOOS=cosmo fat APEs built
-// with the gosmopolitan fork: one cosmo binary runs on Linux and macOS hosts
+// binary was compiled for. They differ only for GOOS=cosmo fat APEs built
+// with the gosmopolitan fork: a cosmo binary runs on Linux and macOS hosts
 // while runtime.GOOS stays "cosmo". (On Windows hosts a fat APE runs its
 // embedded native GOOS=windows payload, so runtime.GOOS is already correct
 // there.) Callers that pick host-specific resources — go.dev toolchain
