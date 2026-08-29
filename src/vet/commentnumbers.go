@@ -16,7 +16,7 @@ import (
 
 // CommentNumbersAnalyzer reports a number in a comment, in digits or in words.
 // A comment that counts what sits below it is wrong the moment an item is
-// added. Org modules FAIL; others WARN. Depth: docs/VET.md
+// added. Always a warning; the budget fails the build. Depth: docs/VET.md
 var CommentNumbersAnalyzer = &analysis.Analyzer{
 	Name:       "commentnumbers",
 	Doc:        "reports a number in a comment; name what the code does instead of counting it",
@@ -51,12 +51,13 @@ var commentNumbersWarned sync.Map
 // resetCommentNumbersWarnings forgets prior warnings, so a re-run after a fix reports its sites again.
 func resetCommentNumbersWarnings() { commentNumbersWarned.Clear() }
 
+// A finding is always a warning, in every module. A comment that counts is
+// stale prose, not broken code, so it must not fail a build by itself -- but
+// they pile up fast, so the warnings budget (docs/WARNINGS-GATE.md) is what
+// turns a repo full of them red.
 func runCommentNumbers(pass *analysis.Pass) (any, error) {
-	report := pass.Reportf
-	if !isOrgModule(pass.Module) {
-		report = func(pos token.Pos, format string, args ...any) {
-			warnAt(&commentNumbersWarned, pass, pos, format, args...)
-		}
+	report := func(pos token.Pos, format string, args ...any) {
+		warnAt(&commentNumbersWarned, pass, pos, format, args...)
 	}
 	for _, file := range pass.Files {
 		if skipCommentNumbers(pass, file) {
