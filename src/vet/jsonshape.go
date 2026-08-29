@@ -2,15 +2,13 @@ package vet
 
 import "strings"
 
-// jsonHole stands for an interpolated value while text is classified. Go
-// source cannot hold this byte, so it never collides with the text it replaces.
+// jsonHole stands for an interpolated value. Go source cannot hold this byte.
 const jsonHole = '\x00'
 
-// isJSONDocument reports whether text is JSON with values dropped into it.
-// Two things must hold. Outside its quoted strings the text spells nothing but
-// JSON syntax, so prose that quotes an example stays silent. And it shows one
-// of three shapes: a quoted key, an array holding a string or an object, or an
-// object holding a string. Depth: docs/VET.md
+// isJSONDocument reports whether text is JSON with values dropped into it: the
+// text outside its quoted strings spells only JSON syntax, and it shows a
+// quoted key, an array holding a string or an object, or an object holding a
+// string. Depth: docs/VET.md
 func isJSONDocument(text string) bool {
 	outside, key := scanJSONStrings(text)
 	if !onlyJSONSyntax(outside) {
@@ -92,8 +90,7 @@ func bracketed(s string, opens, closes byte) bool {
 	return len(s) >= 2 && s[0] == opens && s[len(s)-1] == closes
 }
 
-// verbFlags are the bytes a format verb may carry between its percent sign and
-// its letter: the flags, a width, a precision and an argument index.
+// verbFlags are the bytes a verb may carry between its percent sign and its letter.
 const verbFlags = "+-# 0123456789.*[]"
 
 // normalizeVerbs replaces each format verb with a hole and reports how many it
