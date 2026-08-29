@@ -395,7 +395,14 @@ reported, and a generated file is skipped entirely.
 
 ### Scope
 
-Severity is the split the other checks carry: an org module FAILS
-(`isOrgModule`), everywhere else WARNS. There is no opt-out marker and no
-module exemption. Every package variant walks the same file, so warned sites
-are deduplicated by `file:line` for a vet run (`resetCommentNumbersWarnings`).
+A finding is a WARNING, in every module -- unlike the set checks, org code is
+not held to a harder severity here. A stale count is prose, not broken code,
+so it must not fail a build on its own. They arrive by the dozen though, so
+the warnings budget (`docs/WARNINGS-GATE.md`) is what turns a repo full of
+them red, and a repo with a handful stays green while its author rewrites
+them.
+
+There is no opt-out marker and no module exemption. A warning is spent per
+`file:line`, so a sentence naming several numbers costs a single warning and a
+package walked under several variants still costs that one
+(`resetCommentNumbersWarnings`).
