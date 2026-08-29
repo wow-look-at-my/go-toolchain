@@ -10,51 +10,13 @@ import (
 // The default matrix builds ONE fat APE, not a per-platform binary each. This
 // is the whole point of the change: no target flags means one artifact.
 func TestResolveMatrixPlatformsDefaultsToOneAPE(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
-	matrixOS, matrixArch, matrixTargets = nil, nil, nil
+	oldTargets := matrixTargets
+	defer func() { matrixTargets = oldTargets }()
+	matrixTargets = nil
 
 	got, err := resolveMatrixPlatforms()
 	require.NoError(t, err)
 	assert.Equal(t, []buildPlatform{{OS: cosmoOS, Arch: cosmoFatArch}}, got)
-}
-
-// Naming --os or --arch is what asks for per-platform binaries; the half the
-// caller left out falls back to its historic default rather than erroring.
-func TestResolveMatrixPlatformsHalfCartesian(t *testing.T) {
-	oldOS, oldArch, oldTargets := matrixOS, matrixArch, matrixTargets
-	defer func() { matrixOS, matrixArch, matrixTargets = oldOS, oldArch, oldTargets }()
-	matrixTargets = nil
-
-	t.Run("arch only", func(t *testing.T) {
-		matrixOS, matrixArch = nil, []string{"arm64"}
-		got, err := resolveMatrixPlatforms()
-		require.NoError(t, err)
-		assert.Equal(t, []buildPlatform{
-			{OS: "linux", Arch: "arm64"},
-			{OS: "darwin", Arch: "arm64"},
-			{OS: "windows", Arch: "arm64"},
-		}, got)
-	})
-
-	t.Run("os only", func(t *testing.T) {
-		matrixOS, matrixArch = []string{"linux"}, nil
-		got, err := resolveMatrixPlatforms()
-		require.NoError(t, err)
-		assert.Equal(t, []buildPlatform{
-			{OS: "linux", Arch: "amd64"},
-			{OS: "linux", Arch: "arm64"},
-		}, got)
-	})
-
-	// The flags are read, never rewritten: a caller that resolves twice must
-	// get the same answer both times.
-	t.Run("resolution does not mutate the flags", func(t *testing.T) {
-		matrixOS, matrixArch = []string{"linux"}, nil
-		_, err := resolveMatrixPlatforms()
-		require.NoError(t, err)
-		assert.Nil(t, matrixArch, "--arch must stay as the caller left it")
-	})
 }
 
 func TestParseCosmoPlatforms(t *testing.T) {
