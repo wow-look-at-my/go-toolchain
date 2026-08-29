@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 		s := inspectFD(1)
 		result := "HELPER_KIND=" + strconv.Itoa(int(s.kind)) + " HELPER_DETAIL=" + s.detail + "\n"
 		if path := os.Getenv("CLAUDEGUARD_TEST_RESULT_FILE"); path != "" {
-			// script(1) dup2s fd 2 onto the same pty as fd 1; use a plain file instead.
+			// The script tool dup2s stderr onto the same pty as stdout; use a plain file instead.
 			_ = os.WriteFile(path, []byte(result), 0o600)
 		} else {
 			os.Stderr.WriteString(result)
@@ -43,9 +43,9 @@ func TestMain(m *testing.M) {
 }
 
 // runSocketPeerHelper creates a real AF_UNIX socketpair, re-execs this test
-// binary with one end as its stdout (closing our own copy immediately, like
+// binary with the far end as its stdout (closing our own copy immediately, like
 // opencode/Node do, rather than after Wait — see socketharness.go), and
-// returns what the helper's inspectFD(1) classified that fd as.
+// returns what the helper's inspectFD classified that fd as.
 func runSocketPeerHelper(t *testing.T, extraEnv ...string) (sinkKind, string) {
 	t.Helper()
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
@@ -74,8 +74,8 @@ func runSocketPeerHelper(t *testing.T, extraEnv ...string) (sinkKind, string) {
 }
 
 // runScriptWrapperHelper reproduces the reported bypass verbatim:
-// `script -qec "<helper>" LOGFILE`. script(1) forkpty()s a fresh pty and
-// dup2s it onto the child's stdin/stdout/stderr, so isatty(1) passes inside
+// `script -qec "<helper>" LOGFILE`. The script tool forkpty()s a fresh pty and
+// dup2s it onto the child's stdin/stdout/stderr, so isatty passes inside
 // the helper even though script simultaneously writes everything the pty
 // produces to LOGFILE byte for byte -- the exact hole ptyWrapperAncestor
 // (claudeguard_ptywrap.go) closes. The helper reports what it saw through a
@@ -113,9 +113,9 @@ func runScriptWrapperHelper(t *testing.T, extraEnv ...string) (kind sinkKind, de
 
 // TestScriptWrapperCannotFakeATerminal is the reported bypass, run for real:
 // `script -qec "go-toolchain" /tmp/gt-full3.log` (here, the test helper
-// standing in for go-toolchain). Before ptyWrapperAncestor existed, fd 1's
+// standing in for go-toolchain). Before ptyWrapperAncestor existed, stdout's
 // isatty() check alone would have classified this as sinkVisible -- a real
-// terminal -- because a pty slave IS one, regardless of who allocated it.
+// terminal -- because a pty slave IS a terminal, regardless of who allocated it.
 func TestScriptWrapperCannotFakeATerminal(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("needs /proc (linux)")
@@ -326,7 +326,7 @@ func TestInspectFDClassification(t *testing.T) {
 
 	t.Run("harness_capture_file_is_allowed", func(t *testing.T) {
 		t.Setenv("CLAUDE_CODE_SESSION_ID", "SID-unit-test")
-		// A path embedding the session id is the harness's transcript capture, the one redirect that doesn't hide output.
+		// A path embedding the session id is the harness's transcript capture, the only redirect that doesn't hide output.
 		f, err := os.CreateTemp(t.TempDir(), "SID-unit-test-*.output")
 		require.NoError(t, err)
 		defer f.Close()

@@ -10,7 +10,7 @@
 // under cosmo on linux hosts. On a darwin host the APE has no /proc, so this
 // classifier is blind and the guard cannot fire; that is a KNOWN GAP, not a
 // design — see unclassifiableSink, which says so out loud, and
-// docs/AGENT-OUTPUT-GUARD.md for what closing it needs. isTerminal is the one
+// docs/AGENT-OUTPUT-GUARD.md for what closing it needs. isTerminal is the only
 // piece needing a platform ioctl and lives in claudeguard_tty_{linux,cosmo}.go.
 
 package cmd
@@ -26,7 +26,7 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// Classifies where stdout (fd 1) is going, before the watchdog rewires it, so it sees the real descriptor the shell set up.
+// Classifies where stdout is going, before the watchdog rewires it, so it sees the real descriptor the shell set up.
 func inspectStdout() outputSink {
 	return inspectFD(os.Stdout.Fd())
 }
@@ -104,7 +104,7 @@ func inspectFD(fd uintptr) outputSink {
 	switch {
 	case mode&os.ModeCharDevice != 0:
 		if isTerminal(fd) {
-			// script(1) and friends forkpty() a pty exactly to pass this
+			// The script tool and friends forkpty() a pty exactly to pass this
 			// check; see claudeguard_ptywrap.go.
 			if wrapper, ok := ptyWrapperAncestorFn(); ok {
 				return outputSink{kind: sinkHidden, detail: wrapper}
@@ -123,7 +123,7 @@ func inspectFD(fd uintptr) outputSink {
 	return outputSink{kind: sinkVisible} // unknown disposition — don't block
 }
 
-// unclassifiableSink: one unreadable fd allows silently; no classifier at
+// unclassifiableSink: an unreadable fd allows silently; no classifier at
 // all warns and allows -- a future classifier should refuse instead.
 func unclassifiableSink() outputSink {
 	if host := hostos.GOOS(); host != "linux" {
@@ -132,7 +132,7 @@ func unclassifiableSink() outputSink {
 	return unreadableDescriptorSink()
 }
 
-// unreadableDescriptorSink answers for one descriptor that could not be read
+// unreadableDescriptorSink answers for a descriptor that could not be read
 // on a host whose classifier otherwise works.
 func unreadableDescriptorSink() outputSink {
 	return outputSink{kind: sinkVisible}
@@ -145,7 +145,7 @@ func blindClassifierSink(host string) outputSink {
 	return outputSink{kind: sinkVisible}
 }
 
-// Reports once per run that the guard is blind on this host, via the
+// Reports a single time per run that the guard is blind on this host, via the
 // guard's stderr writer -- stdout is what it fires on capturing.
 func warnGuardInoperative(host string) {
 	guardInoperativeOnce.Do(func() {
@@ -155,8 +155,8 @@ func warnGuardInoperative(host string) {
 
 var guardInoperativeOnce sync.Once
 
-// guardInoperativeBanner is the warning, held as one document. Its values are
-// the two colours and the host, which it names twice.
+// guardInoperativeBanner is the warning, held as a document. Its values are
+// the colours and the host, which it names in both the headline and the body.
 const guardInoperativeBanner = "\n%s⚠ go-toolchain's agent output guard is INOPERATIVE on this %s host.%s\n" +
 	"This binary classifies stdout through /proc, which %s does not have, so it\n" +
 	"cannot tell whether its output is being captured and will not refuse a run\n" +
@@ -171,7 +171,7 @@ const guardInoperativeBanner = "\n%s⚠ go-toolchain's agent output guard is INO
 
 // pipePeerName returns the comm and pid of another process holding the same
 // pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends of
-// an anonymous pipe share one inode, so a process (other than us) whose fd
+// an anonymous pipe share an inode, so a process (other than us) whose fd
 // symlinks to the same target is the consumer.
 func pipePeerName(target string) (comm string, pid int, ok bool) {
 	self := os.Getpid()

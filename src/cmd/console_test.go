@@ -16,9 +16,9 @@ func TestColorPct(t *testing.T) {
 		pct      float32
 		contains string
 	}{
-		{0, "\033[38;2;255;0;0m"},   // Red for 0%
-		{100, "\033[38;2;0;255;0m"}, // Green for 100%
-		{50, "50.0%"},               // Contains the percentage
+		{0, "\033[38;2;255;0;0m"},   // red at the bottom of the range
+		{100, "\033[38;2;0;255;0m"}, // green at the top of the range
+		{50, "50.0%"},               // contains the percentage
 	}
 
 	for _, tc := range tests {
@@ -34,7 +34,7 @@ func TestColorPctCustomFormat(t *testing.T) {
 }
 
 func TestColorPctBoundaries(t *testing.T) {
-	// Test that values outside 0-100 don't crash
+	// A percentage outside the range must not crash
 	_ = colorPct(ColorPct{Pct: -10})
 	_ = colorPct(ColorPct{Pct: 150})
 }
@@ -71,7 +71,7 @@ func captureStdout(f func()) string {
 	return buf.String()
 }
 
-// captureCombinedOutput runs f with stdout and stderr merged into one stream.
+// captureCombinedOutput runs f with stdout and stderr merged into a single stream.
 // Use it when a message may route to either, depending on environment (e.g.
 // logger.Warn: stderr locally, a ::warning annotation on stdout in CI).
 func captureCombinedOutput(f func()) string {
@@ -151,16 +151,15 @@ func TestTimedLineWriter(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	w.Write([]byte("go: downloading bar v2.0\n"))
 
-	// First line should now be closed with timing
+	// The earlier line should now be closed with timing
 	output := buf.String()
 	assert.Contains(t, output, "go: downloading foo v1.0 ")
 	assert.Contains(t, output, colorDimCyan)
 
-	// Flush closes the second line
+	// Flush closes the remaining line
 	w.Flush()
 	output = buf.String()
 	assert.Contains(t, output, "go: downloading bar v2.0 ")
-	// Should have exactly 2 lines
 	lines := bytes.Count([]byte(output), []byte("\n"))
 	assert.Equal(t, 2, lines)
 }
@@ -219,10 +218,10 @@ func TestLogStepNoteOutputIdempotent(t *testing.T) {
 	output := captureStdout(func() {
 		s := logStep("test")
 		s.noteOutput()
-		s.noteOutput() // second call should be no-op
+		s.noteOutput() // the repeat call should be a no-op
 		s.done()
 	})
-	// Only one newline after "..." (not two)
+	// A single newline after the ellipsis, never a repeat
 	count := 0
 	for i := 0; i < len(output)-3; i++ {
 		if output[i:i+4] == "...\n" {
