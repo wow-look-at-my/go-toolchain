@@ -146,9 +146,8 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 	return out, nil
 }
 
-// resolveMatrixPlatforms turns the target flags into the platforms to build.
-// With no flags the answer is ONE cosmo fat APE covering --cosmo-platforms;
-// --targets only adds wasm artifacts, or drops "cosmo" for wasm alone.
+// resolveMatrixPlatforms turns --targets into the platforms to build. With
+// no flag the answer is ONE cosmo fat APE covering --cosmo-platforms.
 func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	if len(matrixTargets) > 0 {
 		return parseTargetList(matrixTargets)
