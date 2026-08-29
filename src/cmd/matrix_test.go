@@ -88,7 +88,8 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 
 func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
-	os.WriteFile("x_test.go", []byte("package main\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
+	// Canonical spacing, like main.go: the module is real, so in CI vet checks this fixture instead of rewriting it.
+	os.WriteFile("x_test.go", []byte("package main\n\nimport \"testing\"\n\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
 
 	oldJSON := jsonOutput
 	releaseParallel = 1
