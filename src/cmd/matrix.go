@@ -18,7 +18,6 @@ var (
 	releaseParallel int
 )
 
-
 func init() {
 	matrixCmd := &cobra.Command{
 		Use:   "matrix",
