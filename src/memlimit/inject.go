@@ -33,8 +33,6 @@ import (
 // GuardFileName names the generated guard; main-package discovery skips it so a stale copy is never misread as a real main package.
 const GuardFileName = gomod.MemLimitGuardFileName
 
-// guardSource is the exact content written into each main package.
-//
 //go:embed testdata/guard.go
 var guardSource string
 

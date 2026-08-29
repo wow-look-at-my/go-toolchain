@@ -15,8 +15,9 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **File length checks** — warns at 500 lines, fails at 750. Generated files are exempt unless `--count-generated` is passed.
 - **Auto-fix, or CI check** — locally the linter fixes violations in place; on CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.
 - **testify migration** — rewrites fork and `gotest.tools` imports to upstream `stretchr/testify`, adding the type conversions upstream's strict comparisons need. See [docs/VET.md](docs/VET.md).
-- **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`) and
-  `writeruns` (a document written one string at a time). See [docs/VET.md](docs/VET.md).
+- **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`),
+  `writeruns` (a document written one string at a time) and `jsoninterp` (JSON built by formatting, concatenation or a template).
+  See [docs/VET.md](docs/VET.md).
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval.
 - **Dependency handling** — auto-updates same-org deps; every `github.com/wow-look-at-my/` dependency tracks a branch via a `// go-toolchain:auto-branch` marker. See [docs/DEPS.md](docs/DEPS.md).
 - **Dependency graph submission** — submits a dependency snapshot to GitHub in CI, feeding the repo's dependency graph. No opt-out; a failed submission fails the build.

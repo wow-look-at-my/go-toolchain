@@ -18,9 +18,7 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// ptyWrapperProcs forkpty() a fresh pty around a child so its isatty checks
-// pass. Exact /proc comm match, not prefix. tmux/screen are absent: they
-// relay to a real display, not a file.
+// ptyWrapperProcs give a child a fresh pty, so isatty passes. Exact comm match. Depth: docs/AGENT-OUTPUT-GUARD.md
 var ptyWrapperProcs = set.Of(
 	"script",
 	"scriptreplay",
