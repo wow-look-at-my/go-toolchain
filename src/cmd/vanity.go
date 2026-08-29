@@ -38,7 +38,7 @@ var directMirrorHosts = set.Of(
 
 type vanityModule struct {
 	Path    string // e.g. "gotest.tools/gotestsum"
-	Version string // e.g. "v1.13.0"
+	Version string // e.g. "vX.Y.Z"
 	Host    string // e.g. "gotest.tools"
 }
 
@@ -122,11 +122,11 @@ func isVanityHostReachable(host string) bool {
 // namespace that maps to the repository; any path beyond the prefix is a
 // sub-module path within the repo.
 //
-// It first queries the Go module proxy (go mod download -json) to get the
+// It queries the Go module proxy (go mod download -json) for the
 // Origin URL and Subdir, then falls back to the go-import meta tag on the
 // vanity host.
 func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
-	// Strategy 1: use go mod download -json via proxy to get Origin.URL
+	// The proxy strategy: go mod download -json gives Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
 	// Outside the module dir, so this can't pull in the full requirement graph.
 	cmd.Dir = os.TempDir()
@@ -148,7 +148,7 @@ func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
 		}
 	}
 
-	// Strategy 2: try go-import meta tag (host may be intermittently available)
+	// The fallback strategy: the go-import meta tag (host may be intermittently available)
 	return resolveGoImportMeta(modulePath)
 }
 
@@ -402,9 +402,9 @@ func removeVanityReplaces(state *vanityState) error {
 // checkDirtyInCI call sites, which run after the deferred restore.
 //
 // Real dirt still fails: only this run's own injected replaces are dropped, so any
-// other go.mod change survives and is reported. One narrowing: while a vanity host
+// other go.mod change survives and is reported. A narrowing: while a vanity host
 // is down, go.sum drift is indistinguishable from tidy's path swap and gets
-// restored away; it fails on the very next run once the host is reachable.
+// restored away; it fails on the very next run, as soon as the host is reachable.
 func checkDirtyInCIWithVanityRestored(state *vanityState) error {
 	if state == nil || len(state.Replaces) == 0 || os.Getenv("CI") == "" {
 		return checkDirtyInCI()
