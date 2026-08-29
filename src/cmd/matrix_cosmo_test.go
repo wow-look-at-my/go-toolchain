@@ -85,7 +85,7 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 
 // A cosmo build produces ONE file. This pins that outcome from the outside --
 // the build directory itself -- rather than from any flag: a copy of the APE
-// under a per-platform name is a thing this repo can no longer express.
+// under a per-platform name is a thing this repo cannot express.
 func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo"})
 

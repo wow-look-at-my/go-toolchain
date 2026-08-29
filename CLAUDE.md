@@ -72,8 +72,8 @@ coverage.
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` builds ONE fat APE**, the org's only native
   output: no target flags means one `<name>` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
   fork as `GOCOSMOPLATFORMS`; unverified hosts are refused, and an unaware toolchain is detected and warned about rather than silently ignoring
-  the set). `--targets` accepts only `cosmo` and the wasm targets (`wasm/js`, `wasm/wasip1`) — a native `os/arch` pair is rejected, since
-  per-platform binaries (the old `--os`/`--arch` cartesian product) have been removed outright. A cosmo build writes the APE and nothing else:
+  the set). `--targets` accepts only `cosmo` and the wasm targets (`wasm/js`, `wasm/wasip1`); a native `os/arch` pair is rejected, and no flag
+  builds a per-platform native binary at all. A cosmo build writes the APE and nothing else:
   no flag copies it onto per-platform names, so a duplicate is unreachable rather than checked for. Depth: `docs/CMD.md`
 - `src/cmd/apemanifest.go` — `build/buildhost-artifacts.json`: names the APE, its platform SET and the plain filename the download is served
   under, so buildhost publishes it as ONE artifact row with one download link instead of one row per platform. Depth: `docs/BUILDHOST-MANIFEST.md`

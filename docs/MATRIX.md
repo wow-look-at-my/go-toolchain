@@ -3,9 +3,8 @@ See [WASM.md](WASM.md) for the `wasm/js` and `wasm/wasip1` targets, which share
 this command and its fork toolchain.
 
 > **Shipping policy.** The `wow-look-at-my` org ships **one APE covering every
-> supported platform**. The fat APE is the command's only native output:
-> per-platform binaries (matrix mode's old cartesian `--os`/`--arch` product)
-> have been removed outright, not just deprecated. `--targets` accepts only
+> supported platform**. The fat APE is the command's only native output, and
+> there is no flag for a per-platform native binary: `--targets` accepts only
 > `cosmo` and the wasm targets below.
 
 `go-toolchain matrix` builds **one** file: a fat Actually Portable Executable,
