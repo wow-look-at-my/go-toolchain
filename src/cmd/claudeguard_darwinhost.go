@@ -1,9 +1,9 @@
 //go:build darwin || cosmo
 
-// The classifier for a darwin HOST, shared by the two builds that can run on
-// one: a native GOOS=darwin binary, and a GOOS=cosmo fat APE executing on a
-// Mac. One algorithm, because two copies would drift and the copy nobody runs
-// locally is the one that would rot.
+// The classifier for a darwin HOST, shared by both builds that can run on
+// such a host: a native GOOS=darwin binary, and a GOOS=cosmo fat APE executing
+// on a Mac. A shared algorithm, because rival copies would drift and the copy
+// nobody runs locally is the copy that would rot.
 //
 // darwin has no /proc, so this cannot reuse claudeguard_proc.go. What varies
 // per build is only HOW the probes are made

@@ -41,7 +41,7 @@ func TestEnableCacheProg(t *testing.T) {
 	os.Unsetenv("GOCACHEPROG")
 	os.Unsetenv("GOCACHE_STATS_SOCK")
 	statsListener = nil
-	resolvedGoMinor = 25 // simulate bootstrapped Go 1.25
+	resolvedGoMinor = 25 // simulate a bootstrapped Go new enough for the cacheprog protocol
 
 	err := enableCacheProg()
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestPrintCacheStats_NoListener(t *testing.T) {
 	statsListener = nil
 	cacheEnabled = true
 	cacheSetupErr = fmt.Errorf("stats listener: dial unix /tmp/x.sock: permission denied")
-	resolvedGoMinor = 25 // simulate bootstrapped Go 1.25
+	resolvedGoMinor = 25 // simulate a bootstrapped Go new enough for the cacheprog protocol
 	defer func() {
 		statsListener = old
 		cacheEnabled = oldEnabled
@@ -250,7 +250,7 @@ func TestParseBuildCacheConfig_LineWrappedBase64(t *testing.T) {
 
 	raw := `{"endpoint":"s3.example.com","bucket":"mybucket","region":"eu-west-1","key_id":"AKID","access_key":"SECRET"}`
 	encoded := base64.StdEncoding.EncodeToString([]byte(raw))
-	// Insert newlines every 76 characters (MIME-style wrapping)
+	// Insert newlines at the MIME wrapping column
 	var wrapped string
 	for i := 0; i < len(encoded); i += 76 {
 		end := i + 76

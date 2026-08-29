@@ -11,7 +11,7 @@ import (
 const tcgets = 0x5401
 
 // isTerminal mirrors the linux TCGETS check via the fork's stdlib syscall.
-// Only reached on linux; darwin bails first (no /proc).
+// Only reached on linux; darwin bails out earlier (no /proc).
 func isTerminal(fd uintptr) bool {
 	var t syscall.Termios
 	return syscall.Ioctl(int(fd), tcgets, uintptr(unsafe.Pointer(&t))) == nil

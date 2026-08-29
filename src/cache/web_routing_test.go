@@ -2,7 +2,7 @@ package cache
 
 // Tests index-driven fetch routing: keys the AUTHORITATIVE index lists route
 // through batch; keys it omits miss with no round-trip. Only an
-// in-protocol 404 marks knownMiss and reclaims a stale index claim.
+// in-protocol not-found marks knownMiss and reclaims a stale index claim.
 
 import (
 	"archive/tar"
@@ -21,16 +21,16 @@ import (
 )
 
 // TestWebBackend_EmptyIndexSkipsBatch is the regression for the cold-build
-// waste: when the remote's AUTHORITATIVE key index is empty (a real 200 blob
-// with zero keys), a /_batch/get can only ever return zero entries, so the
+// waste: when the remote's AUTHORITATIVE key index is empty (a real served blob
+// holding no keys), a /_batch/get can only ever come back empty, so the
 // backend must skip the network entirely and miss cleanly. Before the fix,
 // every cold key paid a round-trip per key (thousands of empty batches, ~27s),
-// since a 200-with-0-entries is a healthy response the per-op retry path never
+// since a served-but-empty batch is a healthy response the per-op retry path never
 // backs off from.
 func TestWebBackend_EmptyIndexSkipsBatch(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	var batchGets, puts atomic.Int64
-	// A real empty blob: zero keys reported authoritatively. A 404 index is a fetch failure instead (see the sibling test).
+	// A real empty blob: no keys, reported authoritatively. A missing index is a fetch failure instead (see the sibling test).
 	srv := emptyIndexServer(t, &batchGets, &puts, marshalIndex(set.New[string]()))
 	defer srv.Close()
 
@@ -43,7 +43,7 @@ func TestWebBackend_EmptyIndexSkipsBatch(t *testing.T) {
 	require.True(t, b.indexEmpty, "a zero-key blob must mark the remote index empty")
 	require.True(t, b.indexAuthoritative, "a parsed 200 blob is authoritative")
 
-	// Several distinct cold keys must all miss with zero batch round-trips.
+	// Several distinct cold keys must all miss without any batch round-trip.
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("%016x", 0xc01d0000+i)
 		_, _, _, _, miss, err := b.Get(id)
@@ -62,7 +62,7 @@ func TestWebBackend_EmptyIndexSkipsBatch(t *testing.T) {
 // list is authoritatively absent — probing it 404s/returns-empty by
 // construction. The old policy probed exactly these keys, every batch came
 // back empty, and the empty-batch backoff then disabled batching (and
-// prefetch) for the whole run on 100% of cold CI builds.
+// prefetch) for the whole run on every cold CI build.
 func TestWebBackend_AuthoritativeIndexSkipsAbsentKeys(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	var batchGets, puts atomic.Int64
@@ -94,14 +94,14 @@ func TestWebBackend_AuthoritativeIndexSkipsAbsentKeys(t *testing.T) {
 	require.Equal(t, uint32(0), b.SkippedEmptyIndex.Load())
 }
 
-// TestWebBackend_IndexFetchFailureStillProbes is the #259 recovery path: when
+// TestWebBackend_IndexFetchFailureStillProbes is the recovery path: when
 // the index fetch FAILS (here: the server has no /_index endpoint), the client
 // does not know what the server holds, so cold keys must still be batch-probed
 // — bounded by the empty-batch backoff — instead of being fast-missed forever.
 func TestWebBackend_IndexFetchFailureStillProbes(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	var batchGets, puts atomic.Int64
-	srv := emptyIndexServer(t, &batchGets, &puts, nil) // nil => 404 => fetch failure
+	srv := emptyIndexServer(t, &batchGets, &puts, nil) // nil => missing index => fetch failure
 	defer srv.Close()
 
 	b, err := NewWebBackend(WebConfig{
@@ -141,7 +141,7 @@ func TestWebBackend_EmptyIndexStillPuts(t *testing.T) {
 	err = b.Put("deadbeefdeadbeef", testOutputID(string(body)), bytes.NewReader(body), int64(len(body)))
 	require.NoError(t, err)
 
-	// Put is async; Close drains the buffered upload as one /_batch/put before we assert the remote received it.
+	// Put is async; Close drains the buffered upload as a single /_batch/put before we assert the remote received it.
 	require.NoError(t, b.Close())
 
 	require.Equal(t, int64(1), puts.Load(),
@@ -149,7 +149,7 @@ func TestWebBackend_EmptyIndexStillPuts(t *testing.T) {
 }
 
 // TestGet_IndexedKeyUsesBatch pins the fetch routing: a key the index lists
-// (an expected hit) is fetched through /_batch/get — one coalesced round-trip
+// (an expected hit) is fetched through /_batch/get — a coalesced round-trip
 // with prefetch — not via a per-key individual GET.
 func TestGet_IndexedKeyUsesBatch(t *testing.T) {
 	store := make(map[string][]byte)
@@ -179,12 +179,12 @@ func TestGet_IndexedKeyUsesBatch(t *testing.T) {
 
 // TestWebBackend_Reclaims404IndexedKey is the regression for the permanent
 // forced miss: the index advertises a key the server no longer has (stale
-// index, or evicted server-side). The 404 must drop the key from the known-
+// index, or evicted server-side). The not-found must drop the key from the known-
 // keys set so the PUT path re-uploads it — previously the standing claim made
-// Put skip as already-present, so the key 404'd on every future build.
+// Put skip as already-present, so the key stayed missing on every future build.
 func TestWebBackend_Reclaims404IndexedKey(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
-	// One deterministic /_batch/put flushed by Close, not the timer.
+	// A single deterministic /_batch/put flushed by Close, not the timer.
 	t.Setenv("GO_TOOLCHAIN_CACHE_PUT_WINDOW_MS", "5000")
 	const actionID = "aabbccdd11223344"
 
@@ -233,12 +233,12 @@ func TestWebBackend_Reclaims404IndexedKey(t *testing.T) {
 
 // TestSendBatch_TransientFailureDoesNotMarkKnownMiss is the regression for
 // upload/probe freezing: a TRANSIENT batch failure (5xx, network error) must
-// not mark its keys as confirmed-absent. Before the fix, one blip added every
+// not mark its keys as confirmed-absent. Before the fix, a single blip added every
 // in-flight key to knownMiss, so they were never re-probed for the rest of
 // the run even after the backend recovered.
 func TestSendBatch_TransientFailureDoesNotMarkKnownMiss(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
-	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "0") // deterministic: 1 request per op
+	t.Setenv("GO_TOOLCHAIN_CACHE_MAX_RETRIES", "0") // deterministic: a single request per op
 
 	const actionID = "aabbccdd11223344"
 	const key = "go-buildcache/v1" + actionID
@@ -280,7 +280,7 @@ func TestSendBatch_TransientFailureDoesNotMarkKnownMiss(t *testing.T) {
 	require.NoError(t, err)
 	defer b.Close()
 
-	// First Get: the batch 502s → miss, but the key must NOT become knownMiss.
+	// The opening Get: the batch fails → miss, but the key must NOT become knownMiss.
 	_, _, _, _, miss, err := b.Get(actionID)
 	require.NoError(t, err)
 	require.True(t, miss)

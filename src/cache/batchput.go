@@ -16,7 +16,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// batchPutManifest: first tar member sent to /_batch/put; entries carry the same metadata as X-Cache-Meta-* headers.
+// batchPutManifest: the leading tar member sent to /_batch/put; entries carry the same metadata as X-Cache-Meta-* headers.
 type batchPutManifest struct {
 	Entries []batchPutManifestEntry `json:"entries"`
 }
@@ -26,7 +26,7 @@ type batchPutManifestEntry struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
-// batchPutResponse is the JSON body the server returns from /_batch/put: one
+// batchPutResponse is the JSON body the server returns from /_batch/put: a
 // result per requested key, in any order (matched back by key).
 type batchPutResponse struct {
 	Results []batchPutResult `json:"results"`
@@ -51,7 +51,7 @@ func (b *WebBackend) putWindow() time.Duration {
 }
 
 // batchPutCoalescer collects prepped putReqs on a short coalescing window and
-// ships each batch as one /_batch/put tar. It mirrors batchCoalescer: up to
+// ships each batch as a single /_batch/put tar. It mirrors batchCoalescer: up to
 // batchMaxKeys objects per request, flushed on count, on the time window, or on
 // drain/Close. On drain it waits for all in-flight HTTP batches before exiting,
 // so Close does not return until every buffered upload has been attempted.
@@ -122,7 +122,7 @@ func (b *WebBackend) batchPutCoalescer() {
 	}
 }
 
-// buildPutTar assembles the /_batch/put request body: a tar whose first member
+// buildPutTar assembles the /_batch/put request body: a tar whose leading member
 // is manifest.json and whose subsequent data/<key> members carry each object's
 // lz4-compressed bytes, in manifest order.
 func buildPutTar(reqs []putReq) ([]byte, error) {
@@ -157,8 +157,8 @@ func buildPutTar(reqs []putReq) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// sendBatchPut ships one /_batch/put tar for all objects in reqs. The whole tar
-// is retried as a unit on a transient failure (503 admission shed / 5xx /
+// sendBatchPut ships a single /_batch/put tar for all objects in reqs. The whole tar
+// is retried as a unit on a transient failure (an admission shed, a server error,
 // network) via doRetryPUT, honoring Retry-After and rewinding the in-memory tar
 // bytes on each attempt — exactly like a single PUT keeps its compressed body.
 //
@@ -166,7 +166,7 @@ func buildPutTar(reqs []putReq) ([]byte, error) {
 //   - per-object "stored"/"conflict": success, keep the optimistic claim, count Puts.
 //   - per-object "dropped": server refused (module index); keep the claim, no retry.
 //   - per-object "error": roll back ONLY that object's claim so a later run re-uploads.
-//   - 404/405: server has no batch endpoint — set the sticky batchPutUnsupported
+//   - not-found or method-not-allowed: server has no batch endpoint — set the sticky batchPutUnsupported
 //     flag and re-issue every object in this batch on the single-PUT fallback path.
 //   - whole-request final failure (network / non-2xx after retries): roll back ALL
 //     claims in the batch so a later healthy run re-uploads them.
@@ -216,7 +216,7 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
 
-	// 404/405 → server does not support the batch endpoint. Set the sticky flag
+	// Not-found or method-not-allowed → server does not support the batch endpoint. Set the sticky flag
 	// so all subsequent PUTs this process take the single-PUT path, and re-issue
 	// every object in THIS batch on that path now.
 	if resp.StatusCode == 404 || resp.StatusCode == 405 {
@@ -297,9 +297,9 @@ func (b *WebBackend) sendBatchPut(reqs []putReq) {
 		attribute.Int64("cacheprog.batch.duration_ms", time.Since(start).Milliseconds()))
 }
 
-// putSingle uploads one prepped object via the per-object single-PUT path
+// putSingle uploads a prepped object via the per-object single-PUT path
 // (doRetryPUT). It is the fallback when the server has no /_batch/put endpoint
-// (batchPutUnsupported) and the re-issue path for a 404/405 batch response. The
+// (batchPutUnsupported) and the re-issue path for an unsupported batch response. The
 // optimistic index claim is already held by the caller; putSingle keeps it on
 // success and rolls it back on any failure, mirroring the original Put body.
 func (b *WebBackend) putSingle(pr putReq) error {
@@ -316,7 +316,7 @@ func (b *WebBackend) putSingle(pr putReq) error {
 
 	b.Pool.Acquire()
 	httpStart := time.Now()
-	// doRetryPUT rebuilds the body reader each attempt, honoring a 503 admission shed's Retry-After.
+	// doRetryPUT rebuilds the body reader each attempt, honoring an admission shed's Retry-After.
 	resp, err := b.doRetryPUT(req, pr.compressed)
 	b.Pool.Release()
 	if b.Latency != nil && err == nil {

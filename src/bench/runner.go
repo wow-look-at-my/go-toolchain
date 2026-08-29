@@ -21,7 +21,7 @@ type Options struct {
 	CPU           string // -cpu
 	Verbose       bool
 	StreamTo      io.Writer // if set, benchmark results are printed here as they complete
-	OnFirstResult func()    // called before the first benchmark result is streamed
+	OnFirstResult func()    // called before any benchmark result is streamed
 }
 
 // RunBenchmarks executes go test -bench and returns parsed results
@@ -35,7 +35,7 @@ func RunBenchmarks(r runner.CommandRunner, opts Options) (*BenchmarkReport, erro
 	if err != nil {
 		return nil, fmt.Errorf("benchmarks failed: %w", err)
 	}
-	// Tee stderr while draining it, so a dying process's complaint prints first.
+	// Tee stderr while draining it, so a dying process's complaint still prints.
 	stderrDone := make(chan struct{})
 	go func() {
 		defer close(stderrDone)

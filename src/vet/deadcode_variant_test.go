@@ -12,7 +12,7 @@ import (
 
 // A helper only a test calls is not dead: the package's test variant uses it.
 // Reading the plain variant instead made every test-only helper in this repo a
-// vet violation, and reported a genuinely dead one twice.
+// vet violation, and reported a genuinely dead symbol repeatedly.
 func TestDeadCodeAnswersFromTheVariantThatHoldsTheTests(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, body string) {

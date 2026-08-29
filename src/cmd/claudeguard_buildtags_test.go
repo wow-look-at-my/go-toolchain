@@ -100,8 +100,8 @@ func claudeGuardSourceFiles(t *testing.T) []string {
 // file defining inspectFD -- the real classifier -- by content rather than by
 // filename, so a rename cannot dodge the assertion. darwin and linux/cosmo
 // each get their own classifier file (darwin has no /proc), so this checks
-// per platform that EXACTLY ONE of them is selected -- neither zero (the
-// guard silently no-ops) nor two (an ambiguous build).
+// per platform that A SINGLE definition is selected -- neither none (the
+// guard silently no-ops) nor several (an ambiguous build).
 func TestClaudeGuardClassifierBuildsForEachPlatform(t *testing.T) {
 	var classifiers []string
 	for _, f := range claudeGuardSourceFiles(t) {
@@ -161,11 +161,11 @@ func claudeGuardSelected(t *testing.T, files []string, goos string, tags map[str
 	return selected
 }
 
-// The same class of bug as inspectFD's, one layer down. A cosmo APE runs on
+// The same class of bug as inspectFD's, a layer down. A cosmo APE runs on
 // Linux AND macOS, so it decides its classifier at RUNTIME through
-// hostSpecificInspect; a GOOS=linux build answers "never". Exactly one
-// definition must be selected per platform: zero fails the build, two is
-// ambiguous, and the wrong one silently sends a Mac down the /proc path that
+// hostSpecificInspect; a GOOS=linux build answers "never". A single
+// definition must be selected per platform: none fails the build, several are
+// ambiguous, and the wrong pick silently sends a Mac down the /proc path that
 // cannot work there.
 func TestClaudeGuardHostDispatchBuildsForEachPlatform(t *testing.T) {
 	files := claudeGuardDefiners(t, "func hostSpecificInspect(")

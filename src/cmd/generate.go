@@ -92,7 +92,7 @@ func computeDirectivesHash(directives []generateDirective) string {
 		fmt.Fprintf(h, "%s:%d:%s\n", d.File, d.Line, d.Command)
 	}
 
-	// Return first 12 hex chars (48 bits) - enough to be unique, short enough to type
+	// Return the hex prefix below - enough to be unique, short enough to type
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
@@ -145,7 +145,7 @@ func parseDirectives(path string) ([]generateDirective, error) {
 
 	for {
 		lineNum++
-		// isPrefix means more chunks follow, but directives fit the first one.
+		// isPrefix means more chunks follow, but directives fit the leading chunk.
 		chunk, isPrefix, err := reader.ReadLine()
 		if err == io.EOF {
 			break
@@ -353,7 +353,7 @@ func prefixOutput(output string) string {
 	lines := strings.Split(output, "\n")
 
 	for i, line := range lines {
-		// Don't add a trailing newline if the original didn't have one
+		// Don't add a trailing newline the original lacked
 		if i == len(lines)-1 && line == "" {
 			break
 		}

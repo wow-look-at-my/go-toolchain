@@ -12,11 +12,11 @@ import (
 // activeWatchdog is the current output watchdog, if any; the step system reads it to report step names.
 var activeWatchdog *outputWatchdog
 
-// watchdogDisabled reports GO_TOOLCHAIN_NO_WATCHDOG=1: a fault in fd forwarding can trap all output, needing an off-switch.
+// watchdogDisabled reports the GO_TOOLCHAIN_NO_WATCHDOG off-switch: a fault in fd forwarding can trap all output.
 func watchdogDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_WATCHDOG") == "1" }
 
 // outputWatchdog monitors all stdout/stderr output and warns when the build
-// goes silent for too long. It intercepts file descriptors 1 and 2 via dup2
+// goes silent for too long. It intercepts the stdout and stderr descriptors via dup2
 // so that nothing can bypass it.
 type outputWatchdog struct {
 	origStdout *os.File // saved original stdout
@@ -50,7 +50,7 @@ func (w *outputWatchdog) forward(src, dst *os.File) {
 
 const colorBoldRed = "\033[1;38;2;255;0;0m"
 
-// watchLoop checks every second whether output has stalled and prints
+// watchLoop checks on a fixed tick whether output has stalled and prints
 // a warning to the original stderr (not the intercepted fd, to avoid
 // resetting the timer).
 func (w *outputWatchdog) watchLoop(ctx context.Context) {
@@ -69,7 +69,7 @@ func (w *outputWatchdog) watchLoop(ctx context.Context) {
 				if v := w.stepName.Load(); v != nil {
 					step, _ = v.(string)
 				}
-				// Must write to origStderr, never the logger: the logger writes fd 2, the watchdog's own
+				// Must write to origStderr, never the logger: the logger writes stderr, the watchdog's own
 				// monitored pipe, which would reset the stall timer or get lost in a trapped pipe. Writing to a
 				// variable-held writer keeps this bannedoutput-clean.
 				if step != "" {

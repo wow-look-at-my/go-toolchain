@@ -120,7 +120,7 @@ func TestServer_PutAndGet(t *testing.T) {
 	// Parse all responses.
 	responses := parseResponses(t, out.Bytes())
 
-	// Find GET response (ID=2).
+	// Find the GET response by its request ID.
 	var getResp *Response
 	for i := range responses {
 		if responses[i].ID == 2 {
@@ -321,7 +321,7 @@ func TestServer_PutDuplicate(t *testing.T) {
 	body := "duplicate data"
 	sum := sha256.Sum256([]byte(body))
 
-	// PUT same action twice, then CLOSE.
+	// PUT the same action again, then CLOSE.
 	var input strings.Builder
 	input.WriteString(makePutRequest(Request{
 		ID: 1, Command: CmdPut, ActionID: actionID, OutputID: sum[:],
@@ -338,7 +338,7 @@ func TestServer_PutDuplicate(t *testing.T) {
 	require.NoError(t, srv.Run(strings.NewReader(input.String()), &out))
 
 	responses := parseResponses(t, out.Bytes())
-	// Should have handshake + 3 responses (2 puts + 1 close) = 4 total
+	// Should have the handshake plus a response per put and for the close
 	require.GreaterOrEqual(t, len(responses), 4)
 }
 

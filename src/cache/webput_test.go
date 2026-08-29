@@ -191,7 +191,7 @@ func TestWebBackend_PutServerError_Coalesced(t *testing.T) {
 	// Exercises per-object PUT error coalescing in the error logger via the synchronous single-PUT path.
 	b.batchPutUnsupported.Store(true)
 
-	// Swap the auto-init 30s logger for one bound to a buffer with a long interval; flushing happens on Close.
+	// Swap the auto-init logger for a logger bound to a buffer with a long interval; flushing happens on Close.
 	_ = b.errLog.Close()
 	var buf bytes.Buffer
 	b.errLog = newHTTPErrLogger(&buf, time.Hour, b.tracer)
@@ -234,7 +234,7 @@ func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
 
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/testbucket/go-buildcache/v1aabbccdd11223344" {
-					// First request: redirect to /final.
+					// The opening request: redirect to /final.
 					http.Redirect(w, r, "/final", tt.status)
 					return
 				}

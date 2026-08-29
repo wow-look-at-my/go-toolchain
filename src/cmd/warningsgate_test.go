@@ -35,8 +35,8 @@ func TestWarningsGateAtThreshold(t *testing.T) {
 	assert.NoError(t, checkWarningsGate())
 }
 
-// TestWarningsGateOverThreshold verifies that one warning past the budget
-// (16 with the threshold at 15) fails the build with a message naming both
+// TestWarningsGateOverThreshold verifies that a warning past the budget
+// fails the build with a message naming both
 // the count and the threshold.
 func TestWarningsGateOverThreshold(t *testing.T) {
 	logger.ResetWarnCount()
@@ -53,9 +53,9 @@ func TestWarningsGateOverThreshold(t *testing.T) {
 	assert.Equal(t, "build failed: 16 distinct warnings emitted (threshold: 15)", err.Error())
 }
 
-// TestWarningsGateFoldsRepeats verifies that one warning repeated far past the
-// budget does not fail the build. One root cause repeats per file, per module
-// or per retry; counting each repeat spends the budget on one problem and
+// TestWarningsGateFoldsRepeats verifies that a warning repeated far past the
+// budget does not fail the build. A root cause repeats per file, per module
+// or per retry; counting each repeat spends the budget on a lone problem and
 // hides every other warning in the run.
 func TestWarningsGateFoldsRepeats(t *testing.T) {
 	logger.ResetWarnCount()
@@ -145,8 +145,8 @@ func TestWarningsGateReprintsEveryWarning(t *testing.T) {
 }
 
 // TestWarningsGateRecapAnnotatesInGHA verifies that in GitHub Actions the
-// recap rides ONE ::error annotation with its newlines escaped, so the whole
-// list survives in the annotation instead of truncating to its first line.
+// recap rides a SINGLE ::error annotation with its newlines escaped, so the whole
+// list survives in the annotation instead of truncating to its leading line.
 func TestWarningsGateRecapAnnotatesInGHA(t *testing.T) {
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()

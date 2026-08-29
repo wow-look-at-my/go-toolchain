@@ -23,7 +23,7 @@ var datsRunFunc = dats.Run
 // datsBuildDirEnv names the env var pointing suite commands at the staged binaries dir.
 const datsBuildDirEnv = "GO_TOOLCHAIN_DATS_BUILD_DIR"
 
-// datsArtifact names one built binary to hand to dats suites.
+// datsArtifact names a built binary to hand to dats suites.
 type datsArtifact struct {
 	sourcePath string // the built artifact (build/<name>, build/<name>_<os>_<arch>, ...)
 	name       string // bare name exposed in the handoff dir (see datsArtifactName)
@@ -70,7 +70,7 @@ const datsStageDir = ".dats-stage"
 
 // stageDatsArtifacts copies built binaries into a staging dir (caller
 // removes it) for suites to exec. Copy-then-exec is mandatory: cosmo fat
-// APEs self-assimilate on first exec, so nothing may run a build/ artifact
+// APEs self-assimilate on their earliest exec, so nothing may run a build/ artifact
 // in place.
 //
 // The dir must sit INSIDE the module root, as an absolute path: dats
@@ -86,7 +86,7 @@ func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(root, outputDir, datsStageDir)
-	// A killed run leaves the dir behind; start from a clean one.
+	// A killed run leaves the dir behind; start from a clean directory.
 	if err := os.RemoveAll(dir); err != nil {
 		return "", err
 	}
@@ -107,7 +107,7 @@ func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	return dir, nil
 }
 
-// noteFirstWrite calls note once, on the first byte written to w, to end
+// noteFirstWrite calls note a single time, on the earliest byte written to w, to end
 // the step's "..." line at the right moment.
 type noteFirstWrite struct {
 	w    io.Writer
@@ -145,7 +145,7 @@ func runDatsOnly() error {
 // runDatsPhase runs the module's dats suites (if any) against the binaries
 // just built, in this process: go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
-// suites — no download, no cache, no dats version to drift from this one.
+// suites — no download, no cache, no dats version to drift from the linked-in copy.
 // Modules without a dats/ directory pay nothing and print nothing.
 //
 // dats itself always runs every discovered test — there is deliberately no
@@ -182,7 +182,7 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		out = &noteFirstWrite{w: out, note: st.noteOutput}
 	}
 
-	// Serial (Jobs=0) so staged APE copies never race their self-assimilation.
+	// Serial, so staged APE copies never race their self-assimilation.
 	// GOCACHEPROG/GOCACHE_STATS_SOCK are cleared so a suite's `go` cannot
 	// reach the outer cacheprog daemon.
 	res, err := datsRunFunc(context.Background(), dats.Options{

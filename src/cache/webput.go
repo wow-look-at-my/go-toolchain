@@ -13,7 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// putReq is one prepped object queued for the PUT coalescer. The per-object
+// putReq is a prepped object queued for the PUT coalescer. The per-object
 // preparation (optimistic index claim, build-id/module-index guard, lz4) has
 // already run in Put; the coalescer only frames and ships these.
 type putReq struct {
@@ -29,14 +29,14 @@ type putReq struct {
 // (optimistic index claim, read, build-id/module-index write guards, lz4, and
 // the metadata map) runs synchronously here; the upload itself is COALESCED:
 // the prepped object is enqueued onto the PUT coalescer (batchPutCoalescer),
-// which ships many objects as one /_batch/put tar instead of one HTTP PUT per
+// which ships many objects as a single /_batch/put tar instead of an HTTP PUT per
 // object — a CI build stores thousands of objects and the per-object PUT storm
 // saturated the cache server's admission control. Put returns nil immediately
 // (fire-and-forget, matching the prior async model); the coalescer reports
 // per-object outcomes (rolling back a claim on a server-side error) and the
-// whole batch is retried as one tar on a 503 shed. If the server does not
-// support the batch endpoint (sticky batchPutUnsupported, set on a 404/405),
-// Put falls back to the per-object doRetryPUT path — the #272 single-PUT retry
+// whole batch is retried as a single tar on a shed. If the server does not
+// support the batch endpoint (sticky batchPutUnsupported, set when it refuses),
+// Put falls back to the per-object doRetryPUT path — the single-PUT retry
 // is the floor.
 func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int64) error {
 	key := b.key(actionID)
@@ -56,7 +56,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		attribute.Int64("cacheprog.bytes_uncompressed", bodySize))
 	defer span.End()
 
-	// Release the claim unless queued=true: a path sets that once it owns rollback.
+	// Release the claim unless queued=true: a path sets that as soon as it owns rollback.
 	var queued bool
 	defer func() {
 		if !queued {
@@ -136,7 +136,7 @@ func (b *WebBackend) Put(actionID, outputID string, body io.Reader, bodySize int
 		metadata:   meta,
 	}
 
-	// No batch endpoint (learned from an earlier 404/405): fall back to the single-PUT path.
+	// No batch endpoint (learned from an earlier refusal): fall back to the single-PUT path.
 	if b.batchPutUnsupported.Load() {
 		queued = true // putSingle owns the claim from here on.
 		return b.putSingle(pr)
@@ -163,7 +163,7 @@ func metadataHeaders(meta map[string]string) http.Header {
 }
 
 // srcMetaMaxFiles/srcMetaMaxBytes bound the Src metadata value so it always fits the
-// cache server's ~4 KiB shared ext4 xattr block.
+// cache server's shared ext4 xattr block.
 const (
 	srcMetaMaxFiles = 8
 	srcMetaMaxBytes = 256

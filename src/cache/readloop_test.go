@@ -14,7 +14,7 @@ import (
 )
 
 // Tests for the protocol read loop (readloop.go): wire-format acceptance
-// (quoted and raw base64 bodies), the removal of the 64 MiB Scanner cap,
+// (quoted and raw base64 bodies), the removal of the old Scanner cap,
 // and strict body decoding (malformed bodies fail only that PUT; a stream
 // truncated at EOF stores nothing).
 
@@ -52,7 +52,7 @@ func TestServer_PutRawBase64(t *testing.T) {
 
 	responses := parseResponses(t, out.Bytes())
 
-	// Find GET response (ID=2).
+	// Find the GET response by its request ID.
 	var getResp *Response
 	for i := range responses {
 		if responses[i].ID == 2 {
@@ -71,12 +71,12 @@ func TestServer_PutRawBase64(t *testing.T) {
 }
 
 func TestServer_PutBodyOver64MiB(t *testing.T) {
-	// Regression: a PUT body line over the old 64 MiB bufio.Scanner cap must still round-trip byte-for-byte.
+	// Regression: a PUT body line over the old bufio.Scanner cap must still round-trip byte-for-byte.
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
 
-	const bodySize = 70 << 20 // 70 MiB raw → ~93 MiB base64 line (> old cap)
+	const bodySize = 70 << 20 // a raw body whose base64 line runs past the old cap
 	body := make([]byte, bodySize)
 	for i := range body {
 		body[i] = byte((i * 31) >> 3)
@@ -133,7 +133,7 @@ func TestServer_PutMalformedBodyLine(t *testing.T) {
 	}{
 		{"raw invalid base64", "not-base64-at-all!!!", 5},
 		{"quoted invalid base64", `"####"`, 3},
-		{"size mismatch", `"YWJj"`, 5}, // decodes to "abc" (3 bytes), declared 5
+		{"size mismatch", `"YWJj"`, 5}, // decodes to "abc", declared longer
 		{"unterminated quote", `"YWJj`, 3},
 	}
 	for _, tc := range cases {
@@ -212,7 +212,7 @@ func makePutRequest(req Request, body string) string {
 	return string(header) + "\n\n\"" + encoded + "\"\n"
 }
 
-// makePutRequestRawBase64 serializes a PUT request with raw base64 body (Go >=1.25 format).
+// makePutRequestRawBase64 serializes a PUT request with a raw base64 body (the newer Go format).
 func makePutRequestRawBase64(req Request, body string) string {
 	header, _ := json.Marshal(req)
 	encoded := base64.StdEncoding.EncodeToString([]byte(body))

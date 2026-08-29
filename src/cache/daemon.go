@@ -37,7 +37,7 @@ type Daemon struct {
 	path      string
 	wg        sync.WaitGroup
 	batch     BatchStats   // shared batch stats, reported to parent
-	latency   LatencyStats // web-op latencies of the shared WebBackend (wired once)
+	latency   LatencyStats // web-op latencies of the shared WebBackend (wired a single time)
 	statsMu   sync.Mutex
 	statsConn net.Conn // persistent connection to parent's stats socket
 }
@@ -45,7 +45,7 @@ type Daemon struct {
 // NewDaemon creates a cache daemon listening on sockPath.
 // It accepts GOCACHEPROG protocol connections over the Unix socket.
 // Each connection gets its own Server that shares the underlying backends.
-// Batch callbacks are wired once here (not per-connection) with a dedicated
+// Batch callbacks are wired here (not per-connection) with a dedicated
 // stats connection that outlives any individual client connection.
 func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, error) {
 	os.Remove(sockPath)
@@ -62,7 +62,7 @@ func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, err
 	if remote != nil {
 		d.wrapped = &noCloseBackend{remote}
 	}
-	// Connect to the stats socket once for the daemon's lifetime.
+	// Connect to the stats socket for the daemon's whole lifetime.
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		if conn, err := net.Dial("unix", sock); err == nil {
 			// Wait for the listener's accept-ack (see NewServer).
@@ -76,7 +76,7 @@ func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, err
 			}
 		}
 	}
-	// Wire batch callbacks and latency once; per-conn Servers must not touch these.
+	// Wire batch callbacks and latency here; per-conn Servers must not touch these.
 	if wb, ok := remote.(*WebBackend); ok {
 		wb.Latency = &d.latency
 		wireBatchCallbacks(wb, local, d)
@@ -138,7 +138,7 @@ func (d *Daemon) Close() {
 			}
 		}
 		d.remote.Close()
-		// Report web-op latency and HTTP-pool usage once, after the backend
+		// Report web-op latency and HTTP-pool usage a single time, after the backend
 		// drains — per-connection reporting would overcount N-fold.
 		if wb, ok := d.remote.(*WebBackend); ok {
 			snap := d.latency.Snapshot()

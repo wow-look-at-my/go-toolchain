@@ -47,7 +47,7 @@ func TestFuseCache_PutReadThroughMount(t *testing.T) {
 
 func TestFuseCache_GetReturnsReadableDiskPath(t *testing.T) {
 	c := newFuseCacheForTest(t)
-	body := bytes.Repeat([]byte("payload"), 500) // larger than one read buffer
+	body := bytes.Repeat([]byte("payload"), 500) // larger than a single read buffer
 	aid, oid := hexID(2), casID(body)
 	_, err := c.Put(aid, oid, bytes.NewReader(body))
 	require.Nil(t, err)
@@ -72,8 +72,8 @@ func TestFuseCache_GetReturnsReadableDiskPath(t *testing.T) {
 // CRC left intact, so the startup scan still indexes it) must not be served —
 // otherwise it surfaces in the go command as "unexpected EOF"/"corrupt index".
 //
-// Rot is applied across an unmount/remount: within one process a just-Put or
-// once-verified record is memoized (records are physically immutable; see
+// Rot is applied across an unmount/remount: within a process a just-Put or
+// already-verified record is memoized (records are physically immutable; see
 // verify.go), which is exactly how rot manifests in reality — across runs.
 func TestFuseCache_CorruptBodyNotServedThroughMount(t *testing.T) {
 	dir := t.TempDir()
@@ -90,7 +90,7 @@ func TestFuseCache_CorruptBodyNotServedThroughMount(t *testing.T) {
 	require.True(t, ok)
 	require.Nil(t, c.Close()) // unmount; releases the pack handles
 
-	// Rot one body byte, leaving header/CRC intact so the remount scan cannot catch it.
+	// Rot a body byte, leaving header/CRC intact so the remount scan cannot catch it.
 	f, err := os.OpenFile(filepath.Join(dir, "packs", "pack-000001.data"), os.O_RDWR, 0o644)
 	require.Nil(t, err)
 	var b [1]byte
@@ -172,7 +172,7 @@ func TestFuseCache_SubprocessRead(t *testing.T) {
 }
 
 // Many puts then concurrent reads — mimics a parallel build populating and
-// reading the cache at once.
+// reading the cache together.
 func TestFuseCache_ConcurrentPutRead(t *testing.T) {
 	c := newFuseCacheForTest(t)
 	const n = 200
@@ -203,9 +203,9 @@ func TestFuseCache_ConcurrentPutRead(t *testing.T) {
 	require.Equal(t, 0, fails)
 }
 
-// Regression for the mid-build unmount bug: a second owner on the same cache
+// Regression for the mid-build unmount bug: a rival owner on the same cache
 // dir must NOT be able to take over (which would unmount the live mount). It
-// must fail, leaving the first owner's mount intact and serving.
+// must fail, leaving the standing owner's mount intact and serving.
 func TestFuseCache_SecondOwnerRejected(t *testing.T) {
 	dir := t.TempDir()
 	fc, err := newFuseCache(dir)
@@ -219,11 +219,11 @@ func TestFuseCache_SecondOwnerRejected(t *testing.T) {
 	_, err = c.Put(hexID(1), casID(ownerBody), bytes.NewReader(ownerBody))
 	require.Nil(t, err)
 
-	// A second newFuseCache on the same dir must be rejected, not clobber.
+	// A rival newFuseCache on the same dir must be rejected, not clobber.
 	_, err2 := newFuseCache(dir)
 	require.NotNil(t, err2, "second owner must be rejected to protect the live mount")
 
-	// The first owner's mount must still serve reads.
+	// The standing owner's mount must still serve reads.
 	meta, miss := c.Get(hexID(1))
 	require.False(t, miss)
 	data, err := os.ReadFile(meta.DiskPath)

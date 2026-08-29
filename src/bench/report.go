@@ -36,7 +36,7 @@ type testEvent struct {
 }
 
 // benchPattern matches benchmark output lines:
-// BenchmarkFoo-8     10000    123456 ns/op    1234 B/op    56 allocs/op
+// BenchmarkFoo-<cpus>  <iters>  <ns> ns/op  <bytes> B/op  <allocs> allocs/op
 var benchPattern = regexp.MustCompile(
 	`^(Benchmark\S+)\s+(\d+)\s+([\d.]+)\s+ns/op(?:\s+(\d+)\s+B/op)?(?:\s+(\d+)\s+allocs/op)?`,
 )
@@ -134,7 +134,7 @@ func (r *BenchmarkReport) Print() {
 	logger.Info("        time/op      alloc/op   allocs/op  name")
 	for _, pkg := range pkgNames {
 		results := r.Packages[pkg]
-		// Sort by ns/op (fastest first)
+		// Sort by ns/op, fastest at the top
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].NsPerOp < results[j].NsPerOp
 		})

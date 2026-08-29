@@ -1,7 +1,7 @@
 // darwin has no /proc, so classifying stdout does not reuse
 // claudeguard_proc.go: fstat's mode bits answer pipe/regular/char-device
 // without a path, isatty answers the terminal question, and F_GETPATH
-// recovers a regular file's path -- the one thing fstat cannot give, needed
+// recovers a regular file's path -- the thing fstat cannot give, needed
 // for agent.IsCapturePath.
 //
 // A FIFO's reader is identified by walking ancestors for the other end of
@@ -24,7 +24,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// inspectStdout classifies where go-toolchain's stdout (fd 1) is going, so the
+// inspectStdout classifies where go-toolchain's stdout is going, so the
 // guard can refuse to run when the agent is hiding the output.
 func inspectStdout() outputSink {
 	return inspectFD(uintptr(1))

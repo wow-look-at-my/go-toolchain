@@ -111,7 +111,7 @@ func hoistableInit(pass *analysis.Pass, ifStmt *ast.IfStmt) ast.Stmt {
 			continue
 		}
 		if _, obj := ifScope.Parent().LookupParent(ident.Name, ifStmt.Pos()); obj == nil {
-			return ifStmt.Init // at least one new name, so := is legal
+			return ifStmt.Init // a new name is introduced, so := is legal
 		}
 	}
 	hoisted := *assign
@@ -232,7 +232,7 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 		return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 	}
 
-	// Default: two args
+	// Default: the plain argument pair
 	return makeCall(makeSelector(assertPkg, assertFunc), ast.NewIdent(tVar), bin.X, bin.Y)
 }
 
@@ -284,7 +284,7 @@ func clearNodePositions(node ast.Node) {
 	})
 }
 
-// prepareFixNodes clears stale positions from all new nodes and sets the first
+// prepareFixNodes clears stale positions from all new nodes and sets the leading
 // token position to pos, so the Go printer flushes leading comments correctly.
 func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 	for _, node := range nodes {
@@ -295,7 +295,7 @@ func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 	}
 }
 
-// setFirstTokenPos walks the AST depth-first and sets the position of the first
+// setFirstTokenPos walks the AST depth-wise and sets the position of the leading
 // positioned token (Ident or BasicLit) to pos.
 func setFirstTokenPos(node ast.Node, pos token.Pos) {
 	done := false

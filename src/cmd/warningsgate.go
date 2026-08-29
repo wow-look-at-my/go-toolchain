@@ -26,15 +26,15 @@ func checkWarningsGate() error {
 		// stdout carries the JSON payload; rawStderr is the documented bypass.
 		fmt.Fprintln(rawStderr, recap)
 	} else {
-		// In GHA this is one ::error annotation carrying the whole list.
+		// In GHA this is a single ::error annotation carrying the whole list.
 		logError("", recap)
 	}
 	return fmt.Errorf("build failed: %d distinct warnings emitted (threshold: %d)", n, maxWarnings)
 }
 
 // warningsRecap renders the gate failure with every retained warning listed in
-// first-emission order. distinct is the true distinct count and what the gate
-// fails on; total is every emission, reported when the two differ so a folded
+// emission order. distinct is the true distinct count and what the gate
+// fails on; total is every emission, reported when the counts differ so a folded
 // repeat is visible rather than hidden. warnings is what was retained (capped
 // at logger.MaxRecordedWarnings), so any difference is reported explicitly
 // rather than silently truncated.

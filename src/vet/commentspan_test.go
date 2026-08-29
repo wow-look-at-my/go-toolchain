@@ -17,7 +17,7 @@ import (
 
 // fixtureComment returns a comment with exactly n non-blank lines and total
 // non-whitespace chars, for exact boundary tests. Every line needs at least
-// "//" (2 chars), so chars must be at least 2*n.
+// its "//" marker, so chars must cover a marker per line.
 func fixtureComment(t *testing.T, lines, chars int) string {
 	t.Helper()
 	require.GreaterOrEqual(t, chars, 2*lines, "need at least // per line")
@@ -63,7 +63,7 @@ func TestCommentSpanMeasureIgnoresWhitespace(t *testing.T) {
 }
 
 // TestCommentSpanFailsOnMoreLines runs the shape the analyzer exists for: a
-// two-line doc over a one-line const. Only the line clamp is broken.
+// multi-line doc over a single-line const. Only the line clamp is broken.
 func TestCommentSpanFailsOnMoreLines(t *testing.T) {
 	const src = `package p
 
@@ -79,7 +79,7 @@ const x = 1
 }
 
 // TestCommentSpanFailsOnMoreCharsOnly is a single-line doc long enough to
-// break the char clamp while its one line still fits the line clamp.
+// break the char clamp while its single line still fits the line clamp.
 func TestCommentSpanFailsOnMoreCharsOnly(t *testing.T) {
 	src := "package p\n\n" + fixtureComment(t, 1, 160) + "\nconst x = 1\n"
 	warnings := runCommentSpanOn(t, src)
@@ -90,14 +90,14 @@ func TestCommentSpanFailsOnMoreCharsOnly(t *testing.T) {
 }
 
 // TestCommentSpanPassesAtTheCharFloor verifies a comment gets the full
-// 120-char floor even over a const with far fewer chars of its own.
+// char floor even over a const with far fewer chars of its own.
 func TestCommentSpanPassesAtTheCharFloor(t *testing.T) {
 	src := "package p\n\n" + fixtureComment(t, 1, 120) + "\nconst x = 1\n"
 	assert.Empty(t, runCommentSpanOn(t, src))
 }
 
-// TestCommentSpanFailsOneCharPastTheFloor verifies the floor is 120, not
-// "about 120".
+// TestCommentSpanFailsOneCharPastTheFloor verifies the floor is exact, not
+// approximate.
 func TestCommentSpanFailsOneCharPastTheFloor(t *testing.T) {
 	src := "package p\n\n" + fixtureComment(t, 1, 121) + "\nconst x = 1\n"
 	warnings := runCommentSpanOn(t, src)
@@ -164,7 +164,7 @@ func TestCommentSpanAttachesToTheRightNode(t *testing.T) {
 }
 
 // TestCommentSpanWarnsOncePerSite mirrors writeruns' and mapset's own dedup
-// test: go/packages loads a package up to four ways, so a repeated run over
+// test: go/packages loads a package several ways, so a repeated run over
 // the same pass must not spend the budget again on a site already warned.
 func TestCommentSpanWarnsOncePerSite(t *testing.T) {
 	src := "package p\n\n" + fixtureComment(t, 1, 160) + "\nconst x = 1\n"

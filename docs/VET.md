@@ -351,3 +351,51 @@ severity is still the split the set checks carry: an org module FAILS
 (`isOrgModule`), and everywhere else WARNS. There is no opt-out marker. Every
 package variant walks the same file, so warned sites are deduplicated by
 `file:line` for one vet run (`resetJSONInterpWarnings`).
+
+## commentnumbers: a number in a comment
+
+`src/vet/commentnumbers.go` reports any number written in a Go comment, in
+digits or in words. The remedy it names is always the same: describe what the
+code does and let the reader count.
+
+A number in a comment is a count of what exists on the day it was written. The
+edit that adds an item does not update it, so the comment quietly goes false,
+and the alternative -- hunting down every comment that counted the old set --
+is work nobody asked for. Naming the thing instead survives both.
+
+```go
+// BAD                                 // GOOD
+// The four descriptor probes ...      // The descriptor probes ...
+// splits three ways:                  // splits several ways:
+// asked once per repository           // asked a single time per repository
+// warns at 500 lines, errors at 750   // warns past the warn threshold
+// grace = 57.5, effective = 57.5      // the grace floor is what applies
+```
+
+### What counts as a number
+
+The check walks each comment's tokens -- runs of letters, digits and the name
+characters `_`, `.`, `/`, `:` and `-` -- and reports two shapes:
+
+- **A digit run**, unless it touches a letter or wears an ordinal suffix. So
+  `sha256`, `amd64`, `p95`, `10ms` and `wasip1` are names and stay; a bare
+  `500`, a `2.5`, and a version literal like `1.24.7` are numbers and go.
+- **A whole alphabetic word** naming a number: the cardinals up to `thousand`,
+  `million` and `dozen`, the ordinals up to `thousandth`, and
+  `once`/`twice`/`thrice`. Case does not matter, so `One` is reported like
+  `one`. A word that merely contains one (`someone`, `oneShot`, `atonement`)
+  is not a match, because the whole run must be the word.
+
+A token holding `://` is a URL and is skipped whole, so citing an issue by its
+full address is how to keep a reference that carries a number. A qualified
+name -- a marker strictly between word characters, as in `example.com/mod/v2`,
+`net/http` or `sync.Once` -- is a name rather than prose and is left alone. A
+compiler directive (`//go:build`, `//go:generate`) is machine text and is never
+reported, and a generated file is skipped entirely.
+
+### Scope
+
+Severity is the split the other checks carry: an org module FAILS
+(`isOrgModule`), everywhere else WARNS. There is no opt-out marker and no
+module exemption. Every package variant walks the same file, so warned sites
+are deduplicated by `file:line` for a vet run (`resetCommentNumbersWarnings`).

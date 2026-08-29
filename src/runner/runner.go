@@ -28,7 +28,7 @@ type Config struct {
 	Args          []string
 	Env           *sortedmap.SortedMap[string, string] // Merged with current environment
 	Quiet         bool                                 // Don't tee stdout/stderr to console
-	OnFirstOutput func()                               // Called before the first byte of output is written to console
+	OnFirstOutput func()                               // Called before any output byte is written to console
 	StdoutWriter  io.Writer                            // If set, stdout is copied here instead of os.Stdout
 	StderrWriter  io.Writer                            // If set, stderr is copied here instead of os.Stderr
 }
@@ -80,7 +80,7 @@ func (c *Config) WithQuiet() *Config {
 	return c
 }
 
-// WithOnFirstOutput sets a callback invoked before the first output byte, for progress indicators.
+// WithOnFirstOutput sets a callback invoked before any output byte, for progress indicators.
 func (c *Config) WithOnFirstOutput(f func()) *Config {
 	c.OnFirstOutput = f
 	return c
@@ -113,7 +113,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	cmd := exec.Command(cfg.Name, cfg.Args...)
 
 	if cfg.Env != nil && cfg.Env.Len() > 0 {
-		// Merge overrides into the environment, dropping overridden keys first: a duplicate key's platform behavior varies.
+		// Merge overrides into the environment, dropping overridden keys up front: a duplicate key's platform behavior varies.
 		overrides := set.New[string](cfg.Env.Len())
 		for k := range cfg.Env.All() {
 			overrides.Add(k)
@@ -147,7 +147,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	return p, nil
 }
 
-// firstOutputWriter wraps a writer and calls a callback before the first write.
+// firstOutputWriter wraps a writer and calls a callback before any write.
 type firstOutputWriter struct {
 	target    io.Writer
 	hadOutput *atomic.Bool

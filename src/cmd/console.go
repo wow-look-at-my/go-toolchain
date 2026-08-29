@@ -27,7 +27,7 @@ type ColorPct struct {
 	Format string
 }
 
-// hslToRGB converts HSL to RGB. h is in degrees [0,360), s and l are [0,1].
+// hslToRGB converts HSL to RGB. h is a hue in degrees; s and l are unit fractions.
 func hslToRGB(h, s, l float64) (r, g, b uint8) {
 	c := (1 - math.Abs(2*l-1)) * s
 	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
@@ -52,15 +52,15 @@ func hslToRGB(h, s, l float64) (r, g, b uint8) {
 	return uint8((r1 + m) * 255), uint8((g1 + m) * 255), uint8((b1 + m) * 255)
 }
 
-// colorPct formats a percentage with color based on value (red=0%, green=100%)
-// Uses HSL hue rotation: 0° (red) → 60° (yellow) → 120° (green)
+// colorPct formats a percentage in a colour running from red at the bottom of
+// the range to green at the top, by rotating the HSL hue through yellow.
 func colorPct(p ColorPct) string {
 	format := p.Format
 	if format == "" {
 		format = "%6.1f%%"
 	}
-	// Map 0-100% to hue 0-120° (red to green through yellow)
-	hue := float64(p.Pct) * 1.2 // 0% = 0°, 100% = 120°
+	// Map the percentage range onto the red-to-green arc of the hue circle
+	hue := float64(p.Pct) * 1.2
 	r, g, b := hslToRGB(hue, 1.0, 0.5)
 	return fmt.Sprintf("\033[38;2;%d;%d;%dm"+format+colorReset, r, g, b, p.Pct)
 }
@@ -143,7 +143,7 @@ func logSubStep(label, thread string) *step {
 	return &step{label: label, thread: thread, start: time.Now(), sub: true}
 }
 
-// noteOutput marks visible output during this step. On the first call it
+// noteOutput marks visible output during this step. On its earliest call it
 // prints a newline so subprocess output starts on its own line.
 func (s *step) noteOutput() {
 	s.once.Do(func() {
@@ -220,7 +220,7 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 			w.buf.Write(line)
 			break
 		}
-		// Complete line found. Close any previous open line first.
+		// Complete line found. Close any previously open line before writing.
 		if w.awaitingEnd {
 			w.closeLine()
 		}
@@ -233,7 +233,7 @@ func (w *timedLineWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// closeLine finishes the current open line: " <elapsed>\n" once the gap
+// closeLine finishes the current open line: " <elapsed>\n" when the gap
 // since its content was written reaches timedLineMinDuration, otherwise
 // just "\n".
 func (w *timedLineWriter) closeLine() {

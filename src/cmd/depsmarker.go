@@ -50,7 +50,7 @@ func parseMarker(line *modfile.Line) marker {
 }
 
 // markerValue takes a marker's value off the front of the rest of a comment:
-// up to the first space, so a trailing note stays readable.
+// up to the leading space, so a trailing note stays readable.
 func markerValue(rest string) string {
 	fields := strings.Fields(rest)
 	if len(fields) == 0 {
@@ -59,7 +59,7 @@ func markerValue(rest string) string {
 	return fields[0]
 }
 
-// meaning names what the COMMENT asks for. What a bare one RESOLVES to depends
+// meaning names what the COMMENT asks for. What a bare marker RESOLVES to depends
 // on the dependency, and branchMatcher.describe names that.
 func (m marker) meaning() string {
 	if m.branch == "" {

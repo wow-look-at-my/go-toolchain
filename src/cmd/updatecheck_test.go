@@ -36,8 +36,8 @@ func releaseServer(t *testing.T, rel buildhostRelease) *httptest.Server {
 }
 
 // releaseServerWithList serves both endpoints the check uses: the latest
-// release, and the newest-first listing it identifies THIS binary from. A nil
-// list answers 404, which is the "lookup failed" path.
+// release, and the newest-at-the-head listing it identifies THIS binary from. A nil
+// list answers not-found, which is the "lookup failed" path.
 func releaseServerWithList(t *testing.T, rel buildhostRelease, list []buildhostRelease) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,14 +121,14 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 
 // TestComputeUpdateWarning_IsOneLineWithBothVersions pins the whole message:
 // how far behind, mine, latest. Nothing else -- a reader deciding whether to
-// update needs the two versions and the distance, and every extra word is one
+// update needs both versions and the distance, and every extra word is a word
 // they have to skip past on every build.
 func TestComputeUpdateWarning_IsOneLineWithBothVersions(t *testing.T) {
 	const myCommit = "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	built := time.Date(2024, 5, 29, 0, 0, 0, 0, time.UTC)
 	defer setVCS(t, myCommit, built.Format(time.RFC3339))()
 
-	pub := built.Add(3 * 24 * time.Hour) // exactly three days newer
+	pub := built.Add(3 * 24 * time.Hour)
 	latest := buildhostRelease{
 		Version: "345", VersionNum: 345, GitCommit: "ffffff222222222222222222222222222222ffff",
 		Published: true, PublishedAt: &pub,

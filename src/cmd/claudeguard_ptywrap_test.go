@@ -58,7 +58,7 @@ func TestPtyWrapperAncestor(t *testing.T) {
 	})
 
 	t.Run("an unresolvable ancestor ends the walk without a guess", func(t *testing.T) {
-		withFakeAncestry(t, 100, fakeAncestry{}) // 100 itself is not in the map
+		withFakeAncestry(t, 100, fakeAncestry{}) // the starting pid itself is not in the map
 		name, ok := ptyWrapperAncestor()
 		assert.False(t, ok)
 		assert.Empty(t, name)
@@ -79,7 +79,7 @@ func TestPtyWrapperAncestor(t *testing.T) {
 	})
 
 	t.Run("stops at maxHops rather than looping forever on a cycle", func(t *testing.T) {
-		chain := fakeAncestry{} // never reaches pid 1, so only maxHops ends it
+		chain := fakeAncestry{} // never reaches the init pid, so only maxHops ends it
 		pid := 100
 		for i := 0; i < ptyWrapperMaxHops+10; i++ {
 			next := pid + 1000

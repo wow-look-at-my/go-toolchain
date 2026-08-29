@@ -16,7 +16,7 @@ import (
 
 // getIndividual fetches a single object stored under an individual cache key.
 // parentCtx, when non-nil and carrying a valid span, becomes the parent
-// of the emitted cacheprog.web.get span — used by sendBatch's 404/405
+// of the emitted cacheprog.web.get span — used by sendBatch's unsupported-endpoint
 // fallback path so individual GETs nest under the batch span instead of
 // detaching to the run-level root.
 func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key string) (string, io.ReadCloser, int64, time.Time, bool, error) {
@@ -132,7 +132,7 @@ func (b *WebBackend) getIndividual(parentCtx context.Context, actionID, key stri
 	}
 
 	// Module-index guard: a Go module index blob self-certifies neither its outputID nor its build id, so a
-	// wrong one is silently fatal at package load ("corrupt index"). Refuse it and let cmd/go recompute
+	// wrong index is silently fatal at package load ("corrupt index"). Refuse it and let cmd/go recompute
 	// locally; evict the claim so the recompute is free to re-Put.
 	if isGoModuleIndex(decompressed) {
 		b.MissModuleIndex.Increment()
@@ -173,7 +173,7 @@ func (b *WebBackend) getBatch(actionID, key string) (string, io.ReadCloser, int6
 	case r := <-respCh:
 		return r.outputID, r.body, r.size, r.t, r.miss, nil
 	case <-b.batchDone:
-		// Shutdown raced the enqueue: use the buffered reply if sendBatch already produced one, else degrade to a miss.
+		// Shutdown raced the enqueue: use the buffered reply if sendBatch already produced it, else degrade to a miss.
 		select {
 		case r := <-respCh:
 			return r.outputID, r.body, r.size, r.t, r.miss, nil

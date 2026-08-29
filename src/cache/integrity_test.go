@@ -22,7 +22,7 @@ func TestOutputIDMatches(t *testing.T) {
 	_, ok = outputIDMatches(strings.ToUpper(want), body)
 	require.True(t, ok)
 
-	// A wrong id, a one-byte-truncated body, and an empty id are all rejected.
+	// A wrong id, a truncated body, and an empty id are all rejected.
 	_, ok = outputIDMatches("deadbeef", body)
 	require.False(t, ok)
 	_, ok = outputIDMatches(want, body[:len(body)-1])
@@ -43,7 +43,7 @@ func (noopSink) recordBatchPop(uint32) {}
 
 // TestWireBatchCallbacks_SkipsCorruptPrefetch verifies the prefetch population
 // path never writes a body that fails the outputID checksum into the local
-// pack: a good entry is populated, a corrupt one (body that does not hash to its
+// pack: a good entry is populated, a corrupt entry (body that does not hash to its
 // advertised outputID) is skipped, so it can never be served as a "valid" local
 // hit and fail the build with "corrupt index".
 func TestWireBatchCallbacks_SkipsCorruptPrefetch(t *testing.T) {

@@ -37,7 +37,7 @@ func TestRunBuildCapturesStderr(t *testing.T) {
 
 func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 	mock := runner.NewMock()
-	// The mocked compiler obeys the real one's contract: an exit-0 go build
+	// The mocked compiler obeys a real compiler's contract: a successful go build
 	// materializes its -o target.
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		writeMockBuildOutput(cfg, "bin")
@@ -243,12 +243,12 @@ func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
 	assert.NoFileExists(t, final, "a failed build must not produce the target file")
 }
 
-// TestRunBuildRefusesToCommitMissingOutput: go build exiting 0 without
+// TestRunBuildRefusesToCommitMissingOutput: go build reporting success without
 // producing its -o target is not shippable — the run fails loudly instead of
 // reporting a build whose output nobody can find.
 func TestRunBuildRefusesToCommitMissingOutput(t *testing.T) {
 	final := filepath.Join(t.TempDir(), "mytool")
-	// A build that "succeeds" but writes nothing, unlike a real one.
+	// A build that "succeeds" but writes nothing, unlike a real compiler.
 	mock := runner.NewMock()
 
 	assert.Error(t, runBuild(mock, buildJob{srcPath: ".", outputPath: final}, nil))

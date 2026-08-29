@@ -17,14 +17,14 @@ type badPutBodyError struct{ err error }
 func (e *badPutBodyError) Error() string { return e.err.Error() }
 func (e *badPutBodyError) Unwrap() error { return e.err }
 
-// readProtoLine reads one newline-terminated line from br with no upper bound
+// readProtoLine reads a newline-terminated line from br with no upper bound
 // on line length (the old Scanner cap is exactly the bug this replaces). The
 // returned slice may alias br's internal buffer and is only valid until the
 // next read from br. A final line without a trailing newline is returned as-is
 // (matching bufio.Scanner); a clean EOF returns (nil, io.EOF).
 //
 // hint is a capacity hint for lines that overflow br's buffer, so a huge
-// base64 body line of known size lands in roughly one allocation.
+// base64 body line of known size lands in roughly a single allocation.
 func readProtoLine(br *bufio.Reader, hint int) ([]byte, error) {
 	s, err := br.ReadSlice('\n')
 	if err == nil {
@@ -61,7 +61,7 @@ func readProtoLine(br *bufio.Reader, hint int) ([]byte, error) {
 	}
 }
 
-// expectedBodyLineLen returns an allocation-hint length for a PUT body line (4*ceil(n/3) base64 + quotes), capped against a bad size.
+// expectedBodyLineLen returns an allocation-hint length for a PUT body line (the base64 expansion plus quotes), capped against a bad size.
 func expectedBodyLineLen(bodySize int64) int {
 	const maxHint = 64 << 20
 	if bodySize <= 0 {
@@ -95,8 +95,8 @@ func readPutBody(br *bufio.Reader, bodySize int64) ([]byte, error) {
 	}
 }
 
-// decodePutBody decodes one PUT body line. Both wire forms are supported:
-// a JSON-quoted base64 string ('"'+base64+'"', what go <= 1.25 writes) and
+// decodePutBody decodes a PUT body line. Both wire forms are supported:
+// a JSON-quoted base64 string ('"'+base64+'"', what an older go writes) and
 // raw unquoted base64. The decoded length must equal the request's declared
 // BodySize — a mismatch means a truncated or corrupt line, and committing it
 // (or an empty body) under the request's real IDs would poison the cache.

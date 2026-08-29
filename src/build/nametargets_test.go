@@ -9,7 +9,7 @@ import (
 
 const testModule = "github.com/wow-look-at-my/agentic-loop/go"
 
-// A single main one level below the module root is named after the module,
+// A lone main directly below the module root is named after the module,
 // which is what makes `src/` build to the repository's own name.
 func TestNameTargetsUsesTheModuleNameForALoneMain(t *testing.T) {
 	targets, err := nameTargets([]string{testModule + "/src"}, testModule)
@@ -18,8 +18,8 @@ func TestNameTargetsUsesTheModuleNameForALoneMain(t *testing.T) {
 	assert.Equal(t, "go", targets[0].OutputName)
 }
 
-// Two mains one level down both derive the MODULE's name. Keeping whichever
-// was seen first drops the other binary from a build that still reports
+// Sibling mains directly below the root both derive the MODULE's name. Keeping
+// whichever was seen earliest drops the other binary from a build that reports
 // success, so a contested name goes to nobody: each falls back to its own
 // directory.
 func TestNameTargetsFallsBackToTheDirectoryOnACollision(t *testing.T) {
@@ -46,8 +46,8 @@ func TestNameTargetsLeavesDeeperPackagesAlone(t *testing.T) {
 	assert.ElementsMatch(t, []string{"cai", "todo_driver"}, names)
 }
 
-// A collision the directory fallback cannot break is not reachable from one
-// module's packages -- but if it ever is, the build says so instead of
+// A collision the directory fallback cannot break is not reachable within a
+// module -- but if it ever is, the build says so instead of
 // dropping a binary.
 func TestNameTargetsRefusesAnUnbreakableCollision(t *testing.T) {
 	_, err := nameTargets([]string{testModule + "/a/cai", testModule + "/b/cai"}, testModule)

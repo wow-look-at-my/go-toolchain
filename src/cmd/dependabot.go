@@ -218,7 +218,7 @@ func insideWorkspace() bool {
 // the build.
 //
 // Building outside the checkout is NOT a way to skip. It is refused for every
-// repository except this one, because "run the build somewhere else" is exactly
+// repository but this repository, because "run the build somewhere else" is exactly
 // the shape the removed GO_TOOLCHAIN_NO_DEP_SUBMISSION knob had: cheap to reach
 // for, invisible afterwards, and it leaves a repository out of vulnerability
 // scanning while its builds stay green. A repository that genuinely must build a

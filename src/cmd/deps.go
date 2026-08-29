@@ -117,7 +117,7 @@ func (dc *DepChecker) run() {
 		}
 
 		// Tracked deps are owned by UpdateTrackedBranchDeps; checking @latest here
-		// would drag one back onto the default branch.
+		// would drag such a line back onto the default branch.
 		if dep.Tracked {
 			continue
 		}
@@ -146,7 +146,7 @@ func (dc *DepChecker) run() {
 func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate bool, err error) {
 	now := time.Now().Unix()
 
-	// Check cache first
+	// Check the cache before asking the proxy
 	if cachedUpdate, checkedAt, found := dc.cache.lookup(path, version); found {
 		if cachedUpdate != "" {
 			// Cached as outdated - return immediately (no expiry for outdated)
@@ -178,7 +178,7 @@ func (dc *DepChecker) checkDep(path, version string) (update string, needsUpdate
 // "go list -m -u" which can be unreliable and slow in CI environments.
 func checkDepLive(path string) (update string, needsUpdate bool, err error) {
 	proxy := os.Getenv("GOPROXY")
-	// GOPROXY can be a comma-separated list; use the first proxy entry (skip "direct"/"off")
+	// GOPROXY can be a comma-separated list; use the leading proxy entry (skip "direct"/"off")
 	var found string
 	for _, entry := range strings.FieldsFunc(proxy, func(r rune) bool { return r == ',' || r == '|' }) {
 		entry = strings.TrimSpace(entry)
@@ -323,7 +323,7 @@ func looksLikeGitVersion(version string) bool {
 		return false
 	}
 
-	// Check if last part looks like a commit hash (12 hex chars)
+	// Check whether the trailing part looks like a short commit hash
 	lastPart := parts[len(parts)-1]
 	return len(lastPart) == 12 && isHex(lastPart)
 }

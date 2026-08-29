@@ -36,7 +36,7 @@ func requireStampIs(t *testing.T, root string, version int) {
 	require.Equal(t, strconv.Itoa(version)+"\n", string(raw))
 }
 
-// A populated root with no stamp is implicit version 1: the data dirs are
+// A populated root with no stamp is implicitly the earliest version: the data dirs are
 // purged, the stamp is written, and everything that is not cache data —
 // mnt/ (a possibly-mounted FUSE mountpoint), the lock file, unknown names —
 // survives untouched.
@@ -62,7 +62,7 @@ func TestEnsureLocalCacheVersion_PurgesUnstampedRoot(t *testing.T) {
 	}
 }
 
-// An unparseable stamp counts as version 1 and purges too.
+// An unparseable stamp counts as the earliest version and purges too.
 func TestEnsureLocalCacheVersion_PurgesUnparseableStamp(t *testing.T) {
 	root := t.TempDir()
 	populateCacheRoot(t, root)
@@ -135,7 +135,7 @@ func TestIsLooseBucketName(t *testing.T) {
 	require.True(t, isLooseBucketName("00"))
 	require.True(t, isLooseBucketName("ab"))
 	require.True(t, isLooseBucketName("ff"))
-	require.False(t, isLooseBucketName("mnt")) // 3 chars: the FUSE mountpoint
+	require.False(t, isLooseBucketName("mnt")) // too long for a hex bucket: the FUSE mountpoint
 	require.False(t, isLooseBucketName("AB"))  // buckets are lowercase hex
 	require.False(t, isLooseBucketName("g0"))
 	require.False(t, isLooseBucketName("a"))

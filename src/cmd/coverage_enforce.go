@@ -13,11 +13,11 @@ import (
 // coverage data itself is broken: tests ran over code with coverable
 // statements, yet the profile recorded nothing.
 //
-// The "0 uncovered statements while below the minimum" corner (an empty
-// coverage profile) splits three ways:
+// The "no uncovered statements while below the minimum" corner (an empty
+// coverage profile) splits several ways:
 //   - The module has no coverable statements at all — e.g. an embed-only or
-//     declarations-only module. There is nothing to measure, so 0-of-0
-//     coverage is vacuously complete: pass with a note instead of panicking.
+//     declarations-only module. There is nothing to measure, so an empty
+//     profile is vacuously complete: pass with a note instead of panicking.
 //   - The module has coverable statements but produced no test results (no
 //     *_test.go files, so `go test` reported "[no test files]" everywhere):
 //     fail with an actionable message instead of a panic.
@@ -25,7 +25,7 @@ import (
 //     measured: the profile was lost or corrupted (e.g. clobbered mid-run) —
 //     a broken setup that must not be silently allowed. Panic.
 func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effectiveMin float32, quiet bool) error {
-	// Round to 1 decimal place for comparison (same precision as display)
+	// Round to the display's precision for comparison
 	roundedTotal := float32(math.Round(float64(report.Total)*10) / 10)
 	roundedMin := float32(math.Round(float64(effectiveMin)*10) / 10)
 	if roundedTotal >= roundedMin {
@@ -41,7 +41,7 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 	// Packages exist but no statements were measured.
 	if totalUncovered == 0 && len(report.Packages) > 0 {
 		if !gotest.HasCoverableStatements(".") {
-			// Nothing to measure here (embed-only or declarations-only module); 0-of-0 is complete, not broken.
+			// Nothing to measure here (embed-only or declarations-only module); an empty profile is complete, not broken.
 			if !quiet {
 				logger.Info("⇒ No coverable statements in this module — nothing to measure, skipping coverage check")
 			}
@@ -58,7 +58,7 @@ func enforceCoverage(report *gotest.Report, result *gotest.TestResult, effective
 		panic(fmt.Sprintf("coverage %.1f%% is below minimum %.1f%% with 0 uncovered statements — coverage data is missing or broken", report.Total, effectiveMin))
 	}
 
-	// Allow reduced coverage when every file has fewer than 10 uncovered statements (small files can't easily reach the minimum).
+	// Allow reduced coverage while every file stays under the uncovered-statement bar below (small files can't easily reach the minimum).
 	allSmall := true
 	for _, pkg := range report.Packages {
 		for _, f := range pkg.Files {

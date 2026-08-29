@@ -14,8 +14,8 @@ import (
 // While another live process holds the cache root's flock (a running FUSE
 // daemon), the version purge must be deferred: no data deleted, no stamp
 // written (so the next un-contended run performs it). flock locks are held per
-// open file description, so a second open of the same lock file conflicts even
-// within one process.
+// open file description, so a repeat open of the same lock file conflicts even
+// within a process.
 func TestEnsureLocalCacheVersion_DefersWhileRootIsOwned(t *testing.T) {
 	root := t.TempDir()
 	populateCacheRoot(t, root)
@@ -33,7 +33,7 @@ func TestEnsureLocalCacheVersion_DefersWhileRootIsOwned(t *testing.T) {
 	_, err = os.Stat(filepath.Join(root, localCacheVersionFile))
 	require.True(t, os.IsNotExist(err), "the stamp must stay unwritten so the next run retries")
 
-	// Once the owner releases the lock, the deferred purge goes through.
+	// As soon as the owner releases the lock, the deferred purge goes through.
 	require.NoError(t, syscall.Flock(int(owner.Fd()), syscall.LOCK_UN))
 	EnsureLocalCacheVersion(root)
 	_, err = os.Stat(filepath.Join(root, "packs"))

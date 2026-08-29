@@ -10,7 +10,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 )
 
-// writeDuplicateGoFiles creates two Go files in dir with near-duplicate functions.
+// writeDuplicateGoFiles creates a pair of Go files in dir with near-duplicate functions.
 func writeDuplicateGoFiles(t *testing.T, dir string) {
 	t.Helper()
 	srcA := `package p

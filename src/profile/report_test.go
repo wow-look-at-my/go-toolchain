@@ -46,7 +46,6 @@ func TestBuildReport_JoinAndTotals(t *testing.T) {
 	assert.Equal(t, 4, r.TotalActions)
 	assert.Equal(t, 2, r.ExecutedActions)
 	assert.Equal(t, map[string]int{"miss": 1, "hit-local": 1, "hit-remote": 1, "unknown": 1}, r.Outcomes)
-	// 2 hits / (2 hits + 1 miss)
 	assert.InDelta(t, 66.67, r.SatisfiedPct, 0.1)
 	assert.InDelta(t, 2500, r.WallMSTotal, 0.001)
 	assert.Equal(t, uint64(7), r.ActionsOverflow)
@@ -67,7 +66,7 @@ func TestBuildReport_JoinAndTotals(t *testing.T) {
 }
 
 func TestBuildReport_NoOutcomes(t *testing.T) {
-	// A run without GOCACHEPROG (or a vet-only path) joins nothing: every row is unknown, satisfied pct is 0, not NaN.
+	// A run without GOCACHEPROG (or a vet-only path) joins nothing: every row is unknown, and satisfied pct stays a real number, not NaN.
 	r := BuildReport(testActions(), nil, nil, nil, 0)
 	assert.Equal(t, 4, r.Outcomes["unknown"])
 	assert.Equal(t, float64(0), r.SatisfiedPct)

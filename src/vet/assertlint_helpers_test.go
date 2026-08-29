@@ -124,7 +124,7 @@ func TestClearNodePositionsComplex(t *testing.T) {
 	require.NoError(t, err)
 	_ = fset
 
-	// All positions should be non-zero initially
+	// All positions should be set to begin with
 	clearNodePositions(expr)
 
 	// Walk and verify all positions are cleared
@@ -149,9 +149,9 @@ func TestPrepareFixNodes(t *testing.T) {
 	}
 	prepareFixNodes(nodes, 50)
 
-	// First node should have its position set to 50
+	// The leading node should have its position set to the given pos
 	assert.Equal(t, token.Pos(50), nodes[0].(*ast.Ident).NamePos)
-	// Second node should have positions cleared
+	// The node after it should have positions cleared
 	assert.Equal(t, token.NoPos, nodes[1].(*ast.BasicLit).ValuePos)
 }
 

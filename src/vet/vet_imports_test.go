@@ -118,7 +118,7 @@ func TestLoadErrorMessages(t *testing.T) {
 	embed := perr("oci.go:26:12", "pattern x: no matching files found")
 
 	// A directory's test variants are separate root packages carrying the same
-	// Errors, so the same broken file reports two to four times.
+	// Errors, so the same broken file reports repeatedly.
 	pkgs := []*packages.Package{
 		{PkgPath: "m/api", Errors: []packages.Error{embed}},
 		{PkgPath: "m/api [m/api.test]", Errors: []packages.Error{embed}},
@@ -141,8 +141,8 @@ func TestLoadErrorMessages(t *testing.T) {
 // TestLoadErrorMessagesReportsDependencyErrors: a package that fails to load
 // records the cause on ITS OWN Errors and still hands its importers a type
 // under whatever name go list reported, so the roots carry only the downstream
-// `undefined:` cascade. Reading roots alone dropped the one line that named the
-// broken package. A dependency reached by two paths reports once.
+// `undefined:` cascade. Reading roots alone dropped the only line that named
+// the broken package. A dependency reached by several paths reports a single time.
 func TestLoadErrorMessagesReportsDependencyErrors(t *testing.T) {
 	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
 
