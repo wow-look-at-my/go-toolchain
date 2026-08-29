@@ -65,6 +65,20 @@ func flagFingerprint() string {
 	return strings.Join(lines, "\n")
 }
 
+// isOutputDir reports whether path, relative to the walk root, is the output
+// directory. outputDir can also be absolute, so both spellings are compared.
+func isOutputDir(path string) bool {
+	if filepath.Clean(path) == filepath.Clean(outputDir) {
+		return true
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	outAbs, err := filepath.Abs(outputDir)
+	return err == nil && abs == outAbs
+}
+
 // computeFingerprint hashes all inputs that affect a go-toolchain run: all .go
 // files (including tests), go.mod, go.sum, .dats suites and their .golden
 // snapshots, everything under a testdata directory, Go version, the flags the
@@ -89,13 +103,16 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 	}
 
 	var files []string
+	// The walk must skip the run's own product. Matching the NAME "build"
+	// instead hid src/build, a real package, so an edit there left the
+	// fingerprint unchanged and the fast exit served a stale binary.
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name == "build" || name == "vendor" || name == "node_modules" {
+			if isOutputDir(path) || name == "vendor" || name == "node_modules" {
 				return filepath.SkipDir
 			}
 			if name != "." && strings.HasPrefix(name, ".") {

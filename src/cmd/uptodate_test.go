@@ -54,6 +54,36 @@ func TestComputeFingerprintIncludesGoSum(t *testing.T) {
 	assert.NotEqual(t, fp1, fp2)
 }
 
+// A source package named "build" is not the output directory. Skipping it by
+// NAME hid every edit under this repo's own src/build, so the fast exit served
+// a stale binary and called the run finished.
+func TestComputeFingerprintCountsASourceDirNamedBuild(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Chdir(dir))
+	old := outputDir
+	outputDir = "build"
+	defer func() { outputDir = old }()
+
+	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
+	require.NoError(t, os.MkdirAll("src/build", 0o755))
+	os.WriteFile("src/build/target.go", []byte("package build\n"), 0644)
+
+	fp1, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+
+	os.WriteFile("src/build/target.go", []byte("package build\n\nconst X = 1\n"), 0644)
+	fp2, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.NotEqual(t, fp1, fp2, "an edit under src/build must bust the fingerprint")
+
+	// The output directory is the run's product, so it stays out.
+	require.NoError(t, os.MkdirAll("build", 0o755))
+	os.WriteFile("build/leftover.go", []byte("package main\n"), 0644)
+	fp3, err := computeFingerprint(runner.NewMock())
+	require.NoError(t, err)
+	assert.Equal(t, fp2, fp3, "the output directory is not an input")
+}
+
 // action.yml is test data (handoffname_test.go asserts its hand-off name
 // templates) that no //go:embed can reach from src/cmd, so editing it has to
 // bust the fingerprint -- otherwise the run fast-exits "Up to date" and those
