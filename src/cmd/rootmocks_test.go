@@ -79,6 +79,26 @@ func setupMockProject() {
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
 }
 
+// writeMockBuildOutput writes the file named by a go build's -o flag, as a
+// real exit-0 compiler does. The t-flavored variant is writeBuildOutput.
+func writeMockBuildOutput(cfg runner.Config, content string) {
+	for i, arg := range cfg.Args {
+		if arg == "-o" && i+1 < len(cfg.Args) {
+			os.WriteFile(cfg.Args[i+1], []byte(content), 0o755)
+		}
+	}
+}
+
+// handleGoBuild leaves the -o target behind, as an exit-0 compiler does;
+// every mock reaching the build phase needs it. newBuildFailMock answers first.
+func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
+	if !cfg.IsCmd("go", "build") {
+		return nil, false
+	}
+	writeMockBuildOutput(cfg, "bin")
+	return runner.MockProcess(nil, nil), true
+}
+
 // newTestPassMock creates a mock runner that passes tests with the given coverage percentage.
 // If pct is 0, it defaults to 100%.
 func newTestPassMock(pct float32) *runner.Mock {
@@ -91,6 +111,9 @@ func newTestPassMock(pct float32) *runner.Mock {
 			}
 			writeMockCoverProfile(cfg.Args, covPct)
 			return runner.MockProcess([]byte(mockTestEvents(covPct)), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
@@ -165,6 +188,9 @@ func newTestFailMock() *runner.Mock {
 `
 			return runner.MockProcess([]byte(output), nil), nil
 		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
+		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
 		}
@@ -203,6 +229,9 @@ func newSmallMock(covered, uncovered int) *runner.Mock {
 		if cfg.IsCmd("go", "test") {
 			writeMockCoverProfileStmts(cfg.Args, covered, uncovered)
 			return runner.MockProcess([]byte(mockTestEvents(pct)), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil

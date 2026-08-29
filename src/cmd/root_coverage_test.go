@@ -47,6 +47,9 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 `
 			return runner.MockProcess([]byte(output), nil), nil
 		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
+		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
 		}
@@ -107,6 +110,9 @@ func newNoTestFilesMock() *runner.Mock {
 			out := `{"Time":"2024-01-01T00:00:00Z","Action":"output","Package":"example.com/pkg","Output":"?   \texample.com/pkg\t[no test files]\n"}` + "\n" +
 				`{"Time":"2024-01-01T00:00:01Z","Action":"skip","Package":"example.com/pkg"}` + "\n"
 			return runner.MockProcess([]byte(out), nil), nil
+		}
+		if proc, ok := handleGoBuild(cfg); ok {
+			return proc, nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
