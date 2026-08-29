@@ -103,7 +103,7 @@ func sub(a, b int) int {
 }
 
 func TestRunOnFiles_DetectsNearDuplicates(t *testing.T) {
-	// Two functions with identical structure, different variable names
+	// A pair of functions with identical structure, different variable names
 	src := `package p
 
 func processUser(name string) error {
@@ -257,7 +257,7 @@ func b() { y := 1; _ = y }
 }
 
 func TestRunOnFiles_ThresholdSensitivity(t *testing.T) {
-	// Two functions that are somewhat similar but not identical
+	// A pair of functions that are somewhat similar but not identical
 	src := `package p
 
 func funcA() {

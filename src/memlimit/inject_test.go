@@ -70,7 +70,7 @@ func TestInjectAllDiscoversMainPackages(t *testing.T) {
 	_, statErr := os.Stat(filepath.Join(mod, "internal/lib", GuardFileName))
 	require.True(t, os.IsNotExist(statErr), "guard should not be injected into a non-main package")
 
-	// Second pass is a clean no-op.
+	// The repeat pass is a clean no-op.
 	changed, err = InjectAll()
 	require.NoError(t, err)
 	require.Empty(t, changed)

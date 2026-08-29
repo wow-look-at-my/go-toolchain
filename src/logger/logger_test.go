@@ -277,7 +277,7 @@ func TestInitSubprocess(t *testing.T) {
 	assert.NotContains(t, errStr, "hidden at info")
 }
 
-// TestTrailingNewline checks that messages always end with exactly one newline.
+// TestTrailingNewline checks that messages always end with a single newline.
 func TestTrailingNewline(t *testing.T) {
 	l, out, _ := captureLogger(LevelInfo, false)
 	l.Info("no newline in message")

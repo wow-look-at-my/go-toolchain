@@ -5,14 +5,14 @@ import "sync"
 // MaxRecordedWarnings bounds retained distinct warning text for the recap; the distinct count itself stays unbounded.
 const MaxRecordedWarnings = 200
 
-// Warning is one distinct emitted warning: the message text, and the number of
-// times that exact text was emitted.
+// Warning is a distinct emitted warning: the message text, and how many times
+// that exact text was emitted.
 type Warning struct {
 	Message string
 	Count   int
 }
 
-// warnIndex maps a message to its slot, or -1 past the cap, so a repeat still
+// warnIndex maps a message to its slot, or a negative slot past the cap, so a repeat still
 // folds. Never normalize the text. see docs/WARNINGS-GATE.md
 var (
 	warnMu       sync.Mutex
@@ -22,7 +22,7 @@ var (
 	warnMessages []Warning
 )
 
-// recordWarn counts one emitted warning and retains the message text. A
+// recordWarn counts an emitted warning and retains the message text. A
 // message already seen adds to its repeat count and leaves the distinct count
 // alone. Callers hold their own Logger's mutex; this takes only warnMu, so the
 // lock order is fixed and cannot deadlock.
@@ -65,7 +65,7 @@ func TotalWarnCount() int64 {
 }
 
 // EmittedWarnings returns the retained distinct warnings (at most
-// MaxRecordedWarnings), in first-emission order, each with its repeat count.
+// MaxRecordedWarnings), in emission order, each with its repeat count.
 func EmittedWarnings() []Warning {
 	warnMu.Lock()
 	defer warnMu.Unlock()
@@ -74,7 +74,7 @@ func EmittedWarnings() []Warning {
 	return out
 }
 
-// ResetWarnCount zeroes the process-wide counters, for tests sharing one process.
+// ResetWarnCount zeroes the process-wide counters, for tests that share a process.
 func ResetWarnCount() {
 	warnMu.Lock()
 	defer warnMu.Unlock()

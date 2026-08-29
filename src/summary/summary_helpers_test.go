@@ -33,7 +33,7 @@ func TestStripCPUSuffix(t *testing.T) {
 		{"BenchmarkFoo", "BenchmarkFoo"},
 		{"Bench-mark-8", "Bench-mark"},
 		{"", ""},
-		{"-", "-"}, // idx=0, not >0
+		{"-", "-"}, // the dash sits at the head, so nothing is stripped
 	}
 	for _, tc := range tests {
 		assert.Equal(t, tc.want, stripCPUSuffix(tc.input))

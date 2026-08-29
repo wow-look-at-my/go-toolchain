@@ -19,7 +19,7 @@ import (
 // Export converts timeline entries to OTel spans via the shared tracer provider (see
 // provider.go); a no-op when OTEL_EXPORTER_OTLP_ENDPOINT is unset or entries is empty. The
 // shared provider owns the batcher and exporter, so this function does not build or shut down
-// its own -- the build entrypoint calls Shutdown once, after Export.
+// its own -- the build entrypoint calls Shutdown a single time, after Export.
 func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" || len(entries) == 0 {
@@ -39,7 +39,7 @@ func Export(ctx context.Context, entries []summary.TimelineEntry) error {
 	return nil
 }
 
-// buildSpans creates the three-level span hierarchy: root → worker → step.
+// buildSpans creates the span hierarchy: root → worker → step.
 func buildSpans(ctx context.Context, tp *sdktrace.TracerProvider, entries []summary.TimelineEntry) {
 	tracer := tp.Tracer("go-toolchain")
 
@@ -140,7 +140,7 @@ func stepSpanInfo(e summary.TimelineEntry) (string, []attribute.KeyValue) {
 	return e.Label, attrs
 }
 
-// groupByThread groups entries by thread, preserving first-seen order.
+// groupByThread groups entries by thread, preserving the order they arrive in.
 func groupByThread(entries []summary.TimelineEntry) ([]string, map[string][]summary.TimelineEntry) {
 	order := []string{}
 	grouped := make(map[string][]summary.TimelineEntry)

@@ -123,7 +123,7 @@ func TestGuardDetection(t *testing.T) {
 }
 
 // buildGuard compiles the embedded guard source plus a harness into a binary
-// that prints "<limit> <ok>" for the cgroup root given as its first argument.
+// that prints "<limit> <ok>" for the cgroup root given as its leading argument.
 func buildGuard(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

@@ -9,7 +9,7 @@ import (
 // Start and End are absolute wall-clock times; normalization happens at render time.
 type TimelineEntry struct {
 	Label  string
-	Thread string    // e.g. "main", "deps", "worker-1"
+	Thread string    // e.g. "main", "deps", "worker-N"
 	Start  time.Time // absolute wall clock
 	End    time.Time // absolute wall clock
 	Failed bool
