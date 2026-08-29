@@ -16,7 +16,7 @@ import (
 // ReportSchema versions the profile.json layout. Bump on incompatible change.
 const ReportSchema = 1
 
-// Row is one action of the profile: an actiongraph row joined with the cache
+// Row is an action of the profile: an actiongraph row joined with the cache
 // outcome observed for its ActionID.
 type Row struct {
 	ActionID  string  `json:"action_id,omitempty"`
@@ -49,7 +49,7 @@ type CacheTotals struct {
 // Report is the build profile serialized to build/profile.json and
 // $TMPDIR/go-toolchain-profile/profile.json. Stable schema (versioned by the
 // Schema field): Outcomes tallies get outcomes; SatisfiedPct is
-// hits/(hits+misses)*100 over rows with a known outcome; WallMSTotal sums
+// the hit share of rows with a known outcome, as a percentage; WallMSTotal sums
 // per-action wall time without folding out parallelism; Web is absent with
 // no web backend configured; Actions is the full join, by wall time desc.
 type Report struct {
@@ -224,7 +224,7 @@ func fmtMS(ms float64) string {
 }
 
 // WriteJSON serializes the report to every given path, creating parent
-// directories as needed. Failures are reported per path; the first error is
+// directories as needed. Failures are reported per path; the earliest error is
 // returned after all paths were attempted.
 func (r *Report) WriteJSON(paths ...string) error {
 	data, err := json.MarshalIndent(r, "", "\t")

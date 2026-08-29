@@ -108,6 +108,6 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Fails the run once every phase has printed if warnings exceed maxWarnings (same gate as the default pipeline).
+	// Fails the run after every phase has printed if warnings exceed maxWarnings (same gate as the default pipeline).
 	return checkWarningsGate()
 }

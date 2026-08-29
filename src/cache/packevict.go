@@ -8,9 +8,9 @@ import (
 )
 
 // evictPacksToBudget bounds cross-build growth at startup: when the packs on
-// disk total more than packResetBytes, whole packs are deleted OLDEST-FIRST
+// disk total more than packResetBytes, whole packs are deleted OLDEST TO NEWEST
 // (lowest id — pack ids grow monotonically, so the lowest id holds the oldest
-// records) until the total is at or under ~80% of the budget, leaving
+// records) until the total is at or under the eviction target, leaving
 // headroom for this build's writes. The newest pack is never deleted: it
 // becomes the append target and holds the most recently written — most
 // likely still hot — records.

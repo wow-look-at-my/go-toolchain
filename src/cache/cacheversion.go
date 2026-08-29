@@ -18,7 +18,7 @@ const localCacheVersionFile = ".cache_version"
 // fuseLockName: the FUSE daemon holds this flock; the purge takes it briefly too.
 const fuseLockName = ".fuse.lock"
 
-// EnsureLocalCacheVersion runs the one-time local cache purge for root (the
+// EnsureLocalCacheVersion runs the single local cache purge for root (the
 // buildcache dir) when the on-disk version stamp does not match
 // currentLocalCacheVersion. It is called before either local tier opens —
 // NewLocalStore for the daemon (FUSE, loose fallback, and GOCACHE_NO_FUSE) and
@@ -27,12 +27,12 @@ const fuseLockName = ".fuse.lock"
 // are logged and the build proceeds (an unwritten stamp retries next run).
 //
 // The purge deletes only the known DATA children of root — the packs/ dir, the
-// loose tier's two-hex-digit bucket dirs, and stray temp files. It never
+// loose tier's hex bucket dirs, and stray temp files. It never
 // touches mnt/ (a possibly-mounted FUSE mountpoint), the lock file, or any
 // unknown name, and by construction never reaches outside root (siblings like
 // deps.db or downloaded toolchains live outside the buildcache root).
 //
-// A fresh or already-current root writes/keeps the stamp silently; the one
+// A fresh or already-current root writes/keeps the stamp silently; the only
 // stderr line is printed only when data was actually removed.
 func EnsureLocalCacheVersion(root string) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -70,7 +70,7 @@ func EnsureLocalCacheVersion(root string) {
 	}
 }
 
-// readLocalCacheVersion returns the version recorded in the stamp file, or 1
+// readLocalCacheVersion returns the version recorded in the stamp file, or the earliest version
 // (the implicit pre-stamp version) when the file is missing or unparseable.
 func readLocalCacheVersion(stamp string) int {
 	raw, err := os.ReadFile(stamp)
@@ -110,7 +110,7 @@ func writeLocalCacheVersion(stamp string) error {
 }
 
 // purgeLocalCacheData deletes the cached data under root: the pack store's
-// packs/ dir, the loose tier's 00..ff bucket dirs, and stray temp files. It
+// packs/ dir, the loose tier's hex bucket dirs, and stray temp files. It
 // operates ONLY on known child names — mnt/ (a possibly-mounted FUSE
 // mountpoint), the lock file, the stamp, and anything unrecognized survive —
 // and therefore can never reach outside root. Returns whether anything was
@@ -144,8 +144,8 @@ func purgeLocalCacheData(root string) (purged bool, err error) {
 	return purged, firstErr
 }
 
-// isLooseBucketName reports whether name is one of the loose tier's 256
-// two-hex-digit bucket dirs (see NewLocalCache / LocalCache.dataPath).
+// isLooseBucketName reports whether name is a loose-tier bucket dir, named by
+// a hex byte (see NewLocalCache / LocalCache.dataPath).
 func isLooseBucketName(name string) bool {
 	if len(name) != 2 {
 		return false

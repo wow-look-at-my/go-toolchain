@@ -5,7 +5,7 @@
 // with default tags, so a file carrying `//go:build sometag` was never
 // type-checked, never analyzed, and its tests never ran. A failing test or a
 // vet violation behind any tag was invisible to CI -- not by defeating a check,
-// but by never being shown to one.
+// but by never being shown to any.
 //
 // Coverage is not asserted from cleverness. Configs enumerates a small set of
 // tag combinations, and Verify then PROVES every taggable file was reached,
@@ -29,7 +29,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
-// Config is one set of build tags to run a phase under. Empty Tags is the
+// Config is a set of build tags to run a phase under. Empty Tags is the
 // default configuration.
 type Config struct {
 	Tags []string
@@ -46,7 +46,7 @@ func (c Config) String() string {
 	return c.Arg()
 }
 
-// File records one source file that is gated behind at least one user tag, and
+// File records a source file that is gated behind a user tag, and
 // therefore MUST be reached by some configuration.
 type File struct {
 	Path string   // path as walked, relative to the module root
@@ -55,7 +55,7 @@ type File struct {
 
 // Discovery is the result of scanning a module.
 type Discovery struct {
-	// Configs are the tag sets to run every phase under, default first.
+	// Configs are the tag sets to run every phase under, the default at the head.
 	Configs []Config
 	// Gated are the files that only build under some non-default tag set.
 	Gated []File
@@ -66,7 +66,7 @@ type Discovery struct {
 // platformIdents are constraint identifiers naming the BUILD TARGET, not a
 // project's own opt-in. A file gated only by these stays excluded on this
 // host -- vetting a windows-only file on linux is out of scope here. Every
-// other identifier is a user tag, so an unknown one stays covered.
+// other identifier is a user tag, so an unknown tag stays covered.
 var platformIdents = map[string]bool{
 	"cgo": true, "race": true, "msan": true, "asan": true,
 	"gc": true, "gccgo": true, "unix": true, "boringcrypto": true,
@@ -109,7 +109,7 @@ func isPlatformIdent(ident string) bool {
 }
 
 // skipDir reports directory names the Go tool itself never builds from, so a
-// constraint inside one is not a pipeline gap.
+// constraint inside such a directory is not a pipeline gap.
 func skipDir(name string) bool {
 	return name == "vendor" || name == "testdata" || name == "node_modules" ||
 		(len(name) > 1 && (name[0] == '.' || name[0] == '_'))
@@ -129,7 +129,7 @@ func Scan(dir string) (*Discovery, error) {
 			if path != dir && skipDir(d.Name()) {
 				return fs.SkipDir
 			}
-			// A nested module's packages are not import paths of this one;
+			// A nested module's packages are not import paths of the outer module;
 			// its tags are its own module's business.
 			if path != dir && gomod.IsNestedModule(path) {
 				return fs.SkipDir
@@ -167,7 +167,7 @@ func Scan(dir string) (*Discovery, error) {
 	return &Discovery{Configs: configsFor(userTags), Gated: gated, UserTags: userTags}, nil
 }
 
-// configsFor builds the tag sets to run. The default comes first so the
+// configsFor builds the tag sets to run. The default leads, so the
 // pipeline's primary output is unchanged; then each tag alone, which satisfies
 // any `a && !b` shape; then all of them together, which satisfies `a && b`.
 // Whether that is sufficient is never assumed -- Verify checks it.
@@ -187,7 +187,7 @@ func configsFor(userTags []string) []Config {
 }
 
 // fileTags returns the user tags a file's build constraint mentions. A file
-// with no constraint, or one written purely in platform terms, returns nil.
+// with no constraint, or a constraint written purely in platform terms, returns nil.
 func fileTags(path string) ([]string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, nil, parser.PackageClauseOnly|parser.ParseComments)

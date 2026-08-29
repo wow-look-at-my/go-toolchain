@@ -17,7 +17,7 @@ import (
 )
 
 func TestIsGoModuleIndex(t *testing.T) {
-	// Real index blobs: the version line is the first thing modindex writes.
+	// Real index blobs: the version line leads everything modindex writes.
 	require.True(t, isGoModuleIndex([]byte("go index v2\n\x00\x00stuff")))
 	require.True(t, isGoModuleIndex([]byte("go index v1\nlegacy")))
 	require.True(t, isGoModuleIndex([]byte("go index v999\nfuture format")))
@@ -35,7 +35,7 @@ func TestIsGoModuleIndex(t *testing.T) {
 // "package runtime is not in std" CI failure: a Go module index blob served
 // from the shared cache cannot be proven to belong under the requested action
 // key (it carries no build id and the outputID hash only proves self
-// consistency), and a wrong one is fatal at package load. So even a body that
+// consistency), and the wrong index is fatal at package load. So even a body that
 // passes the outputID integrity gate must be refused as a miss when it is a
 // module index, letting cmd/go recompute it locally. The key is also evicted.
 func TestWebBackend_GetRefusesModuleIndex(t *testing.T) {
@@ -121,7 +121,7 @@ func TestWebBackend_PutRefusesModuleIndex(t *testing.T) {
 
 // TestWireBatchCallbacks_SkipsModuleIndex verifies the prefetch path does not
 // seed a module index into the local store: a mis-keyed index materialized as a
-// local hit would break the build just as a served one does. A non-index entry
+// local hit would break the build just as a served body does. A non-index entry
 // alongside it still populates, proving the skip is specific to the index.
 func TestWireBatchCallbacks_SkipsModuleIndex(t *testing.T) {
 	local, err := NewLocalCache(t.TempDir())
@@ -154,7 +154,7 @@ func TestWireBatchCallbacks_SkipsModuleIndex(t *testing.T) {
 // with a DiskPath naming a file that holds the body -- cmd/go rejects an empty
 // DiskPath outright ("GOCACHEPROG didn't return DiskPath in put response") and
 // treats a failed index store as fatal, so a refusal that errored or replied
-// empty would break every build instead of the one in five it was fixing.
+// empty would break every build instead of the occasional build it was fixing.
 func TestServer_PutRefusesModuleIndexAndKeepsDiskPath(t *testing.T) {
 	lc, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
@@ -188,7 +188,7 @@ func TestServer_PutRefusesModuleIndexAndKeepsDiskPath(t *testing.T) {
 }
 
 // TestServer_NeverStoresModuleIndexBlob is the deterministic assertion the
-// 1-in-5 type-check flake needs: no run of the cacheprog may leave a module
+// intermittent type-check flake needs: no run of the cacheprog may leave a module
 // index anywhere under the cache root. A wrong index served back under an
 // action key that hashes NO content renames a package at load time (otel's
 // attribute package arriving named "trace"), and nothing downstream can detect
@@ -248,7 +248,7 @@ func TestServer_NeverStoresModuleIndexBlob(t *testing.T) {
 
 // TestLocalServeGatesRefuseModuleIndex covers the residue case: an index a
 // PREVIOUS binary stored (both tiers served them then) must not be handed back
-// by this one. The PUT refusal is what keeps this from becoming the permanent
+// by this run. The PUT refusal is what keeps this from becoming the permanent
 // accept-at-Put/refuse-at-Get miss loop the file-top comment in verify.go
 // describes.
 func TestLocalServeGatesRefuseModuleIndex(t *testing.T) {

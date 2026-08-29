@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// outputIDMatches verifies body's SHA-256 against outputID (the GOCACHEPROG
+// outputIDMatches verifies body's sha256 against outputID (the GOCACHEPROG
 // contract), so remote corruption is never cached and served as valid.
 func outputIDMatches(outputID string, body []byte) (got string, ok bool) {
 	sum := sha256.Sum256(body)

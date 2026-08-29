@@ -29,7 +29,7 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 		}
 	}
 
-	// Step 1: Collect all unexported package-level definitions.
+	// Collect all unexported package-level definitions.
 	type defInfo struct {
 		pos  ast.Node // for position in Reportf
 		name string
@@ -56,12 +56,12 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 		defined[canonicalize(obj)] = defInfo{pos: ident, name: ident.Name, kind: kind}
 	}
 
-	// Step 2: Remove everything that is referenced.
+	// Remove everything that is referenced.
 	for _, obj := range pass.TypesInfo.Uses {
 		delete(defined, canonicalize(obj))
 	}
 
-	// Step 3: Remove methods that implement interfaces.
+	// Remove methods that implement interfaces.
 	if len(defined) > 0 {
 		ifaces := collectInterfaces(pass)
 		for obj := range defined {
@@ -75,7 +75,7 @@ func runDeadCode(pass *analysis.Pass) (any, error) {
 		}
 	}
 
-	// Step 4: Report remaining dead code.
+	// Report remaining dead code.
 	for _, info := range defined {
 		pass.Reportf(info.pos.Pos(), "%s %s is unused within this package", info.kind, info.name)
 	}
@@ -125,7 +125,7 @@ func shouldSkipDef(obj types.Object, name string, pass *analysis.Pass) bool {
 }
 
 // objectKind returns a human-readable kind string, or "" if the object type
-// is not one we track.
+// is not a kind we track.
 func objectKind(obj types.Object) string {
 	switch obj.(type) {
 	case *types.Func:
@@ -216,7 +216,7 @@ func addInterfacesFromScope(scope *types.Scope, ifaces *[]*types.Interface) {
 }
 
 // isInterfaceMethod returns true if fn is a method whose receiver type
-// implements one of the given interfaces (checked for both T and *T).
+// implements any of the given interfaces (checked for both T and *T).
 func isInterfaceMethod(fn *types.Func, ifaces []*types.Interface) bool {
 	sig := fn.Type().(*types.Signature)
 	recv := sig.Recv()

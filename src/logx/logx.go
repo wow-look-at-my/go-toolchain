@@ -5,10 +5,10 @@
 //
 // Install() swaps os.Stdout and os.Stderr for pipe write-ends and starts
 // goroutines that read each complete line and forward it to the real stream
-// with an elapsed-time suffix (e.g. " 0.19s") — but only for lines that took
-// at least a second to appear. Faster lines print unchanged, so the suffix
-// marks the handful of lines actually worth timing instead of cluttering
-// every line with a "0.01s".
+// with an elapsed-time suffix — but only for a line slow enough to reach
+// minDurationToShow. A faster line prints unchanged, so the suffix
+// marks the handful of lines actually worth timing instead of stamping
+// an instant duration onto every line.
 //
 // With Install() active, every line emitted by this process — from our own
 // logger calls, from subprocess output inherited via the pipe, from anywhere
@@ -58,7 +58,7 @@ var (
 
 // Install redirects os.Stdout and os.Stderr through pipes. A goroutine
 // per stream reads complete lines and writes them back to the original
-// stream with an elapsed-duration suffix (e.g. " 0.19s").
+// stream with an elapsed-duration suffix.
 //
 // Do NOT call this in GOCACHEPROG mode — the Go toolchain expects raw
 // JSON on stdout there.
@@ -92,16 +92,13 @@ func Install() {
 }
 
 // Flush closes the pipe write-ends and waits for drainer goroutines to
-// finish. os.Stdout and os.Stderr are restored to the original files so
-// any late writes (e.g. from panic handlers) still reach the terminal
-// without deadlocking on a closed pipe.
-//
-// Safe to call multiple times and before Install().
+// finish. os.Stdout and os.Stderr are restored, so a late write reaches the
+// terminal, never a closed pipe. Safe to call repeatedly, and before Install().
 func Flush() {
 	if !installed {
 		return
 	}
-	// Restore now so late writes don't deadlock on the pipe once it's closed.
+	// Restore now so late writes don't deadlock on the pipe after it closes.
 	os.Stdout = origStdout
 	os.Stderr = origStderr
 	_ = pipeStdoutW.Close()
@@ -120,7 +117,7 @@ var alreadyTimedRE = regexp.MustCompile(` \d+\.\d{2}s$`)
 var minDurationToShow = time.Second
 
 // drain reads lines from r and writes them to w, appending an elapsed-duration
-// suffix once the gap since the previous line reaches minDurationToShow.
+// suffix when the gap since the previous line reaches minDurationToShow.
 // A line already ending in a duration suffix passes through unchanged, so
 // step.finish's own timing is never double-stamped. A trailing partial line
 // at EOF is still emitted, with a newline appended.

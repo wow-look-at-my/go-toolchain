@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 )
 
-// buildIDHashSize is the leading action-hash bytes cmd/go stamps into a build id's ACTION field: base64.RawURLEncoding(hash[:15]).
+// buildIDHashSize is how many leading action-hash bytes cmd/go stamps into a build id's ACTION field, base64.RawURLEncoding'd.
 const buildIDHashSize = 15
 
 // expectedBuildIDAction derives the build-id ACTION field cmd/go would stamp
-// for cache action actionIDHex (base64.RawURLEncoding(actionID[:15])).
-// Returns "" when actionIDHex is too short to derive one -- not a mismatch.
+// for cache action actionIDHex (base64.RawURLEncoding of its leading bytes).
+// Returns "" when actionIDHex is too short to derive -- not a mismatch.
 func expectedBuildIDAction(actionIDHex string) string {
 	raw, err := hex.DecodeString(actionIDHex)
 	if err != nil || len(raw) < buildIDHashSize {
@@ -62,7 +62,7 @@ func archiveBuildIDAction(data []byte) string {
 // actionIDHex, catching a self-consistent body stored under the wrong key.
 // got is the archive's stamped action. ok is false only when the build id
 // proves a DIFFERENT action, or a package archive has none (cmd/go always
-// stamps one). Best-effort integrity, not an authorization boundary.
+// stamps it). Best-effort integrity, not an authorization boundary.
 func buildIDMatchesAction(actionIDHex string, body []byte) (got string, ok bool) {
 	isPkg, action := archiveExportInfo(body)
 	want := expectedBuildIDAction(actionIDHex)

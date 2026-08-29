@@ -15,7 +15,7 @@ import (
 // connections' in-flight web operations — and each connection's close then
 // re-reported the shared cumulative pool snapshot, which the stats listener
 // merges additively (an N-fold overcount for N connections). The sink must be
-// wired exactly once, by the daemon, and per-connection Servers over the
+// wired a single time, by the daemon, and per-connection Servers over the
 // no-close wrapper must leave it alone.
 func TestDaemon_LatencyWiredOnceOnSharedBackend(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())

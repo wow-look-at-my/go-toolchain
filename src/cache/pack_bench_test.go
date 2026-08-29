@@ -9,7 +9,7 @@ import (
 // Benchmarks for the warm read paths: GetVerified (the GET RPC gate) and
 // GetByOutputVerified (the FUSE Lookup gate). Before the verified-read memo
 // (verify.go), both re-read and re-hashed the FULL body on every call — a
-// pipeline of 4-6 cmd/go invocations re-GETting the same actions paid that
+// pipeline of several cmd/go invocations re-GETting the same actions paid that
 // cost repeatedly for every warm hit.
 
 func benchPackStore(b *testing.B, size int) (s *PackStore, aid, oid string) {

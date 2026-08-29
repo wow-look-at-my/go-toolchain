@@ -47,7 +47,7 @@ func TestRenderGanttSingleThread(t *testing.T) {
 
 // TestRenderGanttRendersTheWholeDocument pins the chart byte for byte. The
 // Contains assertions around it would all pass with a stray blank line between
-// two sections, which mermaid reads as the end of the chart.
+// adjacent sections, which mermaid reads as the end of the chart.
 func TestRenderGanttRendersTheWholeDocument(t *testing.T) {
 	entries := []TimelineEntry{
 		entry("go vet", "main", 0, time.Second, false),
@@ -146,7 +146,7 @@ func TestRenderGanttMinimumWidth(t *testing.T) {
 	}
 
 	result := RenderGantt(entries)
-	// Instant step (start=end=1s) should get minimum 100ms width: 1000, 1100
+	// An instant step (start and end alike) gets the minimum bar width
 	assert.Contains(t, result, "1000, 1100")
 }
 

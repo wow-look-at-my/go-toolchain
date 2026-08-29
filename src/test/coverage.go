@@ -24,7 +24,7 @@ type ICoverageItem interface {
 	Uncovered() int
 	Pct() float32
 	ImportPath() string // Returns import path for linking (file path for files/funcs, package path for packages)
-	Line() int          // Returns line number (0 for packages/files)
+	Line() int          // Returns line number (absent for packages/files)
 }
 
 // baseCoverageItem provides common coverage stats (embed in concrete types)
@@ -246,9 +246,9 @@ func filterBlocksByReachable(blocks []coverageBlock, reachable set.Set[string]) 
 
 // parseProfileBlocks parses a coverage profile into blocks.
 // Duplicate entries (same file + line range) are merged by taking the max
-// count. Go 1.25 with -coverpkg=./... and -p 1 emits one entry per
-// test-package per block, so without merging, statements get counted N times
-// (once per test package) which dramatically deflates the coverage percentage.
+// count. A recent Go with -coverpkg=./... and a serial -p emits an entry per
+// test-package per block, so without merging, statements get counted per test
+// package, which dramatically deflates the coverage percentage.
 func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -262,7 +262,7 @@ func parseProfileBlocks(filename string) ([]coverageBlock, error) {
 		lineRange string // original "startLine.startCol,endLine.endCol"
 	}
 	merged := make(map[blockKey]*coverageBlock)
-	var order []blockKey // preserve first-seen order
+	var order []blockKey // preserve the order the blocks arrive in
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -388,7 +388,7 @@ func receiverType(expr ast.Expr) string {
 func findSourceFile(importPath string) string {
 	// importPath includes the file name (e.g. "github.com/foo/bar/pkg/file.go"); resolve it relative to the module.
 
-	// Try each suffix as a relative path, stripping one leading segment at a time.
+	// Try each suffix as a relative path, stripping a leading segment at a time.
 	parts := strings.Split(importPath, "/")
 	for i := range parts {
 		candidate := filepath.Join(parts[i:]...)

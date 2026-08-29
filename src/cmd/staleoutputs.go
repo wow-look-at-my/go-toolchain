@@ -47,7 +47,7 @@ func isOutputArtifact(base, name string) bool {
 	return base == name || strings.HasPrefix(base, name+"_") || strings.HasPrefix(base, name+".")
 }
 
-// clearedOutputs records one module's build-output location, so the failure path can delete it from any cwd.
+// clearedOutputs records a module's build-output location, so the failure path can delete it from any cwd.
 type clearedOutputs struct {
 	dir   string   // absolute path of the module's output directory
 	names []string // build target names whose artifacts live there
@@ -77,7 +77,7 @@ func trackedOutputsSnapshot() []clearedOutputs {
 	return append([]clearedOutputs(nil), trackedOutputs...)
 }
 
-// resetTrackedOutputs clears the tracking state (tests share one process).
+// resetTrackedOutputs clears the tracking state (tests share a process).
 func resetTrackedOutputs() {
 	trackedMu.Lock()
 	defer trackedMu.Unlock()

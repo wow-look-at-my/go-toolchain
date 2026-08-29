@@ -15,7 +15,7 @@ func TestEnsureDirectFallback(t *testing.T) {
 	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com"))
 	// Existing "|direct" stays as-is.
 	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com|direct"))
-	// Trailing ",direct" upgrades to "|direct" so 503s fall through, not just 404/410.
+	// Trailing ",direct" upgrades to "|direct" so a server error falls through, not just a missing module.
 	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com,direct"))
 	assert.Equal(t, "https://a.com,https://b.com|direct", ensureDirectFallback("https://a.com,https://b.com,direct"))
 	assert.Equal(t, "https://a.com,https://b.com|direct", ensureDirectFallback("https://a.com,https://b.com|direct"))
@@ -156,7 +156,7 @@ func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
 func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com,direct")
-	// A private checksum database: configureGoEnv refuses the public one outright (see TestUsesPublicSumDB).
+	// A private checksum database: configureGoEnv refuses the public database outright (see TestUsesPublicSumDB).
 	t.Setenv("GOSUMDB", "mydb+abc123 https://proxy.example.com/sumdb/mydb")
 	t.Setenv("GONOSUMDB", "leftover")
 	t.Setenv("GONOSUMCHECK", "leftover")
@@ -199,7 +199,7 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "https://other-proxy.example.com,direct")
-	// A private sumdb, since the public one is refused outright; precedence is exercised with an accepted value.
+	// A private sumdb, since the public database is refused outright; precedence is exercised with an accepted value.
 	t.Setenv("GOSUMDB", "otherdb+def456 https://other-proxy.example.com/sumdb/otherdb")
 	t.Setenv("GONOSUMDB", "")
 	t.Setenv("GONOSUMCHECK", "")
@@ -254,8 +254,8 @@ func TestConfigureGoEnv_OffPassthrough(t *testing.T) {
 }
 
 // The public checksum database is never an option: it cannot hold a private
-// module, so it can only ever fail on one, and asking it about a module
-// announces that module's path to a third party.
+// module, so it can only ever fail on such a module, and asking it about a
+// module announces that module's path to an outside party.
 func TestUsesPublicSumDB(t *testing.T) {
 	// Refused: Go would contact sum.golang.org itself.
 	assert.True(t, usesPublicSumDB("sum.golang.org"))
@@ -264,7 +264,7 @@ func TestUsesPublicSumDB(t *testing.T) {
 	// Refused even under another name, if the URL points back at the public host.
 	assert.True(t, usesPublicSumDB("mydb+abc https://sum.golang.org/sumdb/mydb"))
 
-	// Allowed: the org proxy's mirror, since the request goes to the proxy and discloses nothing to a third party.
+	// Allowed: the org proxy's mirror, since the request goes to the proxy and discloses nothing to an outside party.
 	assert.False(t, usesPublicSumDB("sum.golang.org+033de0ae https://goproxy.example.com/sumdb/sum.golang.org"))
 	assert.False(t, usesPublicSumDB("mydb+abc123 https://goproxy.example.com/sumdb/mydb"))
 	assert.False(t, usesPublicSumDB("mydb+abc123"))

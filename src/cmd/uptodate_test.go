@@ -261,7 +261,7 @@ func TestSaveFingerprint(t *testing.T) {
 	data, err := os.ReadFile(fp)
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
-	assert.Len(t, string(data), 64) // SHA-256 hex = 64 chars
+	assert.Len(t, string(data), 64) // the hex width of a sha256 digest
 }
 
 // listPkg mirrors the subset of `go list -json` output that embeddedFiles reads.
@@ -290,7 +290,7 @@ func TestEmbeddedFilesParsesAllThreeFields(t *testing.T) {
 	mock := mockGoListRunner(
 		listPkg{Dir: "/m", EmbedFiles: []string{"a.txt", "static/app.js"}},
 		listPkg{Dir: "/m/sub", TestEmbedFiles: []string{"t.txt"}, XTestEmbedFiles: []string{"x.txt"}},
-		// Same file embedded by another package must collapse to one entry.
+		// Same file embedded by another package must collapse to a single entry.
 		listPkg{Dir: "/m", EmbedFiles: []string{"a.txt"}},
 		// A package with no embeds at all contributes nothing.
 		listPkg{Dir: "/m/none"},
@@ -322,7 +322,7 @@ func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "asset.txt"), []byte("v1"), 0644))
 
-	// One runner reports asset.txt as an embedded file; the other reports none.
+	// A runner reports asset.txt as an embedded file; the other reports none.
 	withEmbed := mockGoListRunner(listPkg{Dir: dir, EmbedFiles: []string{"asset.txt"}})
 	noEmbed := runner.NewMock()
 
@@ -346,8 +346,8 @@ func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
 
 // TestUpToDateTracksEmbeddedFiles is the end-to-end regression for the bug: it
 // drives real `go list` resolution over a fixture module that embeds data files
-// via all three directive forms (EmbedFiles, TestEmbedFiles, XTestEmbedFiles)
-// and asserts that editing any one embedded file busts the "up to date" skip,
+// via every directive form (EmbedFiles, TestEmbedFiles, XTestEmbedFiles)
+// and asserts that editing any embedded file busts the "up to date" skip,
 // while an unchanged tree still reports up to date.
 func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {

@@ -48,7 +48,7 @@ func arMember(data []byte, name string) []byte {
 	}
 	data = data[len(globalHdr):]
 
-	// Member header: name[16], mtime[12], uid[6], gid[6], mode[8], size[10], end[2] = 60 bytes.
+	// Member header: fixed-width name, mtime, uid, gid, mode, size and end marker.
 	const hdrSize = 60
 	for len(data) >= hdrSize {
 		rawName := bytes.TrimRight(data[:16], " ")
@@ -94,7 +94,7 @@ const (
 
 	pbFlagSyncMarkers = 1
 
-	// Sync marker values (marker is stored in bits [63:8] of the varint).
+	// Sync marker values (the marker rides the varint's high bits, above its low byte).
 	pbSyncRelocs   = 8
 	pbSyncReloc    = 9
 	pbSyncUseReloc = 10
@@ -193,7 +193,7 @@ func (p *pkgbitsPayload) sectionLen(s int) int {
 	return end - start
 }
 
-// readSectionString returns the first String() value from element relIdx within
+// readSectionString returns the leading String() value from element relIdx within
 // section s, which must be opened with the given openingSync marker.
 // Returns "" on any parse error.
 func (p *pkgbitsPayload) readSectionString(s, relIdx int, openingSync uint64) string {
@@ -278,7 +278,7 @@ func (p *pkgbitsPayload) readSectionString(s, relIdx int, openingSync uint64) st
 		return ""
 	}
 
-	// Resolve SectionString[ref.idx] — raw UTF-8 bytes, no header.
+	// Resolve SectionString[ref.idx] — raw text bytes, no header.
 	strBase := 0
 	strEnd := int(p.elemEndsEnds[pbSectionString])
 	strElemAbs := strBase + int(ref.idx)
@@ -309,7 +309,7 @@ func skipSync(r *bytes.Reader, sync bool, marker uint64) bool {
 	return v>>8 == marker
 }
 
-// rawUvarint reads an unsigned varint (little-endian base-128).
+// rawUvarint reads an unsigned varint (little-endian, continuation-bit encoded).
 func rawUvarint(r *bytes.Reader) (uint64, error) {
 	var x uint64
 	var s uint

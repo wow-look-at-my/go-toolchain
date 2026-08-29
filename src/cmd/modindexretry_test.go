@@ -13,7 +13,7 @@ import (
 
 // tidyMock returns a mock runner whose `go mod tidy` behavior is driven by
 // fail decides per-call: writing marker stderr and failing while it returns
-// true, succeeding once it returns false. calls counts tidy invocations.
+// true, succeeding when it returns false. calls counts tidy invocations.
 func tidyMock(stderrLine string, failFirst int) (*runner.Mock, *int) {
 	mock := runner.NewMock()
 	calls := new(int)

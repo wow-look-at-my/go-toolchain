@@ -53,13 +53,13 @@ func captureInstalled(t *testing.T, fn func()) string {
 
 func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
-// durSuffixRE matches a line that ends with a space and a duration (e.g. " 0.00s").
+// durSuffixRE matches a line that ends with a space and a duration.
 var durSuffixRE = regexp.MustCompile(` \d+\.\d{2}s\n$`)
 
 // durLineRE matches a single line (no trailing newline) that ends with a duration.
 var durLineRE = regexp.MustCompile(` \d+\.\d{2}s$`)
 
-// withMinDuration lowers minDurationToShow for one test, so it can
+// withMinDuration lowers minDurationToShow for a single test, so it can
 // exercise the slow-line path without sleeping for real.
 func withMinDuration(t *testing.T, d time.Duration) {
 	t.Helper()
@@ -102,7 +102,7 @@ func TestInstallAppendsDurationToSlowStdoutLine(t *testing.T) {
 
 func TestInstallHandlesPartialLines(t *testing.T) {
 	// The prefix prints without a newline, then the completion prints
-	// "done. 1.82s\n"; drain() must not append a second duration.
+	// its own duration; drain() must not append a further suffix.
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stdout, "⇒ Running tests with coverage...")
 		fmt.Fprintf(os.Stdout, " done. 1.82s\n")
@@ -120,7 +120,7 @@ func TestInstallSkipsAlreadyTimedLines(t *testing.T) {
 	}))
 	require.True(t, strings.Contains(got, "    vet: type-check 5.73s\n"))
 	require.True(t, strings.Contains(got, "⇒ go vet ./... done. 28.46s\n"))
-	// No double duration — nothing should look like "5.73s \d+\.\d{2}s".
+	// No double duration — nothing should carry a duration right after a duration.
 	doubleRE := regexp.MustCompile(`\d+\.\d{2}s \d+\.\d{2}s`)
 	require.False(t, doubleRE.MatchString(got))
 }

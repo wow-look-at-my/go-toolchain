@@ -29,12 +29,12 @@ func fingerprintFile() string {
 	return filepath.Join(dir, hex.EncodeToString(h[:])+".sha256")
 }
 
-// runEnv is captured once at run start, before the pipeline sets its own PID-derived vars.
+// runEnv is captured at run start, before the pipeline sets its own PID-derived vars.
 var runEnv []string
 
 func captureRunEnv() { runEnv = os.Environ() }
 
-// fingerprintEnv returns the captured environment, or the live one for callers
+// fingerprintEnv returns the captured environment, or the live environment for callers
 // that skipped PersistentPreRunE.
 func fingerprintEnv() []string {
 	if runEnv != nil {
@@ -191,7 +191,7 @@ func underTestdata(path string) bool {
 // child that inherits stdout and stalls the io.ReadAll below.
 //
 // Note: files read at run time from a testdata directory are covered by the
-// walk above; one living elsewhere with no embed directive stays untracked.
+// walk above; a file living elsewhere with no embed directive stays untracked.
 func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	proc, err := runner.Cmd("go", "list", "-test", "-json", "./...").
 		WithQuiet().WithEnv("GOCACHEPROG", "").Run(r)

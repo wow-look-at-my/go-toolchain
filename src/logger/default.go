@@ -46,7 +46,7 @@ func Default() *Logger {
 	return defaultLogger
 }
 
-// Init replaces the global default logger with a new one built from opts.
+// Init replaces the global default logger with a fresh logger built from opts.
 // Returns the new logger for convenience. Safe to call from multiple goroutines.
 func Init(opts Options) *Logger {
 	if opts.Stdout == nil {

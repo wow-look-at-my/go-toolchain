@@ -23,7 +23,7 @@ func ensureBuildDirInGitignore() {
 // exactly equals entry (ignoring surrounding whitespace), rewriting the file
 // only when something was actually removed. It is the inverse of
 // ensureGitignored and exists to undo an entry an older go-toolchain wrote that
-// the current one must not keep — namely the transient GOMEMLIMIT guard
+// the current release must not keep — namely the transient GOMEMLIMIT guard
 // filename. Best-effort: any error is silently ignored so it never blocks the
 // build.
 func removeFromGitignore(entry string) {
@@ -74,7 +74,7 @@ func ensureGitignored(entry string) {
 	}
 	defer f.Close()
 
-	// If the file is non-empty and doesn't end with a newline, add one first.
+	// If the file is non-empty and doesn't end with a newline, add the newline before appending.
 	if needsLeadingNewline(gitignorePath) {
 		fmt.Fprint(f, "\n")
 	}

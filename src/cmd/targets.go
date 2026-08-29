@@ -11,7 +11,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// cosmoOS/cosmoFatArch: the pseudo-target for one fat APE, not a normal GOOS/GOARCH pair.
+// cosmoOS/cosmoFatArch: the pseudo-target for the fat APE, not a normal GOOS/GOARCH pair.
 const (
 	cosmoOS      = "cosmo"
 	cosmoFatArch = "fat"
@@ -23,14 +23,14 @@ const wasmArch = "wasm"
 // isWasmGOOS reports whether goos only exists as a GOARCH=wasm pairing.
 func isWasmGOOS(goos string) bool { return goos == "js" || goos == "wasip1" }
 
-// wasmPublishEnv, set to 0, opts out of buildhost's publishable wasm naming (for a buildhost too old to accept it).
+// wasmPublishEnv, set to the off value, opts out of buildhost's publishable wasm naming (for a buildhost too old to accept it).
 const wasmPublishEnv = "GO_TOOLCHAIN_WASM_PUBLISH"
 
-// wasmPublishOptOut reports whether GO_TOOLCHAIN_WASM_PUBLISH=0 disabled buildhost publishing of wasm artifacts.
+// wasmPublishOptOut reports whether wasmPublishEnv disabled buildhost publishing of wasm artifacts.
 func wasmPublishOptOut() bool { return os.Getenv(wasmPublishEnv) == "0" }
 
 // wasmArtifactName returns buildhost's publishable name by default, or the
-// excluded .wasm-suffixed name under GO_TOOLCHAIN_WASM_PUBLISH=0.
+// excluded .wasm-suffixed name under the wasmPublishEnv opt-out.
 func wasmArtifactName(name string, p buildPlatform) string {
 	if wasmPublishOptOut() {
 		return build.UnpublishableWasmName(name, p.OS)
@@ -106,7 +106,7 @@ func parsePlatformPair(entry, flagName string) (buildPlatform, error) {
 	return buildPlatform{OS: goos, Arch: goarch}, nil
 }
 
-// parseTargetList parses the --targets flag: the special value "cosmo" (one
+// parseTargetList parses the --targets flag: the special value "cosmo" (the
 // fat APE) and the wasm pairs. A native os/arch pair is rejected: the APE is
 // the only native output, and --cosmo-platforms picks the hosts it covers.
 func parseTargetList(entries []string) ([]buildPlatform, error) {
@@ -133,7 +133,7 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 			}
 		}
 		if first, dup := seen[p]; dup {
-			// The same entry twice is an error; two spellings of the same
+			// A repeated entry is an error; rival spellings of the same
 			// target (wasm/js and its js/wasm alias) dedupe silently instead.
 			if first == entry {
 				return nil, fmt.Errorf("duplicate target %q", entry)
@@ -147,7 +147,7 @@ func parseTargetList(entries []string) ([]buildPlatform, error) {
 }
 
 // resolveMatrixPlatforms turns --targets into the platforms to build. With
-// no flag the answer is ONE cosmo fat APE covering --cosmo-platforms.
+// no flag the answer is the cosmo fat APE covering --cosmo-platforms.
 func resolveMatrixPlatforms() ([]buildPlatform, error) {
 	if len(matrixTargets) > 0 {
 		return parseTargetList(matrixTargets)
@@ -156,7 +156,7 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 }
 
 // resolvePlatformTargets returns the main packages to build for each
-// platform, plus whether ANY platform has at least one.
+// platform, plus whether ANY platform has a main package at all.
 //
 // The cosmo pseudo-target keeps the host set, since the fat APE embeds
 // several native platforms and no single context describes it. Wasm

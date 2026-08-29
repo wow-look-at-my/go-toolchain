@@ -309,7 +309,7 @@ func TestRunGofmtHealsExistingSmartQuotesInDocComment(t *testing.T) {
 	assert.NotContains(t, gotStr, smartRight)
 	assertPrintableASCII(t, gotStr)
 
-	// Stable afterward: a second run finds nothing to change.
+	// Stable afterward: a repeat run finds nothing to change.
 	check := NewEditor(false)
 	changed2, err := RunGofmt(check)
 	require.NoError(t, err)
@@ -372,7 +372,7 @@ func TestRunGofmtUsesTabsToIndentSpacesToAlign(t *testing.T) {
 
 // helpers
 
-// assertPrintableASCII fails if s has a byte outside printable ASCII, guarding against UTF-8 in the formatter's output.
+// assertPrintableASCII fails if s has a byte outside printable ASCII, guarding against UTF8 in the formatter's output.
 func assertPrintableASCII(t *testing.T, s string) {
 	t.Helper()
 	for i := 0; i < len(s); i++ {

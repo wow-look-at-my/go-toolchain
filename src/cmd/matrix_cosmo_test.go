@@ -92,7 +92,7 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 	return fakeGoroot, outDir
 }
 
-// A cosmo build produces ONE file. This pins that outcome from the outside --
+// A cosmo build produces a SINGLE file. This pins that outcome from the outside --
 // the build directory itself -- rather than from any flag: a copy of the APE
 // under a per-platform name is a thing this repo cannot express.
 func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
@@ -112,7 +112,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	err := runReleaseWithRunner(mock)
 	require.NoError(t, err)
 
-	// Exactly one binary exists as a file, the APE; the convenience names are symlinks to it.
+	// The APE is the only binary that exists as a file; the convenience names are symlinks to it.
 	var manifest buildhostManifest
 	manifestRaw, manifestErr := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
 	require.NoError(t, manifestErr)
@@ -142,7 +142,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 	assert.Equal(t, name, manifest.Artifacts[0].File)
 	assert.Equal(t, DefaultCosmoPlatforms, manifest.Artifacts[0].Platforms)
 
-	// checksums.txt covers the one real file.
+	// checksums.txt covers the real file alone.
 	sums, err2 := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
 	assert.Nil(t, err2)
 	sumLines := strings.Split(strings.TrimSpace(string(sums)), "\n")
@@ -313,6 +313,7 @@ func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
 			assert.Empty(t, mock.Calls(), "the compiler must not run at all")
 			assert.NoFileExists(t, job.outputPath)
 		})
+
 	}
 }
 

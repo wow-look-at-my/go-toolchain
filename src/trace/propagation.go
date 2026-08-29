@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// CreateRootSpanContext builds a W3C Trace Context string for subprocess propagation: "00-traceID-spanID-01".
+// CreateRootSpanContext builds a W3C Trace Context string for subprocess propagation: version, traceID, spanID, flags.
 func CreateRootSpanContext(traceID trace.TraceID, spanID trace.SpanID) string {
 	return fmt.Sprintf("00-%s-%s-01", traceID.String(), spanID.String())
 }

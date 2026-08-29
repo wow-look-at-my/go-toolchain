@@ -14,7 +14,7 @@ import (
 )
 
 // captureGuardOut redirects the guard's stderr writer and resets the
-// once-per-run latch, so each case observes its own output.
+// per-run latch, so each case observes its own output.
 func captureGuardOut(t *testing.T, f func()) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -43,7 +43,7 @@ func TestBlindClassifierSinkAnnouncesItself(t *testing.T) {
 	assert.Contains(t, out, "darwin")
 }
 
-// On a linux host an unreadable descriptor is one odd fd, not a blind guard:
+// On a linux host an unreadable descriptor is an odd fd, not a blind guard:
 // the /proc classifier works there, so this must stay silent or it cries wolf
 // on every run.
 func TestUnclassifiableSinkIsSilentOnALinuxHost(t *testing.T) {
@@ -56,7 +56,7 @@ func TestUnclassifiableSinkIsSilentOnALinuxHost(t *testing.T) {
 	assert.Empty(t, out)
 }
 
-// The announcement is once per run, not once per descriptor: the guard
+// The announcement is per run, not per descriptor: the guard
 // inspects stdout on every invocation and a repeated banner would train the
 // reader to skip it.
 func TestBlindGuardAnnouncementIsOncePerRun(t *testing.T) {
@@ -69,7 +69,7 @@ func TestBlindGuardAnnouncementIsOncePerRun(t *testing.T) {
 }
 
 // The banner must never reach stdout. The guard exists for runs whose stdout
-// is captured, so stdout is the one channel that cannot carry its own warning.
+// is captured, so stdout is the only channel that cannot carry its own warning.
 func TestBlindGuardAnnouncementNeverTouchesStdout(t *testing.T) {
 	var buf bytes.Buffer
 	old := agentGuardOut

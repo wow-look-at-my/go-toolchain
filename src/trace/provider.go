@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Shared tracer-provider plumbing for every OTel emitter: one batcher, one gzip'd HTTP POST per build.
+// Shared tracer-provider plumbing for every OTel emitter: a single batcher, a gzip'd HTTP POST per build.
 
 var (
 	providerOnce    sync.Once
@@ -27,8 +27,8 @@ var (
 	shutdownOnce sync.Once
 )
 
-// Provider returns the shared tracer provider, initializing it on first
-// call if OTEL_EXPORTER_OTLP_ENDPOINT is set. Subsequent calls reuse the
+// Provider returns the shared tracer provider, initializing it on the
+// opening call if OTEL_EXPORTER_OTLP_ENDPOINT is set. Later calls reuse the
 // same provider. Returns (nil, nil) when tracing is disabled — callers
 // should treat a nil provider as "no-op" and use the noop tracer.
 func Provider(ctx context.Context) (*sdktrace.TracerProvider, error) {
@@ -49,7 +49,7 @@ func IsEnabled() bool { return providerEnabled }
 
 // Shutdown flushes and tears down the shared provider. Idempotent and
 // safe to call even if the provider was never initialized. Should be
-// called once at the end of a build.
+// called a single time at the end of a build.
 func Shutdown(ctx context.Context) error {
 	var err error
 	shutdownOnce.Do(func() {
@@ -82,9 +82,8 @@ func buildProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
 	exporter := &loggingExporter{inner: otlp, w: os.Stderr}
 
 	opts := []sdktrace.TracerProviderOption{
-		// One batcher for the whole build: extend the 5s default so
-		// normal builds emit one or two exports total, and grow the
-		// queue/batch to fit thousands of cacheprog spans.
+		// A single batcher for the whole build: a longer timeout keeps
+		// exports rare, and the grown queue fits the cacheprog spans.
 		sdktrace.WithBatcher(exporter,
 			sdktrace.WithBatchTimeout(30*time.Second),
 			sdktrace.WithMaxQueueSize(8192),
@@ -93,7 +92,7 @@ func buildProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
 		sdktrace.WithResource(res),
 	}
 
-	// If OTEL_TRACEPARENT names a root spanID, force our first root span to adopt it, so
+	// If OTEL_TRACEPARENT names a root spanID, force our opening root span to adopt it, so
 	// cacheprog's already-emitted spans have a real parent.
 	if sc := ExtractParentSpanContext(); sc.IsValid() {
 		opts = append(opts, sdktrace.WithIDGenerator(newRootIDGenerator(sc.TraceID(), sc.SpanID())))
@@ -122,7 +121,7 @@ func buildProviderResource(ctx context.Context) (*resource.Resource, error) {
 	return resource.New(ctx, resource.WithAttributes(attrs...))
 }
 
-// loggingExporter wraps an OTLP SpanExporter and logs one line per export: the span count
+// loggingExporter wraps an OTLP SpanExporter and logs a line per export: the span count
 // per HTTP POST batch, not per span.
 type loggingExporter struct {
 	inner sdktrace.SpanExporter
@@ -157,8 +156,8 @@ func Tracer(name string) trace.Tracer {
 	return providerTP.Tracer(name)
 }
 
-// rootIDGenerator returns a fixed (traceID, spanID) once, then random IDs after, so the
-// first root span can adopt a given ID.
+// rootIDGenerator returns a fixed (traceID, spanID) a single time, then random IDs after, so the
+// opening root span can adopt a given ID.
 type rootIDGenerator struct {
 	traceID trace.TraceID
 	spanID  trace.SpanID

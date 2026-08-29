@@ -96,8 +96,8 @@ func TestReportTemporaryBranchesFailsInCIAndWarnsOutsideIt(t *testing.T) {
 }
 
 // The run's own token is scoped to the repository being built, so a
-// cross-repository check against a private one is refused as a matter of
-// course. Saying so once names every branch it covers; saying it per line
+// cross-repository check against a private repository is refused as a matter
+// of course. A single message names every branch it covers; saying it per line
 // would fire on every run of every repo forever.
 func TestReportUncheckedBranchesSaysItOnce(t *testing.T) {
 	logger.ResetWarnCount()
@@ -113,8 +113,8 @@ func TestReportUncheckedBranchesSaysItOnce(t *testing.T) {
 	assert.Contains(t, warnings[0].Message, "github.com/org/b@v1")
 }
 
-// A marker joins the comment already on the line rather than becoming a second
-// one: modfile renders an extra Suffix comment underneath, and a marker on its
+// A marker joins the comment already on the line rather than becoming a
+// separate comment: modfile renders an extra Suffix comment underneath, and a marker on its
 // own line above the next require is what corrupts the block.
 func TestSetMarkerJoinsAnExistingComment(t *testing.T) {
 	for _, tc := range []struct {

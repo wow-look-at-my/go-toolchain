@@ -33,7 +33,7 @@ type branchPin struct {
 // commitAnchor is the commit a require's siblings must match: a ref to resolve, or a pin's own commit.
 type commitAnchor struct {
 	ref string
-	// branch is the marker's branch, empty for default; it lets two lines of one repo follow different branches.
+	// branch is the marker's branch, empty for default; it lets sibling lines of a repo follow different branches.
 	branch string
 	hash   string
 	desc   string
@@ -48,14 +48,14 @@ func (a commitAnchor) fetch(r runner.CommandRunner, mod string) (*gitCommit, fun
 	return fetchCommit(r, mod, a.ref)
 }
 
-// repoResolution is one repository answered once: the commit every module lands on, plus its reachable modules.
+// repoResolution is a repository's settled answer: the commit every module lands on, plus its reachable modules.
 type repoResolution struct {
 	anchor   commitAnchor
 	commit   *gitCommit
 	siblings map[string]string
 }
 
-// repoResolver answers each repository ONCE, so a multi-module repo can't land half on one commit and half on another.
+// repoResolver answers each repository a SINGLE time, so a multi-module repo cannot land on divergent commits.
 type repoResolver struct {
 	r        runner.CommandRunner
 	main     string
@@ -64,7 +64,7 @@ type repoResolver struct {
 }
 
 // at returns the resolution covering mod under anchor, fetching the repository
-// the first time one of its modules asks and reusing that answer afterward.
+// as soon as any of its modules asks, and reusing that answer afterward.
 func (rr *repoResolver) at(mod string, anchor commitAnchor) (*repoResolution, error) {
 	for _, res := range rr.resolved {
 		if res.anchor == anchor && inRepo(mod, res.commit.RepoRoot) {
@@ -94,11 +94,11 @@ func (rr *repoResolver) close() {
 }
 
 // siblingAnchor returns the commit a direct require's same-repository siblings
-// must match, and whether it has one at all.
+// must match, and whether it has an anchor at all.
 //
-// A tracked line's anchor is its branch. A DELIBERATELY PINNED line has one
-// too, and it is not the branch: cohesion is about the modules of one repo
-// shipping together, so a line held at an old version holds its siblings at
+// A tracked line's anchor is its branch. A DELIBERATELY PINNED line is
+// anchored too, and not to the branch: cohesion is about the modules of a
+// repo shipping together, so a line held at an old version holds its siblings at
 // that same old commit. Following the branch there would pair a pinned module
 // with siblings from today, which is the mismatch the pin exists to avoid.
 func siblingAnchor(req *modfile.Require, m marker, bm *branchMatcher) (commitAnchor, bool) {
@@ -121,26 +121,26 @@ func siblingAnchor(req *modfile.Require, m marker, bm *branchMatcher) (commitAnc
 
 // UpdateTrackedBranchDeps re-resolves every require and replace carrying a
 // go-toolchain:branch comment to that branch's current HEAD, rewriting its
-// pseudo-version in place. go.mod still always records one concrete,
+// pseudo-version in place. go.mod still always records a concrete,
 // go.sum-verified pseudo-version -- reproducibility is untouched -- this only
 // keeps that version pointed at the chosen branch instead of drifting back to
 // the module's default branch the way the org-deps auto-updater otherwise
 // would (checkDepLive in deps.go resolves against the proxy's @latest, which
 // is the default branch by construction; listDirectDeps excludes tracked
 // lines -- and requires covered by a tracked replace -- from that path so the
-// two never fight over the same dependency).
+// paths never fight over the same dependency).
 //
 // A tracked module that shares its repository with other modules brings them
 // along at the same commit (siblingRequires), because a multi-module repo
 // cannot pin itself: the sibling require inside it necessarily names an
-// earlier commit than the one being published. Requiring them here is what
-// makes a tracked pin mean the whole repository at one commit, rather than one
-// module at one commit and its siblings at whatever came before it.
+// earlier commit than the commit being published. Requiring them here is what
+// makes a tracked pin mean the whole repository at the same commit, rather than
+// the tracked module alone with its siblings at whatever came before it.
 //
 // The rewritten version is a CACHE of the last resolution, not a contract:
 // the marker says "follow this branch", and every run re-answers it. That is
 // why the CI dirty check excludes this rewrite (checkDirtyInCI) -- a commit
-// whose whole content is a hash nobody chose is noise, and demanding one would
+// whose whole content is a hash nobody chose is noise, and demanding it would
 // make the marker mean a bump commit per upstream push, which is the opposite
 // of what it is for.
 //
@@ -161,7 +161,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 		mainModule = f.Module.Mod.Path
 	}
 
-	// Resolve everything first, write once, so a failure partway through leaves go.mod untouched, not half-moved.
+	// Resolve everything up front, then write, so a failure partway through leaves go.mod untouched, not half-moved.
 	resolver := &repoResolver{r: r, main: mainModule}
 	defer resolver.close()
 	bm := newBranchMatcher(r)
@@ -306,7 +306,7 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 // keep moving it. It reports whether go.mod changed.
 //
 // A deliberate version pin wins: hasPinnedMarker is how someone says they want
-// one specific version of this module, and moving with its siblings is exactly
+// this exact version of the module, and moving with its siblings is exactly
 // what that opts out of.
 func requireSiblingAt(f *modfile.File, mod string, pin branchPin) (bool, error) {
 	existing := findRequire(f, mod)
@@ -345,11 +345,11 @@ func findRequire(f *modfile.File, mod string) *modfile.Require {
 
 // trackedBranchDepsMoved reports whether any branch-tracking require or
 // replace now resolves to a different commit than go.mod records. It is what
-// lets the up-to-date fast exit (uptodate.go) see the one input that is not a
+// lets the up-to-date fast exit (uptodate.go) see the sole input that is not a
 // file.
 //
 // A repository with no tracked line pays nothing: the loops make no call at
-// all. One that has them pays a ref resolution per tracked module, which is
+// all. A repository that has them pays a ref resolution per tracked module, which is
 // the cost of the guarantee that opting into branch tracking bought.
 //
 // It answers FALSE when it cannot tell -- an unreadable or unparseable go.mod,

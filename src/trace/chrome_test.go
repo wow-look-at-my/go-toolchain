@@ -40,7 +40,7 @@ func TestWriteChrome(t *testing.T) {
 	var events []chromeEvent
 	require.NoError(t, json.Unmarshal(data, &events))
 
-	// Should have: 2 thread metadata + 1 process metadata + 3 timeline + 2 trace events = 8
+	// Should have: the thread metadata, the process metadata, the timeline entries and the trace events
 	assert.Len(t, events, 8)
 
 	// Check that the failed timeline entry has status=failed in args
@@ -103,7 +103,7 @@ func TestWriteChromeOverlappingEvents(t *testing.T) {
 	}
 
 	tr := NewTrace()
-	// Two overlapping events on the same thread — WriteChrome should clamp
+	// Overlapping events on the same thread — WriteChrome should clamp
 	tr.Complete("a", "cat", "main", t0, t0.Add(5*time.Second))
 	tr.Complete("b", "cat", "main", t0.Add(2*time.Second), t0.Add(7*time.Second))
 

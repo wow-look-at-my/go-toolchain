@@ -22,7 +22,7 @@ const (
 )
 
 // httpErrLogger coalesces repetitive HTTP error messages so a failing remote
-// does not flood stderr with one line per request. Each error also exports
+// does not flood stderr with a line per request. Each error also exports
 // as an OTel span on the shared tracer WebBackend owns.
 type httpErrLogger struct {
 	tracer *cacheTracer // nil => no OTel spans emitted
@@ -46,7 +46,7 @@ type httpErrKey struct {
 }
 
 type httpErrGroup struct {
-	named   []string // first maxNamed short IDs, in order seen
+	named   []string // the leading maxNamed short IDs, in order seen
 	total   int      // total records matching this key
 	bodyRaw string   // last-observed raw body, for display
 }
@@ -66,7 +66,7 @@ type batchHTTPGroup struct {
 }
 
 // newHTTPErrLogger returns a logger that writes aggregated stderr
-// summaries to w on every interval tick (and once more on Close).
+// summaries to w on every interval tick (and again on Close).
 // tracer may be nil; if non-nil, HTTP errors are also exported as
 // cacheprog.http_error spans via the shared cacheTracer.
 func newHTTPErrLogger(w io.Writer, interval time.Duration, tracer *cacheTracer) *httpErrLogger {
@@ -84,7 +84,7 @@ func newHTTPErrLogger(w io.Writer, interval time.Duration, tracer *cacheTracer) 
 	return l
 }
 
-// Record reports one HTTP error: emits an OTel span (if configured) and
+// Record reports an HTTP error: emits an OTel span (if configured) and
 // queues the error for the next stderr summary flush. Safe for nil receiver
 // so call sites that may have a partially-constructed WebBackend don't panic.
 func (l *httpErrLogger) Record(op string, status int, id, body string) {
@@ -118,10 +118,10 @@ func (l *httpErrLogger) Record(op string, status int, id, body string) {
 	l.mu.Unlock()
 }
 
-// RecordBatchHTTP coalesces stats from one batch-GET HTTP request
+// RecordBatchHTTP coalesces stats from a batch-GET HTTP request
 // (which may carry many keys after client-side coalescing). Buckets are
 // split by hit/all-miss so a flaky cold cache stays distinguishable from
-// a working one. Nil-safe.
+// a working remote. Nil-safe.
 func (l *httpErrLogger) RecordBatchHTTP(keysRequested, entriesReturned, prefetched int, dur time.Duration) {
 	if l == nil {
 		logger.Info("cacheprog: batch GET: %d keys → %d entries (%d prefetched) in %v",
@@ -241,7 +241,7 @@ func formatBatchHTTPGroup(k batchHTTPKey, g *batchHTTPGroup) string {
 }
 
 // formatIDList renders the named IDs + "and N more" tail (or a bare
-// single ID if total == 1). Shared by formatGroup and formatBatchGroup.
+// bare ID when the group holds a lone entry). Shared by formatGroup and formatBatchGroup.
 func formatIDList(named []string, total int) string {
 	if total == 1 && len(named) == 1 {
 		return named[0]

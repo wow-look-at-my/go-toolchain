@@ -28,7 +28,7 @@ const jsonPackage = "encoding/json"
 // jsonBreaks names what a value carries that the document cannot survive.
 const jsonBreaks = "a quote, a backslash or a newline in a value breaks the document"
 
-// jsonInterpWarned records file:line of every warning; the package variants that walk one file warn once per site.
+// jsonInterpWarned records file:line of every warning; the package variants that walk a file warn per site.
 var jsonInterpWarned sync.Map
 
 // resetJSONInterpWarnings forgets prior warnings, so a re-run after a fix reports its sites again.
@@ -56,7 +56,7 @@ func runJSONInterp(pass *analysis.Pass) (any, error) {
 	}
 
 	for _, file := range pass.Files {
-		// One document reports once, so the operands of a reported concatenation are skipped.
+		// A document reports a single time, so the operands of a reported concatenation are skipped.
 		inner := set.New[*ast.BinaryExpr]()
 		ast.Inspect(file, func(n ast.Node) bool {
 			switch node := n.(type) {
@@ -167,7 +167,7 @@ func isConstantExpr(pass *analysis.Pass, expr ast.Expr) bool {
 }
 
 // formatArgIndex reports where a call's format string sits, for the fmt
-// functions that take one.
+// functions that take a format string.
 func formatArgIndex(pass *analysis.Pass, call *ast.CallExpr) (int, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {

@@ -19,7 +19,7 @@ func TempOutputPath(final string) string {
 
 // CommitOutput moves everything a successful build wrote under the temp
 // spelling of final onto its final name. cmd/go COPIES onto its -o across
-// filesystems, so the target is visible mid-write; a rename inside one
+// filesystems, so the target is visible mid-write; a rename inside a filesystem
 // directory is not.
 //
 // The bare temp name and every "<base>.…" shape are this build's (the cosmo

@@ -54,7 +54,7 @@ func importName(imp *ast.ImportSpec) string {
 	}
 	importPath := strings.Trim(imp.Path.Value, `"`)
 
-	// Check cache first
+	// Check the cache before parsing
 	packageNameCacheMu.RLock()
 	if name, ok := packageNameCache[importPath]; ok {
 		packageNameCacheMu.RUnlock()
@@ -189,7 +189,7 @@ func fixFileUnusedRangeVars(filename string) (bool, error) {
 	if err := printer.Fprint(&buf, fset, f); err != nil {
 		return false, err
 	}
-	// go/printer tab-aligns and rewrites doc-comment quotes; canonicalize to gofmt style first.
+	// go/printer tab-aligns and rewrites doc-comment quotes; canonicalize to gofmt style before comparing.
 	if err := os.WriteFile(filename, canonicalizeGoSource(buf.Bytes()), 0o644); err != nil {
 		return false, err
 	}
