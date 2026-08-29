@@ -64,7 +64,7 @@ type Set[T comparable] struct {
 
 // TestMapSetSeverityFollowsTheModule verifies no module escapes the check, and
 // that what the module decides is severity. An org module has the remedy a
-// first-party require away, so its findings fail the build; anywhere else the
+// single org require away, so its findings fail the build; anywhere else the
 // same finding is a warning, because the fix would add a dependency the author
 // never chose.
 func TestMapSetSeverityFollowsTheModule(t *testing.T) {

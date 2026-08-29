@@ -203,7 +203,7 @@ func TestMode(t *testing.T) {
 }
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644))
-	// This go directive matches the stub's; an older one fails the load pre-analyzer.
+	// This go directive matches the stub's; an older directive fails the load pre-analyzer.
 	gomod := "module testmod\n\ngo 1.24\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
 

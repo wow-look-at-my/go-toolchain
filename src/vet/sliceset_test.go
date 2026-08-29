@@ -24,7 +24,7 @@ func TestSliceSetAnalyzer(t *testing.T) {
 
 // TestSliceSetSeverityFollowsTheModule verifies the slice findings carry the
 // same severity split as the map checks: an org module has the remedy a
-// first-party require away, so it fails; anywhere else the fix would add a
+// single org require away, so it fails; anywhere else the fix would add a
 // dependency the author never chose, so it warns.
 func TestSliceSetSeverityFollowsTheModule(t *testing.T) {
 	const src = `package main
