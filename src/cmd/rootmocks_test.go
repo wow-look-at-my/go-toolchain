@@ -1,12 +1,36 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
+
+// mockTestEvents renders the `go test -json` stream a passing package
+// reports: the run line, the coverage output line, and the pass line. The
+// events are marshaled rather than spelled, so the encoder owns the quoting.
+func mockTestEvents(pct float32) string {
+	const pkg = "example.com/pkg"
+	events := []map[string]any{
+		{"Time": "2024-01-01T00:00:00Z", "Action": "run", "Package": pkg},
+		{"Time": "2024-01-01T00:00:01Z", "Action": "output", "Package": pkg,
+			"Output": fmt.Sprintf("coverage: %.1f%% of statements\n", pct)},
+		{"Time": "2024-01-01T00:00:02Z", "Action": "pass", "Package": pkg},
+	}
+	var out strings.Builder
+	for _, event := range events {
+		raw, err := json.Marshal(event)
+		if err != nil {
+			panic(err)
+		}
+		out.Write(raw)
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
 
 // writeMockCoverProfileStmts writes a coverage profile with the given
 // covered/uncovered statement counts from the -coverprofile= flag in args.
@@ -66,11 +90,7 @@ func newTestPassMock(pct float32) *runner.Mock {
 				covPct = 100
 			}
 			writeMockCoverProfile(cfg.Args, covPct)
-			output := fmt.Sprintf(`{"Time":"2024-01-01T00:00:00Z","Action":"run","Package":"example.com/pkg"}
-{"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"example.com/pkg","Output":"coverage: %.1f%% of statements\n"}
-{"Time":"2024-01-01T00:00:02Z","Action":"pass","Package":"example.com/pkg"}
-`, covPct)
-			return runner.MockProcess([]byte(output), nil), nil
+			return runner.MockProcess([]byte(mockTestEvents(covPct)), nil), nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil
@@ -182,8 +202,7 @@ func newSmallMock(covered, uncovered int) *runner.Mock {
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.IsCmd("go", "test") {
 			writeMockCoverProfileStmts(cfg.Args, covered, uncovered)
-			out := fmt.Sprintf("{\"Time\":\"2024-01-01T00:00:00Z\",\"Action\":\"run\",\"Package\":\"example.com/pkg\"}\n{\"Time\":\"2024-01-01T00:00:01Z\",\"Action\":\"output\",\"Package\":\"example.com/pkg\",\"Output\":\"coverage: %.1f%% of statements\\n\"}\n{\"Time\":\"2024-01-01T00:00:02Z\",\"Action\":\"pass\",\"Package\":\"example.com/pkg\"}\n", pct)
-			return runner.MockProcess([]byte(out), nil), nil
+			return runner.MockProcess([]byte(mockTestEvents(pct)), nil), nil
 		}
 		if proc, ok := handleGoList(cfg); ok {
 			return proc, nil

@@ -241,6 +241,12 @@ coverage.
   fails through the warnings budget, which this repo's 25-write mermaid header did. A run ends at any other statement, at a different writer, and at
   a write whose text is computed (`b.WriteByte(c)`); a writer that digests its input never counts (`isHashWriter`). Every module, warning severity,
   no opt-out marker. Depth: `docs/VET.md`
+- `src/vet/jsoninterp.go` — the `jsoninterp` analyzer: a JSON document built out of string pieces, by a `fmt` format string, by a `+` concatenation,
+  or by a template. None of the three escapes for JSON, so a quote or a backslash in a value breaks the DOCUMENT and a value the user controls
+  chooses the object; `%q` is Go quoting, not JSON. There is no `json/template` and no JSON context in either template package — html/template's
+  `json.Marshal` escaper is reachable only inside a `<script>` — so a JSON template is reported too, which is the one place this and `writeruns`
+  point in opposite directions. The shape test (`jsonshape.go`) is deliberately narrow, so prose quoting an example is silent. Org modules FAIL,
+  everyone else WARNS, no opt-out marker. Depth: `docs/VET.md`
 - `src/hostos/` — `hostos.GOOS()`, the host operating system as opposed to `runtime.GOOS` (what the binary was compiled for). Identical for every
   normal
   build; for a GOOS=cosmo fat APE — which reports `runtime.GOOS == "cosmo"` on Linux and macOS hosts (Windows runs the embedded native windows
