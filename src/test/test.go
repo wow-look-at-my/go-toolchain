@@ -244,8 +244,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// -count disables result caching only; without it, stale coverprofile
-		// fragments corrupt coverage (https://go.dev/issue/74873).
+		// -count disables result caching only; stale coverprofile fragments otherwise corrupt coverage (https://go.dev/issue/74873).
 		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...", "-count=1")
 	}
 	switch {
