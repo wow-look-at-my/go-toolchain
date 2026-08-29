@@ -88,7 +88,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 	defer cleanupMemLimitGuards()
 
-	// Drives the legacy build, cosmo APE, and symlinks; safe post-guard-injection since discovery skips the guard file by name.
+	// Drives the cosmo APE, the manifest and the symlinks; safe post-guard-injection since discovery skips the guard file by name.
 	hostTargets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err
@@ -133,13 +133,10 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 	}
 
-	switch {
-	case len(matrixTargets) == 0 && len(matrixOS) == 0 && len(matrixArch) == 0:
+	if len(matrixTargets) == 0 {
 		logger.Info("⇒ Building %d fat APE(s) covering %s", len(jobs), platformList(apeCoverage(apePlatforms)))
-	case len(matrixTargets) > 0:
+	} else {
 		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
-	default:
-		logger.Info("⇒ Building %d binaries (%d platforms from --os x --arch)", len(jobs), len(platforms))
 	}
 	buildStart := time.Now()
 
