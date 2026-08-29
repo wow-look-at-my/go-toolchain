@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -369,19 +368,23 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 		return nil, nil, err
 	}
 
+	// The default build is the same fat APE the matrix path publishes, built
+	// the same way. A host-shaped build would be a second output nobody asked
+	// for, and the only one that could differ from what ships.
+	warnCGOUnavailable(true, false)
+	forkEnv, err := resolveForkBuildEnv(true)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
-	inDocker := build.InDocker()
 	var artifacts []datsArtifact
 	for _, t := range targets {
-		outputName := t.OutputName
-		if inDocker {
-			// In-docker names carry the HOST platform; a cosmo fat APE reports runtime.GOOS=="cosmo" everywhere.
-			outputName = build.BinaryName(outputName, hostos.GOOS(), runtime.GOARCH)
-		}
-		outPath := filepath.Join(outputDir, outputName)
+		// The APE carries no platform suffix: one file runs on every host.
+		outPath := filepath.Join(outputDir, build.BinaryName(t.OutputName, cosmoOS, cosmoFatArch))
 		var buildStep *step
 		if !quiet {
 			buildStep = logStep(fmt.Sprintf("go build -o %s %s", outPath, t.ImportPath))
@@ -390,11 +393,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 		if buildStep != nil {
 			onFirstOutput = buildStep.noteOutput
 		}
-		job := buildJob{
-			srcPath:    t.ImportPath,
-			outputPath: outPath,
-		}
-		if err := runBuild(r, job, onFirstOutput); err != nil {
+		if err := runBuild(r, forkEnv.apeJob(t.ImportPath, outPath), onFirstOutput); err != nil {
 			return nil, nil, fmt.Errorf("go build failed: %w", err)
 		}
 		if buildStep != nil {

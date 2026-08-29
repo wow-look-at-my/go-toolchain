@@ -21,7 +21,7 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	oldTrace := activeTrace
 	activeTrace = gotrace.NewTrace()
@@ -77,7 +77,7 @@ func TestRunWithRunnerGenerateSkip(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	// Add a //go:generate directive so needsGenerate() returns true.
 	os.WriteFile(filepath.Join(tmpDir, "pkg", "main.go"), []byte("package main\n\n//go:generate echo hello\n"), 0644)
@@ -131,7 +131,7 @@ func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject() // pkg/main.go is "package main\n" — zero coverable statements
+	setupMockProject(t) // pkg/main.go is "package main\n" — zero coverable statements
 
 	mock := newNoTestFilesMock()
 	jsonOutput = true
@@ -152,7 +152,7 @@ func TestRunWithRunnerNoTestsWithCodeFails(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
 
 	mock := newNoTestFilesMock()

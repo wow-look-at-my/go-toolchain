@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
@@ -35,7 +35,7 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 	mock := newTestPassMock(50)
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -48,7 +48,7 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 	mock := newTestPassMock(0)
 	jsonOutput = true
 	outputDir = tmpDir
@@ -60,50 +60,37 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestRunWithRunnerDockerBinaryNaming(t *testing.T) {
+// The default build writes the plain name, everywhere. A platform suffix
+// would claim a property the fat APE does not have -- it runs on every host --
+// and there is no host-shaped build left for it to distinguish.
+func TestRunWithRunnerBinaryNameCarriesNoPlatform(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+	setupMockProject(t)
+
+	mock := newTestPassMock(0)
+	jsonOutput = true
+	outputDir = tmpDir
+	defer func() { jsonOutput = false; outputDir = "build" }()
+
+	require.NoError(t, runWithRunner(mock, nil))
+
 	suffix := fmt.Sprintf("_%s_%s", runtime.GOOS, runtime.GOARCH)
-	for _, tc := range []struct {
-		name    string
-		docker  bool
-		wantSfx bool
-	}{
-		{"in docker", true, true},
-		{"outside docker", false, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			oldWd, _ := os.Getwd()
-			os.Chdir(tmpDir)
-			defer os.Chdir(oldWd)
-			setupMockProject()
-
-			restore := build.SetInDockerCheck(func() bool { return tc.docker })
-			defer restore()
-
-			mock := newTestPassMock(0)
-			jsonOutput = true
-			outputDir = tmpDir
-			defer func() { jsonOutput = false; outputDir = "build" }()
-
-			err := runWithRunner(mock, nil)
-			assert.Nil(t, err)
-
-			for _, cfg := range mock.Calls() {
-				if cfg.IsCmd("go", "build") {
-					for i, arg := range cfg.Args {
-						if arg == "-o" && i+1 < len(cfg.Args) {
-							base := filepath.Base(cfg.Args[i+1])
-							if tc.wantSfx {
-								assert.Contains(t, base, suffix)
-							} else {
-								assert.NotContains(t, base, suffix)
-							}
-						}
-					}
-				}
+	sawBuild := false
+	for _, cfg := range mock.Calls() {
+		if !isGoBuild(cfg) {
+			continue
+		}
+		for i, arg := range cfg.Args {
+			if arg == "-o" && i+1 < len(cfg.Args) {
+				sawBuild = true
+				assert.NotContains(t, filepath.Base(cfg.Args[i+1]), suffix)
 			}
-		})
+		}
 	}
+	assert.True(t, sawBuild, "no go build -o call was made, so the assertion above proved nothing")
 }
 
 func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
@@ -111,7 +98,7 @@ func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	oldCgo := cgoEnabled
 	cgoEnabled = false
@@ -131,7 +118,7 @@ func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 
 	// Verify CGO_ENABLED=0 was set on the build command
 	for _, cfg := range mock.Calls() {
-		if cfg.IsCmd("go", "build") {
+		if isGoBuild(cfg) {
 			cgo, _ := cfg.Env.Get("CGO_ENABLED")
 			assert.Equal(t, "0", cgo, "CGO should be disabled by default")
 		}
@@ -143,7 +130,7 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	oldCgo := cgoEnabled
 	cgoEnabled = true
@@ -161,11 +148,11 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
-	// Verify CGO_ENABLED was NOT set on the build command
+	// --cgo cannot reach the build: the APE has no cgo, so CGO_ENABLED stays 0.
 	for _, cfg := range mock.Calls() {
-		if cfg.IsCmd("go", "build") {
-			hasCgo := cfg.Env != nil && cfg.Env.Contains("CGO_ENABLED")
-			assert.False(t, hasCgo, "CGO_ENABLED should not be set when --cgo is used")
+		if isGoBuild(cfg) {
+			cgo, _ := cfg.Env.Get("CGO_ENABLED")
+			assert.Equal(t, "0", cgo, "--cgo must not turn cgo on for the APE")
 		}
 	}
 }
@@ -175,7 +162,7 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	mock := newTestPassMock(0)
 
@@ -197,7 +184,7 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	mock := newTestPassMock(0)
 
@@ -217,7 +204,7 @@ func TestRunWithRunnerBuildFails(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	mock := newBuildFailMock()
 
@@ -237,7 +224,7 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	mock := newTestPassMock(50)
 
@@ -253,7 +240,7 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	mock := newTestPassMock(50)
 
@@ -268,7 +255,7 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 	// Set watermark to 60% — grace = 57.5, effective = min(80, 57.5) = 57.5
 	gotest.SetWatermark(".", 60.0)
 	mock := newTestPassMock(50)
@@ -284,7 +271,7 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 	// Coverable statements below are what make the empty profile "broken".
 	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
 
@@ -324,7 +311,7 @@ func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 			oldWd, _ := os.Getwd()
 			os.Chdir(tmpDir)
 			defer os.Chdir(oldWd)
-			setupMockProject()
+			setupMockProject(t)
 			jsonOutput = false
 			err := runWithRunner(newSmallMock(tc.cov, tc.unc), nil)
 			if tc.wantErr {
@@ -342,7 +329,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	// Watermark 52% -> grace 49.5, effective min(80, 49.5) = 49.5; 50 passes.
 	gotest.SetWatermark(".", 52.0)
@@ -365,7 +352,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	// Set watermark to 50% — coverage is 100%, should ratchet up
 	gotest.SetWatermark(".", 50.0)
@@ -392,7 +379,7 @@ func TestRunWithRunnerFailedTest(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	mock := newTestFailMock()
 
@@ -412,7 +399,7 @@ func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 
 	mock := newTestFailWithErrorMock()
 

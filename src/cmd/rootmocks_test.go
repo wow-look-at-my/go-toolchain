@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -73,10 +75,14 @@ func handleGoList(cfg runner.Config) (runner.IProcess, bool) {
 
 // setupMockProject creates a minimal Go project in the current directory so
 // that filesystem-based module path reading and main package discovery work.
-func setupMockProject() {
+func setupMockProject(t *testing.T) {
+	t.Helper()
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("pkg", 0755)
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
+	// The build phase resolves the fork toolchain, so a project fixture
+	// without one sends every pipeline test to buildhost over the network.
+	stubForkToolchain(t)
 }
 
 // writeMockBuildOutput writes the file named by a go build's -o flag, as a
@@ -89,10 +95,18 @@ func writeMockBuildOutput(cfg runner.Config, content string) {
 	}
 }
 
+// isGoBuild recognizes a `go build`. Every build in this pipeline runs the
+// fork's own binary by absolute path, so the command name is
+// <forkGoroot>/bin/go rather than the bare "go" that IsCmd matches.
+func isGoBuild(cfg runner.Config) bool {
+	name := strings.TrimSuffix(filepath.Base(cfg.Name), ".exe")
+	return name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build"
+}
+
 // handleGoBuild leaves the -o target behind, as an exit-0 compiler does;
 // every mock reaching the build phase needs it. newBuildFailMock answers first.
 func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
-	if !cfg.IsCmd("go", "build") {
+	if !isGoBuild(cfg) {
 		return nil, false
 	}
 	writeMockBuildOutput(cfg, "bin")
@@ -157,7 +171,7 @@ func newModTidyFailMock() *runner.Mock {
 func newBuildFailMock() *runner.Mock {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if isGoBuild(cfg) {
 			return runner.MockProcess(nil, fmt.Errorf("build failed")), nil
 		}
 		if cfg.IsCmd("go", "test") {

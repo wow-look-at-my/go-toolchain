@@ -1,5 +1,3 @@
-//go:build !cosmo
-
 package cmd
 
 import (
@@ -10,7 +8,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Persistent dependency-check cache path; excluded from GOOS=cosmo since modernc.org/sqlite has no cosmo target.
+// Persistent dependency-check cache path.
 const (
 	cacheSubdir = "go-toolchain"
 	cacheFile   = "deps.db"

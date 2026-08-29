@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
@@ -15,20 +14,12 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// hostRunnableArtifact returns the artifact in outDir that runs on this
-// host: the native <name>_<hostos>_<hostarch> build when it exists, else the
-// fat APE (which runs here by construction). Returned even when neither
-// exists, so callers report a missing artifact rather than a wrong one.
+// hostRunnableArtifact returns the artifact in outDir that runs on this host.
+// That is the fat APE, which runs on every host by construction and is the
+// only native output. Returned even when it does not exist, so callers report
+// a missing artifact rather than a wrong one.
 func hostRunnableArtifact(target build.Target, outDir string) string {
-	native := filepath.Join(outDir, build.BinaryName(target.OutputName, hostos.GOOS(), runtime.GOARCH))
-	if _, err := os.Stat(native); err == nil {
-		return native
-	}
-	ape := filepath.Join(outDir, build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch))
-	if _, err := os.Stat(ape); err == nil {
-		return ape
-	}
-	return native
+	return filepath.Join(outDir, build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch))
 }
 
 func createHostSymlinks(targets []build.Target, outDir string) error {
@@ -68,6 +59,24 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 	return nil
 }
 
+// checkPortableJob refuses a job that would compile anything other than the
+// fat APE or a wasm binary, or would compile it with anything other than the
+// gosmopolitan toolchain. Both outputs run everywhere, so nothing this
+// pipeline builds is locked to one platform, and the fork is where the org's
+// fixes live -- upstream's wasm support is not maintained.
+//
+// This sits at the one chokepoint that compiles anything, so a call site that
+// invents a target fails here instead of quietly shipping a native binary.
+func checkPortableJob(job buildJob) error {
+	if job.forkGoroot == "" {
+		return fmt.Errorf("build for %s/%s has no gosmopolitan GOROOT: the fat APE and the wasm targets are the only outputs, and both compile with the fork", job.goos, job.goarch)
+	}
+	if job.goos == cosmoOS || (isWasmGOOS(job.goos) && job.goarch == wasmArch) {
+		return nil
+	}
+	return fmt.Errorf("refusing to build GOOS=%s GOARCH=%s: this pipeline builds the cosmo fat APE (one binary for every host) and the wasm targets, so a per-platform native binary has no build path", job.goos, job.goarch)
+}
+
 // runBuild compiles a single binary. If onFirstOutput is non-nil, it is
 // called when the compiler produces its first output (used for progress
 // indicators on the default build path).
@@ -78,10 +87,13 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 // A failing or killed build can therefore never leave even a partial binary
 // at build/<name> for an agent or a later phase to pick up.
 func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error {
+	if err := checkPortableJob(job); err != nil {
+		return err
+	}
 	// Last-chokepoint guard: a fork-toolchain job MUST carry a cache namespace
 	// (buildJob.cacheNamespace), so a call site that forgets to fingerprint the
 	// toolchain fails loudly instead of reopening cross-toolchain cache poisoning.
-	if job.forkGoroot != "" && job.cacheNamespace == "" {
+	if job.cacheNamespace == "" {
 		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
 	}
 	args := []string{"build"}
@@ -102,45 +114,29 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if job.forkGoroot != "" {
 		goCmd = filepath.Join(job.forkGoroot, "bin", "go")
 	}
-	cmd := runner.Cmd(goCmd, args...)
-	switch {
-	case job.forkGoroot != "" && job.goos == cosmoOS:
-		// GOOS=cosmo fat-APE build. GOARCH and GOCOSMOFAT are cleared: "fat"
-		// is a pseudo-arch, not a real GOARCH, and an inherited GOCOSMOFAT=0
-		// must not silently produce a thin binary. The cache namespace keys
-		// this build to this toolchain, since the fork's constant version
-		// stamp would otherwise collide action IDs across fork builds.
-		// GOCOSMOPLATFORMS is always assigned so the fork builds only the
-		// platforms needed.
+	// Every variable that picks the compiler or the output platform is
+	// ASSIGNED here, never inherited: a GOOS in the ambient environment is the
+	// one remaining way to ask this pipeline for a per-platform native binary.
+	// CGO_ENABLED=0 always -- neither output has cgo. The cache namespace keys
+	// the build to this toolchain, since the fork's constant version stamp
+	// would otherwise collide action IDs across fork builds.
+	cmd := runner.Cmd(goCmd, args...).
+		WithEnv("GOTOOLCHAIN", "local").
+		WithEnv("GOROOT", job.forkGoroot).
+		WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
+		WithEnv("CGO_ENABLED", "0").
+		WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
+	if job.goos == cosmoOS {
+		// GOARCH and GOCOSMOFAT are cleared: "fat" is a pseudo-arch, not a
+		// real GOARCH, and an inherited GOCOSMOFAT=0 must not silently produce
+		// a thin binary. GOCOSMOPLATFORMS is always assigned so the fork emits
+		// only the platforms asked for.
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").
-			WithEnv(cosmoPlatformsEnv, job.cosmoPlatforms).
-			WithEnv("GOTOOLCHAIN", "local").
-			WithEnv("GOROOT", job.forkGoroot).
-			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
-			WithEnv("CGO_ENABLED", "0").
-			WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
-	case job.forkGoroot != "":
-		// Wasm build (js/wasm or wasip1/wasm) via the gosmopolitan toolchain.
-		// The fork DEFAULTS to GOOS=cosmo, so GOOS and GOARCH are always
-		// pinned explicitly. CGO_ENABLED=0 always: wasm has no cgo. The cache
-		// namespace: same fork, same constant-version action-ID collisions,
-		// same isolation (see the cosmo case above).
-		cmd = cmd.WithEnv("GOOS", job.goos).
-			WithEnv("GOARCH", job.goarch).
-			WithEnv("GOTOOLCHAIN", "local").
-			WithEnv("GOROOT", job.forkGoroot).
-			WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
-			WithEnv("CGO_ENABLED", "0").
-			WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
-	default:
-		if job.goos != "" {
-			cmd = cmd.WithEnv("GOOS", job.goos)
-		}
-		if job.goarch != "" {
-			cmd = cmd.WithEnv("GOARCH", job.goarch)
-		}
+			WithEnv(cosmoPlatformsEnv, job.cosmoPlatforms)
+	} else {
+		cmd = cmd.WithEnv("GOOS", job.goos).WithEnv("GOARCH", job.goarch)
 	}
 	if onFirstOutput != nil {
 		cmd = cmd.WithOnFirstOutput(onFirstOutput)
@@ -149,9 +145,6 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		}
 	} else {
 		cmd = cmd.WithQuiet()
-	}
-	if !cgoEnabled {
-		cmd = cmd.WithEnv("CGO_ENABLED", "0")
 	}
 	proc, err := cmd.Run(r)
 	if err == nil {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -357,8 +356,6 @@ func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
 	// Keep go list hermetic: never download a toolchain, ignore any workspace.
 	t.Setenv("GOTOOLCHAIN", "local")
 	t.Setenv("GOWORK", "off")
-	// Force the non-Docker output-name scheme so build/<binary> is found regardless of where the test runs.
-	defer build.SetInDockerCheck(func() bool { return false })()
 
 	dir := t.TempDir()
 	t.Chdir(dir)

@@ -1,5 +1,3 @@
-//go:build !cosmo
-
 package vet
 
 import (
@@ -8,12 +6,6 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 )
-
-// This file carries the package's only go-git import. GOOS=cosmo builds
-// exclude it — go-git's go-billy/osfs matches cosmo's `unix` build tag but
-// depends on golang.org/x/sys/unix, which has no cosmo port — and
-// gogit_cosmo.go stubs checkFileCommittedGoGit so the caller
-// (checkFileCommittedByName) always takes its git-CLI fallback there.
 
 // checkFileCommittedGoGit checks file status using the go-git library.
 // go-git v5 cannot read an index written under index.skipHash/feature.manyFiles

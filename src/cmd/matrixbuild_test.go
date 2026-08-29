@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,23 +12,36 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// wasmJob is a build job runBuild accepts, for tests about everything other
+// than which targets are allowed (that is TestRunBuildRefusesAnythingButThePortableTargets).
+func wasmJob(t *testing.T, outputPath string) buildJob {
+	t.Helper()
+	return buildJob{
+		goos:           "wasip1",
+		goarch:         wasmArch,
+		srcPath:        ".",
+		outputPath:     outputPath,
+		forkGoroot:     filepath.Join(t.TempDir(), "fork-goroot"),
+		cacheNamespace: "deadbeef00c0ffee",
+	}
+}
+
+// tmpOut names a build output in a fresh directory.
+func tmpOut(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "out")
+}
+
 func TestRunBuildCapturesStderr(t *testing.T) {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if isGoBuild(cfg) {
 			return runner.MockProcessWithStderr(nil, []byte("./main.go:5:3: undefined: foo\n"), fmt.Errorf("exit status 1")), nil
 		}
 		return nil, nil
 	}
 
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: filepath.Join(t.TempDir(), "out"),
-	}
-
-	err := runBuild(mock, job, nil)
+	err := runBuild(mock, wasmJob(t, tmpOut(t)), nil)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "exit status 1")
 	assert.Contains(t, err.Error(), "undefined: foo")
@@ -43,12 +55,7 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 		writeMockBuildOutput(cfg, "bin")
 		return runner.MockProcess(nil, nil), nil
 	}
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: filepath.Join(t.TempDir(), "out"),
-	}
+	job := wasmJob(t, tmpOut(t))
 
 	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
@@ -56,21 +63,12 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 }
 
 func TestRunBuild(t *testing.T) {
-	oldCgo := cgoEnabled
-	cgoEnabled = false
-	defer func() { cgoEnabled = oldCgo }()
-
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		writeMockBuildOutput(cfg, "bin")
 		return runner.MockProcess(nil, nil), nil
 	}
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: filepath.Join(t.TempDir(), "out"),
-	}
+	job := wasmJob(t, tmpOut(t))
 
 	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
@@ -83,10 +81,10 @@ func TestRunBuild(t *testing.T) {
 	cfg := calls[0]
 	goos, _ := cfg.Env.Get("GOOS")
 	goarch, _ := cfg.Env.Get("GOARCH")
-	cgo, _ := cfg.Env.Get("CGO_ENABLED")
-	assert.Equal(t, "linux", goos)
-	assert.Equal(t, "amd64", goarch)
-	assert.Equal(t, "0", cgo)
+	goroot, _ := cfg.Env.Get("GOROOT")
+	assert.Equal(t, "wasip1", goos)
+	assert.Equal(t, wasmArch, goarch)
+	assert.Equal(t, job.forkGoroot, goroot)
 
 	// -o is the .tmp- spelling, never the target file itself.
 	hasOutput := false
@@ -98,38 +96,33 @@ func TestRunBuild(t *testing.T) {
 	assert.True(t, hasOutput)
 }
 
-func TestRunBuildWithCgoEnabled(t *testing.T) {
-	oldCgo := cgoEnabled
-	cgoEnabled = true
-	defer func() { cgoEnabled = oldCgo }()
+// --cgo cannot turn cgo on: the APE and wasm both lack it, so CGO_ENABLED is
+// assigned 0 either way rather than left to the flag or the environment.
+func TestRunBuildForcesCGOOffEvenWithTheFlag(t *testing.T) {
+	for _, flag := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cgoEnabled=%v", flag), func(t *testing.T) {
+			oldCgo := cgoEnabled
+			cgoEnabled = flag
+			defer func() { cgoEnabled = oldCgo }()
 
-	mock := runner.NewMock()
-	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		writeMockBuildOutput(cfg, "bin")
-		return runner.MockProcess(nil, nil), nil
+			mock := runner.NewMock()
+			mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+				writeMockBuildOutput(cfg, "bin")
+				return runner.MockProcess(nil, nil), nil
+			}
+			require.NoError(t, runBuild(mock, wasmJob(t, tmpOut(t)), nil))
+
+			calls := mock.Calls()
+			require.Len(t, calls, 1)
+			cgo, ok := calls[0].Env.Get("CGO_ENABLED")
+			assert.True(t, ok, "CGO_ENABLED must be assigned, not inherited")
+			assert.Equal(t, "0", cgo)
+		})
 	}
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: filepath.Join(t.TempDir(), "out"),
-	}
-
-	err := runBuild(mock, job, nil)
-	assert.Nil(t, err)
-
-	calls := mock.Calls()
-	assert.Equal(t, 1, len(calls))
-
-	cfg := calls[0]
-	goos2, _ := cfg.Env.Get("GOOS")
-	goarch2, _ := cfg.Env.Get("GOARCH")
-	assert.Equal(t, "linux", goos2)
-	assert.Equal(t, "amd64", goarch2)
-	hasCgo := cfg.Env.Contains("CGO_ENABLED")
-	assert.False(t, hasCgo, "CGO_ENABLED should not be set when --cgo is used")
 }
 
+// The APE already occupies the bare name, so only the _host convenience link
+// is created. Overwriting the bare name would delete the artifact itself.
 func TestCreateHostSymlinks(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -137,22 +130,21 @@ func TestCreateHostSymlinks(t *testing.T) {
 		{ImportPath: "./cmd/mytool", OutputName: "mytool"},
 	}
 
-	// Create a fake host binary
-	hostBinary := fmt.Sprintf("mytool_%s_%s", runtime.GOOS, runtime.GOARCH)
-	os.WriteFile(filepath.Join(tmpDir, hostBinary), []byte("binary"), 0755)
+	ape := filepath.Join(tmpDir, "mytool")
+	require.NoError(t, os.WriteFile(ape, []byte("APE"), 0755))
 
-	err := createHostSymlinks(targets, tmpDir)
-	assert.Nil(t, err)
+	require.NoError(t, createHostSymlinks(targets, tmpDir))
 
-	// Check _host symlink
 	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
 	assert.Nil(t, err)
-	assert.Equal(t, hostBinary, linkTarget)
+	assert.Equal(t, "mytool", linkTarget)
 
-	// Check bare symlink
-	linkTarget, err = os.Readlink(filepath.Join(tmpDir, "mytool"))
-	assert.Nil(t, err)
-	assert.Equal(t, hostBinary, linkTarget)
+	st, err := os.Lstat(ape)
+	require.NoError(t, err)
+	assert.Zero(t, st.Mode()&os.ModeSymlink, "the APE must stay a real file")
+	body, err := os.ReadFile(ape)
+	require.NoError(t, err)
+	assert.Equal(t, "APE", string(body))
 }
 
 func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
@@ -180,20 +172,15 @@ func TestCreateHostSymlinksReplacesStale(t *testing.T) {
 		{ImportPath: "./cmd/mytool", OutputName: "mytool"},
 	}
 
-	hostBinary := fmt.Sprintf("mytool_%s_%s", runtime.GOOS, runtime.GOARCH)
-	os.WriteFile(filepath.Join(tmpDir, hostBinary), []byte("binary"), 0755)
+	// A previous run's APE, and a stale link left over from before it existed.
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "mytool"), []byte("APE"), 0755))
+	require.NoError(t, os.Symlink("old_target", filepath.Join(tmpDir, "mytool_host")))
 
-	// Create stale symlinks pointing elsewhere
-	os.Symlink("old_target", filepath.Join(tmpDir, "mytool_host"))
-	os.Symlink("old_target", filepath.Join(tmpDir, "mytool"))
+	require.NoError(t, createHostSymlinks(targets, tmpDir))
 
-	err := createHostSymlinks(targets, tmpDir)
-	assert.Nil(t, err)
-
-	linkTarget, _ := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
-	assert.Equal(t, hostBinary, linkTarget)
-	linkTarget, _ = os.Readlink(filepath.Join(tmpDir, "mytool"))
-	assert.Equal(t, hostBinary, linkTarget)
+	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
+	require.NoError(t, err)
+	assert.Equal(t, "mytool", linkTarget)
 }
 
 // TestRunBuildMovesOutputIntoPlace pins the write-then-move contract from
@@ -214,7 +201,7 @@ func TestRunBuildMovesOutputIntoPlace(t *testing.T) {
 		return runner.MockProcess(nil, nil), nil
 	}
 
-	require.NoError(t, runBuild(mock, buildJob{srcPath: ".", outputPath: final}, nil))
+	require.NoError(t, runBuild(mock, wasmJob(t, final), nil))
 
 	body, err := os.ReadFile(final)
 	require.NoError(t, err)
@@ -229,14 +216,14 @@ func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
 	final := filepath.Join(t.TempDir(), "mytool")
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if isGoBuild(cfg) {
 			writeMockBuildOutput(cfg, "PARTIAL")
 			return runner.MockProcessWithStderr(nil, []byte("./main.go:5:3: undefined: foo\n"), fmt.Errorf("exit status 1")), nil
 		}
 		return nil, nil
 	}
 
-	err := runBuild(mock, buildJob{srcPath: ".", outputPath: final}, nil)
+	err := runBuild(mock, wasmJob(t, final), nil)
 	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "undefined: foo")
 	assert.NoFileExists(t, build.TempOutputPath(final), "the failed build's temp output must be deleted")
@@ -251,6 +238,6 @@ func TestRunBuildRefusesToCommitMissingOutput(t *testing.T) {
 	// A build that "succeeds" but writes nothing, unlike a real one.
 	mock := runner.NewMock()
 
-	assert.Error(t, runBuild(mock, buildJob{srcPath: ".", outputPath: final}, nil))
+	assert.Error(t, runBuild(mock, wasmJob(t, final), nil))
 	assert.NoFileExists(t, final)
 }

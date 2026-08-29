@@ -1,27 +1,5 @@
 package build
 
-import "os"
-
-// inDockerCheck detects Docker containers; a variable so tests can override it.
-var inDockerCheck = defaultInDockerCheck
-
-func defaultInDockerCheck() bool {
-	_, err := os.Stat("/.dockerenv")
-	return err == nil
-}
-
-// InDocker returns true when the process is running inside a Docker container.
-func InDocker() bool {
-	return inDockerCheck()
-}
-
-// SetInDockerCheck overrides the Docker detection function (for testing).
-func SetInDockerCheck(f func() bool) func() {
-	old := inDockerCheck
-	inDockerCheck = f
-	return func() { inDockerCheck = old }
-}
-
 // BinaryName returns name_goos_goarch, .exe appended on Windows.
 //
 // Wasm swaps to name_wasm_<goos>, no extension: publish parses os/arch

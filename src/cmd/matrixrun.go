@@ -32,36 +32,15 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		return err
 	}
 
-	// Cosmo and wasm targets both build with the fork toolchain; fail fast before tests.
+	// Every target builds with the fork toolchain; fail fast before tests.
 	hasCosmo := slices.ContainsFunc(platforms, buildPlatform.IsCosmo)
 	hasWasm := slices.ContainsFunc(platforms, buildPlatform.IsWasm)
-	var forkGoroot string
-	var apePlatforms []buildPlatform
-	if hasCosmo {
-		if apePlatforms, err = parseCosmoPlatforms(cosmoPlatforms); err != nil {
-			return err
-		}
-		if cgoEnabled {
-			logger.Warn("⇒ Warning: --cgo has no effect on the cosmo target (cosmopolitan has no cgo; CGO_ENABLED=0 is forced)")
-		}
+	warnCGOUnavailable(hasCosmo, hasWasm)
+	forkEnv, err := resolveForkBuildEnv(hasCosmo)
+	if err != nil {
+		return err
 	}
-	if hasWasm && cgoEnabled {
-		logger.Warn("⇒ Warning: --cgo has no effect on wasm targets (WebAssembly has no cgo; CGO_ENABLED=0 is forced)")
-	}
-	var forkCacheNamespace, apePlatformsEnv string
-	if hasCosmo || hasWasm {
-		if forkGoroot, err = ensureCosmoToolchainFunc(); err != nil {
-			return err
-		}
-		// The fork's version stamp collides across builds, so cacheprog scopes
-		// cache keys to this hash instead. Fail closed, not un-namespaced.
-		if forkCacheNamespace, err = forkToolchainCacheNamespace(forkGoroot); err != nil {
-			return fmt.Errorf("fingerprinting the fork toolchain for cache isolation: %w", err)
-		}
-		if hasCosmo {
-			apePlatformsEnv = cosmoPlatformsEnvValue(forkGoroot, apePlatforms)
-		}
-	}
+	forkGoroot, apePlatforms := forkEnv.goroot, forkEnv.coverage
 
 	// Run tests with coverage first (same as default command)
 	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
@@ -116,18 +95,10 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 				// Publishable buildhost naming by default; .wasm-suffixed under GO_TOOLCHAIN_WASM_PUBLISH=0.
 				outputName = wasmArtifactName(target.OutputName, p)
 			}
-			job := buildJob{
-				goos:       p.OS,
-				goarch:     p.Arch,
-				srcPath:    target.ImportPath,
-				outputPath: filepath.Join(outputDir, outputName),
-			}
-			if p.NeedsForkToolchain() {
-				job.forkGoroot = forkGoroot
-				job.cacheNamespace = forkCacheNamespace
-			}
-			if p.IsCosmo() {
-				job.cosmoPlatforms = apePlatformsEnv
+			outPath := filepath.Join(outputDir, outputName)
+			job := forkEnv.apeJob(target.ImportPath, outPath)
+			if !p.IsCosmo() {
+				job.goos, job.goarch, job.cosmoPlatforms = p.OS, p.Arch, ""
 			}
 			jobs = append(jobs, job)
 		}

@@ -188,23 +188,22 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 	assert.Equal(t, []string{"darwin/arm64", "linux/amd64", "linux/arm64", "windows/amd64"}, m.Artifacts[0].Platforms)
 }
 
-// With no native host binary — the default now — the dats phase and the
-// convenience symlinks must fall back to the APE, which runs here.
-func TestHostRunnableArtifactFallsBackToTheAPE(t *testing.T) {
+// The dats phase and the convenience symlinks run the APE: it is the only
+// native output, and it runs on every host. A per-platform binary sitting in
+// the directory is not an artifact of this build and never wins.
+func TestHostRunnableArtifactIsTheAPE(t *testing.T) {
 	dir := t.TempDir()
 	target := build.Target{ImportPath: "./cmd/mytool", OutputName: "mytool"}
-
 	ape := filepath.Join(dir, "mytool")
+
+	// Answered before anything is built, so a caller reports a missing artifact rather than a wrong one.
+	assert.Equal(t, ape, hostRunnableArtifact(target, dir))
+
 	require.NoError(t, os.WriteFile(ape, []byte("APE"), 0755))
 	assert.Equal(t, ape, hostRunnableArtifact(target, dir))
 
-	native := filepath.Join(dir, build.BinaryName("mytool", hostos.GOOS(), runtime.GOARCH))
-	require.NoError(t, os.WriteFile(native, []byte("NATIVE"), 0755))
-	assert.Equal(t, native, hostRunnableArtifact(target, dir),
-		"a real native build wins over the APE")
-
-	// Neither present: the native path is returned so the caller reports the artifact it actually wanted.
-	require.NoError(t, os.Remove(ape))
-	require.NoError(t, os.Remove(native))
-	assert.Equal(t, native, hostRunnableArtifact(target, dir))
+	stray := filepath.Join(dir, build.BinaryName("mytool", hostos.GOOS(), runtime.GOARCH))
+	require.NoError(t, os.WriteFile(stray, []byte("NATIVE"), 0755))
+	assert.Equal(t, ape, hostRunnableArtifact(target, dir),
+		"a leftover per-platform binary must not displace the APE")
 }
