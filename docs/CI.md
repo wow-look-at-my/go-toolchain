@@ -577,7 +577,10 @@ These assertions stay in the workflow because dats cannot run here:
 its sandbox backends are bwrap, sandbox-exec and docker, and
 windows-latest has none, so a suite would fail before its first
 command. Linux and macOS assert the same properties from
-.github/dats-fixtures/*.dats.
+.github/dats-fixtures/*.dats. Where the suite is the only
+difference the assertions are still made, step by step, below --
+this job covers the same ground as the other two apart from the
+guard, which NT genuinely cannot classify.
 
 ### [ "$(head -c 6 dist/go-toolchain)" = "MZqFpD" ]
 
@@ -597,12 +600,45 @@ in this job (no setup-go -- that bypasses the bootstrap
 requirement); do NOT exempt commands from the bootstrap. If the
 image drops Go, the red is honest -- escalate to the owner.
 
-### publish
+### Host detection
 
-The full pipeline is deliberately NOT run on Windows: gobootstrap
-downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
-serve for windows (windows archives are .zip) -- a pre-existing
-bootstrap gap independent of the APE migration.
+The mirror of the same step in smoke-macos. One APE runs on every
+host, and what it detects decides every host-specific choice it
+makes, so each smoke job pins its own answer. A Windows host runs
+the APE's embedded native GOOS=windows payload, which is a
+non-cosmo build, so `Detect()` needs no probe and reports
+`host: windows (via compiled)`. A GUESSED answer here would mean
+the cosmo probe is running on NT and defaulting to linux.
+
+### Full pipeline in a tiny module
+
+The same synthetic consumer smoke-linux and smoke-macos drive, so
+all three prove the shipped APE can tidy, vet, test and build a
+real module on that platform rather than only print its version.
+No `dats/` directory is created: the phase is a silent no-op
+without suites, and windows-latest has no sandbox backend to run
+one under.
+
+This job used to stop at `--help`, on the grounds that gobootstrap
+downloaded `go<version>.<os>-<arch>.tar.gz` and go.dev serves
+windows archives as `.zip`. There is no go.dev path any more --
+the gosmopolitan fork is the only toolchain, buildhost serves it
+as a tar.gz for every os/arch, and cosmobootstrap already names
+`bin/go.exe` on an NT host.
+
+### Agent output guard is inert on NT
+
+The one dimension Windows cannot match. `inspectStdout` classifies
+stdout through /proc, which NT does not have, so
+claudeguard_other.go returns `sinkVisible` and the guard never
+fires. That is a documented decision, not an accident -- and this
+step asserts it, so the decision is a check rather than prose. A
+bare pipeline run with captured stdout under CLAUDECODE=1 must NOT
+print "refused to run"; when someone teaches inspectStdout to
+classify a Windows handle, this step goes red and asks to be
+turned into the refusal assertion the other two jobs make.
+
+### publish
 
 The single publish path. Gated on the cross-OS smoke jobs above so a build
 whose APE cannot actually run on linux/macOS/Windows is never released.

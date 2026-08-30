@@ -392,7 +392,91 @@ jobs:
           ./smoke/gt-ape.exe version
           # Smoke contract (owner-ruled): gt must resolve the machine's EXISTING Go (windows-latest... see docs/CI.md
           ./smoke/gt-ape.exe --help
-          # The full pipeline is deliberately NOT run on Windows: gobootstrap downloads... see docs/CI.md
+
+      # One APE runs on every host, so what it detects here decides every host-specific choice. see docs/CI.md
+      - name: Host detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          got=$(./smoke/gt-ape.exe version host)
+          echo "$got"
+          case "$got" in
+            *"host: windows"*) ;;
+            *) echo "::error::the APE detects the wrong host on windows-latest: ${got}"; exit 1 ;;
+          esac
+          case "$got" in
+            *GUESSED*) echo "::error::host detection GUESSED on windows-latest: ${got}"; exit 1 ;;
+          esac
+
+      # The same synthetic consumer smoke-linux and smoke-macos drive, so all three assert the same... see docs/CI.md
+      - name: Full pipeline in a tiny module
+        shell: bash
+        env:
+          # See smoke-linux: synthetic consumer without org cache credentials.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+        run: |
+          set -euo pipefail
+          gt="$(pwd)/smoke/gt-ape.exe"
+          mkdir -p smokemod
+          cd smokemod
+          cat > go.mod <<'EOF'
+          module example.com/winsmoke
+
+          go 1.24
+
+          require github.com/stretchr/testify v1.11.1
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used to smoke-test the published APE:
+          // the full go-toolchain pipeline (tidy/vet/test/build) must work when
+          // driven by the fat APE on an NT host.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("windows"))
+          }
+          EOF
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("windows")
+          	require.Equal(t, "hello, windows", got)
+          }
+          EOF
+          # No dats/ here on purpose: the phase is a silent no-op without suites, and no sandbox... see docs/CI.md
+          "$gt"
+
+      # Windows is the one platform the guard cannot cover, so the no-op is asserted rather than... see docs/CI.md
+      - name: Agent output guard is inert on NT
+        shell: bash
+        env:
+          CLAUDECODE: '1'
+          GO_TOOLCHAIN_BUILDHOST_URL: http://127.0.0.1:1
+        run: |
+          set -uo pipefail
+          gt="$(pwd)/smoke/gt-ape.exe"
+          mkdir -p guardprobe
+          cd guardprobe
+          rc=0
+          "$gt" > captured.out 2> captured.err || rc=$?
+          echo "exit: $rc"; echo "stderr:"; cat captured.err
+          if grep -q "refused to run" captured.err; then
+            echo "::error::the guard fired on windows -- inspectStdout can classify stdout here now, so this job should assert the refusal like the other two"
+            exit 1
+          fi
   publish:
     needs: [smoke-linux, smoke-macos, smoke-windows]
     runs-on: ubuntu-latest
