@@ -250,6 +250,20 @@ func (f *fuseFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint3
 	return nil, fuse.FOPEN_KEEP_CACHE, 0
 }
 
+// fdForRead returns the pack fd and absolute offset for a body-relative read of
+// loc; the fd stays valid for the store's life. It lives beside its only caller
+// because go-fuse does not build for cosmo, so PackStore does not carry it there.
+func (s *PackStore) fdForRead(loc packLoc, off int64) (fd uintptr, absOff, avail int64) {
+	if off < 0 || off >= loc.dataLen {
+		return 0, 0, 0
+	}
+	f := s.pack(loc.packID)
+	if f == nil {
+		return 0, 0, 0
+	}
+	return f.Fd(), loc.dataOff + off, loc.dataLen - off
+}
+
 func (f *fuseFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
 	// No copying: hand the kernel the pack fd + offset instead of copying through the daemon.
 	fd, absOff, avail := f.store.fdForRead(f.loc, off)
