@@ -83,7 +83,7 @@ jobs:
             }
 
       - name: Cache validation (second build)
-        # build/ in THIS job is the host-built native linux/amd64 binary from `go run ./src` above --... see docs/CI.md
+        # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
         env:
           # The second build re-invokes go-toolchain, which also submits the dependency snapshot; give... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
@@ -183,6 +183,20 @@ jobs:
           set -euo pipefail
           cp dist/go-toolchain "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
+
+      # The mirror of the same step in smoke-macos and smoke-windows: each host pins its own answer.... see docs/CI.md
+      - name: Host detection (outside the sandbox)
+        run: |
+          set -euo pipefail
+          got=$("$RUNNER_TEMP/gt-ape" version host)
+          echo "$got"
+          case "$got" in
+            *"host: linux"*) ;;
+            *) echo "::error::the APE detects the wrong host on ubuntu-latest: ${got}"; exit 1 ;;
+          esac
+          case "$got" in
+            *GUESSED*) echo "::error::host detection GUESSED on ubuntu-latest: ${got}"; exit 1 ;;
+          esac
 
       - name: Full pipeline in a tiny module
         env:
@@ -392,7 +406,99 @@ jobs:
           ./smoke/gt-ape.exe version
           # Smoke contract (owner-ruled): gt must resolve the machine's EXISTING Go (windows-latest... see docs/CI.md
           ./smoke/gt-ape.exe --help
-          # The full pipeline is deliberately NOT run on Windows: gobootstrap downloads... see docs/CI.md
+
+      # One APE runs on every host, so what it detects here decides every host-specific choice. see docs/CI.md
+      - name: Host detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          got=$(./smoke/gt-ape.exe version host)
+          echo "$got"
+          case "$got" in
+            *"host: windows"*) ;;
+            *) echo "::error::the APE detects the wrong host on windows-latest: ${got}"; exit 1 ;;
+          esac
+          case "$got" in
+            *GUESSED*) echo "::error::host detection GUESSED on windows-latest: ${got}"; exit 1 ;;
+          esac
+
+      # smoke-linux and smoke-macos drive a synthetic consumer through the whole pipeline. NT cannot... see docs/CI.md
+      - name: The pipeline reaches the cosmo bootstrap and names its blocker
+        shell: bash
+        env:
+          # See smoke-linux: synthetic consumer without org cache credentials.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+        run: |
+          set -uo pipefail
+          gt="$(pwd)/smoke/gt-ape.exe"
+          mkdir -p smokemod
+          cd smokemod
+          cat > go.mod <<'EOF'
+          module example.com/winsmoke
+
+          go 1.24
+          EOF
+          cat > main.go <<'EOF'
+          // Package main is a tiny module used to smoke-test the published APE:
+          // the full go-toolchain pipeline (tidy/vet/test/build) must work when
+          // driven by the fat APE on an NT host.
+          package main
+
+          import "fmt"
+
+          // Greeting returns the smoke-test greeting.
+          func Greeting(name string) string {
+          	return "hello, " + name
+          }
+
+          func main() {
+          	fmt.Println(Greeting("windows"))
+          }
+          EOF
+          rc=0
+          "$gt" > pipeline.out 2> pipeline.err || rc=$?
+          echo "exit: $rc"; echo "stderr:"; cat pipeline.err
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::the pipeline completed on NT -- both fork blockers have lifted, so replace this step with the full-pipeline assertion smoke-linux and smoke-macos make"
+            exit 1
+          fi
+          if ! grep -q "gosmopolitan toolchain" pipeline.err; then
+            echo "::error::the pipeline failed on NT before the cosmo bootstrap, which is a regression this job did not have: read the stderr above"
+            exit 1
+          fi
+          # Exactly the two known fork gaps, so a THIRD failure mode cannot hide behind them. see docs/CI.md
+          if grep -q "lookup dl.pazer.build" pipeline.err; then
+            echo "known blocker: the APE cannot resolve DNS on an NT host (gosmopolitan docs/PLATFORM-STATUS.md)"
+          elif grep -q "publishes no gosmopolitan toolchain for this host" pipeline.err; then
+            echo "known blocker: buildhost carries no gosmopolitan windows/amd64 toolchain"
+          else
+            echo "::error::the cosmo bootstrap failed for a reason that is neither known blocker: read the stderr above"
+            exit 1
+          fi
+
+      # Windows is the one platform the guard cannot cover, so the no-op is asserted rather than... see docs/CI.md
+      - name: Agent output guard is inert on NT
+        shell: bash
+        env:
+          CLAUDECODE: '1'
+          GO_TOOLCHAIN_BUILDHOST_URL: http://127.0.0.1:1
+        run: |
+          set -uo pipefail
+          gt="$(pwd)/smoke/gt-ape.exe"
+          mkdir -p guardprobe
+          cd guardprobe
+          rc=0
+          "$gt" > captured.out 2> captured.err || rc=$?
+          echo "exit: $rc"; echo "stderr:"; cat captured.err
+          if grep -q "refused to run" captured.err; then
+            echo "::error::the guard fired on windows -- inspectStdout can classify stdout here now, so this job should assert the refusal like the other two"
+            exit 1
+          fi
+          # The banner is the only thing a human on this host gets while the guard is blind, and it names... see docs/CI.md
+          if ! grep -q "INOPERATIVE on this windows host" captured.err; then
+            echo "::error::the guard is blind on windows but did not say so; if it names another host, hostos.GOOS() is wrong here"
+            exit 1
+          fi
   publish:
     needs: [smoke-linux, smoke-macos, smoke-windows]
     runs-on: ubuntu-latest

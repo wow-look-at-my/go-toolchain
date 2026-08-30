@@ -16,7 +16,7 @@ func TestCoverageBelowMinimum_GHAErrorAnnotation(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "true")
 	jsonOutput = false
 	defer func() { jsonOutput = false }()
@@ -43,7 +43,7 @@ func TestCoverageBelowMinimum_NoGHAAnnotationLocally(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "")
 	jsonOutput = false
 	defer func() { jsonOutput = false }()
@@ -69,7 +69,7 @@ func TestCoverageBelowMinimum_NoGHAAnnotationInJSONMode(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject()
+	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "true")
 	jsonOutput = true
 	defer func() { jsonOutput = false }()

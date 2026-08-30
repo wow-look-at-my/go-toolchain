@@ -2,7 +2,12 @@
 
 package cache
 
-// newFuseCache is unavailable on platforms without FUSE (e.g. Windows); NewLocalStore falls back to LocalCache.
+import "errors"
+
+// errFuseUnsupported signals a platform with no FUSE support.
+var errFuseUnsupported = errors.New("FUSE not supported on this platform")
+
+// newFuseCache is unavailable on platforms without FUSE (cosmo, Windows); NewLocalStore uses LocalCache.
 func newFuseCache(cacheDir string) (fuseStore, error) {
 	return nil, errFuseUnsupported
 }

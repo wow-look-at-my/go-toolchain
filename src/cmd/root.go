@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -55,6 +54,33 @@ func skipCache(cmd *cobra.Command) bool {
 // unguardedCmds print no build result, so a capture hides nothing. Depth: docs/AGENT-OUTPUT-GUARD.md.
 var unguardedCmds = set.Of("cacheprog", "version")
 
+// toolchainlessCmds run no go command; resolving the fork would download a compiler to answer a question about this binary.
+var toolchainlessCmds = set.Of("cacheprog", "version")
+
+// checkTargetFlags validates --targets and --cosmo-platforms, for the commands
+// that have them. The build path parses them again where it uses them; this
+// only moves the rejection ahead of the toolchain download.
+func checkTargetFlags(cmd *cobra.Command) error {
+	if cmd.Flags().Lookup("targets") == nil {
+		return nil
+	}
+	if _, err := resolveMatrixPlatforms(); err != nil {
+		return err
+	}
+	_, err := parseCosmoPlatforms(cosmoPlatforms)
+	return err
+}
+
+// skipToolchain reports whether cmd runs without the gosmopolitan toolchain.
+func skipToolchain(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if toolchainlessCmds.Contains(c.Name()) {
+			return true
+		}
+	}
+	return false
+}
+
 // skipAgentGuard reports whether cmd or an ancestor prints no build result.
 func skipAgentGuard(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
@@ -80,6 +106,18 @@ var rootCmd = &cobra.Command{
 		// Abort if the agent hides our output, unless this is cacheprog (see skipAgentGuard).
 		if !skipAgentGuard(cmd) {
 			guardAgainstAgentOutputCapture()
+		}
+		// A target set nothing can build is rejected before a compiler is fetched for it.
+		if err := checkTargetFlags(cmd); err != nil {
+			return err
+		}
+		// After cobra parses, so --help and a mistyped flag cost no compiler.
+		if !skipToolchain(cmd) {
+			if err := EnsureGoVersion(); err != nil {
+				// Drop the previous run's binaries so a failed run cannot pass for a good run (see staleoutputs.go).
+				discardBuildOutputsFromCWD()
+				return fmt.Errorf("go bootstrap: %w", err)
+			}
 		}
 		if skipCache(cmd) {
 			return nil
@@ -369,19 +407,21 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 		return nil, nil, err
 	}
 
+	// The same fat APE the matrix path publishes, so nothing here can differ from what ships.
+	warnCGOUnavailable(true, false)
+	forkEnv, err := resolveForkBuildEnv(true)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 	ensureBuildDirInGitignore()
-	inDocker := build.InDocker()
 	var artifacts []datsArtifact
 	for _, t := range targets {
-		outputName := t.OutputName
-		if inDocker {
-			// In-docker names carry the HOST platform; a cosmo fat APE reports runtime.GOOS=="cosmo" everywhere.
-			outputName = build.BinaryName(outputName, hostos.GOOS(), runtime.GOARCH)
-		}
-		outPath := filepath.Join(outputDir, outputName)
+		// The APE carries no platform suffix: the same file runs on every host.
+		outPath := filepath.Join(outputDir, build.BinaryName(t.OutputName, cosmoOS, cosmoFatArch))
 		var buildStep *step
 		if !quiet {
 			buildStep = logStep(fmt.Sprintf("go build -o %s %s", outPath, t.ImportPath))
@@ -390,11 +430,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 		if buildStep != nil {
 			onFirstOutput = buildStep.noteOutput
 		}
-		job := buildJob{
-			srcPath:    t.ImportPath,
-			outputPath: outPath,
-		}
-		if err := runBuild(r, job, onFirstOutput); err != nil {
+		if err := runBuild(r, forkEnv.apeJob(t.ImportPath, outPath), onFirstOutput); err != nil {
 			return nil, nil, fmt.Errorf("go build failed: %w", err)
 		}
 		if buildStep != nil {

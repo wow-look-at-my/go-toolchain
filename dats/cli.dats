@@ -127,6 +127,7 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
+			- "Build Go projects with coverage enforcement"
 			- "Usage:"
 			- "matrix"
 			- "bench"
@@ -308,3 +309,33 @@ tests:
 	  outputs:
 		stderr:
 			- "no go.mod and no dats/ suites found"
+
+	# The whole point of the APE, end to end: there is no spelling of --targets
+	# that asks for a per-platform native binary, and the refusal arrives before
+	# a toolchain is fetched to build one (the fork download would blow the
+	# timeout and mask what is being asserted).
+	- desc: --targets refuses a native platform
+	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" matrix --targets {matrix.target}'
+	  exit: 1
+	  timeout: 30s
+	  matrix:
+		target: [linux/amd64, darwin/arm64, windows/amd64, cosmo/amd64]
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			# The guard runs before the flag check, so a leaked marker would
+			# refuse the run and this would assert the wrong message (see the
+			# test above for the full reasoning).
+			CLAUDECODE: ""
+			CLAUDE_CODE_SESSION_ID: ""
+			GROK_AGENT: ""
+			OPENCODE: ""
+			OPENCODE_PID: ""
+			GEMINI_CLI: ""
+			CODEX_SANDBOX: ""
+			CODEX_SANDBOX_NETWORK_DISABLED: ""
+	  outputs:
+		stderr:
+			- "invalid target"
+		"!stderr":
+			- "cosmo-bootstrap"

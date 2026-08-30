@@ -7,8 +7,8 @@
 // compile the guard out of every shipped binary while the GOOS=linux unit
 // tests stay green (that was a real bug; claudeguard_buildtags_test.go pins
 // the constraints). Everything here needs only /proc + stdlib, which work
-// under cosmo on linux hosts. On a darwin host the APE has no /proc, so this
-// classifier is blind and the guard cannot fire; that is a KNOWN GAP, not a
+// under cosmo on linux hosts. On a darwin or NT host the APE has no /proc, so
+// this classifier is blind and the guard cannot fire; that is a KNOWN GAP, not a
 // design — see unclassifiableSink, which says so out loud, and
 // docs/AGENT-OUTPUT-GUARD.md for what closing it needs. isTerminal is the only
 // piece needing a platform ioctl and lives in claudeguard_tty_{linux,cosmo}.go.

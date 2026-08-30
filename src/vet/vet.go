@@ -75,6 +75,27 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	return fmtChanged || semanticChanged, err
 }
 
+// RunFromSource type-checks every dependency from SOURCE. The default reads
+// export data, which is faster and can be rejected. Depth: docs/CI.md
+func RunFromSource(fix bool, progress ProgressFunc) (bool, error) {
+	loadDepsFromSource = true
+	defer func() { loadDepsFromSource = false }()
+	return RunWithProgress(fix, progress)
+}
+
+// loadDepsFromSource is set only for the duration of RunFromSource.
+var loadDepsFromSource bool
+
+// NeedModule populates pkg.Module, which bannedoutput scopes its ban by.
+// NeedDeps drops export data, so no importer is in the path.
+func loadMode() packages.LoadMode {
+	mode := packages.LoadSyntax | packages.NeedModule
+	if loadDepsFromSource {
+		mode |= packages.NeedDeps
+	}
+	return mode
+}
+
 // RunOnPattern executes all analyzers on packages matching pattern.
 // Returns whether any fixes were applied.
 func RunOnPattern(pattern string, fix bool, progress ProgressFunc) (bool, error) {
@@ -199,8 +220,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 
 	report("type-check " + tagCfg.String())
 	cfg := &packages.Config{
-		// NeedModule populates pkg.Module, which bannedoutput uses to scope its ban to this module.
-		Mode:  packages.LoadSyntax | packages.NeedModule,
+		Mode:  loadMode(),
 		Tests: true,
 	}
 	if arg := tagCfg.Arg(); arg != "" {
