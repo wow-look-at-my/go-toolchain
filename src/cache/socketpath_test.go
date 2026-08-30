@@ -9,13 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// socketRoot stays short: on a unix host os.TempDir() reads TMPDIR, which a
-// test points at its own long t.TempDir().
+// The temp dir as it stood before any test moved it: init beats every t.Setenv.
+var startupTempDir = os.TempDir()
+
+// socketRoot stays short: os.TempDir() reads TMPDIR on a unix host and TMP or
+// TEMP on NT, and a test points those at its own long t.TempDir().
 func socketRoot() string {
 	if fi, err := os.Stat("/tmp"); err == nil && fi.IsDir() {
 		return "/tmp"
 	}
-	return os.TempDir()
+	return startupTempDir
 }
 
 // testSocketPath names a socket short enough to bind: sun_path is far smaller
@@ -28,13 +31,13 @@ func testSocketPath(t *testing.T, name string) string {
 	return filepath.Join(dir, name)
 }
 
-// TestSocketPathIgnoresTMPDIR: a test that moves TMPDIR to its own t.TempDir()
-// is what overflowed sun_path, and bind answers "invalid argument" rather than
-// naming a length. The bind is the proof; the path check is what fails on a
-// host whose own paths are short enough to hide it.
+// A test that moves the temp dir to its own t.TempDir() overflows sun_path,
+// and bind answers "invalid argument" rather than naming a length. The bind is
+// the proof; the path check is what fails where paths are short enough to hide
+// it. setTempDir moves every name a host reads, so this covers NT too.
 func TestSocketPathIgnoresTMPDIR(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("TMPDIR", tmp)
+	setTempDir(t, tmp)
 
 	got := testSocketPath(t, "probe.sock")
 	require.NotContains(t, got, tmp, "the socket must not inherit a test's TMPDIR")
