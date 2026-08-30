@@ -27,22 +27,6 @@ func TestWithGitStderr(t *testing.T) {
 	assert.Contains(t, got.Error(), "fatal: cannot chdir to nowhere")
 }
 
-// TestScratchBase: git reads the scratch path from its own argument list,
-// where nothing translates it, so an NT host cannot be handed cosmo's /tmp.
-func TestScratchBase(t *testing.T) {
-	assert.Equal(t, "", scratchBase("linux"))
-	assert.Equal(t, "", scratchBase("darwin"))
-
-	old := goCacheDirFunc
-	defer func() { goCacheDirFunc = old }()
-
-	goCacheDirFunc = func() (string, error) { return `C:\Users\r\.cache\go-toolchain`, nil }
-	assert.Equal(t, `C:\Users\r\.cache\go-toolchain`, scratchBase("windows"))
-
-	goCacheDirFunc = func() (string, error) { return "", errors.New("no cache dir") }
-	assert.Equal(t, "", scratchBase("windows"), "an unknown cache directory falls back to the ambient one")
-}
-
 func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()

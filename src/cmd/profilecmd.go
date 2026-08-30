@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cache"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/profile"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
@@ -21,8 +22,10 @@ var (
 )
 
 // profileDir is the shared profile artifacts directory, next to trace.json.
+// The go command reads a dump path off its own -debug-actiongraph argument, so
+// the base is the host's.
 func profileDir() string {
-	return filepath.Join(os.TempDir(), "go-toolchain-profile")
+	return filepath.Join(argListTempDir(hostos.GOOS()), "go-toolchain-profile")
 }
 
 // initBuildProfile activates actiongraph collection for this run (unless
