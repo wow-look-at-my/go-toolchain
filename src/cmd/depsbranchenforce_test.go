@@ -143,11 +143,10 @@ require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-t
 	}
 }
 
-// A marker on an indirect require tracks nothing, so the line cannot be
-// rewritten -- but the module is version-pinned exactly like the ones that
-// are, and a silent skip would read as compliance. It warns, and the warning
-// names both repairs.
-func TestEnforceOrgBranchTrackingWarnsOnAnIndirectOrgRequire(t *testing.T) {
+// An indirect org require gets the same bare marker a direct one does: the
+// module is version-pinned exactly like a direct require, and it has no
+// direct require of its own to ride along with.
+func TestEnforceOrgBranchTrackingMarksAVersionPinnedIndirectOrgRequire(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -155,58 +154,30 @@ go 1.21
 require github.com/wow-look-at-my/foo v1.2.3 // indirect
 `)
 
+	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
+
+	changed, err := EnforceOrgBranchTracking(mock)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Equal(t, "// indirect; go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/foo"))
+}
+
+// A third-party indirect require is not this org's problem and is left alone.
+func TestEnforceOrgBranchTrackingLeavesAThirdPartyIndirectRequireAlone(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeGoMod(t, `module test
+go 1.21
+
+require github.com/spf13/cobra v1.8.0 // indirect
+`)
+
 	logger.ResetWarnCount()
 	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
 
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
-	assert.False(t, changed, "the line is not rewritten -- the marker would not work there")
-	assert.Empty(t, mock.Calls(), "and nothing is resolved for it")
-
-	warnings := logger.EmittedWarnings()
-	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0].Message, "github.com/wow-look-at-my/foo")
-	assert.Contains(t, warnings[0].Message, "replace")
-	assert.Contains(t, warnings[0].Message, pinnedMarker)
-}
-
-// Both ways out of that warning, plus the case where the module is not the
-// org's problem: each silences it, because each is a real answer.
-func TestEnforceOrgBranchTrackingIndirectWarningRespectsItsOwnEscapes(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		gomod string
-	}{
-		{"a tracked replace pins the effective version", `module test
-go 1.21
-
-require github.com/wow-look-at-my/foo v1.2.3 // indirect
-
-replace github.com/wow-look-at-my/foo => github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-toolchain:branch=master
-`},
-		{"a deliberate pin says so", `module test
-go 1.21
-
-require github.com/wow-look-at-my/foo v1.2.3 // indirect; go-toolchain:pinned upstream break
-`},
-		{"a third-party module is not covered at all", `module test
-go 1.21
-
-require github.com/spf13/cobra v1.8.0 // indirect
-`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Chdir(t.TempDir())
-			writeGoMod(t, tc.gomod)
-
-			logger.ResetWarnCount()
-			mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
-
-			_, err := EnforceOrgBranchTracking(mock)
-			require.NoError(t, err)
-			assert.Empty(t, logger.EmittedWarnings())
-		})
-	}
+	assert.False(t, changed)
+	assert.Empty(t, logger.EmittedWarnings())
 }
 
 // A fork keeps upstream's module path, so the version that reaches the build
@@ -278,9 +249,9 @@ replace github.com/wow-look-at-my/repo/reader => ../reader
 }
 
 // An indirect org require behind a local replace ships its own version to
-// consumers too, so the silence it used to get was the same hole. It warns,
-// because the marker cannot go on an indirect line.
-func TestEnforceOrgBranchTrackingWarnsOnAnIndirectRequireBehindALocalReplacement(t *testing.T) {
+// consumers too, exactly like the direct case above: the replace is
+// main-module-only and names no branch, so the require still has to track.
+func TestEnforceOrgBranchTrackingMarksAnIndirectRequireBehindALocalReplacement(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -290,21 +261,17 @@ require github.com/wow-look-at-my/foo v1.2.3 // indirect
 replace github.com/wow-look-at-my/foo => ../foo
 `)
 
-	logger.ResetWarnCount()
 	mock, _ := defaultBranchMock(t, "master", "351d2159f8d8a85613aa2a6e98c8c63df3c98623", 1786567000)
 
-	_, err := EnforceOrgBranchTracking(mock)
+	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
-
-	warnings := logger.EmittedWarnings()
-	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0].Message, "github.com/wow-look-at-my/foo")
+	assert.True(t, changed)
+	assert.Equal(t, "// indirect; go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/foo v1.2.3"))
 }
 
-// A sibling of a line this run just marked is the exception. The sibling
-// resolution moves that indirect line later in the same phase, so a warning
-// here would name a problem the run already fixes.
-func TestEnforceOrgBranchTrackingStaysQuietOnASiblingOfATrackedLine(t *testing.T) {
+// Both the direct sibling and the indirect one behind it get marked in the
+// same pass now -- neither needs the other to already be tracked.
+func TestEnforceOrgBranchTrackingMarksBothSidesOfASiblingPair(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module github.com/wow-look-at-my/repo/cli
 go 1.21
@@ -323,11 +290,16 @@ replace github.com/wow-look-at-my/repo/reader => ../reader
 
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
-	assert.True(t, changed, "the direct sibling is marked")
+	assert.True(t, changed)
 	assert.Empty(t, logger.EmittedWarnings())
+	assert.Equal(t, "// indirect; go-toolchain:auto-branch", suffixFor(t, "repo/reader v0.0.0"))
+	assert.Empty(t, untrackedOrgDeps())
 }
 
-func TestEnforceOrgBranchTrackingHonorsTheDeliberatePinOptOut(t *testing.T) {
+// There is no pin opt-out left: every org dependency is branch-tracked, so a
+// line still carrying the old go-toolchain:pinned comment gets marked same
+// as any other unmarked line -- the prose stays, inert, alongside the marker.
+func TestEnforceOrgBranchTrackingNoLongerHonorsAPinComment(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -339,9 +311,9 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard
 
 	changed, err := EnforceOrgBranchTracking(mock)
 	require.NoError(t, err)
-	assert.False(t, changed)
+	assert.True(t, changed)
 	assert.Empty(t, untrackedOrgDeps())
-	assert.Empty(t, mock.Calls())
+	assert.Contains(t, suffixFor(t, "wow-look-at-my/foo"), autoBranchMarker)
 }
 
 // The migration's only question is whether a name repeats the default branch.

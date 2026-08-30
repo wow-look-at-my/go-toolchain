@@ -205,17 +205,6 @@ func defaultBranchOf(r runner.CommandRunner, mod string) (string, error) {
 	return branch, nil
 }
 
-// fetchCommitAt fetches the named commit of a module's repository, for a
-// version that already names a commit. The ls-remote is still what finds where the
-// repository stops and the module's subdirectory inside it starts.
-func fetchCommitAt(r runner.CommandRunner, mod, hash string) (*gitCommit, func(), error) {
-	gitURL, _, err := resolveGitURLAndRef(r, mod, "HEAD")
-	if err != nil {
-		return nil, nil, fmt.Errorf("git ls-remote failed: %w", err)
-	}
-	return fetchAt(r, mod, gitURL, hash)
-}
-
 // fetchAt fetches a known commit into a temporary bare repository.
 func fetchAt(r runner.CommandRunner, mod, gitURL, fullHash string) (*gitCommit, func(), error) {
 	if len(fullHash) < 12 {
