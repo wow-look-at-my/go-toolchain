@@ -356,7 +356,10 @@ package variant walks the same file, so warned sites are deduplicated by
 
 `src/vet/commentnumbers.go` reports any number written in a Go comment, in
 digits or in words. The remedy it names is always the same: describe what the
-code does and let the reader count.
+code does and let the reader count, and cite a section of a spec or a document
+by its unique slug or its heading text rather than by its position -- a
+sentence pointing at "section 4.2" is wrong the moment somebody inserts a
+section above it, while the slug still resolves.
 
 A number in a comment is a count of what exists on the day it was written. The
 edit that adds an item does not update it, so the comment quietly goes false,
@@ -385,6 +388,17 @@ characters `_`, `.`, `/`, `:` and `-` -- and reports two shapes:
   `once`/`twice`/`thrice`. Case does not matter, so `One` is reported like
   `one`. A word that merely contains one (`someone`, `oneShot`, `atonement`)
   is not a match, because the whole run must be the word.
+
+A number behind a section sign is exempt: `§7.3` and `§ 4` cite a section of a
+document, and the sign is the spelling a reader looks it up by. It is the
+escape hatch for a document that publishes no slug -- the sign covers only the
+number it introduces, so `§7.3 covers 4 shapes` still reports the `4`.
+
+An HTTP status code is exempt, but only when the word `HTTP` (in any case)
+sits immediately before it: `HTTP 403` names a protocol answer that no edit
+changes, while a bare `403` is the shape of a line number or a row count and
+is still reported. The exemption covers a status-code-width run of digits and
+nothing else, so `HTTP 4 retries` is a count and goes.
 
 A token holding `://` is a URL and is skipped whole, so citing an issue by its
 full address is how to keep a reference that carries a number. A qualified
