@@ -131,7 +131,7 @@ func cosmoGoBinPath(root string) string {
 	if hostOS, _ := cosmoHostPlatformFunc(); hostOS == "windows" {
 		goBin += ".exe"
 	}
-	return "go"
+	return goBin
 }
 
 // cosmoGoVersion runs the toolchain's own `go version` as a health probe and
