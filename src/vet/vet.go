@@ -300,7 +300,10 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 				}
 				// The uncommitted-changes guard only matters when a fix is
 				// actually written; on CI nothing is clobbered, so skip it.
-				if ed.Writes() {
+				// A file this run already rewrote is this run's own edit, not
+				// the user's, and refusing it strands the tree half-fixed.
+				name := fixesFilename(result)
+				if ed.Writes() && !ed.Wrote(name) {
 					if err := checkFileCommitted(result); err != nil {
 						return false, err
 					}
@@ -320,7 +323,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 				if result == nil || len(result.Edits) == 0 {
 					continue
 				}
-				if ed.Writes() {
+				if ed.Writes() && !ed.Wrote(result.Filename) {
 					if err := checkFileCommittedByName(result.Filename); err != nil {
 						return false, err
 					}
@@ -428,8 +431,12 @@ type Diagnostic struct {
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
 // Tries go-git, then falls back to the git CLI on go-git infrastructure errors.
 func checkFileCommitted(fixes *ASTFixes) error {
-	filename := fixes.Fset.Position(fixes.File.Pos()).Filename
-	return checkFileCommittedByName(filename)
+	return checkFileCommittedByName(fixesFilename(fixes))
+}
+
+// fixesFilename is the file a set of AST fixes rewrites.
+func fixesFilename(fixes *ASTFixes) string {
+	return fixes.Fset.Position(fixes.File.Pos()).Filename
 }
 
 // checkFileCommittedByName is checkFileCommitted keyed by an explicit filename,

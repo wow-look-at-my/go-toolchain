@@ -211,9 +211,9 @@ func writeGoFile(t *testing.T, dir, name, src string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644))
 }
 
-// setFixesForFiles type-checks the named files from dir as one package and
-// returns the analyzer's fixes, so a pass can be given exactly the files a
-// real build variant would hold.
+// setFixesForFiles type-checks the named files from dir together and returns
+// the analyzer's fixes, so a pass can be given exactly the files a real build
+// variant would hold.
 func setFixesForFiles(t *testing.T, analyzer *analysis.Analyzer, dir string, names ...string) []*ASTFixes {
 	t.Helper()
 	fset := token.NewFileSet()

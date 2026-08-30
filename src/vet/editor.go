@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+
+	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // Editor is the single sink for vet's autofixes. It is built from whether
@@ -25,30 +29,65 @@ type Editor interface {
 
 	// Writes reports whether this editor persists to disk; fixers use it only to skip write-only preconditions.
 	Writes() bool
+
+	// Wrote reports whether this editor already rewrote path during this run.
+	// The uncommitted-changes guard asks so it can tell an edit this run made
+	// from one the user made: refusing the first strands a tree half-fixed
+	// whenever two fixers reach the same file.
+	Wrote(path string) bool
 }
 
 // NewEditor returns an apply-on-disk editor when fix is true, or a report-only editor on CI.
 func NewEditor(fix bool) Editor {
 	if fix {
-		return &applyEditor{}
+		return &applyEditor{written: set.New[string]()}
 	}
 	return &checkEditor{}
 }
 
 // applyEditor writes proposed changes to disk; Require and Apply behave identically since locally both get written.
-type applyEditor struct{}
-
-func (applyEditor) Require(path string, want []byte, _ string) (bool, error) {
-	return writeIfDiffer(path, want)
+// It remembers what it wrote: fixers run concurrently, so the record is locked.
+type applyEditor struct {
+	mu      sync.Mutex
+	written set.Set[string]
 }
 
-func (applyEditor) Apply(path string, want []byte) (bool, error) {
-	return writeIfDiffer(path, want)
+func (a *applyEditor) Require(path string, want []byte, _ string) (bool, error) {
+	return a.write(path, want)
+}
+
+func (a *applyEditor) Apply(path string, want []byte) (bool, error) {
+	return a.write(path, want)
+}
+
+func (a *applyEditor) write(path string, want []byte) (bool, error) {
+	wrote, err := writeIfDiffer(path, want)
+	if wrote {
+		a.mu.Lock()
+		a.written.Add(editorKey(path))
+		a.mu.Unlock()
+	}
+	return wrote, err
+}
+
+func (a *applyEditor) Wrote(path string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.written.Contains(editorKey(path))
 }
 
 func (applyEditor) Err() error { return nil }
 
 func (applyEditor) Writes() bool { return true }
+
+// editorKey normalizes a path so the same file recorded through two spellings
+// answers Wrote the same way.
+func editorKey(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return filepath.Clean(path)
+}
 
 // checkEditor records Require changes as violations; Apply changes are dropped (reported elsewhere as a diagnostic).
 type checkEditor struct {
@@ -79,6 +118,8 @@ func (c *checkEditor) Require(path string, want []byte, reason string) (bool, er
 func (c *checkEditor) Apply(string, []byte) (bool, error) { return false, nil }
 
 func (c *checkEditor) Writes() bool { return false }
+
+func (c *checkEditor) Wrote(string) bool { return false }
 
 func (c *checkEditor) Err() error {
 	if len(c.violations) == 0 {
