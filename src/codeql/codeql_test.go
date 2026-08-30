@@ -2,6 +2,7 @@ package codeql
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,7 +26,8 @@ func TestExtractInvokesGoExtractor(t *testing.T) {
 
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
-	assert.Contains(t, calls[0].Name, "/opt/codeql/go/tools/")
+	// filepath.Join builds the path, so the separator is the host's.
+	assert.Contains(t, filepath.ToSlash(calls[0].Name), "/opt/codeql/go/tools/")
 	assert.Contains(t, calls[0].Name, "go-extractor")
 	assert.Equal(t, []string{"./..."}, calls[0].Args)
 }
