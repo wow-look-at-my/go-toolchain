@@ -214,6 +214,14 @@ key is `v<N>` parsed from the dl endpoint's redirect `Location`
 (`probeCosmoVersion`, a redirect-stopping HEAD), falling back to a branch-keyed
 dir.
 
+`GO_TOOLCHAIN_COSMO_VERSION` pins that release. buildhost reads `v` and
+`branch` as alternatives, so a pinned URL carries `v=<N>` and no branch, and
+the pin keys the cache directly instead of probing. `go-toolchain version
+cosmo` (`ResolveCosmoVersion`) prints the release this host would resolve,
+without downloading it. CI uses the pair: `host-build` resolves once and hands
+the answer to each `build-everywhere` leg, so the three APEs `identical`
+compares come from one compiler even when a run spans a gosmopolitan publish.
+
 The cosmo build runs `<goroot>/bin/go` with `GOTOOLCHAIN=local`, `GOROOT`, a
 prefixed `PATH`, `CGO_ENABLED=0` always (`--cgo` warns), and
 `GOARCH`/`GOCOSMOFAT` cleared (fat is the fork default).

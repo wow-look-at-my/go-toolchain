@@ -23,7 +23,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -111,7 +111,7 @@ func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -133,7 +133,7 @@ func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -199,7 +199,7 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -239,7 +239,7 @@ func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")

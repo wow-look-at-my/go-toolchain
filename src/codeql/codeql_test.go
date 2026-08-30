@@ -2,6 +2,7 @@ package codeql
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,7 +26,8 @@ func TestExtractInvokesGoExtractor(t *testing.T) {
 
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
-	assert.Contains(t, calls[0].Name, "/opt/codeql/go/tools/")
+	// filepath.Join builds the path, so the separator is the host's.
+	assert.Contains(t, filepath.ToSlash(calls[0].Name), "/opt/codeql/go/tools/")
 	assert.Contains(t, calls[0].Name, "go-extractor")
 	assert.Equal(t, []string{"./..."}, calls[0].Args)
 }
@@ -137,23 +139,25 @@ func TestPlatformFor(t *testing.T) {
 	}
 }
 
+// Both take the target GOOS as an argument, but they join with filepath, whose
+// separator is the HOST's. The slash form reads the same on every host.
 func TestExtractorPathFor(t *testing.T) {
 	p, err := extractorPathFor("/opt/codeql/go", "windows")
 	require.NoError(t, err)
-	assert.Equal(t, "/opt/codeql/go/tools/win64/go-extractor.exe", p)
+	assert.Equal(t, "/opt/codeql/go/tools/win64/go-extractor.exe", filepath.ToSlash(p))
 
 	p, err = extractorPathFor("/opt/codeql/go", "darwin")
 	require.NoError(t, err)
-	assert.Equal(t, "/opt/codeql/go/tools/osx64/go-extractor", p)
+	assert.Equal(t, "/opt/codeql/go/tools/osx64/go-extractor", filepath.ToSlash(p))
 
 	_, err = extractorPathFor("/opt/codeql/go", "freebsd")
 	require.Error(t, err)
 }
 
 func TestCodeqlBinFor(t *testing.T) {
-	assert.Equal(t, "/opt/codeql/codeql", codeqlBinFor("/opt/codeql", "linux"))
-	assert.Equal(t, "/opt/codeql/codeql", codeqlBinFor("/opt/codeql", "darwin"))
-	assert.Equal(t, "/opt/codeql/codeql.exe", codeqlBinFor("/opt/codeql", "windows"))
+	assert.Equal(t, "/opt/codeql/codeql", filepath.ToSlash(codeqlBinFor("/opt/codeql", "linux")))
+	assert.Equal(t, "/opt/codeql/codeql", filepath.ToSlash(codeqlBinFor("/opt/codeql", "darwin")))
+	assert.Equal(t, "/opt/codeql/codeql.exe", filepath.ToSlash(codeqlBinFor("/opt/codeql", "windows")))
 }
 
 func TestUploadSARIFFallsBackToGHToken(t *testing.T) {

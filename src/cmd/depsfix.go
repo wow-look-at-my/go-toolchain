@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
@@ -230,7 +231,7 @@ func fetchAt(r runner.CommandRunner, mod, gitURL, fullHash string) (*gitCommit, 
 	}
 
 	// The shallowest fetch of the commit still carries its whole tree.
-	tmpDir, err := os.MkdirTemp("", "resolve-*")
+	tmpDir, err := os.MkdirTemp(scratchBase(hostos.GOOS()), "resolve-*")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -290,7 +291,20 @@ func runGitQuiet(r runner.CommandRunner, name string, args ...string) error {
 	if err != nil {
 		return err
 	}
-	return proc.Wait()
+	stderr, _ := io.ReadAll(proc.Stderr())
+	return withGitStderr(proc.Wait(), stderr)
+}
+
+// withGitStderr attaches what git said to a failure. WithQuiet() sends stderr
+// nowhere, so a bare exit status was the whole report.
+func withGitStderr(err error, stderr []byte) error {
+	if err == nil {
+		return nil
+	}
+	if msg := strings.TrimSpace(string(stderr)); msg != "" {
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return err
 }
 
 // gitOutput runs a command and returns its stdout.
@@ -300,7 +314,8 @@ func gitOutput(r runner.CommandRunner, name string, args ...string) ([]byte, err
 		return nil, err
 	}
 	out, _ := io.ReadAll(proc.Stdout())
-	if err := proc.Wait(); err != nil {
+	stderr, _ := io.ReadAll(proc.Stderr())
+	if err := withGitStderr(proc.Wait(), stderr); err != nil {
 		return nil, err
 	}
 	return out, nil

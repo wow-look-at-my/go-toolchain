@@ -16,6 +16,7 @@ import (
 )
 
 func TestWebBackend_PutAndGet(t *testing.T) {
+	t.Parallel()
 	// Fake server that stores objects in memory.
 	store := map[string][]byte{}
 	headers := map[string]http.Header{} // capture all headers per path
@@ -97,6 +98,7 @@ func TestWebBackend_PutAndGet(t *testing.T) {
 }
 
 func TestWebBackend_PutArchiveMetadata(t *testing.T) {
+	t.Parallel()
 	// Verify that Go archive bodies get Go-Version and Target metadata.
 	headers := map[string]http.Header{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +130,7 @@ func TestWebBackend_PutArchiveMetadata(t *testing.T) {
 }
 
 func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
+	t.Parallel()
 	headers := map[string]http.Header{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PUT" {
@@ -155,6 +158,7 @@ func TestWebBackend_PutNoVersionWhenEmpty(t *testing.T) {
 }
 
 func TestWebBackend_PutServerError(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		w.Write([]byte("internal error"))
@@ -177,6 +181,7 @@ func TestWebBackend_PutServerError(t *testing.T) {
 }
 
 func TestWebBackend_PutServerError_Coalesced(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(502)
 		w.Write([]byte("error code: 502"))
@@ -218,6 +223,7 @@ func TestWebBackend_PutServerError_Coalesced(t *testing.T) {
 }
 
 func TestWebBackend_PutPreservesMethodOnRedirect(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		status int

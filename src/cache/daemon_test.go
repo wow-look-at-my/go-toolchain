@@ -18,7 +18,7 @@ import (
 // wired a single time, by the daemon, and per-connection Servers over the
 // no-close wrapper must leave it alone.
 func TestDaemon_LatencyWiredOnceOnSharedBackend(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 	t.Setenv("GOCACHE_STATS_SOCK", "")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func TestDaemon_LatencyWiredOnceOnSharedBackend(t *testing.T) {
 	lc, err := NewLocalCache(filepath.Join(dir, "cache"))
 	require.NoError(t, err)
 
-	d, err := NewDaemon(filepath.Join(dir, "daemon.sock"), lc, wb)
+	d, err := NewDaemon(testSocketPath(t, "daemon.sock"), lc, wb)
 	require.NoError(t, err)
 	defer d.Close()
 

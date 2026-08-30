@@ -17,6 +17,7 @@ import (
 // open file description, so a repeat open of the same lock file conflicts even
 // within a process.
 func TestEnsureLocalCacheVersion_DefersWhileRootIsOwned(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	populateCacheRoot(t, root)
 

@@ -43,6 +43,7 @@ func (b *syncBuffer) String() string {
 }
 
 func TestHTTPErrLogger_SingleRecordFormat(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -53,6 +54,7 @@ func TestHTTPErrLogger_SingleRecordFormat(t *testing.T) {
 }
 
 func TestHTTPErrLogger_CoalesceSameKey(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -72,6 +74,7 @@ func TestHTTPErrLogger_CoalesceSameKey(t *testing.T) {
 }
 
 func TestHTTPErrLogger_CoalesceUnderMaxNamed(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -83,6 +86,7 @@ func TestHTTPErrLogger_CoalesceUnderMaxNamed(t *testing.T) {
 }
 
 func TestHTTPErrLogger_DifferentKeysStayDistinct(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -97,6 +101,7 @@ func TestHTTPErrLogger_DifferentKeysStayDistinct(t *testing.T) {
 }
 
 func TestHTTPErrLogger_EmptyBodyOmitsTrailer(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -107,6 +112,7 @@ func TestHTTPErrLogger_EmptyBodyOmitsTrailer(t *testing.T) {
 }
 
 func TestHTTPErrLogger_BodyNormalization(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -124,6 +130,7 @@ func TestHTTPErrLogger_BodyNormalization(t *testing.T) {
 }
 
 func TestHTTPErrLogger_CloseFlushesPending(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 	l.Record("web put", 502, "aabbccdd", "boom")
@@ -133,6 +140,7 @@ func TestHTTPErrLogger_CloseFlushesPending(t *testing.T) {
 }
 
 func TestHTTPErrLogger_CloseIdempotent(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 	l.Record("web put", 502, "aabbccdd", "boom")
@@ -141,6 +149,7 @@ func TestHTTPErrLogger_CloseIdempotent(t *testing.T) {
 }
 
 func TestHTTPErrLogger_TickerFlush(t *testing.T) {
+	t.Parallel()
 	// buf must be synchronized: the ticker goroutine writes while Eventually polls Len().
 	var buf syncBuffer
 	l := newHTTPErrLogger(&buf, 10*time.Millisecond, nil)
@@ -155,6 +164,7 @@ func TestHTTPErrLogger_TickerFlush(t *testing.T) {
 }
 
 func TestHTTPErrLogger_ConcurrentRecord(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -180,6 +190,7 @@ func TestHTTPErrLogger_ConcurrentRecord(t *testing.T) {
 }
 
 func TestHTTPErrLogger_NilReceiver(t *testing.T) {
+	t.Parallel()
 	var l *httpErrLogger
 	require.NotPanics(t, func() {
 		l.Record("web put", 502, "aabbccdd", "boom")
@@ -188,6 +199,7 @@ func TestHTTPErrLogger_NilReceiver(t *testing.T) {
 }
 
 func TestHTTPErrLogger_ShortIDSafe(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 	require.NotPanics(t, func() {
@@ -209,6 +221,7 @@ func TestHTTPErrLogger_OTELOptOutByDefault(t *testing.T) {
 }
 
 func TestHTTPErrLogger_BatchHTTPSingleHit(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -219,6 +232,7 @@ func TestHTTPErrLogger_BatchHTTPSingleHit(t *testing.T) {
 }
 
 func TestHTTPErrLogger_BatchHTTPSingleMiss(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -231,6 +245,7 @@ func TestHTTPErrLogger_BatchHTTPSingleMiss(t *testing.T) {
 }
 
 func TestHTTPErrLogger_BatchHTTPCoalescedMisses(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -246,6 +261,7 @@ func TestHTTPErrLogger_BatchHTTPCoalescedMisses(t *testing.T) {
 }
 
 func TestHTTPErrLogger_BatchHTTPCoalescedHits(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -260,6 +276,7 @@ func TestHTTPErrLogger_BatchHTTPCoalescedHits(t *testing.T) {
 }
 
 func TestHTTPErrLogger_BatchHTTPHitsAndMissesStayDistinct(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -272,6 +289,7 @@ func TestHTTPErrLogger_BatchHTTPHitsAndMissesStayDistinct(t *testing.T) {
 }
 
 func TestHTTPErrLogger_BatchHTTPNilReceiver(t *testing.T) {
+	t.Parallel()
 	var l *httpErrLogger
 	require.NotPanics(t, func() {
 		l.RecordBatchHTTP(100, 0, 0, 30*time.Millisecond)
@@ -279,6 +297,7 @@ func TestHTTPErrLogger_BatchHTTPNilReceiver(t *testing.T) {
 }
 
 func TestHTTPErrLogger_MixedHTTPErrAndBatchHTTP(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := newTestLogger(&buf)
 
@@ -293,6 +312,7 @@ func TestHTTPErrLogger_MixedHTTPErrAndBatchHTTP(t *testing.T) {
 }
 
 func TestHTTPErrLogger_NoFlushWhenEmpty(t *testing.T) {
+	t.Parallel()
 	var buf syncBuffer // read below while the ticker goroutine is still live
 	l := newHTTPErrLogger(&buf, 5*time.Millisecond, nil)
 	time.Sleep(50 * time.Millisecond)

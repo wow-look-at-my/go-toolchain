@@ -7,6 +7,15 @@ import (
 	git "github.com/go-git/go-git/v5"
 )
 
+// resolveLinks spells path as the kernel resolves it, so darwin's /var and
+// /private/var compare equal.
+func resolveLinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
 // checkFileCommittedGoGit checks file status using the go-git library.
 // go-git v5 cannot read an index written under index.skipHash/feature.manyFiles
 // (a recent git writes an empty trailer hash): Status fails with "invalid
@@ -31,8 +40,8 @@ func checkFileCommittedGoGit(filename string) error {
 		return fmt.Errorf("cannot auto-fix %s: failed to get status: %w", filename, err)
 	}
 
-	repoRoot := wt.Filesystem.Root()
-	relPath, err := filepath.Rel(repoRoot, filename)
+	// go-git answers a resolved path and filename carries the caller's spelling.
+	relPath, err := filepath.Rel(resolveLinks(wt.Filesystem.Root()), resolveLinks(filename))
 	if err != nil {
 		return fmt.Errorf("cannot auto-fix %s: failed to get relative path: %w", filename, err)
 	}

@@ -5,11 +5,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
+
+// The real bootstrap downloads a toolchain, which spends a test binary's
+// whole budget on a cold host cache. The message names the repair.
+func init() {
+	ensureCosmoToolchainFunc = func() (string, error) {
+		return "", fmt.Errorf("test reached the real toolchain bootstrap: call stubForkToolchain(t)")
+	}
+}
 
 // mockTestEvents renders the `go test -json` stream a passing package
 // reports: the run line, the coverage output line, and the pass line. The
@@ -82,6 +94,45 @@ func setupMockProject(t *testing.T) {
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
 	// Without this, the build phase sends every pipeline test to buildhost.
 	stubForkToolchain(t)
+	stubVetPhase(t)
+}
+
+// assertExecutable checks the exec bit where the host keeps such a bit. NT
+// does not, so there this asserts only that the file exists.
+func assertExecutable(t *testing.T, path, msg string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	if runtime.GOOS == "windows" {
+		return
+	}
+	assert.NotZero(t, info.Mode().Perm()&0o111, msg)
+}
+
+// requireShebangHelper gates a test with a shell-script fixture: NT
+// runs no shebang, and a stand-in re-parses the arguments.
+func requireShebangHelper(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture is a shell script; NT runs no shebang")
+	}
+}
+
+// setHome points os.UserHomeDir() at dir. Windows reads USERPROFILE,
+// other hosts HOME.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
+// stubVetPhase keeps a pipeline test off the real vet pass: vet spawns a go
+// list per call, and this package runs the pipeline dozens of times.
+func stubVetPhase(t *testing.T) {
+	t.Helper()
+	old := vetRunFunc
+	vetRunFunc = func(bool, vet.ProgressFunc) (bool, error) { return false, nil }
+	t.Cleanup(func() { vetRunFunc = old })
 }
 
 // writeMockBuildOutput writes the -o file, as a real compiler does on success.
