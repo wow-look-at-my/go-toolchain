@@ -19,7 +19,7 @@ func stubRunBuild(fn func(buildJob) error) func() {
 }
 
 // The real failure, copied from a consumer's CI job: the cosmo leg of the
-// matrix asks for an export entry the cache promised and cannot open, and
+// build phase asks for an export entry the cache promised and cannot open, and
 // blames a package the change never touched.
 const realMissingExportFileErr = `exit status 1
 # github.com/wow-look-at-my/ffs.impl.ir/parser
