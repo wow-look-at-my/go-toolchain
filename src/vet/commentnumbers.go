@@ -162,8 +162,7 @@ func isMoney(text string, tok commentToken) bool {
 	return unicode.IsDigit(rune(tok.text[0]))
 }
 
-// httpStatusPrefix is what a code must wear to be read as one. Bare digits say
-// nothing about what they count, and 200 of a thing is a count.
+// httpStatusPrefix is what marks digits as a status code rather than a count.
 const httpStatusPrefix = "HTTP "
 
 // httpStatusCodes are the codes the IANA HTTP Status Code Registry assigns. A
@@ -180,8 +179,7 @@ var httpStatusCodes = set.Of(
 	"500", "501", "502", "503", "504", "505", "506", "507", "508", "510", "511",
 )
 
-// isHTTPStatus reports whether the token is an assigned code wearing the
-// prefix that says it is one.
+// isHTTPStatus reports whether the token is an assigned code behind the prefix.
 func isHTTPStatus(text string, tok commentToken) bool {
 	if !strings.HasSuffix(text[:tok.offset], httpStatusPrefix) {
 		return false
