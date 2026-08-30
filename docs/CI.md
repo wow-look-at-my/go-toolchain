@@ -377,6 +377,33 @@ variant while the tests read the host variant, so a file excluded from the one
 `go list` it runs does not bust the fingerprint. Picking a variant is not the
 fix — the fingerprint has to cover both.
 
+## A native test binary asks the host for a directory the APE spells differently
+
+The section above builds the test binaries for the host. So inside a test,
+`os` answers as a native Windows program, while every earlier phase of the
+same job was the APE answering cosmo's POSIX view. Two directories differ,
+and each one broke a test:
+
+- `os.UserCacheDir()`. The APE answers `%USERPROFILE%\.cache`; a native
+  binary answers `%LocalAppData%`. Two `src/cmd` bench tests drove the whole
+  pipeline with a mock runner without stubbing the fork seam, so the build
+  phase resolved the toolchain for real. On a warm cache that is one
+  `go version` exec, which is why linux never showed it. NT had no warm
+  entry under the name the test binary asked for and downloaded the
+  toolchain instead: `27s` of a `30s` test-binary budget. `rootmocks_test.go`
+  now points the seam at a refusal that names `stubForkToolchain`, so a
+  pipeline test that forgets fails in milliseconds instead of reaching
+  buildhost.
+- `os.TempDir()`. Unix reads `TMPDIR`; NT reads `TMP`, then `TEMP`. Tests
+  that moved the web index's blob into their own `t.TempDir()` by setting
+  `TMPDIR` moved nothing on NT, which is what made
+  `TestLoadOrFetchIndex_WarmCache304` report an empty glob. `setTempDir` in
+  `src/cache/main_test.go` sets all three names.
+
+Both are the argument-list boundary below, read from the other side: there a
+path the APE spells crosses OUT to a native tool, here a native tool's answer
+crosses back IN to code the APE normally runs.
+
 ## A path in another program's argument list crosses out of cosmo
 
 The APE reports `GOOS=cosmo` and answers cosmo's POSIX view of the filesystem.
