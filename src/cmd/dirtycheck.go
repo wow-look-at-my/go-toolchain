@@ -41,8 +41,7 @@ func checkDirtyInCI() error {
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
 }
 
-// dirtyDiff renders what changed. In CI the tree dies with the runner, so this
-// is the reader's only look at it.
+// dirtyDiff renders what changed; in CI the tree dies with the runner.
 func dirtyDiff(files string) string { return dirtyDiffIn("", files) }
 
 // dirtyDiffIn runs in dir, or the process directory when dir is empty; taking
@@ -60,8 +59,7 @@ func dirtyDiffIn(dir, files string) string {
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), strings.TrimSpace(stderr.String()), err
 	}
-	// Every branch below answers. Silence leaves the reader under an
-	// instruction to review a diff that never arrives.
+	// Every branch below answers; silence is what taught nobody anything.
 	diff, stderr, err := git("--no-pager", "diff", "--")
 	if err != nil {
 		return fmt.Sprintf("\nDiff: git diff failed: %v: %s\n", err, stderr)
