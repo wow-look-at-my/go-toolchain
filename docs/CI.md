@@ -435,9 +435,8 @@ have no checkout, so build/ lands in an otherwise empty workspace.
 
 ### uses: actions/checkout@v7
 
-Only for the dats fixture .github/dats-fixtures/*.dats copied in
-below -- this job otherwise runs entirely off the downloaded release
-artifact.
+Only for the dats fixtures under .github/dats-fixtures/ -- this job
+otherwise runs entirely off the downloaded release artifact.
 
 ### Download build outputs hand-off
 
@@ -457,44 +456,50 @@ in-process fake. Cross-compiled in host-build (which already has Go
 set up) rather than via setup-go here -- see smoke-macos, where
 installing Go on that runner would defeat the point of that job.
 
-### Stage the APE
+### Linux smoke suite
 
-Staging only. What the artifact must BE (the APE magic), that it runs,
-and which host it detects are assertions, so they live in
-.github/dats-fixtures/smoke-linux-agent-output-guard.dats, which the
-pipeline step below runs against this same copy.
+Every assertion this job makes lives in
+.github/dats-fixtures/smoke-linux.dats: which host the artifact
+detects, and the whole pipeline over a synthetic consumer. A
+workflow step schedules work; the harness holds the assertions, so
+an engineer can run them without pushing a commit.
 
-### Host detection (outside the sandbox)
+The run passes --no-sandbox, and that is not a shortcut. The
+pipeline test drives go-toolchain, whose OWN dats phase sandboxes
+the agent-output-guard fixture it stages, and nesting bwrap inside
+bwrap is what the opt-out avoids. The guard fixture's isolation is
+untouched. Only the RUN can make that choice, which is why the file
+does not try to.
 
-The mirror of the same step in smoke-macos and smoke-windows: each
+### the APE detects a linux host by measurement
+
+The mirror of the same test in smoke-macos and smoke-windows: each
 host pins its own answer, so all three jobs assert the one thing every
 host-specific choice hangs off. This one must say `host: linux`, and
-never GUESSED. Its sandboxed twin is in the dats fixture below --
-worth having both, because the probes' fallback IS "linux", so the
+never GUESSED. Its sandboxed twin is in the guard fixture -- worth
+having both, because the probes' fallback IS "linux", so the
 sandboxed assertion alone could pass here for the wrong reason.
 
-### GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1
+### the full pipeline runs in a tiny module on a linux host
 
-The smoke module is a synthetic consumer WITHOUT the org cache
-credentials (no secret-server step here on purpose); this documented
-knob downgrades the in-CI "caching not configured" error to a
-warning. The repo's own host-build/build jobs keep the shared cache.
+Full default pipeline against the shipped APE: bootstraps a Go
+toolchain if the runner's is too old, then tidy/vet/test/coverage/
+build, then go-toolchain's own dats phase over the
+agent-output-guard fixture this test stages beside the module.
 
-### cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
+That guard regression is a committed dats fixture (see smoke-macos)
+rather than hand-rolled bash: the released binaries ARE the cosmo
+APE, so the guard must fire in THIS artifact -- a GOOS=linux unit
+test cannot prove that (the guard once shipped as a `_linux.go`
+no-op while unit tests stayed green). It is staged inside the module
+root so dats' sandbox (bwrap) can reach it, same reasoning as
+smoke-macos.
 
-The agent output guard regression lives as a committed dats
-fixture (see smoke-macos), not hand-rolled bash: the released
-binaries ARE the cosmo APE, so the guard must fire in THIS
-artifact -- a GOOS=linux unit test cannot prove that (the guard
-once shipped as a `_linux.go` no-op while unit tests stayed
-green). Staged inside the module root so dats' sandbox (bwrap)
-can reach it, same reasoning as smoke-macos.
-
-### $RUNNER_TEMP/gt-ape
-
-Full default pipeline: bootstraps an official Go toolchain if the
-runner's is too old, then tidy/vet/test/coverage/build, then the
-dats phase above.
+`GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED` says out loud
+that this synthetic consumer has no org cache credentials (no
+secret-server step here on purpose): the documented knob downgrades
+the in-CI "caching not configured" error to a warning. The repo's
+own host-build/build jobs keep the shared cache.
 
 ### smoke-macos
 
@@ -513,9 +518,8 @@ honest answer that it is not, and the job's timeout bounds the hang.
 
 ### uses: actions/checkout@v7
 
-Only for the dats fixture .github/dats-fixtures/*.dats copied in
-below -- this job otherwise runs entirely off the downloaded release
-artifact.
+Only for the dats fixtures under .github/dats-fixtures/ -- this job
+otherwise runs entirely off the downloaded release artifact.
 
 ### Download socketharness hand-off
 
@@ -523,12 +527,22 @@ See smoke-linux for why this is a download, not a local build: no
 setup-go here, deliberately -- this job's whole point is proving
 go-toolchain's OWN bootstrap works with NO Go on this runner's PATH.
 
-### Stage the APE
+### macOS smoke suite
 
-Staging only -- the assertions about this artifact live in
-.github/dats-fixtures/smoke-macos-agent-output-guard.dats.
+Every assertion this job makes lives in
+.github/dats-fixtures/smoke-macos.dats: host detection, the whole
+pipeline over a synthetic consumer, and the two unsandboxed socket
+cases. A workflow step schedules work; the harness holds the
+assertions.
 
-### Host detection (outside the sandbox)
+The run passes --no-sandbox, which is what lets the unsandboxed
+assertions live in a suite at all: a file may narrow its own
+sandbox but never turn it off, so only the RUN can decide this.
+The sandboxed twins still exist -- go-toolchain's own dats phase
+runs the guard fixture under seatbelt from inside the pipeline
+test.
+
+### the APE detects a darwin host by measurement
 
 One APE runs on several hosts, so everything host-specific it does --
 toolchain archives, brew paths, and the agent output guard's entire
@@ -536,67 +550,53 @@ classifier -- hangs off hostos.Detect(). It answers from
 runtime.CosmoHostOS(), which no sandbox can deny; behind that sit the
 uname and filesystem probes, whose fallback is "linux", so a regression
 that unwires the seam answers "linux" ON A MAC and every dependent
-decision is silently wrong. Assert it here, UNSANDBOXED; the dats
-fixture below asserts the same thing from inside dats' seatbelt
-sandbox. Both must say darwin.
+decision is silently wrong. This test asserts it unsandboxed; the
+guard fixture asserts the same thing from inside seatbelt. Both must
+say darwin.
 
-This one assertion cannot move into a dats file: dats runs every
-command sandboxed, and only --no-sandbox on the RUN turns that off,
-which a suite may not decide for itself. Its sandboxed twin is a dats
-test, as is everything else this job checks.
-
-### cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
-
-The agent output guard regression lives as a committed dats
-fixture (.github/dats-fixtures/smoke-macos-agent-output-guard.dats),
-not hand-rolled bash: go-toolchain links dats in and runs any
-dats/ suite found (recursively) in the module it is building --
-there is no separate suite-running step, which is exactly why
-this fixture is copied in rather than checked in under this
-repo's OWN dats/: a suite asserting darwin-host behavior would
-also run (and fail) during this repo's own linux build/host-build
-jobs, which discover every dats/ suite recursively with no
-filtering. dats sandboxes every command to the module root, so the
-binary under test must live INSIDE it: $RUNNER_TEMP is invisible to
-a sandboxed command (same reasoning as dats/README.md's
-build/.dats-stage/ staging).
-
-### $RUNNER_TEMP/gt-ape
+### the full pipeline runs in a tiny module on a darwin host
 
 Full default pipeline: macos-latest has no Go on PATH, so this is
-the job's first real bootstrap (downloads, extracts and probes
-go 1.24 from go.dev), then tidy/vet/test/coverage/build, then the
-dats phase above.
+the job's first real bootstrap, then tidy/vet/test/coverage/build,
+then the dats phase over the guard fixture staged beside the module.
 
-### Agent output guard over a socket, unsandboxed
+That guard regression is a committed dats fixture
+(.github/dats-fixtures/smoke-macos-agent-output-guard.dats), not
+hand-rolled bash: go-toolchain links dats in and runs any dats/
+suite found (recursively) in the module it is building -- there is
+no separate suite-running step, which is exactly why this fixture is
+copied in rather than checked in under this repo's OWN dats/: a
+suite asserting darwin-host behavior would also run (and fail)
+during this repo's own linux build/host-build jobs, which discover
+every dats/ suite recursively with no filtering. That inner phase
+sandboxes every command to the module root, so the binary under test
+must live INSIDE it -- which is why the test copies it in rather
+than naming one elsewhere.
 
-The same two socket cases the fixture above runs, but OUTSIDE dats --
-the shape a real opencode user has, since nothing sandboxes them. The
-two are not redundant: seatbelt is itself a variable the classifier's
-probes answer differently under, so a disagreement between this step
-and the fixture localizes the defect to the sandbox rather than to the
-guard. Runs on always() so it still reports when the pipeline above
-went red.
+### the guard allows a plain run whose socket reader is the agent itself
 
-### printf 'module example.com/sockprobe\n\ngo 1.24\n' > "$probe/run/go.mod
+The same two socket cases the guard fixture runs, but outside any
+sandbox -- the shape a real opencode user has, since nothing
+sandboxes them. The two are not redundant: seatbelt is itself a
+variable the classifier's probes answer differently under, so a
+disagreement between these tests and the fixture localizes the
+defect to the sandbox rather than to the guard.
 
-A go.mod in the RUN DIRECTORY ITSELF, or the child never reaches the
-guard: with no go on PATH, main.go's bootstrap reads the version to
-fetch out of ./go.mod and exits before cobra runs when there is
-none. It does not walk up (MEASURED: one directory above was not
-enough). The dats fixture never hits this: its suites run from
-inside go-toolchain's own pipeline, which has a go by then. The
-version
-matches what the pipeline step above already cached, so this
-bootstraps from disk instead of downloading a second toolchain.
+Each case gets a go.mod in the RUN DIRECTORY ITSELF, or the child
+never reaches the guard: with no go on PATH, main.go's bootstrap
+reads the version to fetch out of ./go.mod and exits before cobra
+runs when there is none. It does not walk up (MEASURED: one
+directory above was not enough). The guard fixture never hits this:
+its suites run from inside go-toolchain's own pipeline, which has a
+go by then. The version matches what the pipeline test already
+cached, so this bootstraps from disk instead of downloading a second
+toolchain.
 
-### cp "$GITHUB_WORKSPACE/harness/socketharness-darwin-arm64" "$probe/run/harness
-
-A copy per case, taken from the pristine artifact rather than from
-$RUNNER_TEMP/gt-ape: that one has been executed several times by the
-steps above, and an APE rewrites its own file on first exec, so a
-copy of it is no longer the thing a mac user downloads. The dats
-fixture copies pristine too, which is what makes the two comparable.
+Every binary is copied from the pristine handed-off artifact rather
+than from one an earlier test ran: an APE rewrites its own file on
+first exec, so a copy of one that has run is no longer the thing a
+mac user downloads. The guard fixture copies pristine too, which is
+what makes the two comparable.
 
 ### Windows smoke suite
 
