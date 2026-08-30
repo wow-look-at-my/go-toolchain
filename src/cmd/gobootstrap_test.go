@@ -96,12 +96,12 @@ func TestGoVersionCore(t *testing.T) {
 	assert.Equal(t, "1.27", goVersionCore("1.27rc1"))
 }
 
-// The separator belongs to the host, not to the build. A colon on NT fuses the
-// fork's bin with the next entry into a directory that does not exist, so the
-// go the runner already had on PATH wins and the compiler reports version skew.
+// Both separators belong to the host named, not to the machine joining them.
+// A colon on NT fuses the fork's bin with the next entry into a directory that
+// does not exist, so the runner's own go wins and the compiler reports skew.
 func TestForkFirstPath(t *testing.T) {
-	got := forkFirstPath("/fork", `C:\tools;C:\bin`, "windows")
-	assert.Equal(t, `/fork/bin;C:\tools;C:\bin`, got)
+	got := forkFirstPath(`C:\fork`, `C:\tools;C:\bin`, "windows")
+	assert.Equal(t, `C:\fork\bin;C:\tools;C:\bin`, got)
 
 	got = forkFirstPath("/fork", "/usr/bin:/bin", "linux")
 	assert.Equal(t, "/fork/bin:/usr/bin:/bin", got)

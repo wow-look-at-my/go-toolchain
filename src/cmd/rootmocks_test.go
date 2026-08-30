@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
@@ -92,6 +95,35 @@ func setupMockProject(t *testing.T) {
 	// Without this, the build phase sends every pipeline test to buildhost.
 	stubForkToolchain(t)
 	stubVetPhase(t)
+}
+
+// assertExecutable checks the exec bit where the host keeps such a bit. NT
+// does not, so there this asserts only that the file exists.
+func assertExecutable(t *testing.T, path, msg string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	if runtime.GOOS == "windows" {
+		return
+	}
+	assert.NotZero(t, info.Mode().Perm()&0o111, msg)
+}
+
+// requireShebangHelper gates a test with a shell-script fixture: NT
+// runs no shebang, and a stand-in re-parses the arguments.
+func requireShebangHelper(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture is a shell script; NT runs no shebang")
+	}
+}
+
+// setHome points os.UserHomeDir() at dir. Windows reads USERPROFILE,
+// other hosts HOME.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 }
 
 // stubVetPhase keeps a pipeline test off the real vet pass: vet spawns a go

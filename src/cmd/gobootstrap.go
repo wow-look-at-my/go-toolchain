@@ -64,14 +64,14 @@ func EnsureGoVersion() error {
 	return nil
 }
 
-// forkFirstPath joins with the HOST's separator. An APE from a fork predating
-// the runtime-value fix carries the unix colon, which NT does not split on.
+// forkFirstPath spells both separators for hostGOOS, not for the machine
+// doing the join, which is why filepath.Join is wrong here.
 func forkFirstPath(goRoot, rest, hostGOOS string) string {
-	sep := string(os.PathListSeparator)
+	listSep, pathSep := ":", "/"
 	if hostGOOS == "windows" {
-		sep = ";"
+		listSep, pathSep = ";", `\`
 	}
-	return filepath.Join(goRoot, "bin") + sep + rest
+	return goRoot + pathSep + "bin" + listSep + rest
 }
 
 // useForkAsPipelineToolchain points this process and its children at goRoot.
