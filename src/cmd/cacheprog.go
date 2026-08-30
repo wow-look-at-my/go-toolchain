@@ -268,6 +268,7 @@ func enableCacheProg() error {
 // error". The fix wraps the APE in a #!/bin/sh script: the shell's ENOEXEC
 // fallback interprets the APE header directly.
 func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
+	exe = nativeExePath(hostGOOS, exe)
 	if goos != cosmoOS || hostGOOS != "darwin" {
 		return quoteExeForGOCACHEPROG(exe) + " cacheprog", nil
 	}
@@ -281,6 +282,21 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 		return "", fmt.Errorf("write cacheprog wrapper: %w", err)
 	}
 	return quoteExeForGOCACHEPROG(wrapper), nil
+}
+
+// nativeExePath rewrites the /<drive>/... spelling of a path into the
+// <drive>:/... form NT can start. A shell hands the APE its own path that way,
+// os.Executable reports it back verbatim, and cmd/go passes what it is given
+// straight to CreateProcess, which answers "cannot find the path specified".
+func nativeExePath(hostGOOS, exe string) string {
+	if hostGOOS != "windows" || len(exe) < 3 || exe[0] != '/' || exe[2] != '/' {
+		return exe
+	}
+	drive := exe[1]
+	if (drive < 'a' || drive > 'z') && (drive < 'A' || drive > 'Z') {
+		return exe
+	}
+	return strings.ToUpper(string(drive)) + ":" + exe[2:]
 }
 
 // quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG

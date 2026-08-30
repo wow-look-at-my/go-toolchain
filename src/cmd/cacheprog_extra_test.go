@@ -50,6 +50,16 @@ func TestQuoteExeForGOCACHEPROG(t *testing.T) {
 	}
 }
 
+func TestNativeExePathRewritesTheDriveSpelling(t *testing.T) {
+	// NT cannot start /d/a/...; cmd/go hands CreateProcess whatever it is given.
+	assert.Equal(t, "D:/a/gt/smoke/gt-ape.exe", nativeExePath("windows", "/d/a/gt/smoke/gt-ape.exe"))
+	assert.Equal(t, "C:/gt.exe", nativeExePath("windows", "/c/gt.exe"))
+	// Already native, not a drive prefix, or not an NT host: left alone.
+	assert.Equal(t, `C:\gt.exe`, nativeExePath("windows", `C:\gt.exe`))
+	assert.Equal(t, "/usr/local/bin/gt", nativeExePath("windows", "/usr/local/bin/gt"))
+	assert.Equal(t, "/d/a/gt", nativeExePath("linux", "/d/a/gt"))
+}
+
 // TestCacheProgCommand pins the GOCACHEPROG launch command shapes: the bare
 // self-exec everywhere EXCEPT a cosmo APE on a macOS host, where a #!/bin/sh
 // wrapper re-execs the APE (the darwin kernel cannot execve the MZ polyglot
