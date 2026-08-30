@@ -166,7 +166,19 @@ number, and two attempts at it failed and were reverted:
   environment: `TestWebBackend_PutRefusesBuildIDMismatch` goes red at once and
   the binary hangs after it.
 
-So `src/cache` needs its shared state named before any of it runs in parallel.
+A third attempt did land, on the isolated two-thirds of `src/cache`, once the
+classifier followed the call graph instead of the test body — `t.Setenv` hides
+behind `setTempDir`, `setHome` and `hermeticOTel`. It took `test run
+src/cache` from 11.4s to 6.51s on linux and left Windows where it was:
+28.822s before, 30.337s after. That is the result to remember. The runner has
+four cores and `go test` already runs four package binaries side by side, so
+there are no spare cores for a package to parallelise INTO; the linux win came
+from cores Windows does not have. Concurrency is therefore not the lever here,
+and neither refactor below would move Windows either. What moves it is less
+work per binary, or a budget that knows what host it is on.
+
+Should someone pick up the isolation work anyway, for its own sake:
+`src/cache` needs its shared state named before the rest runs in parallel.
 `indexCachePath` reading `os.TempDir()` is the piece already identified, and a
 per-backend directory on `WebConfig` would remove the environment half of the
 problem along with the reason those tests set `TMPDIR` at all.
