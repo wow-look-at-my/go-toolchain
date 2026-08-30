@@ -299,7 +299,7 @@ func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
 }
 
 // A checksum database holds public modules only, so a lookup of an org module
-// is answered 404 and the build dies in `go mod tidy`. Every org prefix must
+// is refused and the build dies in `go mod tidy`. Every org prefix must
 // therefore be exempt whenever a database is configured.
 func TestConfigureGoEnvExemptsOrgModulesFromSumDB(t *testing.T) {
 	t.Setenv("GO_PROXY_CONFIG", "")

@@ -243,11 +243,7 @@ func configureGoEnv() {
 			os.Exit(1)
 		}
 		os.Setenv("GOSUMDB", gosumdb)
-		// A checksum database only ever holds PUBLIC modules, so an org module
-		// is looked up and answered 404, which fails the build. Exempt the org
-		// prefixes and leave every other module verified. This is GONOSUMDB and
-		// not GOPRIVATE on purpose: GOPRIVATE would also take the module off the
-		// proxy and send the fetch straight to git.
+		// A sumdb holds public modules only, so it refuses an org module.
 		os.Setenv("GONOSUMDB", orgSumDBExemptions())
 		os.Setenv("GONOSUMCHECK", orgSumDBExemptions())
 		return
@@ -259,6 +255,8 @@ func configureGoEnv() {
 }
 
 // orgSumDBExemptions is the GONOSUMDB glob list covering every org module path.
+// GONOSUMDB and not GOPRIVATE: GOPRIVATE would also take the module off the
+// proxy and send the fetch straight to git.
 func orgSumDBExemptions() string {
 	globs := make([]string, 0, len(cmd.OrgModulePrefixes))
 	for _, prefix := range cmd.OrgModulePrefixes {
