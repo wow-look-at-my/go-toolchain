@@ -195,6 +195,18 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Configure Go proxy
+        shell: bash
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
       - name: Provision the sandbox backend (bubblewrap)
         if: runner.os == 'Linux'
         run: |
@@ -220,8 +232,6 @@ jobs:
         env:
           # One compiler for all three hosts; host-build resolved it. see docs/CI.md
           GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
-          # The cache changes how long this takes and never what it emits. see docs/CI.md
-          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -282,6 +292,18 @@ jobs:
       # Only for the dats fixture .github/dats-fixtures/*.dats copied in below -- this job otherwise... see docs/CI.md
       - uses: actions/checkout@v7
 
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Configure Go proxy
+        shell: bash
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
       # Explicit name on purpose: by this point the run holds SEVERAL hand-offs (host-go-toolchain... see docs/CI.md
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
@@ -318,9 +340,6 @@ jobs:
           esac
 
       - name: Full pipeline in a tiny module
-        env:
-          # The smoke module is a synthetic consumer WITHOUT the org cache credentials (no secret-server... see docs/CI.md
-          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/smokemod"
@@ -380,6 +399,18 @@ jobs:
       # Only for the dats fixture .github/dats-fixtures/*.dats copied in below -- this job otherwise... see docs/CI.md
       - uses: actions/checkout@v7
 
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Configure Go proxy
+        shell: bash
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
@@ -416,9 +447,6 @@ jobs:
           esac
 
       - name: Full pipeline with the APE
-        env:
-          # See smoke-linux: synthetic consumer without org cache credentials.
-          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/nativemod"
@@ -506,6 +534,18 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Configure Go proxy
+        shell: bash
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
@@ -544,9 +584,6 @@ jobs:
       # The same assertion smoke-linux and smoke-macos make: both NT blockers have lifted. see docs/CI.md
       - name: Full pipeline in a tiny module
         shell: bash
-        env:
-          # See smoke-linux: synthetic consumer without org cache credentials.
-          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           set -euo pipefail
           gt="$(pwd)/smoke/gt-ape.exe"

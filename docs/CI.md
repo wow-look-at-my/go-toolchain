@@ -712,12 +712,13 @@ never GUESSED. Its sandboxed twin is in the dats fixture below --
 worth having both, because the probes' fallback IS "linux", so the
 sandboxed assertion alone could pass here for the wrong reason.
 
-### GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1
+### Configure Go proxy
 
-The smoke module is a synthetic consumer WITHOUT the org cache
-credentials (no secret-server step here on purpose); this documented
-knob downgrades the in-CI "caching not configured" error to a
-warning. The repo's own host-build/build jobs keep the shared cache.
+Every job that builds or tests this repo -- host-build, build-everywhere,
+and all three smoke jobs -- fetches `GO_BUILDCACHE_CONFIG` and
+`GO_PROXY_CONFIG` via the secret-server step first, so `go-toolchain`
+runs with the shared cache and the org proxy on every host, not only on
+the linux host-build leg.
 
 ### cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
 
