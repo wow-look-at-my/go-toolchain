@@ -300,9 +300,7 @@ jobs:
           done
           exit $rc
 
-# One suite -- the union of the old per-OS fixtures -- run by ONE dats call on
-# every host: each runner executes every OS's assertions, and the ones
-# describing another host fail there by design. see docs/CI.md
+  # Every host runs the whole union suite, and an assertion describing another host fails there by design. see docs/CI.md
   smoke:
     needs: build
     strategy:

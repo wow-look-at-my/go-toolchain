@@ -72,9 +72,15 @@ Every leg runs the SAME command, linux included, rather than reusing `build`'s
 result. That costs one extra build and buys an unambiguous gate: a difference
 is then the host, never the invocation. It also does not go through
 `uses: ./` — the composite action installs itself with `sudo`, which a Windows
-runner has not, which is why the smoke jobs stage the APE by hand too. Caching
-is off in this job: it changes how long a build takes and never what it emits,
-so leaving it out removes a variable rather than adding one.
+runner has not, which is why the smoke jobs stage the APE by hand too.
+
+The NT leg builds uncached, and the matrix says so with `uncached: '1'`, which
+reaches the step as `GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED`. The
+runner logs `GO_BUILDCACHE_CONFIG` in that step's environment and the APE then
+reports it unset, so the credential the job holds cannot be used there; without
+the flag the run refuses to start rather than building. The flag makes the run
+say what it lost on stderr instead. Caching changes how long a build takes and
+never what it emits, so the leg still answers the question this job asks.
 
 A missing hand-off fails rather than passing on the survivors: comparing the
 hosts that answered would report green for a property no host was checked on.
@@ -238,20 +244,22 @@ Should someone pick up the isolation work anyway, for its own sake:
 per-backend directory on `WebConfig` would remove the environment half of the
 problem along with the reason those tests set `TMPDIR` at all.
 
-## The three smoke jobs
+## The smoke job
 
-Each is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
+It is one matrix job over ubuntu, macOS and Windows, running the union suite
+`.github/dats-fixtures/smoke.dats` on each. Every leg executes every host's
+assertions, and an assertion describing another host fails there by design.
+
+The job is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
 the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest`
 (run-keyed cross-OS cache wrapper; the download `path` is the destination
 directory). The action names its hand-off `go-build-<job id>` per calling job,
 with a `.m<job-index>` suffix per leg when the caller is a matrix job, so
 concurrent same-run saves never collide on one key.
 
-They EXECUTE throwaway copies of the artifacts in `dist/`, never the downloaded
-file itself.
-
-All three run the SAME file, `dist/go-toolchain` — there is one
-artifact now, and each job proves it boots on that host.
+The suite EXECUTES throwaway copies of the artifacts in `dist/`, never the
+downloaded file itself. Every leg runs the SAME file, `dist/go-toolchain` —
+there is a single artifact now, and each leg proves it boots on that host.
 
 **linux** — APE magic `MZqFpD`, then `version`, `--help`, host detection, and
 the FULL default pipeline in a tiny module under the APE. The agent-output-guard regression is a
