@@ -243,9 +243,12 @@ problem along with the reason those tests set `TMPDIR` at all.
 Each is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
 the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest`
 (run-keyed cross-OS cache wrapper; the download `path` is the destination
-directory). The action names its hand-off `go-build-<job id>` per calling job,
-with a `.m<job-index>` suffix per leg when the caller is a matrix job, so
-concurrent same-run saves never collide on one key.
+directory). The action names its hand-off `go-build-<job id>.b<build>` per
+calling job and build (the sanitized `working-directory`), with a `.m<job-index>`
+suffix per leg when the caller is a matrix job, so concurrent same-run saves
+never collide on one key. `go-build-build` here is the legacy per-job name the
+`build` job still saves (continue-on-error) for consumers that have not migrated
+to the job+build name.
 
 They EXECUTE throwaway copies of the artifacts in `dist/`, never the downloaded
 file itself.
@@ -350,7 +353,8 @@ least.
 ## publish
 
 The single publish path, gated on all three smokes. It downloads the same
-`go-build-build` hand-off into `build/`, then `wow-look-at-my/buildhost`'s
+`go-build-build` hand-off (the legacy per-job name the `build` job still saves)
+into `build/`, then `wow-look-at-my/buildhost`'s
 buildhost-publish action publishes it via its `path` input and OIDC — no
 checkout, no artifacts API. A trailing `if: always()`
 `wow-look-at-my/actions@cache-cleanup#latest` step, backed by the job's
@@ -656,13 +660,14 @@ host-go-toolchain (run-scoped keys with cross-attempt fallback), so
 
 ### uses: ./
 
-The go-toolchain action itself cache-uploads build/ under the per-job
-name `go-build-<job id>` on every run (unconditional) -- here that is
-`go-build-build`, which the smoke-linux/macos/windows and publish
-jobs below cache-download. The job id in the name keeps concurrent
-same-run invocations (in other repos: the linux + darwin two-job
-pattern) from colliding on one run-scoped key; there is no standalone
-upload step here.
+The go-toolchain action itself cache-uploads build/ under the per-job+build
+name `go-build-<job id>.b<build>` on every run (unconditional) -- here that is
+`go-build-build.broot`, plus a legacy per-job save `go-build-build`
+(continue-on-error) that the smoke-linux/macos/windows and publish
+jobs below cache-download. The job id and build identity in the name keep
+concurrent same-run invocations (in other repos: the linux + darwin two-job
+pattern, or two builds in one job) from colliding on one run-scoped key; there
+is no standalone upload step here.
 
 ### timeout: '15
 
@@ -687,7 +692,7 @@ otherwise runs entirely off the downloaded release artifact.
 ### Download build outputs hand-off
 
 Explicit name on purpose: by this point the run holds SEVERAL
-hand-offs (host-go-toolchain from host-build, the per-job
+hand-offs (host-go-toolchain from host-build, the legacy per-job
 go-build-build, and the deprecated bare go-build alias), so a
 nameless self-discovering download would be ambiguous here. Same
 for smoke-macos/smoke-windows/publish below.
