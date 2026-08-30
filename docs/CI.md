@@ -252,9 +252,11 @@ problem along with the reason those tests set `TMPDIR` at all.
 
 ## The smoke job
 
-It is one matrix job over ubuntu, macOS and Windows, running the union suite
-`.github/dats-fixtures/smoke.dats` on each. Every leg executes every host's
-assertions, and an assertion describing another host fails there by design.
+It is one matrix job over ubuntu, macOS and Windows, and each leg runs its own
+fixture: `smoke-linux.dats`, `smoke-macos.dats`, `smoke-windows.dats` under
+`.github/dats-fixtures/`. One union file cannot work — dats runs every test in
+the file it is handed and has no filtering by design, so a foreign host's
+assertion fails the leg it lands on.
 
 The job is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
 the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest`
