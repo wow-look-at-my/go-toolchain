@@ -21,9 +21,8 @@ var (
 	profileGraph []profile.Action
 )
 
-// profileDir is the shared profile artifacts directory, next to trace.json.
-// The go command reads a dump path off its own -debug-actiongraph argument, so
-// the base is the host's.
+// profileDir holds the profile artifacts, next to trace.json. go opens the
+// dumps itself, so the base is the host's.
 func profileDir() string {
 	return filepath.Join(argListTempDir(hostos.GOOS()), "go-toolchain-profile")
 }

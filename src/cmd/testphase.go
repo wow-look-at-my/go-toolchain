@@ -180,7 +180,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	}
 
 	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.
-	// The go command reads this off its own -coverprofile argument, so the base is the host's.
 	coverDir := filepath.Join(argListTempDir(hostos.GOOS()), "go-toolchain-cov")
 	os.MkdirAll(coverDir, 0o755)
 	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))

@@ -357,6 +357,40 @@ variant while the tests read the host variant, so a file excluded from the one
 `go list` it runs does not bust the fingerprint. Picking a variant is not the
 fix — the fingerprint has to cover both.
 
+## A path in another program's argument list crosses out of cosmo
+
+The APE reports `GOOS=cosmo` and answers cosmo's POSIX view of the filesystem.
+On an NT host the tools it drives — `go.exe`, `git` — are native binaries that
+know nothing of that view. Which spelling is right depends on who resolves the
+path:
+
+- **cosmo resolves it.** `cmd.Dir`, and the APE's own `os` calls. Cosmo
+  translates on the way to the OS, so the POSIX spelling is correct and needs
+  no help.
+- **The other program resolves it.** Anything inside its argument list is a
+  string that program parses, and nothing translates it. The POSIX spelling
+  reaches NT unchanged and fails.
+
+`src/cmd/hostscratch.go` holds the base for the second case: `scratchBase` for
+a caller handing it to `os.MkdirTemp`, `argListTempDir` for one joining onto
+it. On NT both answer the go cache directory, which is already NT-spelled;
+every other host keeps `os.TempDir()`. The four crossings found so far:
+
+| what | who parses it | failure before the fix |
+| --- | --- | --- |
+| `GOCACHEPROG` (`src/cmd/cacheprog.go`) | cmd/go | `error starting GOCACHEPROG program "/d/a/.../gt-ape.exe": fork/exec: The system cannot find the path specified` |
+| scratch clone (`src/cmd/depsfix.go`) | git | `fatal: cannot change to /tmp/resolve-N: No such file or directory` |
+| `-coverprofile` (`src/cmd/testphase.go`) | cmd/go | `open D:\a\...\smokemod\tmp\go-toolchain-cov\coverage-N.out: The system cannot find the path specified` |
+| `-debug-actiongraph` (`src/cmd/profilecmd.go`) | cmd/go | not yet observed; the same crossing as the row above |
+
+`ntPathFromPosix` (in `cacheprog.go`) is a different repair for a different
+input: it rewrites a shell's `/d/a/x` spelling of a path that already names a
+drive. It declines `/tmp/x`, which names no drive and needs a base instead.
+
+`codeql.Analyze` builds its SARIF path the same way and is NOT fixed. Only
+`codeql.Extract` is wired into the pipeline, so that path has no production
+caller to reach it. Give it `argListTempDir` if one ever appears.
+
 ## Tidy self-heals against cache-served module-index damage
 
 `src/cmd/modindexretry.go`'s `runModTidy` detects cmd/go's `corrupt index`
