@@ -272,8 +272,10 @@ func TestPackStore_TornFinalRecordIgnored(t *testing.T) {
 	require.Equal(t, "good record", string(data))
 }
 
+// NOT parallel: it shrinks the package-global maxPackBytes, so a parallel
+// sibling would rotate its own packs and stat a pack holding a fraction of
+// its records.
 func TestPackStore_Rotation(t *testing.T) {
-	t.Parallel()
 	orig := maxPackBytes
 	maxPackBytes = int64(packHeaderLen + 10) // rotate after ~every record
 	defer func() { maxPackBytes = orig }()
@@ -304,8 +306,9 @@ func TestPackStore_Rotation(t *testing.T) {
 // a working set >= budget cold-cycled forever): the oldest packs are evicted
 // until the total is back under the eviction target, and the newest records
 // survive.
+// NOT parallel: it shrinks maxPackBytes and packResetBytes, which every other
+// test in the package reads.
 func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
-	t.Parallel()
 	origMax, origReset := maxPackBytes, packResetBytes
 	maxPackBytes = int64(packHeaderLen + 512) // rotate after every record
 	defer func() { maxPackBytes = origMax; packResetBytes = origReset }()
@@ -353,8 +356,8 @@ func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
 // exceeds the whole budget, the newest pack (the append target, holding the
 // hottest records) is never deleted — the store runs over budget instead of
 // cold-cycling.
+// NOT parallel: it shrinks the package-global packResetBytes.
 func TestPackStore_EvictionNeverDeletesNewestPack(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
