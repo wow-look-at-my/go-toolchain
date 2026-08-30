@@ -20,7 +20,6 @@ require (
 	example.com/sib v1.0.0 // indirect; go-toolchain:auto-branch
 	example.com/old v1.0.0 // go-toolchain:branch=master
 	example.com/plain v1.0.0
-	example.com/pinned v1.0.0 // go-toolchain:pinned v2 API break
 )
 `
 	f, err := modfile.Parse("go.mod", []byte(gomod), nil)
@@ -36,7 +35,6 @@ require (
 	assert.Equal(t, marker{tracks: true}, got["example.com/sib"], "the marker is still found sharing a comment with // indirect")
 	assert.Equal(t, marker{tracks: true, branch: "master", legacy: true}, got["example.com/old"])
 	assert.Equal(t, marker{}, got["example.com/plain"])
-	assert.Equal(t, marker{}, got["example.com/pinned"], "a deliberate pin is a choice, not a tracked answer")
 }
 
 // What a bare marker resolves to depends on the dependency, so the comment's

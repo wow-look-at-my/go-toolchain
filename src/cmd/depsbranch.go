@@ -30,21 +30,17 @@ type branchPin struct {
 	marker  marker
 }
 
-// commitAnchor is the commit a require's siblings must match: a ref to resolve, or a pin's own commit.
+// commitAnchor is the ref a require's same-repository siblings must match.
 type commitAnchor struct {
 	ref string
 	// branch is the marker's branch, empty for default; it lets sibling lines of a repo follow different branches.
 	branch string
-	hash   string
 	desc   string
 }
 
 func (a commitAnchor) describe() string { return a.desc }
 
 func (a commitAnchor) fetch(r runner.CommandRunner, mod string) (*gitCommit, func(), error) {
-	if a.hash != "" {
-		return fetchCommitAt(r, mod, a.hash)
-	}
 	return fetchCommit(r, mod, a.ref)
 }
 
@@ -93,30 +89,14 @@ func (rr *repoResolver) close() {
 	rr.cleanups = nil
 }
 
-// siblingAnchor returns the commit a direct require's same-repository siblings
-// must match, and whether it has an anchor at all.
-//
-// A tracked line's anchor is its branch. A DELIBERATELY PINNED line is
-// anchored too, and not to the branch: cohesion is about the modules of a
-// repo shipping together, so a line held at an old version holds its siblings at
-// that same old commit. Following the branch there would pair a pinned module
-// with siblings from today, which is the mismatch the pin exists to avoid.
+// siblingAnchor returns the commit a require's siblings must match, and
+// whether it has an anchor at all: a tracked require, direct or indirect.
 func siblingAnchor(req *modfile.Require, m marker, bm *branchMatcher) (commitAnchor, bool) {
-	if req.Indirect {
-		return commitAnchor{}, false // an indirect line is somebody else's answer
-	}
-	if m.tracks {
-		mod := req.Mod.Path
-		return commitAnchor{ref: bm.ref(mod, m), branch: bm.branchFor(mod, m), desc: bm.describe(mod, m)}, true
-	}
-	if !hasPinnedMarker(req.Syntax) || !isOrgModule(req.Mod.Path) {
+	if !m.tracks {
 		return commitAnchor{}, false
 	}
-	rev, err := module.PseudoVersionRev(req.Mod.Version)
-	if err != nil || rev == "" {
-		return commitAnchor{}, false // a tagged release names no commit to match
-	}
-	return commitAnchor{hash: rev, desc: "the commit pinned by " + req.Mod.Version}, true
+	mod := req.Mod.Path
+	return commitAnchor{ref: bm.ref(mod, m), branch: bm.branchFor(mod, m), desc: bm.describe(mod, m)}, true
 }
 
 // UpdateTrackedBranchDeps re-resolves every require and replace carrying a
@@ -202,18 +182,6 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 	reportUncheckedBranches(unchecked)
 	if err := reportTemporaryBranches(temporary); err != nil {
 		return false, err
-	}
-
-	for _, req := range f.Require {
-		m := parseMarker(req.Syntax)
-		if !m.tracks || !req.Indirect {
-			continue
-		}
-		if _, managed := siblings[req.Mod.Path]; managed {
-			continue // this run owns the line; tidy is what marked it indirect
-		}
-		logger.Warn("%s follows %s but is marked indirect; make it a direct dependency, track it through a replace instead (replace %s => <repo> <version> // %s -- a replace is main-module-only, so it covers direct and indirect requires alike), or drop the %s comment",
-			req.Mod.Path, m.meaning(), req.Mod.Path, m.comment(), autoBranchMarker)
 	}
 
 	changed := false
@@ -304,15 +272,8 @@ func UpdateTrackedBranchDeps(r runner.CommandRunner) (bool, error) {
 // requireSiblingAt puts mod in go.mod at the commit its repository resolved
 // to, adding the require if it is absent and marking it tracked so later runs
 // keep moving it. It reports whether go.mod changed.
-//
-// A deliberate version pin wins: hasPinnedMarker is how someone says they want
-// this exact version of the module, and moving with its siblings is exactly
-// what that opts out of.
 func requireSiblingAt(f *modfile.File, mod string, pin branchPin) (bool, error) {
 	existing := findRequire(f, mod)
-	if existing != nil && hasPinnedMarker(existing.Syntax) {
-		return false, nil
-	}
 	if existing != nil && existing.Mod.Version == pin.version && parseMarker(existing.Syntax) == pin.marker {
 		return false, nil
 	}
@@ -368,8 +329,8 @@ func trackedBranchDepsMoved(r runner.CommandRunner) bool {
 	bm := newBranchMatcher(r)
 	for _, req := range f.Require {
 		m := parseMarker(req.Syntax)
-		if !m.tracks || req.Indirect {
-			continue // an indirect sibling moves with the direct line checked here
+		if !m.tracks {
+			continue
 		}
 		version, err := resolveVersionViaGit(r, req.Mod.Path, bm.ref(req.Mod.Path, m))
 		if err != nil {

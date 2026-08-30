@@ -76,13 +76,12 @@ coverage.
   type-checks every dependency from source and reads no export data at all, covering both; `GOCACHEPROG` goes off alongside it. A repeat means
   neither cause applies and says so. Sibling of `modindexretry.go` (different signature, different cure). Depth: `docs/CI.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
-  version pin: an org require/replace carrying a plain version gets the bare `// go-toolchain:auto-branch` appended, which
-  the rewrite-then-dirty-tree-fails-CI contract enforces. That costs no lookup, since the marker names no branch. A line
-  already carrying the canonical marker is left alone; a legacy one is migrated, which is the one place this asks the
-  remote anything (`git ls-remote --symref`, and a remote that cannot answer keeps the name and warns). A
-  require overridden by a replace is marked on the replace line instead; an INDIRECT one cannot carry a working marker at
-  all, so it warns and names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the
-  explicit opt-out. Depth: `docs/DEPS.md`
+  version pin, direct or indirect: an org require/replace carrying a plain version gets the bare `// go-toolchain:auto-branch`
+  appended, which the rewrite-then-dirty-tree-fails-CI contract enforces. That costs no lookup, since the marker names no
+  branch. A line already carrying the canonical marker is left alone; a legacy one is migrated, which is the one place this
+  asks the remote anything (`git ls-remote --symref`, and a remote that cannot answer keeps the name and warns). A require
+  overridden by a replace is marked on the replace line instead. There is no pin opt-out: every org dependency tracks a
+  branch. Depth: `docs/DEPS.md`
 - `src/cmd/hostscratch.go` — a path CROSSES OUT of cosmo when another program parses it. The APE answers cosmo's POSIX view,
   which cosmo translates on its own calls (`cmd.Dir`, its own file I/O) and does not translate inside an argument list, so on
   an NT host `go.exe` and `git` get a spelling neither can open. `scratchBase` serves `os.MkdirTemp`, `argListTempDir` a
