@@ -758,39 +758,29 @@ and the guard's classifier dispatch. The cure is
 `runtime.CosmoHostOS()` (see the smoke-macos section above); the
 answer is now `host: windows (via runtime)`.
 
-### The pipeline reaches the cosmo bootstrap and names its blocker
+### Full pipeline in a tiny module
 
-smoke-linux and smoke-macos drive a synthetic consumer through the
-whole pipeline, proving the shipped APE can tidy, vet, test and
-build a real module on that platform. NT cannot do that today, for
-two gaps that both live in the fork, not here:
+The same assertion smoke-linux and smoke-macos make: the shipped
+APE can tidy, vet, test and build a real module on this host.
 
-1. **buildhost carries no gosmopolitan windows/amd64 toolchain.**
-   The publish job builds `linux/amd64` and `darwin/arm64`, each on
-   its own runner, because distpack packages what a HOST build
-   produced. Every other slot is a 404, so cosmobootstrap has
-   nothing to download for an NT host.
-2. **The APE cannot resolve DNS on an NT host.** `lookup
-   dl.pazer.build on [::1]:53: i/o timeout` -- `[::1]:53` is
-   netgo's fallback nameserver when `/etc/resolv.conf` cannot be
-   read, so the resolver never asks Windows and never reaches a
-   real nameserver. The fork's own PLATFORM-STATUS.md lists
-   off-host networking and DNS from NT as missing, and its
-   DEBUGGING.md carries this as a hypothesis; the log line above is
-   the confirmation.
+For a while this step could not make that claim, and asserted the
+reachable half instead -- that the pipeline got as far as the cosmo
+bootstrap and failed there naming one of exactly two fork gaps. A
+run that SUCCEEDED was red, and said to replace the step with this
+one. Both gaps have since closed: the publish job now covers the
+`windows/amd64` slot, and DNS resolves from NT, so a run reached
+the test phase and the guard fired as designed.
 
-So the step asserts the reachable half: the pipeline runs, gets as
-far as the cosmo bootstrap, and fails there naming one of exactly
-those two blockers. A run that SUCCEEDS is red, and says to replace
-this step with the assertion the other two jobs make. A failure
-before the bootstrap is red. A bootstrap failure with any third
-signature is red -- otherwise a real regression would hide behind a
-gap we already know about.
+What that run then found is this repo's own bug, not a fork gap:
+`-coverprofile` handed the native `go.exe` cosmo's `/tmp`. See "A
+path in another program's argument list crosses out of cosmo".
 
-An earlier revision of this job did assert the full pipeline, on
-the belief that buildhost serves the fork for every os/arch. It
-does not. That claim was never checked, and the step could not
-have passed.
+An earlier revision of this job asserted the full pipeline on the
+belief that buildhost served the fork for every os/arch. It did
+not, and that claim was never checked. What is checked this time is
+narrower and worth stating exactly: the bootstrap is observed to
+succeed on NT and the pipeline is observed to reach the test phase.
+Whether it now runs to green there is what this step measures.
 
 ### Agent output guard is inert on NT
 
