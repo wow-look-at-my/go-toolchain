@@ -23,7 +23,8 @@ func TestCacheHome_XDG(t *testing.T) {
 	os.Setenv("XDG_CACHE_HOME", "/custom/cache")
 	defer os.Setenv("XDG_CACHE_HOME", old)
 
-	assert.Equal(t, "/custom/cache/go-toolchain", cacheHome())
+	// Joined, not spelled: cacheHome names a path on THIS host.
+	assert.Equal(t, filepath.Join("/custom/cache", "go-toolchain"), cacheHome())
 }
 
 func TestIsVanityHostReachableWithChecker(t *testing.T) {
@@ -50,14 +51,34 @@ func TestQuoteExeForGOCACHEPROG(t *testing.T) {
 	}
 }
 
-func TestNativeExePathRewritesTheDriveSpelling(t *testing.T) {
-	// NT cannot start /d/a/...; cmd/go hands CreateProcess whatever it is given.
-	assert.Equal(t, "D:/a/gt/smoke/gt-ape.exe", nativeExePath("windows", "/d/a/gt/smoke/gt-ape.exe"))
-	assert.Equal(t, "C:/gt.exe", nativeExePath("windows", "/c/gt.exe"))
-	// Already native, not a drive prefix, or not an NT host: left alone.
-	assert.Equal(t, `C:\gt.exe`, nativeExePath("windows", `C:\gt.exe`))
-	assert.Equal(t, "/usr/local/bin/gt", nativeExePath("windows", "/usr/local/bin/gt"))
-	assert.Equal(t, "/d/a/gt", nativeExePath("linux", "/d/a/gt"))
+// TestNTPathFromPosix: a shell on NT launches the APE by a POSIX path, which
+// the native cmd/go there cannot open. smoke-windows died on
+// "fork/exec /d/a/...: The system cannot find the path specified".
+func TestNTPathFromPosix(t *testing.T) {
+	cases := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"/d/a/go-toolchain/gt-ape.exe", `d:\a\go-toolchain\gt-ape.exe`, true},
+		{"/C/Users/runner/gt.exe", `C:\Users\runner\gt.exe`, true},
+		{"/usr/local/bin/go-toolchain", "", false}, // a real POSIX path keeps its spelling
+		{`D:\a\gt.exe`, "", false},                 // already native
+		{"/d", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		got, ok := ntPathFromPosix(c.in)
+		assert.Equal(t, c.ok, ok, c.in)
+		assert.Equal(t, c.want, got, c.in)
+	}
+}
+
+// TestCacheProgCommandTranslatesForNT: the translation has to reach the value
+// cmd/go actually reads, not just exist beside it.
+func TestCacheProgCommandTranslatesForNT(t *testing.T) {
+	got, err := cacheProgCommand(cosmoOS, "windows", "/d/a/go-toolchain/gt-ape.exe")
+	require.NoError(t, err)
+	assert.Equal(t, `d:\a\go-toolchain\gt-ape.exe cacheprog`, got)
 }
 
 // TestCacheProgCommand pins the GOCACHEPROG launch command shapes: the bare
@@ -89,9 +110,7 @@ func TestCacheProgCommand(t *testing.T) {
 	data, err := os.ReadFile(got)
 	require.NoError(t, err)
 	assert.Equal(t, "#!/bin/sh\nexec '"+exe+"' cacheprog\n", string(data))
-	info, err := os.Stat(got)
-	require.NoError(t, err)
-	assert.NotZero(t, info.Mode().Perm()&0o111, "wrapper must be executable")
+	assertExecutable(t, got, "wrapper must be executable")
 
 	// A single quote in the executable path cannot be embedded safely: the cache is disabled rather than misquoted.
 	_, err = cacheProgCommand("cosmo", "darwin", "/tmp/it's here/gt-ape")

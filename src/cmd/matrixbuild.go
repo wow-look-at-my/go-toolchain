@@ -57,6 +57,9 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 	return nil
 }
 
+// reproducibleLDFlags empties the linked binary's Go build ID. Depth: docs/MATRIX.md.
+const reproducibleLDFlags = "-buildid="
+
 // checkPortableJob allows only the fat APE and wasm, only through the fork.
 // It sits at the sole chokepoint that compiles anything, so a call site that
 // invents a target fails here instead of shipping a native binary.
@@ -88,7 +91,8 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if job.cacheNamespace == "" {
 		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
 	}
-	args := []string{"build"}
+	// -trimpath: without it the build IDs record where the build ran, so each runner ships a different APE.
+	args := []string{"build", "-trimpath"}
 	// Dump the action graph for the build profile (a file per invocation;
 	// matrix targets each get their own). No-op when profiling is off.
 	if garg := profile.GraphArg(); garg != "" {
@@ -97,17 +101,20 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if onFirstOutput != nil {
 		args = append(args, "-v") // print packages as they are compiled
 	}
+	// Ours goes last: the linker reads the final spelling, so a caller's flags cannot drop it.
+	ldflags := reproducibleLDFlags
 	if job.ldflags != "" {
-		args = append(args, "-ldflags", job.ldflags)
+		ldflags = job.ldflags + " " + ldflags
 	}
+	args = append(args, "-ldflags", ldflags)
 	// -o is the temp spelling; the commit below is what makes the target exist.
 	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
-	forkGoBin := filepath.Join(job.forkGoroot, "bin", "go")
+	forkGoBin := cosmoGoBinPath(job.forkGoroot)
 	// An ambient GOOS is the last way to ask for a native binary, so every variable below is assigned. No output has cgo.
 	cmd := runner.Cmd(forkGoBin, args...).
 		WithEnv("GOTOOLCHAIN", "local").
 		WithEnv("GOROOT", job.forkGoroot).
-		WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
+		WithEnv("PATH", forkFirstPath(job.forkGoroot, os.Getenv("PATH"), hostos.GOOS())).
 		WithEnv("CGO_ENABLED", "0").
 		WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
 	if job.goos == cosmoOS {

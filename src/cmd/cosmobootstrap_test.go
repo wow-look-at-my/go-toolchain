@@ -23,6 +23,7 @@ func setupCosmoTest(t *testing.T) (cacheDir string) {
 	t.Helper()
 	t.Setenv(cosmoGorootEnv, "")
 	t.Setenv(cosmoBranchEnv, "")
+	t.Setenv(cosmoVersionEnv, "")
 
 	cacheDir = t.TempDir()
 	oldCacheDir := goCacheDirFunc
@@ -48,6 +49,13 @@ func setupCosmoTest(t *testing.T) (cacheDir string) {
 // (top-level go/ directory containing bin/go).
 func makeCosmoTarball(t *testing.T) []byte {
 	t.Helper()
+	return makeCosmoTarballNamed(t, "go")
+}
+
+// makeCosmoTarballNamed builds the distribution archive with the go binary
+// under binName, which is how a windows distribution spells it (go.exe).
+func makeCosmoTarballNamed(t *testing.T, binName string) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
@@ -55,7 +63,7 @@ func makeCosmoTarball(t *testing.T) []byte {
 	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/", Typeflag: tar.TypeDir, Mode: 0755}))
 	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/bin/", Typeflag: tar.TypeDir, Mode: 0755}))
 	content := []byte("#!/bin/sh\necho fake cosmo go\n")
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/bin/go", Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))}))
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/bin/" + binName, Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))}))
 	_, err := tw.Write(content)
 	require.NoError(t, err)
 	require.NoError(t, tw.Close())
@@ -115,7 +123,12 @@ func TestEnsureCosmoToolchainDownloadsForEveryHost(t *testing.T) {
 		t.Run(host.goos+"/"+host.goarch, func(t *testing.T) {
 			cacheDir := setupCosmoTest(t)
 			cosmoHostPlatformFunc = func() (string, string) { return host.goos, host.goarch }
-			tarball := makeCosmoTarball(t)
+			// Serve the archive this host's own distribution carries; windows names the binary go.exe.
+			goBinName := "go"
+			if host.goos == "windows" {
+				goBinName += ".exe"
+			}
+			tarball := makeCosmoTarballNamed(t, goBinName)
 
 			var gotQuery atomic.Value
 			mux := http.NewServeMux()
@@ -203,6 +216,59 @@ func TestEnsureCosmoToolchainDownloadsAndCaches(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, got, got2)
 	assert.Equal(t, int32(1), downloads.Load(), "cached toolchain must not be re-downloaded")
+}
+
+// A windows distribution names the go binary go.exe, so the whole resolution
+// has to agree on the suffix. A path spelled by hand rejects a good archive
+// here, and misses the cache on every later run.
+func TestEnsureCosmoToolchainWindowsHostUsesExeSuffix(t *testing.T) {
+	cacheDir := setupCosmoTest(t)
+	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
+	tarball := makeCosmoTarballNamed(t, "go.exe")
+
+	var downloads atomic.Int32
+	var gotQuery atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery.Store(r.URL.RawQuery)
+		if r.Method == http.MethodHead {
+			w.Header().Set("Location", "/static?v=42")
+			w.WriteHeader(http.StatusMovedPermanently)
+			return
+		}
+		downloads.Add(1)
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+	cosmoDownloadBase = srv.URL + "/gosmopolitan"
+
+	got, err := EnsureCosmoToolchain()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(cacheDir, "cosmo", "v42", "go"), got)
+	assert.Contains(t, gotQuery.Load().(string), "os=windows")
+	assert.Equal(t, filepath.Join(got, "bin", "go.exe"), cosmoGoBinPath(got))
+	assert.FileExists(t, cosmoGoBinPath(got))
+
+	got2, err := EnsureCosmoToolchain()
+	require.NoError(t, err)
+	assert.Equal(t, got, got2)
+	assert.Equal(t, int32(1), downloads.Load(), "the cache hit must look for go.exe rather than re-download")
+}
+
+// The rejection names the file it wanted, which is the suffix on a windows host.
+func TestEnsureCosmoToolchainWindowsHostRejectsArchiveWithoutExe(t *testing.T) {
+	setupCosmoTest(t)
+	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
+	tarball := makeCosmoTarball(t) // a unix distribution: go/bin/go
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+	cosmoDownloadBase = srv.URL + "/gosmopolitan"
+
+	_, err := EnsureCosmoToolchain()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "go/bin/go.exe")
 }
 
 func TestEnsureCosmoToolchainBranchEnvSelectsBranch(t *testing.T) {

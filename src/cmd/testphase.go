@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
@@ -21,6 +22,9 @@ import (
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
+
+// vetRunFunc is the vet phase, as a seam. Why: docs/CI.md.
+var vetRunFunc = vet.RunWithProgress
 
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
 // checks coverage against the threshold. Used by both the default command
@@ -108,7 +112,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	}
 	// On CI (CI=true) fixers run check-only: any change (gofmt, import migration, testify cast) is a hard error, not an auto-fix.
 	fix := os.Getenv("CI") == ""
-	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
+	filesChanged, err := vetRunFunc(fix, vetProgress)
 	if err != nil {
 		// If in-process vet fails due to a Go version mismatch (a binary built
 		// with an older Go than the project requires), fall back to external go vet
@@ -178,11 +182,9 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep = logStep("Running tests with coverage")
 	}
 
-	// The pid keeps mock-runner tests, which write and delete this file, apart.
-	coverDir, err := coverageDir()
-	if err != nil {
-		return false, nil, err
-	}
+	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.
+	coverDir := filepath.Join(argListTempDir(hostos.GOOS()), "go-toolchain-cov")
+	os.MkdirAll(coverDir, 0o755)
 	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
 	defer os.Remove(coverFile)
 
@@ -371,19 +373,4 @@ func runDuplicateCheck() {
 		}
 	}
 	logger.Info("")
-}
-
-// coverageDir creates the directory the coverage profile is written into and
-// returns it as an absolute path. os.TempDir can answer a relative path, and
-// the go subprocess resolves that against its own working directory.
-func coverageDir() (string, error) {
-	root, err := filepath.Abs(os.TempDir())
-	if err != nil {
-		return "", fmt.Errorf("resolve temp dir %q: %w", os.TempDir(), err)
-	}
-	dir := filepath.Join(root, "go-toolchain-cov")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create coverage directory %s: %w", dir, err)
-	}
-	return dir, nil
 }

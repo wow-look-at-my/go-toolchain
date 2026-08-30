@@ -9,6 +9,7 @@ import (
 )
 
 func TestParseImportPath_RealArchive(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile("testdata/testpkg.a")
 	require.NoError(t, err)
 	got := parseImportPath(data)
@@ -16,18 +17,21 @@ func TestParseImportPath_RealArchive(t *testing.T) {
 }
 
 func TestParseImportPath_NotAnArchive(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "", parseImportPath([]byte("not an archive")))
 	require.Equal(t, "", parseImportPath(nil))
 	require.Equal(t, "", parseImportPath([]byte{}))
 }
 
 func TestParseImportPath_NoMarker(t *testing.T) {
+	t.Parallel()
 	// Valid ar header + PKGDEF member but no $$B\n marker.
 	arData := buildAr("__.PKGDEF", []byte("go object linux amd64 go1.25.0\n\n"))
 	require.Equal(t, "", parseImportPath(arData))
 }
 
 func TestParseImportPath_NonUnifiedFormat(t *testing.T) {
+	t.Parallel()
 	// $$B\n present but format byte is not 'u'.
 	body := []byte("go object linux amd64 go1.25.0\n\n$$B\nX<data>\n$$\n")
 	arData := buildAr("__.PKGDEF", body)
@@ -35,6 +39,7 @@ func TestParseImportPath_NonUnifiedFormat(t *testing.T) {
 }
 
 func TestArMember(t *testing.T) {
+	t.Parallel()
 	body := []byte("hello world")
 	arData := buildAr("__.PKGDEF", body)
 	got := arMember(arData, "__.PKGDEF")
@@ -42,15 +47,18 @@ func TestArMember(t *testing.T) {
 }
 
 func TestArMember_MissingMember(t *testing.T) {
+	t.Parallel()
 	arData := buildAr("other.file", []byte("data"))
 	require.Nil(t, arMember(arData, "__.PKGDEF"))
 }
 
 func TestArMember_BadMagic(t *testing.T) {
+	t.Parallel()
 	require.Nil(t, arMember([]byte("not an ar file"), "__.PKGDEF"))
 }
 
 func TestPkgbitsImportPath_TruncatedPayload(t *testing.T) {
+	t.Parallel()
 	// Various truncated payloads should return "" without panicking.
 	require.Equal(t, "", pkgbitsImportPath(nil))
 	require.Equal(t, "", pkgbitsImportPath([]byte{0, 0, 0}))
@@ -58,6 +66,7 @@ func TestPkgbitsImportPath_TruncatedPayload(t *testing.T) {
 }
 
 func TestPkgbitsImportPath_WithSyncMarkersRoundTrip(t *testing.T) {
+	t.Parallel()
 	// Build a minimal pkgbits payload with sync markers enabled (real archive has sync=false).
 	data, err := os.ReadFile("testdata/testpkg.a")
 	require.NoError(t, err)

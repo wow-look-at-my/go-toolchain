@@ -12,6 +12,7 @@ import (
 )
 
 func TestCanonicalKeyNamespace(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		in   string
@@ -51,6 +52,7 @@ func TestCanonicalKeyNamespace(t *testing.T) {
 // suffix, and keys from different namespaces (or no namespace) can never be
 // equal for fixed-length action IDs.
 func TestActionKeyShapes(t *testing.T) {
+	t.Parallel()
 	raw := bytes.Repeat([]byte{0xab}, 32) // cmd/go action IDs are sha256 digests
 	hexKey := fmt.Sprintf("%x", raw)
 
@@ -73,6 +75,7 @@ func TestActionKeyShapes(t *testing.T) {
 // intact, so a compiled package's stamped build id still verifies against the
 // real cmd/go action ID. Rewriting the leading bytes would break the guard.
 func TestNamespaceSuffixPreservesBuildIDGuard(t *testing.T) {
+	t.Parallel()
 	raw := bytes.Repeat([]byte{0x5c}, 32)
 	hexKey := fmt.Sprintf("%x", raw)
 
@@ -92,6 +95,7 @@ func TestNamespaceSuffixPreservesBuildIDGuard(t *testing.T) {
 // fork-toolchain builds (whose colliding action IDs caused the summer
 // SIGSEGV-APE incident) structurally unable to share cache entries.
 func TestServerNamespaceIsolation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
