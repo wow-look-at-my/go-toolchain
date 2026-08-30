@@ -29,7 +29,6 @@ var (
 	outputDir      = "build"
 	jsonOutput     bool
 	verbose        bool
-	logLevel       string
 	cacheMisses    bool
 	generateHash   string
 	dupcode        bool
@@ -137,7 +136,6 @@ func init() {
 	// Use PersistentFlags for flags shared with subcommands (like matrix)
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output coverage report as JSON")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output: debug log level, plus per-test output lines")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Minimum log level: debug, info, warn, error, or silent")
 	rootCmd.PersistentFlags().StringVar(&generateHash, "generate", "", "Run go:generate directives matching this hash")
 	// rootCmd.PersistentFlags().BoolVar(&dupcode, "dupcode", true, "Run near-duplicate code detection (warnings only)")
 	rootCmd.PersistentFlags().Float64Var(&lintThreshold, "threshold", lint.DefaultThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")

@@ -208,6 +208,18 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Configure Go proxy
+        shell: bash
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
       - name: Provision the sandbox backend (bubblewrap)
         if: runner.os == 'Linux'
         run: |
@@ -233,8 +245,6 @@ jobs:
         env:
           # One compiler for all three hosts; host-build resolved it. see docs/CI.md
           GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
-          # The cache changes how long this takes and never what it emits. see docs/CI.md
-          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
