@@ -13,6 +13,7 @@ import (
 )
 
 func TestServer_Stats(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -51,6 +52,7 @@ func TestServer_Stats(t *testing.T) {
 // serves an entry the caller just recomputed — counting it as a cache hit
 // inflated the hit rate on warm rebuilds.
 func TestServer_PutDedupDoesNotCountLocalHit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
@@ -81,6 +83,7 @@ func TestServer_PutDedupDoesNotCountLocalHit(t *testing.T) {
 // request was still buffered in batchReqCh when the coalescer shut down must
 // degrade to a miss, never block forever on a reply that will never come.
 func TestGetBatch_ShutdownDoesNotHangQueuedWaiters(t *testing.T) {
+	t.Parallel()
 	// Bare backend with NO coalescer goroutine: simulates the request
 	// sitting in the buffered channel when shutdown lands.
 	b := &WebBackend{
@@ -114,8 +117,8 @@ func TestGetBatch_ShutdownDoesNotHangQueuedWaiters(t *testing.T) {
 }
 
 func TestSetHasRemote(t *testing.T) {
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "stats.sock")
+	t.Parallel()
+	sockPath := testSocketPath(t, "stats.sock")
 
 	sl, err := NewStatsListener(sockPath)
 	require.NoError(t, err)
@@ -134,6 +137,7 @@ func TestSetHasRemote(t *testing.T) {
 }
 
 func TestServer_Latency(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -187,7 +191,7 @@ func TestServer_Latency(t *testing.T) {
 
 func TestStatsStreaming(t *testing.T) {
 	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "stats.sock")
+	sockPath := testSocketPath(t, "stats.sock")
 
 	sl, err := NewStatsListener(sockPath)
 	require.NoError(t, err)
@@ -223,7 +227,7 @@ func TestStatsStreaming(t *testing.T) {
 
 func TestStatsStreamingLatency(t *testing.T) {
 	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "stats.sock")
+	sockPath := testSocketPath(t, "stats.sock")
 
 	sl, err := NewStatsListener(sockPath)
 	require.NoError(t, err)

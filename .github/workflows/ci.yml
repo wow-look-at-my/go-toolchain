@@ -13,6 +13,8 @@ permissions:
 jobs:
   host-build:
     runs-on: ubuntu-latest
+    outputs:
+      cosmo-version: ${{ steps.cosmo.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
@@ -106,6 +108,19 @@ jobs:
           name: host-go-toolchain
           path: build/go-toolchain
 
+      # Comparing three hosts' APEs says something only if one compiler built them. see docs/CI.md
+      - name: Pin the gosmopolitan release for this run
+        id: cosmo
+        run: |
+          set -euo pipefail
+          v="$(go-toolchain version cosmo)"
+          case "$v" in
+            v[0-9]*) ;;
+            *) echo "::error::buildhost did not name a gosmopolitan release (got '$v'), so each host would resolve its own"; exit 1 ;;
+          esac
+          echo "resolved gosmopolitan $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
       # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
       - name: Cross-compile socketharness
         run: |
@@ -153,6 +168,110 @@ jobs:
           autorelease: 'false'
           # The cosmo target additionally downloads + extracts the gosmopolitan toolchain and... see docs/CI.md
           timeout: '15'
+
+
+  # Every host runs the SAME command, so a difference in the output is the host and nothing else. see docs/CI.md
+  build-everywhere:
+    needs: host-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - origin: linux
+            runner: ubuntu-latest
+            gt: gt-ape
+          - origin: darwin
+            runner: macos-latest
+            gt: gt-ape
+          - origin: windows
+            runner: windows-latest
+            gt: gt-ape.exe
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          cache: false
+
+      - name: Provision the sandbox backend (bubblewrap)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Download host binary
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: host-go-toolchain
+          path: dist
+
+      # Not `uses: ./`: the action installs with sudo, which a windows runner has not. see docs/CI.md
+      - name: Stage the APE
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
+          chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
+
+      - name: Build this repo's APE here
+        shell: bash
+        env:
+          # One compiler for all three hosts; host-build resolved it. see docs/CI.md
+          GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
+          # The cache changes how long this takes and never what it emits. see docs/CI.md
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+          # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
+
+      - name: Hand off this host's APE
+        uses: wow-look-at-my/actions@cache-upload#latest
+        with:
+          name: ape-${{ matrix.origin }}
+          path: build/go-toolchain
+
+  # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
+  identical:
+    needs: build-everywhere
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download each host's APE
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-linux
+          path: ape/linux
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-darwin
+          path: ape/darwin
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-windows
+          path: ape/windows
+
+      - name: Every host built the same bytes
+        run: |
+          set -uo pipefail
+          for o in linux darwin windows; do
+            if [ ! -f "ape/$o/go-toolchain" ]; then
+              echo "::error::$o handed off no APE, so identity across hosts is untested, not proven"
+              exit 1
+            fi
+          done
+          sha256sum ape/*/go-toolchain
+          rc=0
+          for o in darwin windows; do
+            cmp -s ape/linux/go-toolchain "ape/$o/go-toolchain" || {
+              echo "::error::the $o build differs from the linux build: the APE is one binary for every host, so every host has to produce it. Compare with cmp -l; the build-ID notes are what -trimpath and -ldflags=-buildid= exist to close (docs/MATRIX.md)"
+              rc=1
+            }
+          done
+          exit $rc
 
   # Cross-OS smoke of the actual release artifacts: download the build-output hand-off the... see docs/CI.md
   smoke-linux:
@@ -422,14 +541,14 @@ jobs:
             *GUESSED*) echo "::error::host detection GUESSED on windows-latest: ${got}"; exit 1 ;;
           esac
 
-      # smoke-linux and smoke-macos drive a synthetic consumer through the whole pipeline. NT cannot... see docs/CI.md
-      - name: The pipeline reaches the cosmo bootstrap and names its blocker
+      # The same assertion smoke-linux and smoke-macos make: both NT blockers have lifted. see docs/CI.md
+      - name: Full pipeline in a tiny module
         shell: bash
         env:
           # See smoke-linux: synthetic consumer without org cache credentials.
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
-          set -uo pipefail
+          set -euo pipefail
           gt="$(pwd)/smoke/gt-ape.exe"
           mkdir -p smokemod
           cd smokemod
@@ -437,6 +556,8 @@ jobs:
           module example.com/winsmoke
 
           go 1.24
+
+          require github.com/stretchr/testify v1.11.1
           EOF
           cat > main.go <<'EOF'
           // Package main is a tiny module used to smoke-test the published APE:
@@ -455,26 +576,21 @@ jobs:
           	fmt.Println(Greeting("windows"))
           }
           EOF
-          rc=0
-          "$gt" > pipeline.out 2> pipeline.err || rc=$?
-          echo "exit: $rc"; echo "stderr:"; cat pipeline.err
-          if [ "$rc" -eq 0 ]; then
-            echo "::error::the pipeline completed on NT -- both fork blockers have lifted, so replace this step with the full-pipeline assertion smoke-linux and smoke-macos make"
-            exit 1
-          fi
-          if ! grep -q "gosmopolitan toolchain" pipeline.err; then
-            echo "::error::the pipeline failed on NT before the cosmo bootstrap, which is a regression this job did not have: read the stderr above"
-            exit 1
-          fi
-          # Exactly the two known fork gaps, so a THIRD failure mode cannot hide behind them. see docs/CI.md
-          if grep -q "lookup dl.pazer.build" pipeline.err; then
-            echo "known blocker: the APE cannot resolve DNS on an NT host (gosmopolitan docs/PLATFORM-STATUS.md)"
-          elif grep -q "publishes no gosmopolitan toolchain for this host" pipeline.err; then
-            echo "known blocker: buildhost carries no gosmopolitan windows/amd64 toolchain"
-          else
-            echo "::error::the cosmo bootstrap failed for a reason that is neither known blocker: read the stderr above"
-            exit 1
-          fi
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"github.com/stretchr/testify/require"
+          	"testing"
+          )
+
+          func TestGreeting(t *testing.T) {
+          	got := Greeting("windows")
+          	require.Equal(t, "hello, windows", got)
+          }
+          EOF
+          # The agent output guard is asserted inert on NT by its own step below, not by a dats fixture.
+          "$gt"
 
       # Windows is the one platform the guard cannot cover, so the no-op is asserted rather than... see docs/CI.md
       - name: Agent output guard is inert on NT
@@ -500,7 +616,7 @@ jobs:
             exit 1
           fi
   publish:
-    needs: [smoke-linux, smoke-macos, smoke-windows]
+    needs: [identical, smoke-linux, smoke-macos, smoke-windows]
     runs-on: ubuntu-latest
     permissions:
       id-token: write

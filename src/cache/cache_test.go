@@ -59,6 +59,7 @@ func (m *memBackend) Close() error          { return nil }
 func (m *memBackend) GetStats() *CacheStats { return &m.stats }
 
 func TestServer_Handshake(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -86,6 +87,7 @@ func TestServer_Handshake(t *testing.T) {
 }
 
 func TestServer_PutAndGet(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -137,6 +139,7 @@ func TestServer_PutAndGet(t *testing.T) {
 }
 
 func TestServer_GetMiss(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -173,6 +176,7 @@ func TestServer_GetMiss(t *testing.T) {
 }
 
 func TestServer_WithRemoteBackend(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -219,6 +223,7 @@ func TestServer_WithRemoteBackend(t *testing.T) {
 }
 
 func TestServer_EOFWithoutClose(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -238,18 +243,21 @@ func TestServer_EOFWithoutClose(t *testing.T) {
 }
 
 func TestHexToBytes(t *testing.T) {
+	t.Parallel()
 	b := hexToBytes("aabb")
 	require.False(t, len(b) != 2 || b[0] != 0xaa || b[1] != 0xbb)
 
 }
 
 func TestHexToBytes_Empty(t *testing.T) {
+	t.Parallel()
 	b := hexToBytes("")
 	require.Equal(t, 0, len(b))
 
 }
 
 func TestServer_Lock(t *testing.T) {
+	t.Parallel()
 	srv := NewServer(nil, nil)
 	mu1 := srv.lock("key1")
 	mu2 := srv.lock("key1")
@@ -264,6 +272,7 @@ func TestServer_Lock(t *testing.T) {
 }
 
 func TestFileSize(t *testing.T) {
+	t.Parallel()
 	f, err := os.CreateTemp(t.TempDir(), "test-*")
 	require.NoError(t, err)
 	f.WriteString("hello")
@@ -273,10 +282,12 @@ func TestFileSize(t *testing.T) {
 }
 
 func TestFileSize_Missing(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, int64(0), fileSize(filepath.Join(t.TempDir(), "does-not-exist")))
 }
 
 func TestServer_PutWithRemote(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
@@ -313,6 +324,7 @@ func TestServer_PutWithRemote(t *testing.T) {
 }
 
 func TestServer_PutDuplicate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
@@ -357,6 +369,7 @@ func (e *errBackend) Close() error          { return nil }
 func (e *errBackend) GetStats() *CacheStats { return &e.stats }
 
 func TestServer_GetWithRemoteError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)

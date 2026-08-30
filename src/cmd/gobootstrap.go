@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -63,11 +64,21 @@ func EnsureGoVersion() error {
 	return nil
 }
 
-// useForkAsPipelineToolchain points this process and everything it spawns at
-// goRoot. GOTOOLCHAIN=local is the half that makes it stick: without it the go
-// command downloads a stock toolchain to satisfy a go.mod directive.
+// forkFirstPath spells both separators for hostGOOS, not for the machine
+// doing the join, which is why filepath.Join is wrong here.
+func forkFirstPath(goRoot, rest, hostGOOS string) string {
+	listSep, pathSep := ":", "/"
+	if hostGOOS == "windows" {
+		listSep, pathSep = ";", `\`
+	}
+	return goRoot + pathSep + "bin" + listSep + rest
+}
+
+// useForkAsPipelineToolchain points this process and its children at goRoot.
+// GOTOOLCHAIN=local is what makes it stick: without it the go command fetches
+// a stock toolchain for a go.mod directive.
 func useForkAsPipelineToolchain(goRoot string) {
-	os.Setenv("PATH", filepath.Join(goRoot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	os.Setenv("PATH", forkFirstPath(goRoot, os.Getenv("PATH"), hostos.GOOS()))
 	os.Setenv("GOROOT", goRoot)
 	os.Setenv("GOTOOLCHAIN", "local")
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os"
+	"runtime"
 	"strconv"
 	"testing"
 
@@ -34,6 +35,13 @@ func TestHarnessIsPipeReaderRequiresAncestor(t *testing.T) {
 
 	parent := os.Getppid()
 	t.Setenv(grokPIDEnv, strconv.Itoa(parent))
+	if runtime.GOOS == "windows" {
+		// A native windows build links the no-process-tree stubs. The
+		// APE that ships here reads cosmo's tree instead.
+		assert.False(t, harnessIsPipeReader("not-an-agent", parent),
+			"a build with no process tree can name no ancestor")
+		return
+	}
 	assert.True(t, harnessIsPipeReader("not-an-agent", parent),
 		"the parent named in GROK_AGENT_PID is the agent reading us")
 }

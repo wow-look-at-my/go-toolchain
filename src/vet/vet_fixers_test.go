@@ -212,7 +212,7 @@ func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
 	os.WriteFile(src, []byte("package main\n\nfunc foo() {}\n"), 0644)
 
 	err := checkFileCommittedGoGit(src)
-	assert.Error(t, err)
+	require.Error(t, err) // require, or the next line dereferences nil and the panic buries the real failure
 	assert.Contains(t, err.Error(), "uncommitted changes")
 }
 

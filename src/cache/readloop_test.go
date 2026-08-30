@@ -19,6 +19,7 @@ import (
 // truncated at EOF stores nothing).
 
 func TestServer_PutRawBase64(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -71,6 +72,7 @@ func TestServer_PutRawBase64(t *testing.T) {
 }
 
 func TestServer_PutBodyOver64MiB(t *testing.T) {
+	t.Parallel()
 	// Regression: a PUT body line over the old bufio.Scanner cap must still round-trip byte-for-byte.
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
@@ -123,6 +125,7 @@ func TestServer_PutBodyOver64MiB(t *testing.T) {
 }
 
 func TestServer_PutMalformedBodyLine(t *testing.T) {
+	t.Parallel()
 	// A malformed body line must fail ONLY that PUT — Err reply, nothing
 	// stored (never an empty body under the request's real IDs) — and leave
 	// the protocol loop alive to serve subsequent requests.
@@ -179,6 +182,7 @@ func TestServer_PutMalformedBodyLine(t *testing.T) {
 }
 
 func TestServer_PutTruncatedAtEOF(t *testing.T) {
+	t.Parallel()
 	// Input ends mid-PUT (header present, body missing); the loop must exit clean without storing anything.
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)

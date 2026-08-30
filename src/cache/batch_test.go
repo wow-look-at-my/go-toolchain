@@ -29,6 +29,7 @@ func buildBatchTar(t *testing.T, manifest batchGetManifest, data map[string][]by
 }
 
 func TestParseBatchResponse_Basic(t *testing.T) {
+	t.Parallel()
 	manifest := batchGetManifest{
 		Entries: []batchGetManifestEntry{
 			{Key: "cache/v1aaa", Size: 6, Metadata: map[string]string{"outputid": "out-a"}},
@@ -57,6 +58,7 @@ func TestParseBatchResponse_Basic(t *testing.T) {
 }
 
 func TestParseBatchResponse_Empty(t *testing.T) {
+	t.Parallel()
 	manifest := batchGetManifest{Entries: []batchGetManifestEntry{}}
 	tarData := buildBatchTar(t, manifest, nil)
 
@@ -66,6 +68,7 @@ func TestParseBatchResponse_Empty(t *testing.T) {
 }
 
 func TestParseBatchResponse_MissingData(t *testing.T) {
+	t.Parallel()
 	// Manifest references a key but the data/ tar entry is absent.
 	// Build tar manually with only the manifest, no data entries.
 	manifest := batchGetManifest{

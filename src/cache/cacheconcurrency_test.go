@@ -23,6 +23,7 @@ func (s *slowBackend) Get(actionID string) (string, io.ReadCloser, int64, time.T
 }
 
 func TestServer_ConcurrentGets(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
@@ -75,6 +76,7 @@ func TestServer_ConcurrentGets(t *testing.T) {
 }
 
 func TestServer_PutEmpty(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)

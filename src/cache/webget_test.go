@@ -10,6 +10,7 @@ import (
 )
 
 func TestWebBackend_GetMiss(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 	}))
@@ -27,6 +28,7 @@ func TestWebBackend_GetMiss(t *testing.T) {
 }
 
 func TestWebBackend_GetMissingMetadata(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve the body but no outputid metadata.
 		w.WriteHeader(200)
@@ -56,6 +58,7 @@ func primeIndex(b *WebBackend, actionID string) {
 // are the same ones that emit miss-reason spans, so this also guards
 // against span-tagging regressions.
 func TestWebBackend_GetIndividualMissPaths(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		handler http.HandlerFunc
@@ -103,6 +106,7 @@ func TestWebBackend_GetIndividualMissPaths(t *testing.T) {
 // so a later recompute re-uploads (overwrites) it clean instead of skipping the
 // Put as already-present.
 func TestWebBackend_GetRejectsCorruptBody(t *testing.T) {
+	t.Parallel()
 	const actionID = "aabbccdd11223344"
 	// outputID advertises the CORRECT body's hash, but the server serves a corrupt body of the same length.
 	good := largePayload(2048)
@@ -150,6 +154,7 @@ func TestWebBackend_GetRejectsCorruptBody(t *testing.T) {
 // TestWebBackend_GetServesCorrectBody is the positive control for the integrity
 // check: a body that hashes to its advertised outputID is served as a hit.
 func TestWebBackend_GetServesCorrectBody(t *testing.T) {
+	t.Parallel()
 	const actionID = "aabbccdd11223344"
 	good := largePayload(2048)
 	outputID := testOutputID(good)
@@ -190,6 +195,7 @@ func TestWebBackend_GetServesCorrectBody(t *testing.T) {
 // new client still reads the outputid from an older cache server that emits only
 // the legacy S3-style X-Amz-Meta-Outputid header (no native X-Cache-Meta-*).
 func TestWebBackend_GetLegacyAmzMetaFallback(t *testing.T) {
+	t.Parallel()
 	const actionID = "aabbccdd11223344"
 	good := largePayload(2048)
 	outputID := testOutputID(good)

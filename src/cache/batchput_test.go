@@ -409,6 +409,7 @@ func TestBatchPut_ManifestMetadataMatchesHeaders(t *testing.T) {
 
 // TestBuildPutTar round-trips a tar through buildPutTar/parsePutTar.
 func TestBuildPutTar(t *testing.T) {
+	t.Parallel()
 	reqs := []putReq{
 		{key: "go-buildcache/v1aaa", compressed: []byte("comp-a"), metadata: map[string]string{"outputid": "o-a"}},
 		{key: "go-buildcache/v1bbb", compressed: []byte("comp-b"), metadata: map[string]string{"outputid": "o-b"}},

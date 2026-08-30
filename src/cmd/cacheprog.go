@@ -268,6 +268,11 @@ func enableCacheProg() error {
 // error". The fix wraps the APE in a #!/bin/sh script: the shell's ENOEXEC
 // fallback interprets the APE header directly.
 func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
+	if hostGOOS == "windows" {
+		if native, ok := ntPathFromPosix(exe); ok {
+			exe = native
+		}
+	}
 	if goos != cosmoOS || hostGOOS != "darwin" {
 		return quoteExeForGOCACHEPROG(exe) + " cacheprog", nil
 	}
@@ -281,6 +286,20 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 		return "", fmt.Errorf("write cacheprog wrapper: %w", err)
 	}
 	return quoteExeForGOCACHEPROG(wrapper), nil
+}
+
+// ntPathFromPosix rewrites a shell's POSIX spelling (/d/a/x) into the native
+// spelling (d:\a\x). cmd/go on NT is native and cannot open the POSIX form.
+// filepath cannot do it: GOOS=cosmo makes the separator a forward slash.
+func ntPathFromPosix(p string) (string, bool) {
+	if len(p) < 3 || p[0] != '/' || p[2] != '/' {
+		return "", false
+	}
+	drive := p[1]
+	if (drive < 'a' || drive > 'z') && (drive < 'A' || drive > 'Z') {
+		return "", false
+	}
+	return string(drive) + ":" + strings.ReplaceAll(p[2:], "/", `\`), true
 }
 
 // quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
@@ -305,7 +324,7 @@ func quoteExeForGOCACHEPROG(exe string) string {
 // Returns the daemon, the remote endpoint (empty if no remote), and any error.
 func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
-	// NewLocalStore picks the tier: loose files by default, packs under GOCACHE_FUSE=1.
+	// NewLocalStore picks the tier: loose files by default, packs under GOCACHE_FUSE.
 	local, err := cache.NewLocalStore(cacheDir)
 	if err != nil {
 		return nil, "", err
