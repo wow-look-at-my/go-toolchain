@@ -27,10 +27,7 @@ const (
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
 
-	// testTimeout bounds the whole `go test` run. It has to clear the SLOWEST
-	// host, not this one: at 30s the windows leg killed src/cmd and src/vet at
-	// 30.2s, where a linux runner finishes the same two packages in about 15s
-	// each. A hang still ends here; it just costs a minute more to say so.
+	// Bounds the run, and must clear the SLOWEST host: the windows leg killed src/cmd and src/vet here.
 	testTimeout = 2 * time.Minute
 )
 

@@ -120,9 +120,7 @@ func TestStatsStreaming_PerAction(t *testing.T) {
 	assert.True(t, stored.Put)
 	assert.Equal(t, "hit-local", stored.Get, "the warm re-get after the put is a local hit")
 	assert.Equal(t, int64(5), stored.Bytes)
-	// The durations are NOT asserted positive. DurUS truncates to whole
-	// microseconds, and a five-byte local get finishes under one of them on a
-	// fast host -- the windows leg read GetUS as zero and failed here.
+	// PutUS and GetUS go unasserted: DurUS truncates, and a local get lands under a microsecond.
 
 	missed := got[truncateActionID(missID)]
 	assert.Equal(t, "miss", missed.Get)
