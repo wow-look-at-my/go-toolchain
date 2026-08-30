@@ -130,14 +130,24 @@ the build phase off buildhost. Measured on linux, `test run src/cmd` went 25.1s
 call site, only the callee changes. `src/vet` is untouched by this and is now
 the slowest package at 19.0s.
 
-`src/vet` cannot take the same repair — loading real packages IS what it tests
-— so its remedy is parallelism, and two separate things block that. The visible
-one is the working directory: `os.Chdir`/`t.Chdir` appears in 9 of its test
-files, and a test that calls `t.Chdir` may not call `t.Parallel`. Taking the
-directory as a parameter is what unblocks that half; `dirtyDiffIn` is the
-worked example. The harder one is process-wide state, which in `src/cmd` is the
-`TestRunWithRunner*` family assigning the package globals `jsonOutput` and
-`outputDir`. Neither package has a single `t.Parallel` today.
+`src/vet` cannot take the same repair — loading real packages IS what it tests.
+Two cheaper remedies applied instead, taking it 19.0s → 16.8s. `initGitRepo`
+wrote its repo-local settings straight into `.git/config` rather than spending
+a `git config` process per key, which is six processes per fixture repo and ten
+such repos. And the analyzer tests that neither chdir nor swap `os.Stderr` —
+`bannedoutput`, `jsoninterp`, `mapset`, `sliceset` — now call `t.Parallel`;
+each analyzer's dedup state is its own package-level set, so they do not share
+it. `testifycast` stays serial because `applyCastFixtures` swaps `os.Stderr`.
+
+What still blocks parallelising the REST of `src/vet` is two things. The
+visible one is the working directory: `os.Chdir`/`t.Chdir` appears in 9 of its
+test files, and a test that calls `t.Chdir` may not call `t.Parallel`. Threading
+a root through `vetSemantic` is what unblocks that half — `FixTestifyImports`
+and `MigrateGotestTools` both hardcode `WalkDir(".")`, and `packages.Load` needs
+`cfg.Dir`; `dirtyDiffIn` is the worked example of the shape. The harder one is
+process-wide state: the six `reset*Warnings` sets `vetSemantic` clears, and
+`loadDepsFromSource`. In `src/cmd` the equivalent is the `TestRunWithRunner*`
+family assigning the package globals `jsonOutput` and `outputDir`.
 
 ## The three smoke jobs
 

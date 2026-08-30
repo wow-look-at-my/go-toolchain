@@ -46,9 +46,7 @@ func initGitRepoWithConfig(t *testing.T, dir string, config [][2]string) {
 	}
 	run("init")
 
-	// The settings go straight into .git/config rather than through one `git
-	// config` per key. Every one of these repos costs a process per key
-	// otherwise, and this package builds ten of them.
+	// Straight into .git/config, rather than a `git config` process per key.
 	settings := append([][2]string{
 		{"user.email", "test@test.com"},
 		{"user.name", "Test"},
