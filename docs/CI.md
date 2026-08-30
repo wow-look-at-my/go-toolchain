@@ -721,12 +721,17 @@ never GUESSED. Its sandboxed twin is in the dats fixture below --
 worth having both, because the probes' fallback IS "linux", so the
 sandboxed assertion alone could pass here for the wrong reason.
 
-### GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1
+### Configure Go proxy
 
-The smoke module is a synthetic consumer WITHOUT the org cache
-credentials (no secret-server step here on purpose); this documented
-knob downgrades the in-CI "caching not configured" error to a
-warning. The repo's own host-build/build jobs keep the shared cache.
+host-build, build, and build-everywhere fetch `GO_BUILDCACHE_CONFIG` and
+`GO_PROXY_CONFIG` via the secret-server step first, so `go-toolchain` runs
+with the shared cache and the org proxy on every host that builds this
+repo, not only on the linux host-build leg. The org proxy requires auth
+for a sumdb lookup on a module it has never resolved before, which the
+smoke jobs' throwaway module always is -- so the smoke jobs keep the
+public, unauthenticated `proxy.golang.org` path instead
+(`GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED`, see the smoke-linux
+entry below).
 
 ### cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
 
