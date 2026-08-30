@@ -121,9 +121,8 @@ const httpStatusPrefix = "HTTP"
 const statusCodeDigits = len("500")
 
 // isHTTPStatus reports whether the token at i is an HTTP status code. The
-// digits name a protocol answer rather than count anything, so they survive
-// every edit -- but only the prefix tells them apart from a count, since the
-// digits alone are the shape of a line number or a byte size.
+// prefix is what separates the digits of a protocol answer from a count
+// wearing the same shape.
 func isHTTPStatus(toks []commentToken, i int) bool {
 	if i == 0 {
 		return false
@@ -151,10 +150,8 @@ func isStatusCode(text string) bool {
 // sectionSign marks the number after it as a citation of a section.
 const sectionSign = '§'
 
-// isSectionRef reports whether the token sits behind a section sign. The sign
-// says the digits address a section of a document rather than count anything
-// in this repository, and it is the spelling a reader can look the section up
-// by, so a citation written this way stays.
+// isSectionRef reports whether the token sits behind a section sign, which
+// cites a section of a document instead of counting anything here.
 func isSectionRef(text string, tok commentToken) bool {
 	before := strings.TrimRight(text[:tok.offset], " \t")
 	last, size := utf8.DecodeLastRuneInString(before)
