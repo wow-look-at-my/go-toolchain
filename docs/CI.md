@@ -133,16 +133,19 @@ cases, just not a sufficient one for any of them.
 - `--help` and the two `version` exemptions prove the APE loads and dispatches
   on macOS at all.
 
-**Windows** — magic, `version`, `--help`, host detection, and the FULL default
-pipeline in a tiny module under the APE, plus a positive assertion that the
-agent output guard is blind here and SAYS so. The one dimension it cannot match
-is the guard firing: the classifier reads /proc, which NT does not have.
+**Windows** — magic, `version`, `--help`, host detection, a positive assertion
+that the agent output guard is blind here and SAYS so, and the pipeline running
+as far as the cosmo bootstrap. Two dimensions it cannot match, both fork gaps
+rather than choices: the guard cannot fire (the classifier reads /proc), and the
+pipeline cannot complete (no gosmopolitan windows/amd64 toolchain on buildhost,
+and no DNS from an APE on NT). The step section below pins both, so each goes
+red the day it lifts.
 
 It used to stop at `--help`, on the grounds that gobootstrap downloaded
 `go<version>.<os>-<arch>.tar.gz` and go.dev serves windows archives as `.zip`.
-That path is gone — the fork is the only toolchain and buildhost serves it as a
-tar.gz for every os/arch. So the platform whose payload had been dying in
-package init was also the platform asserting the least.
+That reason is gone — the fork is the only toolchain now — but the platform
+whose payload had been dying in package init was still the one asserting the
+least.
 
 > **Owner-ruled smoke contract (Windows).** NO workflow-side Go provisioning —
 > no `setup-go`, that bypasses the bootstrap requirement — and no help-flag
@@ -635,21 +638,39 @@ and the guard's classifier dispatch. The cure is
 `runtime.CosmoHostOS()` (see the smoke-macos section above); the
 answer is now `host: windows (via runtime)`.
 
-### Full pipeline in a tiny module
+### The pipeline reaches the cosmo bootstrap and names its blocker
 
-The same synthetic consumer smoke-linux and smoke-macos drive, so
-all three prove the shipped APE can tidy, vet, test and build a
-real module on that platform rather than only print its version.
-No `dats/` directory is created: the phase is a silent no-op
-without suites, and windows-latest has no sandbox backend to run
-one under.
+smoke-linux and smoke-macos drive a synthetic consumer through the
+whole pipeline, proving the shipped APE can tidy, vet, test and
+build a real module on that platform. NT cannot do that today, for
+two gaps that both live in the fork, not here:
 
-This job used to stop at `--help`, on the grounds that gobootstrap
-downloaded `go<version>.<os>-<arch>.tar.gz` and go.dev serves
-windows archives as `.zip`. There is no go.dev path any more --
-the gosmopolitan fork is the only toolchain, buildhost serves it
-as a tar.gz for every os/arch, and cosmobootstrap already names
-`bin/go.exe` on an NT host.
+1. **buildhost carries no gosmopolitan windows/amd64 toolchain.**
+   The publish job builds `linux/amd64` and `darwin/arm64`, each on
+   its own runner, because distpack packages what a HOST build
+   produced. Every other slot is a 404, so cosmobootstrap has
+   nothing to download for an NT host.
+2. **The APE cannot resolve DNS on an NT host.** `lookup
+   dl.pazer.build on [::1]:53: i/o timeout` -- `[::1]:53` is
+   netgo's fallback nameserver when `/etc/resolv.conf` cannot be
+   read, so the resolver never asks Windows and never reaches a
+   real nameserver. The fork's own PLATFORM-STATUS.md lists
+   off-host networking and DNS from NT as missing, and its
+   DEBUGGING.md carries this as a hypothesis; the log line above is
+   the confirmation.
+
+So the step asserts the reachable half: the pipeline runs, gets as
+far as the cosmo bootstrap, and fails there naming one of exactly
+those two blockers. A run that SUCCEEDS is red, and says to replace
+this step with the assertion the other two jobs make. A failure
+before the bootstrap is red. A bootstrap failure with any third
+signature is red -- otherwise a real regression would hide behind a
+gap we already know about.
+
+An earlier revision of this job did assert the full pipeline, on
+the belief that buildhost serves the fork for every os/arch. It
+does not. That claim was never checked, and the step could not
+have passed.
 
 ### Agent output guard is inert on NT
 
