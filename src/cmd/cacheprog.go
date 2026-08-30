@@ -284,10 +284,9 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 	return quoteExeForGOCACHEPROG(wrapper), nil
 }
 
-// nativeExePath rewrites the /<drive>/... spelling of a path into the
-// <drive>:/... form NT can start. A shell hands the APE its own path that way,
-// os.Executable reports it back verbatim, and cmd/go passes what it is given
-// straight to CreateProcess, which answers "cannot find the path specified".
+// nativeExePath rewrites the /<drive>/... spelling into the <drive>:/... form
+// NT can start. A shell hands the APE its own path that way, os.Executable
+// repeats it, and cmd/go gives CreateProcess exactly what it got.
 func nativeExePath(hostGOOS, exe string) string {
 	if hostGOOS != "windows" || len(exe) < 3 || exe[0] != '/' || exe[2] != '/' {
 		return exe
