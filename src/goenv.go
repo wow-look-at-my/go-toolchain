@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -242,12 +243,24 @@ func configureGoEnv() {
 			os.Exit(1)
 		}
 		os.Setenv("GOSUMDB", gosumdb)
-		os.Unsetenv("GONOSUMDB")
-		os.Unsetenv("GONOSUMCHECK")
+		// A sumdb holds public modules only, so it refuses an org module.
+		os.Setenv("GONOSUMDB", orgSumDBExemptions())
+		os.Setenv("GONOSUMCHECK", orgSumDBExemptions())
 		return
 	}
 
 	// GONOSUMDB, not GOSUMDB=off, so toolchain auto-downloads still work.
 	os.Setenv("GONOSUMDB", "*")
 	os.Setenv("GONOSUMCHECK", "*")
+}
+
+// orgSumDBExemptions is the GONOSUMDB glob list covering every org module path.
+// GONOSUMDB and not GOPRIVATE: GOPRIVATE would also take the module off the
+// proxy and send the fetch straight to git.
+func orgSumDBExemptions() string {
+	globs := make([]string, 0, len(cmd.OrgModulePrefixes))
+	for _, prefix := range cmd.OrgModulePrefixes {
+		globs = append(globs, strings.TrimSuffix(prefix, "/")+"/*")
+	}
+	return strings.Join(globs, ",")
 }
