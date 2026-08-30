@@ -598,25 +598,34 @@ steps above, and an APE rewrites its own file on first exec, so a
 copy of it is no longer the thing a mac user downloads. The dats
 fixture copies pristine too, which is what makes the two comparable.
 
-### Run the APE PE payload
+### Windows smoke suite
 
-These assertions stay in the workflow because dats cannot run here:
-its sandbox backends are bwrap, sandbox-exec and docker, and
-windows-latest has none, so a suite would fail before its first
-command. Linux and macOS assert the same properties from
-.github/dats-fixtures/*.dats. Where the suite is the only
-difference the assertions are still made, step by step, below --
-this job covers the same ground as the other two apart from the
-guard, which NT genuinely cannot classify.
+Every assertion this job makes lives in
+.github/dats-fixtures/smoke-windows.dats. The job checks the repo
+out for that one file, downloads the build hand-off, and runs the
+suite. A workflow step schedules work; the harness holds the
+assertions, so an engineer can run them without pushing a commit.
 
-### [ "$(head -c 6 dist/go-toolchain)" = "MZqFpD" ]
+dats arrives through buildhost-download rather than through dats'
+own composite action, for one reason: that action lands the binary
+at RUNNER_TEMP/dats, and NT dispatches on the extension, so the
+name it chooses cannot be started here. The download names it
+dats.exe instead. Fixing the action upstream retires this step.
+
+The run passes --no-sandbox. dats' backends are bwrap,
+sandbox-exec and docker: NT has neither of the first two, and
+windows-latest's docker daemon serves windows containers, so no
+backend here can build a sandbox. That opt-out belongs to whoever
+starts the run, which is why the file itself cannot make it.
+
+### the shipped artifact carries the APE magic
 
 An APE is simultaneously a valid PE, whose embedded payload is a
-native windows/amd64 build. The .exe name is given here at copy
-time: NT dispatches on the extension, and the published artifact
+native windows/amd64 build. The .exe name is given at copy time:
+NT dispatches on the extension, and the published artifact
 carries none.
 
-### ./smoke/gt-ape.exe --help
+### the APE prints usage under --help on an NT host
 
 Smoke contract (owner-ruled): gt must resolve the machine's
 EXISTING Go (windows-latest ships an image-default Go) via its
@@ -627,7 +636,7 @@ in this job (no setup-go -- that bypasses the bootstrap
 requirement); do NOT exempt commands from the bootstrap. If the
 image drops Go, the red is honest -- escalate to the owner.
 
-### Host detection
+### the APE detects a windows host by measurement
 
 The mirror of the same step in smoke-macos. One APE runs on every
 host, and what it detects decides every host-specific choice it
@@ -645,41 +654,19 @@ and the guard's classifier dispatch. The cure is
 `runtime.CosmoHostOS()` (see the smoke-macos section above); the
 answer is now `host: windows (via runtime)`.
 
-### The pipeline reaches the cosmo bootstrap and names its blocker
+### the full pipeline runs in a tiny module on an NT host
 
-smoke-linux and smoke-macos drive a synthetic consumer through the
-whole pipeline, proving the shipped APE can tidy, vet, test and
-build a real module on that platform. NT cannot do that today, for
-two gaps that both live in the fork, not here:
+The same whole-pipeline assertion smoke-linux and smoke-macos
+make: the shipped APE tidies, vets, tests and builds a synthetic
+consumer module, and prints "Build successful". The module is
+three `inputs.files` entries, so the fixture carries it instead of
+a heredoc in a shell step.
 
-1. **buildhost carries no gosmopolitan windows/amd64 toolchain.**
-   The publish job builds `linux/amd64` and `darwin/arm64`, each on
-   its own runner, because distpack packages what a HOST build
-   produced. Every other slot is a 404, so cosmobootstrap has
-   nothing to download for an NT host.
-2. **The APE cannot resolve DNS on an NT host.** `lookup
-   dl.pazer.build on [::1]:53: i/o timeout` -- `[::1]:53` is
-   netgo's fallback nameserver when `/etc/resolv.conf` cannot be
-   read, so the resolver never asks Windows and never reaches a
-   real nameserver. The fork's own PLATFORM-STATUS.md lists
-   off-host networking and DNS from NT as missing, and its
-   DEBUGGING.md carries this as a hypothesis; the log line above is
-   the confirmation.
+`GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED` says out loud
+that this consumer has no org cache credentials, so the cache
+tier's own absence warning is expected rather than a finding.
 
-So the step asserts the reachable half: the pipeline runs, gets as
-far as the cosmo bootstrap, and fails there naming one of exactly
-those two blockers. A run that SUCCEEDS is red, and says to replace
-this step with the assertion the other two jobs make. A failure
-before the bootstrap is red. A bootstrap failure with any third
-signature is red -- otherwise a real regression would hide behind a
-gap we already know about.
-
-An earlier revision of this job did assert the full pipeline, on
-the belief that buildhost serves the fork for every os/arch. It
-does not. That claim was never checked, and the step could not
-have passed.
-
-### Agent output guard is inert on NT
+### the agent output guard reports itself inoperative on an NT host
 
 The one dimension Windows cannot match. The APE is a cosmo build
 everywhere, so claudeguard_proc.go is the classifier on NT too --
