@@ -5,22 +5,28 @@
 # pipeline just built. It is READ-ONLY inside the sandbox (it lives under the
 # working directory), and the binary under test may be an APE, whose loader
 # rewrites its own file on first exec and exits 121 from a read-only path. So
-# every test copies it into the sandbox's private /tmp first
-# (`d="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"`)
-# and execs that copy. That is the general answer for a suite whose binary
-# needs to write: use the tmpfs, never a hole in the sandbox.
+# every test copies it to `{outputs.gt}` and execs that copy, and a test
+# needing a directory to work in makes `{outputs.mod}`.
+#
+# Scratch space is ALWAYS `{outputs.X}`, never `mktemp -d`. Only dats' own
+# per-test directory is writable under every backend. `mktemp -d` lands in the
+# ambient temp directory, which bwrap tolerates because it privatizes the whole
+# /tmp namespace -- and which seatbelt, macOS's backend, denies: `mkdtemp
+# failed ... Operation not permitted`, leaving $d empty so every command runs
+# against /gt. The sibling fixture under .github/dats-fixtures/ carries the
+# same rule; dats' own docs/file-format.md is where it is documented.
 # GO_TOOLCHAIN_BUILDHOST_URL points at an unreachable address on every test so
 # the background update check fails instantly and silently, keeping output
 # deterministic regardless of what buildhost has published.
 #
-# NOTE: the agent-output-guard tests below assume a linux host — this repo's
-# own self-build (the only thing that runs THIS suite) never runs on darwin.
-# A macOS host is covered by the sibling fixture
+# NOTE: build-everywhere self-builds this repo on all three hosts, so every
+# test here runs on linux, darwin and windows. Nothing below may name a host.
+# The per-host ANSWERS are pinned where they belong: each smoke job asserts
+# its own, and the darwin guard direction is the sibling fixture
 # .github/dats-fixtures/smoke-macos-agent-output-guard.dats, which the
-# smoke-macos job copies into a throwaway module. It cannot live under this
-# repo's own dats/: dats runs every suite it finds recursively there, so a
-# suite asserting darwin-host behavior would also run (and fail) during this
-# repo's own linux build/host-build jobs.
+# smoke-macos job copies into a throwaway module. That fixture cannot live
+# under this repo's own dats/: dats runs every suite it finds recursively
+# there, so a suite asserting darwin-host behavior would run on all three.
 
 # Sandboxed like every other suite (dats' default). The one adjustment: under
 # the docker backend the commands run in the IMAGE's filesystem, and every
@@ -36,7 +42,7 @@ setup:
 	# `version raw` is the cheapest invocation — no Go bootstrap, no update
 	# check, no network.
 	- test -x "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"
-	- 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
+	- 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}version raw'
 
 tests:
 	# The only test here that reaches the staleness footer, whose commit queries
@@ -44,7 +50,7 @@ tests:
 	# client timeout each, spent inside the second-build wall-clock budget
 	# host-build enforces. Unreachable base = the offline footer, instantly.
 	- desc: version reports the build stamp
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}version'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -63,7 +69,7 @@ tests:
 	# agree -- an agent is exactly who runs this suite, and the guard firing on
 	# version made that pair unsatisfiable.
 	- desc: version is exempt from the agent output guard
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version raw'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}version raw'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -84,7 +90,7 @@ tests:
 	# there are no targets to delete, so this stays a pure guard assertion —
 	# the deletion itself is asserted by the next test.
 	- desc: agent output guard refuses a captured pipeline run
-	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; {outputs.gt}'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -104,7 +110,7 @@ tests:
 	# and say so, while leaving non-binary outputs alone. A throwaway module
 	# with a planted binary: the guard aborts long before anything is compiled.
 	- desc: agent output guard deletes the module's build outputs
-	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; "$b/gt"; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; cd /; rm -rf "$d" "$b"; exit $rc'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {outputs.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -120,7 +126,7 @@ tests:
 			- "have been DELETED"
 
 	- desc: root help prints usage
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" --help'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}--help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -138,7 +144,7 @@ tests:
 	# (locally the warning goes to stderr; in GitHub Actions it becomes a
 	# ::warning annotation on stdout).
 	- desc: update check is silent when buildhost is unreachable
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" --help'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}--help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -152,7 +158,7 @@ tests:
 			- "out of date"
 
 	- desc: subcommand help
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" {matrix.sub} --help'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}{matrix.sub} --help'
 	  timeout: 60s
 	  matrix:
 		sub: [matrix, bench, lint, release, version]
@@ -173,7 +179,7 @@ tests:
 	# stays stable. If logx's threshold ever drops low enough for this line to
 	# get timed, this assertion is the first thing that goes red.
 	- desc: unknown flag is rejected
-	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt" --definitely-not-a-flag; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; {outputs.gt} --definitely-not-a-flag'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -189,7 +195,7 @@ tests:
 			stderr: true
 
 	- desc: unknown subcommand is rejected
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" definitely-not-a-subcommand'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}definitely-not-a-subcommand'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -202,18 +208,19 @@ tests:
 	# Host detection, from inside the sandbox. hostos.Detect()'s filesystem
 	# probes are reads of absolute paths and its fallback is "linux", so a
 	# sandbox that denies them yields the right answer here for the WRONG
-	# reason. Asserting the method, not just the answer, is what catches that:
-	# under bwrap this must still be a measurement. The macOS fixture asserts
-	# the darwin direction under seatbelt.
-	- desc: host detection reports linux by measurement, not by fallback
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" version host'
+	# reason. So this asserts the METHOD: the APE answers from the runtime's
+	# own __hostos, ahead of every probe, and never from the guess. Which OS
+	# each host reports is pinned per host by the three smoke jobs, and this
+	# suite runs on all three -- naming one here would fail on the other two.
+	- desc: host detection is a runtime measurement, never the fallback guess
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}version host'
 	  timeout: 60s
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			- "host: linux"
+			- "(via runtime)"
 		"!stdout":
 			- "GUESSED"
 
@@ -221,7 +228,7 @@ tests:
 	# promise: the platform-set flag exists with the documented default, and no
 	# --os/--arch flag exists to silently reintroduce a cartesian product.
 	- desc: matrix --help documents the single-APE default
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" matrix --help'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}matrix --help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -248,7 +255,7 @@ tests:
 	# ancestry outranks the env marker, so running this suite from inside a
 	# different agent's session would legitimately name that agent instead.
 	- desc: agent output guard refuses a captured pipeline run under {matrix.marker}
-	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; env {matrix.marker}=1 "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; env {matrix.marker}=1 {outputs.gt}'
 	  exit: 1
 	  timeout: 60s
 	  matrix:
@@ -264,7 +271,7 @@ tests:
 
 	# version answers under every agent, not only Claude.
 	- desc: version answers under {matrix.marker}
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; env {matrix.marker}=1 "$d/gt" version raw'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; env {matrix.marker}=1 {outputs.gt}version raw'
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -285,7 +292,7 @@ tests:
 	# inside a command dats is already sandboxing, and nested bwrap is not a
 	# thing worth depending on for coverage the unit tests already give.
 	- desc: no module and no suites names both halves
-	  cmd: 'b="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$b/gt"; d="$(mktemp -d)"; cd "$d"; "$b/gt"; rc=$?; cd /; rm -rf "$d" "$b"; exit $rc'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; {outputs.gt}'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -315,7 +322,7 @@ tests:
 	# a toolchain is fetched to build one (the fork download would blow the
 	# timeout and mask what is being asserted).
 	- desc: --targets refuses a native platform
-	  cmd: 'd="$(mktemp -d)"; cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" "$d/gt"; "$d/gt" matrix --targets {matrix.target}'
+	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}matrix --targets {matrix.target}'
 	  exit: 1
 	  timeout: 30s
 	  matrix:
