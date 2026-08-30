@@ -115,6 +115,15 @@ func init() {
 			logger.Output("goos: %s, goarch: %s", runtime.GOOS, runtime.GOARCH)
 		},
 	})
+	// Every host in a CI run must build against the same compiler. This
+	// prints the release to hand them through GO_TOOLCHAIN_COSMO_VERSION.
+	versionCmd.AddCommand(&cobra.Command{
+		Use:   "cosmo",
+		Short: "Print the gosmopolitan release this host would build against",
+		Run: func(cmd *cobra.Command, args []string) {
+			logger.Output("%s", ResolveCosmoVersion())
+		},
+	})
 	rootCmd.AddCommand(versionCmd)
 }
 

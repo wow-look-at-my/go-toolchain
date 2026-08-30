@@ -23,6 +23,7 @@ func setupCosmoTest(t *testing.T) (cacheDir string) {
 	t.Helper()
 	t.Setenv(cosmoGorootEnv, "")
 	t.Setenv(cosmoBranchEnv, "")
+	t.Setenv(cosmoVersionEnv, "")
 
 	cacheDir = t.TempDir()
 	oldCacheDir := goCacheDirFunc

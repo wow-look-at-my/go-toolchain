@@ -24,6 +24,7 @@ func checkDirtyInCI() error {
 	if os.Getenv("CI") == "" {
 		return nil
 	}
+	refreshGitIndex("")
 	out, err := exec.Command("git", "status", "--short").Output()
 	if err != nil {
 		return nil
@@ -39,6 +40,21 @@ func checkDirtyInCI() error {
 			buildVersion, files, dirtyDiff(files)))
 	}
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
+}
+
+// refreshGitIndex re-stats the tracked files and drops the modified mark from
+// any whose content still matches. git status trusts that stat cache, so a
+// rewrite producing the same bytes otherwise reads as an edit. A real change
+// survives the refresh, which is why this only removes false alarms.
+// It returns what git said about the paths that did change.
+func refreshGitIndex(dir string) string {
+	cmd := exec.Command("git", "update-index", "--refresh")
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	// git reports "needs update" through a failing exit status, as usual.
+	out, _ := cmd.Output()
+	return strings.TrimSpace(strings.TrimSpace(string(out)) + "\n" + strings.TrimSpace(stderr.String()))
 }
 
 // dirtyDiff renders what changed; in CI the tree dies with the runner.
@@ -68,7 +84,7 @@ func dirtyDiffIn(dir, files string) string {
 		// Staged and untracked send the reader to different places.
 		staged, _, stagedErr := git("--no-pager", "diff", "--cached", "--")
 		if stagedErr != nil || staged == "" {
-			return "\nDiff: git reports no content change; the paths are untracked or already committed\n"
+			return noContentChangeReport(dir)
 		}
 		diff = "(staged)\n" + staged
 	}
@@ -76,6 +92,17 @@ func dirtyDiffIn(dir, files string) string {
 		diff = strings.Join(lines[:dirtyDiffMaxLines], "\n") + "\n... diff truncated"
 	}
 	return "\nDiff:\n" + diff + "\n"
+}
+
+// noContentChangeReport covers the case where the paths are untracked or
+// already committed, and the case where status and diff disagree, which is a
+// stat cache the refresh could not settle. Naming both beats a shrug.
+func noContentChangeReport(dir string) string {
+	refresh := refreshGitIndex(dir)
+	if refresh == "" {
+		return "\nDiff: git reports no content change; the paths are untracked or already committed\n"
+	}
+	return "\nDiff: git status and git diff disagree. Index refresh says:\n" + refresh + "\n"
 }
 
 // dirtyDiffMaxLines keeps a runaway diff from burying the message above it.

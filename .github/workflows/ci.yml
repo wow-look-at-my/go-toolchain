@@ -13,6 +13,8 @@ permissions:
 jobs:
   host-build:
     runs-on: ubuntu-latest
+    outputs:
+      cosmo-version: ${{ steps.cosmo.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
@@ -105,6 +107,21 @@ jobs:
         with:
           name: host-go-toolchain
           path: build/go-toolchain
+
+      # build-everywhere compares three hosts' APEs byte for byte, which says
+      # something about the hosts only if one compiler built all three. A run
+      # that spans a gosmopolitan publish otherwise straddles two.
+      - name: Pin the gosmopolitan release for this run
+        id: cosmo
+        run: |
+          set -euo pipefail
+          v="$(go-toolchain version cosmo)"
+          case "$v" in
+            v[0-9]*) ;;
+            *) echo "::error::buildhost did not name a gosmopolitan release (got '$v'), so each host would resolve its own"; exit 1 ;;
+          esac
+          echo "resolved gosmopolitan $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
 
       # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
       - name: Cross-compile socketharness
@@ -203,6 +220,8 @@ jobs:
       - name: Build this repo's APE here
         shell: bash
         env:
+          # One compiler for all three hosts; host-build resolved it. see docs/CI.md
+          GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
           # The cache changes how long this takes and never what it emits. see docs/CI.md
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.

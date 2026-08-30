@@ -263,7 +263,9 @@ coverage.
   `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. The smoke legs run ONE host's
   APE everywhere, so `build-everywhere` runs the same command on all three and `identical` fails unless they agree byte for byte — a missing hand-off
-  fails too, since comparing the hosts that answered proves nothing. `publish` needs it. Depth: `docs/CI.md`
+  fails too, since comparing the hosts that answered proves nothing. One compiler builds all three: `host-build` resolves the gosmopolitan release
+  (`go-toolchain version cosmo`) and passes it down as `GO_TOOLCHAIN_COSMO_VERSION`, so a run spanning a publish cannot straddle two forks.
+  `publish` needs it. Depth: `docs/CI.md`
 
 ## Code Conventions
 
