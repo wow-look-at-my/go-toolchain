@@ -14,7 +14,10 @@ jobs:
   host-build:
     runs-on: ubuntu-latest
     steps:
+      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another one is asked as the wrong identity.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@v7
         with:
@@ -129,7 +132,10 @@ jobs:
     needs: host-build
     runs-on: ubuntu-latest
     steps:
+      # Same reason as host-build: a persisted credential for this repository answers for no other one.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
