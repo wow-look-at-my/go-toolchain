@@ -50,8 +50,8 @@ func TestQuoteExeForGOCACHEPROG(t *testing.T) {
 	}
 }
 
-// TestNTPathFromPosix: a shell on NT launches the APE by a POSIX path, and
-// cmd/go there is native and cannot open one. smoke-windows died on
+// TestNTPathFromPosix: a shell on NT launches the APE by a POSIX path, which
+// the native cmd/go there cannot open. smoke-windows died on
 // "fork/exec /d/a/...: The system cannot find the path specified".
 func TestNTPathFromPosix(t *testing.T) {
 	cases := []struct {

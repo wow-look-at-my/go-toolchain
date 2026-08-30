@@ -288,14 +288,9 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 	return quoteExeForGOCACHEPROG(wrapper), nil
 }
 
-// ntPathFromPosix rewrites a shell's POSIX spelling of a Windows path
-// (/d/a/x) into the native one (d:\a\x), and reports whether it was that
-// shape. os.Executable() answers the spelling the APE was launched with, and
-// on an NT host cmd/go is a native binary that cannot open a POSIX one:
-// "fork/exec /d/a/...: The system cannot find the path specified".
-//
-// filepath is no help here. The APE reports GOOS=cosmo, so its separator is
-// the forward slash and FromSlash rewrites nothing.
+// ntPathFromPosix rewrites a shell's POSIX spelling (/d/a/x) into the native
+// spelling (d:\a\x). cmd/go on NT is native and cannot open the POSIX form.
+// filepath cannot do it: GOOS=cosmo makes the separator a forward slash.
 func ntPathFromPosix(p string) (string, bool) {
 	if len(p) < 3 || p[0] != '/' || p[2] != '/' {
 		return "", false
