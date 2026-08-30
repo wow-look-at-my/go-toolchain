@@ -104,13 +104,14 @@ line carrying the same marker in `HEAD` and the working tree, plus the `go.sum` 
 modules that moved. Anything else — a require added or dropped, a marker that appeared, an edited
 comment, a `go.sum` line for a module that did not move — still fails the build as dirt.
 
-Only direct (non-`// indirect`) requires are tracked; an indirect line carrying the marker is
-skipped with a warning rather than silently ignored, since indirect dependencies are resolved
-transitively and a per-line branch pin on one would not mean what it looks like it means. The
-warning names the way that does work: a `replace` carrying the marker (see below) is main-module
-only, so it applies to direct and indirect requires alike and pins the version that actually
-reaches the build. A same-repository sibling (below) is the exception: that line is this run's own
-and `go mod tidy` is what marked it indirect, so it keeps being resolved and draws no warning.
+Both direct and indirect requires are tracked. An UNMARKED indirect line is somebody else's
+answer -- what `go mod tidy` computed from the rest of the module graph -- and carries no anchor
+of its own. But a marked indirect line resolves exactly like a marked direct one: an org
+dependency with no direct require of its own (`github.com/wow-look-at-my/yaml-fixed`, reached only
+as a transitive dependency of `go-git`, is the case that motivated this) has no other line to ride
+along with, so its own marker is the only way to track it. A same-repository sibling (below) works
+either way: whether `go mod tidy` marked the line indirect on its own, or the line was already
+independently tracked, the line keeps being resolved.
 
 ### Multi-module repositories resolve as a unit (`src/cmd/depssiblings.go`)
 
@@ -140,13 +141,6 @@ added line carries the same ordinary marker as the line that brought it in, and 
 root it discovers plus the branch being followed, and every module of that repository reuses that
 one answer. Two modules resolved a moment apart therefore cannot land on different commits, and a
 `go.mod` never carries a claim about repository membership that could go stale.
-
-**A deliberately pinned module anchors its siblings too**, at the commit its own version names
-rather than at a branch head. Cohesion is about the modules of one repository shipping together, so
-a module held at an old version holds its siblings at that same old commit; following the branch
-there would pair a pinned module with siblings from today, which is the mismatch the pin exists to
-avoid. A `go-toolchain:pinned` line on a *sibling* still wins over cohesion, since moving with its
-siblings is exactly what that marker opts out of.
 
 The walk is over requirements, not over the repository, so only modules the tracked one actually
 needs come along. A sibling missing at the resolved commit FAILS the run: writing a pin to a commit
@@ -208,10 +202,12 @@ path is not a valid version: the go command rejects it with
 A version pin on a `github.com/wow-look-at-my/` module is a snapshot of whenever someone last
 ran `go get`. These modules are co-developed with their consumers and have no release cadence to
 pin to, so nothing ever moves that snapshot forward and the consumer silently builds against
-month-old code. The branch pin is therefore the canonical form for them, and `go.mod` is
-rewritten into it: an org require or replace carrying a plain version gets the bare
-`// go-toolchain:auto-branch` comment appended. Appending it costs no lookup — it names no branch,
-so there is nothing to ask until the line is resolved.
+month-old code. There is no exception for staleness here: an org module tracks a branch whether it
+is a direct or an indirect require, with no version-pin opt-out. The branch pin is the canonical
+form for them, and `go.mod` is rewritten into it: an org require or replace carrying a plain
+version gets the bare `// go-toolchain:auto-branch` comment appended, direct or indirect.
+Appending it costs no lookup — it names no branch, so there is nothing to ask until the line is
+resolved.
 
 A line already carrying the canonical marker is left exactly as it is. The legacy spelling is
 migrated, which is the one place this asks the remote anything (see above).
@@ -223,19 +219,9 @@ cover it. The up-to-date fast exit consults `untrackedOrgDeps` (a `go.mod` parse
 well, because an unchanged tree can predate this requirement and the run being skipped is the one
 that would fix it.
 
-Two shapes cannot be rewritten. Neither is silently skipped:
-
-- **Indirect requires.** Branch tracking skips indirect lines, so a marker written there would
-  read like a pin and track nothing — the rewrite would be a lie. The module is still
-  version-pinned, so it WARNS instead, naming both repairs and which is which. Promoting it to a
-  direct require is the only one a consumer of this module ever sees. A tracked `replace` is
-  main-module-only, so it moves what *this* module builds against and nothing else. Both change
-  what the build resolves, which is why neither is applied for
-  you. A tracked replace already covering the module, or the `pinned` opt-out, silences it. So does
-  being a same-repository sibling of a tracked line: that line is this run's own to move (above),
-  and warning about it would name a problem the same run fixes.
-- **A require whose version a `replace` overrides.** Nothing is lost here: the replacement supplies
-  the version that reaches the build, and the replace line is marked in the require's place.
+One shape is not rewritten, and it is not silently skipped either: **a require whose version a
+`replace` overrides.** Nothing is lost here: the replacement supplies the version that reaches the
+build, and the replace line is marked in the require's place.
 
 **Only a `replace` that NAMES A VERSION overrides anything.** A `replace` into a local directory
 (`=> ../reader`) is main-module-only: it points *this* repository at a tree on disk and tells a
@@ -249,9 +235,5 @@ hid it from this repository's own builds, and nothing ever moved it. The pin end
 commit older than `reader/go.mod` itself, so every CI run here was green while every consumer got
 `missing go.mod at revision`.
 
-Genuinely wanting a version pin — a tagged release with a hard API break past it, say — is an
-explicit opt-out on the line, with the reason next to it:
-
-```go
-require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard API break
-```
+There is no version-pin opt-out. A stale org dependency, direct or indirect, is a build the
+consumer no longer gets to make.

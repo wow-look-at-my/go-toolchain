@@ -424,6 +424,33 @@ the noise (vet's package load took 42–49s with the index refused against 39–
 with it stored, in a phase dominated by compiling dependencies from scratch),
 and the sink peaked at 3.2 MB over 280 blobs.
 
+### What the end-of-build line reports
+
+`⇒ Cache: ↓ <local hits>  ↑ <local puts>  <remote hits>  <remote puts>  miss
+<misses>  (<rate>% hit)  prefetched <populated> (<used> used, <share>%)`.
+
+Two of those are computed rather than read off a counter, and both have a
+gotcha behind them:
+
+- **The hit rate spans both tiers.** `Misses` rises only when the local AND the
+  remote tier miss, so a lookup the shared tier answered raises neither
+  `Local.Hits` nor `Misses`. A rate taken over those two alone leaves remote
+  hits out of the numerator and the denominator alike, which reports a build
+  served entirely off the shared tier as 0% hit. `cacheSummaryParts`
+  (`src/cmd/cacheprog.go`) adds `Remote.Hits` to both sides. `profile.json`'s
+  `cache_satisfied_pct` counts `hit-local` and `hit-remote` per action and has
+  always agreed with the corrected figure.
+- **The prefetch share says whether the round trip paid.** The batch GET
+  returns neighbours of the key that was asked for, and populating the local
+  pack with them is only useful if the build goes on to read them.
+  `prefetchSet` (`src/cache/prefetchset.go`) records each action ID the batch
+  callback stored; the local-hit path takes it back out and raises
+  `Batch.Used`. Taking rather than testing keeps repeated reads of an entry
+  from pushing `used` past `populated`. The set is shared across a daemon's
+  per-connection `Server`s, because the callback and the GET that reads its
+  entry back arrive on different connections. Both counts also land in
+  `profile.json` as `prefetched` / `prefetch_used`.
+
 ### PUT
 
 ```mermaid

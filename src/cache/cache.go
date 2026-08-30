@@ -67,6 +67,7 @@ type StatEvent struct {
 	RemotePut uint32 `json:"rp,omitempty"`
 	Miss      uint32 `json:"m,omitempty"`
 	BatchPop  uint32 `json:"bp,omitempty"` // entries prefetched into local cache from batch GET
+	BatchUse  uint32 `json:"bu,omitempty"` // prefetched entries this local hit read back
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 
@@ -95,9 +96,12 @@ type Server struct {
 	putSem       chan struct{}  // semaphore bounding concurrent remote puts
 	Misses       AtomicCounter
 	batch        BatchStats
-	Latency      LatencyStats
-	statsConn    net.Conn // persistent connection to parent's stats socket
-	statsMu      sync.Mutex
+	// Shared across sibling Servers: callback and GET land on different conns.
+	prefetchedKeys *prefetchSet
+
+	Latency   LatencyStats
+	statsConn net.Conn // persistent connection to parent's stats socket
+	statsMu   sync.Mutex
 
 	// IndexPutsRefused counts module-index PUTs the sink answered (see isGoModuleIndex). Large on any run; not a poison signal.
 	IndexPutsRefused AtomicCounter
@@ -114,9 +118,10 @@ type Server struct {
 // callbacks must be set a single time on the shared WebBackend, not per-connection.
 func NewServer(local LocalStore, remote IBackend) *Server {
 	s := &Server{
-		local:  local,
-		remote: remote,
-		putSem: make(chan struct{}, maxConcurrentPuts),
+		local:          local,
+		remote:         remote,
+		putSem:         make(chan struct{}, maxConcurrentPuts),
+		prefetchedKeys: newPrefetchSet(),
 	}
 	// Standalone only: daemon mode wires this on the shared WebBackend instead, to avoid a per-connection race.
 	if wb, ok := remote.(*WebBackend); ok {
@@ -147,7 +152,7 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
 		// e.Key carries the full cache key; LocalCache keys on the bare action ID, so strip the prefix.
-		keyPrefix := wb.prefix + "v1"
+		keyPrefix := wb.KeyPrefix()
 		for _, e := range entries {
 			if e.OutputID == "" {
 				continue
@@ -181,6 +186,7 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 			if err != nil || !stored {
 				continue
 			}
+			sink.prefetched().add(actionID)
 			populated++
 		}
 		if populated > 0 {
@@ -192,12 +198,16 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 // statsSink lets batch callbacks wire to a Server or a Daemon stats connection.
 type statsSink interface {
 	recordBatchPop(n uint32)
+	// prefetched is the set the GET path takes entries back out of.
+	prefetched() *prefetchSet
 }
 
 func (s *Server) recordBatchPop(n uint32) {
 	s.batch.Populated.Add(n)
 	s.sendStat(StatEvent{BatchPop: n})
 }
+
+func (s *Server) prefetched() *prefetchSet { return s.prefetchedKeys }
 
 // sendStat sends a single stat event to the parent over the persistent connection.
 func (s *Server) sendStat(ev StatEvent) {
@@ -229,6 +239,7 @@ func (s *Server) closeStats() {
 // BatchStats tracks batch GET prefetch metrics.
 type BatchStats struct {
 	Populated AtomicCounter `json:"populated"` // entries prefetched into local cache
+	Used      AtomicCounter `json:"used"`      // prefetched entries a later local hit read
 }
 
 // ServerStats is the serialized aggregate of all cache layer stats.
