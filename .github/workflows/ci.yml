@@ -229,14 +229,20 @@ jobs:
           sudo apt-get update && sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
-      # bwrap is Linux and seatbelt is macOS, so docker is the only backend dats can reach on an NT host.
-      - name: Provision the sandbox backend (docker)
+      # bwrap is Linux and seatbelt is macOS, and the runner's own daemon serves windows containers, so the linux daemon comes from WSL.
+      - name: Provision the sandbox backend (docker, linux containers)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $svc = Get-Service -Name docker -ErrorAction SilentlyContinue
-          if (-not $svc) { throw "this runner has no docker service, so dats has no sandbox backend here" }
-          if ($svc.Status -ne 'Running') { Start-Service docker }
+          wsl --set-default-version 1
+          wsl --install --no-launch --distribution Ubuntu-24.04
+          wsl --list --verbose
+          wsl -d Ubuntu-24.04 -u root -- bash -c "apt-get update && apt-get install -y docker.io"
+          Start-Process -FilePath wsl -ArgumentList '-d','Ubuntu-24.04','-u','root','--','dockerd','--host=tcp://0.0.0.0:2375','--iptables=false','--bridge=none' -NoNewWindow
+          "DOCKER_HOST=tcp://127.0.0.1:2375" >> $env:GITHUB_ENV
+          $env:DOCKER_HOST = "tcp://127.0.0.1:2375"
+          $deadline = (Get-Date).AddMinutes(3)
+          while ((Get-Date) -lt $deadline) { docker info 2>$null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep -Seconds 5 }
           docker info
 
       - name: Download host binary
