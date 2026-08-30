@@ -36,7 +36,7 @@ func TestDaemon_LatencyWiredOnceOnSharedBackend(t *testing.T) {
 	lc, err := NewLocalCache(filepath.Join(dir, "cache"))
 	require.NoError(t, err)
 
-	d, err := NewDaemon(filepath.Join(dir, "daemon.sock"), lc, wb)
+	d, err := NewDaemon(testSocketPath(t, "daemon.sock"), lc, wb)
 	require.NoError(t, err)
 	defer d.Close()
 

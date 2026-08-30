@@ -82,7 +82,7 @@ func TestRecordAction_OverflowCap(t *testing.T) {
 // the stats socket, keyed by the truncated action ID.
 func TestStatsStreaming_PerAction(t *testing.T) {
 	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "stats.sock")
+	sockPath := testSocketPath(t, "stats.sock")
 
 	sl, err := NewStatsListener(sockPath)
 	require.NoError(t, err)

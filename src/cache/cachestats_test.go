@@ -114,8 +114,7 @@ func TestGetBatch_ShutdownDoesNotHangQueuedWaiters(t *testing.T) {
 }
 
 func TestSetHasRemote(t *testing.T) {
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "stats.sock")
+	sockPath := testSocketPath(t, "stats.sock")
 
 	sl, err := NewStatsListener(sockPath)
 	require.NoError(t, err)
@@ -187,7 +186,7 @@ func TestServer_Latency(t *testing.T) {
 
 func TestStatsStreaming(t *testing.T) {
 	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "stats.sock")
+	sockPath := testSocketPath(t, "stats.sock")
 
 	sl, err := NewStatsListener(sockPath)
 	require.NoError(t, err)
@@ -223,7 +222,7 @@ func TestStatsStreaming(t *testing.T) {
 
 func TestStatsStreamingLatency(t *testing.T) {
 	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "stats.sock")
+	sockPath := testSocketPath(t, "stats.sock")
 
 	sl, err := NewStatsListener(sockPath)
 	require.NoError(t, err)

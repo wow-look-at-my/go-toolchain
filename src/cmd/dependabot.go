@@ -189,6 +189,15 @@ func postDepSnapshot(snapshot *depSnapshot) error {
 // selfRepository is the only repo exempt from dependency-graph submission.
 const selfRepository = "wow-look-at-my/go-toolchain"
 
+// resolveLinks spells path as the kernel resolves it, so darwin's /var and
+// /private/var compare equal.
+func resolveLinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
 // insideWorkspace reports whether the working directory is inside
 // GITHUB_WORKSPACE, i.e. the module being built is the checked-out repository's
 // own. A snapshot describes GITHUB_REPOSITORY at GITHUB_SHA, so it is only
@@ -206,7 +215,8 @@ func insideWorkspace() bool {
 	if err != nil {
 		return false
 	}
-	rel, err := filepath.Rel(absWorkspace, cwd)
+	// darwin spells a directory differently on each side, so both get resolved.
+	rel, err := filepath.Rel(resolveLinks(absWorkspace), resolveLinks(cwd))
 	if err != nil {
 		return false
 	}
