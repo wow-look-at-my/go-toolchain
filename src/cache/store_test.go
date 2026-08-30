@@ -8,11 +8,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNewLocalStore_RoundTrip verifies that whichever backend NewLocalStore
-// selects — the FUSE virtual filesystem when available, the loose-file cache
-// otherwise — honours the core contract: Put returns a DiskPath the toolchain
-// can open whose bytes match, and Get round-trips the metadata.
+// Both tiers owe the same contract: Put returns a DiskPath whose bytes match,
+// and Get round-trips the metadata.
 func TestNewLocalStore_RoundTrip(t *testing.T) {
+	for _, tc := range []struct{ name, fuse string }{
+		{"default", ""},
+		{"packed", "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GOCACHE_FUSE", tc.fuse)
+			storeRoundTrip(t)
+		})
+	}
+}
+
+func storeRoundTrip(t *testing.T) {
+	t.Helper()
 	dir := t.TempDir()
 	store, err := NewLocalStore(dir)
 	require.Nil(t, err)
@@ -38,4 +49,17 @@ func TestNewLocalStore_RoundTrip(t *testing.T) {
 	require.Equal(t, body, data)
 
 	require.NotNil(t, store.StatsPtr())
+}
+
+// The default tier must be the one EVERY binary can open: go-fuse is compiled
+// out under cosmo, so a packed default splits the cache between flavors. The
+// host running this test CAN mount, which is exactly why it needs a guard.
+func TestNewLocalStore_DefaultTierIsPortable(t *testing.T) {
+	t.Setenv("GOCACHE_FUSE", "")
+	store, err := NewLocalStore(t.TempDir())
+	require.Nil(t, err)
+	defer store.Close()
+
+	_, loose := store.(*LocalCache)
+	require.True(t, loose, "the default tier must be the loose-file cache, which a cosmo binary can open")
 }

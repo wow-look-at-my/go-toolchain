@@ -17,6 +17,9 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
+// errFuseBusy signals another process already owns the FUSE mount.
+var errFuseBusy = errors.New("FUSE cache already owned by another process")
+
 // FuseCache is a LocalStore backed by a PackStore, served through a read-only
 // FUSE mount: DiskPath is a real path, with no loose file per cache entry.
 type FuseCache struct {
