@@ -31,11 +31,9 @@ type fileEdit struct {
 	fix  ASTFix
 }
 
-// setFixable reports whether this pass sees every use of obj. A local
-// variable is used where it is declared. An exported package-level variable is
-// reachable from another package, so it is never fixable here; an unexported
-// one is reachable from every file of its own package, so the pass must hold
-// them all.
+// setFixable reports whether this pass sees every use of obj. A local variable
+// is used where it is declared. An exported package-level variable is reachable
+// from another package, so it is never fixable here.
 func setFixable(pass *analysis.Pass, obj types.Object) bool {
 	if obj == nil || pass.Pkg == nil {
 		return false
@@ -51,13 +49,11 @@ func setFixable(pass *analysis.Pass, obj types.Object) bool {
 
 // passHoldsWholePackage reports whether pass.Files covers every file in the
 // package's directory that can name an unexported package-level identifier.
-//
-// Tests are loaded as their own variants, so the plain variant of a package
-// with an in-package test file does not hold that file and must not rewrite,
-// while the internal-test variant holds the lot and may. An external test file
-// (package `<name>_test`) reaches only exported names and so does not count.
-// Anything else missing -- a file this build configuration excludes -- hides a
-// use that the rewrite would leave uncompilable.
+// Tests load as their own variant: the plain variant lacks the in-package test
+// files and must not rewrite, the internal-test variant holds them and may. An
+// external test file reaches only exported names, so it never counts. Any other
+// absent file -- excluded by this build configuration -- hides a use, and the
+// rewrite that misses it does not compile.
 func passHoldsWholePackage(pass *analysis.Pass) bool {
 	held := set.New[string]()
 	dir := filepath.Dir(pass.Fset.Position(pass.Files[0].Pos()).Filename)

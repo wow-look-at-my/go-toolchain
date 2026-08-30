@@ -179,7 +179,7 @@ func TestSetFixReachesAPackageVariableUsedFromATestFile(t *testing.T) {
 	require.Contains(t, got, `wrappers.Contains("sudo")`)
 }
 
-// TestSetFixStopsAtAFileThisBuildExcludes pins the other half: a file the
+// TestSetFixStopsAtAFileThisBuildExcludes pins the rest of the rule: a file the
 // build configuration left out holds uses the rewrite would not reach, and a
 // half-rewritten variable does not compile.
 func TestSetFixStopsAtAFileThisBuildExcludes(t *testing.T) {
@@ -194,7 +194,7 @@ func TestSetFixStopsAtAFileThisBuildExcludes(t *testing.T) {
 }
 
 // TestSetFixIgnoresAnExternalTestFile pins the exemption: an external test
-// package reaches only exported names, so it can hold no use of this one.
+// package reaches only exported names, so it hides no unexported use.
 func TestSetFixIgnoresAnExternalTestFile(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFile(t, dir, "main.go", "package main\n\n"+
