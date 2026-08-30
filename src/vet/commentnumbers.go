@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
@@ -41,9 +42,13 @@ var numberWords = set.Of(
 	"eightieth", "ninetieth", "hundredth", "thousandth",
 )
 
-// commentNumbersRemedy is what every finding asks the author to do instead.
+// commentNumbersRemedy is what every finding asks the author to do instead. A
+// reference to a numbered section is the case rewriting the sentence does not
+// cover, so the remedy also names the slug that survives a renumbering edit.
 const commentNumbersRemedy = "a number in a comment is a count of what exists today, " +
-	"and the edit that adds an item leaves it wrong: describe what the code does and let the reader count"
+	"and the edit that adds an item leaves it wrong: describe what the code does and let the reader count. " +
+	"To point at a section of a spec or a document, cite its unique slug or its heading text, never its position: " +
+	"the slug survives the edit that inserts a section above it, and a section sign (§) marks a citation that has no slug"
 
 // commentNumbersWarned records file:line of every warning; each package variant that walks a file warns per site.
 var commentNumbersWarned sync.Map
@@ -97,12 +102,63 @@ const nameMarkers = "._/:"
 // commentNumbers finds every number in the text of a single comment line.
 func commentNumbers(text string) []commentToken {
 	var found []commentToken
-	for _, tok := range commentTokens(text) {
+	toks := commentTokens(text)
+	for i, tok := range toks {
+		if isHTTPStatus(toks, i) || isSectionRef(text, tok) {
+			continue
+		}
 		if hit, ok := tokenNumber(tok); ok {
 			found = append(found, hit)
 		}
 	}
 	return found
+}
+
+// httpStatusPrefix is the word that names the digits after it as a status code.
+const httpStatusPrefix = "HTTP"
+
+// statusCodeDigits is the width of an HTTP status code.
+const statusCodeDigits = len("500")
+
+// isHTTPStatus reports whether the token at i is an HTTP status code. The
+// digits name a protocol answer rather than count anything, so they survive
+// every edit -- but only the prefix tells them apart from a count, since the
+// digits alone are the shape of a line number or a byte size.
+func isHTTPStatus(toks []commentToken, i int) bool {
+	if i == 0 {
+		return false
+	}
+	prefix := strings.Trim(toks[i-1].text, nameMarkers)
+	return strings.EqualFold(prefix, httpStatusPrefix) && isStatusCode(toks[i].text)
+}
+
+// isStatusCode reports whether text is the bare digits of a status code. A
+// name marker at either end is the punctuation of the sentence, since a token
+// keeps the period that ends it.
+func isStatusCode(text string) bool {
+	text = strings.Trim(text, nameMarkers)
+	if len(text) != statusCodeDigits {
+		return false
+	}
+	for _, r := range text {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// sectionSign marks the number after it as a citation of a section.
+const sectionSign = '§'
+
+// isSectionRef reports whether the token sits behind a section sign. The sign
+// says the digits address a section of a document rather than count anything
+// in this repository, and it is the spelling a reader can look the section up
+// by, so a citation written this way stays.
+func isSectionRef(text string, tok commentToken) bool {
+	before := strings.TrimRight(text[:tok.offset], " \t")
+	last, size := utf8.DecodeLastRuneInString(before)
+	return size > 0 && last == sectionSign
 }
 
 // commentTokens splits a comment into runs of name characters, so a URL, an
