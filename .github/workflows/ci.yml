@@ -318,10 +318,10 @@ jobs:
           path: harness
 
       # The outer run opts out so the pipeline test's own dats phase can sandbox the guard fixture... see docs/CI.md
-      - name: Linux smoke suite
+      - name: Union smoke suite
         uses: wow-look-at-my/dats@master
         with:
-          args: '--no-sandbox test .github/dats-fixtures/smoke-linux.dats'
+          args: '--no-sandbox test .github/dats-fixtures/smoke.dats'
 
   # macos-latest is arm64, and darwin/arm64 is in the APE's platform set, so the APE is what... see docs/CI.md
   smoke-macos:
@@ -347,10 +347,10 @@ jobs:
           path: harness
 
       # The outer run opts out so the pipeline test's own dats phase can sandbox the guard fixture... see docs/CI.md
-      - name: macOS smoke suite
+      - name: Union smoke suite
         uses: wow-look-at-my/dats@master
         with:
-          args: '--no-sandbox test .github/dats-fixtures/smoke-macos.dats'
+          args: '--no-sandbox test .github/dats-fixtures/smoke.dats'
 
   smoke-windows:
     needs: build
@@ -377,9 +377,9 @@ jobs:
           path: dats.exe
 
       # NT has no bwrap and no seatbelt, and windows-latest's docker serves windows containers... see docs/CI.md
-      - name: Windows smoke suite
+      - name: Union smoke suite
         shell: bash
-        run: ./dats.exe --no-sandbox test .github/dats-fixtures/smoke-windows.dats
+        run: ./dats.exe --no-sandbox test .github/dats-fixtures/smoke.dats
   publish:
     needs: [identical, smoke-linux, smoke-macos, smoke-windows]
     runs-on: ubuntu-latest
