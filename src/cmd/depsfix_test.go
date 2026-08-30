@@ -12,6 +12,21 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// TestWithGitStderr: WithQuiet() sends git's stderr nowhere, so an exit status
+// was the whole report. "git init failed: exit status 128" on a windows host
+// named neither the repository nor what git objected to.
+func TestWithGitStderr(t *testing.T) {
+	base := errors.New("exit status 128")
+
+	assert.NoError(t, withGitStderr(nil, []byte("not a failure")))
+	assert.Equal(t, base, withGitStderr(base, nil))
+	assert.Equal(t, base, withGitStderr(base, []byte("  \n\t ")))
+
+	got := withGitStderr(base, []byte("fatal: cannot chdir to nowhere\n"))
+	assert.ErrorIs(t, got, base)
+	assert.Contains(t, got.Error(), "fatal: cannot chdir to nowhere")
+}
+
 func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()

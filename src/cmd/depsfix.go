@@ -290,7 +290,22 @@ func runGitQuiet(r runner.CommandRunner, name string, args ...string) error {
 	if err != nil {
 		return err
 	}
-	return proc.Wait()
+	stderr, _ := io.ReadAll(proc.Stderr())
+	return withGitStderr(proc.Wait(), stderr)
+}
+
+// withGitStderr attaches what git said to a failure. WithQuiet() sends stderr
+// nowhere, so an exit status alone reaches the caller and names neither the
+// repository nor git's objection: "git init failed: exit status 128" is the
+// whole report on a host where nothing else says why.
+func withGitStderr(err error, stderr []byte) error {
+	if err == nil {
+		return nil
+	}
+	if msg := strings.TrimSpace(string(stderr)); msg != "" {
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return err
 }
 
 // gitOutput runs a command and returns its stdout.
@@ -300,7 +315,8 @@ func gitOutput(r runner.CommandRunner, name string, args ...string) ([]byte, err
 		return nil, err
 	}
 	out, _ := io.ReadAll(proc.Stdout())
-	if err := proc.Wait(); err != nil {
+	stderr, _ := io.ReadAll(proc.Stderr())
+	if err := withGitStderr(proc.Wait(), stderr); err != nil {
 		return nil, err
 	}
 	return out, nil
