@@ -153,9 +153,13 @@ Windows is the harder case, and its numbers are measured rather than inferred.
 On run 33310462278 `src/vet` reported 30.166s and `src/cache` 30.353s against
 that 30s clock, while the same binaries take 17-20s and 9-13s on linux; the
 whole test phase spent 395.99s there against roughly 30s locally, at `0%
-cache-satisfied`. Neither package has a hog to remove — the time is spread flat
-across about 250 tests each — so only intra-package parallelism moves the
-number, and two attempts at it failed and were reverted:
+cache-satisfied`. The per-test durations the progress printer reports on a
+timed-out binary are an artifact — every paused `t.Parallel` test is charged the
+whole 30s — so read the panic's own `running tests:` list instead. That list is
+the only honest per-test measurement Windows gives, and it is what found the
+`src/cache` hog described below. Both other packages showed a single test
+one second in, so their time really is spread flat, and two attempts at
+intra-package parallelism failed and were reverted:
 
 - Marking every `src/cache` test that neither chdirs nor calls `t.Setenv`
   broke because `setTempDir` and `setHome` mutate the process environment
@@ -176,6 +180,18 @@ there are no spare cores for a package to parallelise INTO; the linux win came
 from cores Windows does not have. Concurrency is therefore not the lever here,
 and neither refactor below would move Windows either. What moves it is less
 work per binary, or a budget that knows what host it is on.
+
+Less work per binary is what `src/cache` got. The panic on run 33312237814
+named `TestPackStore_ConcurrentSameActionPutRescanConsistency` and
+`TestPackStore_PutAlwaysBeatsPutIfAbsent`, each eight seconds in and neither
+finished, against half a second apiece on linux. Both drove their racing pairs
+through a fresh `t.TempDir` and a fresh `OpenPackStore` per pair, so the run was
+mostly directory churn — cheap on tmpfs, and the thing NTFS charges most for.
+Every pair now races into the same store and the rescan happens at the end,
+which is what a real store looks like anyway; the pair count, and so the
+sensitivity, is unchanged. On linux each dropped to 0.10s and `test run
+src/cache` went 8.2s → 6.8s, and the Windows saving is the larger one because
+the cost removed was the filesystem's.
 
 Should someone pick up the isolation work anyway, for its own sake:
 `src/cache` needs its shared state named before the rest runs in parallel.

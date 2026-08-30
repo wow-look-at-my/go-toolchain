@@ -16,6 +16,8 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 )
 
+const packRaceRounds = 1500
+
 // mkPackBody returns (body, outputID-hex) for deterministic pseudo-random
 // content of the given size.
 func mkPackBody(rng *rand.Rand, size int) ([]byte, string) {
@@ -35,16 +37,21 @@ func mkActionID(rng *rand.Rand) string {
 // concurrent Puts for the SAME action with DIFFERENT contents and asserts the
 // live index and a fresh rescan of the pack files agree on which body the
 // action maps to. Before the commit-under-append-lock fix this diverged in
-// in a small fraction of iterations (live=A, rescan=B).
+// a small fraction of the racing pairs (live=A, rescan=B). packRaceRounds
+// pairs is the sensitivity.
+//
+// Every pair races into the same store, and the rescan happens at the end. A
+// store per pair spends the run on directory churn, which is what an NTFS host
+// charges for; a real store holds many actions anyway.
 func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewSource(1))
-	const iters = 1500
-	for it := 0; it < iters; it++ {
-		dir := t.TempDir()
-		s, err := OpenPackStore(dir)
-		require.NoError(t, err)
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.NoError(t, err)
 
+	live := make(map[string]string, packRaceRounds)
+	for range packRaceRounds {
 		action := mkActionID(rng)
 		bodyA, outA := mkPackBody(rng, 128)
 		bodyB, outB := mkPackBody(rng, 256)
@@ -65,15 +72,18 @@ func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
 
 		liveLoc, ok := s.Get(action)
 		require.True(t, ok)
-		require.NoError(t, s.Close())
+		live[action] = liveLoc.outputID
+	}
+	require.NoError(t, s.Close())
 
-		s2, err := OpenPackStore(dir)
-		require.NoError(t, err)
+	s2, err := OpenPackStore(dir)
+	require.NoError(t, err)
+	defer s2.Close()
+	for action, outputID := range live {
 		scanLoc, ok := s2.Get(action)
 		require.True(t, ok)
-		require.Equal(t, liveLoc.outputID, scanLoc.outputID,
-			"iter %d: live index and pack rescan disagree about the body for the action — the next build would serve different content than this one did", it)
-		require.NoError(t, s2.Close())
+		require.Equal(t, outputID, scanLoc.outputID,
+			"action %s: live index and pack rescan disagree about its body — the next build would serve different content than this one did", action)
 	}
 }
 
@@ -133,12 +143,12 @@ func TestPackStore_PutIfAbsent(t *testing.T) {
 func TestPackStore_PutAlwaysBeatsPutIfAbsent(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewSource(3))
-	const iters = 1500
-	for it := 0; it < iters; it++ {
-		dir := t.TempDir()
-		s, err := OpenPackStore(dir)
-		require.NoError(t, err)
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.NoError(t, err)
 
+	want := make(map[string]string, packRaceRounds)
+	for range packRaceRounds {
 		action := mkActionID(rng)
 		bodyPut, outPut := mkPackBody(rng, 96)
 		bodyPre, outPre := mkPackBody(rng, 160)
@@ -160,16 +170,19 @@ func TestPackStore_PutAlwaysBeatsPutIfAbsent(t *testing.T) {
 		liveLoc, ok := s.Get(action)
 		require.True(t, ok)
 		require.Equal(t, outPut, liveLoc.outputID,
-			"iter %d: a prefetched body displaced the locally-stored one in the live index", it)
-		require.NoError(t, s.Close())
+			"action %s: a prefetched body displaced the locally-stored one in the live index", action)
+		want[action] = outPut
+	}
+	require.NoError(t, s.Close())
 
-		s2, err := OpenPackStore(dir)
-		require.NoError(t, err)
+	s2, err := OpenPackStore(dir)
+	require.NoError(t, err)
+	defer s2.Close()
+	for action, outputID := range want {
 		scanLoc, ok := s2.Get(action)
 		require.True(t, ok)
-		require.Equal(t, outPut, scanLoc.outputID,
-			"iter %d: a prefetched body displaced the locally-stored one in the pack replay order", it)
-		require.NoError(t, s2.Close())
+		require.Equal(t, outputID, scanLoc.outputID,
+			"action %s: a prefetched body displaced the locally-stored one in the pack replay order", action)
 	}
 }
 
