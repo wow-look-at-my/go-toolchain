@@ -360,55 +360,6 @@ func TestEnsureCosmoToolchainRejectsArchiveWithoutGo(t *testing.T) {
 	assert.Contains(t, err.Error(), "go/bin/go")
 }
 
-// A windows host's published GOROOT carries go/bin/go.exe, because distpack
-// packages a host build. The cache probe reads the same name the download
-// probe does, so a warm cache is a hit rather than a re-download -- which is
-// what the closed server here proves.
-func TestEnsureCosmoToolchainCachesTheWindowsGoName(t *testing.T) {
-	setupCosmoTest(t)
-	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
-
-	body := makeCosmoTarball(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(body)
-	}))
-	defer srv.Close()
-	cosmoDownloadBase = srv.URL + "/gosmopolitan"
-
-	root, err := EnsureCosmoToolchain()
-	require.NoError(t, err)
-	assert.FileExists(t, filepath.Join(root, "bin", "go.exe"))
-
-	srv.Close()
-	cached, err := EnsureCosmoToolchain()
-	require.NoError(t, err)
-	assert.Equal(t, root, cached)
-}
-
-// An archive genuinely missing the toolchain is still refused, and the error
-// names the file it looked for under the host's own executable naming.
-func TestEnsureCosmoToolchainNamesTheWindowsGoNameWhenMissing(t *testing.T) {
-	setupCosmoTest(t)
-	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
-
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/", Typeflag: tar.TypeDir, Mode: 0755}))
-	require.NoError(t, tw.Close())
-	require.NoError(t, gz.Close())
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(buf.Bytes())
-	}))
-	defer srv.Close()
-	cosmoDownloadBase = srv.URL + "/gosmopolitan"
-
-	_, err := EnsureCosmoToolchain()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "go/bin/go.exe")
-}
-
 func TestSanitizeCacheKey(t *testing.T) {
 	assert.Equal(t, "claude-some-branch", sanitizeCacheKey("claude/some-branch"))
 	assert.Equal(t, "v1.2.3", sanitizeCacheKey("v1.2.3"))

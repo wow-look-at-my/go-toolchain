@@ -124,9 +124,8 @@ func useLocalCosmoGoroot(root string) (string, error) {
 	return root, nil
 }
 
-// cosmoGoBinPath returns the go binary path inside a GOROOT, under the HOST's
-// executable naming, read from the seam that picks the download slot. Spell it
-// by hand and an NT path misses the cache and cannot exec.
+// cosmoGoBinPath names the fork's go binary in a GOROOT, for the HOST
+// platform. Spell it by hand and an NT path misses the cache and cannot exec.
 func cosmoGoBinPath(root string) string {
 	goBin := filepath.Join(root, "bin", "go")
 	if hostOS, _ := cosmoHostPlatformFunc(); hostOS == "windows" {
@@ -266,7 +265,6 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	}
 	fmt.Fprintf(rawStderr, " %s\n", fmtDuration(time.Since(dlStart)))
 
-	// A host build, so the binary is go.exe on NT.
 	goBin := cosmoGoBinPath(filepath.Join(tmpDir, "go"))
 	if _, err := os.Stat(goBin); err != nil {
 		return fmt.Errorf("downloaded archive does not contain go/bin/%s: %w", filepath.Base(goBin), err)
