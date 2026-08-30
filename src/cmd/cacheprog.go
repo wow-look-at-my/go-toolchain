@@ -305,7 +305,7 @@ func quoteExeForGOCACHEPROG(exe string) string {
 // Returns the daemon, the remote endpoint (empty if no remote), and any error.
 func startCacheDaemon(sockPath string) (*cache.Daemon, string, error) {
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
-	// NewLocalStore picks the tier: loose files by default, packs under GOCACHE_FUSE=1.
+	// NewLocalStore picks the tier: loose files by default, packs under GOCACHE_FUSE.
 	local, err := cache.NewLocalStore(cacheDir)
 	if err != nil {
 		return nil, "", err
