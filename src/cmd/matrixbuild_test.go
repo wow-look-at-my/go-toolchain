@@ -97,7 +97,7 @@ func TestRunBuild(t *testing.T) {
 }
 
 // --cgo cannot turn cgo on: the APE and wasm both lack it, so CGO_ENABLED is
-// assigned 0 either way rather than left to the flag or the environment.
+// assigned off either way rather than left to the flag or the environment.
 func TestRunBuildForcesCGOOffEvenWithTheFlag(t *testing.T) {
 	for _, flag := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cgoEnabled=%v", flag), func(t *testing.T) {

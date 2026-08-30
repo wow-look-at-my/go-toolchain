@@ -131,7 +131,7 @@ func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
-	setupMockProject(t) // pkg/main.go is "package main\n" — zero coverable statements
+	setupMockProject(t) // pkg/main.go is "package main\n" — no coverable statements
 
 	mock := newNoTestFilesMock()
 	jsonOutput = true

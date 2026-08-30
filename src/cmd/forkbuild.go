@@ -22,7 +22,7 @@ type forkBuildEnv struct {
 
 // resolveForkBuildEnv resolves the toolchain and the cache namespace, and --
 // when the run builds an APE -- the platform set it covers. It fails rather
-// than falling back: there is no second compiler to fall back to.
+// than falling back: there is no other compiler to fall back to.
 func resolveForkBuildEnv(wantAPE bool) (forkBuildEnv, error) {
 	var env forkBuildEnv
 	var err error
@@ -43,7 +43,7 @@ func resolveForkBuildEnv(wantAPE bool) (forkBuildEnv, error) {
 	return env, nil
 }
 
-// apeJob returns the fat-APE build job for one main package.
+// apeJob returns the fat-APE build job for a main package.
 func (e forkBuildEnv) apeJob(srcPath, outputPath string) buildJob {
 	return buildJob{
 		goos:           cosmoOS,
@@ -58,7 +58,7 @@ func (e forkBuildEnv) apeJob(srcPath, outputPath string) buildJob {
 
 // warnCGOUnavailable says so when --cgo was asked for. Neither output this
 // pipeline produces has cgo, so the flag changes nothing about the build, and
-// a silently ignored flag reads as a working one.
+// a silently ignored flag reads as a working flag.
 func warnCGOUnavailable(hasAPE, hasWasm bool) {
 	if !cgoEnabled {
 		return

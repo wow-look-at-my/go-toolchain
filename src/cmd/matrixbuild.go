@@ -15,7 +15,7 @@ import (
 )
 
 // hostRunnableArtifact names the APE, which runs here by construction. Named
-// even when absent, so callers report a missing artifact, not a wrong one.
+// even when absent, so callers report a missing artifact instead of a wrong path.
 func hostRunnableArtifact(target build.Target, outDir string) string {
 	return filepath.Join(outDir, build.BinaryName(target.OutputName, cosmoOS, cosmoFatArch))
 }
@@ -58,7 +58,7 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 }
 
 // checkPortableJob allows only the fat APE and wasm, only through the fork.
-// It sits at the one chokepoint that compiles anything, so a call site that
+// It sits at the sole chokepoint that compiles anything, so a call site that
 // invents a target fails here instead of shipping a native binary.
 func checkPortableJob(job buildJob) error {
 	if job.forkGoroot == "" {
@@ -111,8 +111,8 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 		WithEnv("CGO_ENABLED", "0").
 		WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
 	if job.goos == cosmoOS {
-		// "fat" is a pseudo-arch, and an inherited GOCOSMOFAT=0 would silently
-		// produce a thin binary, so both are cleared.
+		// "fat" is a pseudo-arch, and an inherited GOCOSMOFAT would silently
+		// produce a thin binary, so each is cleared.
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").

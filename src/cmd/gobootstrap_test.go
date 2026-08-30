@@ -97,7 +97,7 @@ func TestGoVersionCore(t *testing.T) {
 }
 
 // A fork older than the module's go directive has no fallback to hide behind:
-// there is no second toolchain, so this fails and names the repair.
+// there is no other toolchain, so this fails and names the repair.
 func TestForkSatisfiesGoMod(t *testing.T) {
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
@@ -237,7 +237,7 @@ func TestExtractTarGzPathTraversal(t *testing.T) {
 
 // The whole pipeline compiles with the fork, so the bootstrap's job is to put
 // THAT GOROOT in front of whatever Go the host carries -- and to pin
-// GOTOOLCHAIN, the one setting that otherwise lets the go command fetch a stock
+// GOTOOLCHAIN, the setting that otherwise lets the go command fetch a stock
 // toolchain behind our back to satisfy a go directive.
 func TestEnsureGoVersionUsesTheForkAndPinsGOTOOLCHAIN(t *testing.T) {
 	forkRoot := t.TempDir()

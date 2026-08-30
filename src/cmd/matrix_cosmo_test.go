@@ -267,9 +267,9 @@ func TestRunBuildForkWithoutNamespaceRefuses(t *testing.T) {
 }
 
 // The APE and the wasm targets are the only things this pipeline compiles, and
-// both compile with the fork. runBuild is the one place anything is compiled,
+// both compile with the fork. runBuild is the sole place anything is compiled,
 // so a job naming a native platform, or naming no toolchain, dies here — no
-// call site can reintroduce a per-platform binary or a second compiler.
+// call site can reintroduce a per-platform binary or another compiler.
 func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
 	forkGoroot := filepath.Join(t.TempDir(), "fork-goroot")
 	for _, tc := range []struct {
@@ -317,7 +317,7 @@ func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
 	}
 }
 
-// The two targets that DO build, through the same chokepoint.
+// The targets that DO build, through the same chokepoint.
 func TestRunBuildAcceptsTheAPEAndWasm(t *testing.T) {
 	for _, p := range []buildPlatform{
 		{OS: cosmoOS, Arch: cosmoFatArch},

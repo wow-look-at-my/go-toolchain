@@ -73,7 +73,7 @@ func useForkAsPipelineToolchain(goRoot string) {
 }
 
 // forkSatisfiesGoMod fails when go.mod asks for a newer Go than the fork
-// carries. There is no second toolchain to fall back to, so this names the
+// carries. There is no other toolchain to fall back to, so this names the
 // repair -- a newer fork -- rather than reaching for a stock Go.
 func forkSatisfiesGoMod(installed string) error {
 	required, err := requiredGoVersion()
@@ -94,8 +94,8 @@ func forkSatisfiesGoMod(installed string) error {
 	return nil
 }
 
-// goVersionCore keeps the leading numeric part of a version, so the fork's own
-// "1.27.0cosmo.r685" compares as 1.27.0.
+// goVersionCore keeps the leading numeric part, so the fork's own stamp
+// compares as the plain release it is built from.
 func goVersionCore(v string) string {
 	for i, r := range v {
 		if (r < '0' || r > '9') && r != '.' {
@@ -118,7 +118,7 @@ func verifyGoToolchain(goPath string) error {
 	return nil
 }
 
-// recordGoMinor parses a version string like "1.24.7" and stores its minor
+// recordGoMinor parses a dotted version string and stores its minor
 // component in resolvedGoMinor so that goSupportsFeature can use it without
 // shelling out to "go version". If ver is empty or unparseable, it falls back
 // to running "go version".

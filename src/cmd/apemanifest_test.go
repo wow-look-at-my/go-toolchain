@@ -196,7 +196,7 @@ func TestHostRunnableArtifactIsTheAPE(t *testing.T) {
 	target := build.Target{ImportPath: "./cmd/mytool", OutputName: "mytool"}
 	ape := filepath.Join(dir, "mytool")
 
-	// Answered before anything is built, so a caller reports a missing artifact rather than a wrong one.
+	// Answered before anything is built, so a caller reports a missing artifact rather than a wrong path.
 	assert.Equal(t, ape, hostRunnableArtifact(target, dir))
 
 	require.NoError(t, os.WriteFile(ape, []byte("APE"), 0755))

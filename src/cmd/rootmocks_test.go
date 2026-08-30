@@ -84,7 +84,7 @@ func setupMockProject(t *testing.T) {
 	stubForkToolchain(t)
 }
 
-// writeMockBuildOutput writes the -o file, as a real exit-0 compiler does.
+// writeMockBuildOutput writes the -o file, as a real compiler does on success.
 func writeMockBuildOutput(cfg runner.Config, content string) {
 	for i, arg := range cfg.Args {
 		if arg == "-o" && i+1 < len(cfg.Args) {
@@ -100,8 +100,8 @@ func isGoBuild(cfg runner.Config) bool {
 	return name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build"
 }
 
-// handleGoBuild leaves the -o target behind, as an exit-0 compiler does;
-// every mock reaching the build phase needs it. newBuildFailMock answers first.
+// handleGoBuild leaves the -o target behind, as a compiler does on success;
+// every mock reaching the build phase needs it. newBuildFailMock takes precedence.
 func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
 	if !isGoBuild(cfg) {
 		return nil, false

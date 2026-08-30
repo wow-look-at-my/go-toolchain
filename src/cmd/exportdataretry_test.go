@@ -24,8 +24,8 @@ src/trace/provider.go:142:17: undefined: sdktrace.SpanExporter
 src/trace/propagation.go:15:42: undefined: trace.TraceID`
 
 // The same failure reported the other way, copied from a CI host-build job.
-// Matching only the signature above left this one surfacing as a source error,
-// which is what it looks like and is not.
+// Matching only the signature above left this report surfacing as a source
+// error, which is what it looks like and is not.
 const realInternalImportErr = `package load errors:
 src/cache/web_resilience.go:6:2: could not import math/rand/v2 (reading /home/runner/.cache/go-toolchain/buildcache/mnt/6bb105400a2cd4db3212a4d69ade5697293033bd58085dbf9b286d6a78262d31: internal error in importing "math/rand/v2" (function with type parameters cannot have a receiver); please report an issue)
 src/cache/web_resilience.go:187:20: undefined: rand`
@@ -42,9 +42,9 @@ src/cmd/foo.go:12:3: undefined: Bar`)))
 		"the module-index failure is a different signature with a different cure")
 }
 
-// The reader has to be able to tell the two reports apart: they come from
-// different decode stages, and a run that keeps hitting one is a different
-// story from one that alternates.
+// The reader has to be able to tell the reports apart: they come from different
+// decode stages, and a run that keeps hitting the same marker is a different
+// story from a run that alternates.
 func TestExportDataSignature(t *testing.T) {
 	assert.Equal(t, invalidPackageNameMarker, exportDataSignature(errors.New(realInvalidPackageNameErr)))
 	assert.Equal(t, internalImportErrorMarker, exportDataSignature(errors.New(realInternalImportErr)))
@@ -84,7 +84,7 @@ func TestDisableSharedBuildCache(t *testing.T) {
 }
 
 // The message the source retry could not clear must name what was unreadable and
-// rule out the two easy answers -- never leave the caller with the raw cascade.
+// rule out the easy answers -- never leave the caller with the raw cascade.
 func TestUnreadableExportDataError(t *testing.T) {
 	base := errors.New(realInvalidPackageNameErr)
 	msg := unreadableExportDataError(base).Error()

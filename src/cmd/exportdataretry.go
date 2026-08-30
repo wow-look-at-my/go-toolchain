@@ -11,8 +11,8 @@ import (
 )
 
 // The vet type-check reads a dependency's EXPORT DATA -- its compiled API --
-// instead of its source. Two reports say that data did not decode, by how far
-// the decode got. Depth: docs/CI.md
+// instead of its source. The markers below say that data did not decode, and
+// differ by how far the decode got. Depth: docs/CI.md
 const (
 	// The header is unreadable, so the package has no name to report.
 	invalidPackageNameMarker = `invalid package name: ""`
@@ -24,7 +24,7 @@ const (
 var exportPkgRe = regexp.MustCompile(`could not import ([^\s(]+) \([^)]*(?:invalid package name: ""|internal error in importing)`)
 
 // exportDataSignature returns the marker err carries, or "" when it is not this
-// failure. The caller reports it, so the reader can tell the two apart.
+// failure. The caller reports it, so the reader knows which marker matched.
 func exportDataSignature(err error) string {
 	if err == nil {
 		return ""

@@ -148,7 +148,7 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 	err := runWithRunner(mock, nil)
 	assert.Nil(t, err)
 
-	// --cgo cannot reach the build: the APE has no cgo, so CGO_ENABLED stays 0.
+	// --cgo cannot reach the build: the APE has no cgo, so CGO_ENABLED stays off.
 	for _, cfg := range mock.Calls() {
 		if isGoBuild(cfg) {
 			cgo, _ := cfg.Env.Get("CGO_ENABLED")
@@ -256,7 +256,7 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 	setupMockProject(t)
-	// Set watermark to 60% — grace = 57.5, effective = min(80, 57.5) = 57.5
+	// The watermark sets the bar, grace lowers it, and the effective bar is whichever of that and the floor is lower.
 	gotest.SetWatermark(".", 60.0)
 	mock := newTestPassMock(50)
 	jsonOutput = false

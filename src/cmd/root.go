@@ -114,7 +114,7 @@ var rootCmd = &cobra.Command{
 		// After cobra parses, so --help and a mistyped flag cost no compiler.
 		if !skipToolchain(cmd) {
 			if err := EnsureGoVersion(); err != nil {
-				// Drop the previous run's binaries so a failed run can't be mistaken for one (see staleoutputs.go).
+				// Drop the previous run's binaries so a failed run cannot pass for a good run (see staleoutputs.go).
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
@@ -420,7 +420,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 	ensureBuildDirInGitignore()
 	var artifacts []datsArtifact
 	for _, t := range targets {
-		// The APE carries no platform suffix: one file runs on every host.
+		// The APE carries no platform suffix: the same file runs on every host.
 		outPath := filepath.Join(outputDir, build.BinaryName(t.OutputName, cosmoOS, cosmoFatArch))
 		var buildStep *step
 		if !quiet {

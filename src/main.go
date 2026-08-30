@@ -49,7 +49,7 @@ func main() {
 		cmd.StartUpdateCheck()
 	}
 
-	// The toolchain resolves inside the root command, once cobra knows which one runs -- see skipToolchain.
+	// The toolchain resolves inside the root command, after cobra knows which command runs -- see skipToolchain.
 	err := cmd.Execute()
 	cmd.ReportUpdateCheck()
 	logx.Flush()
