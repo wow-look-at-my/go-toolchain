@@ -246,19 +246,15 @@ coverage.
   reported, so `once` and `One` go and `someone` stays. Directives and generated files are skipped. A WARNING in every module — stale prose must
   not fail a build by itself, and the warnings budget is what turns a repo full of them red. A warning is spent per file:line, so a sentence
   naming several numbers costs one. No opt-out marker. Depth: `docs/VET.md`
-- `src/hostos/` — `hostos.GOOS()`, the host operating system as opposed to `runtime.GOOS` (what the binary was compiled for). Identical for every
-  normal
-  build; for a GOOS=cosmo fat APE — which reports `runtime.GOOS == "cosmo"` on Linux and macOS hosts (Windows runs the embedded native windows
-  payload) — `hostos_cosmo.go` probes once: `syscall.Uname` (raw Linux syscall passes through on Linux hosts; the fork's darwin dispatcher returns
-  ENOSYS — CONFIRMED: the dispatcher has no SYS_UNAME case at all), then filesystem probes (`/System/Library/CoreServices` → darwin, `/proc/self` →
-  linux), defaulting to linux. MEASURED on macos-latest (CI run 31825255540): CoreServices IS readable under dats' seatbelt and outside it, so the
-  answer is `darwin (via coreservices)` in both — seatbelt restricts writes, not reads. The `"linux"` default would be WRONG ON A MAC, so `Detect()`
-  returns the METHOD alongside the answer, a guessed answer prints a one-time banner, and `go-toolchain version host` shows both; the smoke jobs
-  assert it inside the sandbox and outside, so a stricter profile or a changed runner image fails CI instead of silently mis-picking every
-  host-specific choice. `runtime.CosmoHostOS()` (the runtime's own `__hostos` — unsandboxable, cannot ENOSYS) removes the last filesystem dependency:
-  wire it to `hostSignalFunc` when it lands. Consumers: cosmobootstrap (the buildhost os/arch and the fork's `bin/go` suffix), cgoenv (brew
-  pkgconfig), codeql (platform dirs), matrix host symlinks, and the agent output guard's classifier dispatch. `runtime.GOARCH` needs no wrapper — a
-  fat APE always runs the payload matching the host arch
+- `src/hostos/` — `hostos.GOOS()`, the host OS as opposed to `runtime.GOOS` (what the binary was compiled for). A fat APE reports
+  `runtime.GOOS == "cosmo"` on **every** host, Windows included — there is no native windows payload to fall back on, which is how NT silently took
+  the `"linux"` default. The answer comes from `runtime.CosmoHostOS()`, the runtime's own `__hostos`: the APE entry stub records it before any Go
+  code runs and every syscall dispatches on it, so no sandbox can deny it and no target can ENOSYS it. It arrives through the `hostSignalFunc` seam
+  ahead of `syscall.Uname` and the filesystem probes (`/System/Library/CoreServices` → darwin, `/proc/self` → linux), which stay for a host the fork
+  has no port for and end in a `"linux"` GUESS. So `Detect()` returns the METHOD alongside the answer, a guess prints a one-time banner, and
+  `go-toolchain version host` shows both; each smoke job asserts its own host, inside dats' sandbox and outside. Consumers: cosmobootstrap (the
+  buildhost slot and the fork's `bin/go` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host symlinks, and the agent output guard's
+  classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE always runs the payload matching the host arch
 - `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard. Depth:
   `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. Depth: `docs/CI.md`

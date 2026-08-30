@@ -68,8 +68,8 @@ file itself.
 All three run the SAME file, `dist/go-toolchain` — there is one
 artifact now, and each job proves it boots on that host.
 
-**linux** — APE magic `MZqFpD`, then `version`, `--help`, and the FULL default
-pipeline in a tiny module under the APE. The agent-output-guard regression is a
+**linux** — APE magic `MZqFpD`, then `version`, `--help`, host detection, and
+the FULL default pipeline in a tiny module under the APE. The agent-output-guard regression is a
 committed dats fixture
 (`.github/dats-fixtures/smoke-linux-agent-output-guard.dats`), copied into that
 module's `dats/` dir and run automatically by the pipeline's dats phase — not
@@ -118,13 +118,13 @@ cases, just not a sufficient one for any of them.
 
 **The five greens are load-bearing, not incidental:**
 
-- `version host` answers `host: darwin (via coreservices)` inside dats'
-  seatbelt sandbox and outside it, by measurement rather than by the `"linux"`
-  fallback — seatbelt restricts writes, not reads of system paths. So host
-  detection blocks nothing; `runtime.CosmoHostOS()` is an improvement that
-  removes the last filesystem dependency, with `hostSignalFunc` as its
-  one-line seam. Both assertions stay as regression cover, so a stricter
-  sandbox profile or a changed runner image fails CI instead of silently
+- `version host` answers `host: darwin (via runtime)` inside dats' seatbelt
+  sandbox and outside it. `runtime.CosmoHostOS()` reads the runtime's own
+  `__hostos`, which the APE entry stub records before any Go code runs and
+  every syscall dispatches on, so no sandbox can deny it. It landed in the
+  fork and `hostSignalFunc` now carries it, ahead of uname and the filesystem
+  probes; those remain for a host the fork has no port for. Both assertions
+  stay as regression cover, so an unwired seam fails CI instead of silently
   answering "linux" on a Mac.
 - The INOPERATIVE banner fires. It is the only signal a human on that host
   gets while the guard is blind, and dats reports a failing test's unmet
@@ -133,9 +133,16 @@ cases, just not a sufficient one for any of them.
 - `--help` and the two `version` exemptions prove the APE loads and dispatches
   on macOS at all.
 
-**Windows** — `version` and `--help` only: gobootstrap downloads
-`go<version>.<os>-<arch>.tar.gz`, and go.dev serves no windows variant (windows
-archives are `.zip`).
+**Windows** — magic, `version`, `--help`, host detection, and the FULL default
+pipeline in a tiny module under the APE, plus a positive assertion that the
+agent output guard is blind here and SAYS so. The one dimension it cannot match
+is the guard firing: the classifier reads /proc, which NT does not have.
+
+It used to stop at `--help`, on the grounds that gobootstrap downloaded
+`go<version>.<os>-<arch>.tar.gz` and go.dev serves windows archives as `.zip`.
+That path is gone — the fork is the only toolchain and buildhost serves it as a
+tar.gz for every os/arch. So the platform whose payload had been dying in
+package init was also the platform asserting the least.
 
 > **Owner-ruled smoke contract (Windows).** NO workflow-side Go provisioning —
 > no `setup-go`, that bypasses the bootstrap requirement — and no help-flag
@@ -447,6 +454,15 @@ and which host it detects are assertions, so they live in
 .github/dats-fixtures/smoke-linux-agent-output-guard.dats, which the
 pipeline step below runs against this same copy.
 
+### Host detection (outside the sandbox)
+
+The mirror of the same step in smoke-macos and smoke-windows: each
+host pins its own answer, so all three jobs assert the one thing every
+host-specific choice hangs off. This one must say `host: linux`, and
+never GUESSED. Its sandboxed twin is in the dats fixture below --
+worth having both, because the probes' fallback IS "linux", so the
+sandboxed assertion alone could pass here for the wrong reason.
+
 ### GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1
 
 The smoke module is a synthetic consumer WITHOUT the org cache
@@ -506,12 +522,13 @@ Staging only -- the assertions about this artifact live in
 
 One APE runs on several hosts, so everything host-specific it does --
 toolchain archives, brew paths, and the agent output guard's entire
-classifier -- hangs off hostos.Detect(). Its filesystem probes are
-reads of absolute paths, and its fallback is "linux", so a denied probe
-answers "linux" ON A MAC and every dependent decision is silently
-wrong. Assert it here, UNSANDBOXED; the dats fixture below asserts the
-same thing from inside dats' seatbelt sandbox, where the probes may not
-be allowed. Both must say darwin.
+classifier -- hangs off hostos.Detect(). It answers from
+runtime.CosmoHostOS(), which no sandbox can deny; behind that sit the
+uname and filesystem probes, whose fallback is "linux", so a regression
+that unwires the seam answers "linux" ON A MAC and every dependent
+decision is silently wrong. Assert it here, UNSANDBOXED; the dats
+fixture below asserts the same thing from inside dats' seatbelt
+sandbox. Both must say darwin.
 
 This one assertion cannot move into a dats file: dats runs every
 command sandboxed, and only --no-sandbox on the RUN turns that off,
@@ -604,11 +621,19 @@ image drops Go, the red is honest -- escalate to the owner.
 
 The mirror of the same step in smoke-macos. One APE runs on every
 host, and what it detects decides every host-specific choice it
-makes, so each smoke job pins its own answer. A Windows host runs
-the APE's embedded native GOOS=windows payload, which is a
-non-cosmo build, so `Detect()` needs no probe and reports
-`host: windows (via compiled)`. A GUESSED answer here would mean
-the cosmo probe is running on NT and defaulting to linux.
+makes, so each smoke job pins its own answer: `host: windows`,
+and never GUESSED.
+
+This step was red the moment it was added, which is what it is
+for. `runtime.GOOS` is `cosmo` on NT too -- the APE's windows
+payload is a cosmo build, not a native one -- so `Detect()` ran
+the cosmo probe chain, where `syscall.Uname` is ENOSYS and both
+filesystem probes are absent, and returned the `"linux"` default.
+Every host-specific choice was then made for the wrong host: the
+`bin/go.exe` suffix, the buildhost slot the fork downloads from,
+and the guard's classifier dispatch. The cure is
+`runtime.CosmoHostOS()` (see the smoke-macos section above); the
+answer is now `host: windows (via runtime)`.
 
 ### Full pipeline in a tiny module
 
@@ -628,15 +653,25 @@ as a tar.gz for every os/arch, and cosmobootstrap already names
 
 ### Agent output guard is inert on NT
 
-The one dimension Windows cannot match. `inspectStdout` classifies
-stdout through /proc, which NT does not have, so
-claudeguard_other.go returns `sinkVisible` and the guard never
-fires. That is a documented decision, not an accident -- and this
-step asserts it, so the decision is a check rather than prose. A
-bare pipeline run with captured stdout under CLAUDECODE=1 must NOT
-print "refused to run"; when someone teaches inspectStdout to
-classify a Windows handle, this step goes red and asks to be
-turned into the refusal assertion the other two jobs make.
+The one dimension Windows cannot match. The APE is a cosmo build
+everywhere, so claudeguard_proc.go is the classifier on NT too --
+and it reads /proc, which NT does not have. The readlink fails,
+`unclassifiableSink` sees a host that is not linux, and
+`blindClassifierSink` allows the run. That is a documented
+decision, not an accident, and this step asserts both halves of
+it. A bare pipeline run with captured stdout under CLAUDECODE=1
+must NOT print "refused to run"; when someone teaches
+`inspectStdout` to classify a Windows handle, this step goes red
+and asks to be turned into the refusal assertion the other two
+jobs make.
+
+It must also print the INOPERATIVE banner naming `windows`. That
+banner is the only thing a human on this host gets while the guard
+is blind, and dats-style absence assertions cannot catch it going
+missing. It doubles as a second reading of host detection from
+inside the guard: the banner named `linux` here until
+`runtime.CosmoHostOS()` was wired, which is the same defect the
+Host detection step above caught.
 
 ### publish
 

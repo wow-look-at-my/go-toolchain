@@ -184,6 +184,20 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/gt-ape"
           chmod +x "$RUNNER_TEMP/gt-ape"
 
+      # The mirror of the same step in smoke-macos and smoke-windows: each host pins its own answer.... see docs/CI.md
+      - name: Host detection (outside the sandbox)
+        run: |
+          set -euo pipefail
+          got=$("$RUNNER_TEMP/gt-ape" version host)
+          echo "$got"
+          case "$got" in
+            *"host: linux"*) ;;
+            *) echo "::error::the APE detects the wrong host on ubuntu-latest: ${got}"; exit 1 ;;
+          esac
+          case "$got" in
+            *GUESSED*) echo "::error::host detection GUESSED on ubuntu-latest: ${got}"; exit 1 ;;
+          esac
+
       - name: Full pipeline in a tiny module
         env:
           # The smoke module is a synthetic consumer WITHOUT the org cache credentials (no secret-server... see docs/CI.md
@@ -475,6 +489,11 @@ jobs:
           echo "exit: $rc"; echo "stderr:"; cat captured.err
           if grep -q "refused to run" captured.err; then
             echo "::error::the guard fired on windows -- inspectStdout can classify stdout here now, so this job should assert the refusal like the other two"
+            exit 1
+          fi
+          # The banner is the only thing a human on this host gets while the guard is blind, and it names... see docs/CI.md
+          if ! grep -q "INOPERATIVE on this windows host" captured.err; then
+            echo "::error::the guard is blind on windows but did not say so; if it names another host, hostos.GOOS() is wrong here"
             exit 1
           fi
   publish:
