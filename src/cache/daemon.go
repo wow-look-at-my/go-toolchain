@@ -197,3 +197,12 @@ func ProxyToDaemon(sock string) error {
 	<-done
 	return nil
 }
+
+// WebSummary snapshots the remote backend counters (nil with no remote); meaningful after Close.
+func (d *Daemon) WebSummary() *WebSummary {
+	if wb, ok := d.remote.(*WebBackend); ok {
+		ws := wb.SummarySnapshot()
+		return &ws
+	}
+	return nil
+}

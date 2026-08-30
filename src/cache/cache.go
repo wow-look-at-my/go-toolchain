@@ -147,7 +147,7 @@ func wireBatchCallbacks(wb *WebBackend, local LocalStore, sink statsSink) {
 	wb.OnBatchEntries = func(entries []BatchEntry) {
 		var populated uint32
 		// e.Key carries the full cache key; LocalCache keys on the bare action ID, so strip the prefix.
-		keyPrefix := wb.prefix + "v1"
+		keyPrefix := wb.KeyPrefix()
 		for _, e := range entries {
 			if e.OutputID == "" {
 				continue

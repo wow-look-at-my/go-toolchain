@@ -1,7 +1,7 @@
 package cache
 
-// Regression tests for pack-store append/index ordering: racing Puts for the
-// same action must commit index updates in the same order as their appends.
+// Regression tests for pack-store append/index ordering: racing Puts on an
+// action must commit index updates in their append order.
 
 import (
 	"bytes"
@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-containers/set"
 )
 
 // mkPackBody returns (body, outputID-hex) for deterministic pseudo-random
@@ -285,16 +284,15 @@ func TestServer_PutReplaceForgetsStaleWebClaim(t *testing.T) {
 // index claim so a later Put's check-and-claim re-uploads, and the
 // noCloseBackend daemon wrapper forwards the capability.
 func TestWebBackend_ForgetStaleDropsClaim(t *testing.T) {
-	b := &WebBackend{prefix: "go-buildcache/"}
-	b.keys = set.New[string]()
+	b := newBareBackend("go-buildcache/")
 	action := strings.Repeat("d", 64)
-	key := b.key(action)
-	b.keys.Add(key)
-	require.True(t, b.keyKnown(key))
+
+	b.MarkPresent(action)
+	require.True(t, b.Present(action))
 
 	var viaWrapper staleKeyForgetter = &noCloseBackend{b}
 	viaWrapper.ForgetStale(action)
-	require.False(t, b.keyKnown(key),
+	require.False(t, b.Present(action),
 		"ForgetStale (through the daemon wrapper) must drop the stale index claim")
 }
 
@@ -306,7 +304,7 @@ func TestWireBatchCallbacks_PrefetchNeverReplacesLocalEntry(t *testing.T) {
 	require.NoError(t, err)
 	defer local.Close()
 
-	wb := &WebBackend{prefix: "go-buildcache/"}
+	wb := newBareBackend("go-buildcache/")
 	wireBatchCallbacks(wb, local, noopSink{})
 
 	action := strings.Repeat("c", 64)

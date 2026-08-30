@@ -7,7 +7,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/mattn/go-isatty v0.0.24
-	github.com/pierrec/lz4/v4 v4.1.29
+	github.com/pierrec/lz4/v4 v4.1.29 // indirect
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
@@ -114,3 +114,5 @@ replace modernc.org/strutil v1.2.1 => gitlab.com/cznic/strutil v1.2.1
 replace modernc.org/token v1.1.0 => gitlab.com/cznic/token v1.1.0
 
 replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
+
+require github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830052116-6b9b4830492e // go-toolchain:auto-branch

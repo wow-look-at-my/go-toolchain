@@ -66,9 +66,7 @@ func TestWebBackend_GetRefusesModuleIndex(t *testing.T) {
 	primeIndex(b, actionID)
 
 	contains := func() bool {
-		b.keysMu.RLock()
-		defer b.keysMu.RUnlock()
-		return b.keys.Contains(b.key(actionID))
+		return b.Present(actionID)
 	}
 	require.True(t, contains(), "precondition: key is in the index")
 
@@ -113,9 +111,7 @@ func TestWebBackend_PutRefusesModuleIndex(t *testing.T) {
 	require.Equal(t, int64(0), puts.Load(), "no PUT must reach the remote for a module index")
 	require.Equal(t, uint32(0), b.Stats.Puts.Load())
 
-	b.keysMu.RLock()
-	claimed := b.keys.Contains(b.key(actionID))
-	b.keysMu.RUnlock()
+	claimed := b.Present(actionID)
 	require.False(t, claimed, "the index claim must be released so the key is not marked present")
 }
 
@@ -128,7 +124,7 @@ func TestWireBatchCallbacks_SkipsModuleIndex(t *testing.T) {
 	require.NoError(t, err)
 	defer local.Close()
 
-	wb := &WebBackend{prefix: "go-buildcache/"}
+	wb := newBareBackend("go-buildcache/")
 	wireBatchCallbacks(wb, local, noopSink{})
 
 	index := "go index v2\n" + largePayload(64)

@@ -51,7 +51,7 @@ func TestWireBatchCallbacks_SkipsCorruptPrefetch(t *testing.T) {
 	require.NoError(t, err)
 	defer local.Close()
 
-	wb := &WebBackend{prefix: "go-buildcache/"}
+	wb := newBareBackend("go-buildcache/")
 	wireBatchCallbacks(wb, local, noopSink{})
 
 	good := "good prefetch body"
