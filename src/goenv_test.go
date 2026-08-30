@@ -90,9 +90,7 @@ func TestProxyConfig_GosumdbTrailingSlash(t *testing.T) {
 	assert.Equal(t, "mydb+abc+AKey https://proxy.example.com/sumdb/mydb", cfg.gosumdb())
 }
 
-// setHome points os.UserHomeDir() at dir. It reads HOME on unix and
-// USERPROFILE on NT, so a test that sets only the first writes the netrc to
-// the runner's real home and then fails reading its own.
+// setHome points os.UserHomeDir() at dir: NT reads USERPROFILE, unix HOME.
 func setHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)

@@ -98,8 +98,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	// The production spelling: NT gets the .exe suffix, so a hardcoded
-	// "bin/go" matches nothing there.
+	// The production spelling; NT adds .exe.
 	cosmoGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
@@ -161,8 +160,7 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	// The production spelling: NT gets the .exe suffix, so a hardcoded
-	// "bin/go" matches nothing there.
+	// The production spelling; NT adds .exe.
 	cosmoGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
