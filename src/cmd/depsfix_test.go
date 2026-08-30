@@ -12,11 +12,11 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// TestWithGitStderr: WithQuiet() sends git's stderr nowhere, so an exit status
-// was the whole report. "git init failed: exit status 128" on a windows host
-// named neither the repository nor what git objected to.
+// TestWithGitStderr: WithQuiet() sends git's stderr nowhere, so a bare exit
+// status was the whole report -- naming neither the repository git worked in
+// nor its objection, on a windows host where nothing else says why.
 func TestWithGitStderr(t *testing.T) {
-	base := errors.New("exit status 128")
+	base := errors.New("exit status")
 
 	assert.NoError(t, withGitStderr(nil, []byte("not a failure")))
 	assert.Equal(t, base, withGitStderr(base, nil))

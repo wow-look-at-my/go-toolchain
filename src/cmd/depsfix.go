@@ -295,9 +295,7 @@ func runGitQuiet(r runner.CommandRunner, name string, args ...string) error {
 }
 
 // withGitStderr attaches what git said to a failure. WithQuiet() sends stderr
-// nowhere, so an exit status alone reaches the caller and names neither the
-// repository nor git's objection: "git init failed: exit status 128" is the
-// whole report on a host where nothing else says why.
+// nowhere, so a bare exit status was the whole report.
 func withGitStderr(err error, stderr []byte) error {
 	if err == nil {
 		return nil
