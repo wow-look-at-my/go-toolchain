@@ -35,7 +35,7 @@ const fGetPath = 50
 const pathMax = 1024
 
 // unsupportedErrno reports whether errno means "cannot ask this here", not a
-// real negative answer. ENOTSUP and EOPNOTSUPP are the same errno here, so the switch names it just the same way.
+// real negative answer.
 func unsupportedErrno(errno syscall.Errno) bool {
 	switch errno {
 	case syscall.ENOSYS, syscall.EOPNOTSUPP, syscall.ENOPROTOOPT, syscall.EINVAL:

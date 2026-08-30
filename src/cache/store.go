@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"errors"
 	"io"
 	"os"
 
@@ -39,27 +38,24 @@ type fuseStore interface {
 	mountInfo() string
 }
 
-// errFuseUnsupported signals a platform with no FUSE support; NewLocalStore falls back to the loose-file cache silently.
-var errFuseUnsupported = errors.New("FUSE not supported on this platform")
-
-// errFuseBusy signals another process already owns the FUSE mount; the caller falls back to the loose cache silently.
-var errFuseBusy = errors.New("FUSE cache already owned by another process")
-
-// NewLocalStore returns the preferred local cache for dir: a FUSE-backed packed
-// store when the platform supports it and the mount succeeds, otherwise the
-// loose-file LocalCache.
+// NewLocalStore returns the local cache tier for dir.
 //
-// The returned store is always usable. A FUSE failure (missing /dev/fuse, no
-// permission, no fusermount helper, an unsupported platform) degrades to the
-// loose cache rather than failing the build — the cache is an optimization,
-// never a correctness dependency.
+// The loose-file cache is the default, because it is the only tier every
+// go-toolchain binary can open. The packed tier needs a FUSE mount, go-fuse
+// does not compile for GOOS=cosmo, and every shipped binary is a cosmo APE. So
+// a default of packs gave a `go run ./src` build a packs/ store that the
+// installed binary could not read: two disjoint formats under one cacheDir,
+// each flavor starting cold behind the other. GOCACHE_FUSE=1 opts a build into
+// packs, and is only worth setting where every run uses the same binary.
+//
+// The chosen tier is always logged. A build whose cache tier changes under it
+// without a word is how that split went unnoticed.
 func NewLocalStore(dir string) (LocalStore, error) {
 	// Purge stale cache versions before either tier opens, so neither ever serves pre-purge data (see cacheversion.go).
 	EnsureLocalCacheVersion(dir)
 
-	// Escape hatch: force the loose-file cache, skipping FUSE entirely, if a mount misbehaves.
-	if os.Getenv("GOCACHE_NO_FUSE") == "1" {
-		logger.Info("cacheprog: local cache: loose-file (GOCACHE_NO_FUSE=1)")
+	if os.Getenv("GOCACHE_FUSE") != "1" {
+		logger.Info("cacheprog: local cache: loose-file (set GOCACHE_FUSE=1 for the packed tier)")
 		return NewLocalCache(dir)
 	}
 	fc, err := newFuseCache(dir)
@@ -67,8 +63,7 @@ func NewLocalStore(dir string) (LocalStore, error) {
 		logger.Info("cacheprog: local cache: FUSE virtual filesystem (%s)", fc.mountInfo())
 		return fc, nil
 	}
-	if !errors.Is(err, errFuseUnsupported) && !errors.Is(err, errFuseBusy) {
-		logger.Warn("cacheprog: FUSE cache unavailable (%v); using loose-file cache", err)
-	}
+	// Asked for and not delivered: say so, then fall back. The cache is an optimization.
+	logger.Warn("cacheprog: GOCACHE_FUSE=1 but the packed tier is unavailable (%v); using the loose-file cache", err)
 	return NewLocalCache(dir)
 }

@@ -16,7 +16,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -267,14 +266,9 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
-	inDocker := build.InDocker()
 	for _, t := range targets {
-		outputName := t.OutputName
-		if inDocker {
-			// hostos: must mirror the naming in root.go's runBuildPhase.
-			outputName = build.BinaryName(outputName, hostos.GOOS(), runtime.GOARCH)
-		}
-		outPath := filepath.Join(outputDir, outputName)
+		// Must mirror the naming in root.go's runBuildPhase.
+		outPath := filepath.Join(outputDir, build.BinaryName(t.OutputName, cosmoOS, cosmoFatArch))
 		if _, err := os.Stat(outPath); err != nil {
 			return false
 		}

@@ -77,8 +77,8 @@ file itself.
 All three run the SAME file, `dist/go-toolchain` — there is one
 artifact now, and each job proves it boots on that host.
 
-**linux** — APE magic `MZqFpD`, then `version`, `--help`, and the FULL default
-pipeline in a tiny module under the APE. The agent-output-guard regression is a
+**linux** — APE magic `MZqFpD`, then `version`, `--help`, host detection, and
+the FULL default pipeline in a tiny module under the APE. The agent-output-guard regression is a
 committed dats fixture
 (`.github/dats-fixtures/smoke-linux-agent-output-guard.dats`), copied into that
 module's `dats/` dir and run automatically by the pipeline's dats phase — not
@@ -127,13 +127,13 @@ cases, just not a sufficient one for any of them.
 
 **The five greens are load-bearing, not incidental:**
 
-- `version host` answers `host: darwin (via coreservices)` inside dats'
-  seatbelt sandbox and outside it, by measurement rather than by the `"linux"`
-  fallback — seatbelt restricts writes, not reads of system paths. So host
-  detection blocks nothing; `runtime.CosmoHostOS()` is an improvement that
-  removes the last filesystem dependency, with `hostSignalFunc` as its
-  one-line seam. Both assertions stay as regression cover, so a stricter
-  sandbox profile or a changed runner image fails CI instead of silently
+- `version host` answers `host: darwin (via runtime)` inside dats' seatbelt
+  sandbox and outside it. `runtime.CosmoHostOS()` reads the runtime's own
+  `__hostos`, which the APE entry stub records before any Go code runs and
+  every syscall dispatches on, so no sandbox can deny it. It landed in the
+  fork and `hostSignalFunc` now carries it, ahead of uname and the filesystem
+  probes; those remain for a host the fork has no port for. Both assertions
+  stay as regression cover, so an unwired seam fails CI instead of silently
   answering "linux" on a Mac.
 - The INOPERATIVE banner fires. It is the only signal a human on that host
   gets while the guard is blind, and dats reports a failing test's unmet
@@ -142,9 +142,19 @@ cases, just not a sufficient one for any of them.
 - `--help` and the two `version` exemptions prove the APE loads and dispatches
   on macOS at all.
 
-**Windows** — `version` and `--help` only: gobootstrap downloads
-`go<version>.<os>-<arch>.tar.gz`, and go.dev serves no windows variant (windows
-archives are `.zip`).
+**Windows** — magic, `version`, `--help`, host detection, a positive assertion
+that the agent output guard is blind here and SAYS so, and the pipeline running
+as far as the cosmo bootstrap. Two dimensions it cannot match, both fork gaps
+rather than choices: the guard cannot fire (the classifier reads /proc), and the
+pipeline cannot complete (no gosmopolitan windows/amd64 toolchain on buildhost,
+and no DNS from an APE on NT). The step section below pins both, so each goes
+red the day it lifts.
+
+It used to stop at `--help`, on the grounds that gobootstrap downloaded
+`go<version>.<os>-<arch>.tar.gz` and go.dev serves windows archives as `.zip`.
+That reason is gone — the fork is the only toolchain now — but the platform
+whose payload had been dying in package init was still the one asserting the
+least.
 
 > **Owner-ruled smoke contract (Windows).** NO workflow-side Go provisioning —
 > no `setup-go`, that bypasses the bootstrap requirement — and no help-flag
@@ -190,25 +200,95 @@ basename+exec-bit into the destination directory, where the action's `binary`
 input consumes it. The old debug-only `build-profiles` artifact is gone; the
 profile's home is the Step Summary table.
 
-## Vet self-heals against cache-served export-data damage
+## Vet self-heals against export data it cannot read
 
-`src/cmd/exportdataretry.go`. A damaged export-data entry from the shared
-GOCACHEPROG tier makes go/types report `invalid package name: ""` for the
-imported package, followed by a cascade of "redeclared in this block" and
-undefined symbols — in a package the change never touched. It reads exactly
-like a source error, which is why two runs in one session were re-run as flakes
-before the signature was recognized.
+`src/cmd/exportdataretry.go`. The type-check reads each dependency's export
+data — its compiled API — instead of its source. When go/types rejects that
+data, the report is a cascade of "redeclared in this block" and undefined
+symbols in a package the change never touched. It reads exactly like a source
+error, which is why several runs were re-run as flakes before the signature was
+recognized.
 
-`RunTestsWithCoverage` detects it, unsets `GOCACHEPROG` for the rest of the run
-so cmd/go falls back to its own on-disk cache, and retries the vet phase ONCE;
-the damaged packages then rebuild from source. It warns each time it fires,
-naming the packages, so a tier that is systematically serving bad entries shows
-up in logs instead of being absorbed. If the shared tier was not enabled, or the
-retry hits the same failure, the run stops with a message saying it is a corrupt
-cache and giving `go clean -cache`.
+Two different things put it there, and neither is the source in front of you:
 
-Bounded by construction: `disableSharedBuildCache` reports whether it had
-anything to unset, so the retry can happen at most once.
+- A **damaged cache entry**, served by the shared GOCACHEPROG tier or by
+  cmd/go's own on-disk cache.
+- **Export data the importer cannot represent.** The importer is
+  `golang.org/x/tools`, compiled into this binary against the `go/types` of
+  whatever toolchain built it. The gosmopolitan fork is ahead of that toolchain,
+  and its stdlib uses language features the older `go/types` refuses — a generic
+  method (`func (r *Rand) N[Int intType](n Int) Int` in `math/rand/v2`) panics
+  `NewSignatureType` with "function with type parameters cannot have a
+  receiver". No cache is involved: the data is correct and the reader is old.
+
+`go.mod`'s `go 1.27` is the fix for the second one, and it is a floor rather
+than a preference. CI's `actions/setup-go` reads `go-version-file: go.mod`, so
+the directive is what decides which `go/types` gets linked into the binary that
+does the type-checking. Built against go1.26 it fails both ways: the import
+panics as above, and reading the same package's source instead only trades the
+panic for `method must have no type parameters` plus `file requires newer Go
+version go1.27 (application built with go1.26)` across the fork's stdlib. Keep
+this directive at or above the fork's Go version.
+
+There are **two** reports, and which one appears depends on how far the decode
+got before it hit the damage:
+
+- `could not import <pkg> (invalid package name: "")` — the entry's header is
+  unreadable, so the package has no name to report.
+- `could not import <pkg> (reading <cachefile>: internal error in importing
+  "<pkg>" (function with type parameters cannot have a receiver); please report
+  an issue)` — the header decoded, so go/types names the package and then
+  chokes on the type graph inside it. The "please report an issue" wording
+  makes this one read like a toolchain bug rather than a cache problem.
+
+Both are recognized. Matching only the first left the second surfacing as a
+genuine compile error against untouched code (`could not import
+math/rand/v2`), which is not something a reader can act on.
+
+`RunTestsWithCoverage` detects either report and retries the vet phase ONCE
+through `vet.RunFromSource`, which adds `packages.NeedDeps` so every dependency
+type-checks from its own source. That takes no export data as input, so an
+importer cannot be asked to read anything, and it covers both causes at once —
+whereas dropping the shared tier alone leaves cmd/go's on-disk cache and the
+importer exactly where they were. `GOCACHEPROG` is unset for the rest of the run
+alongside it, which rules the shared tier out for the phases that follow. The
+retry costs one source type-check of the dependency graph and only runs after
+the fast path has already failed.
+
+It warns each time it fires, naming the packages **and which of the two
+signatures matched**, so a tier that is systematically serving bad entries shows
+up in logs instead of being absorbed. A retry that hits the same report stops
+the run with a message saying so: since that path read no export data, neither
+`go clean -cache` nor a stale importer explains it.
+
+Bounded by construction: the retry is a single call on the failure path, so it
+can happen at most once.
+
+## A test binary is built for the host, never for cosmo
+
+`runner.Config.WithHostTarget` assigns `GOOS`/`GOARCH` from `hostos.GOOS()` and
+`runtime.GOARCH` on every `go` invocation whose output has to RUN here: the test
+run, the benchmark run, the compile check, and the `go list` calls that choose
+what those cover.
+
+The fork's default `GOOS` is cosmo, and `go test` fork/execs the binary it just
+built. A fat APE bootstraps through a shell header, which `execve` never reads,
+so the kernel rejects it and every package fails identically:
+
+```
+fork/exec /tmp/go-buildNNN/b586/trace.test: exec format error
+FAIL	github.com/wow-look-at-my/go-toolchain/src/trace	0.000s
+```
+
+This is not a hole in the APE-only rule. That rule governs what the pipeline
+SHIPS (`docs/MATRIX.md`); a test binary is a throwaway that must execute on the
+machine that built it. The compiler is still the fork either way.
+
+Known gap: the up-to-date fast exit (`src/cmd/uptodate.go`) fingerprints the
+file list `go list` reports, and that list is per-GOOS. Vet reads the cosmo
+variant while the tests read the host variant, so a file excluded from the one
+`go list` it runs does not bust the fingerprint. Picking a variant is not the
+fix — the fingerprint has to cover both.
 
 ## Tidy self-heals against cache-served module-index damage
 
@@ -254,11 +334,12 @@ authenticate and fails loudly -- this is what wires the feature up.
 
 ### env
 
-build/ in THIS job is the host-built native linux/amd64 binary from
-`go run ./src` above -- never the cosmo APE -- so executing it here is
-safe (APEs self-assimilate on exec; the APE artifacts are built in
-the `build` job and only ever executed as throwaway copies in the
-smoke jobs below).
+build/ in THIS job is the fat APE, because the fork is the only compiler
+and every build emits one. Executing it here is safe because the step is
+a shell: the APE bootstraps through a shell header, and only a raw
+`execve` -- what `go run` and `go test` do to what they build -- cannot
+read it. The APE never rewrites its own file, so the copy onto
+`/usr/local/bin` needs no ordering dance.
 
 ### GITHUB_TOKEN: ${{ github.token }}
 
@@ -385,6 +466,15 @@ and which host it detects are assertions, so they live in
 .github/dats-fixtures/smoke-linux-agent-output-guard.dats, which the
 pipeline step below runs against this same copy.
 
+### Host detection (outside the sandbox)
+
+The mirror of the same step in smoke-macos and smoke-windows: each
+host pins its own answer, so all three jobs assert the one thing every
+host-specific choice hangs off. This one must say `host: linux`, and
+never GUESSED. Its sandboxed twin is in the dats fixture below --
+worth having both, because the probes' fallback IS "linux", so the
+sandboxed assertion alone could pass here for the wrong reason.
+
 ### GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1
 
 The smoke module is a synthetic consumer WITHOUT the org cache
@@ -444,12 +534,13 @@ Staging only -- the assertions about this artifact live in
 
 One APE runs on several hosts, so everything host-specific it does --
 toolchain archives, brew paths, and the agent output guard's entire
-classifier -- hangs off hostos.Detect(). Its filesystem probes are
-reads of absolute paths, and its fallback is "linux", so a denied probe
-answers "linux" ON A MAC and every dependent decision is silently
-wrong. Assert it here, UNSANDBOXED; the dats fixture below asserts the
-same thing from inside dats' seatbelt sandbox, where the probes may not
-be allowed. Both must say darwin.
+classifier -- hangs off hostos.Detect(). It answers from
+runtime.CosmoHostOS(), which no sandbox can deny; behind that sit the
+uname and filesystem probes, whose fallback is "linux", so a regression
+that unwires the seam answers "linux" ON A MAC and every dependent
+decision is silently wrong. Assert it here, UNSANDBOXED; the dats
+fixture below asserts the same thing from inside dats' seatbelt
+sandbox. Both must say darwin.
 
 This one assertion cannot move into a dats file: dats runs every
 command sandboxed, and only --no-sandbox on the RUN turns that off,
@@ -515,7 +606,10 @@ These assertions stay in the workflow because dats cannot run here:
 its sandbox backends are bwrap, sandbox-exec and docker, and
 windows-latest has none, so a suite would fail before its first
 command. Linux and macOS assert the same properties from
-.github/dats-fixtures/*.dats.
+.github/dats-fixtures/*.dats. Where the suite is the only
+difference the assertions are still made, step by step, below --
+this job covers the same ground as the other two apart from the
+guard, which NT genuinely cannot classify.
 
 ### [ "$(head -c 6 dist/go-toolchain)" = "MZqFpD" ]
 
@@ -535,12 +629,81 @@ in this job (no setup-go -- that bypasses the bootstrap
 requirement); do NOT exempt commands from the bootstrap. If the
 image drops Go, the red is honest -- escalate to the owner.
 
-### publish
+### Host detection
 
-The full pipeline is deliberately NOT run on Windows: gobootstrap
-downloads go<version>.<os>-<arch>.tar.gz, which go.dev does not
-serve for windows (windows archives are .zip) -- a pre-existing
-bootstrap gap independent of the APE migration.
+The mirror of the same step in smoke-macos. One APE runs on every
+host, and what it detects decides every host-specific choice it
+makes, so each smoke job pins its own answer: `host: windows`,
+and never GUESSED.
+
+This step was red the moment it was added, which is what it is
+for. `runtime.GOOS` is `cosmo` on NT too -- the APE's windows
+payload is a cosmo build, not a native one -- so `Detect()` ran
+the cosmo probe chain, where `syscall.Uname` is ENOSYS and both
+filesystem probes are absent, and returned the `"linux"` default.
+Every host-specific choice was then made for the wrong host: the
+`bin/go.exe` suffix, the buildhost slot the fork downloads from,
+and the guard's classifier dispatch. The cure is
+`runtime.CosmoHostOS()` (see the smoke-macos section above); the
+answer is now `host: windows (via runtime)`.
+
+### The pipeline reaches the cosmo bootstrap and names its blocker
+
+smoke-linux and smoke-macos drive a synthetic consumer through the
+whole pipeline, proving the shipped APE can tidy, vet, test and
+build a real module on that platform. NT cannot do that today, for
+two gaps that both live in the fork, not here:
+
+1. **buildhost carries no gosmopolitan windows/amd64 toolchain.**
+   The publish job builds `linux/amd64` and `darwin/arm64`, each on
+   its own runner, because distpack packages what a HOST build
+   produced. Every other slot is a 404, so cosmobootstrap has
+   nothing to download for an NT host.
+2. **The APE cannot resolve DNS on an NT host.** `lookup
+   dl.pazer.build on [::1]:53: i/o timeout` -- `[::1]:53` is
+   netgo's fallback nameserver when `/etc/resolv.conf` cannot be
+   read, so the resolver never asks Windows and never reaches a
+   real nameserver. The fork's own PLATFORM-STATUS.md lists
+   off-host networking and DNS from NT as missing, and its
+   DEBUGGING.md carries this as a hypothesis; the log line above is
+   the confirmation.
+
+So the step asserts the reachable half: the pipeline runs, gets as
+far as the cosmo bootstrap, and fails there naming one of exactly
+those two blockers. A run that SUCCEEDS is red, and says to replace
+this step with the assertion the other two jobs make. A failure
+before the bootstrap is red. A bootstrap failure with any third
+signature is red -- otherwise a real regression would hide behind a
+gap we already know about.
+
+An earlier revision of this job did assert the full pipeline, on
+the belief that buildhost serves the fork for every os/arch. It
+does not. That claim was never checked, and the step could not
+have passed.
+
+### Agent output guard is inert on NT
+
+The one dimension Windows cannot match. The APE is a cosmo build
+everywhere, so claudeguard_proc.go is the classifier on NT too --
+and it reads /proc, which NT does not have. The readlink fails,
+`unclassifiableSink` sees a host that is not linux, and
+`blindClassifierSink` allows the run. That is a documented
+decision, not an accident, and this step asserts both halves of
+it. A bare pipeline run with captured stdout under CLAUDECODE=1
+must NOT print "refused to run"; when someone teaches
+`inspectStdout` to classify a Windows handle, this step goes red
+and asks to be turned into the refusal assertion the other two
+jobs make.
+
+It must also print the INOPERATIVE banner naming `windows`. That
+banner is the only thing a human on this host gets while the guard
+is blind, and dats-style absence assertions cannot catch it going
+missing. It doubles as a second reading of host detection from
+inside the guard: the banner named `linux` here until
+`runtime.CosmoHostOS()` was wired, which is the same defect the
+Host detection step above caught.
+
+### publish
 
 The single publish path. Gated on the cross-OS smoke jobs above so a build
 whose APE cannot actually run on linux/macOS/Windows is never released.

@@ -273,19 +273,6 @@ func (s *PackStore) ReadAt(loc packLoc, dest []byte, off int64) (int, error) {
 	return f.ReadAt(dest, loc.dataOff+off)
 }
 
-// fdForRead returns the pack fd and absolute offset for a body-relative read
-// of loc, so FUSE can serve it without a copy; the fd stays valid for the store's life.
-func (s *PackStore) fdForRead(loc packLoc, off int64) (fd uintptr, absOff, avail int64) {
-	if off < 0 || off >= loc.dataLen {
-		return 0, 0, 0
-	}
-	f := s.pack(loc.packID)
-	if f == nil {
-		return 0, 0, 0
-	}
-	return f.Fd(), loc.dataOff + off, loc.dataLen - off
-}
-
 // ReadAll returns the full body at loc.
 func (s *PackStore) ReadAll(loc packLoc) ([]byte, error) {
 	// dataLen is normally sane (scanned + validated, or a slice len); guard anyway against a corrupt/overflowing make().
