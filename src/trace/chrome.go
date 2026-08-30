@@ -160,7 +160,9 @@ func WriteChrome(path string, timeline []summary.TimelineEntry, trace *Trace) er
 		return nil
 	}
 
-	os.MkdirAll(filepath.Dir(path), 0o755)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err

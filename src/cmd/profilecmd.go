@@ -120,6 +120,7 @@ func cacheTotalsFromStats(ss *cache.ServerStats) *profile.CacheTotals {
 	}
 	if ss.Batch != nil {
 		ct.Prefetched = ss.Batch.Populated.Load()
+		ct.PrefetchUsed = ss.Batch.Used.Load()
 	}
 	return ct
 }

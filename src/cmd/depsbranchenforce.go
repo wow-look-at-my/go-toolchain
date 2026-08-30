@@ -11,13 +11,13 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-// orgModulePrefixes are module-path prefixes whose deps must be branch-tracked, not version-pinned.
-var orgModulePrefixes = []string{"github.com/wow-look-at-my/"}
+// OrgModulePrefixes are module-path prefixes whose deps must be branch-tracked, not version-pinned.
+var OrgModulePrefixes = []string{"github.com/wow-look-at-my/"}
 
 // isOrgModule reports whether a module path belongs to an org whose
 // dependencies must be branch-tracked.
 func isOrgModule(path string) bool {
-	for _, prefix := range orgModulePrefixes {
+	for _, prefix := range OrgModulePrefixes {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}

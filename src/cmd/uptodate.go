@@ -23,7 +23,11 @@ import (
 // fingerprintFile returns the path where the last-successful-run fingerprint is stored.
 func fingerprintFile() string {
 	dir := filepath.Join(os.TempDir(), "go-toolchain-fingerprint")
-	os.MkdirAll(dir, 0o755)
+	// Best effort, but never silent: the lost fast exit is correct and slow,
+	// and it should arrive with its cause.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logger.Warn("cannot store the up-to-date fingerprint in %s (%v); every run will redo the pipeline", dir, err)
+	}
 	wd, _ := os.Getwd()
 	h := sha256.Sum256([]byte(wd))
 	return filepath.Join(dir, hex.EncodeToString(h[:])+".sha256")
