@@ -154,6 +154,90 @@ jobs:
           # The cosmo target additionally downloads + extracts the gosmopolitan toolchain and... see docs/CI.md
           timeout: '15'
 
+      # This host's APE, for the identical job to compare the other hosts against. see docs/CI.md
+      - name: Hand off this host's APE
+        uses: wow-look-at-my/actions@cache-upload#latest
+        with:
+          name: ape-linux
+          path: build/go-toolchain
+
+  # The hosts build ran on none of, building the same source so identical can compare them. see docs/CI.md
+  build-elsewhere:
+    needs: host-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - origin: darwin
+            runner: macos-latest
+          - origin: windows
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          cache: false
+
+      - name: Download host binary
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: host-go-toolchain
+          path: build
+
+      - uses: ./
+        with:
+          binary: build/go-toolchain
+          autorelease: 'false'
+          timeout: '20'
+
+      - name: Hand off this host's APE
+        uses: wow-look-at-my/actions@cache-upload#latest
+        with:
+          name: ape-${{ matrix.origin }}
+          path: build/go-toolchain
+
+  # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
+  identical:
+    needs: [build, build-elsewhere]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download each host's APE
+        uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-linux
+          path: ape/linux
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-darwin
+          path: ape/darwin
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-windows
+          path: ape/windows
+
+      - name: Every host built the same bytes
+        run: |
+          set -uo pipefail
+          for o in linux darwin windows; do
+            if [ ! -f "ape/$o/go-toolchain" ]; then
+              echo "::error::$o handed off no APE, so identity across hosts is untested, not proven"
+              exit 1
+            fi
+          done
+          sha256sum ape/*/go-toolchain
+          rc=0
+          for o in darwin windows; do
+            cmp -s ape/linux/go-toolchain "ape/$o/go-toolchain" || {
+              echo "::error::the $o build differs from the linux build: the APE is one binary for every host, so every host has to produce it. Compare with cmp -l; the build-ID notes are what -trimpath and -ldflags=-buildid= exist to close (docs/MATRIX.md)"
+              rc=1
+            }
+          done
+          exit $rc
+
   # Cross-OS smoke of the actual release artifacts: download the build-output hand-off the... see docs/CI.md
   smoke-linux:
     needs: build
@@ -500,7 +584,7 @@ jobs:
             exit 1
           fi
   publish:
-    needs: [smoke-linux, smoke-macos, smoke-windows]
+    needs: [identical, smoke-linux, smoke-macos, smoke-windows]
     runs-on: ubuntu-latest
     permissions:
       id-token: write

@@ -53,6 +53,32 @@ matching the per-platform grammar. That last check is the one that stays honest
 over time — a stray `<name>_<os>_<arch>` file would silently restore the
 N-downloads-of-one-binary shape without failing anything else.
 
+## build-elsewhere and identical
+
+`build` runs on ubuntu, and the three smoke jobs run THAT one binary on linux,
+macOS and Windows. So the smoke jobs answer "does ubuntu's APE run everywhere",
+which is only the same question as "does what we ship run everywhere" if every
+host builds the same bytes. Nothing checked that, and until `-trimpath` and
+`-ldflags=-buildid=` landed nothing could: the checkout path and the toolchain's
+own content ID both reached the build-ID notes. See
+[MATRIX.md](MATRIX.md) for the measurements and what each flag closes.
+
+`build-elsewhere` runs the same composite action on macOS and Windows —
+`fail-fast: false`, so one host failing still reports the other. Each of the
+three hands its `build/go-toolchain` off under `ape-<origin>`, and `identical`
+downloads all three and compares them against the linux one.
+
+A missing hand-off fails rather than passing on the survivors: comparing the
+hosts that answered would report green for a property no host was checked on.
+`publish` needs `identical`, so a build that is not reproducible never ships.
+
+**Windows is red until the fork publishes for it.** The APE cannot complete an
+HTTPS request on an NT host, so it cannot download the toolchain, and buildhost
+serves no `gosmopolitan` windows/amd64 at master. Both are fixed by
+gosmopolitan's crypt32 root-store work and its windows publish leg; this job
+goes green when that merges. It is the same blocker smoke-windows already
+reports, not a new one.
+
 ## The three smoke jobs
 
 Each is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
