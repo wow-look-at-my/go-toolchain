@@ -127,23 +127,23 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			}
 			filesChanged = false
 			err = nil
-		} else if isCorruptExportData(err) {
-			// A corrupt build-cache entry, not a source error. Retry: drop
-			// the shared cache tier and rebuild from source, only if it was in play.
-			if !disableSharedBuildCache() {
-				return false, nil, corruptExportDataError(err, false)
-			}
-			logger.Warn("⇒ Warning: vet failed on CORRUPT BUILD CACHE data (%s), not on your source: %s. Disabling the shared build cache (GOCACHEPROG) for the rest of this run and rebuilding those packages from source. Repeated occurrences mean the shared cache tier is serving damaged entries and needs inspecting.",
-				corruptExportSignature(err), strings.Join(corruptExportPackages(err), ", "))
+		} else if isUnreadableExportData(err) {
+			// A dependency's compiled API did not decode, which says nothing
+			// about this source. The retry reads every dependency's source
+			// instead, so no importer is in the path at all; dropping the
+			// shared cache tier alongside it rules that out too.
+			disableSharedBuildCache()
+			logger.Warn("⇒ Warning: vet could not read the compiler's export data (%s) for %s -- that is a dependency's compiled API, not your source. Retrying with every dependency type-checked from source, and with the shared build cache (GOCACHEPROG) off for the rest of this run. A damaged cache entry and export data newer than this binary's importer both land here.",
+				exportDataSignature(err), strings.Join(unreadableExportPackages(err), ", "))
 			if vetPhaseStep != nil {
 				vetPhaseStep.done()
 				vetPhaseStep = nil
 			}
-			vetPhaseStep = logSubStep("vet: retry without the shared build cache", "main")
-			filesChanged, err = vet.RunWithProgress(fix, vetProgress)
+			vetPhaseStep = logSubStep("vet: retry against dependency source", "main")
+			filesChanged, err = vet.RunFromSource(fix, vetProgress)
 			if err != nil {
-				if isCorruptExportData(err) {
-					return false, nil, corruptExportDataError(err, true)
+				if isUnreadableExportData(err) {
+					return false, nil, unreadableExportDataError(err)
 				}
 				return false, nil, fmt.Errorf("vet failed: %w", err)
 			}

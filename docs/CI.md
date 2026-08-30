@@ -181,13 +181,26 @@ basename+exec-bit into the destination directory, where the action's `binary`
 input consumes it. The old debug-only `build-profiles` artifact is gone; the
 profile's home is the Step Summary table.
 
-## Vet self-heals against cache-served export-data damage
+## Vet self-heals against export data it cannot read
 
-`src/cmd/exportdataretry.go`. A damaged export-data entry from the shared
-GOCACHEPROG tier makes go/types reject the imported package, followed by a
-cascade of "redeclared in this block" and undefined symbols — in a package the
-change never touched. It reads exactly like a source error, which is why two
-runs in one session were re-run as flakes before the signature was recognized.
+`src/cmd/exportdataretry.go`. The type-check reads each dependency's export
+data — its compiled API — instead of its source. When go/types rejects that
+data, the report is a cascade of "redeclared in this block" and undefined
+symbols in a package the change never touched. It reads exactly like a source
+error, which is why several runs were re-run as flakes before the signature was
+recognized.
+
+Two different things put it there, and neither is the source in front of you:
+
+- A **damaged cache entry**, served by the shared GOCACHEPROG tier or by
+  cmd/go's own on-disk cache.
+- **Export data the importer cannot represent.** The importer is
+  `golang.org/x/tools`, compiled into this binary against the `go/types` of
+  whatever toolchain built it. The gosmopolitan fork is ahead of that toolchain,
+  and its stdlib uses language features the older `go/types` refuses — a generic
+  method (`func (r *Rand) N[Int intType](n Int) Int` in `math/rand/v2`) panics
+  `NewSignatureType` with "function with type parameters cannot have a
+  receiver". No cache is involved: the data is correct and the reader is old.
 
 There are **two** reports, and which one appears depends on how far the decode
 got before it hit the damage:
@@ -200,22 +213,28 @@ got before it hit the damage:
   chokes on the type graph inside it. The "please report an issue" wording
   makes this one read like a toolchain bug rather than a cache problem.
 
-Both mean the same thing and take the same cure, so both are recognized.
-Matching only the first left the second surfacing as a genuine compile error
-against untouched code (`could not import math/rand/v2`), which is not
-something a reader can act on.
+Both are recognized. Matching only the first left the second surfacing as a
+genuine compile error against untouched code (`could not import
+math/rand/v2`), which is not something a reader can act on.
 
-`RunTestsWithCoverage` detects it, unsets `GOCACHEPROG` for the rest of the run
-so cmd/go falls back to its own on-disk cache, and retries the vet phase ONCE;
-the damaged packages then rebuild from source. It warns each time it fires,
-naming the packages **and which of the two signatures matched**, so a tier that
-is systematically serving bad entries shows up in logs instead of being
-absorbed. If the shared tier was not enabled, or the
-retry hits the same failure, the run stops with a message saying it is a corrupt
-cache and giving `go clean -cache`.
+`RunTestsWithCoverage` detects either report and retries the vet phase ONCE
+through `vet.RunFromSource`, which adds `packages.NeedDeps` so every dependency
+type-checks from its own source. That takes no export data as input, so an
+importer cannot be asked to read anything, and it covers both causes at once —
+whereas dropping the shared tier alone leaves cmd/go's on-disk cache and the
+importer exactly where they were. `GOCACHEPROG` is unset for the rest of the run
+alongside it, which rules the shared tier out for the phases that follow. The
+retry costs one source type-check of the dependency graph and only runs after
+the fast path has already failed.
 
-Bounded by construction: `disableSharedBuildCache` reports whether it had
-anything to unset, so the retry can happen at most once.
+It warns each time it fires, naming the packages **and which of the two
+signatures matched**, so a tier that is systematically serving bad entries shows
+up in logs instead of being absorbed. A retry that hits the same report stops
+the run with a message saying so: since that path read no export data, neither
+`go clean -cache` nor a stale importer explains it.
+
+Bounded by construction: the retry is a single call on the failure path, so it
+can happen at most once.
 
 ## Tidy self-heals against cache-served module-index damage
 
