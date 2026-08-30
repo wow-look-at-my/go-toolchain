@@ -57,6 +57,9 @@ func createHostSymlinks(targets []build.Target, outDir string) error {
 	return nil
 }
 
+// reproducibleLDFlags empties the linked binary's Go build ID. Depth: docs/MATRIX.md.
+const reproducibleLDFlags = "-buildid="
+
 // checkPortableJob allows only the fat APE and wasm, only through the fork.
 // It sits at the sole chokepoint that compiles anything, so a call site that
 // invents a target fails here instead of shipping a native binary.
@@ -98,9 +101,12 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if onFirstOutput != nil {
 		args = append(args, "-v") // print packages as they are compiled
 	}
+	// Ours goes last: the linker reads the final spelling, so a caller's flags cannot drop it.
+	ldflags := reproducibleLDFlags
 	if job.ldflags != "" {
-		args = append(args, "-ldflags", job.ldflags)
+		ldflags = job.ldflags + " " + ldflags
 	}
+	args = append(args, "-ldflags", ldflags)
 	// -o is the temp spelling; the commit below is what makes the target exist.
 	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
 	forkGoBin := cosmoGoBinPath(job.forkGoroot)

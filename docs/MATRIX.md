@@ -85,6 +85,25 @@ toolchain:
 (cosmopolitan has no cgo; `--cgo` warns and is ignored for this target) and
 without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
 
+**Reproducible across build hosts.** Every build passes `-trimpath` and
+`-ldflags=-buildid=`, so the same source compiles to the same bytes wherever it
+is built. Two inputs vary between runners and each flag closes one. `-trimpath`
+drops the paths: where the source was checked out, and where the toolchain was
+installed. `-ldflags=-buildid=` empties the linked binary's Go build ID, which
+is the only channel the toolchain's own identity reaches the output through —
+each host builds the fork itself, so its tools are different files with
+different content IDs, and cmd/go derives the tool ID from that content.
+
+Measured on the fork, same source: two checkout paths differ by 200 bytes
+without `-trimpath`, and a differing tool ID differs by about 160 bytes with
+`-trimpath` alone. Both are the Go build-ID note and the GNU build-ID note, one
+pair per payload — never code. With both flags the builds are byte-identical.
+
+The cost is that `go tool buildid` on a shipped artifact returns empty. Only
+the final link is affected: a cached package archive keeps the stamp the cache
+poison guards read, so [CACHE.md](CACHE.md) is untouched. Action IDs still
+differ per host, so this buys identical bytes and never a cross-host cache hit.
+
 **Cache isolation.** Fork-toolchain builds (cosmo and wasm) run with their
 cache keys namespaced by a content hash of the toolchain in use
 (`GO_TOOLCHAIN_CACHE_NAMESPACE`, set automatically). The fork stamps a constant
@@ -94,12 +113,15 @@ shared cache daemon and cache per-toolchain. Every build is a fork build, so
 every build is namespaced. See
 [CACHE.md](CACHE.md#fork-toolchain-key-namespacing).
 
-**Heads-up: APEs self-assimilate.** Executing an APE rewrites its own header
-in place to the host's native format, making the file differ from its
-checksum. Never execute the artifacts in `build/` directly — that includes the
-local `<name>_host` convenience symlink, which points at the APE. Run a
-throwaway copy instead. The build
-pipeline itself never executes matrix artifacts in place (the dats phase stages
-copies; benchmarks compile their own test binaries), so artifacts stay pristine
-through the build.
+**An APE keeps its bytes when it runs.** The kernel cannot exec the file as it
+stands, so the bootstrap stages a copy under `$TMPDIR` and writes the host's
+native header into THAT. The artifact keeps its checksum, which is what makes
+comparing one host's APE against another's meaningful at all. Measured: running
+a built APE twice leaves its sha256 unchanged. Depth: gosmopolitan's
+`docs/APE-STAGING.md`.
+
+That staging needs a SHELL to read the header, and `execve` alone cannot. A
+direct exec works only where binfmt_misc carries an `APE` entry, which
+registering needs root; macOS has no such mechanism. So a runner reaches an APE
+through a shell, and nothing may assume a bare `exec` of one succeeds.
 

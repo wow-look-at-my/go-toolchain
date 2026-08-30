@@ -94,10 +94,11 @@ func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
 }
 
 // The APE claims to run on every host, and that claim is honest only if every
-// host builds the same bytes. The checkout path is what differs between
-// runners: without -trimpath it reaches the build IDs, the hosts disagree, and
-// no host can verify another's APE.
-func TestRunBuildTrimsThePath(t *testing.T) {
+// host builds the same bytes. What differs between runners is where the source
+// is checked out and which fork build compiled it. Both reach the output
+// through the build-ID notes, and each flag closes its own channel, so a build
+// missing either still leaves the hosts disagreeing.
+func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
 	for _, job := range []buildJob{wasmJob(t, tmpOut(t)), cosmoJob(t, tmpOut(t))} {
 		t.Run(job.goos, func(t *testing.T) {
 			mock := runner.NewMock()
@@ -111,8 +112,35 @@ func TestRunBuildTrimsThePath(t *testing.T) {
 			require.Len(t, calls, 1)
 			assert.Contains(t, calls[0].Args, "-trimpath",
 				"every build goes through runBuild, so a target missing -trimpath ships a binary carrying the path it was built at")
+			assert.Contains(t, calls[0].Args, reproducibleLDFlags,
+				"without an emptied build ID the note records which fork build compiled this, and no two hosts share one")
 		})
 	}
+}
+
+// An explicit ldflags survives, and the reproducibility flag still wins:
+// dropping it silently would give up cross-host identity without saying so.
+func TestRunBuildKeepsCallerLDFlagsAndStillEmptiesTheBuildID(t *testing.T) {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
+	job := cosmoJob(t, tmpOut(t))
+	job.ldflags = "-X main.version=test"
+
+	require.NoError(t, runBuild(mock, job, nil))
+	calls := mock.Calls()
+	require.Len(t, calls, 1)
+
+	var got string
+	for i, arg := range calls[0].Args {
+		if arg == "-ldflags" && i+1 < len(calls[0].Args) {
+			got = calls[0].Args[i+1]
+		}
+	}
+	assert.Equal(t, "-X main.version=test "+reproducibleLDFlags, got,
+		"the caller's flags survive and the build-ID flag comes last, where the linker reads it as authoritative")
 }
 
 func TestRunBuild(t *testing.T) {
