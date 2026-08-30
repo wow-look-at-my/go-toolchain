@@ -5,11 +5,13 @@
 # pipeline just built. It is READ-ONLY inside the sandbox (it lives under the
 # working directory), and the binary under test may be an APE, whose loader
 # rewrites its own file on first exec and exits 121 from a read-only path. So
-# every test copies it to `{outputs.gt}` and execs that copy, and a test
-# needing a directory to work in makes `{outputs.mod}`.
+# setup copies it once to `{shared.gt}` and every test execs that copy; a test
+# needing a directory to work in makes its own `{outputs.mod}`.
 #
-# Scratch space is ALWAYS `{outputs.X}`, never `mktemp -d`. Only dats' own
-# per-test directory is writable under every backend. `mktemp -d` lands in the
+# Scratch space is ALWAYS a dats placeholder, never `mktemp -d`. `{shared.X}`
+# is the only namespace that expands in a setup command, and it expands in test
+# commands too, so one copy serves both. Only dats' own directories are
+# writable under every backend. `mktemp -d` lands in the
 # ambient temp directory, which bwrap tolerates because it privatizes the whole
 # /tmp namespace -- and which seatbelt, macOS's backend, denies: `mkdtemp
 # failed ... Operation not permitted`, leaving $d empty so every command runs
@@ -42,7 +44,7 @@ setup:
 	# `version raw` is the cheapest invocation — no Go bootstrap, no update
 	# check, no network.
 	- test -x "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"
-	- 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}version raw'
+	- 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {shared.gt}; {shared.gt} version raw'
 
 tests:
 	# The only test here that reaches the staleness footer, whose commit queries
@@ -50,7 +52,7 @@ tests:
 	# client timeout each, spent inside the second-build wall-clock budget
 	# host-build enforces. Unreachable base = the offline footer, instantly.
 	- desc: version reports the build stamp
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}version'
+	  cmd: '{shared.gt} version'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -69,7 +71,7 @@ tests:
 	# agree -- an agent is exactly who runs this suite, and the guard firing on
 	# version made that pair unsatisfiable.
 	- desc: version is exempt from the agent output guard
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}version raw'
+	  cmd: '{shared.gt} version raw'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -90,7 +92,7 @@ tests:
 	# there are no targets to delete, so this stays a pure guard assertion —
 	# the deletion itself is asserted by the next test.
 	- desc: agent output guard refuses a captured pipeline run
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; {outputs.gt}'
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt}'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -110,7 +112,7 @@ tests:
 	# and say so, while leaving non-binary outputs alone. A throwaway module
 	# with a planted binary: the guard aborts long before anything is compiled.
 	- desc: agent output guard deletes the module's build outputs
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {outputs.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {shared.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -126,7 +128,7 @@ tests:
 			- "have been DELETED"
 
 	- desc: root help prints usage
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}--help'
+	  cmd: '{shared.gt} --help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -144,7 +146,7 @@ tests:
 	# (locally the warning goes to stderr; in GitHub Actions it becomes a
 	# ::warning annotation on stdout).
 	- desc: update check is silent when buildhost is unreachable
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}--help'
+	  cmd: '{shared.gt} --help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -158,7 +160,7 @@ tests:
 			- "out of date"
 
 	- desc: subcommand help
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}{matrix.sub} --help'
+	  cmd: '{shared.gt} {matrix.sub} --help'
 	  timeout: 60s
 	  matrix:
 		sub: [matrix, bench, lint, release, version]
@@ -179,7 +181,7 @@ tests:
 	# stays stable. If logx's threshold ever drops low enough for this line to
 	# get timed, this assertion is the first thing that goes red.
 	- desc: unknown flag is rejected
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; {outputs.gt} --definitely-not-a-flag'
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt} --definitely-not-a-flag'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -195,7 +197,7 @@ tests:
 			stderr: true
 
 	- desc: unknown subcommand is rejected
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}definitely-not-a-subcommand'
+	  cmd: '{shared.gt} definitely-not-a-subcommand'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -213,7 +215,7 @@ tests:
 	# each host reports is pinned per host by the three smoke jobs, and this
 	# suite runs on all three -- naming one here would fail on the other two.
 	- desc: host detection is a runtime measurement, never the fallback guess
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}version host'
+	  cmd: '{shared.gt} version host'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -228,7 +230,7 @@ tests:
 	# promise: the platform-set flag exists with the documented default, and no
 	# --os/--arch flag exists to silently reintroduce a cartesian product.
 	- desc: matrix --help documents the single-APE default
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}matrix --help'
+	  cmd: '{shared.gt} matrix --help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -255,7 +257,7 @@ tests:
 	# ancestry outranks the env marker, so running this suite from inside a
 	# different agent's session would legitimately name that agent instead.
 	- desc: agent output guard refuses a captured pipeline run under {matrix.marker}
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; env {matrix.marker}=1 {outputs.gt}'
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; env {matrix.marker}=1 {shared.gt}'
 	  exit: 1
 	  timeout: 60s
 	  matrix:
@@ -271,7 +273,7 @@ tests:
 
 	# version answers under every agent, not only Claude.
 	- desc: version answers under {matrix.marker}
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; env {matrix.marker}=1 {outputs.gt}version raw'
+	  cmd: 'env {matrix.marker}=1 {shared.gt} version raw'
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -292,7 +294,7 @@ tests:
 	# inside a command dats is already sandboxing, and nested bwrap is not a
 	# thing worth depending on for coverage the unit tests already give.
 	- desc: no module and no suites names both halves
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; mkdir -p {outputs.mod}; cd {outputs.mod}; {outputs.gt}'
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt}'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -322,7 +324,7 @@ tests:
 	# a toolchain is fetched to build one (the fork download would blow the
 	# timeout and mask what is being asserted).
 	- desc: --targets refuses a native platform
-	  cmd: 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {outputs.gt}; {outputs.gt}matrix --targets {matrix.target}'
+	  cmd: '{shared.gt} matrix --targets {matrix.target}'
 	  exit: 1
 	  timeout: 30s
 	  matrix:
