@@ -44,6 +44,8 @@ type CacheTotals struct {
 	RemotePuts uint32 `json:"remote_puts"`
 	Misses     uint32 `json:"misses"`
 	Prefetched uint32 `json:"prefetched"`
+	// PrefetchUsed is the part of Prefetched a later local hit actually read.
+	PrefetchUsed uint32 `json:"prefetch_used"`
 }
 
 // Report is the build profile serialized to build/profile.json and

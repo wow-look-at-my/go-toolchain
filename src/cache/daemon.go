@@ -37,6 +37,7 @@ type Daemon struct {
 	path      string
 	wg        sync.WaitGroup
 	batch     BatchStats   // shared batch stats, reported to parent
+	prefetch  *prefetchSet // shared with every per-connection Server (see Server.prefetchedKeys)
 	latency   LatencyStats // web-op latencies of the shared WebBackend (wired a single time)
 	statsMu   sync.Mutex
 	statsConn net.Conn // persistent connection to parent's stats socket
@@ -58,6 +59,7 @@ func NewDaemon(sockPath string, local LocalStore, remote IBackend) (*Daemon, err
 		remote:   remote,
 		listener: ln,
 		path:     sockPath,
+		prefetch: newPrefetchSet(),
 	}
 	if remote != nil {
 		d.wrapped = &noCloseBackend{remote}
@@ -90,6 +92,8 @@ func (d *Daemon) recordBatchPop(n uint32) {
 	d.sendStat(StatEvent{BatchPop: n})
 }
 
+func (d *Daemon) prefetched() *prefetchSet { return d.prefetch }
+
 func (d *Daemon) sendStat(ev StatEvent) {
 	if d.statsConn == nil {
 		return
@@ -119,6 +123,8 @@ func (d *Daemon) handleConn(conn net.Conn) {
 	defer conn.Close()
 	// Own Server per connection; the no-close wrapper protects the shared backend.
 	srv := NewServer(d.local, d.wrapped)
+	// The batch callback is wired on the daemon, so its records land there.
+	srv.prefetchedKeys = d.prefetch
 	srv.Run(conn, conn)
 }
 
@@ -195,5 +201,14 @@ func ProxyToDaemon(sock string) error {
 
 	// Wait for the stdout→ side to finish (daemon closed or sent all data).
 	<-done
+	return nil
+}
+
+// WebSummary snapshots the remote backend counters (nil with no remote); meaningful after Close.
+func (d *Daemon) WebSummary() *WebSummary {
+	if wb, ok := d.remote.(*WebBackend); ok {
+		ws := wb.SummarySnapshot()
+		return &ws
+	}
 	return nil
 }

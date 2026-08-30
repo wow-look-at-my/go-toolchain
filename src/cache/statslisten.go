@@ -78,6 +78,12 @@ func (sl *StatsListener) SetHasRemote() {
 	sl.hasRemote.Store(true)
 }
 
+// SetHasBatch marks batch prefetch as active, so Stats() includes the Batch
+// field even before any prefetch event arrives.
+func (sl *StatsListener) SetHasBatch() {
+	sl.hasBatch.Store(true)
+}
+
 // NewStatsListener creates a unix socket and starts accepting connections.
 func NewStatsListener(path string) (*StatsListener, error) {
 	os.Remove(path)
@@ -136,6 +142,10 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 		if ev.BatchPop > 0 {
 			sl.hasBatch.Store(true)
 			sl.batch.Populated.Add(ev.BatchPop)
+		}
+		if ev.BatchUse > 0 {
+			sl.hasBatch.Store(true)
+			sl.batch.Used.Add(ev.BatchUse)
 		}
 		if ev.Latency != nil {
 			sl.latency.Merge(*ev.Latency)

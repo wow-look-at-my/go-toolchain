@@ -1,22 +1,12 @@
 package cache
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
-
-// Leading bytes of a Go module index blob; the version-less prefix matches every index format (v1, v2, future vN).
-const goModuleIndexMagic = "go index v"
-
-// Module index blobs are unverifiable and catastrophic if mis-keyed, so
-// every tier refuses them on GET as well as PUT, never on PUT alone.
-func isGoModuleIndex(body []byte) bool {
-	return bytes.HasPrefix(body, []byte(goModuleIndexMagic))
-}
 
 // sinkIndexBody writes a refused module-index body to this Server's scratch
 // sink and returns the file's path.

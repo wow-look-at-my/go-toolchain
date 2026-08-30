@@ -28,7 +28,13 @@ func (s *Server) handleGet(req Request) Response {
 
 	cacheLog := logger.WithSubsystem("cache")
 	if !miss {
-		s.sendStat(withAction(StatEvent{LocalHit: 1}, req.ActionID, "get", "hit-local", meta.Size, time.Since(start)))
+		ev := StatEvent{LocalHit: 1}
+		// The hit is local because a batch GET put the entry here.
+		if s.prefetchedKeys.take(actionID) {
+			s.batch.Used.Increment()
+			ev.BatchUse = 1
+		}
+		s.sendStat(withAction(ev, req.ActionID, "get", "hit-local", meta.Size, time.Since(start)))
 		cacheLog.Debug("HIT local  %s output=%s size=%d", actionID, shortID(meta.OutputID), meta.Size)
 		t := meta.Time
 		return Response{
