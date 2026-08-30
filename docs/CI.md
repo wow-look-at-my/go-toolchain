@@ -153,13 +153,17 @@ Windows is the harder case, and its numbers are measured rather than inferred.
 On run 33310462278 `src/vet` reported 30.166s and `src/cache` 30.353s against
 that 30s clock, while the same binaries take 17-20s and 9-13s on linux; the
 whole test phase spent 395.99s there against roughly 30s locally, at `0%
-cache-satisfied`. The per-test durations the progress printer reports on a
-timed-out binary are an artifact — every paused `t.Parallel` test is charged the
-whole 30s — so read the panic's own `running tests:` list instead. That list is
-the only honest per-test measurement Windows gives, and it is what found the
-`src/cache` hog described below. Both other packages showed a single test
-one second in, so their time really is spread flat, and two attempts at
-intra-package parallelism failed and were reverted:
+cache-satisfied`. Reading that log takes care. A duration the progress printer
+prints against a test in a timed-out binary is an artifact whenever it reads
+30.00s: every paused `t.Parallel` test is charged the whole budget. What IS
+honest is a printed duration below the budget, from a test that finished, and
+the panic's own `running tests:` list, which names what was in flight when the
+alarm went. Take the hogs from the former and the tail from the latter; a
+`running tests:` list naming a single test one second in says only that the
+binary was past its hogs, never that its time is spread flat. Both hogs found
+so far — `src/cache`'s pack pair and `src/vet`'s canonicalize pair — came from
+the finished-test durations. Two attempts at intra-package parallelism failed
+and were reverted:
 
 - Marking every `src/cache` test that neither chdirs nor calls `t.Setenv`
   broke because `setTempDir` and `setHome` mutate the process environment
@@ -191,7 +195,26 @@ Every pair now races into the same store and the rescan happens at the end,
 which is what a real store looks like anyway; the pair count, and so the
 sensitivity, is unchanged. On linux each dropped to 0.10s and `test run
 src/cache` went 8.2s → 6.8s, and the Windows saving is the larger one because
-the cost removed was the filesystem's.
+the cost removed was the filesystem's. Run 33313766810 confirmed it: `src/cache`
+passed at 23.7s, and its pack pair had spent 7.66s and 7.29s of that.
+
+`src/vet` had the same shape. On that run `TestVetSemanticFixHoistsInitLegally`
+took 12.52s and `TestVetSemanticFixKeepsDocCommentQuotesAndAlignment` 7.19s,
+against 2.45s and 1.40s on linux, while the next slowest test in the binary was
+4.41s. Each wrote its own module and ran the whole fixer over it, and a fixer
+run spends a `go mod tidy` and a package load — a process apiece, which is what
+that runner charges most for. They now share one module with a file each, run
+the fixer once, and assert as subtests; the `go vet` that proves the rewrite
+compiles now covers both files. Same fixtures, same assertions, 2.05s on linux
+against 3.85s for the pair.
+
+`src/cmd` is the one left, and it is genuinely spread: no single test stands out,
+but the `TestRunReleaseWithRunner*` family is about fifteen tests at 1-4s each on
+Windows against roughly 0.5s on linux. Each drives a full mocked release over a
+throwaway module, and the fixed cost per call — the git spawns behind
+`injectMemLimitGuard` and `checkDirtyInCI`, the package load, the filesystem
+walk — is what multiplies. A shared fixture there is the same move that worked
+twice above, and nobody has made it yet.
 
 Should someone pick up the isolation work anyway, for its own sake:
 `src/cache` needs its shared state named before the rest runs in parallel.
