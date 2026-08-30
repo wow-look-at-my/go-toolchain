@@ -140,7 +140,7 @@ func TestPlatformFor(t *testing.T) {
 }
 
 // Both take the target GOOS as an argument, but they join with filepath, whose
-// separator is the HOST's. The slash form is what stays readable on all three.
+// separator is the HOST's. The slash form reads the same on every host.
 func TestExtractorPathFor(t *testing.T) {
 	p, err := extractorPathFor("/opt/codeql/go", "windows")
 	require.NoError(t, err)
