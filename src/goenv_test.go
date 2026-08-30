@@ -4,10 +4,12 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/cmd"
 )
 
 func TestEnsureDirectFallback(t *testing.T) {
@@ -166,8 +168,8 @@ func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 	// Trailing ",direct" is upgraded to "|direct" so 503s fall through.
 	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "mydb+abc123 https://proxy.example.com/sumdb/mydb", os.Getenv("GOSUMDB"))
-	assert.Empty(t, os.Getenv("GONOSUMDB"))
-	assert.Empty(t, os.Getenv("GONOSUMCHECK"))
+	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMDB"))
+	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMCHECK"))
 }
 
 func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
@@ -184,8 +186,8 @@ func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
 
 	assert.Equal(t, "https://proxy.example.com|direct", os.Getenv("GOPROXY"))
 	assert.Equal(t, "mydb+abc123+AKeyHere https://proxy.example.com/sumdb/mydb", os.Getenv("GOSUMDB"))
-	assert.Empty(t, os.Getenv("GONOSUMDB"))
-	assert.Empty(t, os.Getenv("GONOSUMCHECK"))
+	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMDB"))
+	assert.Equal(t, "github.com/wow-look-at-my/*", os.Getenv("GONOSUMCHECK"))
 
 	// Netrc should be written.
 	content, err := os.ReadFile(filepath.Join(home, ".netrc"))
@@ -294,4 +296,26 @@ func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
 	assert.Equal(t, "*", os.Getenv("GONOSUMDB"))
 	assert.Equal(t, "*", os.Getenv("GONOSUMCHECK"))
 	assert.Empty(t, os.Getenv("GOSUMDB"), "never set to the public database")
+}
+
+// A checksum database holds public modules only, so a lookup of an org module
+// is answered 404 and the build dies in `go mod tidy`. Every org prefix must
+// therefore be exempt whenever a database is configured.
+func TestConfigureGoEnvExemptsOrgModulesFromSumDB(t *testing.T) {
+	t.Setenv("GO_PROXY_CONFIG", "")
+	t.Setenv("GOPROXY", "https://proxy.example.com")
+	t.Setenv("GOSUMDB", "mydb+abc123 https://proxy.example.com/sumdb/mydb")
+	t.Setenv("GONOSUMDB", "")
+	t.Setenv("GONOSUMCHECK", "")
+
+	configureGoEnv()
+
+	for _, prefix := range cmd.OrgModulePrefixes {
+		assert.Contains(t, os.Getenv("GONOSUMDB"), strings.TrimSuffix(prefix, "/")+"/*")
+		assert.Contains(t, os.Getenv("GONOSUMCHECK"), strings.TrimSuffix(prefix, "/")+"/*")
+	}
+	// The exemption is per prefix: everything else stays verified.
+	assert.NotEqual(t, "*", os.Getenv("GONOSUMDB"))
+	// GOPRIVATE would take the module off the proxy as well, which is not wanted.
+	assert.Empty(t, os.Getenv("GOPRIVATE"))
 }
