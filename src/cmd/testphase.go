@@ -178,9 +178,11 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep = logStep("Running tests with coverage")
 	}
 
-	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.
-	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
-	os.MkdirAll(coverDir, 0o755)
+	// The pid keeps mock-runner tests, which write and delete this file, apart.
+	coverDir, err := coverageDir()
+	if err != nil {
+		return false, nil, err
+	}
 	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
 	defer os.Remove(coverFile)
 
@@ -369,4 +371,19 @@ func runDuplicateCheck() {
 		}
 	}
 	logger.Info("")
+}
+
+// coverageDir creates the directory the coverage profile is written into and
+// returns it as an absolute path. os.TempDir can answer a relative path, and
+// the go subprocess resolves that against its own working directory.
+func coverageDir() (string, error) {
+	root, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return "", fmt.Errorf("resolve temp dir %q: %w", os.TempDir(), err)
+	}
+	dir := filepath.Join(root, "go-toolchain-cov")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create coverage directory %s: %w", dir, err)
+	}
+	return dir, nil
 }
