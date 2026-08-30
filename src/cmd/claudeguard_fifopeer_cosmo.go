@@ -8,9 +8,11 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strconv"
+	"time"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
@@ -18,18 +20,29 @@ import (
 const (
 	lsofBin         = "/usr/sbin/lsof"
 	maxAncestorHops = 64
+
+	// peerProbeBudget caps the whole walk: expiry reports "not identified", which classifyDarwinFD refuses on.
+	peerProbeBudget = 5 * time.Second
 )
 
 // fifoPeerOnDarwinHost returns the ancestor pid holding the other end of the
 // FIFO at fd, by matching lsof pipe handles. supported is always true.
 func fifoPeerOnDarwinHost(fd uintptr) (pid int, identified, supported bool) {
-	_, peer, ok := lsofFDPipe(os.Getpid(), int(fd))
+	ctx, cancel := context.WithTimeout(context.Background(), peerProbeBudget)
+	defer cancel()
+
+	_, peer, ok := lsofFDPipe(ctx, os.Getpid(), int(fd))
 	if !ok {
 		return 0, false, true
 	}
 	var ancestors []int
 	p := os.Getppid()
 	for hops := 0; p > 1 && hops < maxAncestorHops; hops++ {
+		// A hop's own timeout bounds a single ps, never the chain, so the
+		// walk checks the budget itself.
+		if ctx.Err() != nil {
+			return 0, false, true
+		}
 		ancestors = append(ancestors, p)
 		_, ppid, ok := agent.CommPPID(p)
 		if !ok {
@@ -40,7 +53,7 @@ func fifoPeerOnDarwinHost(fd uintptr) (pid int, identified, supported bool) {
 	if len(ancestors) == 0 {
 		return 0, false, true
 	}
-	handles := lsofPIDsPipeHandles(ancestors)
+	handles := lsofPIDsPipeHandles(ctx, ancestors)
 	for _, a := range ancestors {
 		if _, ok := handles[a][peer]; ok {
 			return a, true, true
@@ -49,8 +62,16 @@ func fifoPeerOnDarwinHost(fd uintptr) (pid int, identified, supported bool) {
 	return 0, false, true
 }
 
-func lsofFDPipe(pid, fd int) (handle, peer uint64, ok bool) {
-	out, err := exec.Command(lsofBin, "-w", "-nP",
+// lsofCommand bounds an lsof invocation by ctx. Killing the child still leaves
+// Wait blocked, which is what WaitDelay covers.
+func lsofCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, lsofBin, args...)
+	cmd.WaitDelay = time.Second
+	return cmd
+}
+
+func lsofFDPipe(ctx context.Context, pid, fd int) (handle, peer uint64, ok bool) {
+	out, err := lsofCommand(ctx, "-w", "-nP",
 		"-a", "-p", strconv.Itoa(pid), "-d", strconv.Itoa(fd),
 		"-F", "pftnd").Output()
 	if err != nil {
@@ -67,12 +88,12 @@ func lsofFDPipe(pid, fd int) (handle, peer uint64, ok bool) {
 	return 0, 0, false
 }
 
-func lsofPIDsPipeHandles(pids []int) map[int]map[uint64]uint64 {
+func lsofPIDsPipeHandles(ctx context.Context, pids []int) map[int]map[uint64]uint64 {
 	if len(pids) == 0 {
 		return nil
 	}
 	args := []string{"-w", "-nP", "-F", "pftnd", "-p", joinPids(pids)}
-	out, err := exec.Command(lsofBin, args...).Output()
+	out, err := lsofCommand(ctx, args...).Output()
 	if err != nil {
 		return nil
 	}

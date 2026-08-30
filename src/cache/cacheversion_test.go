@@ -41,6 +41,7 @@ func requireStampIs(t *testing.T, root string, version int) {
 // mnt/ (a possibly-mounted FUSE mountpoint), the lock file, unknown names —
 // survives untouched.
 func TestEnsureLocalCacheVersion_PurgesUnstampedRoot(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	populateCacheRoot(t, root)
 
@@ -64,6 +65,7 @@ func TestEnsureLocalCacheVersion_PurgesUnstampedRoot(t *testing.T) {
 
 // An unparseable stamp counts as the earliest version and purges too.
 func TestEnsureLocalCacheVersion_PurgesUnparseableStamp(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	populateCacheRoot(t, root)
 	require.NoError(t, os.WriteFile(filepath.Join(root, localCacheVersionFile), []byte("garbage"), 0o644))
@@ -78,6 +80,7 @@ func TestEnsureLocalCacheVersion_PurgesUnparseableStamp(t *testing.T) {
 // A root already stamped with the current version is left completely alone: a
 // sentinel planted inside the packs dir survives.
 func TestEnsureLocalCacheVersion_CurrentStampDeletesNothing(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	populateCacheRoot(t, root)
 	sentinel := filepath.Join(root, "packs", "pack-000001.data")
@@ -96,6 +99,7 @@ func TestEnsureLocalCacheVersion_CurrentStampDeletesNothing(t *testing.T) {
 
 // A fresh, empty root is stamped without error (nothing to purge).
 func TestEnsureLocalCacheVersion_FreshRootStampedSilently(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	EnsureLocalCacheVersion(root)
@@ -106,6 +110,7 @@ func TestEnsureLocalCacheVersion_FreshRootStampedSilently(t *testing.T) {
 // A missing root dir is created (the constructors create it moments later
 // anyway; the stamp needs it now).
 func TestEnsureLocalCacheVersion_CreatesMissingRoot(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join(t.TempDir(), "not", "yet", "created")
 
 	EnsureLocalCacheVersion(root)
@@ -116,6 +121,7 @@ func TestEnsureLocalCacheVersion_CreatesMissingRoot(t *testing.T) {
 // Idempotence: the run after a purge sees the current stamp and re-stored data
 // stays put.
 func TestEnsureLocalCacheVersion_SecondRunKeepsNewData(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	populateCacheRoot(t, root)
 	EnsureLocalCacheVersion(root)
@@ -132,6 +138,7 @@ func TestEnsureLocalCacheVersion_SecondRunKeepsNewData(t *testing.T) {
 }
 
 func TestIsLooseBucketName(t *testing.T) {
+	t.Parallel()
 	require.True(t, isLooseBucketName("00"))
 	require.True(t, isLooseBucketName("ab"))
 	require.True(t, isLooseBucketName("ff"))

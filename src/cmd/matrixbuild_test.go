@@ -26,6 +26,16 @@ func wasmJob(t *testing.T, outputPath string) buildJob {
 	}
 }
 
+// cosmoJob is the fat-APE counterpart of wasmJob: the shipped target, whose
+// bytes every host has to agree on.
+func cosmoJob(t *testing.T, outputPath string) buildJob {
+	t.Helper()
+	job := wasmJob(t, outputPath)
+	job.goos = cosmoOS
+	job.goarch = ""
+	return job
+}
+
 // tmpOut names a build output in a fresh directory.
 func tmpOut(t *testing.T) string {
 	t.Helper()
@@ -60,6 +70,77 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 	err := runBuild(mock, job, nil)
 	assert.Nil(t, err)
 	assert.FileExists(t, job.outputPath, "the commit moved the build onto the target name")
+}
+
+// The compiler is a file on disk, and on a windows host that file is go.exe.
+// runBuild is where everything compiles, so a path spelled without the suffix
+// fails to exec every build on that host.
+func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
+	oldHost := cosmoHostPlatformFunc
+	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
+	t.Cleanup(func() { cosmoHostPlatformFunc = oldHost })
+
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
+	job := wasmJob(t, tmpOut(t))
+
+	require.NoError(t, runBuild(mock, job, nil))
+	calls := mock.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, filepath.Join(job.forkGoroot, "bin", "go.exe"), calls[0].Name)
+}
+
+// The APE claims to run on every host, and that claim is honest only if every
+// host builds the same bytes. What differs between runners is where the source
+// is checked out and which fork build compiled it. Both reach the output
+// through the build-ID notes, and each flag closes its own channel, so a build
+// missing either still leaves the hosts disagreeing.
+func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
+	for _, job := range []buildJob{wasmJob(t, tmpOut(t)), cosmoJob(t, tmpOut(t))} {
+		t.Run(job.goos, func(t *testing.T) {
+			mock := runner.NewMock()
+			mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+				writeMockBuildOutput(cfg, "bin")
+				return runner.MockProcess(nil, nil), nil
+			}
+
+			require.NoError(t, runBuild(mock, job, nil))
+			calls := mock.Calls()
+			require.Len(t, calls, 1)
+			assert.Contains(t, calls[0].Args, "-trimpath",
+				"every build goes through runBuild, so a target missing -trimpath ships a binary carrying the path it was built at")
+			assert.Contains(t, calls[0].Args, reproducibleLDFlags,
+				"without an emptied build ID the note records which fork build compiled this, and no two hosts share one")
+		})
+	}
+}
+
+// An explicit ldflags survives, and the reproducibility flag still wins:
+// dropping it silently would give up cross-host identity without saying so.
+func TestRunBuildKeepsCallerLDFlagsAndStillEmptiesTheBuildID(t *testing.T) {
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
+	job := cosmoJob(t, tmpOut(t))
+	job.ldflags = "-X main.version=test"
+
+	require.NoError(t, runBuild(mock, job, nil))
+	calls := mock.Calls()
+	require.Len(t, calls, 1)
+
+	var got string
+	for i, arg := range calls[0].Args {
+		if arg == "-ldflags" && i+1 < len(calls[0].Args) {
+			got = calls[0].Args[i+1]
+		}
+	}
+	assert.Equal(t, "-X main.version=test "+reproducibleLDFlags, got,
+		"the caller's flags survive and the build-ID flag comes last, where the linker reads it as authoritative")
 }
 
 func TestRunBuild(t *testing.T) {

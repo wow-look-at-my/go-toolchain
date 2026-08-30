@@ -13,6 +13,7 @@ import (
 )
 
 func TestCompressDecompress_RoundTrip(t *testing.T) {
+	t.Parallel()
 	data := []byte("hello world, this is test data for compression")
 
 	compressed, err := compressData(data)
@@ -25,6 +26,7 @@ func TestCompressDecompress_RoundTrip(t *testing.T) {
 }
 
 func TestCompressDecompress_Empty(t *testing.T) {
+	t.Parallel()
 	compressed, err := compressData([]byte{})
 	require.NoError(t, err)
 
@@ -34,6 +36,7 @@ func TestCompressDecompress_Empty(t *testing.T) {
 }
 
 func TestCompressDecompress_Large(t *testing.T) {
+	t.Parallel()
 	data := make([]byte, 100000)
 	for i := range data {
 		data[i] = byte(i % 256)
@@ -48,12 +51,14 @@ func TestCompressDecompress_Large(t *testing.T) {
 }
 
 func TestNewWebBackend_EmptyBucket(t *testing.T) {
+	t.Parallel()
 	b, err := NewWebBackend(WebConfig{})
 	require.NoError(t, err)
 	require.Nil(t, b)
 }
 
 func TestNewWebBackend_MissingEndpoint(t *testing.T) {
+	t.Parallel()
 	_, err := NewWebBackend(WebConfig{Bucket: "test"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "endpoint is required")
@@ -68,6 +73,7 @@ func TestNewWebBackend_MissingCredentials(t *testing.T) {
 }
 
 func TestNewWebBackend_DefaultPrefix(t *testing.T) {
+	t.Parallel()
 	b, err := NewWebBackend(WebConfig{
 		Bucket: "test", Endpoint: "http://localhost",
 		AccessKey: "key", SecretKey: "secret",
@@ -77,6 +83,7 @@ func TestNewWebBackend_DefaultPrefix(t *testing.T) {
 }
 
 func TestNewWebBackend_CustomPrefix(t *testing.T) {
+	t.Parallel()
 	b, err := NewWebBackend(WebConfig{
 		Bucket: "test", Endpoint: "http://localhost", Prefix: "custom",
 		AccessKey: "key", SecretKey: "secret",
@@ -86,6 +93,7 @@ func TestNewWebBackend_CustomPrefix(t *testing.T) {
 }
 
 func TestNewWebBackend_PrefixWithSlash(t *testing.T) {
+	t.Parallel()
 	b, err := NewWebBackend(WebConfig{
 		Bucket: "test", Endpoint: "http://localhost", Prefix: "already/",
 		AccessKey: "key", SecretKey: "secret",
@@ -95,21 +103,25 @@ func TestNewWebBackend_PrefixWithSlash(t *testing.T) {
 }
 
 func TestWebBackend_Key(t *testing.T) {
+	t.Parallel()
 	b := &WebBackend{prefix: "my-prefix/"}
 	require.Equal(t, "my-prefix/v1abcdef", b.key("abcdef"))
 }
 
 func TestWebBackend_URL(t *testing.T) {
+	t.Parallel()
 	b := &WebBackend{endpoint: "https://s3.example.com", bucket: "mybucket"}
 	require.Equal(t, "https://s3.example.com/mybucket/go-buildcache/v1abc", b.url("go-buildcache/v1abc"))
 }
 
 func TestWebBackend_Close(t *testing.T) {
+	t.Parallel()
 	b := &WebBackend{}
 	require.NoError(t, b.Close())
 }
 
 func TestWebBackend_GetStats(t *testing.T) {
+	t.Parallel()
 	b := &WebBackend{}
 	b.Stats.Hits.Store(5)
 	b.Stats.Puts.Store(3)
@@ -119,6 +131,7 @@ func TestWebBackend_GetStats(t *testing.T) {
 }
 
 func TestSignRequest_BasicAuth(t *testing.T) {
+	t.Parallel()
 	b := &WebBackend{
 		accessKey: "AKID",
 		secretKey: "secret",
@@ -135,6 +148,7 @@ func TestSignRequest_BasicAuth(t *testing.T) {
 }
 
 func TestNewWebBackend_EndpointSchemeNormalization(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		endpoint string
@@ -158,6 +172,7 @@ func TestNewWebBackend_EndpointSchemeNormalization(t *testing.T) {
 }
 
 func TestDetectObjectType(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		data []byte
@@ -183,6 +198,7 @@ func TestDetectObjectType(t *testing.T) {
 }
 
 func TestParseArchiveHeader(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		data       []byte

@@ -51,7 +51,7 @@ func storeRoundTrip(t *testing.T) {
 	require.NotNil(t, store.StatsPtr())
 }
 
-// The default tier must be the one EVERY binary can open: go-fuse is compiled
+// The default tier must be openable by EVERY binary: go-fuse is compiled
 // out under cosmo, so a packed default splits the cache between flavors. The
 // host running this test CAN mount, which is exactly why it needs a guard.
 func TestNewLocalStore_DefaultTierIsPortable(t *testing.T) {

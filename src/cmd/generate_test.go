@@ -468,6 +468,7 @@ func TestExpandGenerateVars(t *testing.T) {
 }
 
 func TestExecuteDirectivePreservesMetachars(t *testing.T) {
+	requireShebangHelper(t)
 	dir := t.TempDir()
 
 	helper := filepath.Join(dir, "dump-args")

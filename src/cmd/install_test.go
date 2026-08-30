@@ -73,10 +73,8 @@ func TestRunInstallImplSymlink(t *testing.T) {
 	// os.Executable() returns the test binary; check it symlinks to the right target.
 	tmpDir := t.TempDir()
 
-	// Override HOME so it installs to our temp dir
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Install into the temp dir rather than the real home
+	setHome(t, tmpDir)
 
 	// Ensure .local/bin will be created inside tmpDir
 	installCopy = false
@@ -98,9 +96,7 @@ func TestRunInstallImplSymlink(t *testing.T) {
 func TestRunInstallImplCopy(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	installCopy = true
 	defer func() { installCopy = false }()
@@ -121,9 +117,7 @@ func TestRunInstallImplCopy(t *testing.T) {
 func TestRunInstallImplReplacesExisting(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	installCopy = false
 	defer func() { installCopy = false }()
@@ -169,9 +163,7 @@ func TestFileHashMissing(t *testing.T) {
 
 func TestInstallStatusNotInstalled(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	status := installStatus()
 	assert.Contains(t, status, "not installed")
@@ -179,9 +171,7 @@ func TestInstallStatusNotInstalled(t *testing.T) {
 
 func TestInstallStatusSymlinkCurrent(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	// Install via symlink, before the copy variant below
 	installCopy = false
@@ -194,9 +184,7 @@ func TestInstallStatusSymlinkCurrent(t *testing.T) {
 
 func TestInstallStatusSymlinkElsewhere(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	binDir := filepath.Join(tmpDir, ".local", "bin")
 	os.MkdirAll(binDir, 0755)
@@ -208,9 +196,7 @@ func TestInstallStatusSymlinkElsewhere(t *testing.T) {
 
 func TestInstallStatusCopyCurrent(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	// Install via copy
 	installCopy = true
@@ -223,9 +209,7 @@ func TestInstallStatusCopyCurrent(t *testing.T) {
 
 func TestInstallStatusCopyOutdated(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	// Write a different file at the install path
 	binDir := filepath.Join(tmpDir, ".local", "bin")

@@ -56,38 +56,47 @@ func TestColorConstants(t *testing.T) {
 	assert.Equal(t, colorGreen, colorPass)
 }
 
+// drainPipe reads r to EOF in the background. A read that starts only after
+// the writer returns deadlocks on a full pipe, and NT pipes are small.
+func drainPipe(r io.Reader) <-chan string {
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+	return done
+}
+
 // captureStdout runs f with stdout captured and returns the output.
 func captureStdout(f func()) string {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+	done := drainPipe(r)
 
 	f()
 
 	w.Close()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
 	os.Stdout = old
-	return buf.String()
+	return <-done
 }
 
-// captureCombinedOutput runs f with stdout and stderr merged into a single stream.
-// Use it when a message may route to either, depending on environment (e.g.
-// logger.Warn: stderr locally, a ::warning annotation on stdout in CI).
+// captureCombinedOutput runs f with stdout and stderr merged. logger.Warn
+// routes to stderr locally and to a ::warning on stdout in CI.
 func captureCombinedOutput(f func()) string {
 	oldOut, oldErr := os.Stdout, os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 	os.Stderr = w
+	done := drainPipe(r)
 
 	f()
 
 	w.Close()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
 	os.Stdout = oldOut
 	os.Stderr = oldErr
-	return buf.String()
+	return <-done
 }
 
 func TestLogStepSilent(t *testing.T) {

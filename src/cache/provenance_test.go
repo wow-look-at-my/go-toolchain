@@ -96,6 +96,7 @@ func provenanceArchive(action string) []byte {
 }
 
 func TestProvenanceArchive_Decodes(t *testing.T) {
+	t.Parallel()
 	_, action := provenanceAction()
 	raw := provenanceArchive(action)
 	require.Equal(t, "example.com/provpkg", parseImportPath(raw))
@@ -225,6 +226,7 @@ func TestPutProvenance_SinglePutHeaders(t *testing.T) {
 }
 
 func TestCapSrcList(t *testing.T) {
+	t.Parallel()
 	// Under both caps: unchanged.
 	require.Equal(t, "a.go b.go", capSrcList([]string{"a.go", "b.go"}))
 	require.Equal(t, "", capSrcList(nil))

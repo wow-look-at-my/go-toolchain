@@ -136,6 +136,7 @@ func TestWebBackend_RetriesTransientThenRecovers(t *testing.T) {
 // local tier must keep serving exactly what was stored, and a GET for a
 // never-stored key must miss — never a spurious hit or empty/garbage body.
 func TestServer_RemoteOutageServesLocalCorrectly(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway) // a gateway error for index, batch get, get, put
 	}))
@@ -230,6 +231,7 @@ func TestWebBackend_PutRetriesTransient503ThenSucceeds(t *testing.T) {
 
 // TestParseRetryAfter covers the Retry-After header parsing helper.
 func TestParseRetryAfter(t *testing.T) {
+	t.Parallel()
 	mk := func(v string) *http.Response {
 		r := &http.Response{Header: http.Header{}}
 		if v != "" {
@@ -248,6 +250,7 @@ func TestParseRetryAfter(t *testing.T) {
 
 // sanity: the batch request shape is unchanged by the resilience wrapper.
 func TestBatchGetRequest_JSONShape(t *testing.T) {
+	t.Parallel()
 	data, err := json.Marshal(batchGetRequest{Keys: []string{"a", "b"}, Prefetch: true})
 	require.NoError(t, err)
 	require.JSONEq(t, `{"keys":["a","b"],"prefetch":true}`, string(data))

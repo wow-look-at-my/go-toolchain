@@ -153,6 +153,9 @@ go-toolchain version raw
 # Print version info as JSON
 go-toolchain version json
 
+# Print the gosmopolitan release this host would build against
+go-toolchain version cosmo
+
 # Create a GitHub release with checksums
 go-toolchain release --tag v1.0.0
 ```

@@ -90,9 +90,16 @@ func TestProxyConfig_GosumdbTrailingSlash(t *testing.T) {
 	assert.Equal(t, "mydb+abc+AKey https://proxy.example.com/sumdb/mydb", cfg.gosumdb())
 }
 
+// setHome points os.UserHomeDir() at dir: NT reads USERPROFILE, unix HOME.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 func TestWriteNetrc_CreatesFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	writeNetrc("proxy.example.com", "alice", "secret")
 
 	content, err := os.ReadFile(filepath.Join(home, ".netrc"))
@@ -102,7 +109,7 @@ func TestWriteNetrc_CreatesFile(t *testing.T) {
 
 func TestWriteNetrc_SkipsDuplicate(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	netrcPath := filepath.Join(home, ".netrc")
 	os.WriteFile(netrcPath, []byte("machine proxy.example.com login alice password secret\n"), 0600)
 
@@ -116,7 +123,7 @@ func TestWriteNetrc_SkipsDuplicate(t *testing.T) {
 
 func TestWriteNetrc_EmptyCredentials(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	writeNetrc("proxy.example.com", "", "secret")
 	writeNetrc("proxy.example.com", "alice", "")
 	writeNetrc("", "alice", "secret")
@@ -173,7 +180,7 @@ func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "")
 	t.Setenv("GOSUMDB", "")
@@ -196,7 +203,7 @@ func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
 func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "https://other-proxy.example.com,direct")
 	// A private sumdb, since the public database is refused outright; precedence is exercised with an accepted value.
@@ -214,7 +221,7 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret"}`
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	t.Setenv("GOPROXY", "")
 	t.Setenv("GOSUMDB", "")
