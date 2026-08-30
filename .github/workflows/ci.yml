@@ -339,8 +339,7 @@ jobs:
           name: socketharness-build
           path: harness
 
-      # The outer run opts out so the pipeline test's own dats phase can sandbox the guard fixture... see docs/CI.md
-      # -v: a failing test's captured output carries the inner pipeline's own dats run, and without it a red leg reports only an exit code.
+      # The outer run opts out so the inner dats phase can sandbox the guard fixture, and -v is what makes a red leg name the test... see docs/CI.md
       - name: Smoke suite
         uses: wow-look-at-my/dats@master
         with:
