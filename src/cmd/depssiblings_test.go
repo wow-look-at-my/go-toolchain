@@ -206,8 +206,8 @@ require (
 
 // A sibling that tidy has since marked indirect, and that also carries its
 // own marker (a prior run's own doing, or a human's), resolves through
-// either path to the same commit: the repository resolves once regardless
-// of how many of its lines carry the marker.
+// either path to the same commit: the repository resolves a single time,
+// however many of its lines carry the marker.
 func TestUpdateTrackedBranchDepsResolvesAnIndirectSibling(t *testing.T) {
 	t.Chdir(t.TempDir())
 	gomod := `module example.com/consumer
