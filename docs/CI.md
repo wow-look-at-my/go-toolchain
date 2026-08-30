@@ -134,12 +134,19 @@ cases, just not a sufficient one for any of them.
   on macOS at all.
 
 **Windows** — magic, `version`, `--help`, host detection, a positive assertion
-that the agent output guard is blind here and SAYS so, and the pipeline running
-as far as the cosmo bootstrap. Two dimensions it cannot match, both fork gaps
-rather than choices: the guard cannot fire (the classifier reads /proc), and the
-pipeline cannot complete (no gosmopolitan windows/amd64 toolchain on buildhost,
-and no DNS from an APE on NT). The step section below pins both, so each goes
-red the day it lifts.
+that the agent output guard is blind here and SAYS so, and the same
+whole-pipeline run smoke-linux and smoke-macos make. One dimension it still
+cannot match, a fork gap rather than a choice: the guard cannot fire, because
+the classifier reads /proc.
+
+The pipeline used to stop at the cosmo bootstrap, and the step tolerated exactly
+two named blockers so a third failure could not hide behind them: buildhost
+carried no gosmopolitan windows/amd64 toolchain, and an APE could not resolve
+DNS on NT. Both have lifted — the download now succeeds — and the step that
+pinned them went red on the third mode, which was ours: the extraction check
+spelled `go/bin/go`, while a windows archive holds `go/bin/go.exe`.
+`cosmoGoBinPath` had always honored the host suffix, and only that one check
+bypassed it.
 
 It used to stop at `--help`, on the grounds that gobootstrap downloaded
 `go<version>.<os>-<arch>.tar.gz` and go.dev serves windows archives as `.zip`.

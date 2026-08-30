@@ -289,6 +289,14 @@ func TestEnsureCosmoToolchainRejectsArchiveWithoutGo(t *testing.T) {
 	assert.Contains(t, err.Error(), "go/bin/go")
 }
 
+func TestGoBinNameCarriesTheHostExecutableSuffix(t *testing.T) {
+	// A windows archive holds go/bin/go.exe. Spelling "go" here rejected a
+	// toolchain that was fine, and the whole NT pipeline stopped at the check.
+	assert.Equal(t, "go.exe", goBinName("windows"))
+	assert.Equal(t, "go", goBinName("linux"))
+	assert.Equal(t, "go", goBinName("darwin"))
+}
+
 func TestSanitizeCacheKey(t *testing.T) {
 	assert.Equal(t, "claude-some-branch", sanitizeCacheKey("claude/some-branch"))
 	assert.Equal(t, "v1.2.3", sanitizeCacheKey("v1.2.3"))

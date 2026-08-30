@@ -111,11 +111,16 @@ func useLocalCosmoGoroot(root string) (string, error) {
 // cosmoGoBinPath returns the go binary path inside a GOROOT, honoring the
 // HOST platform's executable naming.
 func cosmoGoBinPath(root string) string {
-	goBin := filepath.Join(root, "bin", "go")
-	if hostos.GOOS() == "windows" {
-		goBin += ".exe"
+	return filepath.Join(root, "bin", goBinName(hostos.GOOS()))
+}
+
+// goBinName is the fork's go binary filename on the named host. It takes the
+// host rather than reading it, so a test can pin every host's answer.
+func goBinName(hostOS string) string {
+	if hostOS == "windows" {
+		return "go.exe"
 	}
-	return goBin
+	return "go"
 }
 
 // cosmoGoVersion runs the toolchain's own `go version` as a health probe and
@@ -223,8 +228,12 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	}
 	fmt.Fprintf(rawStderr, " %s\n", fmtDuration(time.Since(dlStart)))
 
-	if _, err := os.Stat(filepath.Join(tmpDir, "go", "bin", "go")); err != nil {
-		return fmt.Errorf("downloaded archive does not contain go/bin/go: %w", err)
+	// The fork's go binary carries the HOST's executable suffix, so ask
+	// cosmoGoBinPath rather than spelling the name -- a windows archive holds
+	// go/bin/go.exe, and hardcoding "go" here rejected a toolchain that was fine.
+	goBin := cosmoGoBinPath(filepath.Join(tmpDir, "go"))
+	if _, err := os.Stat(goBin); err != nil {
+		return fmt.Errorf("downloaded archive does not contain go/bin/%s: %w", filepath.Base(goBin), err)
 	}
 
 	dest := filepath.Join(cosmoCache, key)
