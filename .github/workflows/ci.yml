@@ -340,10 +340,11 @@ jobs:
           path: harness
 
       # The outer run opts out so the pipeline test's own dats phase can sandbox the guard fixture... see docs/CI.md
+      # -v: a failing test's captured output carries the inner pipeline's own dats run, and without it a red leg reports only an exit code.
       - name: Smoke suite
         uses: wow-look-at-my/dats@master
         with:
-          args: '--no-sandbox test .github/dats-fixtures/smoke.dats'
+          args: '-v --no-sandbox test .github/dats-fixtures/smoke.dats'
 
   publish:
     needs: [identical, smoke]
