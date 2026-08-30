@@ -314,11 +314,49 @@ func checkDirtyInCI() error {
 	}
 	if !jsonOutput {
 		logError("", fmt.Sprintf(
-			"Working tree is dirty in CI (go-toolchain %s). Dirty files:\n%s\n\n"+
+			"Working tree is dirty in CI (go-toolchain %s). Dirty files:\n%s\n%s\n"+
 				"Fix: run `go-toolchain` locally, review the diff, commit the changes, and push.",
-			buildVersion, files))
+			buildVersion, files, dirtyDiff(files)))
 	}
 	return fmt.Errorf("working tree is dirty in CI (run `go-toolchain` locally, review the diff, commit, and push)")
+}
+
+// dirtyDiff renders what actually changed. The message tells the reader to
+// review the diff, and on a failure that only happens on one CI host there is
+// no other way to see it: the tree is gone with the runner.
+func dirtyDiff(files string) string {
+	paths := dirtyDiffPaths(files)
+	if len(paths) == 0 {
+		return ""
+	}
+	out, err := exec.Command("git", append([]string{"--no-pager", "diff", "--"}, paths...)...).Output()
+	if err != nil {
+		return ""
+	}
+	diff := strings.TrimSpace(string(out))
+	if diff == "" {
+		return "" // untracked only, so git has nothing to compare against
+	}
+	if lines := strings.Split(diff, "\n"); len(lines) > dirtyDiffMaxLines {
+		diff = strings.Join(lines[:dirtyDiffMaxLines], "\n") + "\n... diff truncated"
+	}
+	return "\nDiff:\n" + diff + "\n"
+}
+
+// dirtyDiffMaxLines keeps a runaway diff from burying the message above it.
+const dirtyDiffMaxLines = 200
+
+// dirtyDiffPaths reads the paths out of `git status --short` lines. The status
+// code sits in front and a rename carries an arrow, so the path is the last
+// field either way.
+func dirtyDiffPaths(files string) []string {
+	var paths []string
+	for line := range strings.SplitSeq(files, "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 {
+			paths = append(paths, fields[len(fields)-1])
+		}
+	}
+	return paths
 }
 
 // dirtyFilesExcludingToolchainWrites returns the trimmed `git status --short`
