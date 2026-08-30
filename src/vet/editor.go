@@ -30,10 +30,7 @@ type Editor interface {
 	// Writes reports whether this editor persists to disk; fixers use it only to skip write-only preconditions.
 	Writes() bool
 
-	// Wrote reports whether this editor already rewrote path during this run.
-	// The uncommitted-changes guard asks so it can tell an edit this run made
-	// from one the user made: refusing the first strands a tree half-fixed
-	// whenever two fixers reach the same file.
+	// Wrote reports whether this editor rewrote path during this run; the uncommitted-changes guard asks, to spare its own edits.
 	Wrote(path string) bool
 }
 
@@ -45,8 +42,7 @@ func NewEditor(fix bool) Editor {
 	return &checkEditor{}
 }
 
-// applyEditor writes proposed changes to disk; Require and Apply behave identically since locally both get written.
-// It remembers what it wrote: fixers run concurrently, so the record is locked.
+// applyEditor writes proposed changes to disk; Require and Apply behave identically since locally both get written. Its record of what it wrote is locked, because fixers run concurrently.
 type applyEditor struct {
 	mu      sync.Mutex
 	written set.Set[string]
@@ -80,8 +76,8 @@ func (applyEditor) Err() error { return nil }
 
 func (applyEditor) Writes() bool { return true }
 
-// editorKey normalizes a path so the same file recorded through two spellings
-// answers Wrote the same way.
+// editorKey normalizes a path, so a file recorded under either spelling
+// answers Wrote alike.
 func editorKey(path string) string {
 	if abs, err := filepath.Abs(path); err == nil {
 		return abs

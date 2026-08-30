@@ -298,10 +298,8 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 				if result == nil {
 					continue
 				}
-				// The uncommitted-changes guard only matters when a fix is
-				// actually written; on CI nothing is clobbered, so skip it.
-				// A file this run already rewrote is this run's own edit, not
-				// the user's, and refusing it strands the tree half-fixed.
+				// The guard protects the user's own edits, so it is skipped on
+				// CI, where nothing is clobbered, and on a file this run wrote.
 				name := fixesFilename(result)
 				if ed.Writes() && !ed.Wrote(name) {
 					if err := checkFileCommitted(result); err != nil {
@@ -434,7 +432,7 @@ func checkFileCommitted(fixes *ASTFixes) error {
 	return checkFileCommittedByName(fixesFilename(fixes))
 }
 
-// fixesFilename is the file a set of AST fixes rewrites.
+// fixesFilename names the file these AST fixes rewrite.
 func fixesFilename(fixes *ASTFixes) string {
 	return fixes.Fset.Position(fixes.File.Pos()).Filename
 }
