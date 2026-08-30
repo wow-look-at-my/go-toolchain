@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"testing"
 
@@ -38,7 +37,8 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	// The production spelling; NT adds .exe. Hand-spelled, it never matches.
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -57,7 +57,7 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 	// Use a mock that passes tests but fails builds.
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			return nil, fmt.Errorf("build failed")
@@ -74,7 +74,7 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -99,7 +99,7 @@ func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -128,7 +128,7 @@ func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -153,7 +153,7 @@ func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "WASM")
@@ -181,7 +181,7 @@ func TestMatrixOutputFailureShowsDuration(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	forkGo := filepath.Join(fakeGoroot, "bin", "go")
+	forkGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == forkGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			return nil, fmt.Errorf("build failed")

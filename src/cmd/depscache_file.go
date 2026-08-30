@@ -32,7 +32,7 @@ type fileDepsCache struct {
 }
 
 // openDepsCache loads the stored check results. Keep this backend free of
-// third-party packages: the APE carries a payload per platform, and a package
+// outside packages: the APE carries a payload per platform, and a package
 // init that fails on any of them kills that platform's binary before main
 // runs. The store maps a dependency and its version to a result, which needs
 // no engine. Depth: docs/CMD.md

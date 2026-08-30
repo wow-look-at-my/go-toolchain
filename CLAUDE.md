@@ -81,6 +81,12 @@ coverage.
   require overridden by a replace is marked on the replace line instead; an INDIRECT one cannot carry a working marker at
   all, so it warns and names its two repairs rather than skipping silently. `// go-toolchain:pinned <reason>` is the
   explicit opt-out. Depth: `docs/DEPS.md`
+- `src/cmd/hostscratch.go` — a path CROSSES OUT of cosmo when another program parses it. The APE answers cosmo's POSIX view,
+  which cosmo translates on its own calls (`cmd.Dir`, its own file I/O) and does not translate inside an argument list, so on
+  an NT host `go.exe` and `git` get a spelling neither can open. `scratchBase` serves `os.MkdirTemp`, `argListTempDir` a
+  caller that joins; both answer the go cache directory on NT and `os.TempDir()` everywhere else. Four crossings found so far
+  (`GOCACHEPROG`, the git scratch clone, `-coverprofile`, `-debug-actiongraph`); `codeql.Analyze` is the known unfixed one and
+  has no production caller. Depth: `docs/CI.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
   deps (`// go-toolchain:auto-branch`), and the same-org auto-updater; the three never fight over the same dependency.
   The marker rides a require OR a replace line -- a fork keeps upstream's module path, so it is reached through a replace,
@@ -261,7 +267,11 @@ coverage.
   classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE always runs the payload matching the host arch
 - `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard. Depth:
   `docs/ACTION.md`
-- `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. Depth: `docs/CI.md`
+- `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. The smoke legs run ONE host's
+  APE everywhere, so `build-everywhere` runs the same command on all three and `identical` fails unless they agree byte for byte — a missing hand-off
+  fails too, since comparing the hosts that answered proves nothing. One compiler builds all three: `host-build` resolves the gosmopolitan release
+  (`go-toolchain version cosmo`) and passes it down as `GO_TOOLCHAIN_COSMO_VERSION`, so a run spanning a publish cannot straddle two forks.
+  `publish` needs it. Depth: `docs/CI.md`
 
 ## Code Conventions
 

@@ -10,6 +10,7 @@ import (
 )
 
 func TestAtomicCounter_IncrementDecrement(t *testing.T) {
+	t.Parallel()
 	var c AtomicCounter
 	c.Increment()
 	c.Increment()
@@ -20,6 +21,7 @@ func TestAtomicCounter_IncrementDecrement(t *testing.T) {
 }
 
 func TestAtomicCounter_AddStore(t *testing.T) {
+	t.Parallel()
 	var c AtomicCounter
 	c.Add(10)
 	assert.Equal(t, uint32(10), c.Load())
@@ -28,6 +30,7 @@ func TestAtomicCounter_AddStore(t *testing.T) {
 }
 
 func TestAtomicCounter_JSON(t *testing.T) {
+	t.Parallel()
 	var c AtomicCounter
 	c.Store(123)
 
@@ -41,6 +44,7 @@ func TestAtomicCounter_JSON(t *testing.T) {
 }
 
 func TestCacheStats_JSON(t *testing.T) {
+	t.Parallel()
 	var s CacheStats
 	s.Hits.Store(10)
 	s.Puts.Store(5)
@@ -55,6 +59,7 @@ func TestCacheStats_JSON(t *testing.T) {
 }
 
 func TestLatencyTracker_SingleRecord(t *testing.T) {
+	t.Parallel()
 	var lt LatencyTracker
 	lt.Record(500 * time.Microsecond)
 
@@ -66,6 +71,7 @@ func TestLatencyTracker_SingleRecord(t *testing.T) {
 }
 
 func TestLatencyTracker_MultipleRecords(t *testing.T) {
+	t.Parallel()
 	var lt LatencyTracker
 	lt.Record(100 * time.Microsecond)
 	lt.Record(200 * time.Microsecond)
@@ -80,6 +86,7 @@ func TestLatencyTracker_MultipleRecords(t *testing.T) {
 }
 
 func TestLatencyTracker_SubMicrosecondFloor(t *testing.T) {
+	t.Parallel()
 	var lt LatencyTracker
 	lt.Record(1 * time.Nanosecond) // sub-microsecond
 
@@ -89,6 +96,7 @@ func TestLatencyTracker_SubMicrosecondFloor(t *testing.T) {
 }
 
 func TestLatencyTracker_Merge(t *testing.T) {
+	t.Parallel()
 	var lt1, lt2 LatencyTracker
 	lt1.Record(100 * time.Microsecond)
 	lt1.Record(500 * time.Microsecond)
@@ -105,6 +113,7 @@ func TestLatencyTracker_Merge(t *testing.T) {
 }
 
 func TestLatencyTracker_Zero(t *testing.T) {
+	t.Parallel()
 	var lt LatencyTracker
 	snap := lt.Snapshot()
 	assert.Equal(t, uint64(0), snap.Count)
@@ -112,6 +121,7 @@ func TestLatencyTracker_Zero(t *testing.T) {
 }
 
 func TestLatencySnapshot_FormatMs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		snap LatencySnapshot
@@ -130,6 +140,7 @@ func TestLatencySnapshot_FormatMs(t *testing.T) {
 }
 
 func TestLatencyStats_SnapshotAndMerge(t *testing.T) {
+	t.Parallel()
 	var ls LatencyStats
 	ls.LockWait.Record(10 * time.Microsecond)
 	ls.LocalGet.Record(50 * time.Microsecond)
@@ -153,6 +164,7 @@ func TestLatencyStats_SnapshotAndMerge(t *testing.T) {
 }
 
 func TestLatencySnapshot_JSON(t *testing.T) {
+	t.Parallel()
 	snap := LatencySnapshot{Count: 3, MinUs: 100, MaxUs: 500, AvgUs: 300, SumUs: 900}
 	data, err := json.Marshal(snap)
 	require.NoError(t, err)

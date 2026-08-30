@@ -102,9 +102,7 @@ func TestStageDatsArtifacts(t *testing.T) {
 	data, err := os.ReadFile(staged)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("binary bytes"), data)
-	info, err := os.Stat(staged)
-	require.NoError(t, err)
-	assert.NotZero(t, info.Mode()&0o111, "staged artifact must be executable")
+	assertExecutable(t, staged, "staged artifact must be executable")
 
 	// The missing artifact is skipped without failing the staging.
 	assert.NoFileExists(t, filepath.Join(dir, "missing"))

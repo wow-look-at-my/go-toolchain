@@ -39,6 +39,7 @@ func hexEncode(b []byte) string {
 }
 
 func TestPackStore_PutGetReadAll(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -62,6 +63,7 @@ func TestPackStore_PutGetReadAll(t *testing.T) {
 }
 
 func TestPackStore_Miss(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -72,6 +74,7 @@ func TestPackStore_Miss(t *testing.T) {
 }
 
 func TestPackStore_ReadAtPartial(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -94,6 +97,7 @@ func TestPackStore_ReadAtPartial(t *testing.T) {
 }
 
 func TestPackStore_PersistsAcrossReopen(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -123,6 +127,7 @@ func TestPackStore_PersistsAcrossReopen(t *testing.T) {
 }
 
 func TestPackStore_ContentDedup(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -159,6 +164,7 @@ func TestPackStore_ContentDedup(t *testing.T) {
 // later action is stored as an alias record. That alias MUST survive a reopen, or the
 // next build misses it and falls through to the (slow) network tier.
 func TestPackStore_DedupPersistsAcrossReopen(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -207,6 +213,7 @@ func TestPackStore_DedupPersistsAcrossReopen(t *testing.T) {
 }
 
 func TestPackStore_OverwriteAction(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -235,6 +242,7 @@ func TestPackStore_OverwriteAction(t *testing.T) {
 }
 
 func TestPackStore_TornFinalRecordIgnored(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -265,6 +273,7 @@ func TestPackStore_TornFinalRecordIgnored(t *testing.T) {
 }
 
 func TestPackStore_Rotation(t *testing.T) {
+	t.Parallel()
 	orig := maxPackBytes
 	maxPackBytes = int64(packHeaderLen + 10) // rotate after ~every record
 	defer func() { maxPackBytes = orig }()
@@ -296,6 +305,7 @@ func TestPackStore_Rotation(t *testing.T) {
 // until the total is back under the eviction target, and the newest records
 // survive.
 func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
+	t.Parallel()
 	origMax, origReset := maxPackBytes, packResetBytes
 	maxPackBytes = int64(packHeaderLen + 512) // rotate after every record
 	defer func() { maxPackBytes = origMax; packResetBytes = origReset }()
@@ -344,6 +354,7 @@ func TestPackStore_EvictsOldestPacksWhenOverBudget(t *testing.T) {
 // hottest records) is never deleted — the store runs over budget instead of
 // cold-cycling.
 func TestPackStore_EvictionNeverDeletesNewestPack(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -368,6 +379,7 @@ func TestPackStore_EvictionNeverDeletesNewestPack(t *testing.T) {
 }
 
 func TestParsePackName(t *testing.T) {
+	t.Parallel()
 	id, ok := parsePackName("pack-000007.data")
 	require.True(t, ok)
 	require.Equal(t, 7, id)
@@ -381,6 +393,7 @@ func TestParsePackName(t *testing.T) {
 }
 
 func TestDecodeHash(t *testing.T) {
+	t.Parallel()
 	_, err := decodeHash(hexID(1))
 	require.Nil(t, err)
 	_, err = decodeHash("tooshort")
@@ -391,6 +404,7 @@ func TestDecodeHash(t *testing.T) {
 
 // packPath is exercised indirectly above; this guards the naming scheme.
 func TestPackStore_PackPath(t *testing.T) {
+	t.Parallel()
 	s := &PackStore{dir: "/tmp/x"}
 	require.Equal(t, filepath.Join("/tmp/x", "pack-000001.data"), s.packPath(1))
 }

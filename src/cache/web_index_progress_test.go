@@ -44,7 +44,7 @@ func testIndexBlob(n int) []byte {
 // the body is delivered in chunks spread over several stall windows and well
 // past the total the old budget would have allowed.
 func TestLoadOrFetchIndex_SlowButSteadyBodySucceeds(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 
 	const (
 		chunks   = 16
@@ -93,7 +93,7 @@ func TestLoadOrFetchIndex_SlowButSteadyBodySucceeds(t *testing.T) {
 // window, and the backend proceeds non-authoritative so batch probing stays
 // enabled.
 func TestLoadOrFetchIndex_StalledBodyAbandoned(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 
 	blob := testIndexBlob(64)
 	release := make(chan struct{})

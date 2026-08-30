@@ -18,6 +18,7 @@ import (
 // TestJSONInterpAnalyzer runs the fixture: every shape the check reports, and
 // every neighbouring shape it must leave alone.
 func TestJSONInterpAnalyzer(t *testing.T) {
+	t.Parallel() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
 	analysistest.Run(t, testdata, JSONInterpAnalyzer, "jsoninterp")
