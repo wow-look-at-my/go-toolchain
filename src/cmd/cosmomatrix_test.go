@@ -100,7 +100,8 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	cosmoGo := filepath.Join(fakeGoroot, "bin", "go")
+	// The production spelling: NT gets the .exe suffix. See apemanifest_test.go.
+	cosmoGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
 			writeBuildOutput(t, cfg, "FAT-APE")
