@@ -53,6 +53,191 @@ matching the per-platform grammar. That last check is the one that stays honest
 over time — a stray `<name>_<os>_<arch>` file would silently restore the
 N-downloads-of-one-binary shape without failing anything else.
 
+## build-everywhere and identical
+
+`build` runs on ubuntu, and the three smoke jobs run THAT one binary on linux,
+macOS and Windows. So the smoke jobs answer "does ubuntu's APE run everywhere",
+which is only the same question as "does what we ship run everywhere" if every
+host builds the same bytes. Nothing checked that, and until `-trimpath` and
+`-ldflags=-buildid=` landed nothing could: the checkout path and the toolchain's
+own content ID both reached the build-ID notes. See
+[MATRIX.md](MATRIX.md) for the measurements and what each flag closes.
+
+`build-everywhere` runs `matrix --no-benchmark` on all three hosts and hands
+each result off under `ape-<origin>`; `identical` downloads them and compares
+the other two against linux. `fail-fast: false`, so one host failing still
+reports the others.
+
+Every leg runs the SAME command, linux included, rather than reusing `build`'s
+result. That costs one extra build and buys an unambiguous gate: a difference
+is then the host, never the invocation. It also does not go through
+`uses: ./` — the composite action installs itself with `sudo`, which a Windows
+runner has not, which is why the smoke jobs stage the APE by hand too. Caching
+is off in this job: it changes how long a build takes and never what it emits,
+so leaving it out removes a variable rather than adding one.
+
+A missing hand-off fails rather than passing on the survivors: comparing the
+hosts that answered would report green for a property no host was checked on.
+`publish` needs `identical`, so a build that is not reproducible never ships.
+
+One compiler builds all three. gosmopolitan publishes on every green push, so a
+run that spans a publish resolved a different fork on each leg and `identical`
+read that as a host difference. `host-build` resolves the release once with
+`go-toolchain version cosmo` and exports it to each leg as
+`GO_TOOLCHAIN_COSMO_VERSION`; a probe that cannot name a release fails the step
+rather than letting the legs pick their own. See [CMD.md](CMD.md) for how the
+pin reaches the download URL and the cache key.
+
+**Windows is red until the fork publishes for it.** The APE cannot complete an
+HTTPS request on an NT host, so it cannot download the toolchain, and buildhost
+serves no `gosmopolitan` windows/amd64 at master. Both are fixed by
+gosmopolitan's crypt32 root-store work and its windows publish leg; this job
+goes green when that merges. It is the same blocker smoke-windows already
+reports, not a new one.
+
+Windows also failed the dirty-tree check on a line-ending difference rather than
+an edit. GitHub's windows image sets `core.autocrlf=true`, so the checkout wrote
+`go.mod` with CRLF and the Go tooling rewrote it with LF. `git status` called it
+modified, `git diff` normalized both sides and showed nothing, and
+`git update-index --refresh` settled it with `go.mod: needs update`. The
+repo-root `.gitattributes` pins the working tree to LF; every tracked text blob
+is already LF in the index, so nothing but a Windows checkout changes.
+
+**macOS is red on this repo's own test budget, not on anything cosmo.** The test
+phase runs `go test -timeout=30s` (`testTimeout`, src/test/test.go), which is a
+per-BINARY clock rather than a per-test one. On linux this repo already spends
+25-29s of it in `src/cmd` and 19-23s in `src/vet` — the two slowest packages by
+far. macOS is slower and crosses the line, and the panic then names whichever
+test happened to be running (`TestAssertNormAnalyzer (1s)`), which reads as a
+hung test and is not one. Confirming this took ruling out two other readings:
+the goroutine dump shows `Cmd.Wait` parked in `syscall.wait4`, so the child
+`go list` had not exited and both pipe copies were waiting correctly, and the
+last `go: downloading` line precedes the timeouts by minutes.
+
+The 30s is deliberate and is not to be raised; the remedy is to make the two
+packages cheaper. What made `src/cmd` expensive was not the tests but the phase
+they drove: every `runWithRunner` call ran the real vet pass, and vet loads the
+package graph through x/tools, which spawns a `go list` per call. The mock
+runner never saw those — `vet.RunWithProgress` is a direct package call — so a
+package that runs the pipeline dozens of times paid a subprocess each time, on
+a throwaway module nothing had cached. That is also what the macOS goroutine
+dump names: `gocommand.runCmdContext`.
+
+`vetRunFunc` (src/cmd/testphase.go) is the seam, and `stubVetPhase` fills it in
+from `setupMockProject`, the same shape as `ensureCosmoToolchainFunc` keeping
+the build phase off buildhost. Measured on linux, `test run src/cmd` went 25.1s
+→ 15.4s with total coverage unchanged at 84.6%: the stub still executes the
+call site, only the callee changes. `src/vet` is untouched by this and is now
+the slowest package at 19.0s.
+
+`src/vet` cannot take the same repair — loading real packages IS what it tests.
+Two cheaper remedies applied instead, taking it 19.0s → 16.8s. `initGitRepo`
+wrote its repo-local settings straight into `.git/config` rather than spending
+a `git config` process per key, which is six processes per fixture repo and ten
+such repos. And the analyzer tests that neither chdir nor swap `os.Stderr` —
+`bannedoutput`, `jsoninterp`, `mapset`, `sliceset` — now call `t.Parallel`;
+each analyzer's dedup state is its own package-level set, so they do not share
+it. `testifycast` stays serial because `applyCastFixtures` swaps `os.Stderr`.
+
+What still blocks parallelising the REST of `src/vet` is two things. The
+visible one is the working directory: `os.Chdir`/`t.Chdir` appears in 9 of its
+test files, and a test that calls `t.Chdir` may not call `t.Parallel`. Threading
+a root through `vetSemantic` is what unblocks that half — `FixTestifyImports`
+and `MigrateGotestTools` both hardcode `WalkDir(".")`, and `packages.Load` needs
+`cfg.Dir`; `dirtyDiffIn` is the worked example of the shape. The harder one is
+process-wide state: the six `reset*Warnings` sets `vetSemantic` clears, and
+`loadDepsFromSource`. In `src/cmd` the equivalent is the `TestRunWithRunner*`
+family assigning the package globals `jsonOutput` and `outputDir`.
+
+Windows is the harder case, and its numbers are measured rather than inferred.
+On run 33310462278 `src/vet` reported 30.166s and `src/cache` 30.353s against
+that 30s clock, while the same binaries take 17-20s and 9-13s on linux; the
+whole test phase spent 395.99s there against roughly 30s locally, at `0%
+cache-satisfied`. Reading that log takes care. A duration the progress printer
+prints against a test in a timed-out binary is an artifact whenever it reads
+30.00s: every paused `t.Parallel` test is charged the whole budget. What IS
+honest is a printed duration below the budget, from a test that finished, and
+the panic's own `running tests:` list, which names what was in flight when the
+alarm went. Take the hogs from the former and the tail from the latter; a
+`running tests:` list naming a single test one second in says only that the
+binary was past its hogs, never that its time is spread flat. Both hogs found
+so far — `src/cache`'s pack pair and `src/vet`'s canonicalize pair — came from
+the finished-test durations. Two attempts at intra-package parallelism failed
+and were reverted:
+
+- Marking every `src/cache` test that neither chdirs nor calls `t.Setenv`
+  broke because `setTempDir` and `setHome` mutate the process environment
+  through a helper the sweep did not recognise. A serial test's `t.Setenv` is
+  visible to whatever parallel tests run beside it, so the whole binary went
+  red and then hung.
+- Teaching the sweep those helpers still broke, on state that is not the
+  environment: `TestWebBackend_PutRefusesBuildIDMismatch` goes red at once and
+  the binary hangs after it.
+
+A third attempt did land, on the isolated two-thirds of `src/cache`, once the
+classifier followed the call graph instead of the test body — `t.Setenv` hides
+behind `setTempDir`, `setHome` and `hermeticOTel`. It took `test run
+src/cache` from 11.4s to 6.51s on linux and left Windows where it was:
+28.822s before, 30.337s after. That is the result to remember. The runner has
+four cores and `go test` already runs four package binaries side by side, so
+there are no spare cores for a package to parallelise INTO; the linux win came
+from cores Windows does not have. Concurrency is therefore not the lever here,
+and neither refactor below would move Windows either. What moves it is less
+work per binary, or a budget that knows what host it is on.
+
+Less work per binary is what `src/cache` got. The panic on run 33312237814
+named `TestPackStore_ConcurrentSameActionPutRescanConsistency` and
+`TestPackStore_PutAlwaysBeatsPutIfAbsent`, each eight seconds in and neither
+finished, against half a second apiece on linux. Both drove their racing pairs
+through a fresh `t.TempDir` and a fresh `OpenPackStore` per pair, so the run was
+mostly directory churn — cheap on tmpfs, and the thing NTFS charges most for.
+Every pair now races into the same store and the rescan happens at the end,
+which is what a real store looks like anyway; the pair count, and so the
+sensitivity, is unchanged. On linux each dropped to 0.10s and `test run
+src/cache` went 8.2s → 6.8s, and the Windows saving is the larger one because
+the cost removed was the filesystem's. Run 33313766810 confirmed it: `src/cache`
+passed at 23.7s, and its pack pair had spent 7.66s and 7.29s of that.
+
+`src/vet` had the same shape. On that run `TestVetSemanticFixHoistsInitLegally`
+took 12.52s and `TestVetSemanticFixKeepsDocCommentQuotesAndAlignment` 7.19s,
+against 2.45s and 1.40s on linux, while the next slowest test in the binary was
+4.41s. Each wrote its own module and ran the whole fixer over it, and a fixer
+run spends a `go mod tidy` and a package load — a process apiece, which is what
+that runner charges most for. They now share one module with a file each, run
+the fixer once, and assert as subtests; the `go vet` that proves the rewrite
+compiles now covers both files. Same fixtures, same assertions, 2.05s on linux
+against 3.85s for the pair.
+
+That is where the hogs run out. `src/cmd` and `src/vet` are both spread flat: the
+`TestRunReleaseWithRunner*` family is a dozen tests at 1-2s each on Windows
+against 0.2-0.3s on linux, and what is left of `src/vet` is five fixer tests at
+2-7s. `TestDefaultMatrixBuildsOneMultiPlatformArtifact` looks like an outlier at
+5.63s against 0.23s, but it is the first test in the binary by file order and is
+paying the warm-up, not doing anything the others do not.
+
+The ratio is what decides this, and it is uniform. On one commit, with the same
+pipeline and the same cold cache on both legs, linux CI reported `src/vet` 8.44s,
+`src/cmd` 5.97s and `src/cache` 4.01s. `src/cache` is the only one of the three
+that finishes on Windows, at 16.6s: a factor of 4.1. Applied to the other two
+that puts `src/vet` near 35s and `src/cmd` at or just past the budget, which is
+what both do. Individual tests agree — 0.31s→1.84s, 1.71s→7.10s, 0.86s→4.32s —
+and raw compilation does NOT: `build runtime` took 4.41s on Windows against 4.61s
+on macOS. That runner is not slow at computing. It is slow at starting a process
+and at touching a file, which is most of what a test does here.
+
+So the remaining gap is not a hog and not concurrency. It is a per-BINARY clock
+carrying a per-TEST intent: roughly 250 sub-second tests, none of them slow, on a
+host uniformly four to five times slower than the one the budget was set on.
+Closing it means either less work per binary — more shared fixtures, each one
+trading away what a separate module isolates — or a budget that knows its host,
+which changes what green means for every consumer and is the operator's call.
+
+Should someone pick up the isolation work anyway, for its own sake:
+`src/cache` needs its shared state named before the rest runs in parallel.
+`indexCachePath` reading `os.TempDir()` is the piece already identified, and a
+per-backend directory on `WebConfig` would remove the environment half of the
+problem along with the reason those tests set `TMPDIR` at all.
+
 ## The three smoke jobs
 
 Each is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
@@ -280,6 +465,67 @@ file list `go list` reports, and that list is per-GOOS. Vet reads the cosmo
 variant while the tests read the host variant, so a file excluded from the one
 `go list` it runs does not bust the fingerprint. Picking a variant is not the
 fix — the fingerprint has to cover both.
+
+## A native test binary asks the host for a directory the APE spells differently
+
+The section above builds the test binaries for the host. So inside a test,
+`os` answers as a native Windows program, while every earlier phase of the
+same job was the APE answering cosmo's POSIX view. Two directories differ,
+and each one broke a test:
+
+- `os.UserCacheDir()`. The APE answers `%USERPROFILE%\.cache`; a native
+  binary answers `%LocalAppData%`. Two `src/cmd` bench tests drove the whole
+  pipeline with a mock runner without stubbing the fork seam, so the build
+  phase resolved the toolchain for real. On a warm cache that is one
+  `go version` exec, which is why linux never showed it. NT had no warm
+  entry under the name the test binary asked for and downloaded the
+  toolchain instead: `27s` of a `30s` test-binary budget. `rootmocks_test.go`
+  now points the seam at a refusal that names `stubForkToolchain`, so a
+  pipeline test that forgets fails in milliseconds instead of reaching
+  buildhost.
+- `os.TempDir()`. Unix reads `TMPDIR`; NT reads `TMP`, then `TEMP`. Tests
+  that moved the web index's blob into their own `t.TempDir()` by setting
+  `TMPDIR` moved nothing on NT, which is what made
+  `TestLoadOrFetchIndex_WarmCache304` report an empty glob. `setTempDir` in
+  `src/cache/main_test.go` sets all three names.
+
+Both are the argument-list boundary below, read from the other side: there a
+path the APE spells crosses OUT to a native tool, here a native tool's answer
+crosses back IN to code the APE normally runs.
+
+## A path in another program's argument list crosses out of cosmo
+
+The APE reports `GOOS=cosmo` and answers cosmo's POSIX view of the filesystem.
+On an NT host the tools it drives — `go.exe`, `git` — are native binaries that
+know nothing of that view. Which spelling is right depends on who resolves the
+path:
+
+- **cosmo resolves it.** `cmd.Dir`, and the APE's own `os` calls. Cosmo
+  translates on the way to the OS, so the POSIX spelling is correct and needs
+  no help.
+- **The other program resolves it.** Anything inside its argument list is a
+  string that program parses, and nothing translates it. The POSIX spelling
+  reaches NT unchanged and fails.
+
+`src/cmd/hostscratch.go` holds the base for the second case: `scratchBase` for
+a caller handing it to `os.MkdirTemp`, `argListTempDir` for one joining onto
+it. On NT both answer the go cache directory, which is already NT-spelled;
+every other host keeps `os.TempDir()`. The four crossings found so far:
+
+| what | who parses it | failure before the fix |
+| --- | --- | --- |
+| `GOCACHEPROG` (`src/cmd/cacheprog.go`) | cmd/go | `error starting GOCACHEPROG program "/d/a/.../gt-ape.exe": fork/exec: The system cannot find the path specified` |
+| scratch clone (`src/cmd/depsfix.go`) | git | `fatal: cannot change to /tmp/resolve-N: No such file or directory` |
+| `-coverprofile` (`src/cmd/testphase.go`) | cmd/go | `open D:\a\...\smokemod\tmp\go-toolchain-cov\coverage-N.out: The system cannot find the path specified` |
+| `-debug-actiongraph` (`src/cmd/profilecmd.go`) | cmd/go | not yet observed; the same crossing as the row above |
+
+`ntPathFromPosix` (in `cacheprog.go`) is a different repair for a different
+input: it rewrites a shell's `/d/a/x` spelling of a path that already names a
+drive. It declines `/tmp/x`, which names no drive and needs a base instead.
+
+`codeql.Analyze` builds its SARIF path the same way and is NOT fixed. Only
+`codeql.Extract` is wired into the pipeline, so that path has no production
+caller to reach it. Give it `argListTempDir` if one ever appears.
 
 ## Tidy self-heals against cache-served module-index damage
 
@@ -638,39 +884,29 @@ and the guard's classifier dispatch. The cure is
 `runtime.CosmoHostOS()` (see the smoke-macos section above); the
 answer is now `host: windows (via runtime)`.
 
-### The pipeline reaches the cosmo bootstrap and names its blocker
+### Full pipeline in a tiny module
 
-smoke-linux and smoke-macos drive a synthetic consumer through the
-whole pipeline, proving the shipped APE can tidy, vet, test and
-build a real module on that platform. NT cannot do that today, for
-two gaps that both live in the fork, not here:
+The same assertion smoke-linux and smoke-macos make: the shipped
+APE can tidy, vet, test and build a real module on this host.
 
-1. **buildhost carries no gosmopolitan windows/amd64 toolchain.**
-   The publish job builds `linux/amd64` and `darwin/arm64`, each on
-   its own runner, because distpack packages what a HOST build
-   produced. Every other slot is a 404, so cosmobootstrap has
-   nothing to download for an NT host.
-2. **The APE cannot resolve DNS on an NT host.** `lookup
-   dl.pazer.build on [::1]:53: i/o timeout` -- `[::1]:53` is
-   netgo's fallback nameserver when `/etc/resolv.conf` cannot be
-   read, so the resolver never asks Windows and never reaches a
-   real nameserver. The fork's own PLATFORM-STATUS.md lists
-   off-host networking and DNS from NT as missing, and its
-   DEBUGGING.md carries this as a hypothesis; the log line above is
-   the confirmation.
+For a while this step could not make that claim, and asserted the
+reachable half instead -- that the pipeline got as far as the cosmo
+bootstrap and failed there naming one of exactly two fork gaps. A
+run that SUCCEEDED was red, and said to replace the step with this
+one. Both gaps have since closed: the publish job now covers the
+`windows/amd64` slot, and DNS resolves from NT, so a run reached
+the test phase and the guard fired as designed.
 
-So the step asserts the reachable half: the pipeline runs, gets as
-far as the cosmo bootstrap, and fails there naming one of exactly
-those two blockers. A run that SUCCEEDS is red, and says to replace
-this step with the assertion the other two jobs make. A failure
-before the bootstrap is red. A bootstrap failure with any third
-signature is red -- otherwise a real regression would hide behind a
-gap we already know about.
+What that run then found is this repo's own bug, not a fork gap:
+`-coverprofile` handed the native `go.exe` cosmo's `/tmp`. See "A
+path in another program's argument list crosses out of cosmo".
 
-An earlier revision of this job did assert the full pipeline, on
-the belief that buildhost serves the fork for every os/arch. It
-does not. That claim was never checked, and the step could not
-have passed.
+An earlier revision of this job asserted the full pipeline on the
+belief that buildhost served the fork for every os/arch. It did
+not, and that claim was never checked. What is checked this time is
+narrower and worth stating exactly: the bootstrap is observed to
+succeed on NT and the pipeline is observed to reach the test phase.
+Whether it now runs to green there is what this step measures.
 
 ### Agent output guard is inert on NT
 

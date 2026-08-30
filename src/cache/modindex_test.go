@@ -17,6 +17,7 @@ import (
 )
 
 func TestIsGoModuleIndex(t *testing.T) {
+	t.Parallel()
 	// Real index blobs: the version line leads everything modindex writes.
 	require.True(t, isGoModuleIndex([]byte("go index v2\n\x00\x00stuff")))
 	require.True(t, isGoModuleIndex([]byte("go index v1\nlegacy")))
@@ -39,6 +40,7 @@ func TestIsGoModuleIndex(t *testing.T) {
 // passes the outputID integrity gate must be refused as a miss when it is a
 // module index, letting cmd/go recompute it locally. The key is also evicted.
 func TestWebBackend_GetRefusesModuleIndex(t *testing.T) {
+	t.Parallel()
 	const actionID = "aabbccdd11223344"
 	// A well-formed index whose body hashes to its outputID: only the module-index guard can refuse it.
 	index := "go index v2\n" + largePayload(2048)
@@ -85,6 +87,7 @@ func TestWebBackend_GetRefusesModuleIndex(t *testing.T) {
 // upload is dropped before any HTTP request and the optimistic index claim is
 // released.
 func TestWebBackend_PutRefusesModuleIndex(t *testing.T) {
+	t.Parallel()
 	const actionID = "aabbccdd11223344"
 	index := "go index v2\n" + largePayload(2048) // large enough to take the individual path
 	outputID := testOutputID(index)
@@ -120,6 +123,7 @@ func TestWebBackend_PutRefusesModuleIndex(t *testing.T) {
 // local hit would break the build just as a served body does. A non-index entry
 // alongside it still populates, proving the skip is specific to the index.
 func TestWireBatchCallbacks_SkipsModuleIndex(t *testing.T) {
+	t.Parallel()
 	local, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	defer local.Close()
@@ -152,6 +156,7 @@ func TestWireBatchCallbacks_SkipsModuleIndex(t *testing.T) {
 // treats a failed index store as fatal, so a refusal that errored or replied
 // empty would break every build instead of the occasional build it was fixing.
 func TestServer_PutRefusesModuleIndexAndKeepsDiskPath(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	defer lc.Close()
@@ -191,6 +196,7 @@ func TestServer_PutRefusesModuleIndexAndKeepsDiskPath(t *testing.T) {
 // it -- so the property to pin is that the blob is never stored at all, not
 // that some later gate catches it.
 func TestServer_NeverStoresModuleIndexBlob(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.NoError(t, err)
@@ -248,6 +254,7 @@ func TestServer_NeverStoresModuleIndexBlob(t *testing.T) {
 // accept-at-Put/refuse-at-Get miss loop the file-top comment in verify.go
 // describes.
 func TestLocalServeGatesRefuseModuleIndex(t *testing.T) {
+	t.Parallel()
 	const actionID = "aabbccdd11223344"
 	index := []byte("go index v2\n" + largePayload(64))
 	outputID := testOutputID(string(index))

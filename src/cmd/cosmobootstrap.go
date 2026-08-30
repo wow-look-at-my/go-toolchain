@@ -21,6 +21,8 @@ const (
 	cosmoGorootEnv = "GO_TOOLCHAIN_COSMO_GOROOT"
 	// cosmoBranchEnv selects the buildhost branch the gosmopolitan tarball downloads from; default master.
 	cosmoBranchEnv = "GO_TOOLCHAIN_COSMO_BRANCH"
+	// cosmoVersionEnv pins the buildhost release, so a run that spans a publish keeps the same compiler.
+	cosmoVersionEnv = "GO_TOOLCHAIN_COSMO_VERSION"
 )
 
 const (
@@ -63,7 +65,8 @@ func EnsureCosmoToolchain() (string, error) {
 	hostOS, hostArch := cosmoHostPlatformFunc()
 
 	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)
-	dlURL := fmt.Sprintf("%s?branch=%s&os=%s&arch=%s", cosmoDownloadBase, url.QueryEscape(branch), hostOS, hostArch)
+	pin := os.Getenv(cosmoVersionEnv)
+	dlURL := cosmoDownloadURL(branch, pin, hostOS, hostArch)
 
 	cacheDir, err := goCacheDirFunc()
 	if err != nil {
@@ -71,7 +74,7 @@ func EnsureCosmoToolchain() (string, error) {
 	}
 	cosmoCache := filepath.Join(cacheDir, "cosmo")
 
-	key := cosmoCacheKey(dlURL, branch)
+	key := cosmoCacheKeyFor(dlURL, branch, pin)
 	goRoot := filepath.Join(cosmoCache, key, "go")
 	if _, statErr := os.Stat(cosmoGoBinPath(goRoot)); statErr == nil {
 		ver, verErr := cosmoGoVersionFunc(goRoot)
@@ -83,7 +86,7 @@ func EnsureCosmoToolchain() (string, error) {
 	}
 
 	if err := downloadCosmoToolchain(dlURL, cosmoCache, key); err != nil {
-		return "", fmt.Errorf("failed to download the gosmopolitan toolchain from %s: %w (set %s to use a local build, or %s to pick a different buildhost branch)", dlURL, err, cosmoGorootEnv, cosmoBranchEnv)
+		return "", fmt.Errorf("failed to download the gosmopolitan toolchain from %s: %w (set %s to use a local build, %s to pick a different buildhost branch, or %s to pin one release)", dlURL, err, cosmoGorootEnv, cosmoBranchEnv, cosmoVersionEnv)
 	}
 
 	ver, err := cosmoGoVersionFunc(goRoot)
@@ -92,6 +95,19 @@ func EnsureCosmoToolchain() (string, error) {
 	}
 	logger.Info("cosmo-bootstrap: using %s from %s (%s)", key, goRoot, ver)
 	return goRoot, nil
+}
+
+// ResolveCosmoVersion answers which buildhost release this host would build
+// against, without downloading it. CI resolves it up front and passes it on
+// through cosmoVersionEnv. It returns the branch key when the probe cannot
+// reach buildhost, because that is what the bootstrap would then use.
+func ResolveCosmoVersion() string {
+	if pin := os.Getenv(cosmoVersionEnv); pin != "" {
+		return "v" + sanitizeCacheKey(trimCosmoVersion(pin))
+	}
+	hostOS, hostArch := cosmoHostPlatformFunc()
+	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)
+	return cosmoCacheKey(cosmoDownloadURL(branch, "", hostOS, hostArch), branch)
 }
 
 // useLocalCosmoGoroot validates and returns the GOROOT named by
@@ -109,7 +125,8 @@ func useLocalCosmoGoroot(root string) (string, error) {
 }
 
 // cosmoGoBinPath returns the go binary path inside a GOROOT, under the HOST's
-// executable naming, read from the seam that picks the download slot.
+// executable naming, read from the seam that picks the download slot. Spell it
+// by hand and an NT path misses the cache and cannot exec.
 func cosmoGoBinPath(root string) string {
 	goBin := filepath.Join(root, "bin", "go")
 	if hostOS, _ := cosmoHostPlatformFunc(); hostOS == "windows" {
@@ -128,6 +145,32 @@ func cosmoGoVersion(root string) (string, error) {
 		return "", fmt.Errorf("go version failed: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// cosmoDownloadURL names the buildhost slot. A pin selects the release
+// outright, and buildhost reads `v` and `branch` as alternatives, so a pinned
+// URL carries no branch at all.
+func cosmoDownloadURL(branch, pin, goos, goarch string) string {
+	selector := "branch=" + url.QueryEscape(branch)
+	if pin != "" {
+		selector = "v=" + url.QueryEscape(trimCosmoVersion(pin))
+	}
+	return fmt.Sprintf("%s?%s&os=%s&arch=%s", cosmoDownloadBase, selector, goos, goarch)
+}
+
+// cosmoCacheKeyFor keys the cache. A pin needs no probe, because it is
+// already the answer the probe would return.
+func cosmoCacheKeyFor(dlURL, branch, pin string) string {
+	if pin != "" {
+		return "v" + sanitizeCacheKey(trimCosmoVersion(pin))
+	}
+	return cosmoCacheKey(dlURL, branch)
+}
+
+// trimCosmoVersion accepts a pin in either spelling the logs use, so a value
+// copied from a "using cached v372" line works as written.
+func trimCosmoVersion(pin string) string {
+	return strings.TrimPrefix(strings.TrimSpace(pin), "v")
 }
 
 // cosmoCacheKey derives the cache dir: redirect version (v<N>) if probeable, else the branch

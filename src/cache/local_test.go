@@ -10,6 +10,7 @@ import (
 )
 
 func TestLocalCache_PutAndGet(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -46,6 +47,7 @@ func TestLocalCache_PutAndGet(t *testing.T) {
 }
 
 func TestLocalCache_Miss(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -56,6 +58,7 @@ func TestLocalCache_Miss(t *testing.T) {
 }
 
 func TestLocalCache_Overwrite(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lc, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -85,6 +88,7 @@ func TestLocalCache_Overwrite(t *testing.T) {
 // empty body the old oversized-PUT bug stored) must be refused and evicted,
 // never served. This tier used to serve bodies with NO read-side checks.
 func TestLocalCache_RefusesChecksumMismatch(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.Nil(t, err)
 
@@ -114,6 +118,7 @@ func TestLocalCache_RefusesChecksumMismatch(t *testing.T) {
 // by the content-address check — the old code overwrote m.Size with the stat
 // size, making truncation invisible.
 func TestLocalCache_RefusesTruncatedBody(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.Nil(t, err)
 
@@ -133,6 +138,7 @@ func TestLocalCache_RefusesTruncatedBody(t *testing.T) {
 // build id belongs to a DIFFERENT action must be refused even though its
 // bytes are self-consistent with its own content address.
 func TestLocalCache_RefusesCrossContaminatedPackage(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.Nil(t, err)
 
@@ -159,6 +165,7 @@ func TestLocalCache_RefusesCrossContaminatedPackage(t *testing.T) {
 // a package at load time. Residue from a binary that predates the PUT refusal
 // is evicted on the way out, so the toolchain recomputes it.
 func TestLocalCache_RefusesStoredModuleIndex(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.Nil(t, err)
 
@@ -178,6 +185,7 @@ func TestLocalCache_RefusesStoredModuleIndex(t *testing.T) {
 }
 
 func TestLocalCache_SubdirCreation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_, err := NewLocalCache(dir)
 	require.Nil(t, err)
@@ -189,6 +197,7 @@ func TestLocalCache_SubdirCreation(t *testing.T) {
 }
 
 func TestLocalCache_DataPath(t *testing.T) {
+	t.Parallel()
 	lc := &LocalCache{dir: "/tmp/test-cache"}
 	path := lc.dataPath("aabbccdd")
 	expected := filepath.Join("/tmp/test-cache", "aa", "v1aabbccdd")
@@ -197,6 +206,7 @@ func TestLocalCache_DataPath(t *testing.T) {
 }
 
 func TestParseMeta(t *testing.T) {
+	t.Parallel()
 	now := time.Now().Unix()
 	raw := "outputID:deadbeef\nsize:42\ntime:" + itoa(now) + "\n"
 	m, err := parseMeta(raw)
@@ -211,18 +221,21 @@ func TestParseMeta(t *testing.T) {
 }
 
 func TestParseMeta_MissingOutputID(t *testing.T) {
+	t.Parallel()
 	_, err := parseMeta("size:42\ntime:123\n")
 	require.NotNil(t, err)
 
 }
 
 func TestParseMeta_InvalidSize(t *testing.T) {
+	t.Parallel()
 	_, err := parseMeta("outputID:abc\nsize:not-a-number\n")
 	require.NotNil(t, err)
 
 }
 
 func TestParseMeta_InvalidTime(t *testing.T) {
+	t.Parallel()
 	_, err := parseMeta("outputID:abc\ntime:not-a-number\n")
 	require.NotNil(t, err)
 

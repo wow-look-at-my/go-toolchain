@@ -17,6 +17,7 @@ import (
 // TestMapSetAnalyzer: an all-true or emptied-then-set-only bool map is reported; a lookup
 // table, comma-ok read, computed value, escaping map, or map[K]struct{} is not.
 func TestMapSetAnalyzer(t *testing.T) {
+	t.Parallel() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
 	analysistest.Run(t, testdata, MapSetAnalyzer, "mapset")

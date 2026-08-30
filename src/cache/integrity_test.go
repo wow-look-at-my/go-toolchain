@@ -10,6 +10,7 @@ import (
 )
 
 func TestOutputIDMatches(t *testing.T) {
+	t.Parallel()
 	body := []byte("the quick brown fox jumps over the lazy dog")
 	sum := sha256.Sum256(body)
 	want := hex.EncodeToString(sum[:])
@@ -50,6 +51,7 @@ func (noopSink) prefetched() *prefetchSet { return nil }
 // advertised outputID) is skipped, so it can never be served as a "valid" local
 // hit and fail the build with "corrupt index".
 func TestWireBatchCallbacks_SkipsCorruptPrefetch(t *testing.T) {
+	t.Parallel()
 	local, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	defer local.Close()

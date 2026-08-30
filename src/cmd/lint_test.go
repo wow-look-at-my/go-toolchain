@@ -211,21 +211,9 @@ func TestRunLintImpl_JSON(t *testing.T) {
 		lintMinNodes = lint.DefaultMinNodes
 	}()
 
-	// Redirect stdout
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := runLintImpl([]string{dir})
-
-	w.Close()
-	os.Stdout = oldStdout
-
+	var err error
+	output := captureStdout(func() { err = runLintImpl([]string{dir}) })
 	assert.NoError(t, err)
-
-	buf := make([]byte, 4096)
-	n, _ := r.Read(buf)
-	output := string(buf[:n])
 	assert.Contains(t, output, "func_a")
 }
 

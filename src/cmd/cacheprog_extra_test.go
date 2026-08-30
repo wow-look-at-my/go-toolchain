@@ -23,7 +23,8 @@ func TestCacheHome_XDG(t *testing.T) {
 	os.Setenv("XDG_CACHE_HOME", "/custom/cache")
 	defer os.Setenv("XDG_CACHE_HOME", old)
 
-	assert.Equal(t, "/custom/cache/go-toolchain", cacheHome())
+	// Joined, not spelled: cacheHome names a path on THIS host.
+	assert.Equal(t, filepath.Join("/custom/cache", "go-toolchain"), cacheHome())
 }
 
 func TestIsVanityHostReachableWithChecker(t *testing.T) {
@@ -113,9 +114,7 @@ func TestCacheProgCommand(t *testing.T) {
 	data, err := os.ReadFile(got)
 	require.NoError(t, err)
 	assert.Equal(t, "#!/bin/sh\nexec '"+exe+"' cacheprog\n", string(data))
-	info, err := os.Stat(got)
-	require.NoError(t, err)
-	assert.NotZero(t, info.Mode().Perm()&0o111, "wrapper must be executable")
+	assertExecutable(t, got, "wrapper must be executable")
 
 	// A single quote in the executable path cannot be embedded safely: the cache is disabled rather than misquoted.
 	_, err = cacheProgCommand("cosmo", "darwin", "/tmp/it's here/gt-ape")

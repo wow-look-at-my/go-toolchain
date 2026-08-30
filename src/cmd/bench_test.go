@@ -168,6 +168,7 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 
 	os.WriteFile(filepath.Join(tmpDir, "x_test.go"), []byte("package p\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
 
+	stubForkToolchain(t)
 	mock := newTestPassMock(0)
 
 	oldJSON := jsonOutput
@@ -212,6 +213,7 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(oldWd)
 
+	stubForkToolchain(t)
 	mock := newTestPassMock(0)
 
 	oldJSON := jsonOutput

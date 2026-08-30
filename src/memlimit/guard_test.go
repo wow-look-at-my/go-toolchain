@@ -5,11 +5,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// exeSuffix is what this host needs on the end of an executable's name.
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
 
 // TestGuardDetection compiles the embedded guard source together with a small
 // harness and runs it against fixture cgroup filesystems, asserting the exact
@@ -144,7 +153,8 @@ func main() {
 	writeFile(t, dir, GuardFileName, guardSource)
 	writeFile(t, dir, "harness.go", harness)
 
-	bin := filepath.Join(dir, "guardprobe")
+	// NT will not exec a name with no extension, and an explicit -o adds none.
+	bin := filepath.Join(dir, "guardprobe"+exeSuffix())
 	cmd := exec.Command("go", "build", "-o", bin, ".")
 	cmd.Dir = dir
 	// Neutralize inherited build settings (e.g. -mod=vendor); avoid a toolchain download for the temp module.

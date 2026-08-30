@@ -10,6 +10,7 @@ import (
 )
 
 func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
+	t.Parallel()
 	// Rot detection is cross-process: a verified record memoizes in-process, so corrupt across a Close/reopen.
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
@@ -60,6 +61,7 @@ func TestPackStore_GetVerifiedDetectsCorruptBody(t *testing.T) {
 }
 
 func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
+	t.Parallel()
 	// Mmap verification path; see the sibling test for why corruption spans a Close/reopen.
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
@@ -105,6 +107,7 @@ func TestPackStore_GetVerifiedDetectsCorruptLargeBody(t *testing.T) {
 // self-heal — the entry is evicted and the GET misses, so the toolchain
 // recomputes instead of being handed the wrong package's export data.
 func TestPackStore_GetVerifiedRefusesCrossContaminatedPackage(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -137,6 +140,7 @@ func TestPackStore_GetVerifiedRefusesCrossContaminatedPackage(t *testing.T) {
 // body in the same pack is unaffected — the refusal is about the payload, not
 // about the store.
 func TestPackStore_GetVerifiedRefusesModuleIndex(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -162,6 +166,7 @@ func TestPackStore_GetVerifiedRefusesModuleIndex(t *testing.T) {
 }
 
 func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
+	t.Parallel()
 	// Compiler serve path; corruption applied across Close/reopen since a verified record memoizes per-process.
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
@@ -210,6 +215,7 @@ func TestPackStore_GetByOutputVerifiedDetectsCorruptBody(t *testing.T) {
 // body (content dedup) must get independent verdicts — serving action B a
 // package stamped for action A on a memo hit would be cross-contamination.
 func TestPackStore_MemoizedVerificationStillChecksActionPerKey(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)
@@ -247,6 +253,7 @@ func TestPackStore_MemoizedVerificationStillChecksActionPerKey(t *testing.T) {
 // as "corrupt index" / "package ... is not in std" for a module index. The
 // content-address (sha256) gate must refuse and evict it.
 func TestPackStore_GetByOutputVerifiedRejectsContentMismatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
 	require.Nil(t, err)

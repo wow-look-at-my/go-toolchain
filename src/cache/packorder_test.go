@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const packRaceRounds = 1500
+
 // mkPackBody returns (body, outputID-hex) for deterministic pseudo-random
 // content of the given size.
 func mkPackBody(rng *rand.Rand, size int) ([]byte, string) {
@@ -34,15 +36,21 @@ func mkActionID(rng *rand.Rand) string {
 // concurrent Puts for the SAME action with DIFFERENT contents and asserts the
 // live index and a fresh rescan of the pack files agree on which body the
 // action maps to. Before the commit-under-append-lock fix this diverged in
-// in a small fraction of iterations (live=A, rescan=B).
+// a small fraction of the racing pairs (live=A, rescan=B). packRaceRounds
+// pairs is the sensitivity.
+//
+// Every pair races into the same store, and the rescan happens at the end. A
+// store per pair spends the run on directory churn, which is what an NTFS host
+// charges for; a real store holds many actions anyway.
 func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(1))
-	const iters = 1500
-	for it := 0; it < iters; it++ {
-		dir := t.TempDir()
-		s, err := OpenPackStore(dir)
-		require.NoError(t, err)
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.NoError(t, err)
 
+	live := make(map[string]string, packRaceRounds)
+	for range packRaceRounds {
 		action := mkActionID(rng)
 		bodyA, outA := mkPackBody(rng, 128)
 		bodyB, outB := mkPackBody(rng, 256)
@@ -63,15 +71,18 @@ func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
 
 		liveLoc, ok := s.Get(action)
 		require.True(t, ok)
-		require.NoError(t, s.Close())
+		live[action] = liveLoc.outputID
+	}
+	require.NoError(t, s.Close())
 
-		s2, err := OpenPackStore(dir)
-		require.NoError(t, err)
+	s2, err := OpenPackStore(dir)
+	require.NoError(t, err)
+	defer s2.Close()
+	for action, outputID := range live {
 		scanLoc, ok := s2.Get(action)
 		require.True(t, ok)
-		require.Equal(t, liveLoc.outputID, scanLoc.outputID,
-			"iter %d: live index and pack rescan disagree about the body for the action — the next build would serve different content than this one did", it)
-		require.NoError(t, s2.Close())
+		require.Equal(t, outputID, scanLoc.outputID,
+			"action %s: live index and pack rescan disagree about its body — the next build would serve different content than this one did", action)
 	}
 }
 
@@ -79,6 +90,7 @@ func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
 // action, refusing to replace a present action, and reusing an existing
 // body via an alias record — with the result surviving a rescan.
 func TestPackStore_PutIfAbsent(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(2))
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
@@ -128,13 +140,14 @@ func TestPackStore_PutIfAbsent(t *testing.T) {
 // absent slot (and the later Put overwrites it) or aborts against the
 // existing entry; it can never end up shadowing the Put.
 func TestPackStore_PutAlwaysBeatsPutIfAbsent(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(3))
-	const iters = 1500
-	for it := 0; it < iters; it++ {
-		dir := t.TempDir()
-		s, err := OpenPackStore(dir)
-		require.NoError(t, err)
+	dir := t.TempDir()
+	s, err := OpenPackStore(dir)
+	require.NoError(t, err)
 
+	want := make(map[string]string, packRaceRounds)
+	for range packRaceRounds {
 		action := mkActionID(rng)
 		bodyPut, outPut := mkPackBody(rng, 96)
 		bodyPre, outPre := mkPackBody(rng, 160)
@@ -156,22 +169,26 @@ func TestPackStore_PutAlwaysBeatsPutIfAbsent(t *testing.T) {
 		liveLoc, ok := s.Get(action)
 		require.True(t, ok)
 		require.Equal(t, outPut, liveLoc.outputID,
-			"iter %d: a prefetched body displaced the locally-stored one in the live index", it)
-		require.NoError(t, s.Close())
+			"action %s: a prefetched body displaced the locally-stored one in the live index", action)
+		want[action] = outPut
+	}
+	require.NoError(t, s.Close())
 
-		s2, err := OpenPackStore(dir)
-		require.NoError(t, err)
+	s2, err := OpenPackStore(dir)
+	require.NoError(t, err)
+	defer s2.Close()
+	for action, outputID := range want {
 		scanLoc, ok := s2.Get(action)
 		require.True(t, ok)
-		require.Equal(t, outPut, scanLoc.outputID,
-			"iter %d: a prefetched body displaced the locally-stored one in the pack replay order", it)
-		require.NoError(t, s2.Close())
+		require.Equal(t, outputID, scanLoc.outputID,
+			"action %s: a prefetched body displaced the locally-stored one in the pack replay order", action)
 	}
 }
 
 // TestLocalCache_PutIfAbsent pins the loose tier's variant: absent fills,
 // present is never replaced.
 func TestLocalCache_PutIfAbsent(t *testing.T) {
+	t.Parallel()
 	c, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	defer c.Close()
@@ -200,6 +217,7 @@ func TestLocalCache_PutIfAbsent(t *testing.T) {
 // mis-keyed body (e.g. a web-prefetched object under a module-index key)
 // sticky forever while silently dropping the freshly computed correct body.
 func TestServer_PutReplacesMismatchedOutputID(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	srv := NewServer(lc, nil)
@@ -248,6 +266,7 @@ func (f *forgetRecorder) ForgetStale(actionID string) {
 // following remote Put uploads the fresh body instead of skipping it as
 // already-present — that upload is what heals the shared tier.
 func TestServer_PutReplaceForgetsStaleWebClaim(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	remote := &forgetRecorder{IBackend: newMemBackend()}
@@ -284,6 +303,7 @@ func TestServer_PutReplaceForgetsStaleWebClaim(t *testing.T) {
 // index claim so a later Put's check-and-claim re-uploads, and the
 // noCloseBackend daemon wrapper forwards the capability.
 func TestWebBackend_ForgetStaleDropsClaim(t *testing.T) {
+	t.Parallel()
 	b := newBareBackend("go-buildcache/")
 	action := strings.Repeat("d", 64)
 
@@ -300,6 +320,7 @@ func TestWebBackend_ForgetStaleDropsClaim(t *testing.T) {
 // for an action the local tier already holds must be dropped, and must not be
 // counted as populated.
 func TestWireBatchCallbacks_PrefetchNeverReplacesLocalEntry(t *testing.T) {
+	t.Parallel()
 	local, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	defer local.Close()
