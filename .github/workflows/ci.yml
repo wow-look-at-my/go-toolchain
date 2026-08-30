@@ -228,6 +228,16 @@ jobs:
           sudo apt-get update && sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
+      # bwrap is Linux and seatbelt is macOS, so docker is the only backend dats can reach on an NT host.
+      - name: Provision the sandbox backend (docker)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $svc = Get-Service -Name docker -ErrorAction SilentlyContinue
+          if (-not $svc) { throw "this runner has no docker service, so dats has no sandbox backend here" }
+          if ($svc.Status -ne 'Running') { Start-Service docker }
+          docker info
+
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
