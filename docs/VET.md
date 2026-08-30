@@ -404,11 +404,14 @@ nothing else is exempt:
   amount goes free -- in `renders 4 dp under $1`, the `$1` is exempt and the
   `4` is a count like any other, and `costs $ 5` is a count too, because the
   sign is not against the digits.
-- **An assigned HTTP status code.** The token must be nothing but a code the
-  IANA registry assigns, so `a 404 means the catalogue never heard of it` and
-  `retries a 502` stay. A number the registry does not assign (`499`), a code
-  wearing an ordinal (`the 404th retry`), and a longer number that merely
-  opens with one (`4040`) are all reported as before.
+- **An assigned HTTP status code, wearing the `HTTP ` prefix.** The token must
+  sit directly against `HTTP ` and be nothing but a code the IANA registry
+  assigns, so `HTTP 404 means the catalogue never heard of it` and `retries
+  HTTP 502` stay. The prefix is what says the digits are a code rather than a
+  count, so a bare `a 404` is reported, and so are a lowercase `http 404`, a
+  prefix further back in the sentence (`the HTTP response is a 404`), a number
+  the registry does not assign (`HTTP 499`), a code wearing an ordinal (`the
+  HTTP 404th retry`), and a longer number that merely opens with one (`4040`).
 
 ### Scope
 

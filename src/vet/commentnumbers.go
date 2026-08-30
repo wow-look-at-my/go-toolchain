@@ -141,7 +141,7 @@ func tokenNumber(text string, tok commentToken) (commentToken, bool) {
 	if isMoney(text, tok) {
 		return commentToken{}, false // a sum of money is a value, not a count
 	}
-	if isHTTPStatus(tok.text) {
+	if isHTTPStatus(text, tok) {
 		return commentToken{}, false // a status code names a response, not a count
 	}
 	if hit, ok := digitNumber(tok); ok {
@@ -162,6 +162,10 @@ func isMoney(text string, tok commentToken) bool {
 	return unicode.IsDigit(rune(tok.text[0]))
 }
 
+// httpStatusPrefix is what a code must wear to be read as one. Bare digits say
+// nothing about what they count, and 200 of a thing is a count.
+const httpStatusPrefix = "HTTP "
+
 // httpStatusCodes are the codes the IANA HTTP Status Code Registry assigns. A
 // code names a response, so it is a value the protocol fixed rather than a
 // count of anything here. An unassigned number is not exempt: the registry is
@@ -176,9 +180,13 @@ var httpStatusCodes = set.Of(
 	"500", "501", "502", "503", "504", "505", "506", "507", "508", "510", "511",
 )
 
-// isHTTPStatus reports whether the token is nothing but an assigned code.
-func isHTTPStatus(text string) bool {
-	return httpStatusCodes.Contains(text)
+// isHTTPStatus reports whether the token is an assigned code wearing the
+// prefix that says it is one.
+func isHTTPStatus(text string, tok commentToken) bool {
+	if !strings.HasSuffix(text[:tok.offset], httpStatusPrefix) {
+		return false
+	}
+	return httpStatusCodes.Contains(tok.text)
 }
 
 // isQualifiedName reports whether a marker sits BETWEEN name characters, which

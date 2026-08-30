@@ -71,8 +71,8 @@ func TestCommentNumbersLeavesNamesAlone(t *testing.T) {
 }
 
 // TestCommentNumbersExemptsMoneyAndStatusCodes pins the carve-outs: a sum of
-// money states what something costs and a status code names a response, so
-// neither goes stale when the code below it grows.
+// money states what something costs and an "HTTP "-prefixed code names a
+// response, so neither goes stale when the code below it grows.
 func TestCommentNumbersExemptsMoneyAndStatusCodes(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -81,12 +81,12 @@ func TestCommentNumbersExemptsMoneyAndStatusCodes(t *testing.T) {
 		{"a dollar amount", "// $1.43 would be the lie the report exists to stop"},
 		{"a bare dollar", "// renders $0 rather than an empty cell"},
 		{"a dollar boundary", "// under $1 the cents matter"},
-		{"a missing model", "// a 404 means the catalogue never heard of it"},
-		{"an auth failure", "// answers 401 when no credential was sent"},
-		{"a spent budget", "// 429 says the quota is gone, not that the key is bad"},
-		{"a gateway failure", "// retries a 502 and gives up on a 400"},
-		{"a redirect", "// follows the 302 to the static endpoint"},
-		{"a teapot", "// 418 is assigned, so it is exempt too"},
+		{"a missing model", "// HTTP 404 means the catalogue never heard of it"},
+		{"an auth failure", "// answers HTTP 401 when no credential was sent"},
+		{"a spent budget", "// HTTP 429 says the quota is gone, not that the key is bad"},
+		{"a gateway failure", "// retries HTTP 502 and gives up on HTTP 400"},
+		{"a redirect", "// follows the HTTP 302 to the static endpoint"},
+		{"a teapot", "// HTTP 418 is assigned, so it is exempt too"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assert.Empty(t, commentNumbers(c.text))
@@ -95,9 +95,8 @@ func TestCommentNumbersExemptsMoneyAndStatusCodes(t *testing.T) {
 }
 
 // TestCommentNumbersCarveOutsAreNarrow pins what the carve-outs do NOT reach:
-// a number elsewhere in a sentence that also names money, a currency sign with
-// a space after it, a code the registry never assigned, and a status code
-// wearing anything else.
+// a number beside an amount, a currency sign with a space after it, a code the
+// registry never assigned, and digits the "HTTP " prefix does not sit against.
 func TestCommentNumbersCarveOutsAreNarrow(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -106,8 +105,11 @@ func TestCommentNumbersCarveOutsAreNarrow(t *testing.T) {
 	}{
 		{"a count beside an amount", "// $1 is the boundary, and 4 dp under it", "4"},
 		{"a spaced currency sign", "// costs $ 5 per call", "5"},
-		{"an unassigned code", "// answers 499 when the client vanished", "499"},
-		{"a code with an ordinal suffix", "// the 404th retry", "404"},
+		{"an unassigned code", "// answers HTTP 499 when the client vanished", "499"},
+		{"a code with no prefix", "// a 404 means the catalogue never heard of it", "404"},
+		{"a lowercase prefix", "// answers http 404 for a missing model", "404"},
+		{"a prefix further back", "// the HTTP response is a 404", "404"},
+		{"a code with an ordinal suffix", "// the HTTP 404th retry", "404"},
 		{"a longer number opening with a code", "// caps the body at 4040 bytes", "4040"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
