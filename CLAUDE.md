@@ -241,8 +241,11 @@ coverage.
   everyone else WARNS, no opt-out marker. Depth: `docs/VET.md`
 - `src/vet/commentnumbers.go` — the `commentnumbers` analyzer: a number in a comment, in digits or in words, is a count of what exists
   today, and the edit that adds an item leaves it wrong — so it is banned, and the message names the remedy (describe what the code does and
-  let the reader count). A digit run touching a letter is a name (`sha256`, `amd64`, `10ms`), as is a qualified name (`net/http`,
-  `example.com/mod/v2`) and anything inside a URL, which is how a reference carrying a number survives. A whole word naming a number is
+  let the reader count; cite a section of a spec by its unique slug or heading, never by its position). A digit run touching a letter is a
+  name (`sha256`, `amd64`, `10ms`), as is a qualified name (`net/http`,
+  `example.com/mod/v2`) and anything inside a URL, which is how a reference carrying a number survives. A section sign (`§7.3`, `§ 4`) exempts
+  the number it introduces — the citation form for a document that publishes no slug — and `HTTP` immediately before a status-code-width digit
+  run exempts that code, so a bare `403` is still a count. A whole word naming a number is
   reported, so `once` and `One` go and `someone` stays. Directives and generated files are skipped. A WARNING in every module — stale prose must
   not fail a build by itself, and the warnings budget is what turns a repo full of them red. A warning is spent per file:line, so a sentence
   naming several numbers costs one. No opt-out marker. Depth: `docs/VET.md`
