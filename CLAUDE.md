@@ -49,27 +49,9 @@ coverage.
 
 - `src/main.go` — entry point
 - `src/integration/` — dats integration test runner
-- `src/cmd/staleoutputs.go` — **build outputs only survive a green run**. A binary at `build/<target>` is otherwise indistinguishable from one the
-  current run produced, so an invocation that discards stdout+stderr and ignores the exit code can execute a previous run's binary and report a build
-  that never happened. The artifacts of the module's build targets are therefore deleted: (1) `clearBuildOutputs` before any phase runs —
-  `runWithRunner` (root, per module) and the top of `runReleaseWithRunner` (matrix/release), so a failure anywhere, a crash, or a kill leaves nothing
-  runnable; (2) `discardBuildOutputs` on the failure path — deferred on the named error return of `run()` (registered FIRST so it runs LAST, after
-  every phase has printed) and of `runReleaseWithRunner`, covering a green build followed by a red dats suite / coverage / warnings gate; (3)
-  `discardBuildOutputsFromCWD` on the two exits that never enter the pipeline — the agent output guard's abort (which also NAMES the deleted paths in
-  its message, so the missing binary doesn't read as a different bug) and, via the exported `DiscardBuildOutputs`, main's bootstrap-failure exit. What
-  counts as an artifact is `isOutputArtifact`: the bare name (`<name>.exe` and the cosmo fat APE), any `<name>_…` (BinaryName's
-  `<name>_<goos>_<goarch>[.exe]`, the wasm shapes, the `<name>_host` symlink), any `<name>.…` (the APE's sidecar ELFs), and the `.tmp-`-prefixed
-  spelling of all of those — the compiler's -o under its temp name, which `runBuild` commits onto the target only on success and deletes on
-  failure, so the sweeps only ever meet crash orphans (`build.TmpPrefix`) — minus the
-  `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
-  `trace.json` — a project whose binary is named `wasm` must not lose `wasm_exec.js`). Discovery is a directory scan keyed on target NAME rather than
-  a re-derivation of the platform matrix, so artifacts of a previous run's platform set go too. `clearBuildOutputs` records `{dir, names}` per module
-  (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module run. Removal failure is FATAL on the clear path (an
-  undeletable binary is exactly the stale binary this prevents) and best-effort on the failure/abort paths (never mask the real error). The "Up to
-  date, nothing to do" fast exit is unaffected — it fires in `PersistentPreRunE` before `run()`, and it means the last run succeeded with its outputs
-  intact. No flag or env var disables any of this. NOTE for dats suites: dats runs commands in the module root, so a suite test that execs a pipeline
-  command must `cd "$(mktemp -d)"` first or it deletes the binaries the pipeline just built (this bit `dats/cli.dats`'s guard test — see
-  dats/README.md)
+- `src/cmd/staleoutputs.go` — **build outputs only survive a green run**: a leftover `build/<target>` is the last thing that can pass for a build
+  that never happened, so every exit that is not a green pipeline deletes the module's own artifacts. No flag or env var disables it. Depth:
+  `docs/BUILD-OUTPUTS.md` (which paths count, the three sweep sites, and the dats-suite footgun)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` builds ONE fat APE**, the org's only native
   output: no target flags means one `<name>` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
@@ -162,22 +144,9 @@ coverage.
   the -o path, never a `<base>_…` shape, which belongs to another target's own build — only after the build succeeded, failing loudly when an
   exit-0 go wrote nothing; on failure the temp spellings are deleted instead (`DiscardOutput`).
 - `tests/` — declarative CLI integration tests (.dats format)
-- `src/gomod/` — shared Go module utilities (module path reading, main package discovery). `FindMainPackages` → `hasMainPackage` →
-  `packageNameFromFile`
-  walks the module for non-test `.go` files declaring `package main`; the package clause is read with `go/parser` in `PackageClauseOnly` mode (the old
-  hand-rolled line scanner skipped only the first line of a multi-line `/* */` license header, so a k8s-style copyright block hid the package clause
-  and the main package was silently not built), but **honors build constraints** first: `fileMatchesBuild` calls `go/build`'s
-  `build.Default.MatchFile(dir, name)` to skip any file excluded from the build for the current context — notably the `//go:build ignore` / `// +build
-  ignore` generator idiom (`//go:build ignore` + `package main`, run via `go run file.go`), plus GOOS/GOARCH filename/tag mismatches. Without this
-  gate an `ignore`-tagged `package main` generator sitting next to a real `package bench`/`package e2e` would be miscounted as a main package, and
-  memlimit would inject a non-ignored `package main` guard into that dir, breaking the cross-compile with `found packages bench (bench_test.go) and
-  main (gomemlimit_gen.go)`. A legitimately-constrained main (e.g. a `package main` under `//go:build linux`) is still discoverable under the matching
-  context — only build-excluded files are dropped. `IsNestedModule` (a non-root dir containing its own go.mod) is the shared predicate every
-  filesystem walker uses to skip nested modules — `FindMainPackages`, test-package discovery (`listTestPackages` in src/test/test.go), the
-  coverable-statements walk (`HasCoverableStatements` in src/test/coverable.go), build-target discovery's library-only fallback
-  (`findAllPackagesByDir` in src/build), the vet fixers (gofmt, testify/gotest.tools import migrations, unused-range-vars), and the file-length check
-  all skip any nested module, whose files belong to their own module and must stay byte-identical to upstream (a nested module's packages
-  are not import paths of the outer module, so listing them fails `go test`/`go build` with `no required module provides package ...`)
+- `src/gomod/` — shared Go module utilities. `FindMainPackages` honors build constraints, so a `//go:build ignore` generator is never mistaken for a
+  directory's main package. `IsNestedModule` is the shared predicate every filesystem walker skips nested modules by — their files belong to their
+  own module. Depth: `docs/GOMOD.md`
 - `src/memlimit/` — injects a stdlib-only cgroup→GOMEMLIMIT startup guard into every main package built (discovered via `gomod.FindMainPackages`,
   which honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package)
   (`gomemlimit_gen.go`, embedded verbatim from `testdata/guard.go`), so each binary caps the Go heap at the container's cgroup memory limit instead of
@@ -312,6 +281,11 @@ coverage.
   `otlptracehttp` is the surviving one, via grpc's `syscall.TCP_INFO`. Either a dedicated implementation already exists
   (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
   (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
+- **`_cosmo` in a filename is a real GOOS filter now, so a file that must build everywhere cannot carry it.** Stock Go knows no GOOS called cosmo
+  and ignored the suffix, which is how `matrix_cosmo_test.go` shipped shared test helpers under a name that promised the opposite. The fork does
+  know it, and the test binaries build for the host (`WithHostTarget`), so the file vanished and every caller failed `undefined`. Name a
+  cosmo-flavored file that is NOT platform-specific with the word up front — `cosmomatrix_test.go`. `GOOS=linux go vet ./...` under the fork is
+  what catches this; the pipeline's own vet reads the cosmo variant, where such a file is present
 
 ## Documentation
 
@@ -326,7 +300,7 @@ coverage.
 - **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
   wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
   `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`,
-  `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/TRACING.md`, `docs/BUILD-OUTPUTS.md`). Each entry appears exactly once — editing a bullet means
+  `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/TRACING.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means
   updating it in place, never appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an
   edit shows up as a reviewable diff. A literal
   double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's
