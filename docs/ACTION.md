@@ -31,6 +31,25 @@ lines, so a paragraph break does not split a wall. A `#` inside a `run:` script
 counts. The limit is a constant and no input raises it. The action needs no
 permissions, only a checkout.
 
+## 1b2. The tests-in-YAML guard
+
+The step after it runs `wow-look-at-my/actions@no-tests-in-yaml#latest`. A test
+written inside a `run:` script fails the job. A workflow step is a scheduler: an
+assertion living there runs only on a runner, only after a push, and only in
+that one repository, so nobody can run it against a change before sending it.
+
+Three rules, each reading only `run:` scripts. A redirect or heredoc writing a
+file that is a test by name (`*_test.go`, `*.test.ts`, `*.dats`, and the rest).
+A comparison paired with a failure on one line — `grep -q … || exit 1`,
+`if ! grep …`, `[ … ] || { … }`, and the annotate-and-exit line a `case` arm
+uses. A shell function named `assert*`, `expect*`, `must*` and friends.
+
+A step that merely runs a command fails on its own exit code and matches
+nothing, which is what keeps an ordinary build silent. No input turns a rule
+off. It scans the same local call chain the comment-wall guard does, needs no
+permissions beyond a checkout, and warns rather than passing when it finds
+nothing to scan.
+
 ## 1c. Refusing a frozen ref
 
 A caller writing `@latest` or `@master` gets a frozen orphan tag, not a moving

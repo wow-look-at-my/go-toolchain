@@ -97,6 +97,9 @@ runs:
     - name: Refuse comment walls in workflow and action YAML
       uses: wow-look-at-my/actions@yaml-comment-block#latest
 
+    - name: Refuse tests written into workflow and action YAML
+      uses: wow-look-at-my/actions@no-tests-in-yaml#latest
+
     - uses: wow-look-at-my/actions@secret-server#latest
 
     - name: Configure git for private repos
