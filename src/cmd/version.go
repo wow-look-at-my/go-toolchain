@@ -325,29 +325,37 @@ func checkDirtyInCI() error {
 // dirtyDiff renders what actually changed. The message tells the reader to
 // review the diff, and when the failure happens only in CI there is no other
 // way to see it: the tree is gone with the runner.
-func dirtyDiff(files string) string {
+func dirtyDiff(files string) string { return dirtyDiffIn("", files) }
+
+// dirtyDiffIn runs in dir, or in the process directory when dir is empty. The
+// directory is a parameter so a test never has to chdir for this.
+func dirtyDiffIn(dir, files string) string {
 	paths := dirtyDiffPaths(files)
 	if len(paths) == 0 {
 		return ""
 	}
-	cmd := exec.Command("git", append([]string{"--no-pager", "diff", "--"}, paths...)...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		// Saying nothing here would leave a reader staring at a file list and
-		// an instruction to review a diff that never arrives.
-		return fmt.Sprintf("\nDiff: git diff failed: %v: %s\n", err, strings.TrimSpace(stderr.String()))
+	git := func(args ...string) (string, string, error) {
+		cmd := exec.Command("git", append(args, paths...)...)
+		cmd.Dir = dir
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), strings.TrimSpace(stderr.String()), err
 	}
-	diff := strings.TrimSpace(string(out))
+	// Every branch below says something: silence leaves the reader under an
+	// instruction to review a diff that never arrives.
+	diff, stderr, err := git("--no-pager", "diff", "--")
+	if err != nil {
+		return fmt.Sprintf("\nDiff: git diff failed: %v: %s\n", err, stderr)
+	}
 	if diff == "" {
-		// Worth stating: it means the change is staged, or the paths are
-		// untracked, and either one sends the reader somewhere different.
-		staged, _ := exec.Command("git", append([]string{"--no-pager", "diff", "--cached", "--"}, paths...)...).Output()
-		if diff = strings.TrimSpace(string(staged)); diff == "" {
+		// An empty worktree diff means the change is staged, or the paths are
+		// untracked, and those send the reader to different places.
+		staged, _, stagedErr := git("--no-pager", "diff", "--cached", "--")
+		if stagedErr != nil || staged == "" {
 			return "\nDiff: git reports no content change; the paths are untracked or already committed\n"
 		}
-		diff = "(staged)\n" + diff
+		diff = "(staged)\n" + staged
 	}
 	if lines := strings.Split(diff, "\n"); len(lines) > dirtyDiffMaxLines {
 		diff = strings.Join(lines[:dirtyDiffMaxLines], "\n") + "\n... diff truncated"

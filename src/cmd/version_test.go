@@ -88,26 +88,20 @@ func TestDirtyDiffShowsTheChange(t *testing.T) {
 	require.NoError(t, exec.Command("git", "-C", dir, "commit", "-qm", "init").Run())
 	require.NoError(t, os.WriteFile(mod, []byte("module example.com/x\n\ngo 1.28\n"), 0644))
 
-	oldWd, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
-
-	got := dirtyDiff(" M go.mod")
+	got := dirtyDiffIn(dir, " M go.mod")
 	assert.Contains(t, got, "-go 1.27")
 	assert.Contains(t, got, "+go 1.28")
+
+	// Staged is not the same as absent, and the reader is told which.
+	require.NoError(t, exec.Command("git", "-C", dir, "add", "go.mod").Run())
+	assert.Contains(t, dirtyDiffIn(dir, " M go.mod"), "(staged)")
 }
 
 // Every path out of dirtyDiff says something. Silence is what sent the last
 // windows failure back around with nothing learned.
 func TestDirtyDiffReportsWhenGitCannotAnswer(t *testing.T) {
-	oldWd, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(t.TempDir()))
-	defer os.Chdir(oldWd)
-
-	assert.Contains(t, dirtyDiff(" M go.mod"), "git diff failed")
-	assert.Empty(t, dirtyDiff(""))
+	assert.Contains(t, dirtyDiffIn(t.TempDir(), " M go.mod"), "git diff failed")
+	assert.Empty(t, dirtyDiffIn(t.TempDir(), ""))
 }
 
 func TestStatusLineIsToolchainWrite(t *testing.T) {
