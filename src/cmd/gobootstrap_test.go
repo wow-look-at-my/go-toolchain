@@ -5,12 +5,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,35 +88,30 @@ func TestInstalledGoVersion(t *testing.T) {
 	assert.Contains(t, v, ".")
 }
 
-func TestGoDownloadURLsNoProxy(t *testing.T) {
-	old := os.Getenv("GOPROXY_FALLBACK")
-	os.Unsetenv("GOPROXY_FALLBACK")
-	defer os.Setenv("GOPROXY_FALLBACK", old)
-
-	urls := goDownloadURLs("go1.24.11.linux-amd64.tar.gz")
-	assert.Equal(t, 2, len(urls))
-	assert.Contains(t, urls[0], "go.dev/dl/")
-	assert.Contains(t, urls[1], "dl.google.com/go/")
+// The fork reports its own version, which is not semver: the comparison has to
+// read the numeric part or every go.mod check silently passes.
+func TestGoVersionCore(t *testing.T) {
+	assert.Equal(t, "1.27.0", goVersionCore("1.27.0cosmo.r685"))
+	assert.Equal(t, "1.24.7", goVersionCore("1.24.7"))
+	assert.Equal(t, "1.27", goVersionCore("1.27rc1"))
 }
 
-func TestGoDownloadURLsWithProxy(t *testing.T) {
-	old := os.Getenv("GOPROXY_FALLBACK")
-	os.Setenv("GOPROXY_FALLBACK", "https://proxy.example.com")
-	defer os.Setenv("GOPROXY_FALLBACK", old)
+// A fork older than the module's go directive has no fallback to hide behind:
+// there is no other toolchain, so this fails and names the repair.
+func TestForkSatisfiesGoMod(t *testing.T) {
+	dir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(oldWd)
+	require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/x\n\ngo 1.30.0\n"), 0644))
 
-	urls := goDownloadURLs("go1.24.11.linux-amd64.tar.gz")
-	assert.Equal(t, 4, len(urls))
-	assert.Contains(t, urls[2], "proxy.example.com/https://go.dev/dl/")
-	assert.Contains(t, urls[3], "proxy.example.com/https://dl.google.com/go/")
-}
+	err := forkSatisfiesGoMod("1.27.0cosmo.r685")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "1.30.0")
+	assert.Contains(t, err.Error(), cosmoBranchEnv)
+	assert.NotContains(t, err.Error(), "go.dev", "the repair is a newer fork, never a stock Go")
 
-func TestGoDownloadURLsWithTrailingSlash(t *testing.T) {
-	old := os.Getenv("GOPROXY_FALLBACK")
-	os.Setenv("GOPROXY_FALLBACK", "https://proxy.example.com/")
-	defer os.Setenv("GOPROXY_FALLBACK", old)
-
-	urls := goDownloadURLs("go1.24.11.linux-amd64.tar.gz")
-	assert.Contains(t, urls[2], "proxy.example.com/https://go.dev/dl/")
+	assert.NoError(t, forkSatisfiesGoMod("1.31.0cosmo.r1"))
 }
 
 func TestGoCacheDir(t *testing.T) {
@@ -242,98 +235,51 @@ func TestExtractTarGzPathTraversal(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestEnsureGoCachedAlreadyPresent(t *testing.T) {
-	tmpDir := t.TempDir()
+// The whole pipeline compiles with the fork, so the bootstrap's job is to put
+// THAT GOROOT in front of whatever Go the host carries -- and to pin
+// GOTOOLCHAIN, the setting that otherwise lets the go command fetch a stock
+// toolchain behind our back to satisfy a go directive.
+func TestEnsureGoVersionUsesTheForkAndPinsGOTOOLCHAIN(t *testing.T) {
+	forkRoot := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
+	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
 
-	// Create a fake cached Go installation
-	goRoot := filepath.Join(tmpDir, "go1.99.0")
-	goBin := filepath.Join(goRoot, "bin")
-	os.MkdirAll(goBin, 0755)
-	os.WriteFile(filepath.Join(goBin, "go"), []byte("fake"), 0755)
+	// t.Setenv, so the GOROOT this assigns cannot outlive the test.
+	t.Setenv("PATH", os.Getenv("PATH"))
+	t.Setenv("GOROOT", "")
+	t.Setenv("GOTOOLCHAIN", "auto")
 
-	// Override goCacheDir to return our tmpDir
-	oldCacheDir := goCacheDirFunc
-	goCacheDirFunc = func() (string, error) { return tmpDir, nil }
-	defer func() { goCacheDirFunc = oldCacheDir }()
+	oldEnsure, oldVerify := ensureCosmoToolchainFunc, verifyGoToolchainFunc
+	ensureCosmoToolchainFunc = func() (string, error) { return forkRoot, nil }
+	verifyGoToolchainFunc = func(string) error { return nil }
+	defer func() { ensureCosmoToolchainFunc, verifyGoToolchainFunc = oldEnsure, oldVerify }()
 
-	result, err := ensureGoCached("1.99.0")
-	assert.Nil(t, err)
-	assert.Equal(t, goRoot, result)
+	require.NoError(t, EnsureGoVersion())
+
+	assert.Equal(t, forkRoot, os.Getenv("GOROOT"))
+	assert.Equal(t, "local", os.Getenv("GOTOOLCHAIN"))
+	assert.True(t, strings.HasPrefix(os.Getenv("PATH"), filepath.Join(forkRoot, "bin")),
+		"the fork's bin must come first, or the host's own go wins")
 }
 
-func TestDownloadGoSuccess(t *testing.T) {
-	tmpDir := t.TempDir()
+// No fork, no build: there is nothing else that may compile this module.
+func TestEnsureGoVersionFailsWithoutTheFork(t *testing.T) {
+	oldEnsure := ensureCosmoToolchainFunc
+	ensureCosmoToolchainFunc = func() (string, error) { return "", fmt.Errorf("no toolchain published") }
+	defer func() { ensureCosmoToolchainFunc = oldEnsure }()
 
-	// Create a tar.gz with go/bin/go inside
-	archive := createTestTarGz(t, map[string]string{
-		"go/bin/go": "#!/bin/sh\necho go1.99.0",
-	})
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(archive)
-	}))
-	defer srv.Close()
-
-	// Override download URLs
-	old := os.Getenv("GOPROXY_FALLBACK")
-	os.Unsetenv("GOPROXY_FALLBACK")
-	defer os.Setenv("GOPROXY_FALLBACK", old)
-
-	oldURLs := goDownloadURLsFunc
-	goDownloadURLsFunc = func(archiveName string) []string {
-		return []string{srv.URL + "/" + archiveName}
-	}
-	defer func() { goDownloadURLsFunc = oldURLs }()
-
-	goRoot := filepath.Join(tmpDir, "go1.99.0")
-	err := downloadGo("1.99.0", tmpDir, goRoot)
-	assert.Nil(t, err)
-
-	// Verify the binary was extracted and renamed
-	content, err := os.ReadFile(filepath.Join(goRoot, "bin", "go"))
-	assert.Nil(t, err)
-	assert.Equal(t, "#!/bin/sh\necho go1.99.0", string(content))
-}
-
-func TestDownloadGoAllFail(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	oldURLs := goDownloadURLsFunc
-	goDownloadURLsFunc = func(archiveName string) []string {
-		return []string{srv.URL + "/notfound"}
-	}
-	defer func() { goDownloadURLsFunc = oldURLs }()
-
-	goRoot := filepath.Join(tmpDir, "go1.99.0")
-	err := downloadGo("1.99.0", tmpDir, goRoot)
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "all download URLs failed")
-}
-
-func TestDownloadGoConnectionError(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	oldURLs := goDownloadURLsFunc
-	goDownloadURLsFunc = func(archiveName string) []string {
-		return []string{"http://127.0.0.1:1/notlistening"}
-	}
-	defer func() { goDownloadURLsFunc = oldURLs }()
-
-	goRoot := filepath.Join(tmpDir, "go1.99.0")
-	err := downloadGo("1.99.0", tmpDir, goRoot)
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "all download URLs failed")
-}
-
-func TestEnsureGoVersionGoPresent(t *testing.T) {
-	// Go here already satisfies go.mod, so EnsureGoVersion needs no download.
 	err := EnsureGoVersion()
-	assert.Nil(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gosmopolitan toolchain is the only compiler")
+	assert.Contains(t, err.Error(), "no toolchain published")
+}
+
+// writeFakeGoBin writes a stub `go` that answers the version probe, so the
+// bootstrap can be exercised without a real toolchain.
+func writeFakeGoBin(t *testing.T, path string) {
+	t.Helper()
+	script := "#!/bin/sh\necho 'go version go1.27.0cosmo.r685 linux/amd64'\n"
+	require.NoError(t, os.WriteFile(path, []byte(script), 0755))
 }
 
 func TestVerifyGoToolchainHealthy(t *testing.T) {
@@ -387,70 +333,28 @@ func TestVerifyGoToolchainBrokenGOROOT(t *testing.T) {
 	}
 }
 
-func TestEnsureGoVersionBrokenTakesBootstrap(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake go binary is a shell script; LookPath expects go.exe on Windows")
+// A broken fork is a failed run, not a quiet swap to whatever Go is lying
+// around: the swap is what this whole change exists to prevent.
+func TestEnsureGoVersionBrokenForkFails(t *testing.T) {
+	forkRoot := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
+	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
+
+	// t.Setenv, so the GOROOT this assigns cannot outlive the test.
+	t.Setenv("PATH", os.Getenv("PATH"))
+	t.Setenv("GOROOT", os.Getenv("GOROOT"))
+	t.Setenv("GOTOOLCHAIN", os.Getenv("GOTOOLCHAIN"))
+
+	oldEnsure, oldVerify := ensureCosmoToolchainFunc, verifyGoToolchainFunc
+	ensureCosmoToolchainFunc = func() (string, error) { return forkRoot, nil }
+	verifyGoToolchainFunc = func(string) error {
+		return fmt.Errorf("package runtime is not in std")
 	}
+	defer func() { ensureCosmoToolchainFunc, verifyGoToolchainFunc = oldEnsure, oldVerify }()
 
-	// go.mod is satisfied already, so EnsureGoVersion reaches the integrity probe.
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	defer os.Chdir(oldWd)
-	require.NoError(t, os.WriteFile("go.mod", []byte("module test\n\ngo 1.20.0\n"), 0o644))
-
-	sysGo, err := exec.LookPath("go")
-	require.NoError(t, err)
-
-	// Probe fails only for the system Go; a freshly downloaded toolchain is healthy.
-	oldVerify := verifyGoToolchainFunc
-	verifyGoToolchainFunc = func(goPath string) error {
-		if goPath == sysGo {
-			return fmt.Errorf("simulated corruption: package runtime is not in std")
-		}
-		return nil
-	}
-	defer func() { verifyGoToolchainFunc = oldVerify }()
-
-	// Serve a fake Go archive so bootstrapGo "downloads" without touching the network.
-	archive := createTestTarGz(t, map[string]string{
-		"go/bin/go": "#!/bin/sh\necho go1.20.0",
-	})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(archive)
-	}))
-	defer srv.Close()
-
-	oldURLs := goDownloadURLsFunc
-	goDownloadURLsFunc = func(archiveName string) []string { return []string{srv.URL + "/" + archiveName} }
-	defer func() { goDownloadURLsFunc = oldURLs }()
-
-	cacheDir := t.TempDir()
-	oldCacheDir := goCacheDirFunc
-	goCacheDirFunc = func() (string, error) { return cacheDir, nil }
-	defer func() { goCacheDirFunc = oldCacheDir }()
-
-	// Snapshot mutated globals/env so the download path doesn't leak into other tests.
-	oldMinor := resolvedGoMinor
-	defer func() { resolvedGoMinor = oldMinor }()
-	origPATH := os.Getenv("PATH")
-	origGOROOT, hadGOROOT := os.LookupEnv("GOROOT")
-	defer func() {
-		os.Setenv("PATH", origPATH)
-		if hadGOROOT {
-			os.Setenv("GOROOT", origGOROOT)
-		} else {
-			os.Unsetenv("GOROOT")
-		}
-	}()
-
-	require.NoError(t, EnsureGoVersion())
-
-	// Confirms the download path was taken: GOROOT points into our fake cache.
-	wantRoot := filepath.Join(cacheDir, "go1.20.0")
-	assert.Equal(t, wantRoot, os.Getenv("GOROOT"))
-	_, statErr := os.Stat(filepath.Join(wantRoot, "bin", "go"))
-	assert.NoError(t, statErr)
+	err := EnsureGoVersion()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed its integrity probe")
 }
 
 func TestRecordGoMinor(t *testing.T) {

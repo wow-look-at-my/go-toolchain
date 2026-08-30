@@ -21,7 +21,7 @@ const fuseLockName = ".fuse.lock"
 // EnsureLocalCacheVersion runs the single local cache purge for root (the
 // buildcache dir) when the on-disk version stamp does not match
 // currentLocalCacheVersion. It is called before either local tier opens —
-// NewLocalStore for the daemon (FUSE, loose fallback, and GOCACHE_NO_FUSE) and
+// NewLocalStore for the daemon (either tier) and
 // runCacheProg for the standalone cacheprog — so no tier ever serves pre-purge
 // data. Everything is best-effort: the cache is an optimization, so failures
 // are logged and the build proceeds (an unwritten stamp retries next run).

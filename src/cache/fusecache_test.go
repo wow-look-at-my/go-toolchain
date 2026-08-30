@@ -232,8 +232,11 @@ func TestFuseCache_SecondOwnerRejected(t *testing.T) {
 }
 
 // NewLocalStore on a dir already owned by a FuseCache must fall back to the
-// loose-file cache rather than disturbing the live mount.
+// loose-file cache rather than disturbing the live mount. GOCACHE_FUSE=1 is
+// what makes this a real assertion: without it the loose tier is the default
+// and the test would pass without ever reaching the busy check.
 func TestNewLocalStore_FallsBackWhenBusy(t *testing.T) {
+	t.Setenv("GOCACHE_FUSE", "1")
 	dir := t.TempDir()
 	fc, err := newFuseCache(dir)
 	if err != nil {

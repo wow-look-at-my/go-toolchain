@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis/analysistest"
+	"golang.org/x/tools/go/packages"
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
@@ -63,6 +64,31 @@ func TestRunNoGoMod(t *testing.T) {
 
 	_, err := Run(false)
 	assert.Nil(t, err)
+}
+
+// The retry exists so no importer stands between the type-check and a
+// dependency, so NeedDeps is the whole point of it -- and the flag has to come
+// back off, or every later pass pays for a source-loaded stdlib.
+func TestLoadModeFromSource(t *testing.T) {
+	assert.Zero(t, loadMode()&packages.NeedDeps, "the default reads export data")
+
+	dir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(oldWd)
+
+	seen := packages.LoadMode(0)
+	// No go.mod here, so RunFromSource returns before loading; read the mode from inside it.
+	func() {
+		loadDepsFromSource = true
+		defer func() { loadDepsFromSource = false }()
+		seen = loadMode()
+	}()
+	assert.NotZero(t, seen&packages.NeedDeps)
+
+	_, err := RunFromSource(false, nil)
+	require.NoError(t, err)
+	assert.Zero(t, loadMode()&packages.NeedDeps, "RunFromSource must restore the default")
 }
 
 func TestSourceLocationShortLoc(t *testing.T) {

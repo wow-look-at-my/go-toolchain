@@ -3,9 +3,19 @@ See [WASM.md](WASM.md) for the `wasm/js` and `wasm/wasip1` targets, which share
 this command and its fork toolchain.
 
 > **Shipping policy.** The `wow-look-at-my` org ships **one APE covering every
-> supported platform**. The fat APE is the command's only native output, and
-> there is no flag for a per-platform native binary: `--targets` accepts only
-> `cosmo` and the wasm targets below.
+> supported platform**. The fat APE is the only native output, and there is no
+> flag for a per-platform native binary: `--targets` accepts only `cosmo` and
+> the wasm targets below.
+>
+> This is not a property of `matrix` alone. The gosmopolitan fork is the
+> pipeline's **only** compiler — `EnsureGoVersion` puts it on `PATH` and
+> `GOROOT` with `GOTOOLCHAIN=local` before any phase runs, and there is no
+> go.dev download path left — so a bare `go-toolchain` builds the same APE that
+> `matrix` publishes. `runBuild` is the single place anything is compiled, and
+> `checkPortableJob` refuses there any job naming a native platform or carrying
+> no fork GOROOT. Every variable that picks the compiler or the target
+> (`GOOS`, `GOARCH`, `GOROOT`, `PATH`, `CGO_ENABLED`) is assigned rather than
+> inherited, so an ambient `GOOS=linux` cannot ask for a native binary either.
 
 `go-toolchain matrix` builds **one** file: a fat Actually Portable Executable,
 compiled with the [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan)
@@ -80,14 +90,15 @@ cache keys namespaced by a content hash of the toolchain in use
 (`GO_TOOLCHAIN_CACHE_NAMESPACE`, set automatically). The fork stamps a constant
 version, so different fork builds would otherwise collide on cache keys and
 serve each other stale objects (SIGSEGV binaries). Namespaced builds skip the
-shared cache daemon and cache per-toolchain; normal targets are unaffected.
-See [CACHE.md](CACHE.md#fork-toolchain-key-namespacing).
+shared cache daemon and cache per-toolchain. Every build is a fork build, so
+every build is namespaced. See
+[CACHE.md](CACHE.md#fork-toolchain-key-namespacing).
 
 **Heads-up: APEs self-assimilate.** Executing an APE rewrites its own header
 in place to the host's native format, making the file differ from its
 checksum. Never execute the artifacts in `build/` directly — that includes the
-local `<name>`/`<name>_host` convenience symlinks, which point at the APE when
-no native host binary was built. Run a throwaway copy instead. The build
+local `<name>_host` convenience symlink, which points at the APE. Run a
+throwaway copy instead. The build
 pipeline itself never executes matrix artifacts in place (the dats phase stages
 copies; benchmarks compile their own test binaries), so artifacts stay pristine
 through the build.

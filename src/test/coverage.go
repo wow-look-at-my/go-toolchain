@@ -206,7 +206,7 @@ func ReachablePackages(r runner.CommandRunner) (set.Set[string], error) {
 			args = append(args, pkg)
 		}
 	}
-	proc, err := runner.Cmd("go", args...).WithQuiet().Run(r)
+	proc, err := runner.Cmd("go", args...).WithHostTarget().WithQuiet().Run(r)
 	if err != nil {
 		return set.Set[string]{}, err
 	}

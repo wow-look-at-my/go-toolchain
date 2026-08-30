@@ -17,6 +17,9 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
+// errFuseBusy signals another process already owns the FUSE mount.
+var errFuseBusy = errors.New("FUSE cache already owned by another process")
+
 // FuseCache is a LocalStore backed by a PackStore, served through a read-only
 // FUSE mount: DiskPath is a real path, with no loose file per cache entry.
 type FuseCache struct {
@@ -248,6 +251,20 @@ func (f *fuseFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint3
 	}
 	// Bodies are immutable, so the kernel may cache pages across opens.
 	return nil, fuse.FOPEN_KEEP_CACHE, 0
+}
+
+// fdForRead returns the pack fd and absolute offset for a body-relative read of
+// loc; the fd stays valid for the store's life. It lives beside its only caller
+// because go-fuse does not build for cosmo, so PackStore does not carry it there.
+func (s *PackStore) fdForRead(loc packLoc, off int64) (fd uintptr, absOff, avail int64) {
+	if off < 0 || off >= loc.dataLen {
+		return 0, 0, 0
+	}
+	f := s.pack(loc.packID)
+	if f == nil {
+		return 0, 0, 0
+	}
+	return f.Fd(), loc.dataOff + off, loc.dataLen - off
 }
 
 func (f *fuseFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
