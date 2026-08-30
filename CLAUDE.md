@@ -14,11 +14,10 @@ buildhost, which always has the current build:
 # Source: buildhost (pazer.build). The ?branch=v1 pin matches action.yml.
 curl -fL --compressed "https://dl.pazer.build/go-toolchain?branch=v1&os=linux&arch=amd64" -o /tmp/go-toolchain
 chmod +x /tmp/go-toolchain
-# The linux slots serve a fat APE that self-assimilates (rewrites its own file
-# to a native ELF) on first exec -- run it once while still writable, BEFORE
-# installing to a root-owned location, or a non-root exec dies with
-# "line 11: ... Permission denied".
-/tmp/go-toolchain version
+# The linux slots serve a fat APE. It never rewrites its own file: the shell
+# header extracts a loader under $TMPDIR, so a read-only binary in a read-only
+# directory runs. A SHELL has to start it, though -- execve alone cannot read
+# that header, which is why `go run`/`go test` of an APE says exec format error.
 cp /tmp/go-toolchain /usr/local/bin/go-toolchain
 
 # Build and test (runs mod tidy, vet, tests with coverage, then builds)
@@ -28,7 +27,7 @@ go-toolchain
 go-toolchain matrix
 
 # Integration tests run automatically after build via dats
-# To add new CLI tests, create .dats files in tests/
+# To add new CLI tests, add them to dats/cli.dats
 ```
 
 Do NOT use `go run ./src`, `go build`, `go test`, `go vet`, or any bare `go` commands directly — they will fail if the local Go version doesn't match
@@ -143,7 +142,9 @@ coverage.
   (`TempOutputPath`), and `CommitOutput` renames it onto `build/<name>` — plus any `<base>.…` sidecar shape the cosmo fork derives from
   the -o path, never a `<base>_…` shape, which belongs to another target's own build — only after the build succeeded, failing loudly when an
   exit-0 go wrote nothing; on failure the temp spellings are deleted instead (`DiscardOutput`).
-- `tests/` — declarative CLI integration tests (.dats format)
+- `src/integration/` — runs a consumer module's `tests/*.dats` after the build phase (an absent directory is a silent no-op). This repo keeps no
+  `tests/` of its own: a fixture spelling `go run ./src` builds an APE the fork/exec cannot start, so this repo's CLI assertions live in
+  `dats/cli.dats` against the built binary
 - `src/gomod/` — shared Go module utilities. `FindMainPackages` honors build constraints, so a `//go:build ignore` generator is never mistaken for a
   directory's main package. `IsNestedModule` is the shared predicate every filesystem walker skips nested modules by — their files belong to their
   own module. Depth: `docs/GOMOD.md`

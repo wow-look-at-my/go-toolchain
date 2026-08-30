@@ -127,6 +127,7 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
+			- "Build Go projects with coverage enforcement"
 			- "Usage:"
 			- "matrix"
 			- "bench"

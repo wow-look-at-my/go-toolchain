@@ -83,7 +83,7 @@ jobs:
             }
 
       - name: Cache validation (second build)
-        # build/ in THIS job is the host-built native linux/amd64 binary from `go run ./src` above --... see docs/CI.md
+        # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
         env:
           # The second build re-invokes go-toolchain, which also submits the dependency snapshot; give... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}

@@ -8,9 +8,9 @@ result. `cacheprog` and `version` do not, and are exempt (`skipAgentGuard`):
 `cacheprog`'s stdout IS the GOCACHEPROG protocol channel, and `version` prints
 four lines of build metadata -- no coverage report, no test result, nothing the
 guard exists to keep in front of a reader. `version` is also what this
-repository's own `tests/version.dats` runs, and dats captures a command's
-stdout to assert on it, so a guarded `version` refused inside the integration
-phase and failed every run under an agent -- the exact reader the guard is for.
+repository's own `dats/cli.dats` runs, and dats captures a command's
+stdout to assert on it, so a guarded `version` refuses inside the dats
+phase and fails every run under an agent -- the exact reader the guard is for.
 `install`/`release` skip the build cache (`skipCache`) but are NOT exempt from
 the guard. It aborts with exit 1
 when go-toolchain runs under an AI coding agent **and** its stdout is anything

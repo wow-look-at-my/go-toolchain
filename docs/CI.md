@@ -315,11 +315,12 @@ authenticate and fails loudly -- this is what wires the feature up.
 
 ### env
 
-build/ in THIS job is the host-built native linux/amd64 binary from
-`go run ./src` above -- never the cosmo APE -- so executing it here is
-safe (APEs self-assimilate on exec; the APE artifacts are built in
-the `build` job and only ever executed as throwaway copies in the
-smoke jobs below).
+build/ in THIS job is the fat APE, because the fork is the only compiler
+and every build emits one. Executing it here is safe because the step is
+a shell: the APE bootstraps through a shell header, and only a raw
+`execve` -- what `go run` and `go test` do to what they build -- cannot
+read it. The APE never rewrites its own file, so the copy onto
+`/usr/local/bin` needs no ordering dance.
 
 ### GITHUB_TOKEN: ${{ github.token }}
 
