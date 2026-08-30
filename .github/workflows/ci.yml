@@ -358,7 +358,7 @@ jobs:
     # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
     timeout-minutes: 30
     steps:
-      # Only for .github/dats-fixtures/smoke-windows.dats, which carries every assertion this job makes.
+      # Only for the dats fixture .github/dats-fixtures/*.dats copied in below -- this job otherwise... see docs/CI.md
       - uses: actions/checkout@v7
 
       # Explicit name: multiple same-run hand-offs -- see smoke-linux.
@@ -368,7 +368,9 @@ jobs:
           name: go-build-build
           path: dist
 
-      # dats' own action lands the binary under a name NT cannot start, so name it here... see docs/CI.md
+      # NT has no dats action (its binary lands under a name NT cannot start),
+      # so dats runs by its plain filename here: the buildhost-download step
+      # below already names it dats.exe.
       - name: Download dats
         id: dats
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
