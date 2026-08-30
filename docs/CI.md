@@ -727,6 +727,19 @@ having both, because the probes' fallback IS "linux", so the
 sandboxed assertion alone could pass here for the wrong reason.
 
 ### the full pipeline runs in a tiny module on a linux host
+### Configure Go proxy
+
+host-build, build, and build-everywhere fetch `GO_BUILDCACHE_CONFIG` and
+`GO_PROXY_CONFIG` via the secret-server step first, so `go-toolchain` runs
+with the shared cache and the org proxy on every host that builds this
+repo, not only on the linux host-build leg. The org proxy requires auth
+for a sumdb lookup on a module it has never resolved before, which the
+smoke jobs' throwaway module always is -- so the smoke jobs keep the
+public, unauthenticated `proxy.golang.org` path instead
+(`GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED`, see the smoke-linux
+entry below).
+
+### cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
 
 Full default pipeline against the shipped APE: bootstraps a Go
 toolchain if the runner's is too old, then tidy/vet/test/coverage/

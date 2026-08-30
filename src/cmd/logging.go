@@ -26,29 +26,22 @@ func isCacheProg(cmd *cobra.Command) bool {
 }
 
 // resolveLogLevel resolves the effective log level for this invocation.
-// Precedence: explicit --log-level > --verbose > a set GOCACHE_DEBUG (maps to
-// debug) > default info. An unknown --log-level value is a returned error.
-func resolveLogLevel(cmd *cobra.Command) (logger.Level, error) {
-	if f := cmd.Flags().Lookup("log-level"); f != nil && f.Changed {
-		return logger.ParseLevel(logLevel)
-	}
+// Precedence: --verbose > a set GOCACHE_DEBUG (maps to debug) > default info.
+func resolveLogLevel() logger.Level {
 	if verbose {
-		return logger.LevelDebug, nil
+		return logger.LevelDebug
 	}
 	if os.Getenv("GOCACHE_DEBUG") == "1" {
-		return logger.LevelDebug, nil
+		return logger.LevelDebug
 	}
-	return logger.LevelInfo, nil
+	return logger.LevelInfo
 }
 
-// initLogging installs the global logger, at the head of the root PersistentPreRunE.
-// cacheprog never gets a stdout-capable logger: its stdout is the
-// GOCACHEPROG protocol pipe, which a GHA annotation would corrupt.
+// initLogging installs the global logger, first in the root PersistentPreRunE.
+// cacheprog gets a stderr-only logger: its stdout is the GOCACHEPROG pipe,
+// which a GHA annotation would corrupt.
 func initLogging(cmd *cobra.Command) error {
-	level, err := resolveLogLevel(cmd)
-	if err != nil {
-		return err
-	}
+	level := resolveLogLevel()
 	if isCacheProg(cmd) {
 		logger.InitSubprocess(level)
 		return nil
