@@ -23,6 +23,11 @@ jobs:
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
+      # This job builds from source, so it needs the org read token action.yml gives every consumer.
+      - name: Configure git for private repos
+        if: env.PRIVATE_ORG_REPO_READ != ''
+        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
         run: |
