@@ -42,6 +42,9 @@ type noopSink struct{}
 
 func (noopSink) recordBatchPop(uint32) {}
 
+// A nil set is inert; these tests assert what lands in the local store.
+func (noopSink) prefetched() *prefetchSet { return nil }
+
 // TestWireBatchCallbacks_SkipsCorruptPrefetch verifies the prefetch population
 // path never writes a body that fails the outputID checksum into the local
 // pack: a good entry is populated, a corrupt entry (body that does not hash to its
@@ -53,7 +56,7 @@ func TestWireBatchCallbacks_SkipsCorruptPrefetch(t *testing.T) {
 	require.NoError(t, err)
 	defer local.Close()
 
-	wb := &WebBackend{prefix: "go-buildcache/"}
+	wb := newBareBackend("go-buildcache/")
 	wireBatchCallbacks(wb, local, noopSink{})
 
 	good := "good prefetch body"

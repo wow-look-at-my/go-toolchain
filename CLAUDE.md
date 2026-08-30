@@ -174,10 +174,12 @@ coverage.
   --git-path`, correct in linked worktrees) — under `.git/`, OUTSIDE the working tree, so unlike a `.gitignore` line the write cannot itself dirty
   anything. The entry is left in place (clone-local; also hides a stale guard from an interrupted build). Best-effort: no git / not a repo / write
   failure all silently degrade to the old `+dirty` behavior, never a failed build
-- `src/cache/` — GOCACHEPROG protocol server, local + web backends, batch GET/PUT, the FUSE pack store and the stats daemon. The local tier
-  defaults to LOOSE FILES and names the tier it picked on every path: go-fuse does not compile for cosmo, so a packed default gives a `go run ./src`
-  build a `packs/` store the shipped APE cannot read, and the two flavors keep disjoint caches. `GOCACHE_FUSE=1` opts into packs. Depth:
-  `docs/CACHE.md`
+- `src/cache/` — GOCACHEPROG protocol server, the local tiers (FUSE pack store, loose files) and the stats daemon. The REMOTE tier and the
+  wire protocol are no longer here: they are `github.com/wow-look-at-my/go-s3-server/cacheclient`, a module in the cache server's own repo, so a
+  header or an endpoint cannot change on one side without the other. `src/cache/client.go` is the whole seam — type aliases, the guard helpers, and
+  the logger the client writes through. The local tier defaults to LOOSE FILES and names the tier it picked on every path: go-fuse does not compile
+  for cosmo, so a packed default gives a `go run ./src` build a `packs/` store the shipped APE cannot read, and the two flavors keep disjoint
+  caches. `GOCACHE_FUSE=1` opts into packs. Depth: `docs/CACHE.md`
 - `src/profile/` — the **per-action build profile**: joins cmd/go's `-debug-actiongraph` dumps with the cacheprog's per-action outcome events into
   "what
   did the build spend time on, and did the cache help". `collector.go` hands out one dump path per go invocation (`Collector.GraphArg` →
