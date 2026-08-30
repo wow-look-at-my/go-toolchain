@@ -3,9 +3,11 @@ package vet
 // Helpers for tests needing a real git repo (used here and in canonicalize_integration_test.go).
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -36,20 +38,42 @@ func initGitRepo(t *testing.T, dir string) {
 func initGitRepoWithConfig(t *testing.T, dir string, config [][2]string) {
 	t.Helper()
 	env := hermeticGitEnv(t)
-	cmds := [][]string{
-		{"init"},
-		{"config", "user.email", "test@test.com"},
-		{"config", "user.name", "Test"},
-		{"config", "commit.gpgsign", "false"},
-	}
-	for _, kv := range config {
-		cmds = append(cmds, []string{"config", kv[0], kv[1]})
-	}
-	cmds = append(cmds, []string{"add", "."}, []string{"commit", "-m", "initial"})
-	for _, args := range cmds {
+	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		cmd.Env = env
 		require.NoError(t, cmd.Run(), "git %v failed", args)
 	}
+	run("init")
+
+	// The settings go straight into .git/config rather than through one `git
+	// config` per key. Every one of these repos costs a process per key
+	// otherwise, and this package builds ten of them.
+	settings := append([][2]string{
+		{"user.email", "test@test.com"},
+		{"user.name", "Test"},
+		{"commit.gpgsign", "false"},
+	}, config...)
+	appendRepoConfig(t, dir, settings)
+
+	run("add", ".")
+	run("commit", "-m", "initial")
+}
+
+// appendRepoConfig writes section.key settings into an existing repo's config.
+// git reads repeated sections, so appending needs no merge.
+func appendRepoConfig(t *testing.T, dir string, settings [][2]string) {
+	t.Helper()
+	var b strings.Builder
+	for _, kv := range settings {
+		section, key, ok := strings.Cut(kv[0], ".")
+		require.True(t, ok, "config key %q is not section.key", kv[0])
+		fmt.Fprintf(&b, "[%s]\n\t%s = %s\n", section, key, kv[1])
+	}
+	path := filepath.Join(dir, ".git", "config")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	require.NoError(t, err)
+	_, werr := f.WriteString(b.String())
+	require.NoError(t, f.Close())
+	require.NoError(t, werr)
 }
