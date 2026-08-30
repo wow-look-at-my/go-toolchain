@@ -53,7 +53,7 @@ matching the per-platform grammar. That last check is the one that stays honest
 over time — a stray `<name>_<os>_<arch>` file would silently restore the
 N-downloads-of-one-binary shape without failing anything else.
 
-## build-elsewhere and identical
+## build-everywhere and identical
 
 `build` runs on ubuntu, and the three smoke jobs run THAT one binary on linux,
 macOS and Windows. So the smoke jobs answer "does ubuntu's APE run everywhere",
@@ -63,10 +63,18 @@ host builds the same bytes. Nothing checked that, and until `-trimpath` and
 own content ID both reached the build-ID notes. See
 [MATRIX.md](MATRIX.md) for the measurements and what each flag closes.
 
-`build-elsewhere` runs the same composite action on macOS and Windows —
-`fail-fast: false`, so one host failing still reports the other. Each of the
-three hands its `build/go-toolchain` off under `ape-<origin>`, and `identical`
-downloads all three and compares them against the linux one.
+`build-everywhere` runs `matrix --no-benchmark` on all three hosts and hands
+each result off under `ape-<origin>`; `identical` downloads them and compares
+the other two against linux. `fail-fast: false`, so one host failing still
+reports the others.
+
+Every leg runs the SAME command, linux included, rather than reusing `build`'s
+result. That costs one extra build and buys an unambiguous gate: a difference
+is then the host, never the invocation. It also does not go through
+`uses: ./` — the composite action installs itself with `sudo`, which a Windows
+runner has not, which is why the smoke jobs stage the APE by hand too. Caching
+is off in this job: it changes how long a build takes and never what it emits,
+so leaving it out removes a variable rather than adding one.
 
 A missing hand-off fails rather than passing on the survivors: comparing the
 hosts that answered would report green for a property no host was checked on.

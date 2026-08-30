@@ -262,8 +262,8 @@ coverage.
 - `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard. Depth:
   `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. The smoke legs run ONE host's
-  APE everywhere, so `build-elsewhere` builds the same source on the other hosts and `identical` fails unless all three agree byte for byte — a
-  missing hand-off fails too, since comparing the hosts that answered proves nothing. `publish` needs it. Depth: `docs/CI.md`
+  APE everywhere, so `build-everywhere` runs the same command on all three and `identical` fails unless they agree byte for byte — a missing hand-off
+  fails too, since comparing the hosts that answered proves nothing. `publish` needs it. Depth: `docs/CI.md`
 
 ## Code Conventions
 

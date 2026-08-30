@@ -154,24 +154,23 @@ jobs:
           # The cosmo target additionally downloads + extracts the gosmopolitan toolchain and... see docs/CI.md
           timeout: '15'
 
-      # This host's APE, for the identical job to compare the other hosts against. see docs/CI.md
-      - name: Hand off this host's APE
-        uses: wow-look-at-my/actions@cache-upload#latest
-        with:
-          name: ape-linux
-          path: build/go-toolchain
 
-  # The hosts build ran on none of, building the same source so identical can compare them. see docs/CI.md
-  build-elsewhere:
+  # Every host runs the SAME command, so a difference in the output is the host and nothing else. see docs/CI.md
+  build-everywhere:
     needs: host-build
     strategy:
       fail-fast: false
       matrix:
         include:
+          - origin: linux
+            runner: ubuntu-latest
+            gt: gt-ape
           - origin: darwin
             runner: macos-latest
+            gt: gt-ape
           - origin: windows
             runner: windows-latest
+            gt: gt-ape.exe
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -181,17 +180,34 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
 
+      - name: Provision the sandbox backend (bubblewrap)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
           name: host-go-toolchain
-          path: build
+          path: dist
 
-      - uses: ./
-        with:
-          binary: build/go-toolchain
-          autorelease: 'false'
-          timeout: '20'
+      # Not `uses: ./`: the action installs with sudo, which a windows runner has not. see docs/CI.md
+      - name: Stage the APE
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
+          chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
+
+      - name: Build this repo's APE here
+        shell: bash
+        env:
+          # The cache changes how long this takes and never what it emits. see docs/CI.md
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
 
       - name: Hand off this host's APE
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -201,7 +217,7 @@ jobs:
 
   # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
   identical:
-    needs: [build, build-elsewhere]
+    needs: build-everywhere
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
