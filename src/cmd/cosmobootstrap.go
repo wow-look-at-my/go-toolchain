@@ -108,10 +108,8 @@ func useLocalCosmoGoroot(root string) (string, error) {
 	return root, nil
 }
 
-// cosmoGoBinPath returns the go binary path inside a GOROOT, honoring the
-// HOST platform's executable naming. Every reader of the fork's go binary goes
-// through this: an NT host names it go.exe, and a path spelled by hand there
-// misses the cache, fails the post-extract check, or fails to exec.
+// cosmoGoBinPath names the fork's go binary in a GOROOT, for the HOST
+// platform. Spell it by hand and an NT path misses the cache and cannot exec.
 func cosmoGoBinPath(root string) string {
 	goBin := filepath.Join(root, "bin", "go")
 	if hostOS, _ := cosmoHostPlatformFunc(); hostOS == "windows" {

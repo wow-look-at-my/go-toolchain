@@ -16,10 +16,8 @@ var hostGOOS = sync.OnceValue(detectHostGOOS)
 // hostSignalFunc is the authoritative signal, checked before any probe. Empty means none; see detection.go.
 var hostSignalFunc = cosmoHostSignal
 
-// cosmoHostSignal reports the host the APE entry stub recorded, or "" for a
-// host the fork's runtime has no port for. The stub runs before any Go code
-// and every syscall dispatches on it, so no sandbox denies it and no target
-// ENOSYSes it -- which the probes below cannot say.
+// The host the APE stub recorded; "" where the fork has no port.
+// No sandbox can deny this, unlike the probes below.
 func cosmoHostSignal() string {
 	if host := runtime.CosmoHostOS(); host != "unknown" {
 		return host

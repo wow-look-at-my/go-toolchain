@@ -63,8 +63,8 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 }
 
 // The compiler is a file on disk, and on a windows host that file is go.exe.
-// runBuild is the one place anything compiles, so a path spelled without the
-// suffix fails to exec every build on that host.
+// runBuild is where everything compiles, so a path spelled without the suffix
+// fails to exec every build on that host.
 func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
 	oldHost := cosmoHostPlatformFunc
 	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
