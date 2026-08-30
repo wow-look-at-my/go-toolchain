@@ -177,7 +177,10 @@ require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-
 	assert.Equal(t, siblingVersion, client.Mod.Version)
 }
 
-func TestUpdateTrackedBranchDepsLeavesADeliberatelyPinnedSiblingAlone(t *testing.T) {
+// There is no pin opt-out left: a sibling still carrying the old
+// go-toolchain:pinned comment moves with the rest of its repository like any
+// other unmarked sibling, since that comment names no branch to anchor on.
+func TestUpdateTrackedBranchDepsMovesAFormerlyPinnedSiblingToo(t *testing.T) {
 	t.Chdir(t.TempDir())
 	gomod := `module example.com/consumer
 
@@ -190,19 +193,21 @@ require (
 `
 	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
 
-	_, err := UpdateTrackedBranchDeps(repoTreeMock(t, commonAPITree()))
+	changed, err := UpdateTrackedBranchDeps(repoTreeMock(t, commonAPITree()))
 	require.NoError(t, err)
+	assert.True(t, changed)
 
 	f, err := modfile.Parse("go.mod", readGoMod(t), nil)
 	require.NoError(t, err)
 	core := findRequire(f, "github.com/wow-look-at-my/common-ai-api/go/core")
 	require.NotNil(t, core)
-	assert.Equal(t, "v0.0.0-20250101000000-111111111111", core.Mod.Version, "moving with its siblings is what the pinned marker opts out of")
+	assert.Equal(t, siblingVersion, core.Mod.Version)
 }
 
-// A sibling that tidy has since marked indirect is this run's own line, so it
-// keeps being resolved rather than drawing the warning meant for a branch
-// marker someone put on a transitively resolved dependency.
+// A sibling that tidy has since marked indirect, and that also carries its
+// own marker (a prior run's own doing, or a human's), resolves through
+// either path to the same commit: the repository resolves once regardless
+// of how many of its lines carry the marker.
 func TestUpdateTrackedBranchDepsResolvesAnIndirectSibling(t *testing.T) {
 	t.Chdir(t.TempDir())
 	gomod := `module example.com/consumer
@@ -211,7 +216,7 @@ go 1.25.0
 
 require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-000000000000 // go-toolchain:auto-branch
 
-require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260101000000-000000000000 // indirect; go-toolchain:branch=master
+require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260101000000-000000000000 // indirect; go-toolchain:auto-branch
 `
 	require.NoError(t, os.WriteFile("go.mod", []byte(gomod), 0644))
 
@@ -221,7 +226,7 @@ require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260101000000-00
 	changed, err := UpdateTrackedBranchDeps(repoTreeMock(t, commonAPITree()))
 	require.NoError(t, err)
 	assert.True(t, changed)
-	assert.Equal(t, int64(0), logger.WarnCount(), "the line is this run's own, not a marker someone misplaced")
+	assert.Equal(t, int64(0), logger.WarnCount())
 
 	f, err := modfile.Parse("go.mod", readGoMod(t), nil)
 	require.NoError(t, err)
