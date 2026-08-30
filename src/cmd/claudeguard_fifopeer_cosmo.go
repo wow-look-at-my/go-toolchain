@@ -21,16 +21,7 @@ const (
 	lsofBin         = "/usr/sbin/lsof"
 	maxAncestorHops = 64
 
-	// peerProbeBudget caps the whole walk. Every step of it shells out --
-	// ps per ancestor hop, then lsof twice -- and none of those had a
-	// deadline, so one helper that never returned hung the process before
-	// main ran. The second lsof is the widest: no -d filter, so it lists
-	// every open file of every ancestor, and lsof makes blocking lstat and
-	// readlink calls to do it.
-	//
-	// Expiry reports "not identified", which classifyDarwinFD already
-	// treats as a pipe whose far end it cannot see, so a slow host refuses
-	// rather than proceeding blind. That is this path's existing rule.
+	// peerProbeBudget caps the whole walk: expiry reports "not identified", which classifyDarwinFD refuses on.
 	peerProbeBudget = 5 * time.Second
 )
 
@@ -47,9 +38,8 @@ func fifoPeerOnDarwinHost(fd uintptr) (pid int, identified, supported bool) {
 	var ancestors []int
 	p := os.Getppid()
 	for hops := 0; p > 1 && hops < maxAncestorHops; hops++ {
-		// A hop runs a ps carrying its own timeout but no WaitDelay, so the
-		// budget is checked between hops rather than trusting a per-call
-		// bound to bound the walk.
+		// A hop's own timeout bounds a single ps, never the chain, so the
+		// walk checks the budget itself.
 		if ctx.Err() != nil {
 			return 0, false, true
 		}
@@ -72,9 +62,8 @@ func fifoPeerOnDarwinHost(fd uintptr) (pid int, identified, supported bool) {
 	return 0, false, true
 }
 
-// lsofCommand builds an lsof invocation that cannot outlive ctx. WaitDelay
-// matters as much as the deadline: killing the child still leaves Wait
-// blocked until every holder of its output pipe closes it.
+// lsofCommand bounds an lsof invocation by ctx. Killing the child still leaves
+// Wait blocked, which is what WaitDelay covers.
 func lsofCommand(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, lsofBin, args...)
 	cmd.WaitDelay = time.Second

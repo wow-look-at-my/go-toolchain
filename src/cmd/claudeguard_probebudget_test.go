@@ -12,10 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The darwin-host guard identifies a pipe's far end by shelling out, and none
-// of those calls carried a deadline, so a helper that never returned hung the
-// process before main. Asserted against the source because nothing here can
-// run it: the file is GOOS=cosmo and the test binaries build for the host.
+// Asserted against the source: the file is GOOS=cosmo and test binaries build for the host, so nothing here runs it.
 const fifoPeerFile = "claudeguard_fifopeer_cosmo.go"
 
 // Every lsof invocation goes through lsofCommand, which is the only place the

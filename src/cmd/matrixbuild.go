@@ -88,9 +88,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if job.cacheNamespace == "" {
 		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
 	}
-	// -trimpath keeps the checkout path out of the binary. Without it the
-	// build IDs record where the build ran, so the same source compiles to
-	// different bytes on each runner and no host can verify another's APE.
+	// -trimpath: without it the build IDs record where the build ran, so each runner ships a different APE.
 	args := []string{"build", "-trimpath"}
 	// Dump the action graph for the build profile (a file per invocation;
 	// matrix targets each get their own). No-op when profiling is off.

@@ -26,8 +26,8 @@ func wasmJob(t *testing.T, outputPath string) buildJob {
 	}
 }
 
-// cosmoJob is the fat-APE counterpart of wasmJob: the shipped target, and the
-// one whose bytes every host has to agree on.
+// cosmoJob is the fat-APE counterpart of wasmJob: the shipped target, whose
+// bytes every host has to agree on.
 func cosmoJob(t *testing.T, outputPath string) buildJob {
 	t.Helper()
 	job := wasmJob(t, outputPath)
@@ -93,10 +93,10 @@ func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
 	assert.Equal(t, filepath.Join(job.forkGoroot, "bin", "go.exe"), calls[0].Name)
 }
 
-// The APE claims to be one binary for every host, and that claim is only
-// honest if every host builds the same bytes. The checkout path is what
-// differs between runners: without -trimpath it reaches the build IDs, the
-// hosts disagree, and no host can verify another's APE.
+// The APE claims to run on every host, and that claim is honest only if every
+// host builds the same bytes. The checkout path is what differs between
+// runners: without -trimpath it reaches the build IDs, the hosts disagree, and
+// no host can verify another's APE.
 func TestRunBuildTrimsThePath(t *testing.T) {
 	for _, job := range []buildJob{wasmJob(t, tmpOut(t)), cosmoJob(t, tmpOut(t))} {
 		t.Run(job.goos, func(t *testing.T) {
