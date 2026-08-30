@@ -74,9 +74,9 @@ func forkFirstPath(goRoot, rest, hostGOOS string) string {
 	return filepath.Join(goRoot, "bin") + sep + rest
 }
 
-// useForkAsPipelineToolchain points this process and everything it spawns at
-// goRoot. GOTOOLCHAIN=local is the half that makes it stick: without it the go
-// command downloads a stock toolchain to satisfy a go.mod directive.
+// useForkAsPipelineToolchain points this process and its children at goRoot.
+// GOTOOLCHAIN=local is what makes it stick: without it the go command fetches
+// a stock toolchain for a go.mod directive.
 func useForkAsPipelineToolchain(goRoot string) {
 	os.Setenv("PATH", forkFirstPath(goRoot, os.Getenv("PATH"), hostos.GOOS()))
 	os.Setenv("GOROOT", goRoot)
