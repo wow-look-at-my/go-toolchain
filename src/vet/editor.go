@@ -42,9 +42,9 @@ func NewEditor(fix bool) Editor {
 	return &checkEditor{}
 }
 
-// applyEditor writes proposed changes to disk; Require and Apply behave identically since locally both get written. Its record of what it wrote is locked, because fixers run concurrently.
+// applyEditor writes proposed changes to disk; Require and Apply behave identically since locally both get written.
 type applyEditor struct {
-	mu      sync.Mutex
+	mu      sync.Mutex // fixers run concurrently, so the record below is locked
 	written set.Set[string]
 }
 

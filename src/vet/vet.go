@@ -298,8 +298,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 				if result == nil {
 					continue
 				}
-				// The guard protects the user's own edits, so it is skipped on
-				// CI, where nothing is clobbered, and on a file this run wrote.
+				// The guard protects the user's edits: skip it where there are none.
 				name := fixesFilename(result)
 				if ed.Writes() && !ed.Wrote(name) {
 					if err := checkFileCommitted(result); err != nil {
@@ -427,7 +426,6 @@ type Diagnostic struct {
 }
 
 // checkFileCommitted verifies the file is committed before auto-fix modifies it.
-// Tries go-git, then falls back to the git CLI on go-git infrastructure errors.
 func checkFileCommitted(fixes *ASTFixes) error {
 	return checkFileCommittedByName(fixesFilename(fixes))
 }
@@ -439,6 +437,7 @@ func fixesFilename(fixes *ASTFixes) string {
 
 // checkFileCommittedByName is checkFileCommitted keyed by an explicit filename,
 // used by fix producers that don't carry an *ASTFixes (e.g. cast text edits).
+// It tries go-git, then falls back to the git CLI on infrastructure errors.
 func checkFileCommittedByName(filename string) error {
 	err := checkFileCommittedGoGit(filename)
 	if err == nil {
