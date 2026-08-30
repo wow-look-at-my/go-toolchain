@@ -383,17 +383,31 @@ func printCacheStats(close bool) {
 		return
 	}
 
-	stats := statsListener.Stats()
+	logger.Info("⇒ Cache: %s", strings.Join(cacheSummaryParts(statsListener.Stats()), "  "))
+}
 
-	hits := stats.Local.Hits.Load()
+// cacheSummaryParts renders the end-of-build cache line. Split out of
+// printCacheStats so the shares it reports can be asserted.
+//
+// A lookup the remote tier answered raises neither Local.Hits nor Misses,
+// since Misses rises only when both tiers miss. So the rate adds remote hits
+// to the numerator and the denominator itself.
+func cacheSummaryParts(stats *cache.ServerStats) []string {
+	localHits := stats.Local.Hits.Load()
 	puts := stats.Local.Puts.Load()
 	misses := stats.Misses.Load()
 
+	var remoteHits uint32
+	if stats.Remote != nil {
+		remoteHits = stats.Remote.Hits.Load()
+	}
+	hits := localHits + remoteHits
+
 	var parts []string
-	parts = append(parts, fmt.Sprintf("\u2193 %d", hits))
+	parts = append(parts, fmt.Sprintf("\u2193 %d", localHits))
 	parts = append(parts, fmt.Sprintf("\u2191 %d", puts))
 	if stats.Remote != nil {
-		parts = append(parts, fmt.Sprintf("\ueac2 %d", stats.Remote.Hits.Load()))
+		parts = append(parts, fmt.Sprintf("\ueac2 %d", remoteHits))
 		parts = append(parts, fmt.Sprintf("\ueac3 %d", stats.Remote.Puts.Load()))
 	}
 	parts = append(parts, fmt.Sprintf("miss %d", misses))
@@ -406,11 +420,12 @@ func printCacheStats(close bool) {
 	if stats.Batch != nil {
 		populated := stats.Batch.Populated.Load()
 		if populated > 0 {
-			parts = append(parts, fmt.Sprintf("prefetched %d", populated))
+			used := stats.Batch.Used.Load()
+			parts = append(parts, fmt.Sprintf("prefetched %d (%d used, %.0f%%)",
+				populated, used, float64(used)/float64(populated)*100))
 		}
 	}
-
-	logger.Info("⇒ Cache: %s", strings.Join(parts, "  "))
+	return parts
 }
 
 // cacheHome returns the base cache directory (~/.cache/go-toolchain).
