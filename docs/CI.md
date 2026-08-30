@@ -95,6 +95,25 @@ gosmopolitan's crypt32 root-store work and its windows publish leg; this job
 goes green when that merges. It is the same blocker smoke-windows already
 reports, not a new one.
 
+**macOS is red on this repo's own test budget, not on anything cosmo.** The test
+phase runs `go test -timeout=30s` (`testTimeout`, src/test/test.go), which is a
+per-BINARY clock rather than a per-test one. On linux this repo already spends
+25-28s of it in `src/cmd` and 19-22s in `src/vet` — the two slowest packages by
+far. macOS is slower and crosses the line, and the panic then names whichever
+test happened to be running (`TestAssertNormAnalyzer (1s)`), which reads as a
+hung test and is not one. Confirming this took ruling out two other readings:
+the goroutine dump shows `Cmd.Wait` parked in `syscall.wait4`, so the child
+`go list` had not exited and both pipe copies were waiting correctly, and the
+last `go: downloading` line precedes the timeouts by minutes.
+
+The 30s is deliberate and is not to be raised; the remedy is to make the two
+packages cheaper. Neither has a single `t.Parallel`, and the reason is
+mechanical: `os.Chdir`/`t.Chdir` appears in 26 of `src/cmd`'s test files and 9
+of `src/vet`'s, and a test that calls `t.Chdir` may not call `t.Parallel`.
+Taking the directory as a parameter instead is what unblocks it — `dirtyDiffIn`
+is the worked example. That is a sweep across both packages rather than a fix
+that belongs in any one change.
+
 ## The three smoke jobs
 
 Each is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
