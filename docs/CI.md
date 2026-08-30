@@ -80,6 +80,14 @@ A missing hand-off fails rather than passing on the survivors: comparing the
 hosts that answered would report green for a property no host was checked on.
 `publish` needs `identical`, so a build that is not reproducible never ships.
 
+One compiler builds all three. gosmopolitan publishes on every green push, so a
+run that spans a publish resolved a different fork on each leg and `identical`
+read that as a host difference. `host-build` resolves the release once with
+`go-toolchain version cosmo` and exports it to each leg as
+`GO_TOOLCHAIN_COSMO_VERSION`; a probe that cannot name a release fails the step
+rather than letting the legs pick their own. See [CMD.md](CMD.md) for how the
+pin reaches the download URL and the cache key.
+
 **Windows is red until the fork publishes for it.** The APE cannot complete an
 HTTPS request on an NT host, so it cannot download the toolchain, and buildhost
 serves no `gosmopolitan` windows/amd64 at master. Both are fixed by

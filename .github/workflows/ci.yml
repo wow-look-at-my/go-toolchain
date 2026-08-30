@@ -108,9 +108,7 @@ jobs:
           name: host-go-toolchain
           path: build/go-toolchain
 
-      # build-everywhere compares three hosts' APEs byte for byte, which says
-      # something about the hosts only if one compiler built all three. A run
-      # that spans a gosmopolitan publish otherwise straddles two.
+      # Comparing three hosts' APEs says something only if one compiler built them. see docs/CI.md
       - name: Pin the gosmopolitan release for this run
         id: cosmo
         run: |
