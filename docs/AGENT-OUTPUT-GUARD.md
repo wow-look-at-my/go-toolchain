@@ -8,9 +8,9 @@ result. `cacheprog` and `version` do not, and are exempt (`skipAgentGuard`):
 `cacheprog`'s stdout IS the GOCACHEPROG protocol channel, and `version` prints
 four lines of build metadata -- no coverage report, no test result, nothing the
 guard exists to keep in front of a reader. `version` is also what this
-repository's own `tests/version.dats` runs, and dats captures a command's
-stdout to assert on it, so a guarded `version` refused inside the integration
-phase and failed every run under an agent -- the exact reader the guard is for.
+repository's own `dats/cli.dats` runs, and dats captures a command's
+stdout to assert on it, so a guarded `version` refuses inside the dats
+phase and fails every run under an agent -- the exact reader the guard is for.
 `install`/`release` skip the build cache (`skipCache`) but are NOT exempt from
 the guard. It aborts with exit 1
 when go-toolchain runs under an AI coding agent **and** its stdout is anything
@@ -196,19 +196,19 @@ it cannot resolve. Keeping the two apart in the code is what makes that change
 a one-line edit in the right place instead of a rewrite.
 
 Note the difference matters for a THIRD reason, and it is not hypothetical.
-`hostos.GOOS()` decides which branch is taken, and on a sandboxed Mac it
-currently answers `"linux"`: `syscall.Uname` is ENOSYS on darwin under the fork
-(the dispatcher has no SYS_UNAME case), and the two filesystem probes are reads
-a sandbox denies, leaving the documented `"linux"` default. That routes a Mac
-into the "looked and saw nothing" branch and loses even the banner.
+`hostos.GOOS()` decides which branch is taken, and it used to be able to answer
+`"linux"` on a Mac: `syscall.Uname` is ENOSYS on darwin under the fork (the
+dispatcher has no SYS_UNAME case), and the two filesystem probes are reads a
+sandbox denies, leaving the `"linux"` default. That routed a Mac into the
+"looked and saw nothing" branch and lost even the banner. On NT it was not a
+risk but the observed behavior, since neither probe can answer there at all.
 
-So the darwin dispatch must NOT be built on `hostos.GOOS()` as it stands. The
-fix is upstream and approved — `runtime.CosmoHostOS()`, backed by the runtime's
-own `__hostos`, which rt0 sets from the APE boot path and every syscall
-dispatches on, so it cannot be sandboxed away and cannot ENOSYS. `hostos` has
-the seam ready (`hostSignalFunc`); wiring it is a one-line change. Both smoke
-jobs assert `version host` inside dats' sandbox and outside precisely so this
-stays visible until then.
+`hostos.GOOS()` no longer rests on those probes. `runtime.CosmoHostOS()` reads
+the runtime's own `__hostos`, which rt0 sets from the APE boot path and every
+syscall dispatches on, so it cannot be sandboxed away and cannot ENOSYS; it
+lands through the `hostSignalFunc` seam ahead of everything else. The probes
+stay behind it for a host the fork has no port for. Each smoke job asserts
+`version host` inside dats' sandbox and outside, so an unwired seam is red.
 
 Closing the gap took three things. One is DONE; the ordering of the other two
 is the point, and it was got wrong once:

@@ -37,6 +37,30 @@ func writeBuildOutput(t *testing.T, cfg runner.Config, content string) {
 	}
 }
 
+// stubForkToolchain writes a fake gosmopolitan GOROOT with the minimal
+// tool-binary layout the REAL forkToolchainCacheNamespace can fingerprint (no
+// seam there: production always hashes the toolchain it is about to build
+// with), and points toolchain resolution at it. Every build path resolves the
+// fork, so any test reaching the build phase needs this.
+func stubForkToolchain(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "fake-cosmo-goroot")
+	writeFakeForkGoroot(t, root, map[string]string{
+		"VERSION":                      "go1.26.4cosmo",
+		"bin/go":                       "fake go binary",
+		"pkg/tool/linux_amd64/compile": "fake compile binary",
+		"pkg/tool/linux_amd64/link":    "fake link binary",
+	})
+	oldEnsure, oldSupported := ensureCosmoToolchainFunc, cosmoPlatformsSupportedFunc
+	ensureCosmoToolchainFunc = func() (string, error) { return root, nil }
+	// The fake GOROOT's bin/go is not executable, so the real probe would report "unsupported".
+	cosmoPlatformsSupportedFunc = func(string) bool { return true }
+	t.Cleanup(func() {
+		ensureCosmoToolchainFunc, cosmoPlatformsSupportedFunc = oldEnsure, oldSupported
+	})
+	return root
+}
+
 // setupCosmoMatrixTest points the matrix flags at the given targets, stubs
 // the cosmo toolchain resolution, and restores everything on cleanup. It
 // returns the fake GOROOT and the output directory.
@@ -51,34 +75,19 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 	os.WriteFile("go.mod", []byte("module example.com/mytool\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n\nfunc main() {}\n"), 0644)
 
-	fakeGoroot = filepath.Join(tmpDir, "fake-cosmo-goroot")
+	fakeGoroot = stubForkToolchain(t)
 	outDir = filepath.Join(tmpDir, "dist")
-
-	// Populate the fake GOROOT with the minimal tool-binary layout so the
-	// REAL forkToolchainCacheNamespace fingerprints it (no seam: production
-	// always hashes the toolchain it is about to build with).
-	writeFakeForkGoroot(t, fakeGoroot, map[string]string{
-		"VERSION":                      "go1.26.4cosmo",
-		"bin/go":                       "fake go binary",
-		"pkg/tool/linux_amd64/compile": "fake compile binary",
-		"pkg/tool/linux_amd64/link":    "fake link binary",
-	})
 
 	oldTargets, oldPlatforms := matrixTargets, cosmoPlatforms
 	oldOutput, oldParallel, oldBench := outputDir, releaseParallel, noBenchmark
-	oldEnsure, oldSupported := ensureCosmoToolchainFunc, cosmoPlatformsSupportedFunc
 	matrixTargets = targets
 	cosmoPlatforms = DefaultCosmoPlatforms
 	outputDir = outDir
 	releaseParallel = 1
 	noBenchmark = true
-	ensureCosmoToolchainFunc = func() (string, error) { return fakeGoroot, nil }
-	// The fake GOROOT's bin/go is not executable, so the real probe would report "unsupported".
-	cosmoPlatformsSupportedFunc = func(string) bool { return true }
 	t.Cleanup(func() {
 		matrixTargets, cosmoPlatforms = oldTargets, oldPlatforms
 		outputDir, releaseParallel, noBenchmark = oldOutput, oldParallel, oldBench
-		ensureCosmoToolchainFunc, cosmoPlatformsSupportedFunc = oldEnsure, oldSupported
 	})
 	return fakeGoroot, outDir
 }
@@ -257,25 +266,81 @@ func TestRunBuildForkWithoutNamespaceRefuses(t *testing.T) {
 	assert.Empty(t, mock.Calls(), "no build may run without the namespace")
 }
 
-// TestRunBuildNonForkEnvHasNoNamespace: normal (non-fork) jobs keep their
-// cache behavior byte-identical — no namespace variable in their env.
-func TestRunBuildNonForkEnvHasNoNamespace(t *testing.T) {
-	mock := runner.NewMock()
-	// The plain mocked compiler writes its -o output like a real compiler.
-	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		writeBuildOutput(t, cfg, "BIN")
-		return runner.MockProcess(nil, nil), nil
+// The APE and the wasm targets are the only things this pipeline compiles, and
+// both compile with the fork. runBuild is the sole place anything is compiled,
+// so a job naming a native platform, or naming no toolchain, dies here — no
+// call site can reintroduce a per-platform binary or another compiler.
+func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
+	forkGoroot := filepath.Join(t.TempDir(), "fork-goroot")
+	for _, tc := range []struct {
+		name    string
+		job     buildJob
+		wantErr string
+	}{
+		{
+			name:    "native host platform",
+			job:     buildJob{goos: "linux", goarch: "amd64", forkGoroot: forkGoroot, cacheNamespace: "ns"},
+			wantErr: "has no build path",
+		},
+		{
+			name:    "native cross-compile",
+			job:     buildJob{goos: "darwin", goarch: "arm64", forkGoroot: forkGoroot, cacheNamespace: "ns"},
+			wantErr: "has no build path",
+		},
+		{
+			name:    "wasm GOOS without GOARCH=wasm",
+			job:     buildJob{goos: "js", goarch: "amd64", forkGoroot: forkGoroot, cacheNamespace: "ns"},
+			wantErr: "has no build path",
+		},
+		{
+			name:    "the APE without the fork toolchain",
+			job:     buildJob{goos: cosmoOS, goarch: cosmoFatArch, cacheNamespace: "ns"},
+			wantErr: "no gosmopolitan GOROOT",
+		},
+		{
+			name:    "an empty job, as a zero-value buildJob would be",
+			job:     buildJob{},
+			wantErr: "no gosmopolitan GOROOT",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := runner.NewMock()
+			job := tc.job
+			job.srcPath, job.outputPath = ".", filepath.Join(t.TempDir(), "out")
+			err := runBuild(mock, job, nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.Empty(t, mock.Calls(), "the compiler must not run at all")
+			assert.NoFileExists(t, job.outputPath)
+		})
+
 	}
-	job := buildJob{
-		goos:       "linux",
-		goarch:     "amd64",
-		srcPath:    ".",
-		outputPath: filepath.Join(t.TempDir(), "out"),
-	}
-	require.NoError(t, runBuild(mock, job, nil))
-	calls := mock.Calls()
-	require.Len(t, calls, 1)
-	if calls[0].Env != nil {
-		assert.False(t, calls[0].Env.Contains(cache.KeyNamespaceEnv), "non-fork builds must not set a cache namespace")
+}
+
+// The targets that DO build, through the same chokepoint.
+func TestRunBuildAcceptsTheAPEAndWasm(t *testing.T) {
+	for _, p := range []buildPlatform{
+		{OS: cosmoOS, Arch: cosmoFatArch},
+		{OS: "js", Arch: wasmArch},
+		{OS: "wasip1", Arch: wasmArch},
+	} {
+		t.Run(p.OS+"/"+p.Arch, func(t *testing.T) {
+			mock := runner.NewMock()
+			mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+				writeBuildOutput(t, cfg, "BIN")
+				return runner.MockProcess(nil, nil), nil
+			}
+			job := buildJob{
+				goos:           p.OS,
+				goarch:         p.Arch,
+				srcPath:        ".",
+				outputPath:     filepath.Join(t.TempDir(), "out"),
+				forkGoroot:     filepath.Join(t.TempDir(), "fork-goroot"),
+				cacheNamespace: "deadbeef00c0ffee",
+			}
+			require.NoError(t, runBuild(mock, job, nil))
+			require.Len(t, mock.Calls(), 1)
+			assert.True(t, mock.Calls()[0].Env.Contains(cache.KeyNamespaceEnv))
+		})
 	}
 }

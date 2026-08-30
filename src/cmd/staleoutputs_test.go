@@ -215,7 +215,7 @@ func setupPipelineOutputTest(t *testing.T) (buildDir, binary string) {
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(tmp))
 	t.Cleanup(func() { os.Chdir(oldWd) })
-	setupMockProject()
+	setupMockProject(t)
 
 	oldOut, oldJSON := outputDir, jsonOutput
 	outputDir, jsonOutput = "build", true
@@ -257,7 +257,7 @@ func TestPipelineKeepsTheBinaryItJustBuilt(t *testing.T) {
 	mock := newTestPassMock(0)
 	inner := mock.Handler
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if isGoBuild(cfg) {
 			writeBuildOutput(t, cfg, "FRESH")
 			return runner.MockProcess(nil, nil), nil
 		}
