@@ -1,28 +1,23 @@
-# The union smoke suite: every test from smoke-linux.dats, smoke-macos.dats and
-# smoke-windows.dats, verbatim, in one file. All three smoke jobs
-(.github/workflows/ci.yml) run THIS file, so every platform executes every OS's
-# assertions; a test describing another host is expected to fail there -- that is
-# the union being executed, not something to adapt away. Assembled as a
-# mechanical set union: identical shared/setup lines deduplicated, nothing else
-# touched.
+# The union smoke suite: every test from the per-OS fixtures, in one file. Every
+# smoke leg (.github/workflows/ci.yml) runs THIS file, so every platform executes
+# every OS's assertions; a test describing another host is expected to fail there
+# -- that is the union being executed, not something to adapt away.
 #
-# All three jobs run it with --no-sandbox: the pipeline test drives go-toolchain,
+# Every leg runs it with --no-sandbox: the pipeline test drives go-toolchain,
 # whose own dats phase sandboxes the agent-output-guard fixture it stages, and
-# nesting one sandbox inside dats' outer run is what the opt-out avoids.
+# nesting a sandbox inside dats' outer run is what the opt-out avoids.
 #
 # ../../dist/go-toolchain is the published fat APE the build job handed off, and
-# ../../harness/socketharness-* the guard fixtures' harnesses.
+# ../../harness/socketharness-* the guard fixtures' harnesses. The NT spelling is
+# a second copy of the same bytes, because an NT host runs it by that name.
 
+shared:
 	copy:
 		gt-ape: ../../dist/go-toolchain
-	copy:
-		gt-ape: ../../dist/go-toolchain
-	copy:
 		gt-ape.exe: ../../dist/go-toolchain
 
 setup:
-	- chmod +x {shared.gt-ape}
-	- chmod +x {shared.gt-ape}
+	- chmod +x {shared.gt-ape} {shared.gt-ape.exe}
 
 tests:
 	# One APE runs on every host, so what it detects here decides every
