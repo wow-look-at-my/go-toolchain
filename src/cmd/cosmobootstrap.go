@@ -228,9 +228,7 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	}
 	fmt.Fprintf(rawStderr, " %s\n", fmtDuration(time.Since(dlStart)))
 
-	// The fork's go binary carries the HOST's executable suffix, so ask
-	// cosmoGoBinPath rather than spelling the name -- a windows archive holds
-	// go/bin/go.exe, and hardcoding "go" here rejected a toolchain that was fine.
+	// A windows archive holds go/bin/go.exe, so ask cosmoGoBinPath for the name.
 	goBin := cosmoGoBinPath(filepath.Join(tmpDir, "go"))
 	if _, err := os.Stat(goBin); err != nil {
 		return fmt.Errorf("downloaded archive does not contain go/bin/%s: %w", filepath.Base(goBin), err)
