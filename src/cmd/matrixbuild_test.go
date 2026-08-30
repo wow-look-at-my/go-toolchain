@@ -26,6 +26,16 @@ func wasmJob(t *testing.T, outputPath string) buildJob {
 	}
 }
 
+// cosmoJob is the fat-APE counterpart of wasmJob: the shipped target, and the
+// one whose bytes every host has to agree on.
+func cosmoJob(t *testing.T, outputPath string) buildJob {
+	t.Helper()
+	job := wasmJob(t, outputPath)
+	job.goos = cosmoOS
+	job.goarch = ""
+	return job
+}
+
 // tmpOut names a build output in a fresh directory.
 func tmpOut(t *testing.T) string {
 	t.Helper()
@@ -81,6 +91,28 @@ func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
 	calls := mock.Calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, filepath.Join(job.forkGoroot, "bin", "go.exe"), calls[0].Name)
+}
+
+// The APE claims to be one binary for every host, and that claim is only
+// honest if every host builds the same bytes. The checkout path is what
+// differs between runners: without -trimpath it reaches the build IDs, the
+// hosts disagree, and no host can verify another's APE.
+func TestRunBuildTrimsThePath(t *testing.T) {
+	for _, job := range []buildJob{wasmJob(t, tmpOut(t)), cosmoJob(t, tmpOut(t))} {
+		t.Run(job.goos, func(t *testing.T) {
+			mock := runner.NewMock()
+			mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+				writeMockBuildOutput(cfg, "bin")
+				return runner.MockProcess(nil, nil), nil
+			}
+
+			require.NoError(t, runBuild(mock, job, nil))
+			calls := mock.Calls()
+			require.Len(t, calls, 1)
+			assert.Contains(t, calls[0].Args, "-trimpath",
+				"every build goes through runBuild, so a target missing -trimpath ships a binary carrying the path it was built at")
+		})
+	}
 }
 
 func TestRunBuild(t *testing.T) {
