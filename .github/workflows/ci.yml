@@ -238,7 +238,7 @@ jobs:
           wsl --install --no-launch --distribution Ubuntu-24.04
           wsl --list --verbose
           wsl -d Ubuntu-24.04 -u root -- bash -c "apt-get update && apt-get install -y docker.io"
-          Start-Process -FilePath wsl -ArgumentList '-d','Ubuntu-24.04','-u','root','--','dockerd','--host=tcp://0.0.0.0:2375','--iptables=false','--bridge=none' -NoNewWindow
+          wsl -d Ubuntu-24.04 -u root -- bash -c "setsid nohup dockerd --host=tcp://0.0.0.0:2375 --iptables=false --bridge=none > /var/log/dockerd.log 2>&1 < /dev/null & disown; sleep 5"
           "DOCKER_HOST=tcp://127.0.0.1:2375" >> $env:GITHUB_ENV
           $env:DOCKER_HOST = "tcp://127.0.0.1:2375"
           $deadline = (Get-Date).AddMinutes(3)
