@@ -23,6 +23,11 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
+// vetRunFunc is the vet phase, as a seam. vet loads the package graph through
+// x/tools, which spawns a go list per call; stubVetPhase keeps the pipeline
+// tests off it. src/vet covers the pass itself.
+var vetRunFunc = vet.RunWithProgress
+
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and
 // checks coverage against the threshold. Used by both the default command
 // and the matrix command.
@@ -109,7 +114,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 	}
 	// On CI (CI=true) fixers run check-only: any change (gofmt, import migration, testify cast) is a hard error, not an auto-fix.
 	fix := os.Getenv("CI") == ""
-	filesChanged, err := vet.RunWithProgress(fix, vetProgress)
+	filesChanged, err := vetRunFunc(fix, vetProgress)
 	if err != nil {
 		// If in-process vet fails due to a Go version mismatch (a binary built
 		// with an older Go than the project requires), fall back to external go vet

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
 // mockTestEvents renders the `go test -json` stream a passing package
@@ -82,6 +83,18 @@ func setupMockProject(t *testing.T) {
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
 	// Without this, the build phase sends every pipeline test to buildhost.
 	stubForkToolchain(t)
+	stubVetPhase(t)
+}
+
+// stubVetPhase keeps a pipeline test off the real vet pass. vet loads the
+// package graph through x/tools, which spawns a go list subprocess per call,
+// and this package runs the pipeline dozens of times -- enough to exhaust the
+// test binary's budget on a slower host. src/vet covers the pass itself.
+func stubVetPhase(t *testing.T) {
+	t.Helper()
+	old := vetRunFunc
+	vetRunFunc = func(bool, vet.ProgressFunc) (bool, error) { return false, nil }
+	t.Cleanup(func() { vetRunFunc = old })
 }
 
 // writeMockBuildOutput writes the -o file, as a real compiler does on success.
