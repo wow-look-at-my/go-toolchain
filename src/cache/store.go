@@ -45,7 +45,7 @@ type fuseStore interface {
 // does not compile for GOOS=cosmo, and every shipped binary is a cosmo APE. So
 // a default of packs gave a `go run ./src` build a packs/ store that the
 // installed binary could not read: disjoint formats under the same cacheDir,
-// each flavor starting cold behind the other. GOCACHE_FUSE=1 opts a build into
+// each flavor starting cold behind the other. GOCACHE_FUSE opts a build into
 // packs, and is only worth setting where every run uses the same binary.
 //
 // The chosen tier is always logged. A build whose cache tier changes under it
