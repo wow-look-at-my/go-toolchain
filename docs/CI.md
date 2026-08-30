@@ -208,13 +208,29 @@ the fixer once, and assert as subtests; the `go vet` that proves the rewrite
 compiles now covers both files. Same fixtures, same assertions, 2.05s on linux
 against 3.85s for the pair.
 
-`src/cmd` is the one left, and it is genuinely spread: no single test stands out,
-but the `TestRunReleaseWithRunner*` family is about fifteen tests at 1-4s each on
-Windows against roughly 0.5s on linux. Each drives a full mocked release over a
-throwaway module, and the fixed cost per call — the git spawns behind
-`injectMemLimitGuard` and `checkDirtyInCI`, the package load, the filesystem
-walk — is what multiplies. A shared fixture there is the same move that worked
-twice above, and nobody has made it yet.
+That is where the hogs run out. `src/cmd` and `src/vet` are both spread flat: the
+`TestRunReleaseWithRunner*` family is a dozen tests at 1-2s each on Windows
+against 0.2-0.3s on linux, and what is left of `src/vet` is five fixer tests at
+2-7s. `TestDefaultMatrixBuildsOneMultiPlatformArtifact` looks like an outlier at
+5.63s against 0.23s, but it is the first test in the binary by file order and is
+paying the warm-up, not doing anything the others do not.
+
+The ratio is what decides this, and it is uniform. On one commit, with the same
+pipeline and the same cold cache on both legs, linux CI reported `src/vet` 8.44s,
+`src/cmd` 5.97s and `src/cache` 4.01s. `src/cache` is the only one of the three
+that finishes on Windows, at 16.6s: a factor of 4.1. Applied to the other two
+that puts `src/vet` near 35s and `src/cmd` at or just past the budget, which is
+what both do. Individual tests agree — 0.31s→1.84s, 1.71s→7.10s, 0.86s→4.32s —
+and raw compilation does NOT: `build runtime` took 4.41s on Windows against 4.61s
+on macOS. That runner is not slow at computing. It is slow at starting a process
+and at touching a file, which is most of what a test does here.
+
+So the remaining gap is not a hog and not concurrency. It is a per-BINARY clock
+carrying a per-TEST intent: roughly 250 sub-second tests, none of them slow, on a
+host uniformly four to five times slower than the one the budget was set on.
+Closing it means either less work per binary — more shared fixtures, each one
+trading away what a separate module isolates — or a budget that knows its host,
+which changes what green means for every consumer and is the operator's call.
 
 Should someone pick up the isolation work anyway, for its own sake:
 `src/cache` needs its shared state named before the rest runs in parallel.
