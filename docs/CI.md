@@ -149,6 +149,28 @@ process-wide state: the six `reset*Warnings` sets `vetSemantic` clears, and
 `loadDepsFromSource`. In `src/cmd` the equivalent is the `TestRunWithRunner*`
 family assigning the package globals `jsonOutput` and `outputDir`.
 
+Windows is the harder case, and its numbers are measured rather than inferred.
+On run 33310462278 `src/vet` reported 30.166s and `src/cache` 30.353s against
+that 30s clock, while the same binaries take 17-20s and 9-13s on linux; the
+whole test phase spent 395.99s there against roughly 30s locally, at `0%
+cache-satisfied`. Neither package has a hog to remove — the time is spread flat
+across about 250 tests each — so only intra-package parallelism moves the
+number, and two attempts at it failed and were reverted:
+
+- Marking every `src/cache` test that neither chdirs nor calls `t.Setenv`
+  broke because `setTempDir` and `setHome` mutate the process environment
+  through a helper the sweep did not recognise. A serial test's `t.Setenv` is
+  visible to whatever parallel tests run beside it, so the whole binary went
+  red and then hung.
+- Teaching the sweep those helpers still broke, on state that is not the
+  environment: `TestWebBackend_PutRefusesBuildIDMismatch` goes red at once and
+  the binary hangs after it.
+
+So `src/cache` needs its shared state named before any of it runs in parallel.
+`indexCachePath` reading `os.TempDir()` is the piece already identified, and a
+per-backend directory on `WebConfig` would remove the environment half of the
+problem along with the reason those tests set `TMPDIR` at all.
+
 ## The three smoke jobs
 
 Each is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
