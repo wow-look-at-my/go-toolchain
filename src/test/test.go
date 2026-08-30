@@ -27,7 +27,11 @@ const (
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
 
-	testTimeout = 30 * time.Second
+	// testTimeout bounds the whole `go test` run. It has to clear the SLOWEST
+	// host, not this one: at 30s the windows leg killed src/cmd and src/vet at
+	// 30.2s, where a linux runner finishes the same two packages in about 15s
+	// each. A hang still ends here; it just costs a minute more to say so.
+	testTimeout = 2 * time.Minute
 )
 
 // TimelineRecorder records pipeline timeline entries. Satisfied by *summary.Timeline.
