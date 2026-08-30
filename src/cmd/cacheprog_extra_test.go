@@ -50,6 +50,40 @@ func TestQuoteExeForGOCACHEPROG(t *testing.T) {
 	}
 }
 
+// An APE reports its own path in the /c/-form the runtime rewrites
+// GetModuleFileNameW into, and GOCACHEPROG is launched by a native PE go
+// command that cannot open that spelling.
+func TestCosmoPathToNT(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/d/a/go-toolchain/smoke/gt-ape.exe", `D:\a\go-toolchain\smoke\gt-ape.exe`},
+		{"/c/Users/runneradmin/gt.exe", `C:\Users\runneradmin\gt.exe`},
+		{"/c", `C:\`},
+		{"/c/", `C:\`},
+		// Not a drive: a real unix path, and the shapes next to it.
+		{"/usr/local/bin/go-toolchain", "/usr/local/bin/go-toolchain"},
+		{"/dev/null", "/dev/null"},
+		{"relative/gt", "relative/gt"},
+		{"", ""},
+		{"/", "/"},
+		{`D:\already\nt.exe`, `D:\already\nt.exe`},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, cosmoPathToNT(c.in), "input %q", c.in)
+	}
+}
+
+// The rewrite reaches the launch command, and only on an NT host.
+func TestCacheProgCommandRewritesTheAPEPathOnNT(t *testing.T) {
+	got, err := cacheProgCommand("cosmo", "windows", "/d/a/smoke/gt-ape.exe")
+	require.NoError(t, err)
+	assert.Equal(t, `D:\a\smoke\gt-ape.exe cacheprog`, got)
+
+	// The same spelling on a linux host is a real path and stays put.
+	got, err = cacheProgCommand("cosmo", "linux", "/d/a/smoke/gt-ape")
+	require.NoError(t, err)
+	assert.Equal(t, "/d/a/smoke/gt-ape cacheprog", got)
+}
+
 // TestCacheProgCommand pins the GOCACHEPROG launch command shapes: the bare
 // self-exec everywhere EXCEPT a cosmo APE on a macOS host, where a #!/bin/sh
 // wrapper re-execs the APE (the darwin kernel cannot execve the MZ polyglot

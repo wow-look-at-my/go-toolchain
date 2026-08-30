@@ -268,6 +268,9 @@ func enableCacheProg() error {
 // error". The fix wraps the APE in a #!/bin/sh script: the shell's ENOEXEC
 // fallback interprets the APE header directly.
 func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
+	if goos == cosmoOS && hostGOOS == "windows" {
+		exe = cosmoPathToNT(exe)
+	}
 	if goos != cosmoOS || hostGOOS != "darwin" {
 		return quoteExeForGOCACHEPROG(exe) + " cacheprog", nil
 	}
@@ -281,6 +284,31 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 		return "", fmt.Errorf("write cacheprog wrapper: %w", err)
 	}
 	return quoteExeForGOCACHEPROG(wrapper), nil
+}
+
+// cosmoPathToNT gives back the drive-letter path an APE reports as /d/a/x.exe
+// on NT. Cosmo libc opens that spelling; the native PE go command reading
+// GOCACHEPROG does not. No drive letter passes through.
+func cosmoPathToNT(p string) string {
+	if len(p) < 2 || p[0] != '/' || !isASCIILetter(p[1]) {
+		return p
+	}
+	if len(p) > 2 && p[2] != '/' {
+		return p // "/dev/null", not a drive
+	}
+	nt := []byte{p[1] &^ 0x20, ':', '\\'}
+	for i := 3; i < len(p); i++ {
+		c := p[i]
+		if c == '/' {
+			c = '\\'
+		}
+		nt = append(nt, c)
+	}
+	return string(nt)
+}
+
+func isASCIILetter(c byte) bool {
+	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 }
 
 // quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
