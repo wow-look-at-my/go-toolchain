@@ -8,7 +8,9 @@ require (
 	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/pierrec/lz4/v4 v4.1.29
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/dats v0.0.0-20260829051643-8ddae59bfc77 // go-toolchain:auto-branch
@@ -25,11 +27,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
 	modernc.org/sqlite v1.50.0
-)
-
-require (
-	github.com/pmezard/go-difflib v1.0.0
-	github.com/spf13/pflag v1.0.10
 )
 
 require (
