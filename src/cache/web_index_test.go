@@ -154,7 +154,7 @@ func indexETag(blob []byte) string {
 }
 
 func TestLoadOrFetchIndex_ColdStart(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 
 	want := set.New[string]()
 	for i := 0; i < 7; i++ {
@@ -181,7 +181,7 @@ func TestLoadOrFetchIndex_ColdStart(t *testing.T) {
 
 func TestLoadOrFetchIndex_WarmCache304(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("TMPDIR", tmp)
+	setTempDir(t, tmp)
 
 	want := set.New[string]()
 	var h [gbciHashSize]byte
@@ -220,7 +220,7 @@ func TestLoadOrFetchIndex_WarmCache304(t *testing.T) {
 // start) hostage — the fetch is abandoned within indexHeaderBudget and the
 // backend proceeds with a non-authoritative (probing-enabled) key set.
 func TestLoadOrFetchIndex_SlowServerBounded(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +254,7 @@ func TestLoadOrFetchIndex_SlowServerBounded(t *testing.T) {
 }
 
 func TestLoadOrFetchIndex_ServerError(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
@@ -270,7 +270,7 @@ func TestLoadOrFetchIndex_ServerError(t *testing.T) {
 }
 
 func TestLoadOrFetchIndex_GarbageBody(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/_index") {
@@ -292,7 +292,7 @@ func TestLoadOrFetchIndex_GarbageBody(t *testing.T) {
 }
 
 func TestLoadOrFetchIndex_DiskBlobBeatsServerError(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 
 	want := set.New[string]()
 	var h [gbciHashSize]byte
@@ -341,7 +341,7 @@ func TestLoadOrFetchIndex_DiskBlobBeatsServerError(t *testing.T) {
 // TestIndexCachePathSuffix locks in the rename from .txt to .bin so a stray
 // upgrade doesn't clobber the on-disk format silently.
 func TestIndexCachePathSuffix(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t, t.TempDir())
 	b := &WebBackend{endpoint: "https://example.com", bucket: "b", prefix: "go-buildcache/"}
 	require.True(t, strings.HasSuffix(b.indexCachePath(), ".bin"))
 }

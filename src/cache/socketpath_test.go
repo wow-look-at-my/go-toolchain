@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// socketRoot stays short: os.TempDir() reads TMPDIR, which a test points
-// at its own long t.TempDir().
+// socketRoot stays short: on a unix host os.TempDir() reads TMPDIR, which a
+// test points at its own long t.TempDir().
 func socketRoot() string {
 	if fi, err := os.Stat("/tmp"); err == nil && fi.IsDir() {
 		return "/tmp"
