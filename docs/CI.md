@@ -252,11 +252,24 @@ problem along with the reason those tests set `TMPDIR` at all.
 
 ## The smoke job
 
-It is one matrix job over ubuntu, macOS and Windows, and each leg runs its own
-fixture: `smoke-linux.dats`, `smoke-macos.dats`, `smoke-windows.dats` under
-`.github/dats-fixtures/`. One union file cannot work — dats runs every test in
-the file it is handed and has no filtering by design, so a foreign host's
-assertion fails the leg it lands on.
+It is one matrix job over ubuntu, macOS and Windows, and every leg runs the SAME
+file: `.github/dats-fixtures/smoke.dats`. One APE is what every host downloads,
+so the question is the same everywhere, and a per-host copy of the suite is how
+one host's coverage quietly falls behind another's.
+
+An answer that differs by host is asserted by PAIRING it with `uname -s` on one
+line — `host: windows ...|MINGW64_NT-10.0` — and matching only the combinations
+that agree. That keeps the assertion strong (a Linux answer on a mac still
+fails) without the file branching on where it runs. The same idiom carries the
+guard's two correct answers: a refusal on a host it can classify, the
+INOPERATIVE banner on one it cannot see into. The APE is copied under an `.exe`
+name on every host: NT needs the suffix and a posix host does not care.
+
+The guard regression staged into the pipeline test's module is one file too,
+`.github/dats-fixtures/agent-output-guard.dats`, merged from what used to be a
+linux copy and a macOS copy. It runs INSIDE the sandbox, so its host is Linux
+under a docker backend and Darwin under seatbelt, and the same uname pairing
+covers both.
 
 The job is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
 the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest`

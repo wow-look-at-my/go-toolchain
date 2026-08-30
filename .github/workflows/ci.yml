@@ -311,19 +311,13 @@ jobs:
         with:
           args: '--no-sandbox test .github/dats-fixtures/identical.dats'
 
-  # Each host runs its own fixture: dats has no test filtering, so a foreign host's assertion in a leg fails it. see docs/CI.md
+  # One suite, every host: a host-specific answer is paired with uname inside the fixture. see docs/CI.md
   smoke:
     needs: build
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            fixture: smoke-linux.dats
-          - os: macos-latest
-            fixture: smoke-macos.dats
-          - os: windows-latest
-            fixture: smoke-windows.dats
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
     timeout-minutes: 30
@@ -346,10 +340,10 @@ jobs:
           path: harness
 
       # The outer run opts out so the pipeline test's own dats phase can sandbox the guard fixture... see docs/CI.md
-      - name: This host's smoke suite
+      - name: Smoke suite
         uses: wow-look-at-my/dats@master
         with:
-          args: '--no-sandbox test .github/dats-fixtures/${{ matrix.fixture }}'
+          args: '--no-sandbox test .github/dats-fixtures/smoke.dats'
 
   publish:
     needs: [identical, smoke]

@@ -123,10 +123,11 @@ coverage.
   `cacheprog` is), and the update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
   so version tests assert only the stable `Version:`/`Commit:` lines), and that host detection is a MEASUREMENT rather than its linux fallback.
-  These guard tests assume a linux host, because this suite only runs when this repo builds ITSELF (`build`/`host-build`, linux-only). A macOS host
-  gets the sibling fixture `.github/dats-fixtures/smoke-macos-agent-output-guard.dats`, which smoke-macos (which runs `actions/checkout` for exactly
-  this) copies into a throwaway module and runs against the real published APE — a suite asserting darwin-host behavior cannot live under this repo's
-  own `dats/`, since every suite there runs during this repo's linux self-build too. Only windows stays a documented no-op. New tests go AFTER the
+  These guard tests assume a linux host, because this suite only runs when this repo builds ITSELF (`build`/`host-build`, linux-only). Every other
+  host is covered by `.github/dats-fixtures/agent-output-guard.dats`, ONE fixture that `smoke.dats` copies into a throwaway module and runs against
+  the published APE on each host — a suite asserting another host's behavior cannot live under this repo's own `dats/`, since every suite there runs
+  during the linux self-build too. What differs by host is paired with `uname -s` in the same line rather than split into per-host copies. New tests
+  go AFTER the
   snapshot test: its INDEX names the committed golden file, so anything inserted before it renumbers the golden.
   `.dats` + `.golden` files feed `computeFingerprint` (uptodate.go), so suite/golden edits bust the "Up to date" fast-exit
 - `src/runner/runner.go` — `WithHostTarget()` assigns `GOOS`/`GOARCH` from `hostos.GOOS()` and `runtime.GOARCH` on every `go` invocation whose
