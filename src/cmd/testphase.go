@@ -180,7 +180,15 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 
 	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.
 	coverDir := filepath.Join(os.TempDir(), "go-toolchain-cov")
-	os.MkdirAll(coverDir, 0o755)
+	// Report the mkdir. Dropping it made the test phase fail later on the
+	// coverage file instead, which names a missing path and not the reason
+	// it is missing.
+	if err := os.MkdirAll(coverDir, 0o755); err != nil {
+		if testStep != nil {
+			testStep.failed()
+		}
+		return false, nil, fmt.Errorf("coverage directory %s: %w", coverDir, err)
+	}
 	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
 	defer os.Remove(coverFile)
 
