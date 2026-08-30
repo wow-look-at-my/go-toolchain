@@ -86,6 +86,12 @@ A missing hand-off fails rather than passing on the survivors: comparing the
 hosts that answered would report green for a property no host was checked on.
 `publish` needs `identical`, so a build that is not reproducible never ships.
 
+Both assertions live in `.github/dats-fixtures/`, not in the workflow:
+`identical.dats` asserts every host handed off an APE and that the bytes match,
+and `cosmo-version.dats` asserts `version cosmo` names a release rather than
+something a later leg would resolve differently. The jobs stage the files and
+invoke the suite; a workflow step schedules work and is not a test harness.
+
 One compiler builds all three. gosmopolitan publishes on every green push, so a
 run that spans a publish resolved a different fork on each leg and `identical`
 read that as a host difference. `host-build` resolves the release once with

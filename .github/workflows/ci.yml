@@ -117,15 +117,16 @@ jobs:
           path: build/go-toolchain
 
       # Comparing three hosts' APEs says something only if one compiler built them. see docs/CI.md
+      - name: The release name is a release name
+        uses: wow-look-at-my/dats@master
+        with:
+          args: '--no-sandbox test .github/dats-fixtures/cosmo-version.dats'
+
       - name: Pin the gosmopolitan release for this run
         id: cosmo
         run: |
           set -euo pipefail
           v="$(go-toolchain version cosmo)"
-          case "$v" in
-            v[0-9]*) ;;
-            *) echo "::error::buildhost did not name a gosmopolitan release (got '$v'), so each host would resolve its own"; exit 1 ;;
-          esac
           echo "resolved gosmopolitan $v"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
@@ -277,6 +278,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Only for the dats fixture below -- this job otherwise runs no repo code.
+      - uses: actions/checkout@v7
+
       - name: Download each host's APE
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -291,24 +295,14 @@ jobs:
           name: ape-windows
           path: ape/windows
 
+      - name: What each host handed off
+        run: sha256sum ape/*/go-toolchain
+
+      # A missing hand-off fails too: comparing the hosts that answered proves nothing. see docs/CI.md
       - name: Every host built the same bytes
-        run: |
-          set -uo pipefail
-          for o in linux darwin windows; do
-            if [ ! -f "ape/$o/go-toolchain" ]; then
-              echo "::error::$o handed off no APE, so identity across hosts is untested, not proven"
-              exit 1
-            fi
-          done
-          sha256sum ape/*/go-toolchain
-          rc=0
-          for o in darwin windows; do
-            cmp -s ape/linux/go-toolchain "ape/$o/go-toolchain" || {
-              echo "::error::the $o build differs from the linux build: the APE is one binary for every host, so every host has to produce it. Compare with cmp -l; the build-ID notes are what -trimpath and -ldflags=-buildid= exist to close (docs/MATRIX.md)"
-              rc=1
-            }
-          done
-          exit $rc
+        uses: wow-look-at-my/dats@master
+        with:
+          args: '--no-sandbox test .github/dats-fixtures/identical.dats'
 
   # Every host runs the whole union suite, and an assertion describing another host fails there by design. see docs/CI.md
   smoke:
