@@ -104,7 +104,7 @@ func commentNumbers(text string) []commentToken {
 	var found []commentToken
 	toks := commentTokens(text)
 	for i, tok := range toks {
-		if isHTTPStatus(toks, i) || isSectionRef(text, tok) {
+		if isHTTPStatus(toks, i) || isSectionRef(text, tok) || isMoney(text, tok) {
 			continue
 		}
 		if hit, ok := tokenNumber(tok); ok {
@@ -156,6 +156,19 @@ func isSectionRef(text string, tok commentToken) bool {
 	before := strings.TrimRight(text[:tok.offset], " \t")
 	last, size := utf8.DecodeLastRuneInString(before)
 	return size > 0 && last == sectionSign
+}
+
+// currencySign marks the digits against it as an amount rather than a count.
+const currencySign = '$'
+
+// isMoney reports whether the token opens with digits carrying a currency sign
+// directly against them. An amount is a value, and only the amount is exempt.
+func isMoney(text string, tok commentToken) bool {
+	last, size := utf8.DecodeLastRuneInString(text[:tok.offset])
+	if size == 0 || last != currencySign {
+		return false
+	}
+	return unicode.IsDigit(rune(tok.text[0]))
 }
 
 // commentTokens splits a comment into runs of name characters, so a URL, an
