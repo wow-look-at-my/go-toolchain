@@ -16,7 +16,10 @@ jobs:
     outputs:
       cosmo-version: ${{ steps.cosmo.outputs.version }}
     steps:
+      # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another one is asked as the wrong identity.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@v7
         with:
@@ -24,6 +27,11 @@ jobs:
           cache: false
 
       - uses: wow-look-at-my/actions@secret-server#latest
+
+      # This job builds from source, so it needs the org read token action.yml gives every consumer.
+      - name: Configure git for private repos
+        if: env.PRIVATE_ORG_REPO_READ != ''
+        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
@@ -139,7 +147,10 @@ jobs:
     needs: host-build
     runs-on: ubuntu-latest
     steps:
+      # Same reason as host-build: a persisted credential for this repository answers for no other one.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
