@@ -37,6 +37,7 @@ func mkActionID(rng *rand.Rand) string {
 // action maps to. Before the commit-under-append-lock fix this diverged in
 // in a small fraction of iterations (live=A, rescan=B).
 func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(1))
 	const iters = 1500
 	for it := 0; it < iters; it++ {
@@ -80,6 +81,7 @@ func TestPackStore_ConcurrentSameActionPutRescanConsistency(t *testing.T) {
 // action, refusing to replace a present action, and reusing an existing
 // body via an alias record — with the result surviving a rescan.
 func TestPackStore_PutIfAbsent(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(2))
 	dir := t.TempDir()
 	s, err := OpenPackStore(dir)
@@ -129,6 +131,7 @@ func TestPackStore_PutIfAbsent(t *testing.T) {
 // absent slot (and the later Put overwrites it) or aborts against the
 // existing entry; it can never end up shadowing the Put.
 func TestPackStore_PutAlwaysBeatsPutIfAbsent(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(3))
 	const iters = 1500
 	for it := 0; it < iters; it++ {
@@ -173,6 +176,7 @@ func TestPackStore_PutAlwaysBeatsPutIfAbsent(t *testing.T) {
 // TestLocalCache_PutIfAbsent pins the loose tier's variant: absent fills,
 // present is never replaced.
 func TestLocalCache_PutIfAbsent(t *testing.T) {
+	t.Parallel()
 	c, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	defer c.Close()
@@ -201,6 +205,7 @@ func TestLocalCache_PutIfAbsent(t *testing.T) {
 // mis-keyed body (e.g. a web-prefetched object under a module-index key)
 // sticky forever while silently dropping the freshly computed correct body.
 func TestServer_PutReplacesMismatchedOutputID(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	srv := NewServer(lc, nil)
@@ -249,6 +254,7 @@ func (f *forgetRecorder) ForgetStale(actionID string) {
 // following remote Put uploads the fresh body instead of skipping it as
 // already-present — that upload is what heals the shared tier.
 func TestServer_PutReplaceForgetsStaleWebClaim(t *testing.T) {
+	t.Parallel()
 	lc, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	remote := &forgetRecorder{IBackend: newMemBackend()}
@@ -285,6 +291,7 @@ func TestServer_PutReplaceForgetsStaleWebClaim(t *testing.T) {
 // index claim so a later Put's check-and-claim re-uploads, and the
 // noCloseBackend daemon wrapper forwards the capability.
 func TestWebBackend_ForgetStaleDropsClaim(t *testing.T) {
+	t.Parallel()
 	b := &WebBackend{prefix: "go-buildcache/"}
 	b.keys = set.New[string]()
 	action := strings.Repeat("d", 64)
@@ -302,6 +309,7 @@ func TestWebBackend_ForgetStaleDropsClaim(t *testing.T) {
 // for an action the local tier already holds must be dropped, and must not be
 // counted as populated.
 func TestWireBatchCallbacks_PrefetchNeverReplacesLocalEntry(t *testing.T) {
+	t.Parallel()
 	local, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	defer local.Close()

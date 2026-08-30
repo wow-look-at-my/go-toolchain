@@ -16,6 +16,7 @@ import (
 )
 
 func TestParseIndexBlob_RoundTrip(t *testing.T) {
+	t.Parallel()
 	keys := set.New[string]()
 	for i := 0; i < 5; i++ {
 		var h [gbciHashSize]byte
@@ -37,6 +38,7 @@ func TestParseIndexBlob_RoundTrip(t *testing.T) {
 const sha256HexLen = 64
 
 func TestParseIndexBlob_Empty(t *testing.T) {
+	t.Parallel()
 	blob := marshalIndex(set.New[string]())
 	got, etag, err := parseIndexBlob(blob)
 	require.NoError(t, err)
@@ -45,6 +47,7 @@ func TestParseIndexBlob_Empty(t *testing.T) {
 }
 
 func TestParseIndexBlob_BadMagic(t *testing.T) {
+	t.Parallel()
 	blob := marshalIndex(set.New[string]())
 	blob[0] = 'X'
 	_, _, err := parseIndexBlob(blob)
@@ -52,6 +55,7 @@ func TestParseIndexBlob_BadMagic(t *testing.T) {
 }
 
 func TestParseIndexBlob_TrailerMismatch(t *testing.T) {
+	t.Parallel()
 	keys := set.New[string]()
 	var h [gbciHashSize]byte
 	h[0] = 1
@@ -64,11 +68,13 @@ func TestParseIndexBlob_TrailerMismatch(t *testing.T) {
 }
 
 func TestParseIndexBlob_TooSmall(t *testing.T) {
+	t.Parallel()
 	_, _, err := parseIndexBlob([]byte("nope"))
 	require.Error(t, err)
 }
 
 func TestParseIndexBlob_BadVersion(t *testing.T) {
+	t.Parallel()
 	blob := marshalIndex(set.New[string]())
 	blob[4] = 99
 	_, _, err := parseIndexBlob(blob)
@@ -76,6 +82,7 @@ func TestParseIndexBlob_BadVersion(t *testing.T) {
 }
 
 func TestParseIndexBlob_BadHashSize(t *testing.T) {
+	t.Parallel()
 	blob := marshalIndex(set.New[string]())
 	blob[5] = 16
 	_, _, err := parseIndexBlob(blob)
@@ -83,6 +90,7 @@ func TestParseIndexBlob_BadHashSize(t *testing.T) {
 }
 
 func TestParseIndexBlob_LengthMismatch(t *testing.T) {
+	t.Parallel()
 	keys := set.New[string]()
 	var h [gbciHashSize]byte
 	h[0] = 1
@@ -95,6 +103,7 @@ func TestParseIndexBlob_LengthMismatch(t *testing.T) {
 }
 
 func TestDecodeActionHash_Bad(t *testing.T) {
+	t.Parallel()
 	cases := []string{
 		"",
 		"wrong-prefix/abcd",
@@ -348,6 +357,7 @@ func TestIndexCachePathSuffix(t *testing.T) {
 
 // Sanity test for the helper: read a blob written via writeIndexBlob.
 func TestWriteAndReadIndexBlob(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.bin")
 

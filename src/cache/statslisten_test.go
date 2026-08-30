@@ -14,6 +14,7 @@ import (
 )
 
 func TestTruncateActionID(t *testing.T) {
+	t.Parallel()
 	// Golden pair from the build-id canary; the truncated form must equal cmd/go's actiongraph ActionID rendering.
 	raw := hexToBytes("10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b")
 	assert.Equal(t, "EPlPwC3MJFgg3YYfTGwl", truncateActionID(raw))
@@ -24,6 +25,7 @@ func TestTruncateActionID(t *testing.T) {
 }
 
 func TestWithAction(t *testing.T) {
+	t.Parallel()
 	id := bytes.Repeat([]byte{0xab}, 16)
 	ev := withAction(StatEvent{LocalHit: 1}, id, "get", "hit-local", 123, 4*time.Millisecond)
 	assert.Equal(t, uint32(1), ev.LocalHit)
@@ -41,6 +43,7 @@ func TestWithAction(t *testing.T) {
 }
 
 func TestRecordAction_MergePolicy(t *testing.T) {
+	t.Parallel()
 	sl := &StatsListener{}
 
 	// The earliest get outcome wins; a later warm re-get must not overwrite it.
@@ -60,6 +63,7 @@ func TestRecordAction_MergePolicy(t *testing.T) {
 }
 
 func TestRecordAction_OverflowCap(t *testing.T) {
+	t.Parallel()
 	sl := &StatsListener{}
 	for i := 0; i < maxTrackedActions; i++ {
 		sl.recordAction(&StatEvent{Action: fmt.Sprintf("a%06d", i), Op: "get", Outcome: "miss"})

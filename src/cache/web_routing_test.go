@@ -152,6 +152,7 @@ func TestWebBackend_EmptyIndexStillPuts(t *testing.T) {
 // (an expected hit) is fetched through /_batch/get — a coalesced round-trip
 // with prefetch — not via a per-key individual GET.
 func TestGet_IndexedKeyUsesBatch(t *testing.T) {
+	t.Parallel()
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
 	srv := fakeBatchServer(t, store, meta)

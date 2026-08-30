@@ -33,11 +33,13 @@ func hermeticOTel(t *testing.T) { t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") }
 // TestExpectedBuildIDAction_Golden pins the encoding against a real `go build` stamp, verified with
 // `go tool buildid`. If Go ever changes HashToString, this catches it.
 func TestExpectedBuildIDAction_Golden(t *testing.T) {
+	t.Parallel()
 	const actionID = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b"
 	require.Equal(t, "EPlPwC3MJFgg3YYfTGwl", expectedBuildIDAction(actionID))
 }
 
 func TestExpectedBuildIDAction_ShortOrInvalid(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "", expectedBuildIDAction(""))         // empty
 	require.Equal(t, "", expectedBuildIDAction("aabbccdd")) // shorter than buildIDHashSize
 	require.Equal(t, "", expectedBuildIDAction("zzzz"))     // not hex
@@ -46,6 +48,7 @@ func TestExpectedBuildIDAction_ShortOrInvalid(t *testing.T) {
 }
 
 func TestArchiveBuildIDAction(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "EPlPwC3MJFgg3YYfTGwl", archiveBuildIDAction(archiveWithBuildID("EPlPwC3MJFgg3YYfTGwl")))
 
 	// Not an archive at all.
@@ -58,6 +61,7 @@ func TestArchiveBuildIDAction(t *testing.T) {
 }
 
 func TestBuildIDMatchesAction(t *testing.T) {
+	t.Parallel()
 	const actionA = "10f94fc02dcc245820dd861f4c6c25dee23ceb750f6be498fe84f67dfd2f1f9b" // -> EPlPwC3MJFgg3YYfTGwl
 	actionB := strings.Repeat("ab", 32)                                                // a different action
 	wantA := expectedBuildIDAction(actionA)
@@ -91,6 +95,7 @@ func TestBuildIDMatchesAction(t *testing.T) {
 }
 
 func TestArchiveExportInfo(t *testing.T) {
+	t.Parallel()
 	// A stamped package archive: isPkgArchive true, action extracted.
 	isPkg, action := archiveExportInfo(archiveWithBuildID("EPlPwC3MJFgg3YYfTGwl"))
 	require.True(t, isPkg)
@@ -313,6 +318,7 @@ func TestWebBackend_PutRefusesBuildIDMismatch(t *testing.T) {
 // populator never seeds a local hit with a compiled object whose build id
 // belongs to a different action than its key.
 func TestWireBatchCallbacks_SkipsBuildIDMismatchPrefetch(t *testing.T) {
+	t.Parallel()
 	local, err := NewLocalCache(t.TempDir())
 	require.NoError(t, err)
 	defer local.Close()

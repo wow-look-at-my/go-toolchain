@@ -114,6 +114,7 @@ func fakeBatchServer(t *testing.T, store map[string][]byte, meta map[string]map[
 }
 
 func TestGetBatch_ReturnsRequestedEntry(t *testing.T) {
+	t.Parallel()
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
 	srv := fakeBatchServer(t, store, meta)
@@ -144,6 +145,7 @@ func TestGetBatch_ReturnsRequestedEntry(t *testing.T) {
 // same end-to-end integrity check as individual GETs: a batched entry whose
 // body does not hash to its advertised outputID is refused (miss), never served.
 func TestGetBatch_RejectsCorruptEntry(t *testing.T) {
+	t.Parallel()
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
 	srv := fakeBatchServer(t, store, meta)
@@ -172,6 +174,7 @@ func TestGetBatch_RejectsCorruptEntry(t *testing.T) {
 // outputid metadata is counted as a no-outputid miss (a metadata gap), not as a
 // checksum mismatch / corruption — mirroring getIndividual.
 func TestGetBatch_MissingOutputIDNotCorrupt(t *testing.T) {
+	t.Parallel()
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
 	srv := fakeBatchServer(t, store, meta)
@@ -197,6 +200,7 @@ func TestGetBatch_MissingOutputIDNotCorrupt(t *testing.T) {
 }
 
 func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
+	t.Parallel()
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
 	srv := fakeBatchServer(t, store, meta)
@@ -237,6 +241,7 @@ func TestGetBatch_PrefetchCallsOnBatchEntries(t *testing.T) {
 }
 
 func TestGetBatch_FallbackToIndividual(t *testing.T) {
+	t.Parallel()
 	// Server that doesn't support /_batch/get (answers not-found).
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
@@ -313,6 +318,7 @@ func TestGetBatch_FallbackToIndividual(t *testing.T) {
 }
 
 func TestGetBatch_Miss(t *testing.T) {
+	t.Parallel()
 	// Server with empty store.
 	srv := fakeBatchServer(t, make(map[string][]byte), make(map[string]map[string]string))
 	defer srv.Close()
@@ -330,6 +336,7 @@ func TestGetBatch_Miss(t *testing.T) {
 // TestGet_UsessBatchForUnknownKeys verifies that Get() routes through getBatch
 // when the key is not in the local index.
 func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
+	t.Parallel()
 	store := make(map[string][]byte)
 	meta := make(map[string]map[string]string)
 	srv := fakeBatchServer(t, store, meta)
@@ -361,6 +368,7 @@ func TestGet_UsesBatchForUnknownKeys(t *testing.T) {
 // for client-side batching: many concurrent Get callers must funnel through
 // a single /_batch/get HTTP request rather than producing a request each.
 func TestGet_CoalescesConcurrentRequestsIntoOneHTTPRequest(t *testing.T) {
+	t.Parallel()
 	const N = 200
 
 	store := make(map[string][]byte)

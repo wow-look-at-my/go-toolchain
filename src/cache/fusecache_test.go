@@ -26,6 +26,7 @@ func newFuseCacheForTest(t *testing.T) *FuseCache {
 }
 
 func TestFuseCache_PutReadThroughMount(t *testing.T) {
+	t.Parallel()
 	c := newFuseCacheForTest(t)
 	body := []byte("served virtually by fuse")
 	aid, oid := hexID(1), casID(body)
@@ -46,6 +47,7 @@ func TestFuseCache_PutReadThroughMount(t *testing.T) {
 }
 
 func TestFuseCache_GetReturnsReadableDiskPath(t *testing.T) {
+	t.Parallel()
 	c := newFuseCacheForTest(t)
 	body := bytes.Repeat([]byte("payload"), 500) // larger than a single read buffer
 	aid, oid := hexID(2), casID(body)
@@ -76,6 +78,7 @@ func TestFuseCache_GetReturnsReadableDiskPath(t *testing.T) {
 // already-verified record is memoized (records are physically immutable; see
 // verify.go), which is exactly how rot manifests in reality — across runs.
 func TestFuseCache_CorruptBodyNotServedThroughMount(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fc, err := newFuseCache(dir)
 	if err != nil {
@@ -111,6 +114,7 @@ func TestFuseCache_CorruptBodyNotServedThroughMount(t *testing.T) {
 }
 
 func TestFuseCache_Miss(t *testing.T) {
+	t.Parallel()
 	c := newFuseCacheForTest(t)
 	_, miss := c.Get(hexID(7))
 	require.True(t, miss)
@@ -120,6 +124,7 @@ func TestFuseCache_Miss(t *testing.T) {
 }
 
 func TestFuseCache_PersistsAcrossRemount(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fc, err := newFuseCache(dir)
 	if err != nil {
@@ -145,6 +150,7 @@ func TestFuseCache_PersistsAcrossRemount(t *testing.T) {
 }
 
 func TestFuseCache_WriteRejected(t *testing.T) {
+	t.Parallel()
 	c := newFuseCacheForTest(t)
 	body := []byte("read only")
 	oid := casID(body)
@@ -162,6 +168,7 @@ func TestFuseCache_WriteRejected(t *testing.T) {
 // A subprocess (the compiler/linker) must be able to read a DiskPath through
 // the mount — the whole point of the virtual filesystem.
 func TestFuseCache_SubprocessRead(t *testing.T) {
+	t.Parallel()
 	c := newFuseCacheForTest(t)
 	body := []byte("a subprocess must be able to read this")
 	dp, err := c.Put(hexID(1), casID(body), bytes.NewReader(body))
@@ -174,6 +181,7 @@ func TestFuseCache_SubprocessRead(t *testing.T) {
 // Many puts then concurrent reads — mimics a parallel build populating and
 // reading the cache together.
 func TestFuseCache_ConcurrentPutRead(t *testing.T) {
+	t.Parallel()
 	c := newFuseCacheForTest(t)
 	const n = 200
 	for i := 0; i < n; i++ {
@@ -207,6 +215,7 @@ func TestFuseCache_ConcurrentPutRead(t *testing.T) {
 // dir must NOT be able to take over (which would unmount the live mount). It
 // must fail, leaving the standing owner's mount intact and serving.
 func TestFuseCache_SecondOwnerRejected(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fc, err := newFuseCache(dir)
 	if err != nil {
