@@ -196,6 +196,12 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 
 	if len(failed) > 0 {
+		recovered, stillFailed := retryCacheBrokenBuilds(r, failed, len(jobs))
+		builtFiles = append(builtFiles, recovered...)
+		failed = stillFailed
+	}
+
+	if len(failed) > 0 {
 		return fmt.Errorf("%d/%d builds failed", len(failed), len(jobs))
 	}
 

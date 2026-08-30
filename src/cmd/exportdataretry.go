@@ -14,11 +14,17 @@ import (
 const invalidPackageNameMarker = `invalid package name: ""`
 
 // corruptExportPkgRe pulls the import paths out of load errors, so the warning names what was damaged.
-var corruptExportPkgRe = regexp.MustCompile(`could not import ([^\s(]+) \(invalid package name: ""\)`)
+var corruptExportPkgRe = regexp.MustCompile(`could not import ([^\s(]+) \((?:invalid package name: ""|open [^)]*: no such file or directory)\)`)
 
-// isCorruptExportData reports whether err is the corrupt-export-data failure.
+// missingExportFileRe: a GET promises a DiskPath, so an entry evicted after that promise opens as ENOENT (cache/packverify.go).
+var missingExportFileRe = regexp.MustCompile(`could not import [^\s(]+ \(open [^)]*: no such file or directory\)`)
+
+// isCorruptExportData reports whether err is a cache-served export failure.
 func isCorruptExportData(err error) bool {
-	return err != nil && strings.Contains(err.Error(), invalidPackageNameMarker)
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), invalidPackageNameMarker) || missingExportFileRe.MatchString(err.Error())
 }
 
 // corruptExportPackages returns the sorted, deduplicated import paths the error
@@ -34,6 +40,14 @@ func corruptExportPackages(err error) []string {
 	out := seen.Values()
 	sort.Strings(out)
 	return out
+}
+
+// corruptExportSymptom names how the entry was unusable, so the message tells a reader which failure they have.
+func corruptExportSymptom(err error) string {
+	if err != nil && missingExportFileRe.MatchString(err.Error()) {
+		return "an export file that is no longer there"
+	}
+	return "export data with no package name"
 }
 
 // Unsets GOCACHEPROG so cmd/go falls back to its own, often-empty, on-disk cache, forcing a rebuild from source. Costs time only.
@@ -52,9 +66,9 @@ func disableSharedBuildCache() bool {
 // error.
 func corruptExportDataError(err error, retried bool) error {
 	pkgs := corruptExportPackages(err)
-	what := "the build cache served export data with no package name"
+	what := "the build cache served " + corruptExportSymptom(err)
 	if len(pkgs) > 0 {
-		what = fmt.Sprintf("the build cache served export data with no package name for %s", strings.Join(pkgs, ", "))
+		what = fmt.Sprintf("the build cache served %s for %s", corruptExportSymptom(err), strings.Join(pkgs, ", "))
 	}
 	cause := "the shared build cache (GOCACHEPROG) was not enabled, so the damage is in the LOCAL build cache"
 	if retried {
