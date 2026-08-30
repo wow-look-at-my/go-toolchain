@@ -1,0 +1,211 @@
+package cmd
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
+)
+
+func TestApeManifestEntries(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
+	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
+
+	entries, err := apeManifestEntries(targets, dir, []buildPlatform{
+		{OS: "linux", Arch: "amd64"},
+		{OS: "darwin", Arch: "arm64"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []buildhostManifestEntry{{
+		File:      "mytool",
+		Platforms: []string{"linux/amd64", "darwin/arm64"},
+		// The APE lands under the plain name, so the served filename and the file are the same string.
+		Filename: "mytool",
+	}}, entries)
+}
+
+func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
+	dir := t.TempDir()
+	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
+
+	// A manifest naming a file that is not there fails the publish; catching it here names the missing artifact.
+	_, err := apeManifestEntries(targets, dir, []buildPlatform{{OS: "linux", Arch: "amd64"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mytool")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
+	_, err = apeManifestEntries(targets, dir, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty platform set")
+}
+
+// The manifest is a wire contract with buildhost-publish: a pinned schema, and only
+// the fields buildhost reads. kind is deliberately absent (it selects
+// repackaging and defaults to binary; APE-ness is detected from the bytes).
+func TestWriteBuildhostManifestShape(t *testing.T) {
+	dir := t.TempDir()
+	path, err := writeBuildhostManifest(dir, []buildhostManifestEntry{{
+		File:      "mytool",
+		Platforms: []string{"linux/amd64", "darwin/arm64", "windows/amd64"},
+		Filename:  "mytool",
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "buildhost-artifacts.json"), path)
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"kind"`, "kind must be omitted so buildhost applies its own default")
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(raw, &got))
+	assert.Equal(t, float64(1), got["schema"])
+	artifacts, ok := got["artifacts"].([]any)
+	require.True(t, ok)
+	require.Len(t, artifacts, 1)
+	entry := artifacts[0].(map[string]any)
+	assert.Equal(t, "mytool", entry["file"])
+	assert.Equal(t, "mytool", entry["filename"])
+	assert.Equal(t, []any{"linux/amd64", "darwin/arm64", "windows/amd64"}, entry["platforms"])
+}
+
+// The manifest describes the artifacts, so it must not outlive them: a manifest left
+// behind would send the next publish after a file that is gone.
+func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, buildhostManifestName), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
+
+	removed, err := removeBuildOutputsIn(dir, []string{"mytool"})
+	require.NoError(t, err)
+	assert.Len(t, removed, 2)
+	assert.NoFileExists(t, filepath.Join(dir, buildhostManifestName))
+}
+
+// End to end on the default path: a lone APE, a lone manifest, no per-platform
+// copies, and GOCOSMOPLATFORMS carrying the requested set.
+func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
+	t.Setenv("CI", "")
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	// The production spelling; NT adds .exe.
+	cosmoGo := cosmoGoBinPath(fakeGoroot)
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "FAT-APE")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+
+	require.NoError(t, runReleaseWithRunner(mock))
+
+	// A lone binary; anything matching <name>_<os>_<arch> would be a duplicate copy.
+	entries, err := os.ReadDir(outDir)
+	require.NoError(t, err)
+	var binaries []string
+	for _, e := range entries {
+		if !e.Type().IsRegular() || e.Name() == "checksums.txt" || e.Name() == buildhostManifestName {
+			continue
+		}
+		binaries = append(binaries, e.Name())
+	}
+	assert.Equal(t, []string{"mytool"}, binaries)
+
+	// checksums.txt lists the APE a single time, under its real filename.
+	sums, err := os.ReadFile(filepath.Join(outDir, "checksums.txt"))
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(sums)), "\n")
+	require.Len(t, lines, 1)
+	assert.Contains(t, lines[0], "mytool")
+
+	raw, err := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
+	require.NoError(t, err)
+	var m buildhostManifest
+	require.NoError(t, json.Unmarshal(raw, &m))
+	assert.Equal(t, buildhostManifest{Schema: 1, Artifacts: []buildhostManifestEntry{{
+		File:      "mytool",
+		Platforms: []string{"linux/amd64", "darwin/arm64", "windows/amd64"},
+		Filename:  "mytool",
+	}}}, m)
+
+	var cosmoCfg *runner.Config
+	for _, cfg := range mock.Calls() {
+		if cfg.Name == cosmoGo {
+			c := cfg
+			cosmoCfg = &c
+		}
+	}
+	require.NotNil(t, cosmoCfg)
+	platforms, _ := cosmoCfg.Env.Get(cosmoPlatformsEnv)
+	assert.Equal(t, "linux/amd64,darwin/arm64,windows/amd64", platforms)
+}
+
+// --cosmo-platforms all asks for every payload the fork emits, so the variable
+// is left unset (the fork's own default) rather than spelled out.
+func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
+	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
+	t.Setenv("CI", "")
+	cosmoPlatforms = []string{"all"}
+
+	mock := newTestPassMock(0)
+	origHandler := mock.Handler
+	// The production spelling; NT adds .exe.
+	cosmoGo := cosmoGoBinPath(fakeGoroot)
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+			writeBuildOutput(t, cfg, "FAT-APE")
+			return runner.MockProcess(nil, nil), nil
+		}
+		return origHandler(cfg)
+	}
+	require.NoError(t, runReleaseWithRunner(mock))
+
+	var cosmoCfg *runner.Config
+	for _, cfg := range mock.Calls() {
+		if cfg.Name == cosmoGo {
+			c := cfg
+			cosmoCfg = &c
+		}
+	}
+	require.NotNil(t, cosmoCfg)
+	platforms, _ := cosmoCfg.Env.Get(cosmoPlatformsEnv)
+	assert.Equal(t, "", platforms)
+
+	// The manifest still states where the binary runs, using the coverage a full APE actually has.
+	raw, err := os.ReadFile(filepath.Join(outDir, buildhostManifestName))
+	require.NoError(t, err)
+	var m buildhostManifest
+	require.NoError(t, json.Unmarshal(raw, &m))
+	assert.Equal(t, []string{"darwin/arm64", "linux/amd64", "linux/arm64", "windows/amd64"}, m.Artifacts[0].Platforms)
+}
+
+// The dats phase and the convenience symlinks run the APE: it is the only
+// native output, and it runs on every host. A per-platform binary sitting in
+// the directory is not an artifact of this build and never wins.
+func TestHostRunnableArtifactIsTheAPE(t *testing.T) {
+	dir := t.TempDir()
+	target := build.Target{ImportPath: "./cmd/mytool", OutputName: "mytool"}
+	ape := filepath.Join(dir, "mytool")
+
+	// Answered before anything is built, so a caller reports a missing artifact rather than a wrong path.
+	assert.Equal(t, ape, hostRunnableArtifact(target, dir))
+
+	require.NoError(t, os.WriteFile(ape, []byte("APE"), 0755))
+	assert.Equal(t, ape, hostRunnableArtifact(target, dir))
+
+	stray := filepath.Join(dir, build.BinaryName("mytool", hostos.GOOS(), runtime.GOARCH))
+	require.NoError(t, os.WriteFile(stray, []byte("NATIVE"), 0755))
+	assert.Equal(t, ape, hostRunnableArtifact(target, dir),
+		"a leftover per-platform binary must not displace the APE")
+}

@@ -7,22 +7,41 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
 )
 
 var unignoreCmd = &cobra.Command{
 	Use:   "unignore",
 	Short: "Remove build-check exemptions",
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Print("Remove exemption — are you sure? [y/N] ")
-		reader := bufio.NewReader(os.Stdin)
-		line, _ := reader.ReadString('\n')
-		line = strings.TrimSpace(strings.ToLower(line))
-		if line != "y" && line != "yes" {
-			return fmt.Errorf("aborted")
+	// PersistentPreRunE is set in init(): referencing unignoreCmd here would be an initialization cycle.
+}
+
+// unignorePreRun confirms interactively, then chains to the root PersistentPreRunE via unignoreCmd's OWN
+// parent, not cmd.Parent(): cobra passes cmd as the subcommand, whose parent is unignoreCmd, so
+// cmd.Parent() recursed forever.
+func unignorePreRun(cmd *cobra.Command, args []string) error {
+	if parent := unignoreCmd.Parent(); parent != nil && parent.PersistentPreRunE != nil {
+		if err := parent.PersistentPreRunE(cmd, args); err != nil {
+			return err
 		}
-		return nil
-	},
+	}
+	return confirmUnignore()
+}
+
+// confirmUnignore prompts for interactive confirmation on stdin. Split from
+// unignorePreRun so tests can exercise the prompt without triggering the
+// root hook's side effects (output guard, cacheprog).
+func confirmUnignore() error {
+	// Prompt awaits input mid-line (no trailing newline), so it bypasses the logger via rawStdout.
+	fmt.Fprint(rawStdout, "Remove exemption — are you sure? [y/N] ")
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(strings.ToLower(line))
+	if line != "y" && line != "yes" {
+		return fmt.Errorf("aborted")
+	}
+	return nil
 }
 
 var unignoreCoverageCmd = &cobra.Command{
@@ -32,43 +51,26 @@ var unignoreCoverageCmd = &cobra.Command{
 	RunE:         runUnignoreCoverage,
 }
 
-var unignoreLinesCmd = &cobra.Command{
-	Use:          "lines <file> [file...]",
-	Short:        "Remove file-length exemptions",
-	Args:         cobra.MinimumNArgs(1),
-	SilenceUsage: true,
-	RunE:         runUnignoreLines,
-}
-
 func init() {
-	unignoreCmd.AddCommand(unignoreCoverageCmd, unignoreLinesCmd)
+	unignoreCmd.PersistentPreRunE = unignorePreRun
+	unignoreCmd.AddCommand(unignoreCoverageCmd)
 	rootCmd.AddCommand(unignoreCmd)
 }
 
 func runUnignoreCoverage(cmd *cobra.Command, args []string) error {
 	_, exists, err := gotest.GetWatermark(".")
 	if err != nil {
-		fmt.Printf("Warning: %v\n", err)
+		logger.Warn("Warning: %v", err)
 		return nil
 	}
 	if !exists {
-		fmt.Println("No watermark is set.")
+		logger.Output("No watermark is set.")
 		return nil
 	}
 
 	if err := gotest.RemoveWatermark("."); err != nil {
 		return fmt.Errorf("failed to remove watermark: %w", err)
 	}
-	fmt.Println("Coverage watermark removed.")
-	return nil
-}
-
-func runUnignoreLines(cmd *cobra.Command, args []string) error {
-	for _, path := range args {
-		if err := gotest.RemoveFileLengthExemption(path); err != nil {
-			return err
-		}
-		fmt.Printf("File-length exemption removed for %s\n", path)
-	}
+	logger.Output("Coverage watermark removed.")
 	return nil
 }

@@ -1,6 +1,7 @@
 package vet
 
 import (
+	"bytes"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -10,17 +11,30 @@ import (
 	"strings"
 
 	ansi "github.com/wow-look-at-my/ansi-writer"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 const (
-	brokenTestify  = "github.com/stretchr/testify/"
-	correctTestify = "github.com/wow-look-at-my/testify/"
+	// forkTestify is the in-house fork with loosened numeric equality.
+	forkTestify = "github.com/wow-look-at-my/testify/"
+	// upstreamTestify is the canonical, widely-audited module.
+	upstreamTestify = "github.com/stretchr/testify/"
 )
 
-// FixTestifyImports scans all Go files and replaces stretchr/testify imports
-// with wow-look-at-my/testify. Returns true if any files were modified.
-func FixTestifyImports() (bool, error) {
-	var anyFixed bool
+// importRewrite records a fork->upstream import path change, for printing.
+type importRewrite struct{ old, new string }
+
+// FixTestifyImports scans all Go files for imports of the in-house
+// wow-look-at-my/testify fork and routes each offending file through ed. A
+// fix-mode editor rewrites the import to upstream stretchr/testify and resyncs
+// the module graph (go mod tidy, plus go mod vendor when the repo vendors its
+// dependencies); a check-mode (CI) editor records a violation instead, so a
+// tree still on the fork fails CI rather than passing green. (The fork is being
+// removed, so an unmigrated import is a latent unresolvable-module break.)
+//
+// Returns whether any file was written (only possible with a fix-mode editor).
+func FixTestifyImports(ed Editor) (bool, error) {
+	var anyWrote bool
 
 	err := filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -29,13 +43,28 @@ func FixTestifyImports() (bool, error) {
 		if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git" || d.Name() == "testdata") {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && strings.HasSuffix(p, ".go") {
-			fixed, err := fixFileTestifyImports(p)
-			if err != nil {
-				return err
-			}
-			if fixed {
-				anyFixed = true
+		// Never rewrite a nested module's files.
+		if d.IsDir() && gomod.IsNestedModule(p) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		newSrc, changes, err := renderTestifyImports(p)
+		if err != nil {
+			return err
+		}
+		if len(changes) == 0 {
+			return nil
+		}
+		wrote, err := ed.Require(p, newSrc, "imports the removed github.com/wow-look-at-my/testify fork; migrate to github.com/stretchr/testify")
+		if err != nil {
+			return err
+		}
+		if wrote {
+			anyWrote = true
+			for _, ch := range changes {
+				printTestifyFix(p, ch.old, ch.new)
 			}
 		}
 		return nil
@@ -45,58 +74,73 @@ func FixTestifyImports() (bool, error) {
 		return false, err
 	}
 
-	// Run go mod tidy to update dependencies after import changes
-	if anyFixed {
-		cmd := exec.Command("go", "mod", "tidy")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return anyFixed, err
+	// Sync only after rewriting files, so upstream testify is required and any vendor tree stays consistent.
+	if anyWrote {
+		if err := syncModuleGraph(); err != nil {
+			return anyWrote, err
 		}
 	}
 
-	return anyFixed, nil
+	return anyWrote, nil
 }
 
-// fixFileTestifyImports fixes testify imports in a single file.
-// Returns true if the file was modified.
-func fixFileTestifyImports(filename string) (bool, error) {
+// renderTestifyImports parses filename and returns its source with every
+// wow-look-at-my/testify fork import rewritten to upstream stretchr/testify
+// (sub-package path preserved), along with the list of rewrites. It performs no
+// write; a file with no fork import returns (nil, nil, nil).
+func renderTestifyImports(filename string) ([]byte, []importRewrite, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return false, err
+		// Unparseable: the vet pass reports the syntax error with a location; don't surface it here too.
+		return nil, nil, nil
 	}
 
-	var modified bool
+	var changes []importRewrite
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
-		if strings.HasPrefix(path, brokenTestify) {
-			// Replace with correct import
-			newPath := correctTestify + strings.TrimPrefix(path, brokenTestify)
+		if strings.HasPrefix(path, forkTestify) {
+			newPath := upstreamTestify + strings.TrimPrefix(path, forkTestify)
 			imp.Path.Value = `"` + newPath + `"`
-			modified = true
-
-			// Print fix message
-			printTestifyFix(filename, path, newPath)
+			changes = append(changes, importRewrite{old: path, new: newPath})
 		}
 	}
 
-	if !modified {
-		return false, nil
+	if len(changes) == 0 {
+		return nil, nil, nil
 	}
 
-	// Write back
-	out, err := os.Create(filename)
-	if err != nil {
-		return false, err
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, f); err != nil {
+		return nil, nil, err
 	}
-	defer out.Close()
+	// go/printer tab-aligns and rewrites quotes; canonicalize to gofmt style so the output matches RunGofmt's expectations.
+	return canonicalizeGoSource(buf.Bytes()), changes, nil
+}
 
-	if err := printer.Fprint(out, fset, f); err != nil {
-		return false, err
+// syncModuleGraph runs go mod tidy and, when the repo vendors its dependencies,
+// go mod vendor — leaving go.mod, go.sum and vendor/modules.txt consistent.
+func syncModuleGraph() error {
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Stdout = os.Stdout
+	tidy.Stderr = os.Stderr
+	if err := tidy.Run(); err != nil {
+		return err
 	}
+	return syncVendorIfPresent()
+}
 
-	return true, nil
+// syncVendorIfPresent rebuilds the vendor tree when vendor/modules.txt exists so
+// that a vendored repo (e.g. containerd) stays buildable with -mod=vendor after
+// imports change. It is a no-op for repos that don't vendor.
+func syncVendorIfPresent() error {
+	if _, err := os.Stat(filepath.Join("vendor", "modules.txt")); err != nil {
+		return nil // not a vendored module
+	}
+	vendor := exec.Command("go", "mod", "vendor")
+	vendor.Stdout = os.Stdout
+	vendor.Stderr = os.Stderr
+	return vendor.Run()
 }
 
 func printTestifyFix(filename, oldImport, newImport string) {

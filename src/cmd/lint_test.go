@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
-// writeDuplicateGoFiles creates two Go files in dir with near-duplicate functions.
+// writeDuplicateGoFiles creates a pair of Go files in dir with near-duplicate functions.
 func writeDuplicateGoFiles(t *testing.T, dir string) {
 	t.Helper()
 	srcA := `package p
@@ -211,21 +211,9 @@ func TestRunLintImpl_JSON(t *testing.T) {
 		lintMinNodes = lint.DefaultMinNodes
 	}()
 
-	// Redirect stdout
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := runLintImpl([]string{dir})
-
-	w.Close()
-	os.Stdout = oldStdout
-
+	var err error
+	output := captureStdout(func() { err = runLintImpl([]string{dir}) })
 	assert.NoError(t, err)
-
-	buf := make([]byte, 4096)
-	n, _ := r.Read(buf)
-	output := string(buf[:n])
 	assert.Contains(t, output, "func_a")
 }
 

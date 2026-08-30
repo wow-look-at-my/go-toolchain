@@ -1,6 +1,7 @@
 package vet
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 )
 
 // removeImport removes an import from the file's AST.
@@ -51,7 +54,7 @@ func importName(imp *ast.ImportSpec) string {
 	}
 	importPath := strings.Trim(imp.Path.Value, `"`)
 
-	// Check cache first
+	// Check the cache before parsing
 	packageNameCacheMu.RLock()
 	if name, ok := packageNameCache[importPath]; ok {
 		packageNameCacheMu.RUnlock()
@@ -85,6 +88,10 @@ func FixUnusedRangeVars(pattern string) ([]string, error) {
 				return err
 			}
 			if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git") {
+				return filepath.SkipDir
+			}
+			// Never rewrite a nested module's files.
+			if d.IsDir() && gomod.IsNestedModule(p) {
 				return filepath.SkipDir
 			}
 			if !d.IsDir() && strings.HasSuffix(p, ".go") {
@@ -178,13 +185,12 @@ func fixFileUnusedRangeVars(filename string) (bool, error) {
 		return false, nil
 	}
 
-	out, err := os.Create(filename)
-	if err != nil {
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, f); err != nil {
 		return false, err
 	}
-	defer out.Close()
-
-	if err := printer.Fprint(out, fset, f); err != nil {
+	// go/printer tab-aligns and rewrites doc-comment quotes; canonicalize to gofmt style before comparing.
+	if err := os.WriteFile(filename, canonicalizeGoSource(buf.Bytes()), 0o644); err != nil {
 		return false, err
 	}
 

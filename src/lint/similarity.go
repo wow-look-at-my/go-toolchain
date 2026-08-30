@@ -1,6 +1,8 @@
 package lint
 
-// DuplicatePair records two blocks that are near-duplicates.
+import "github.com/wow-look-at-my/go-containers/set"
+
+// DuplicatePair records a pair of blocks that are near-duplicates.
 type DuplicatePair struct {
 	A          *Block
 	B          *Block
@@ -26,10 +28,7 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 		}
 	}
 
-	// Bucket by approximate token count. Two blocks are only compared
-	// if their sizes fall in overlapping buckets. Bucket width is chosen
-	// so that blocks differing by more than 50% in size are never
-	// compared (they can't reach 0.85 similarity anyway).
+	// Blocks are only compared within overlapping size buckets; a wide size gap cannot reach the similarity threshold.
 	const bucketWidth = 8
 	buckets := make(map[int][]int) // bucket key -> indices into `all`
 	for i, e := range all {
@@ -39,10 +38,9 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 		buckets[key+1] = append(buckets[key+1], i)
 	}
 
-	// Track which pairs we've already compared to avoid duplicates
-	// from the overlapping bucket assignment.
+	// Tracks compared pairs to dedupe across the overlapping bucket assignment.
 	type pairKey struct{ a, b int }
-	seen := make(map[pairKey]bool)
+	seen := set.New[pairKey]()
 
 	var pairs []DuplicatePair
 
@@ -54,14 +52,13 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 					ai, bi = bi, ai
 				}
 				k := pairKey{ai, bi}
-				if seen[k] {
+				if !seen.Add(k) {
 					continue
 				}
-				seen[k] = true
 
 				ea, eb := all[ai], all[bi]
 
-				// Skip pairs where one block contains the other
+				// Skip a pair where either block contains the other
 				// (e.g. function body vs its inner if-block).
 				if ea.file == eb.file && posContains(ea.block, eb.block) {
 					continue
@@ -94,9 +91,8 @@ func FindDuplicates(fileBlocks map[string][]Block, threshold float64) []Duplicat
 	return pairs
 }
 
-// Similarity computes the similarity between two symbol sequences using
-// the longest common subsequence (LCS). Returns a value in [0.0, 1.0].
-// Similarity = 2 * LCS_length / (len(a) + len(b)).
+// Similarity computes similarity between a pair of symbol sequences using the
+// longest common subsequence (LCS), scaled against their combined length.
 func Similarity(a, b string) float64 {
 	if len(a) == 0 && len(b) == 0 {
 		return 1.0
@@ -110,7 +106,7 @@ func Similarity(a, b string) float64 {
 }
 
 // lcsLength computes the length of the longest common subsequence
-// using O(min(m,n)) space via two-row DP.
+// using O(min(m,n)) space via a rolling-row DP.
 func lcsLength(a, b string) int {
 	// Ensure a is the shorter string for space efficiency.
 	if len(a) > len(b) {
@@ -145,7 +141,7 @@ func lcsLength(a, b string) int {
 // LCSDiff computes the actual LCS alignment and returns the indices
 // in each sequence where they differ (i.e., positions not part of the LCS).
 // These differing positions correspond to the concrete values that vary
-// between two near-duplicate blocks.
+// between a pair of near-duplicate blocks.
 func LCSDiff(a, b []Token) (diffA, diffB []int) {
 	sa := make([]byte, len(a))
 	sb := make([]byte, len(b))
@@ -205,9 +201,8 @@ func LCSDiff(a, b []Token) (diffA, diffB []int) {
 	return diffA, diffB
 }
 
-// posContains returns true if one block's source range entirely contains
-// the other's. This detects parent/child relationships (e.g. a function
-// body containing an if-block).
+// posContains reports whether a block's source range entirely contains the
+// other's (e.g. a function body containing an if-block).
 func posContains(a, b *Block) bool {
 	return (a.Pos <= b.Pos && a.End >= b.End) ||
 		(b.Pos <= a.Pos && b.End >= a.End)

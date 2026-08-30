@@ -6,21 +6,64 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
 // ensureBuildDirInGitignore adds the build output directory to .gitignore
-// if the current working directory is inside a git repository and the
-// directory isn't already ignored. It's a best-effort operation: errors
-// are silently ignored so they never block the build.
+// when inside a git repo and not already ignored. Best-effort: errors are
+// silently ignored so they never block the build.
 func ensureBuildDirInGitignore() {
+	ensureGitignored("/" + outputDir + "/")
+	// Strip a stale GOMEMLIMIT guard entry an older version left behind (now excluded via checkDirtyInCI instead).
+	removeFromGitignore(memlimit.GuardFileName)
+}
+
+// removeFromGitignore deletes every line of the repository's .gitignore that
+// exactly equals entry (ignoring surrounding whitespace), rewriting the file
+// only when something was actually removed. It is the inverse of
+// ensureGitignored and exists to undo an entry an older go-toolchain wrote that
+// the current release must not keep — namely the transient GOMEMLIMIT guard
+// filename. Best-effort: any error is silently ignored so it never blocks the
+// build.
+func removeFromGitignore(entry string) {
+	gitRoot := findGitRoot()
+	if gitRoot == "" {
+		return
+	}
+	gitignorePath := filepath.Join(gitRoot, ".gitignore")
+	data, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	kept := make([]string, 0, len(lines))
+	removed := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == entry {
+			removed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !removed {
+		return
+	}
+	// Split/Join round-trips a trailing newline as a final "" element, so it's preserved with no special handling.
+	_ = os.WriteFile(gitignorePath, []byte(strings.Join(kept, "\n")), 0644)
+}
+
+// ensureGitignored appends entry to the repository's .gitignore when the
+// current directory is inside a git repo and the entry isn't already present.
+// It's a best-effort operation: any error is silently ignored so it never
+// blocks the build.
+func ensureGitignored(entry string) {
 	gitRoot := findGitRoot()
 	if gitRoot == "" {
 		return
 	}
 
-	entry := "/" + outputDir + "/"
 	gitignorePath := filepath.Join(gitRoot, ".gitignore")
-
 	if gitignoreContains(gitignorePath, entry) {
 		return
 	}
@@ -31,7 +74,7 @@ func ensureBuildDirInGitignore() {
 	}
 	defer f.Close()
 
-	// If the file is non-empty and doesn't end with a newline, add one first.
+	// If the file is non-empty and doesn't end with a newline, add the newline before appending.
 	if needsLeadingNewline(gitignorePath) {
 		fmt.Fprint(f, "\n")
 	}

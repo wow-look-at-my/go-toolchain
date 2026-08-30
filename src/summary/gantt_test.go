@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 // helper to create entries with times relative to a base
@@ -43,6 +43,54 @@ func TestRenderGanttSingleThread(t *testing.T) {
 	assert.Contains(t, result, "doneTaskBkgColor")
 	assert.Contains(t, result, "critBkgColor")
 	assert.Contains(t, result, "barHeight")
+}
+
+// TestRenderGanttRendersTheWholeDocument pins the chart byte for byte. The
+// Contains assertions around it would all pass with a stray blank line between
+// adjacent sections, which mermaid reads as the end of the chart.
+func TestRenderGanttRendersTheWholeDocument(t *testing.T) {
+	entries := []TimelineEntry{
+		entry("go vet", "main", 0, time.Second, false),
+		entry("go test", "main", time.Second, 2*time.Second, true),
+		entry("Dep check", "deps", 0, 3*time.Second, false),
+	}
+
+	const want = "```mermaid\n" +
+		"---\n" +
+		"config:\n" +
+		"  theme: base\n" +
+		"  themeVariables:\n" +
+		"    primaryColor: \"#4a90d9\"\n" +
+		"    primaryTextColor: \"#fff\"\n" +
+		"    primaryBorderColor: \"#2a6cb0\"\n" +
+		"    doneTaskBkgColor: \"#2ea44f\"\n" +
+		"    doneTaskBorderColor: \"#22863a\"\n" +
+		"    critBkgColor: \"#d73a49\"\n" +
+		"    critBorderColor: \"#b31d28\"\n" +
+		"    activeTaskBkgColor: \"#6f42c1\"\n" +
+		"    activeTaskBorderColor: \"#5a32a3\"\n" +
+		"    sectionBkgColor: \"#f6f8fa\"\n" +
+		"    altSectionBkgColor: \"#eef1f5\"\n" +
+		"    gridColor: \"#d0d7de\"\n" +
+		"    taskTextColor: \"#fff\"\n" +
+		"    taskTextOutsideColor: \"#24292f\"\n" +
+		"    sectionFontSize: 14\n" +
+		"  gantt:\n" +
+		"    barHeight: 28\n" +
+		"    fontSize: 13\n" +
+		"---\n" +
+		"gantt\n" +
+		"    title Pipeline Timeline\n" +
+		"    dateFormat x\n" +
+		"    axisFormat %S s\n" +
+		"    section main\n" +
+		"    go vet :done, t0, 0, 1000\n" +
+		"    go test :crit, t1, 1000, 2000\n" +
+		"    section deps\n" +
+		"    Dep check :done, t2, 0, 3000\n" +
+		"```\n"
+
+	assert.Equal(t, want, RenderGantt(entries))
 }
 
 func TestRenderGanttMultipleThreads(t *testing.T) {
@@ -98,7 +146,7 @@ func TestRenderGanttMinimumWidth(t *testing.T) {
 	}
 
 	result := RenderGantt(entries)
-	// Instant step (start=end=1s) should get minimum 100ms width: 1000, 1100
+	// An instant step (start and end alike) gets the minimum bar width
 	assert.Contains(t, result, "1000, 1100")
 }
 

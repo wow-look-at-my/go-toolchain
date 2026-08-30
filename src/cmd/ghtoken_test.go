@@ -3,10 +3,10 @@ package cmd
 import (
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
-// withEmptyEnviron replaces environFunc with one that returns no entries,
+// withEmptyEnviron replaces environFunc with a stub that returns no entries,
 // ensuring the env-scan path doesn't pick up real tokens from the test host.
 func withEmptyEnviron(t *testing.T) {
 	t.Helper()
@@ -38,7 +38,7 @@ func TestDiscoverGitHubToken_WellKnownVars(t *testing.T) {
 	for _, name := range wellKnownTokenVars {
 		t.Run(name, func(t *testing.T) {
 			enableTokenSearch(t)
-			// Clear all well-known vars first.
+			// Clear all well-known vars before the lookup.
 			for _, n := range wellKnownTokenVars {
 				t.Setenv(n, "")
 			}

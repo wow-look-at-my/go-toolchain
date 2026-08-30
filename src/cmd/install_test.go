@@ -3,11 +3,10 @@ package cmd
 import (
 	"os"
 	"path/filepath"
-	
-	"testing"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func TestCopyFile(t *testing.T) {
@@ -71,15 +70,11 @@ func TestCopyFileLargeFile(t *testing.T) {
 }
 
 func TestRunInstallImplSymlink(t *testing.T) {
-	// runInstallImpl uses os.Executable() which returns the test binary
-	// We can test that it creates a symlink to the correct target
+	// os.Executable() returns the test binary; check it symlinks to the right target.
 	tmpDir := t.TempDir()
-	targetDir := filepath.Join(tmpDir, "bin")
 
-	// Override HOME so it installs to our temp dir
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Install into the temp dir rather than the real home
+	setHome(t, tmpDir)
 
 	// Ensure .local/bin will be created inside tmpDir
 	installCopy = false
@@ -88,27 +83,20 @@ func TestRunInstallImplSymlink(t *testing.T) {
 	err := runInstallImpl()
 	require.Nil(t, err)
 
-	// Check that something was created in ~/.local/bin
+	// Check that both go-toolchain and go-safe-build were created
 	expectedDir := filepath.Join(tmpDir, ".local", "bin")
-	entries, err := os.ReadDir(expectedDir)
-	require.Nil(t, err)
-	require.NotEqual(t, 0, len(entries))
-
-	// Verify it's a symlink
-	targetPath := filepath.Join(expectedDir, entries[0].Name())
-	info, err := os.Lstat(targetPath)
-	require.Nil(t, err)
-	assert.NotEqual(t, 0, info.Mode()&os.ModeSymlink)
-
-	_ = targetDir // suppress unused warning
+	for _, name := range []string{"go-toolchain", "go-safe-build"} {
+		targetPath := filepath.Join(expectedDir, name)
+		info, err := os.Lstat(targetPath)
+		require.Nil(t, err, "expected %s to exist", name)
+		assert.NotEqual(t, os.FileMode(0), info.Mode()&os.ModeSymlink, "%s should be a symlink", name)
+	}
 }
 
 func TestRunInstallImplCopy(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	installCopy = true
 	defer func() { installCopy = false }()
@@ -116,30 +104,25 @@ func TestRunInstallImplCopy(t *testing.T) {
 	err := runInstallImpl()
 	require.Nil(t, err)
 
-	// Check that something was created in ~/.local/bin
+	// Check that both go-toolchain and go-safe-build were created as copies
 	expectedDir := filepath.Join(tmpDir, ".local", "bin")
-	entries, err := os.ReadDir(expectedDir)
-	require.Nil(t, err)
-	require.NotEqual(t, 0, len(entries))
-
-	// Verify it's NOT a symlink
-	targetPath := filepath.Join(expectedDir, entries[0].Name())
-	info, err := os.Lstat(targetPath)
-	require.Nil(t, err)
-	assert.Equal(t, os.FileMode(0), info.Mode()&os.ModeSymlink)
+	for _, name := range []string{"go-toolchain", "go-safe-build"} {
+		targetPath := filepath.Join(expectedDir, name)
+		info, err := os.Lstat(targetPath)
+		require.Nil(t, err, "expected %s to exist", name)
+		assert.Equal(t, os.FileMode(0), info.Mode()&os.ModeSymlink, "%s should not be a symlink", name)
+	}
 }
 
 func TestRunInstallImplReplacesExisting(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	installCopy = false
 	defer func() { installCopy = false }()
 
-	// Run install twice — second should replace the first
+	// Run install again — the repeat should replace what the earlier run left
 	require.NoError(t, runInstallImpl())
 	require.NoError(t, runInstallImpl())
 
@@ -153,7 +136,7 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 func TestFileHash(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create two identical files and one different
+	// Create a matching pair of files, plus a differing file
 	content := []byte("hello world")
 	f1 := filepath.Join(tmpDir, "a")
 	f2 := filepath.Join(tmpDir, "b")
@@ -180,9 +163,7 @@ func TestFileHashMissing(t *testing.T) {
 
 func TestInstallStatusNotInstalled(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	status := installStatus()
 	assert.Contains(t, status, "not installed")
@@ -190,11 +171,9 @@ func TestInstallStatusNotInstalled(t *testing.T) {
 
 func TestInstallStatusSymlinkCurrent(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
-	// Install via symlink first
+	// Install via symlink, before the copy variant below
 	installCopy = false
 	defer func() { installCopy = false }()
 	require.NoError(t, runInstallImpl())
@@ -205,18 +184,11 @@ func TestInstallStatusSymlinkCurrent(t *testing.T) {
 
 func TestInstallStatusSymlinkElsewhere(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
-
-	// Resolve current exe name to create a symlink pointing elsewhere
-	exe, _ := os.Executable()
-	currentPath, _ := filepath.EvalSymlinks(exe)
-	binName := filepath.Base(currentPath)
+	setHome(t, tmpDir)
 
 	binDir := filepath.Join(tmpDir, ".local", "bin")
 	os.MkdirAll(binDir, 0755)
-	os.Symlink("/some/other/path", filepath.Join(binDir, binName))
+	os.Symlink("/some/other/path", filepath.Join(binDir, "go-toolchain"))
 
 	status := installStatus()
 	assert.Contains(t, status, "points elsewhere")
@@ -224,9 +196,7 @@ func TestInstallStatusSymlinkElsewhere(t *testing.T) {
 
 func TestInstallStatusCopyCurrent(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	setHome(t, tmpDir)
 
 	// Install via copy
 	installCopy = true
@@ -239,19 +209,12 @@ func TestInstallStatusCopyCurrent(t *testing.T) {
 
 func TestInstallStatusCopyOutdated(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
-
-	// Resolve current exe name
-	exe, _ := os.Executable()
-	currentPath, _ := filepath.EvalSymlinks(exe)
-	binName := filepath.Base(currentPath)
+	setHome(t, tmpDir)
 
 	// Write a different file at the install path
 	binDir := filepath.Join(tmpDir, ".local", "bin")
 	os.MkdirAll(binDir, 0755)
-	os.WriteFile(filepath.Join(binDir, binName), []byte("old binary"), 0755)
+	os.WriteFile(filepath.Join(binDir, "go-toolchain"), []byte("old binary"), 0755)
 
 	status := installStatus()
 	assert.Contains(t, status, "OUTDATED")

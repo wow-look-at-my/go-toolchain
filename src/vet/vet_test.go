@@ -10,9 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis/analysistest"
+	"golang.org/x/tools/go/packages"
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
@@ -21,22 +23,42 @@ func TestRedundantCastAnalyzer(t *testing.T) {
 	analysistest.Run(t, testdata, RedundantCastAnalyzer, "redundantcast")
 }
 
+// Each of these reads a committed fixture and touches no process state, so it
+// joins the parallel analyzer group instead of extending the serial tail.
 func TestAssertLintAnalyzer(t *testing.T) {
+	t.Parallel()
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, AssertLintAnalyzer, "assertlint")
+}
+
+func TestAssertNormAnalyzer(t *testing.T) {
+	t.Parallel()
+	dir, err := filepath.Abs("testdata/src/assertnorm")
+	require.Nil(t, err)
+	analysistest.Run(t, dir, AssertNormAnalyzer, ".")
+}
+
+func TestDeadCodeAnalyzer(t *testing.T) {
+	t.Parallel()
+	testdata, err := filepath.Abs("testdata")
+	require.Nil(t, err)
+	analysistest.Run(t, testdata, DeadCodeAnalyzer, "deadcode")
 }
 
 func TestAnalyzers(t *testing.T) {
 	analyzers := Analyzers()
 	assert.NotEmpty(t, analyzers)
 
-	names := make(map[string]bool)
+	names := set.New[string]()
 	for _, a := range analyzers {
-		names[a.Name] = true
+		names.Add(a.Name)
 	}
-	assert.True(t, names["assertlint"])
-	assert.True(t, names["redundantcast"])
+	assert.True(t, names.Contains("assertlint"))
+	assert.True(t, names.Contains("assertnorm"))
+	assert.True(t, names.Contains("deadcode"))
+	assert.True(t, names.Contains("redundantcast"))
+	assert.True(t, names.Contains("testifycast"))
 }
 
 func TestRunNoGoMod(t *testing.T) {
@@ -47,6 +69,31 @@ func TestRunNoGoMod(t *testing.T) {
 
 	_, err := Run(false)
 	assert.Nil(t, err)
+}
+
+// The retry exists so no importer stands between the type-check and a
+// dependency, so NeedDeps is the whole point of it -- and the flag has to come
+// back off, or every later pass pays for a source-loaded stdlib.
+func TestLoadModeFromSource(t *testing.T) {
+	assert.Zero(t, loadMode()&packages.NeedDeps, "the default reads export data")
+
+	dir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(oldWd)
+
+	seen := packages.LoadMode(0)
+	// No go.mod here, so RunFromSource returns before loading; read the mode from inside it.
+	func() {
+		loadDepsFromSource = true
+		defer func() { loadDepsFromSource = false }()
+		seen = loadMode()
+	}()
+	assert.NotZero(t, seen&packages.NeedDeps)
+
+	_, err := RunFromSource(false, nil)
+	require.NoError(t, err)
+	assert.Zero(t, loadMode()&packages.NeedDeps, "RunFromSource must restore the default")
 }
 
 func TestSourceLocationShortLoc(t *testing.T) {
@@ -107,7 +154,7 @@ func main() {
 	f, err := parser.ParseFile(fset, "test.go", before, parser.ParseComments)
 	require.Nil(t, err)
 
-	// Find int(0) call
+	// Find the redundant int conversion
 	var call *ast.CallExpr
 	ast.Inspect(f, func(n ast.Node) bool {
 		if c, ok := n.(*ast.CallExpr); ok {
@@ -185,8 +232,8 @@ func TestASTFixesPrintFix(t *testing.T) {
 	})
 
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{
-		{OldNode: call, NewNodes: []ast.Node{call.Args[0]}},	// replacement
-		{OldNode: call, NewNodes: nil},				// deletion
+		{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}, // replacement
+		{OldNode: call, NewNodes: nil},                      // deletion
 	}}
 
 	// Just ensure printFix doesn't panic
@@ -204,29 +251,29 @@ func TestSourceLocationShortLocRelative(t *testing.T) {
 
 func TestRedundantCastFixes(t *testing.T) {
 	tests := []struct {
-		name	string
-		before	string
-		after	string
+		name   string
+		before string
+		after  string
 	}{
 		{
-			name:	"int literal",
-			before:	"package main\n\nfunc main() { x := int(0); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 0; _ = x }\n",
+			name:   "int literal",
+			before: "package main\n\nfunc main() { x := int(0); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 0; _ = x }\n",
 		},
 		{
-			name:	"float64 literal",
-			before:	"package main\n\nfunc main() { x := float64(1.5); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 1.5; _ = x }\n",
+			name:   "float64 literal",
+			before: "package main\n\nfunc main() { x := float64(1.5); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 1.5; _ = x }\n",
 		},
 		{
-			name:	"string literal",
-			before:	`package main` + "\n\n" + `func main() { x := string("hello"); _ = x }`,
-			after:	"package main\n\nfunc main()\t{ x := \"hello\"; _ = x }\n",
+			name:   "string literal",
+			before: `package main` + "\n\n" + `func main() { x := string("hello"); _ = x }`,
+			after:  "package main\n\nfunc main()\t{ x := \"hello\"; _ = x }\n",
 		},
 		{
-			name:	"rune literal",
-			before:	"package main\n\nfunc main() { x := rune('a'); _ = x }",
-			after:	"package main\n\nfunc main()\t{ x := 'a'; _ = x }\n",
+			name:   "rune literal",
+			before: "package main\n\nfunc main() { x := rune('a'); _ = x }",
+			after:  "package main\n\nfunc main()\t{ x := 'a'; _ = x }\n",
 		},
 	}
 
@@ -326,7 +373,7 @@ func main() {
 	require.NotNil(t, call)
 
 	fixes := &ASTFixes{File: f, Fset: fset, Fixes: []ASTFix{{OldNode: call, NewNodes: []ast.Node{call.Args[0]}}}}
-	err = fixes.Apply()
+	_, err = fixes.Apply(NewEditor(true))
 	assert.Nil(t, err)
 
 	content, _ := os.ReadFile(testFile)
@@ -335,7 +382,7 @@ func main() {
 
 func TestASTFixesApplyEmpty(t *testing.T) {
 	fixes := &ASTFixes{Fixes: nil}
-	err := fixes.Apply()
+	_, err := fixes.Apply(NewEditor(true))
 	assert.Nil(t, err)
 }
 
@@ -377,7 +424,7 @@ func TestSourceLocationShortLocAbsolute(t *testing.T) {
 	loc := SourceLocation{File: absPath, Line: 10}
 	short := loc.ShortLoc()
 
-	// The result should end with file.go:10
+	// The result should end with the file and its line
 	expected, _ := filepath.Rel(cwd, absPath)
 	assert.Equal(t, expected+":10", short)
 }
@@ -410,8 +457,7 @@ func TestFoo(t *testing.T) {
 	})
 	require.NotNil(t, ifStmt)
 
-	// Build replacement: assert.NotEqual(t, "", hostname)
-	// This simulates what generateASTFix produces for: if hostname == "" { t.Error(...) }
+	// Build the replacement generateASTFix produces for: if hostname == "" { t.Error(...) }
 	bin := ifStmt.Cond.(*ast.BinaryExpr)
 	assertCall := makeCall(
 		makeSelector("assert", "NotEqual"),

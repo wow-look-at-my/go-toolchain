@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGenerateChecksums(t *testing.T) {
@@ -16,8 +16,8 @@ func TestGenerateChecksums(t *testing.T) {
 
 	// Create dummy binaries with known content
 	files := map[string]string{
-		"tool_linux_amd64":  "linux-amd64-binary",
-		"tool_darwin_arm64": "darwin-arm64-binary",
+		"tool_linux_amd64":       "linux-amd64-binary",
+		"tool_darwin_arm64":      "darwin-arm64-binary",
 		"tool_windows_amd64.exe": "windows-amd64-binary",
 	}
 
@@ -50,7 +50,7 @@ func TestGenerateChecksums(t *testing.T) {
 	assert.Equal(t, names[1], "tool_linux_amd64")
 	assert.Equal(t, names[2], "tool_windows_amd64.exe")
 
-	// Verify actual hash for one file
+	// Verify the actual hash for a single file
 	expectedHash := fmt.Sprintf("%x", sha256.Sum256([]byte("darwin-arm64-binary")))
 	assert.True(t, strings.HasPrefix(lines[0], expectedHash), "first line should start with hash of darwin-arm64 binary")
 }

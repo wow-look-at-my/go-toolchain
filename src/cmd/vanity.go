@@ -11,22 +11,34 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/mod/modfile"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // wellKnownHosts are code-hosting domains that resolve directly without
 // vanity URL meta-tag resolution.
-var wellKnownHosts = map[string]bool{
-	"github.com":    true,
-	"gitlab.com":    true,
-	"bitbucket.org": true,
-	"golang.org":    true,
-	"gopkg.in":      true,
-}
+var wellKnownHosts = set.Of(
+	"github.com",
+	"gitlab.com",
+	"bitbucket.org",
+	"golang.org",
+	"google.golang.org",
+	"gopkg.in",
+)
+
+// directMirrorHosts are hosts safe to rewrite a vanity module onto: plain
+// git repos with no further indirection.
+var directMirrorHosts = set.Of(
+	"github.com",
+	"gitlab.com",
+	"bitbucket.org",
+)
 
 type vanityModule struct {
 	Path    string // e.g. "gotest.tools/gotestsum"
-	Version string // e.g. "v1.13.0"
+	Version string // e.g. "vX.Y.Z"
 	Host    string // e.g. "gotest.tools"
 }
 
@@ -38,6 +50,12 @@ type vanityReplace struct {
 	NewVersion string
 }
 
+// vanityState lets removeVanityReplaces undo tidy's rewrite of go.sum.
+type vanityState struct {
+	Replaces  []vanityReplace
+	OrigGoSum []byte
+}
+
 // parseVanityModulesFromSum reads go.sum and returns modules whose hosts are
 // vanity URL domains (not well-known code hosts).
 func parseVanityModulesFromSum() ([]vanityModule, error) {
@@ -47,7 +65,7 @@ func parseVanityModulesFromSum() ([]vanityModule, error) {
 	}
 	defer f.Close()
 
-	seen := make(map[string]bool)
+	seen := set.New[string]()
 	var modules []vanityModule
 
 	scanner := bufio.NewScanner(f)
@@ -62,16 +80,16 @@ func parseVanityModulesFromSum() ([]vanityModule, error) {
 		// Normalize: strip /go.mod suffix from version field
 		version = strings.TrimSuffix(version, "/go.mod")
 
-		if seen[modPath] {
+		if seen.Contains(modPath) {
 			continue
 		}
 
 		host := strings.SplitN(modPath, "/", 2)[0]
-		if wellKnownHosts[host] {
+		if wellKnownHosts.Contains(host) {
 			continue
 		}
 
-		seen[modPath] = true
+		seen.Add(modPath)
 		modules = append(modules, vanityModule{
 			Path:    modPath,
 			Version: version,
@@ -99,51 +117,63 @@ func isVanityHostReachable(host string) bool {
 	return true
 }
 
-// resolveVanityVCSURL discovers the VCS repository URL for a vanity module.
-// It first queries the Go module proxy (go mod download -json) to get the
-// Origin URL, then falls back to the go-import meta tag on the vanity host.
-func resolveVanityVCSURL(modulePath, version string) (string, error) {
-	// Strategy 1: use go mod download -json via proxy to get Origin.URL
+// resolveVanityVCSURL discovers the VCS repository URL and import prefix for
+// a vanity module. The import prefix identifies the root of the vanity
+// namespace that maps to the repository; any path beyond the prefix is a
+// sub-module path within the repo.
+//
+// It queries the Go module proxy (go mod download -json) for the
+// Origin URL and Subdir, then falls back to the go-import meta tag on the
+// vanity host.
+func resolveVanityVCSURL(modulePath, version string) (string, string, error) {
+	// The proxy strategy: go mod download -json gives Origin.URL
 	cmd := exec.Command("go", "mod", "download", "-json", modulePath+"@"+version)
-	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct")
+	// Outside the module dir, so this can't pull in the full requirement graph.
+	cmd.Dir = os.TempDir()
+	cmd.Env = append(os.Environ(), "GOPROXY=https://proxy.golang.org,direct", "GOWORK=off", "GOFLAGS=")
 	output, err := cmd.Output()
 	if err == nil {
 		var info struct {
 			Origin *struct {
-				URL string `json:"URL"`
+				URL    string `json:"URL"`
+				Subdir string `json:"Subdir"`
 			} `json:"Origin"`
 		}
 		if json.Unmarshal(output, &info) == nil && info.Origin != nil && info.Origin.URL != "" {
-			return info.Origin.URL, nil
+			importPrefix := modulePath
+			if info.Origin.Subdir != "" {
+				importPrefix = strings.TrimSuffix(modulePath, "/"+info.Origin.Subdir)
+			}
+			return info.Origin.URL, importPrefix, nil
 		}
 	}
 
-	// Strategy 2: try go-import meta tag (host may be intermittently available)
+	// The fallback strategy: the go-import meta tag (host may be intermittently available)
 	return resolveGoImportMeta(modulePath)
 }
 
 // resolveGoImportMeta fetches the go-import meta tag from a vanity host.
-func resolveGoImportMeta(modulePath string) (string, error) {
+func resolveGoImportMeta(modulePath string) (vcsURL, importPrefix string, err error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get("https://" + modulePath + "?go-get=1")
 	if err != nil {
-		return "", fmt.Errorf("fetch go-import for %s: %w", modulePath, err)
+		return "", "", fmt.Errorf("fetch go-import for %s: %w", modulePath, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	return parseGoImportMeta(string(body), modulePath)
 }
 
-// parseGoImportMeta extracts the VCS repo URL from HTML containing a go-import
-// meta tag.  The expected format is:
+// parseGoImportMeta extracts the VCS repo URL and import prefix from HTML
+// containing a go-import meta tag.  The expected format is:
 //
 //	<meta name="go-import" content="prefix vcs repo-url">
-func parseGoImportMeta(html, modulePath string) (string, error) {
+func parseGoImportMeta(html, modulePath string) (repoURL, importPrefix string, err error) {
 	for _, line := range strings.Split(html, "\n") {
 		if !strings.Contains(line, "go-import") {
 			continue
@@ -158,16 +188,15 @@ func parseGoImportMeta(html, modulePath string) (string, error) {
 			continue
 		}
 		parts := strings.Fields(rest[:end])
-		if len(parts) >= 3 && strings.HasPrefix(modulePath, parts[0]) {
-			return parts[2], nil
+		if len(parts) >= 3 && (modulePath == parts[0] || strings.HasPrefix(modulePath, parts[0]+"/")) {
+			return parts[2], parts[0], nil
 		}
 	}
-	return "", fmt.Errorf("no go-import meta found for %s", modulePath)
+	return "", "", fmt.Errorf("no go-import meta found for %s", modulePath)
 }
 
-// vcsURLToModulePath strips the scheme and .git suffix from a VCS URL,
-// returning a bare module path.  e.g.
-// "https://github.com/gotestyourself/gotestsum" → "github.com/gotestyourself/gotestsum"
+// vcsURLToModulePath strips the scheme and .git suffix from a VCS URL to get
+// a bare module path.
 func vcsURLToModulePath(vcsURL string) string {
 	p := strings.TrimPrefix(vcsURL, "https://")
 	p = strings.TrimPrefix(p, "http://")
@@ -175,15 +204,15 @@ func vcsURLToModulePath(vcsURL string) string {
 }
 
 // vanityVCSResolver abstracts VCS URL resolution for testing.
-var vanityVCSResolver func(modulePath, version string) (string, error)
+var vanityVCSResolver func(modulePath, version string) (string, string, error)
 
 // injectVanityReplaces parses go.sum for vanity-URL modules, checks host
 // reachability, and injects replace directives into go.mod for any module
 // whose vanity host is unreachable.
 //
-// Returns the list of injected replaces so the caller can remove them after
-// go mod tidy completes.
-func injectVanityReplaces() ([]vanityReplace, error) {
+// Returns the state (replaces + go.sum snapshot) so the caller can remove
+// the replaces and restore go.sum after go mod tidy completes.
+func injectVanityReplaces() (*vanityState, error) {
 	modules, err := parseVanityModulesFromSum()
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -209,7 +238,7 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 		}
 
 		if !jsonOutput {
-			fmt.Printf("==> Vanity host %s unreachable, resolving GitHub sources\n", host)
+			logger.Info("⇒ Vanity host %s unreachable, resolving GitHub sources", host)
 		}
 
 		for _, m := range mods {
@@ -217,16 +246,31 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 			if vanityVCSResolver != nil {
 				resolve = vanityVCSResolver
 			}
-			vcsURL, err := resolve(m.Path, m.Version)
+			vcsURL, importPrefix, err := resolve(m.Path, m.Version)
 			if err != nil {
 				if !jsonOutput {
-					fmt.Printf("    warning: cannot resolve %s: %v\n", m.Path, err)
+					logger.Warn("    warning: cannot resolve %s: %v", m.Path, err)
 				}
 				continue
 			}
 			ghPath := vcsURLToModulePath(vcsURL)
 			if ghPath == "" || ghPath == m.Path {
 				continue
+			}
+
+			// Only rewrite onto a direct code host; elsewhere a replace would just
+			// move the indirection, so let the proxy handle it instead.
+			if targetHost := strings.SplitN(ghPath, "/", 2)[0]; !directMirrorHosts.Contains(targetHost) {
+				if !jsonOutput {
+					logger.Info("    skipping %s: resolved host %s is not a direct mirror", m.Path, targetHost)
+				}
+				continue
+			}
+
+			// The path beyond the import prefix names a sub-module directory
+			// within the repository (e.g. otel/trace).
+			if importPrefix != "" && strings.HasPrefix(m.Path, importPrefix+"/") {
+				ghPath += m.Path[len(importPrefix):]
 			}
 
 			// If the vanity module has a /vN major version suffix (e.g.
@@ -271,12 +315,12 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 	for _, r := range replaces {
 		if err := f.AddReplace(r.OldPath, r.OldVersion, r.NewPath, r.NewVersion); err != nil {
 			if !jsonOutput {
-				fmt.Printf("    warning: failed to add replace for %s: %v\n", r.OldPath, err)
+				logger.Warn("    warning: failed to add replace for %s: %v", r.OldPath, err)
 			}
 			continue
 		}
 		if !jsonOutput {
-			fmt.Printf("    replace %s %s => %s %s\n", r.OldPath, r.OldVersion, r.NewPath, r.NewVersion)
+			logger.Info("    replace %s %s => %s %s", r.OldPath, r.OldVersion, r.NewPath, r.NewVersion)
 		}
 		injected = append(injected, r)
 	}
@@ -285,17 +329,28 @@ func injectVanityReplaces() ([]vanityReplace, error) {
 		return nil, nil
 	}
 
+	// Snapshot go.sum before tidy rewrites it, so it can be restored later.
+	origGoSum, err := os.ReadFile("go.sum")
+	if err != nil {
+		return nil, err
+	}
+
 	newData, err := f.Format()
 	if err != nil {
 		return nil, err
 	}
-	return injected, os.WriteFile("go.mod", newData, 0644)
+	if err := os.WriteFile("go.mod", newData, 0644); err != nil {
+		return nil, err
+	}
+	return &vanityState{Replaces: injected, OrigGoSum: origGoSum}, nil
 }
 
 // removeVanityReplaces removes previously injected vanity replace directives
-// from go.mod, preserving any other changes go mod tidy may have made.
-func removeVanityReplaces(replaces []vanityReplace) error {
-	if len(replaces) == 0 {
+// from go.mod and restores go.sum to its pre-injection snapshot. The restore
+// undoes the path swap go mod tidy performed while the replace was active
+// (e.g. rewriting gonum.org/v1/gonum entries as github.com/gonum/gonum).
+func removeVanityReplaces(state *vanityState) error {
+	if state == nil || len(state.Replaces) == 0 {
 		return nil
 	}
 
@@ -309,15 +364,69 @@ func removeVanityReplaces(replaces []vanityReplace) error {
 		return err
 	}
 
-	for _, r := range replaces {
+	for _, r := range state.Replaces {
 		if err := f.DropReplace(r.OldPath, r.OldVersion); err != nil {
 			return fmt.Errorf("remove replace for %s: %w", r.OldPath, err)
 		}
 	}
 
+	// Collapse the empty replace slots DropReplace leaves behind.
+	f.Cleanup()
+
 	newData, err := f.Format()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("go.mod", newData, 0644)
+	if err := os.WriteFile("go.mod", newData, 0644); err != nil {
+		return err
+	}
+
+	if state.OrigGoSum != nil {
+		if err := os.WriteFile("go.sum", state.OrigGoSum, 0644); err != nil {
+			return fmt.Errorf("restore go.sum: %w", err)
+		}
+	}
+	return nil
+}
+
+// checkDirtyInCIWithVanityRestored runs the CI dirty-tree check against the tree as
+// removeVanityReplaces will leave it: injected replaces dropped from go.mod, go.sum
+// restored to its pre-injection snapshot. The active state is written back before
+// returning, so mirror replaces still resolve modules for later phases. With no
+// active vanity state, this is exactly checkDirtyInCI.
+//
+// This exists because the injected replaces are transient, removed only when
+// RunTestsWithCoverage returns, while the fail-fast dirty check runs mid-function.
+// A run where a vanity host was unreachable at probe time would otherwise fail on a
+// canonically tidy tree. Checking the restored tree instead matches the later
+// checkDirtyInCI call sites, which run after the deferred restore.
+//
+// Real dirt still fails: only this run's own injected replaces are dropped, so any
+// other go.mod change survives and is reported. A narrowing: while a vanity host
+// is down, go.sum drift is indistinguishable from tidy's path swap and gets
+// restored away; it fails on the very next run, as soon as the host is reachable.
+func checkDirtyInCIWithVanityRestored(state *vanityState) error {
+	if state == nil || len(state.Replaces) == 0 || os.Getenv("CI") == "" {
+		return checkDirtyInCI()
+	}
+	activeGoMod, modErr := os.ReadFile("go.mod")
+	activeGoSum, sumErr := os.ReadFile("go.sum")
+	if modErr != nil || sumErr != nil {
+		// Cannot snapshot state; check the live tree instead of risking data loss.
+		return checkDirtyInCI()
+	}
+	if err := removeVanityReplaces(state); err != nil {
+		// Restore failed; fall back to checking the live tree below.
+		logger.Warn("⇒ Warning: could not restore vanity replaces for the dirty check: %v", err)
+	}
+	dirtyErr := checkDirtyInCI()
+	// Restore the active mirror state so later phases keep resolving through the
+	// replaces. The deferred removeVanityReplaces does the final restore later.
+	if err := os.WriteFile("go.mod", activeGoMod, 0644); err != nil && dirtyErr == nil {
+		dirtyErr = fmt.Errorf("restore active go.mod after dirty check: %w", err)
+	}
+	if err := os.WriteFile("go.sum", activeGoSum, 0644); err != nil && dirtyErr == nil {
+		dirtyErr = fmt.Errorf("restore active go.sum after dirty check: %w", err)
+	}
+	return dirtyErr
 }

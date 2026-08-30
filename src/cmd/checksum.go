@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// fileHash returns the hex-encoded SHA-256 digest of the file at path.
+// fileHash returns the hex-encoded sha256 digest of the file at path.
 func fileHash(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -25,7 +27,7 @@ func fileHash(path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-// generateChecksums creates a checksums.txt file in dir containing SHA-256
+// generateChecksums creates a checksums.txt file in dir containing sha256
 // digests of the given files. The format matches sha256sum output:
 //
 //	<hex-digest>  <filename>
@@ -65,6 +67,6 @@ func generateChecksums(dir string, files []string) (string, error) {
 		return "", fmt.Errorf("failed to write checksums.txt: %w", err)
 	}
 
-	fmt.Printf("  HASH checksums.txt\n")
+	logger.Info("  HASH checksums.txt")
 	return outPath, nil
 }

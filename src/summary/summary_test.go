@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/bench"
 	gotest "github.com/wow-look-at-my/go-toolchain/src/test"
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestGenerateMarkdownEmpty(t *testing.T) {
@@ -218,7 +219,7 @@ func helperNotATest() {}
 `
 	os.WriteFile(testFile, []byte(content), 0644)
 
-	funcs := findTestFuncsInDir(tmpDir, map[string]bool{"TestAlpha": true, "TestBeta": true})
+	funcs := findTestFuncsInDir(tmpDir, set.Of("TestAlpha", "TestBeta"))
 
 	assert.Contains(t, funcs, "TestAlpha")
 	assert.Contains(t, funcs, "TestBeta")
@@ -284,7 +285,7 @@ func TestGenerateMarkdownMultiPackage(t *testing.T) {
 	// Each package gets its own collapsed section
 	assert.Contains(t, md, "cmd (2 passed)")
 	assert.Contains(t, md, "lib (1 passed, 1 failed)")
-	// Two separate <details> blocks
+	// Separate <details> blocks
 	assert.Equal(t, 2, strings.Count(md, "<details>"))
 	assert.Equal(t, 2, strings.Count(md, "</details>"))
 	// Summary rows

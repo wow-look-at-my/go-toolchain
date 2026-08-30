@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// Comparison holds benchmark deltas between two reports
+// Comparison holds the benchmark deltas between a pair of reports
 type Comparison struct {
 	Packages       map[string][]Delta
 	PreviousCommit string
@@ -81,7 +83,7 @@ func Compare(current, previous *BenchmarkReport) *Comparison {
 // Print outputs the comparison in a formatted table
 func (c *Comparison) Print() {
 	if len(c.Packages) == 0 {
-		fmt.Println("     (no benchmarks to compare)")
+		logger.Info("     (no benchmarks to compare)")
 		return
 	}
 
@@ -92,10 +94,10 @@ func (c *Comparison) Print() {
 	}
 	sort.Strings(pkgNames)
 
-	fmt.Println("        time/op       delta     alloc/op   allocs/op  name")
+	logger.Info("        time/op       delta     alloc/op   allocs/op  name")
 	for _, pkg := range pkgNames {
 		deltas := c.Packages[pkg]
-		// Sort by ns/op (fastest first)
+		// Sort by ns/op, fastest at the top
 		sort.Slice(deltas, func(i, j int) bool {
 			return deltas[i].Current.NsPerOp < deltas[j].Current.NsPerOp
 		})
@@ -105,7 +107,7 @@ func (c *Comparison) Print() {
 		if idx := strings.LastIndex(pkg, "/"); idx >= 0 {
 			shortPkg = pkg[idx+1:]
 		}
-		fmt.Printf("\033[1m%s\033[0m\n", shortPkg)
+		logger.Info("\033[1m%s\033[0m", shortPkg)
 
 		for _, d := range deltas {
 			name := d.Name
@@ -117,7 +119,7 @@ func (c *Comparison) Print() {
 			allocStr := formatBenchBytes(d.Current.BytesPerOp)
 			deltaStr := formatDelta(d.NsPerOpDelta, d.Previous != nil)
 
-			fmt.Printf("  %12s  %10s  %10s  %9d  %s\n",
+			logger.Info("  %12s  %10s  %10s  %9d  %s",
 				timeStr, deltaStr, allocStr, d.Current.AllocsPerOp, name)
 		}
 	}
@@ -154,7 +156,7 @@ func formatDelta(pct float64, hasPrevious bool) string {
 	} else if pct > 1 {
 		color = "\033[38;2;255;128;128m" // red
 	} else {
-		color = "\033[38;2;128;128;128m" // gray for ~0
+		color = "\033[38;2;128;128;128m" // gray for no change
 	}
 
 	sign := ""

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/cmd"
+	"github.com/wow-look-at-my/go-toolchain/src/logx"
 )
 
 func init() {
@@ -13,20 +13,13 @@ func init() {
 		return
 	}
 
-	// Let Go automatically download the correct toolchain when go.mod
-	// requires a newer version than the one installed.
+	// Let Go auto-download the toolchain go.mod requires.
 	os.Setenv("GOTOOLCHAIN", "auto")
 
-	// Disable Go's phone-home behavior - bypass proxy and checksum database.
-	// Use GONOSUMDB instead of GOSUMDB=off so toolchain auto-downloads still work.
-	os.Setenv("GOPROXY", "direct")
-	os.Setenv("GONOSUMDB", "*")
-	os.Setenv("GONOSUMCHECK", "*")
+	// Configure the Go module proxy and sumdb, honoring user config.
+	configureGoEnv()
 
-	// Clear NO_PROXY so that all traffic (including *.google.com and
-	// *.googleapis.com) routes through the environment's egress proxy,
-	// which handles DNS resolution. Without this, Go tries to reach
-	// Google domains directly but DNS cannot resolve them.
+	// Clear NO_PROXY: Google domains must route through the egress proxy for DNS.
 	os.Setenv("NO_PROXY", "")
 	os.Setenv("no_proxy", "")
 }
@@ -43,7 +36,34 @@ func isCacheProgInvocation() bool {
 	return false
 }
 
-func needsGo() bool {
+func main() {
+	// Install the elapsed-duration pipeline. Skip it for GOCACHEPROG: its
+	// stdout is a JSON protocol pipe that must stay undecorated.
+	if !isCacheProgInvocation() {
+		logx.Install()
+	}
+
+	// Check for a newer go-toolchain in the background; ReportUpdateCheck
+	// surfaces or kills it on every exit path, so it never blocks.
+	if shouldCheckForUpdate() {
+		cmd.StartUpdateCheck()
+	}
+
+	// The toolchain resolves inside the root command, after cobra knows which command runs -- see skipToolchain.
+	err := cmd.Execute()
+	cmd.ReportUpdateCheck()
+	logx.Flush()
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+// shouldCheckForUpdate skips the GOCACHEPROG subprocess and `version`, which
+// already reports its own staleness.
+func shouldCheckForUpdate() bool {
+	if isCacheProgInvocation() {
+		return false
+	}
 	for _, arg := range os.Args[1:] {
 		if arg == "--" {
 			return true
@@ -54,16 +74,4 @@ func needsGo() bool {
 		}
 	}
 	return true
-}
-
-func main() {
-	if needsGo() {
-		if err := cmd.EnsureGoVersion(); err != nil {
-			fmt.Fprintf(os.Stderr, "go bootstrap: %v\n", err)
-			os.Exit(1)
-		}
-	}
-	if err := cmd.Execute(); err != nil {
-		os.Exit(1)
-	}
 }

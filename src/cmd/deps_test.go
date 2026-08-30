@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
-	"github.com/wow-look-at-my/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/runner"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLooksLikeGitVersion(t *testing.T) {
@@ -67,7 +69,7 @@ func TestShortenVersion(t *testing.T) {
 		version string
 		want    string
 	}{
-		// Pseudo-versions get shortened to first 7 chars of hash
+		// Pseudo-versions get shortened to the hash's short prefix
 		{"v0.0.0-20240101120000-abc123def456", "abc123d"},
 		{"v1.2.3-0.20240101120000-1234567890ab", "1234567"},
 
@@ -75,7 +77,7 @@ func TestShortenVersion(t *testing.T) {
 		{"v1.0.0", "v1.0.0"},
 		{"v2.3.4", "v2.3.4"},
 
-		// Short hash (less than 7 chars) stays as-is
+		// A hash already shorter than that prefix stays as-is
 		{"v0.0.0-20240101-abc", "abc"},
 	}
 
@@ -134,29 +136,26 @@ func TestDepChecker_Cancel(t *testing.T) {
 }
 
 func TestCheckOutdatedDeps(t *testing.T) {
-	// This test verifies the function doesn't panic and returns a DepChecker
+	// Cancel immediately rather than waiting: live checks need network access and can time out.
 	dc := CheckOutdatedDeps()
 	assert.NotNil(t, dc)
-	// Wait for completion
+	dc.Cancel()
 	<-dc.doneCh
-	// Should be done now
 	assert.True(t, dc.Done())
 }
 
-func TestOpenCacheDB(t *testing.T) {
-	db, err := openCacheDB()
+func TestOpenDepsCache(t *testing.T) {
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	// Verify table exists by inserting and querying
-	_, err = db.Exec(`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/module", "v1.0.0", nil, 12345)
-	require.Nil(t, err)
+	// Verify the backing store works with a store+lookup round-trip
+	c.store("test/module", "v1.0.0", "", 12345)
 
-	var path string
-	err = db.QueryRow(`SELECT path FROM deps WHERE path = ?`, "test/module").Scan(&path)
-	require.Nil(t, err)
-	assert.Equal(t, "test/module", path)
+	update, checkedAt, found := c.lookup("test/module", "v1.0.0")
+	assert.True(t, found)
+	assert.Equal(t, "", update)
+	assert.Equal(t, int64(12345), checkedAt)
 }
 
 func TestListDirectDeps(t *testing.T) {
@@ -192,29 +191,58 @@ func TestDepChecker_WaitWithProgress_AlreadyDone(t *testing.T) {
 	assert.Equal(t, 1, len(result))
 }
 
-func TestCheckDepLive_RealModule(t *testing.T) {
-	// Test with a real module that exists
-	// github.com/spf13/cobra should work
+func TestCheckDepLive_WithUpdate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"Version":"v1.2.0"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
 	update, needsUpdate, err := checkDepLive("github.com/spf13/cobra")
 	require.Nil(t, err)
-	// We don't care about the result, just that it didn't error
-	_ = update
-	_ = needsUpdate
+	assert.True(t, needsUpdate)
+	assert.Equal(t, "v1.2.0", update)
+}
+
+func TestCheckDepLive_NoUpdate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
+	update, needsUpdate, err := checkDepLive("github.com/spf13/cobra")
+	require.Nil(t, err)
+	assert.False(t, needsUpdate)
+	assert.Equal(t, "", update)
+}
+
+func TestCheckDepLive_ProxyError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
+
+	_, _, err := checkDepLive("github.com/fake/module")
+	assert.NotNil(t, err)
+}
+
+func TestCheckDepLive_NoProxy(t *testing.T) {
+	t.Setenv("GOPROXY", "direct")
+	_, _, err := checkDepLive("github.com/spf13/cobra")
+	assert.NotNil(t, err)
 }
 
 func TestDepChecker_checkDep_CacheHit(t *testing.T) {
-	db, err := openCacheDB()
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	dc := &DepChecker{db: db}
+	dc := &DepChecker{cache: c}
 
 	// Insert a cached "outdated" entry
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/cached-outdated", "v0.0.0-20240101-abc123def456", "v1.0.0", 9999999999,
-	)
-	require.Nil(t, err)
+	c.store("test/cached-outdated", "v0.0.0-20240101-abc123def456", "v1.0.0", 9999999999)
 
 	// Should return cached result
 	update, needsUpdate, err := dc.checkDep("test/cached-outdated", "v0.0.0-20240101-abc123def456")
@@ -224,19 +252,15 @@ func TestDepChecker_checkDep_CacheHit(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
-	db, err := openCacheDB()
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	defer db.Close()
+	defer c.close()
 
-	dc := &DepChecker{db: db}
+	dc := &DepChecker{cache: c}
 
 	// Insert a fresh "up-to-date" entry (checked just now)
 	now := int64(9999999999) // Far future timestamp
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"test/cached-fresh", "v0.0.0-20240101-abc123def456", nil, now,
-	)
-	require.Nil(t, err)
+	c.store("test/cached-fresh", "v0.0.0-20240101-abc123def456", "", now)
 
 	// Should return cached "up-to-date" result
 	update, needsUpdate, err := dc.checkDep("test/cached-fresh", "v0.0.0-20240101-abc123def456")
@@ -246,30 +270,29 @@ func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
-	db, err := openCacheDB()
-	require.Nil(t, err)
-	defer db.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"Version":"v1.11.0"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GOPROXY", srv.URL)
 
-	dc := &DepChecker{db: db}
+	c, err := openDepsCache()
+	require.Nil(t, err)
+	defer c.close()
+
+	dc := &DepChecker{cache: c}
 
 	// Insert an expired "up-to-date" entry (checked long ago)
-	_, err = db.Exec(
-		`INSERT OR REPLACE INTO deps (path, version, update_version, checked_at) VALUES (?, ?, ?, ?)`,
-		"github.com/spf13/cobra", "v1.10.2", nil, 0, // timestamp 0 = expired
-	)
-	require.Nil(t, err)
+	c.store("github.com/spf13/cobra", "v1.10.2", "", 0) // an empty timestamp reads as expired
 
 	// Should do a live check since cache is expired
-	// This will update the cache
 	_, _, err = dc.checkDep("github.com/spf13/cobra", "v1.10.2")
 	require.Nil(t, err)
 
 	// Verify cache was updated
-	var checkedAt int64
-	err = db.QueryRow(`SELECT checked_at FROM deps WHERE path = ? AND version = ?`,
-		"github.com/spf13/cobra", "v1.10.2").Scan(&checkedAt)
-	require.Nil(t, err)
-	assert.NotEqual(t, 0, checkedAt)
+	_, checkedAt, found := c.lookup("github.com/spf13/cobra", "v1.10.2")
+	require.True(t, found)
+	assert.NotEqual(t, int64(0), checkedAt)
 }
 
 func TestDepChecker_run_Canceled(t *testing.T) {
@@ -284,225 +307,10 @@ func TestDepChecker_run_Canceled(t *testing.T) {
 	assert.True(t, dc.done)
 }
 
-func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	mock := runner.NewMock()
-
-	// No go.mod exists, should return nil without doing anything
-	err := FixBogusDepsVersions(mock)
-	assert.Nil(t, err)
-	assert.Equal(t, 0, len(mock.Calls()))
-}
-
-func TestFixBogusDepsVersions_NoBogusVersions(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create go.mod with normal versions
-	gomod := `module test
-go 1.21
-
-require (
-	github.com/spf13/cobra v1.8.0
-	github.com/stretchr/testify v1.9.0
-)
-`
-	os.WriteFile("go.mod", []byte(gomod), 0644)
-
-	mock := runner.NewMock()
-	err := FixBogusDepsVersions(mock)
-	assert.Nil(t, err)
-	assert.Equal(t, 0, len(mock.Calls()))
-}
-
-func TestFixBogusDepsVersions_DetectsBogusVersions(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create go.mod with v0.0.0 dependencies
-	gomod := `module test
-go 1.21
-
-require (
-	git.internal/service/auth v0.0.0
-	github.com/spf13/cobra v1.8.0
-	git.internal/lib/utils v0.0.0 // indirect
-)
-`
-	os.WriteFile("go.mod", []byte(gomod), 0644)
-
-	mock := runner.NewMock()
-	// Mock git ls-remote to fail - we just want to verify detection works
-	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/service/auth", "HEAD"},
-		nil, os.ErrNotExist)
-
-	jsonOutput = true
-	defer func() { jsonOutput = false }()
-
-	err := FixBogusDepsVersions(mock)
-	// Should fail because git ls-remote failed
-	assert.NotNil(t, err)
-
-	// Verify it tried to resolve the first v0.0.0 dep
-	calls := mock.Calls()
-	require.GreaterOrEqual(t, len(calls), 1)
-	assert.False(t, calls[0].Name != "git" || calls[0].Args[0] != "ls-remote")
-	assert.Equal(t, "https://git.internal/service/auth", calls[0].Args[1])
-}
-
-func TestFixBogusDepsVersions_GitLsRemoteFails(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	gomod := `module test
-go 1.21
-
-require git.internal/broken v0.0.0
-`
-	os.WriteFile("go.mod", []byte(gomod), 0644)
-
-	mock := runner.NewMock()
-	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/broken", "HEAD"}, nil, os.ErrNotExist)
-
-	jsonOutput = true
-	defer func() { jsonOutput = false }()
-
-	err := FixBogusDepsVersions(mock)
-	assert.NotNil(t, err)
-}
-
-func TestResolveLatestVersionViaGit_Success(t *testing.T) {
-	fullHash := "abc123def456789012345678901234567890abcd"
-
-	mock := runner.NewMock()
-	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("git", "ls-remote") {
-			return runner.MockProcess([]byte(fullHash+"\tHEAD\n"), nil), nil
-		}
-		if cfg.IsCmd("git") {
-			// init --bare, fetch, log
-			for _, arg := range cfg.Args {
-				if arg == "init" || arg == "fetch" {
-					return runner.MockProcess(nil, nil), nil
-				}
-				if arg == "log" {
-					// Return a Unix timestamp
-					return runner.MockProcess([]byte("1700000000\n"), nil), nil
-				}
-			}
-		}
-		return nil, nil
-	}
-
-	version, err := resolveLatestVersionViaGit(mock, "example.com/repo")
-	require.Nil(t, err)
-	assert.Contains(t, version, "v0.0.0-")
-	assert.Contains(t, version, fullHash[:12])
-}
-
-func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
-	mock := runner.NewMock()
-	// Return empty output (no HEAD ref)
-	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte(""), nil)
-
-	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
-	assert.NotNil(t, err)
-}
-
-func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
-	mock := runner.NewMock()
-	// Return hash that's too short
-	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, []byte("abc123\tHEAD\n"), nil)
-
-	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
-	assert.NotNil(t, err)
-}
-
-func TestFixBogusDepsVersions_ParseError(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create invalid go.mod
-	os.WriteFile("go.mod", []byte("not valid go.mod content {{{"), 0644)
-
-	mock := runner.NewMock()
-	jsonOutput = true
-	defer func() { jsonOutput = false }()
-
-	// Should return nil (let go mod tidy handle parse errors)
-	err := FixBogusDepsVersions(mock)
-	assert.Nil(t, err)
-}
-
-func TestFixBogusDepsVersions_NoV000Deps(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// go.mod with no v0.0.0 dependencies
-	gomod := `module test
-go 1.21
-
-require github.com/spf13/cobra v1.8.0
-`
-	os.WriteFile("go.mod", []byte(gomod), 0644)
-
-	mock := runner.NewMock()
-	jsonOutput = true
-	defer func() { jsonOutput = false }()
-
-	err := FixBogusDepsVersions(mock)
-	assert.Nil(t, err)
-	// Should not have run any commands
-	assert.Equal(t, 0, len(mock.Calls()))
-}
-
-func TestFixBogusDepsVersions_PrintsMessage(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	gomod := `module test
-go 1.21
-
-require git.internal/foo v0.0.0
-`
-	os.WriteFile("go.mod", []byte(gomod), 0644)
-
-	mock := runner.NewMock()
-	// Don't set jsonOutput = true, so the message will be printed
-	mock.SetResponse("git", []string{"ls-remote", "https://git.internal/foo", "HEAD"}, nil, os.ErrNotExist)
-
-	// This will fail but covers the non-jsonOutput branch
-	_ = FixBogusDepsVersions(mock)
-}
-
 func TestDepChecker_WaitWithProgress_Nil(t *testing.T) {
 	var dc *DepChecker
 	result := dc.WaitWithProgress()
 	assert.Nil(t, result)
-}
-
-func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
-	mock := runner.NewMock()
-	mock.SetResponse("git", []string{"ls-remote", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
-
-	_, err := resolveLatestVersionViaGit(mock, "example.com/repo")
-	assert.NotNil(t, err)
 }
 
 func TestCheckDepLive_NonexistentModule(t *testing.T) {
@@ -511,11 +319,11 @@ func TestCheckDepLive_NonexistentModule(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestOpenCacheDB_CreatesDir(t *testing.T) {
-	// This test verifies openCacheDB works when cache dir needs creation
-	db, err := openCacheDB()
+func TestOpenDepsCache_CreatesDir(t *testing.T) {
+	// This test verifies openDepsCache works when the cache dir needs creation
+	c, err := openDepsCache()
 	require.Nil(t, err)
-	db.Close()
+	c.close()
 }
 
 func TestDepChecker_run_DBOpenError(t *testing.T) {

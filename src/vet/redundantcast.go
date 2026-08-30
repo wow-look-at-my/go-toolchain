@@ -9,7 +9,7 @@ import (
 )
 
 // RedundantCastAnalyzer detects unnecessary type casts on literals.
-// e.g., int(0), float64(1.5), string("hello")
+// e.g., a numeric or string literal wrapped in its own type
 var RedundantCastAnalyzer = &analysis.Analyzer{
 	Name:       "redundantcast",
 	Doc:        "detects unnecessary type casts on literals like int(0) or float64(1.5)",
@@ -87,4 +87,3 @@ func isRedundantCast(typeName string, lit *ast.BasicLit) bool {
 	}
 	return false
 }
-

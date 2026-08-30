@@ -1,9 +1,12 @@
 package runner
 
 import (
+	"runtime"
 	"testing"
 
-	"github.com/wow-look-at-my/testify/assert"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 func TestConfigIsCmd(t *testing.T) {
@@ -128,8 +131,25 @@ func TestCmd(t *testing.T) {
 
 func TestConfigWithEnv(t *testing.T) {
 	cfg := Cmd("go", "build").WithEnv("GOOS", "linux").WithEnv("GOARCH", "amd64")
-	assert.Equal(t, "linux", cfg.Env["GOOS"])
-	assert.Equal(t, "amd64", cfg.Env["GOARCH"])
+	goos, _ := cfg.Env.Get("GOOS")
+	goarch, _ := cfg.Env.Get("GOARCH")
+	assert.Equal(t, "linux", goos)
+	assert.Equal(t, "amd64", goarch)
+}
+
+// A test binary has to run on the machine that just built it. The fork
+// defaults to cosmo, and `go test` fork/execs what it builds, which a fat APE
+// answers with "exec format error" -- so the target is named, never inherited.
+func TestConfigWithHostTarget(t *testing.T) {
+	cfg := Cmd("go", "test").WithHostTarget()
+	goos, ok := cfg.Env.Get("GOOS")
+	require.True(t, ok, "GOOS must be assigned, not left to the fork's default")
+	assert.Equal(t, hostos.GOOS(), goos)
+	assert.NotEqual(t, "cosmo", goos, "a cosmo test binary cannot be exec'd")
+
+	goarch, ok := cfg.Env.Get("GOARCH")
+	require.True(t, ok)
+	assert.Equal(t, runtime.GOARCH, goarch)
 }
 
 func TestConfigWithQuiet(t *testing.T) {
@@ -228,7 +248,7 @@ func TestMockProcessWait(t *testing.T) {
 	err := proc.Wait()
 	assert.Nil(t, err)
 
-	// Second wait should also work
+	// A repeat wait should also work
 	err = proc.Wait()
 	assert.Nil(t, err)
 }
@@ -257,7 +277,7 @@ func TestRealRunnerWithEnv(t *testing.T) {
 	proc, err := r.Run(Config{
 		Name:  "sh",
 		Args:  []string{"-c", "echo $TEST_VAR"},
-		Env:   map[string]string{"TEST_VAR": "test_value"},
+		Env:   Cmd("").WithEnv("TEST_VAR", "test_value").Env,
 		Quiet: true,
 	})
 	assert.Nil(t, err)

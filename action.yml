@@ -23,66 +23,231 @@ inputs:
     description: 'Path to a pre-built go-toolchain binary (skips release download)'
     required: false
     default: ''
-  os:
-    description: 'Comma-separated list of target operating systems (e.g. linux,darwin,windows)'
+  targets:
+    description: >-
+      Comma-separated wasm targets to add (wasm/js, wasm/wasip1, built with
+      the gosmopolitan toolchain) plus the special value "cosmo" (one fat
+      APE, the org's only native output). Empty (the default) builds the APE
+      alone.
     required: false
-    default: 'linux,darwin,windows'
-  arch:
-    description: 'Comma-separated list of target architectures (e.g. amd64,arm64)'
+    default: ''
+  cosmo-platforms:
+    description: >-
+      Host platforms the fat APE must cover, as comma-separated os/arch pairs.
+      One binary runs on all of them and publishes as ONE artifact carrying the
+      whole set. "all" covers every platform the gosmopolitan fork can emit.
     required: false
-    default: 'amd64,arm64'
+    default: 'linux/amd64,darwin/arm64,windows/amd64'
   cgo:
     description: 'Enable CGO (disabled by default for static binaries)'
     required: false
     default: 'false'
   autorelease:
-    description: 'Automatically create a GitHub release when running on the default branch (requires contents: write permission)'
+    description: 'Automatically publish to buildhost on every branch push (requires id-token: write, plus deployments: write and artifact-metadata: write -- the publish registers a GitHub Deployment and posts an artifact storage record as part of publishing, with no opt-out, and fails the build without either grant)'
+    required: false
+    default: 'true'
+  autorelease_args:
+    description: >-
+      Extra publish options forwarded to the buildhost publish, as
+      whitespace- or comma-separated key=value pairs (e.g.
+      "create_service=true"). Recognized keys: create_service (true|false --
+      declare that the published binary runs as a background service; each
+      download format materializes it, e.g. brew formulas gain a `service do`
+      block and generated debs ship an auto-enabled systemd user unit).
+      Unknown keys fail the build. Empty (the default) forwards nothing --
+      the publish request is byte-identical to before this input existed.
+    required: false
+    default: ''
+  allow-source-build:
+    description: 'Allow building go-toolchain from source when the buildhost binary is unavailable. When false (default), the build fails fast instead of silently falling back to a source build.'
     required: false
     default: 'false'
-
-outputs:
-  coverage:
-    description: 'Total coverage percentage'
+  timeout:
+    description: 'Timeout in minutes for the go-toolchain build step'
+    required: false
+    default: '10'
+  wait-ci:
+    description: 'Wait for the latest go-toolchain CI run to finish before downloading the release binary'
+    required: false
+    default: 'false'
+  codeql:
+    description: 'Run CodeQL security-and-quality analysis around the build (requires security-events: write permission, and the consumer repo must NOT have GitHub default CodeQL setup enabled)'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
   steps:
-    - name: Download go-toolchain
-      if: inputs.binary == ''
-      uses: wow-look-at-my/actions@download-release-binary#latest
-      with:
-        repo: wow-look-at-my/go-toolchain
-        name: go-toolchain
-        token: ${{ github.token }}
+    # @latest and @master are frozen tags that track nothing. see docs/ACTION.md
+    - name: Refuse a frozen ref
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        case "$ACTION_REF" in
+          latest|master|main)
+            echo "::error::go-toolchain was resolved from @${ACTION_REF}, a frozen tag that does not track development. Use 'wow-look-at-my/go-toolchain@v1' (the default branch) or pin a commit SHA."
+            exit 1
+            ;;
+        esac
+
+    - name: Refuse jobs named all-builds
+      uses: wow-look-at-my/actions@no-all-builds-job#latest
+
+    - name: Refuse comment walls in workflow and action YAML
+      uses: wow-look-at-my/actions@yaml-comment-block#latest
+
+    - uses: wow-look-at-my/actions@secret-server#latest
+
+    - name: Configure git for private repos
+      if: env.PRIVATE_ORG_REPO_READ != ''
+      shell: bash
+      run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
+    - name: Wait for go-toolchain CI to finish
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain' && inputs.wait-ci == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh extension install PazerOP/gh-wait-ci || true
+        gh wait-ci -R wow-look-at-my/go-toolchain || true
+
+    - name: Install go-toolchain
+      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The ?branch=v1 pin is load-bearing. see docs/ACTION.md
+        URL="https://dl.pazer.build/go-toolchain?branch=v1&os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
+        # The `if` keeps `set -e` from skipping the probe and source-build fallback.
+        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
+          chmod +x /tmp/go-toolchain
+          # Run it once while still writable in /tmp. see docs/ACTION.md
+          /tmp/go-toolchain version || true
+          sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
+        else
+          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
+        fi
+        # Capture the probe output: it names a 404, a missing PATH entry, or a crash.
+        if ! probe=$(go-toolchain version 2>&1); then
+          echo "buildhost go-toolchain (${URL}) not usable; probe output:"
+          echo "${probe}"
+          # A silent source build hides a buildhost outage. see docs/ACTION.md
+          if [ "${{ inputs.allow-source-build }}" != "true" ]; then
+            echo "::error::Could not install go-toolchain from buildhost and allow-source-build is not enabled. Set allow-source-build: 'true' to build from source instead."
+            exit 1
+          fi
+          echo "::warning::buildhost binary not usable; building from source (allow-source-build=true)"
+          (cd "${{ github.action_path }}" && GOTOOLCHAIN=auto go install ./src)
+          sudo cp "$(go env GOPATH)/bin/src" /usr/local/bin/go-toolchain
+        fi
 
     - name: Install provided binary
       if: inputs.binary != ''
       shell: bash
       run: |
-        chmod +x "${{ inputs.binary }}"
-        sudo cp "${{ inputs.binary }}" /usr/local/bin/go-toolchain
+        # Stage through /tmp and pre-run once. see docs/ACTION.md
+        cp "${{ inputs.binary }}" /tmp/go-toolchain-provided
+        chmod +x /tmp/go-toolchain-provided
+        /tmp/go-toolchain-provided version || true
+        sudo cp /tmp/go-toolchain-provided /usr/local/bin/go-toolchain
 
-    - name: Compute go-toolchain binary hash
-      id: toolchain-hash
+    - name: Install timeout (macOS)
+      if: runner.os == 'macOS'
       shell: bash
-      run: echo "hash=$(sha256sum "$(command -v go-toolchain)" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      run: |
+        brew install coreutils
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
 
-    - name: Restore go-toolchain cache
-      uses: actions/cache/restore@v4
+    - name: Verify autorelease write permissions
+      if: inputs.autorelease == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        GH_OWNER: ${{ github.repository_owner }}
+        GH_API: ${{ github.api_url }}
+      run: |
+        set -euo pipefail
+        # An empty body creates and records nothing. see docs/ACTION.md
+        probe() {
+          curl -sS -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$1" -d '{}'
+        }
+        DEPLOY_CODE=$(probe "${GH_API}/repos/${GH_REPO}/deployments")
+        if [ "${DEPLOY_CODE}" = "403" ]; then
+          echo "::error title=Missing deployments: write::autorelease registers a GitHub Deployment as part of publishing, with no opt-out. Add 'deployments: write' to this job's permissions, or pass autorelease: 'false'. A job-level permissions block REPLACES the workflow-level one, so it must list every grant the job needs."
+          exit 1
+        fi
+        RECORD_CODE=$(probe "${GH_API}/orgs/${GH_OWNER}/artifacts/metadata/storage-record")
+        if [ "${RECORD_CODE}" = "403" ]; then
+          echo "::error title=Missing artifact-metadata: write::autorelease posts an artifact storage record as part of publishing, with no opt-out. Add 'artifact-metadata: write' to this job's permissions, or pass autorelease: 'false'. A job-level permissions block REPLACES the workflow-level one, so it must list every grant the job needs."
+          exit 1
+        fi
+        echo "autorelease grants confirmed (deployments probe HTTP ${DEPLOY_CODE}, storage-record probe HTTP ${RECORD_CODE})"
+
+    - name: Verify security-events write permission
+      if: inputs.codeql == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        GH_API: ${{ github.api_url }}
+      run: |
+        set -euo pipefail
+        # An empty body uploads nothing. see docs/ACTION.md
+        HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -H "Authorization: Bearer ${GH_TOKEN}" \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "${GH_API}/repos/${GH_REPO}/code-scanning/sarifs" \
+          -d '{}')
+        if [ "${HTTP_CODE}" = "403" ]; then
+          echo "::error title=Missing security-events: write::CodeQL is enabled but this workflow lacks 'security-events: write'. Add 'permissions: { security-events: write }' to the workflow, or pass codeql: 'false' to disable CodeQL."
+          exit 1
+        fi
+        echo "security-events: write confirmed (probe HTTP ${HTTP_CODE})"
+
+    - name: Verify autorelease permissions
+      if: inputs.autorelease == 'true'
+      uses: wow-look-at-my/actions@typescript#latest
       with:
-        path: ~/.cache/go-toolchain
-        key: go-toolchain-${{ steps.toolchain-hash.outputs.hash }}
+        script: |
+          // GitHub withholds OIDC on external fork PRs whatever the workflow declares, so a fork PR skips this rather than failing spuriously.
+          const isForkPr = context.eventName === 'pull_request' &&
+            (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+          if (isForkPr) {
+            core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
+          } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+            core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }', or pass autorelease: 'false' to disable publishing.");
+          } else {
+            core.info('id-token: write confirmed (OIDC environment variables present)');
+          }
+
+    - name: Initialize CodeQL
+      if: inputs.codeql == 'true'
+      uses: github/codeql-action/init@v4
+      with:
+        languages: go
+        build-mode: manual
+        queries: security-and-quality
 
     - name: Run go-toolchain
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.GO_BUILDCACHE_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.GO_BUILDCACHE_ACCESS_KEY }}
-        GOCACHE_S3_ENDPOINT: ${{ secrets.GO_BUILDCACHE_ENDPOINT }}
-        GOCACHE_S3_REGION: ${{ secrets.GO_BUILDCACHE_REGION }}
+        OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
+        OTEL_SERVICE_NAME: ${{ github.repository }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
+        TIMEOUT_SECONDS=$(( ${{ inputs.timeout }} * 60 ))
         ARGS=""
         if [ "${{ inputs.json }}" = "true" ]; then
           ARGS="$ARGS --json"
@@ -90,32 +255,115 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
-        if [ -n "${{ inputs.os }}" ]; then
-          ARGS="$ARGS --os ${{ inputs.os }}"
+        # The default builds ONE fat APE. see docs/ACTION.md
+        if [ -n "${{ inputs.targets }}" ]; then
+          ARGS="$ARGS --targets ${{ inputs.targets }}"
         fi
-        if [ -n "${{ inputs.arch }}" ]; then
-          ARGS="$ARGS --arch ${{ inputs.arch }}"
+        if [ -n "${{ inputs.cosmo-platforms }}" ]; then
+          ARGS="$ARGS --cosmo-platforms ${{ inputs.cosmo-platforms }}"
         fi
         if [ "${{ inputs.cgo }}" = "true" ]; then
           ARGS="$ARGS --cgo"
         fi
-        go-toolchain matrix $ARGS
+        timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
-    - name: Save go-toolchain cache
-      if: always()
-      uses: actions/cache/save@v4
+    # The name must stay unique per job AND per matrix leg. see docs/ACTION.md
+    - name: Hand off build outputs (go-build-<job>)
+      uses: wow-look-at-my/actions@cache-upload#latest
       with:
-        path: ~/.cache/go-toolchain
-        key: go-toolchain-${{ steps.toolchain-hash.outputs.hash }}
+        name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}
+        path: ${{ inputs.working-directory }}/build
 
-    - name: Auto-release
-      if: inputs.autorelease == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    - name: Deprecation notice (legacy go-build alias)
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        TAG="v0.0.$(git log -1 --format=%ct)"
-        echo "==> Auto-releasing $TAG on default branch"
-        go-toolchain release --tag "$TAG"
+      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
+
+    # A racy legacy alias, kept until its consumers migrate. see docs/ACTION.md
+    - name: Hand off build outputs (legacy go-build alias)
+      continue-on-error: true
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build
+        path: ${{ inputs.working-directory }}/build
+
+    - name: Analyze with CodeQL
+      if: inputs.codeql == 'true'
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: /language:go
+
+    # A composite `with:` block is static YAML. see docs/ACTION.md
+    - name: Parse autorelease_args
+      if: inputs.autorelease == 'true'
+      id: autorelease_args
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const raw: string = "${{ inputs.autorelease_args }}";
+          const known: string[] = ["create_service"];
+          const out: Record<string, string> = {};
+          for (const key of known) out[key] = "";
+          for (const pair of raw.split(/[\s,]+/).filter((p: string) => p.length > 0)) {
+            const eq = pair.indexOf("=");
+            const key = eq < 0 ? pair : pair.slice(0, eq);
+            const value = eq < 0 ? "" : pair.slice(eq + 1);
+            if (!known.includes(key) || value === "") {
+              core.setFailed(`autorelease_args: unrecognized or valueless entry '${pair}' (known keys: ${known.join(", ")}; form: key=value)`);
+              return;
+            }
+            out[key] = value;
+          }
+          for (const key of known) core.setOutput(key, out[key]);
+
+    - name: Auto-release to buildhost
+      if: inputs.autorelease == 'true'
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
+      with:
+        path: ${{ inputs.working-directory }}/build
+        create_service: ${{ steps.autorelease_args.outputs.create_service }}
+      shell: bash
+      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
+
+    # A racy legacy alias, kept until its consumers migrate. see docs/ACTION.md
+    - name: Hand off build outputs (legacy go-build alias)
+      continue-on-error: true
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build
+        path: ${{ inputs.working-directory }}/build
+
+    - name: Analyze with CodeQL
+      if: inputs.codeql == 'true'
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: /language:go
+
+    # A composite `with:` block is static YAML. see docs/ACTION.md
+    - name: Parse autorelease_args
+      if: inputs.autorelease == 'true'
+      id: autorelease_args
+      uses: wow-look-at-my/actions@typescript#latest
+      with:
+        script: |
+          const raw: string = "${{ inputs.autorelease_args }}";
+          const known: string[] = ["create_service"];
+          const out: Record<string, string> = {};
+          for (const key of known) out[key] = "";
+          for (const pair of raw.split(/[\s,]+/).filter((p: string) => p.length > 0)) {
+            const eq = pair.indexOf("=");
+            const key = eq < 0 ? pair : pair.slice(0, eq);
+            const value = eq < 0 ? "" : pair.slice(eq + 1);
+            if (!known.includes(key) || value === "") {
+              core.setFailed(`autorelease_args: unrecognized or valueless entry '${pair}' (known keys: ${known.join(", ")}; form: key=value)`);
+              return;
+            }
+            out[key] = value;
+          }
+          for (const key of known) core.setOutput(key, out[key]);
+
+    - name: Auto-release to buildhost
+      if: inputs.autorelease == 'true'
+      uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
+      with:
+        path: ${{ inputs.working-directory }}/build
+        create_service: ${{ steps.autorelease_args.outputs.create_service }}
