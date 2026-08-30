@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
@@ -41,9 +42,13 @@ var numberWords = set.Of(
 	"eightieth", "ninetieth", "hundredth", "thousandth",
 )
 
-// commentNumbersRemedy is what every finding asks the author to do instead.
+// commentNumbersRemedy is what every finding asks the author to do instead. A
+// reference to a numbered section is the case rewriting the sentence does not
+// cover, so the remedy also names the slug that survives a renumbering edit.
 const commentNumbersRemedy = "a number in a comment is a count of what exists today, " +
-	"and the edit that adds an item leaves it wrong: describe what the code does and let the reader count"
+	"and the edit that adds an item leaves it wrong: describe what the code does and let the reader count. " +
+	"To point at a section of a spec or a document, cite its unique slug or its heading text, never its position: " +
+	"the slug survives the edit that inserts a section above it, and a section sign (§) marks a citation that has no slug"
 
 // commentNumbersWarned records file:line of every warning; each package variant that walks a file warns per site.
 var commentNumbersWarned sync.Map
@@ -97,12 +102,60 @@ const nameMarkers = "._/:"
 // commentNumbers finds every number in the text of a single comment line.
 func commentNumbers(text string) []commentToken {
 	var found []commentToken
-	for _, tok := range commentTokens(text) {
-		if hit, ok := tokenNumber(text, tok); ok {
+	toks := commentTokens(text)
+	for i, tok := range toks {
+		if isHTTPStatus(toks, i) || isSectionRef(text, tok) {
+			continue
+		}
+		if hit, ok := tokenNumber(tok); ok {
 			found = append(found, hit)
 		}
 	}
 	return found
+}
+
+// httpStatusPrefix is the word that names the digits after it as a status code.
+const httpStatusPrefix = "HTTP"
+
+// statusCodeDigits is the width of an HTTP status code.
+const statusCodeDigits = len("500")
+
+// isHTTPStatus reports whether the token at i is an HTTP status code. The
+// prefix is what separates the digits of a protocol answer from a count
+// wearing the same shape.
+func isHTTPStatus(toks []commentToken, i int) bool {
+	if i == 0 {
+		return false
+	}
+	prefix := strings.Trim(toks[i-1].text, nameMarkers)
+	return strings.EqualFold(prefix, httpStatusPrefix) && isStatusCode(toks[i].text)
+}
+
+// isStatusCode reports whether text is the bare digits of a status code. A
+// name marker at either end is the punctuation of the sentence, since a token
+// keeps the period that ends it.
+func isStatusCode(text string) bool {
+	text = strings.Trim(text, nameMarkers)
+	if len(text) != statusCodeDigits {
+		return false
+	}
+	for _, r := range text {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// sectionSign marks the number after it as a citation of a section.
+const sectionSign = '§'
+
+// isSectionRef reports whether the token sits behind a section sign, which
+// cites a section of a document instead of counting anything here.
+func isSectionRef(text string, tok commentToken) bool {
+	before := strings.TrimRight(text[:tok.offset], " \t")
+	last, size := utf8.DecodeLastRuneInString(before)
+	return size > 0 && last == sectionSign
 }
 
 // commentTokens splits a comment into runs of name characters, so a URL, an
@@ -134,15 +187,9 @@ func isNameRune(r rune) bool {
 }
 
 // tokenNumber reports the number a token carries, if it carries any.
-func tokenNumber(text string, tok commentToken) (commentToken, bool) {
+func tokenNumber(tok commentToken) (commentToken, bool) {
 	if strings.Contains(tok.text, "://") {
 		return commentToken{}, false // the digits of a URL are part of it
-	}
-	if isMoney(text, tok) {
-		return commentToken{}, false // a sum of money is a value, not a count
-	}
-	if isHTTPStatus(text, tok) {
-		return commentToken{}, false // a status code names a response, not a count
 	}
 	if hit, ok := digitNumber(tok); ok {
 		return hit, true
@@ -151,40 +198,6 @@ func tokenNumber(text string, tok commentToken) (commentToken, bool) {
 		return commentToken{}, false // sync.Once and net/http name themselves
 	}
 	return wordNumber(tok)
-}
-
-// isMoney reports whether a currency sign sits directly against the token's
-// digits. An amount is a value, and only the amount is exempt.
-func isMoney(text string, tok commentToken) bool {
-	if tok.offset == 0 || text[tok.offset-1] != '$' {
-		return false
-	}
-	return unicode.IsDigit(rune(tok.text[0]))
-}
-
-// httpStatusPrefix is what marks digits as a status code rather than a count.
-const httpStatusPrefix = "HTTP "
-
-// httpStatusCodes are the codes the IANA HTTP Status Code Registry assigns. A
-// code names a response, so it is a value the protocol fixed rather than a
-// count of anything here. An unassigned number is not exempt: the registry is
-// the whole carve-out.
-var httpStatusCodes = set.Of(
-	"100", "101", "102", "103",
-	"200", "201", "202", "203", "204", "205", "206", "207", "208", "226",
-	"300", "301", "302", "303", "304", "305", "306", "307", "308",
-	"400", "401", "402", "403", "404", "405", "406", "407", "408", "409",
-	"410", "411", "412", "413", "414", "415", "416", "417", "418",
-	"421", "422", "423", "424", "425", "426", "428", "429", "431", "451",
-	"500", "501", "502", "503", "504", "505", "506", "507", "508", "510", "511",
-)
-
-// isHTTPStatus reports whether the token is an assigned code behind the prefix.
-func isHTTPStatus(text string, tok commentToken) bool {
-	if !strings.HasSuffix(text[:tok.offset], httpStatusPrefix) {
-		return false
-	}
-	return httpStatusCodes.Contains(tok.text)
 }
 
 // isQualifiedName reports whether a marker sits BETWEEN name characters, which

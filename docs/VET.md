@@ -356,7 +356,10 @@ package variant walks the same file, so warned sites are deduplicated by
 
 `src/vet/commentnumbers.go` reports any number written in a Go comment, in
 digits or in words. The remedy it names is always the same: describe what the
-code does and let the reader count.
+code does and let the reader count, and cite a section of a spec or a document
+by its unique slug or its heading text rather than by its position -- a
+sentence pointing at "section 4.2" is wrong the moment somebody inserts a
+section above it, while the slug still resolves.
 
 A number in a comment is a count of what exists on the day it was written. The
 edit that adds an item does not update it, so the comment quietly goes false,
@@ -386,32 +389,23 @@ characters `_`, `.`, `/`, `:` and `-` -- and reports two shapes:
   `one`. A word that merely contains one (`someone`, `oneShot`, `atonement`)
   is not a match, because the whole run must be the word.
 
+A number behind a section sign is exempt: `§7.3` and `§ 4` cite a section of a
+document, and the sign is the spelling a reader looks it up by. It is the
+escape hatch for a document that publishes no slug -- the sign covers only the
+number it introduces, so `§7.3 covers 4 shapes` still reports the `4`.
+
+An HTTP status code is exempt, but only when the word `HTTP` (in any case)
+sits immediately before it: `HTTP 403` names a protocol answer that no edit
+changes, while a bare `403` is the shape of a line number or a row count and
+is still reported. The exemption covers a status-code-width run of digits and
+nothing else, so `HTTP 4 retries` is a count and goes.
+
 A token holding `://` is a URL and is skipped whole, so citing an issue by its
 full address is how to keep a reference that carries a number. A qualified
 name -- a marker strictly between word characters, as in `example.com/mod/v2`,
 `net/http` or `sync.Once` -- is a name rather than prose and is left alone. A
 compiler directive (`//go:build`, `//go:generate`) is machine text and is never
 reported, and a generated file is skipped entirely.
-
-### The carve-outs
-
-Two kinds of number are not counts of anything in the file, so the edit that
-adds an item below them cannot make them wrong. They are the whole list, and
-nothing else is exempt:
-
-- **A sum of money.** A currency sign against the digits, with no space
-  between, makes the token an amount: `$1.43`, `$0`, `under $1`. Only the
-  amount goes free -- in `renders 4 dp under $1`, the `$1` is exempt and the
-  `4` is a count like any other, and `costs $ 5` is a count too, because the
-  sign is not against the digits.
-- **An assigned HTTP status code, wearing the `HTTP ` prefix.** The token must
-  sit directly against `HTTP ` and be nothing but a code the IANA registry
-  assigns, so `HTTP 404 means the catalogue never heard of it` and `retries
-  HTTP 502` stay. The prefix is what says the digits are a code rather than a
-  count, so a bare `a 404` is reported, and so are a lowercase `http 404`, a
-  prefix further back in the sentence (`the HTTP response is a 404`), a number
-  the registry does not assign (`HTTP 499`), a code wearing an ordinal (`the
-  HTTP 404th retry`), and a longer number that merely opens with one (`4040`).
 
 ### Scope
 
