@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 	"golang.org/x/mod/modfile"
@@ -215,6 +216,19 @@ func fetchCommitAt(r runner.CommandRunner, mod, hash string) (*gitCommit, func()
 	return fetchAt(r, mod, gitURL, hash)
 }
 
+// scratchBase places a scratch repository where git can open it: on NT
+// os.TempDir() answers cosmo's /tmp, not a path NT knows.
+func scratchBase(hostGOOS string) string {
+	if hostGOOS != "windows" {
+		return ""
+	}
+	dir, err := goCacheDirFunc()
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
 // fetchAt fetches a known commit into a temporary bare repository.
 func fetchAt(r runner.CommandRunner, mod, gitURL, fullHash string) (*gitCommit, func(), error) {
 	if len(fullHash) < 12 {
@@ -230,7 +244,7 @@ func fetchAt(r runner.CommandRunner, mod, gitURL, fullHash string) (*gitCommit, 
 	}
 
 	// The shallowest fetch of the commit still carries its whole tree.
-	tmpDir, err := os.MkdirTemp("", "resolve-*")
+	tmpDir, err := os.MkdirTemp(scratchBase(hostos.GOOS()), "resolve-*")
 	if err != nil {
 		return nil, nil, err
 	}
