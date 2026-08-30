@@ -415,8 +415,10 @@ func method(id *ast.Ident, name string, args ...ast.Expr) *ast.CallExpr {
 	}
 }
 
-// setFixesByFile groups the edits per file and adds the set import to each
-// file it touches. A file that already spells something else "set" keeps its
+// setFixesByFile groups the edits per file, importing the set package into the
+// files that go on to name it. A file whose rewrite only calls methods on the
+// variable never spells the package, and an import it does not use is a
+// compile error. A file that already spells something else "set" keeps its
 // diagnostic and loses its fix.
 func setFixesByFile(pass *analysis.Pass, edits []fileEdit) []*ASTFixes {
 	byFile := make(map[*ast.File][]ASTFix)
@@ -428,10 +430,33 @@ func setFixesByFile(pass *analysis.Pass, edits []fileEdit) []*ASTFixes {
 		if !setNameFree(file) {
 			continue
 		}
-		astutil.AddImport(pass.Fset, file, setPackage)
+		if fixesNameSetPackage(fixes) {
+			astutil.AddImport(pass.Fset, file, setPackage)
+		}
 		result = append(result, &ASTFixes{File: file, Fset: pass.Fset, Fixes: fixes})
 	}
 	return result
+}
+
+// fixesNameSetPackage reports whether any replacement node qualifies an
+// identifier with the set package, which is what makes the import necessary.
+func fixesNameSetPackage(fixes []ASTFix) bool {
+	found := false
+	for _, fix := range fixes {
+		for _, node := range fix.NewNodes {
+			ast.Inspect(node, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return !found
+				}
+				if id, ok := sel.X.(*ast.Ident); ok && id.Name == setPkgName {
+					found = true
+				}
+				return !found
+			})
+		}
+	}
+	return found
 }
 
 // setNameFree reports whether "set" names the set package in file, or nothing at all.

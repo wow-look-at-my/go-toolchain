@@ -169,14 +169,20 @@ func TestSetFixReachesAPackageVariableUsedFromATestFile(t *testing.T) {
 
 	fixes := setFixesForFiles(t, MapSetAnalyzer, dir, "main.go", "main_test.go")
 	require.Len(t, fixes, 2, "both files carry a use, so both get rewritten")
-	var buf bytes.Buffer
+	rendered := map[string]string{}
 	for _, f := range fixes {
+		var buf bytes.Buffer
 		require.NoError(t, f.Fprint(&buf))
+		rendered[filepath.Base(f.Fset.Position(f.File.Pos()).Filename)] = buf.String()
 	}
-	got := string(buf.Bytes())
-	require.Contains(t, got, `set.Of[string]("env")`)
-	require.Contains(t, got, "wrappers.Contains(s)")
-	require.Contains(t, got, `wrappers.Contains("sudo")`)
+
+	require.Contains(t, rendered["main.go"], `set.Of[string]("env")`)
+	require.Contains(t, rendered["main.go"], "wrappers.Contains(s)")
+	require.Contains(t, rendered["main.go"], setPackage, "the file naming set.Of imports the package")
+
+	require.Contains(t, rendered["main_test.go"], `wrappers.Contains("sudo")`)
+	require.NotContains(t, rendered["main_test.go"], setPackage,
+		"a file that only calls methods never spells the package, and an unused import does not compile")
 }
 
 // TestSetFixStopsAtAFileThisBuildExcludes pins the rest of the rule: a file the
