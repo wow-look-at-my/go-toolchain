@@ -12,6 +12,14 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
+// The real bootstrap downloads a toolchain, which spends a test binary's
+// whole budget on a cold host cache. The message names the repair.
+func init() {
+	ensureCosmoToolchainFunc = func() (string, error) {
+		return "", fmt.Errorf("test reached the real toolchain bootstrap: call stubForkToolchain(t)")
+	}
+}
+
 // mockTestEvents renders the `go test -json` stream a passing package
 // reports: the run line, the coverage output line, and the pass line. The
 // events are marshaled rather than spelled, so the encoder owns the quoting.
