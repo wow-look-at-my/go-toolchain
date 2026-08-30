@@ -127,12 +127,16 @@ things split:
   `error starting GOCACHEPROG program ...: exec format error` on every `go`
   invocation, the visible half of the macOS wedge. Every other platform keeps
   the bare `<exe> cacheprog` byte-identically.
-- **The persistent outdated-deps cache** is behind the `depsCache` interface.
-  `depscache_sqlite.go` (`!cosmo`) keeps the sqlite backend and its
-  `modernc.org/sqlite` blank import out of cosmo builds, while
-  `depscache_cosmo.go` is a no-op cache — cosmo runs re-query the module proxy
-  each time, which is cheap since up-to-date entries expired after a minute
-  anyway.
+- **The persistent outdated-deps cache** is behind the `depsCache` interface,
+  implemented in `depscache_file.go` over a JSON file under the user cache dir.
+  It carries a check result per dependency and version, which needs no query
+  engine, and it is compiled into every binary — a build tag here would take
+  the cache away from whatever the tag excludes. `close` merges onto the file
+  before rewriting it atomically, so a go-toolchain running alongside keeps its
+  entries. Keep the backend free of third-party packages: the APE carries a
+  payload per platform, and a package init that fails on any of them kills that
+  platform's binary before `main` runs (a sqlite backend did exactly that on
+  Windows, through `modernc.org/libc`).
 
 ## The matrix cosmo target
 

@@ -20,11 +20,10 @@ import (
 // How long to cache "up-to-date" results before rechecking
 const upToDateCacheDuration = time.Minute
 
-// depsCache persists dependency-check results across runs. The production
-// implementation is sqlite-backed (depscache_sqlite.go); GOOS=cosmo builds
-// get a no-op cache instead (depscache_cosmo.go) because modernc.org/sqlite
-// drags in modernc.org/libc, whose per-GOOS generated code has no cosmo
-// target.
+// depsCache persists dependency-check results across runs, in a JSON file
+// (depscache_file.go). It is on in every binary: the store is small enough to
+// need no engine, and a build tag here would take the cache away from
+// whatever the tag excludes. Depth: docs/DEPS.md
 type depsCache interface {
 	// lookup returns the cached entry: update != "" means cached outdated (never expires); found=false means no entry.
 	lookup(path, version string) (update string, checkedAt int64, found bool)

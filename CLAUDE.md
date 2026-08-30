@@ -280,8 +280,10 @@ coverage.
   APE) matches the `unix` build tag, and — since gosmopolitan's matchTag aliases GOOS=cosmo into `linux` — also matches `linux`, both by explicit
   `//go:build` tag and by the `_linux.go`/`_linux_ARCH.go` filename convention. `golang.org/x/sys/unix` therefore now builds for cosmo like any other
   linux target: reach for a plain `_linux.go` file first. **Every build is a cosmo build now, so a `!cosmo` split turns a feature OFF in every
-  binary that ships** — before keeping one, compile the dependency for cosmo and confirm it still fails (`modernc.org/sqlite` and `go-git` both
-  build now; the splits excluding them were disabling the deps cache and vet's auto-fix check). A `_cosmo.go` file is for a genuine gap only —
+  binary that ships** — before keeping one, compile the dependency for cosmo and confirm it still fails (`go-git` builds now; the split excluding
+  it was disabling vet's auto-fix check). **Compiling is not the test, though: RUN each payload.** `modernc.org/sqlite` compiles for cosmo and its
+  `modernc.org/libc` init still panics on the windows payload, killing every Windows invocation before `main` — which is why the deps cache is
+  dependency-free (`depscache_file.go`). A `_cosmo.go` file is for a genuine gap only —
   `otlptracehttp` is the surviving one, via grpc's `syscall.TCP_INFO`. Either a dedicated implementation already exists
   (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
   (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
