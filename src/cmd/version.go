@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -329,13 +330,24 @@ func dirtyDiff(files string) string {
 	if len(paths) == 0 {
 		return ""
 	}
-	out, err := exec.Command("git", append([]string{"--no-pager", "diff", "--"}, paths...)...).Output()
+	cmd := exec.Command("git", append([]string{"--no-pager", "diff", "--"}, paths...)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return ""
+		// Saying nothing here would leave a reader staring at a file list and
+		// an instruction to review a diff that never arrives.
+		return fmt.Sprintf("\nDiff: git diff failed: %v: %s\n", err, strings.TrimSpace(stderr.String()))
 	}
 	diff := strings.TrimSpace(string(out))
 	if diff == "" {
-		return "" // untracked only, so git has nothing to compare against
+		// Worth stating: it means the change is staged, or the paths are
+		// untracked, and either one sends the reader somewhere different.
+		staged, _ := exec.Command("git", append([]string{"--no-pager", "diff", "--cached", "--"}, paths...)...).Output()
+		if diff = strings.TrimSpace(string(staged)); diff == "" {
+			return "\nDiff: git reports no content change; the paths are untracked or already committed\n"
+		}
+		diff = "(staged)\n" + diff
 	}
 	if lines := strings.Split(diff, "\n"); len(lines) > dirtyDiffMaxLines {
 		diff = strings.Join(lines[:dirtyDiffMaxLines], "\n") + "\n... diff truncated"

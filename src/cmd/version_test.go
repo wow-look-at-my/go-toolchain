@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +68,46 @@ func TestDirtyDiffPaths(t *testing.T) {
 	status := " M go.mod\n?? build/extra.txt\nR  old.go -> new.go\n"
 	assert.Equal(t, []string{"go.mod", "build/extra.txt", "new.go"}, dirtyDiffPaths(status))
 	assert.Empty(t, dirtyDiffPaths(""))
+}
+
+// A dirty tree in CI is often the only place a change is visible, so the diff
+// has to arrive or say why it did not. Returning nothing leaves the reader
+// staring at a file list under an instruction to review something absent.
+func TestDirtyDiffShowsTheChange(t *testing.T) {
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "t@example.com"},
+		{"config", "user.name", "t"},
+	} {
+		require.NoError(t, exec.Command("git", append([]string{"-C", dir}, args...)...).Run())
+	}
+	mod := filepath.Join(dir, "go.mod")
+	require.NoError(t, os.WriteFile(mod, []byte("module example.com/x\n\ngo 1.27\n"), 0644))
+	require.NoError(t, exec.Command("git", "-C", dir, "add", "go.mod").Run())
+	require.NoError(t, exec.Command("git", "-C", dir, "commit", "-qm", "init").Run())
+	require.NoError(t, os.WriteFile(mod, []byte("module example.com/x\n\ngo 1.28\n"), 0644))
+
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(oldWd)
+
+	got := dirtyDiff(" M go.mod")
+	assert.Contains(t, got, "-go 1.27")
+	assert.Contains(t, got, "+go 1.28")
+}
+
+// Every path out of dirtyDiff says something. Silence is what sent the last
+// windows failure back around with nothing learned.
+func TestDirtyDiffReportsWhenGitCannotAnswer(t *testing.T) {
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(t.TempDir()))
+	defer os.Chdir(oldWd)
+
+	assert.Contains(t, dirtyDiff(" M go.mod"), "git diff failed")
+	assert.Empty(t, dirtyDiff(""))
 }
 
 func TestStatusLineIsToolchainWrite(t *testing.T) {
