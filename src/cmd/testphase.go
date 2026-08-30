@@ -128,10 +128,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			filesChanged = false
 			err = nil
 		} else if isUnreadableExportData(err) {
-			// A dependency's compiled API did not decode, which says nothing
-			// about this source. The retry reads every dependency's source
-			// instead, so no importer is in the path at all; dropping the
-			// shared cache tier alongside it rules that out too.
+			// A dependency's compiled API did not decode, which says nothing about this source.
 			disableSharedBuildCache()
 			logger.Warn("⇒ Warning: vet could not read the compiler's export data (%s) for %s -- that is a dependency's compiled API, not your source. Retrying with every dependency type-checked from source, and with the shared build cache (GOCACHEPROG) off for the rest of this run. A damaged cache entry and export data newer than this binary's importer both land here.",
 				exportDataSignature(err), strings.Join(unreadableExportPackages(err), ", "))

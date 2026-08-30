@@ -75,9 +75,8 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	return fmtChanged || semanticChanged, err
 }
 
-// RunFromSource is RunWithProgress with every dependency type-checked from its
-// SOURCE. The default reads each dependency's export data instead, which is far
-// faster and is the one input an importer can reject outright. Depth: docs/CI.md
+// RunFromSource type-checks every dependency from SOURCE. The default reads
+// export data, which is faster and can be rejected. Depth: docs/CI.md
 func RunFromSource(fix bool, progress ProgressFunc) (bool, error) {
 	loadDepsFromSource = true
 	defer func() { loadDepsFromSource = false }()
@@ -87,9 +86,8 @@ func RunFromSource(fix bool, progress ProgressFunc) (bool, error) {
 // loadDepsFromSource is set only for the duration of RunFromSource.
 var loadDepsFromSource bool
 
-// loadMode is what the type-check asks the loader for. NeedModule populates
-// pkg.Module, which bannedoutput uses to scope its ban to this module. NeedDeps
-// type-checks each dependency from source, so nothing imports export data.
+// NeedModule populates pkg.Module, which bannedoutput scopes its ban by.
+// NeedDeps drops export data, so no importer is in the path.
 func loadMode() packages.LoadMode {
 	mode := packages.LoadSyntax | packages.NeedModule
 	if loadDepsFromSource {
