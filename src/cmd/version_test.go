@@ -61,7 +61,7 @@ func TestDirtyFilesExcludingToolchainWritesEmpty(t *testing.T) {
 }
 
 // The message tells the reader to review the diff, so a CI-only failure has to
-// carry one: the runner's tree is gone by the time anyone reads the log.
+// carry it: the runner's tree is gone by the time anyone reads the log.
 func TestDirtyDiffPaths(t *testing.T) {
 	status := " M go.mod\n?? build/extra.txt\nR  old.go -> new.go\n"
 	assert.Equal(t, []string{"go.mod", "build/extra.txt", "new.go"}, dirtyDiffPaths(status))

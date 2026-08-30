@@ -322,8 +322,8 @@ func checkDirtyInCI() error {
 }
 
 // dirtyDiff renders what actually changed. The message tells the reader to
-// review the diff, and on a failure that only happens on one CI host there is
-// no other way to see it: the tree is gone with the runner.
+// review the diff, and when the failure happens only in CI there is no other
+// way to see it: the tree is gone with the runner.
 func dirtyDiff(files string) string {
 	paths := dirtyDiffPaths(files)
 	if len(paths) == 0 {
