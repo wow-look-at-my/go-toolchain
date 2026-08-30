@@ -122,7 +122,12 @@ func TestEnsureCosmoToolchainDownloadsForEveryHost(t *testing.T) {
 		t.Run(host.goos+"/"+host.goarch, func(t *testing.T) {
 			cacheDir := setupCosmoTest(t)
 			cosmoHostPlatformFunc = func() (string, string) { return host.goos, host.goarch }
-			tarball := makeCosmoTarball(t)
+			// Serve the archive this host's own distribution carries; windows names the binary go.exe.
+			goBinName := "go"
+			if host.goos == "windows" {
+				goBinName += ".exe"
+			}
+			tarball := makeCosmoTarballNamed(t, goBinName)
 
 			var gotQuery atomic.Value
 			mux := http.NewServeMux()

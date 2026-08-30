@@ -18,8 +18,8 @@ var hostSignalFunc = cosmoHostSignal
 
 // cosmoHostSignal reports the host the APE entry stub recorded, or "" for a
 // host the fork's runtime has no port for. The stub runs before any Go code
-// and every syscall dispatches on the same value, so no sandbox can deny it
-// and no target can ENOSYS it -- which is what the probes below cannot say.
+// and every syscall dispatches on it, so no sandbox denies it and no target
+// ENOSYSes it -- which the probes below cannot say.
 func cosmoHostSignal() string {
 	if host := runtime.CosmoHostOS(); host != "unknown" {
 		return host
@@ -27,7 +27,7 @@ func cosmoHostSignal() string {
 	return ""
 }
 
-// GOOS returns the host OS: "linux", "darwin" or "windows". A fat APE runs on all three.
+// GOOS returns the host OS: "linux", "darwin" or "windows". A fat APE runs on each of them.
 func GOOS() string { return hostGOOS().OS }
 
 // Detect returns the host OS plus how it was determined (see go-toolchain version host). Memoized; the probe runs a single time.
