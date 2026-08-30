@@ -16,7 +16,7 @@ const invalidPackageNameMarker = `invalid package name: ""`
 // corruptExportPkgRe pulls the import paths out of load errors, so the warning names what was damaged.
 var corruptExportPkgRe = regexp.MustCompile(`could not import ([^\s(]+) \((?:invalid package name: ""|open [^)]*: no such file or directory)\)`)
 
-// missingExportFileRe: a GET promises a DiskPath, so an entry evicted after that promise opens as ENOENT (cache/packverify.go).
+// missingExportFileRe: a GET answers a hit with a DiskPath, and the compiler could not open it. Eviction behind the promise is one way (cache/packverify.go); a cache directory another process mutates is another.
 var missingExportFileRe = regexp.MustCompile(`could not import [^\s(]+ \(open [^)]*: no such file or directory\)`)
 
 // isCorruptExportData reports whether err is a cache-served export failure.
