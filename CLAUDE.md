@@ -288,7 +288,10 @@ coverage.
 ## Code Conventions
 
 - Go module: `github.com/wow-look-at-my/go-toolchain`
-- Go version: 1.24.7 (module), CI tests on 1.25
+- Go version: 1.27 (module). It is a FLOOR set by the fork, not a preference: the pipeline type-checks code the gosmopolitan fork compiles, and
+  `go/types` links in from whatever toolchain built this binary. Built with go1.26 it cannot read the fork's export data (`math/rand/v2`'s generic
+  method) or its source (`file requires newer Go version go1.27`), so the go directive is what makes CI's `actions/setup-go` install a Go that can.
+  Depth: `docs/CI.md`
 - CLI framework: `github.com/spf13/cobra`
 - Test parsing: `gotest.tools/gotestsum/testjson`
 - Test assertions: upstream `github.com/stretchr/testify` (`assert`/`require`) — the in-house `wow-look-at-my/testify` fork has been removed; the

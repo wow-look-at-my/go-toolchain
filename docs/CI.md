@@ -202,6 +202,15 @@ Two different things put it there, and neither is the source in front of you:
   `NewSignatureType` with "function with type parameters cannot have a
   receiver". No cache is involved: the data is correct and the reader is old.
 
+`go.mod`'s `go 1.27` is the fix for the second one, and it is a floor rather
+than a preference. CI's `actions/setup-go` reads `go-version-file: go.mod`, so
+the directive is what decides which `go/types` gets linked into the binary that
+does the type-checking. Built against go1.26 it fails both ways: the import
+panics as above, and reading the same package's source instead only trades the
+panic for `method must have no type parameters` plus `file requires newer Go
+version go1.27 (application built with go1.26)` across the fork's stdlib. Keep
+this directive at or above the fork's Go version.
+
 There are **two** reports, and which one appears depends on how far the decode
 got before it hit the damage:
 
