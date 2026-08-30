@@ -4,6 +4,7 @@ package hostos
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -13,9 +14,20 @@ import (
 var hostGOOS = sync.OnceValue(detectHostGOOS)
 
 // hostSignalFunc is the authoritative signal, checked before any probe. Empty means none; see detection.go.
-var hostSignalFunc func() string
+var hostSignalFunc = cosmoHostSignal
 
-// GOOS returns the host OS: "linux" or "darwin", never "windows" (a Windows host runs the native, non-cosmo build).
+// cosmoHostSignal reports the host the APE entry stub recorded, or "" for a
+// host the fork's runtime has no port for. The stub runs before any Go code
+// and every syscall dispatches on the same value, so no sandbox can deny it
+// and no target can ENOSYS it -- which is what the probes below cannot say.
+func cosmoHostSignal() string {
+	if host := runtime.CosmoHostOS(); host != "unknown" {
+		return host
+	}
+	return ""
+}
+
+// GOOS returns the host OS: "linux", "darwin" or "windows". A fat APE runs on all three.
 func GOOS() string { return hostGOOS().OS }
 
 // Detect returns the host OS plus how it was determined (see go-toolchain version host). Memoized; the probe runs a single time.
@@ -23,10 +35,8 @@ func Detect() Detection { return hostGOOS() }
 
 func detectHostGOOS() Detection {
 	// An authoritative signal outranks every probe: it cannot be denied by a sandbox or ENOSYS. See detection.go.
-	if hostSignalFunc != nil {
-		if host := hostSignalFunc(); host != "" {
-			return Detection{OS: host, Method: "runtime"}
-		}
+	if host := hostSignalFunc(); host != "" {
+		return Detection{OS: host, Method: "runtime"}
 	}
 
 	// uname: Sysname is authoritative on Linux; macOS ENOSYS's it via the fork's darwin dispatcher and falls through.

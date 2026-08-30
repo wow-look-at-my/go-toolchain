@@ -4,9 +4,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-containers/sortedmap"
@@ -72,6 +75,12 @@ func (c *Config) WithEnv(key, value string) *Config {
 	}
 	c.Env.Put(key, value)
 	return c
+}
+
+// WithHostTarget builds for the machine this runs on: nothing can fork/exec
+// the fork's default fat APE. Depth: docs/CI.md
+func (c *Config) WithHostTarget() *Config {
+	return c.WithEnv("GOOS", hostos.GOOS()).WithEnv("GOARCH", runtime.GOARCH)
 }
 
 // WithQuiet suppresses stdout/stderr tee to console

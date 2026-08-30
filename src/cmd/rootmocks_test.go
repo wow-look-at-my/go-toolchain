@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
@@ -73,14 +75,16 @@ func handleGoList(cfg runner.Config) (runner.IProcess, bool) {
 
 // setupMockProject creates a minimal Go project in the current directory so
 // that filesystem-based module path reading and main package discovery work.
-func setupMockProject() {
+func setupMockProject(t *testing.T) {
+	t.Helper()
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("pkg", 0755)
 	os.WriteFile("pkg/main.go", []byte("package main\n"), 0644)
+	// Without this, the build phase sends every pipeline test to buildhost.
+	stubForkToolchain(t)
 }
 
-// writeMockBuildOutput writes the file named by a go build's -o flag, as a
-// successful compiler does. The t-flavored variant is writeBuildOutput.
+// writeMockBuildOutput writes the -o file, as a real compiler does on success.
 func writeMockBuildOutput(cfg runner.Config, content string) {
 	for i, arg := range cfg.Args {
 		if arg == "-o" && i+1 < len(cfg.Args) {
@@ -89,10 +93,17 @@ func writeMockBuildOutput(cfg runner.Config, content string) {
 	}
 }
 
-// handleGoBuild leaves the -o target behind, as a successful compiler does;
-// every mock reaching the build phase needs it. newBuildFailMock answers ahead of it.
+// isGoBuild recognizes a `go build`.
+func isGoBuild(cfg runner.Config) bool {
+	// The fork's binary runs by absolute path, so the name is not the bare "go" IsCmd wants.
+	name := strings.TrimSuffix(filepath.Base(cfg.Name), ".exe")
+	return name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build"
+}
+
+// handleGoBuild leaves the -o target behind, as a compiler does on success;
+// every mock reaching the build phase needs it. newBuildFailMock takes precedence.
 func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
-	if !cfg.IsCmd("go", "build") {
+	if !isGoBuild(cfg) {
 		return nil, false
 	}
 	writeMockBuildOutput(cfg, "bin")
@@ -157,7 +168,7 @@ func newModTidyFailMock() *runner.Mock {
 func newBuildFailMock() *runner.Mock {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.IsCmd("go", "build") {
+		if isGoBuild(cfg) {
 			return runner.MockProcess(nil, fmt.Errorf("build failed")), nil
 		}
 		if cfg.IsCmd("go", "test") {
