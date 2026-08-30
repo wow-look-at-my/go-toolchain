@@ -95,6 +95,14 @@ gosmopolitan's crypt32 root-store work and its windows publish leg; this job
 goes green when that merges. It is the same blocker smoke-windows already
 reports, not a new one.
 
+Windows also failed the dirty-tree check on a line-ending difference rather than
+an edit. GitHub's windows image sets `core.autocrlf=true`, so the checkout wrote
+`go.mod` with CRLF and the Go tooling rewrote it with LF. `git status` called it
+modified, `git diff` normalized both sides and showed nothing, and
+`git update-index --refresh` settled it with `go.mod: needs update`. The
+repo-root `.gitattributes` pins the working tree to LF; every tracked text blob
+is already LF in the index, so nothing but a Windows checkout changes.
+
 **macOS is red on this repo's own test budget, not on anything cosmo.** The test
 phase runs `go test -timeout=30s` (`testTimeout`, src/test/test.go), which is a
 per-BINARY clock rather than a per-test one. On linux this repo already spends
