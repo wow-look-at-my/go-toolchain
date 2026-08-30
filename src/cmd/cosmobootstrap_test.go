@@ -46,6 +46,11 @@ func setupCosmoTest(t *testing.T) (cacheDir string) {
 
 // makeCosmoTarball builds an in-memory tar.gz with the gosmopolitan layout
 // (top-level go/ directory containing bin/go).
+//
+// buildhost publishes what distpack made of a HOST build, so the binary
+// carries the host platform's executable name. Deriving that from the same
+// helper the bootstrap probes with keeps the fixture from asserting a name no
+// real archive for that host would use.
 func makeCosmoTarball(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -55,7 +60,8 @@ func makeCosmoTarball(t *testing.T) []byte {
 	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/", Typeflag: tar.TypeDir, Mode: 0755}))
 	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/bin/", Typeflag: tar.TypeDir, Mode: 0755}))
 	content := []byte("#!/bin/sh\necho fake cosmo go\n")
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/bin/go", Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))}))
+	name := "go/bin/" + filepath.Base(cosmoGoBinPath("go"))
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))}))
 	_, err := tw.Write(content)
 	require.NoError(t, err)
 	require.NoError(t, tw.Close())
@@ -287,6 +293,55 @@ func TestEnsureCosmoToolchainRejectsArchiveWithoutGo(t *testing.T) {
 	_, err := EnsureCosmoToolchain()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "go/bin/go")
+}
+
+// A windows host's published GOROOT carries go/bin/go.exe, because distpack
+// packages a host build. The cache probe reads the same name the download
+// probe does, so a warm cache is a hit rather than a re-download -- which is
+// what the closed server here proves.
+func TestEnsureCosmoToolchainCachesTheWindowsGoName(t *testing.T) {
+	setupCosmoTest(t)
+	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
+
+	body := makeCosmoTarball(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(body)
+	}))
+	defer srv.Close()
+	cosmoDownloadBase = srv.URL + "/gosmopolitan"
+
+	root, err := EnsureCosmoToolchain()
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(root, "bin", "go.exe"))
+
+	srv.Close()
+	cached, err := EnsureCosmoToolchain()
+	require.NoError(t, err)
+	assert.Equal(t, root, cached)
+}
+
+// An archive genuinely missing the toolchain is still refused, and the error
+// names the file it looked for under the host's own executable naming.
+func TestEnsureCosmoToolchainNamesTheWindowsGoNameWhenMissing(t *testing.T) {
+	setupCosmoTest(t)
+	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "go/", Typeflag: tar.TypeDir, Mode: 0755}))
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+	cosmoDownloadBase = srv.URL + "/gosmopolitan"
+
+	_, err := EnsureCosmoToolchain()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "go/bin/go.exe")
 }
 
 func TestSanitizeCacheKey(t *testing.T) {

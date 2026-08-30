@@ -73,7 +73,7 @@ func EnsureCosmoToolchain() (string, error) {
 
 	key := cosmoCacheKey(dlURL, branch)
 	goRoot := filepath.Join(cosmoCache, key, "go")
-	if _, statErr := os.Stat(filepath.Join(goRoot, "bin", "go")); statErr == nil {
+	if _, statErr := os.Stat(cosmoGoBinPath(goRoot)); statErr == nil {
 		ver, verErr := cosmoGoVersionFunc(goRoot)
 		if verErr != nil {
 			return "", fmt.Errorf("cached gosmopolitan toolchain at %s is broken: %w (delete it to re-download, or set %s to a local build)", goRoot, verErr, cosmoGorootEnv)
@@ -108,11 +108,11 @@ func useLocalCosmoGoroot(root string) (string, error) {
 	return root, nil
 }
 
-// cosmoGoBinPath returns the go binary path inside a GOROOT, honoring the
-// HOST platform's executable naming.
+// cosmoGoBinPath returns the go binary path inside a GOROOT, under the HOST's
+// executable naming, read from the seam that picks the download slot.
 func cosmoGoBinPath(root string) string {
 	goBin := filepath.Join(root, "bin", "go")
-	if hostos.GOOS() == "windows" {
+	if hostOS, _ := cosmoHostPlatformFunc(); hostOS == "windows" {
 		goBin += ".exe"
 	}
 	return goBin
@@ -223,8 +223,10 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	}
 	fmt.Fprintf(rawStderr, " %s\n", fmtDuration(time.Since(dlStart)))
 
-	if _, err := os.Stat(filepath.Join(tmpDir, "go", "bin", "go")); err != nil {
-		return fmt.Errorf("downloaded archive does not contain go/bin/go: %w", err)
+	// A host build, so the binary is go.exe on NT.
+	goBin := cosmoGoBinPath(filepath.Join(tmpDir, "go"))
+	if _, err := os.Stat(goBin); err != nil {
+		return fmt.Errorf("downloaded archive does not contain go/bin/%s: %w", filepath.Base(goBin), err)
 	}
 
 	dest := filepath.Join(cosmoCache, key)
