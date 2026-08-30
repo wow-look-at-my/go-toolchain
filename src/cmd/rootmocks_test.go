@@ -86,10 +86,8 @@ func setupMockProject(t *testing.T) {
 	stubVetPhase(t)
 }
 
-// stubVetPhase keeps a pipeline test off the real vet pass. vet loads the
-// package graph through x/tools, which spawns a go list subprocess per call,
-// and this package runs the pipeline dozens of times -- enough to exhaust the
-// test binary's budget on a slower host. src/vet covers the pass itself.
+// stubVetPhase keeps a pipeline test off the real vet pass: vet spawns a go
+// list per call, and this package runs the pipeline dozens of times.
 func stubVetPhase(t *testing.T) {
 	t.Helper()
 	old := vetRunFunc

@@ -3,7 +3,7 @@ package cmd
 import "os"
 
 // scratchBase answers a base a native tool can open, "" for os.MkdirTemp's
-// default. Why NT needs one: docs/CI.md.
+// default. Why NT needs this: docs/CI.md.
 func scratchBase(hostGOOS string) string {
 	if hostGOOS != "windows" {
 		return ""

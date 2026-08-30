@@ -23,9 +23,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
-// vetRunFunc is the vet phase, as a seam. vet loads the package graph through
-// x/tools, which spawns a go list per call; stubVetPhase keeps the pipeline
-// tests off it. src/vet covers the pass itself.
+// vetRunFunc is the vet phase, as a seam. Why: docs/CI.md.
 var vetRunFunc = vet.RunWithProgress
 
 // RunTestsWithCoverage runs go mod tidy, go vet, tests with coverage, and

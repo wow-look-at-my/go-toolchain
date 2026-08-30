@@ -115,19 +115,29 @@ the goroutine dump shows `Cmd.Wait` parked in `syscall.wait4`, so the child
 last `go: downloading` line precedes the timeouts by minutes.
 
 The 30s is deliberate and is not to be raised; the remedy is to make the two
-packages cheaper. Neither has a single `t.Parallel`, and two separate things
-block it. The visible one is the working directory: `os.Chdir`/`t.Chdir`
-appears in 26 of `src/cmd`'s test files and 9 of `src/vet`'s, and a test that
-calls `t.Chdir` may not call `t.Parallel`. Taking the directory as a parameter
-instead is what unblocks that half, and `dirtyDiffIn` is the worked example.
+packages cheaper. What made `src/cmd` expensive was not the tests but the phase
+they drove: every `runWithRunner` call ran the real vet pass, and vet loads the
+package graph through x/tools, which spawns a `go list` per call. The mock
+runner never saw those — `vet.RunWithProgress` is a direct package call — so a
+package that runs the pipeline dozens of times paid a subprocess each time, on
+a throwaway module nothing had cached. That is also what the macOS goroutine
+dump names: `gocommand.runCmdContext`.
 
-The harder one is process-wide state. The `TestRunWithRunner*` family assigns
-the package globals `jsonOutput` and `outputDir` and restores them in a defer,
-so two of them cannot run at once whatever happens to the chdir. Parallelizing
-that family means giving the run its configuration rather than reading it from
-package scope — a design change to `src/cmd`, not a mechanical sweep. Start
-there rather than on the chdirs, which are the cheaper half and do not on their
-own buy any parallelism.
+`vetRunFunc` (src/cmd/testphase.go) is the seam, and `stubVetPhase` fills it in
+from `setupMockProject`, the same shape as `ensureCosmoToolchainFunc` keeping
+the build phase off buildhost. Measured on linux, `test run src/cmd` went 25.1s
+→ 15.4s with total coverage unchanged at 84.6%: the stub still executes the
+call site, only the callee changes. `src/vet` is untouched by this and is now
+the slowest package at 19.0s.
+
+`src/vet` cannot take the same repair — loading real packages IS what it tests
+— so its remedy is parallelism, and two separate things block that. The visible
+one is the working directory: `os.Chdir`/`t.Chdir` appears in 9 of its test
+files, and a test that calls `t.Chdir` may not call `t.Parallel`. Taking the
+directory as a parameter is what unblocks that half; `dirtyDiffIn` is the
+worked example. The harder one is process-wide state, which in `src/cmd` is the
+`TestRunWithRunner*` family assigning the package globals `jsonOutput` and
+`outputDir`. Neither package has a single `t.Parallel` today.
 
 ## The three smoke jobs
 
