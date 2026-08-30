@@ -70,6 +70,54 @@ func TestCommentNumbersLeavesNamesAlone(t *testing.T) {
 	}
 }
 
+// TestCommentNumbersExemptsMoneyAndStatusCodes pins the carve-outs: a sum of
+// money states what something costs and a status code names a response, so
+// neither goes stale when the code below it grows.
+func TestCommentNumbersExemptsMoneyAndStatusCodes(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		text string
+	}{
+		{"a dollar amount", "// $1.43 would be the lie the report exists to stop"},
+		{"a bare dollar", "// renders $0 rather than an empty cell"},
+		{"a dollar boundary", "// under $1 the cents matter"},
+		{"a missing model", "// a 404 means the catalogue never heard of it"},
+		{"an auth failure", "// answers 401 when no credential was sent"},
+		{"a spent budget", "// 429 says the quota is gone, not that the key is bad"},
+		{"a gateway failure", "// retries a 502 and gives up on a 400"},
+		{"a redirect", "// follows the 302 to the static endpoint"},
+		{"a teapot", "// 418 is assigned, so it is exempt too"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Empty(t, commentNumbers(c.text))
+		})
+	}
+}
+
+// TestCommentNumbersCarveOutsAreNarrow pins what the carve-outs do NOT reach:
+// a number elsewhere in a sentence that also names money, a currency sign with
+// a space after it, a code the registry never assigned, and a status code
+// wearing anything else.
+func TestCommentNumbersCarveOutsAreNarrow(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{"a count beside an amount", "// $1 is the boundary, and 4 dp under it", "4"},
+		{"a spaced currency sign", "// costs $ 5 per call", "5"},
+		{"an unassigned code", "// answers 499 when the client vanished", "499"},
+		{"a code with an ordinal suffix", "// the 404th retry", "404"},
+		{"a longer number opening with a code", "// caps the body at 4040 bytes", "4040"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			found := commentNumbers(c.text)
+			require.Len(t, found, 1)
+			assert.Equal(t, c.want, found[0].text)
+		})
+	}
+}
+
 // TestCommentNumbersWarnsInEveryModule pins the severity: a stale count is
 // prose, so it never fails a build by itself, in org code or anywhere else.
 // The warnings budget is what turns a repo full of them red.

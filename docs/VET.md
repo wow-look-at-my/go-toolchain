@@ -393,6 +393,23 @@ name -- a marker strictly between word characters, as in `example.com/mod/v2`,
 compiler directive (`//go:build`, `//go:generate`) is machine text and is never
 reported, and a generated file is skipped entirely.
 
+### The carve-outs
+
+Two kinds of number are not counts of anything in the file, so the edit that
+adds an item below them cannot make them wrong. They are the whole list, and
+nothing else is exempt:
+
+- **A sum of money.** A currency sign against the digits, with no space
+  between, makes the token an amount: `$1.43`, `$0`, `under $1`. Only the
+  amount goes free -- in `renders 4 dp under $1`, the `$1` is exempt and the
+  `4` is a count like any other, and `costs $ 5` is a count too, because the
+  sign is not against the digits.
+- **An assigned HTTP status code.** The token must be nothing but a code the
+  IANA registry assigns, so `a 404 means the catalogue never heard of it` and
+  `retries a 502` stay. A number the registry does not assign (`499`), a code
+  wearing an ordinal (`the 404th retry`), and a longer number that merely
+  opens with one (`4040`) are all reported as before.
+
 ### Scope
 
 A finding is a WARNING, in every module -- unlike the set checks, org code is

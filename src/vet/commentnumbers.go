@@ -98,7 +98,7 @@ const nameMarkers = "._/:"
 func commentNumbers(text string) []commentToken {
 	var found []commentToken
 	for _, tok := range commentTokens(text) {
-		if hit, ok := tokenNumber(tok); ok {
+		if hit, ok := tokenNumber(text, tok); ok {
 			found = append(found, hit)
 		}
 	}
@@ -134,9 +134,15 @@ func isNameRune(r rune) bool {
 }
 
 // tokenNumber reports the number a token carries, if it carries any.
-func tokenNumber(tok commentToken) (commentToken, bool) {
+func tokenNumber(text string, tok commentToken) (commentToken, bool) {
 	if strings.Contains(tok.text, "://") {
 		return commentToken{}, false // the digits of a URL are part of it
+	}
+	if isMoney(text, tok) {
+		return commentToken{}, false // a sum of money is a value, not a count
+	}
+	if isHTTPStatus(tok.text) {
+		return commentToken{}, false // a status code names a response, not a count
 	}
 	if hit, ok := digitNumber(tok); ok {
 		return hit, true
@@ -145,6 +151,34 @@ func tokenNumber(tok commentToken) (commentToken, bool) {
 		return commentToken{}, false // sync.Once and net/http name themselves
 	}
 	return wordNumber(tok)
+}
+
+// isMoney reports whether a currency sign sits directly against the token's
+// digits. An amount is a value, and only the amount is exempt.
+func isMoney(text string, tok commentToken) bool {
+	if tok.offset == 0 || text[tok.offset-1] != '$' {
+		return false
+	}
+	return unicode.IsDigit(rune(tok.text[0]))
+}
+
+// httpStatusCodes are the codes the IANA HTTP Status Code Registry assigns. A
+// code names a response, so it is a value the protocol fixed rather than a
+// count of anything here. An unassigned number is not exempt: the registry is
+// the whole carve-out.
+var httpStatusCodes = set.Of(
+	"100", "101", "102", "103",
+	"200", "201", "202", "203", "204", "205", "206", "207", "208", "226",
+	"300", "301", "302", "303", "304", "305", "306", "307", "308",
+	"400", "401", "402", "403", "404", "405", "406", "407", "408", "409",
+	"410", "411", "412", "413", "414", "415", "416", "417", "418",
+	"421", "422", "423", "424", "425", "426", "428", "429", "431", "451",
+	"500", "501", "502", "503", "504", "505", "506", "507", "508", "510", "511",
+)
+
+// isHTTPStatus reports whether the token is nothing but an assigned code.
+func isHTTPStatus(text string) bool {
+	return httpStatusCodes.Contains(text)
 }
 
 // isQualifiedName reports whether a marker sits BETWEEN name characters, which
