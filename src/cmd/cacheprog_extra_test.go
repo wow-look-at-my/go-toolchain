@@ -50,6 +50,36 @@ func TestQuoteExeForGOCACHEPROG(t *testing.T) {
 	}
 }
 
+// TestNTPathFromPosix: a shell on NT launches the APE by a POSIX path, and
+// cmd/go there is native and cannot open one. smoke-windows died on
+// "fork/exec /d/a/...: The system cannot find the path specified".
+func TestNTPathFromPosix(t *testing.T) {
+	cases := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"/d/a/go-toolchain/gt-ape.exe", `d:\a\go-toolchain\gt-ape.exe`, true},
+		{"/C/Users/runner/gt.exe", `C:\Users\runner\gt.exe`, true},
+		{"/usr/local/bin/go-toolchain", "", false}, // a real POSIX path keeps its spelling
+		{`D:\a\gt.exe`, "", false},                 // already native
+		{"/d", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		got, ok := ntPathFromPosix(c.in)
+		assert.Equal(t, c.ok, ok, c.in)
+		assert.Equal(t, c.want, got, c.in)
+	}
+}
+
+// TestCacheProgCommandTranslatesForNT: the translation has to reach the value
+// cmd/go actually reads, not just exist beside it.
+func TestCacheProgCommandTranslatesForNT(t *testing.T) {
+	got, err := cacheProgCommand(cosmoOS, "windows", "/d/a/go-toolchain/gt-ape.exe")
+	require.NoError(t, err)
+	assert.Equal(t, `d:\a\go-toolchain\gt-ape.exe cacheprog`, got)
+}
+
 // TestCacheProgCommand pins the GOCACHEPROG launch command shapes: the bare
 // self-exec everywhere EXCEPT a cosmo APE on a macOS host, where a #!/bin/sh
 // wrapper re-execs the APE (the darwin kernel cannot execve the MZ polyglot
