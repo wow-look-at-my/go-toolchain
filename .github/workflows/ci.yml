@@ -205,6 +205,8 @@ jobs:
         env:
           # The cache changes how long this takes and never what it emits. see docs/CI.md
           GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
+          # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
