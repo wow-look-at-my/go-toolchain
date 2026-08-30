@@ -33,6 +33,9 @@ func TestCommentNumbersReadsACount(t *testing.T) {
 		{"a spaced encoding", "// decodes UTF-8", "8"},
 		{"a version", "// present at otel v1.44.0", "44"},
 		{"a block comment", "/* holds two entries */", "two"},
+		{"a status code with no prefix", "// the proxy answers 403 here", "403"},
+		{"a count after the prefix", "// the HTTP 4 retries", "4"},
+		{"a count after a section citation", "// §7.3 covers 4 shapes", "4"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			found := commentNumbers(c.text)
@@ -62,6 +65,11 @@ func TestCommentNumbersLeavesNamesAlone(t *testing.T) {
 		{"a camel case name", "// oneShot runs the probe"},
 		{"a longer word", "// someone reads this later"},
 		{"a format verb", "// %d formats the count"},
+		{"an http status", "// the proxy answers HTTP 403 for a private repo"},
+		{"a lowercase http status", "// returns http 200 with an empty body"},
+		{"an http status ending a sentence", "// the fetch fails with HTTP 404."},
+		{"a section citation", "// the encoding of §7.3 governs this"},
+		{"a spaced section citation", "// see § 4 of the specification"},
 		{"prose with no number", "// the analyzer reports what it finds"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -115,6 +123,7 @@ func TestCommentNumbersNamesTheRemedy(t *testing.T) {
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0].Message, `"twice" is a number in a comment`)
 	assert.Contains(t, warnings[0].Message, commentNumbersRemedy)
+	assert.Contains(t, warnings[0].Message, "slug", "a citation of a numbered section needs the slug remedy, not the rewrite one")
 }
 
 // TestCommentNumbersSkipsMachineText pins the comments that are not prose: a
