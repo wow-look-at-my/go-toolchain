@@ -92,10 +92,8 @@ with a raw `fmt.Fprintf(w.origStderr, ...)` (`src/cmd/watchdog.go`) that
 deliberately bypasses the logger, because the logger writes to the current
 `os.Stderr` — which is the watchdog's own monitored pipe, so routing the
 warning there would feed it back into `forward()` and reset the stall timer.
-Loud, red, `⚠`-prefixed, and uncounted. Likewise, a warning suppressed by
-`--log-level error/silent` is never counted (the budget gates what the user
-actually saw), and the `cacheprog` subprocess is a separate process whose
-warnings never reach this counter.
+Loud, red, `⚠`-prefixed, and uncounted. The `cacheprog` subprocess is a
+separate process whose warnings never reach this counter.
 
 A run that fails the gate while the log is full of STALLED lines usually has a
 shared root cause rather than a causal link — e.g. a slow cache-index fetch

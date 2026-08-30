@@ -208,7 +208,7 @@ coverage.
   additionally `:` -> `%3A`, `,` -> `%2C`), so multi-line messages annotate intact instead of truncating to their first line. `InitSubprocess` is the
   stderr-only, annotation-free mode for subprocesses whose stdout is a protocol channel -- used by the cacheprog subprocess (everything, including
   Info/Output, goes to stderr; annotations stay off regardless of GITHUB_ACTIONS). The global default logger is installed by `initLogging`
-  (`src/cmd/logging.go`, first thing in the root `PersistentPreRunE`) with level precedence: `--log-level` > `-v`/`--verbose` > `GOCACHE_DEBUG=1`
+  (`src/cmd/logging.go`, first thing in the root `PersistentPreRunE`) with level precedence: `-v`/`--verbose` > `GOCACHE_DEBUG=1`
   (maps to debug) > info. `src/cmd/logging.go` also holds the documented held-writer bypasses (`rawStderr`/`rawStdout`) for mid-line progress
   fragments and interactive prompts the logger's auto-newline and level filtering would corrupt or hide. **Warnings budget** (`warncount.go` +
   `src/cmd/warningsgate.go`): the budget counts DISTINCT messages -- byte-identical text folds into one `logger.WarnCount` with a repeat count, since
