@@ -224,10 +224,12 @@ coverage.
   argument or a return keeps it a slice — `validGOOS`'s `strings.Join` is the honest version of that. A parameter belongs to its caller. Depth:
   `docs/VET.md`
 - `src/vet/setfix.go` — the fixer both set checks share: `make`→`set.New[K]()`, an all-true or element literal→`set.Of[K](…)`, `m[k]=true` and
-  `append`→`Add`, a read and `slices.Contains`→`Contains`, `delete`→`Remove`, `len`→`Len`, `range`→`range …All()`, and the import. The type argument
+  `append`→`Add`, a read and `slices.Contains`→`Contains`, `delete`→`Remove`, `len`→`Len`, `range`→`range …All()`, and the import — into the files
+  that go on to SPELL `set.`, never one that merely gained a method call, because an unused import does not compile. The type argument
   is explicit, because `set.Of(1, 2)` off a `[]float64` literal infers `int`. ONE use with no set spelling blocks the whole variable — half a rewrite
-  does not compile — and so does a package-level variable this pass cannot see every use of (exported, or a directory holding a `_test.go` the plain
-  package variant does not carry). Depth: `docs/VET.md`
+  does not compile — and so does a package-level variable this pass cannot see every use of: an exported one, or a file this build configuration
+  excludes. An UNEXPORTED one is rewritten by whichever variant holds every file that can name it — tests load as their own variant, so the plain one
+  declines and the internal-test one does the work. Depth: `docs/VET.md`
 - `src/vet/writeruns.go` — the `writeruns` analyzer: three or more adjacent statements writing source-spelled text to ONE writer are a document
   nobody can read in the source, so the third and each later write WARNS and names `text/template`. Never a build failure by itself; a long run still
   fails through the warnings budget, which this repo's 25-write mermaid header did. A run ends at any other statement, at a different writer, and at
