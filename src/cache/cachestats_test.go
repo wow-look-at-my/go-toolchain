@@ -78,7 +78,6 @@ func TestServer_PutDedupDoesNotCountLocalHit(t *testing.T) {
 	require.Equal(t, uint32(1), lc.Stats.Puts.Load())
 }
 
-
 func TestSetHasRemote(t *testing.T) {
 	t.Parallel()
 	sockPath := testSocketPath(t, "stats.sock")

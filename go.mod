@@ -15,7 +15,7 @@ require (
 	github.com/wow-look-at-my/dats v0.0.0-20260829051643-8ddae59bfc77 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-mmap v0.0.0-20260824191519-1d122070e11e // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830070209-fcf3a2035bdb // go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830192305-84ca26c6535b // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260823195827-77471848149d // go-toolchain:auto-branch
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0

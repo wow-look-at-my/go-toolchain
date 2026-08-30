@@ -119,8 +119,8 @@ github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 h1:mi
 github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41/go.mod h1:7j8wbDwrqh+uJnlENqD5iwsgYkF4y3kIgremn/ctvVE=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260824191519-1d122070e11e h1:44ni+7knv8NQygWCnPshQrjATPBbQ4FGODS7e43EgDU=
 github.com/wow-look-at-my/go-mmap v0.0.0-20260824191519-1d122070e11e/go.mod h1:l7DeblP9e9S8Y0NHpVHuTS5QYFgu37wIcY/lXX8lY2E=
-github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830070209-fcf3a2035bdb h1:th48qyd0K+veRgKImCSgGvIqbXD1Ky4Gkr6ksRPqokM=
-github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830070209-fcf3a2035bdb/go.mod h1:BI/XsBo9rG7lyHeaUEq0RBzZPnOGNG/B0HojgZ19n7k=
+github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830192305-84ca26c6535b h1:EAXQx1fTFnf1utULQhg+c+LCHVuspk9g1Gn5dZDFLV0=
+github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830192305-84ca26c6535b/go.mod h1:BI/XsBo9rG7lyHeaUEq0RBzZPnOGNG/B0HojgZ19n7k=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260823195827-77471848149d h1:kBdQkCHd3PPiwNSBQu7KtTkjz7S3sHY6P6me/lqi8h4=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260823195827-77471848149d/go.mod h1:3j05MFMT9mnA+sOk8gfwDkQcfxnbxtDG5luYD5eoG6w=
 github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 h1:XQ7cCH5Ow4ZinZ20jBJCXvp91C9H6G74oeDFd9BBrnc=
