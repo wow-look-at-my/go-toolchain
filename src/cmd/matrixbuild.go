@@ -114,7 +114,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	cmd := runner.Cmd(forkGoBin, args...).
 		WithEnv("GOTOOLCHAIN", "local").
 		WithEnv("GOROOT", job.forkGoroot).
-		WithEnv("PATH", filepath.Join(job.forkGoroot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH")).
+		WithEnv("PATH", forkFirstPath(job.forkGoroot, os.Getenv("PATH"), hostos.GOOS())).
 		WithEnv("CGO_ENABLED", "0").
 		WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
 	if job.goos == cosmoOS {

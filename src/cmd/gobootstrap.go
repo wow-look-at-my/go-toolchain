@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -63,11 +64,21 @@ func EnsureGoVersion() error {
 	return nil
 }
 
+// forkFirstPath joins with the HOST's separator. An APE from a fork predating
+// the runtime-value fix carries the unix colon, which NT does not split on.
+func forkFirstPath(goRoot, rest, hostGOOS string) string {
+	sep := string(os.PathListSeparator)
+	if hostGOOS == "windows" {
+		sep = ";"
+	}
+	return filepath.Join(goRoot, "bin") + sep + rest
+}
+
 // useForkAsPipelineToolchain points this process and everything it spawns at
 // goRoot. GOTOOLCHAIN=local is the half that makes it stick: without it the go
 // command downloads a stock toolchain to satisfy a go.mod directive.
 func useForkAsPipelineToolchain(goRoot string) {
-	os.Setenv("PATH", filepath.Join(goRoot, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	os.Setenv("PATH", forkFirstPath(goRoot, os.Getenv("PATH"), hostos.GOOS()))
 	os.Setenv("GOROOT", goRoot)
 	os.Setenv("GOTOOLCHAIN", "local")
 }
