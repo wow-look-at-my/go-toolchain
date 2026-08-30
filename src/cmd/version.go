@@ -1,22 +1,17 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
 // buildVersion is derived from Go's built-in VCS stamping.
@@ -291,7 +286,6 @@ func fetchCommitsBehind(fromCommit, toCommit string) (int, error) {
 
 	return result.AheadBy, nil
 }
-
 
 func formatDuration(d time.Duration) string {
 	hours := int(d.Hours())

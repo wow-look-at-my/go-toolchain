@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
+
 // checkDirtyInCI returns an error if running in CI with a dirty working
 // tree, so binaries are never shipped built from uncommitted changes.
 //
