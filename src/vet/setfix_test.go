@@ -6,6 +6,8 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -148,6 +150,99 @@ func TestSetFixLeavesUnspellableUsesAlone(t *testing.T) {
 			require.Empty(t, setFixesFor(t, c.analyzer, src), "no file may be rewritten")
 		})
 	}
+}
+
+// TestSetFixReachesAPackageVariableUsedFromATestFile pins the variant rule.
+// Tests load as their own package variant, so the pass that cannot see the
+// test file's use must leave the variable alone, and the pass holding every
+// file must rewrite it. Blocking both is how a whole package of set-shaped
+// maps kept its warning and never got the fix.
+func TestSetFixReachesAPackageVariableUsedFromATestFile(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "main.go", "package main\n\n"+
+		"var wrappers = map[string]bool{\"env\": true}\n\n"+
+		"func isWrapper(s string) bool { return wrappers[s] }\n")
+	writeGoFile(t, dir, "main_test.go", "package main\n\nvar _ = wrappers[\"sudo\"]\n")
+
+	require.Empty(t, setFixesForFiles(t, MapSetAnalyzer, dir, "main.go"),
+		"the pass without the test file cannot see every use, so it must not rewrite")
+
+	fixes := setFixesForFiles(t, MapSetAnalyzer, dir, "main.go", "main_test.go")
+	require.Len(t, fixes, 2, "both files carry a use, so both get rewritten")
+	var buf bytes.Buffer
+	for _, f := range fixes {
+		require.NoError(t, f.Fprint(&buf))
+	}
+	got := string(buf.Bytes())
+	require.Contains(t, got, `set.Of[string]("env")`)
+	require.Contains(t, got, "wrappers.Contains(s)")
+	require.Contains(t, got, `wrappers.Contains("sudo")`)
+}
+
+// TestSetFixStopsAtAFileThisBuildExcludes pins the other half: a file the
+// build configuration left out holds uses the rewrite would not reach, and a
+// half-rewritten variable does not compile.
+func TestSetFixStopsAtAFileThisBuildExcludes(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "main.go", "package main\n\n"+
+		"var wrappers = map[string]bool{\"env\": true}\n\n"+
+		"func isWrapper(s string) bool { return wrappers[s] }\n")
+	writeGoFile(t, dir, "main_windows.go", "package main\n\nvar _ = wrappers[\"cmd\"]\n")
+
+	require.Empty(t, setFixesForFiles(t, MapSetAnalyzer, dir, "main.go"),
+		"an excluded file hides a use, so the variable must be left alone")
+}
+
+// TestSetFixIgnoresAnExternalTestFile pins the exemption: an external test
+// package reaches only exported names, so it can hold no use of this one.
+func TestSetFixIgnoresAnExternalTestFile(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "main.go", "package main\n\n"+
+		"var wrappers = map[string]bool{\"env\": true}\n\n"+
+		"func isWrapper(s string) bool { return wrappers[s] }\n")
+	writeGoFile(t, dir, "main_test.go", "package main_test\n")
+
+	require.NotEmpty(t, setFixesForFiles(t, MapSetAnalyzer, dir, "main.go"),
+		"an external test file cannot name an unexported variable")
+}
+
+func writeGoFile(t *testing.T, dir, name, src string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644))
+}
+
+// setFixesForFiles type-checks the named files from dir as one package and
+// returns the analyzer's fixes, so a pass can be given exactly the files a
+// real build variant would hold.
+func setFixesForFiles(t *testing.T, analyzer *analysis.Analyzer, dir string, names ...string) []*ASTFixes {
+	t.Helper()
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, name := range names {
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.ParseComments)
+		require.NoError(t, err)
+		files = append(files, f)
+	}
+
+	info := &types.Info{
+		Types: map[ast.Expr]types.TypeAndValue{},
+		Defs:  map[*ast.Ident]types.Object{},
+		Uses:  map[*ast.Ident]types.Object{},
+	}
+	conf := types.Config{Error: func(error) {}}
+	pkg, _ := conf.Check("main", fset, files, info)
+
+	result, err := analyzer.Run(&analysis.Pass{
+		Analyzer:  analyzer,
+		Fset:      fset,
+		Files:     files,
+		Pkg:       pkg,
+		Report:    func(analysis.Diagnostic) {},
+		TypesInfo: info,
+	})
+	require.NoError(t, err)
+	fixes, _ := result.([]*ASTFixes)
+	return fixes
 }
 
 // applySetFixes runs the analyzer and renders what its fixes produce.

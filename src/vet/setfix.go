@@ -2,12 +2,14 @@ package vet
 
 import (
 	"go/ast"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/astutil"
 )
@@ -30,9 +32,10 @@ type fileEdit struct {
 }
 
 // setFixable reports whether this pass sees every use of obj. A local
-// variable is used where it is declared. A package-level variable is reachable
-// from the package's test files, which this pass holds only when the package
-// has none, and from another package when it is exported.
+// variable is used where it is declared. An exported package-level variable is
+// reachable from another package, so it is never fixable here; an unexported
+// one is reachable from every file of its own package, so the pass must hold
+// them all.
 func setFixable(pass *analysis.Pass, obj types.Object) bool {
 	if obj == nil || pass.Pkg == nil {
 		return false
@@ -43,17 +46,49 @@ func setFixable(pass *analysis.Pass, obj types.Object) bool {
 	if obj.Exported() || len(pass.Files) == 0 {
 		return false
 	}
+	return passHoldsWholePackage(pass)
+}
+
+// passHoldsWholePackage reports whether pass.Files covers every file in the
+// package's directory that can name an unexported package-level identifier.
+//
+// Tests are loaded as their own variants, so the plain variant of a package
+// with an in-package test file does not hold that file and must not rewrite,
+// while the internal-test variant holds the lot and may. An external test file
+// (package `<name>_test`) reaches only exported names and so does not count.
+// Anything else missing -- a file this build configuration excludes -- hides a
+// use that the rewrite would leave uncompilable.
+func passHoldsWholePackage(pass *analysis.Pass) bool {
+	held := set.New[string]()
 	dir := filepath.Dir(pass.Fset.Position(pass.Files[0].Pos()).Filename)
+	for _, f := range pass.Files {
+		held.Add(filepath.Base(pass.Fset.Position(f.Pos()).Filename))
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
+	external := pass.Pkg.Name() + "_test"
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), "_test.go") {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || held.Contains(name) {
+			continue
+		}
+		if declaredPackageName(filepath.Join(dir, name)) != external {
 			return false
 		}
 	}
 	return true
+}
+
+// declaredPackageName returns the package a file declares, or the empty string
+// when it cannot be read.
+func declaredPackageName(path string) string {
+	f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly)
+	if err != nil || f.Name == nil {
+		return ""
+	}
+	return f.Name.Name
 }
 
 // initializedVars maps each initializer expression to the variable it
