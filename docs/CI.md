@@ -245,6 +245,32 @@ the run with a message saying so: since that path read no export data, neither
 Bounded by construction: the retry is a single call on the failure path, so it
 can happen at most once.
 
+## A test binary is built for the host, never for cosmo
+
+`runner.Config.WithHostTarget` assigns `GOOS`/`GOARCH` from `hostos.GOOS()` and
+`runtime.GOARCH` on every `go` invocation whose output has to RUN here: the test
+run, the benchmark run, the compile check, and the `go list` calls that choose
+what those cover.
+
+The fork's default `GOOS` is cosmo, and `go test` fork/execs the binary it just
+built. A fat APE bootstraps through a shell header, which `execve` never reads,
+so the kernel rejects it and every package fails identically:
+
+```
+fork/exec /tmp/go-buildNNN/b586/trace.test: exec format error
+FAIL	github.com/wow-look-at-my/go-toolchain/src/trace	0.000s
+```
+
+This is not a hole in the APE-only rule. That rule governs what the pipeline
+SHIPS (`docs/MATRIX.md`); a test binary is a throwaway that must execute on the
+machine that built it. The compiler is still the fork either way.
+
+Known gap: the up-to-date fast exit (`src/cmd/uptodate.go`) fingerprints the
+file list `go list` reports, and that list is per-GOOS. Vet reads the cosmo
+variant while the tests read the host variant, so a file excluded from the one
+`go list` it runs does not bust the fingerprint. Picking a variant is not the
+fix — the fingerprint has to cover both.
+
 ## Tidy self-heals against cache-served module-index damage
 
 `src/cmd/modindexretry.go`'s `runModTidy` detects cmd/go's `corrupt index`

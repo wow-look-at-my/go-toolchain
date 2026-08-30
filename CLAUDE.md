@@ -143,6 +143,11 @@ coverage.
   own `dats/`, since every suite there runs during this repo's linux self-build too. Only windows stays a documented no-op. New tests go AFTER the
   snapshot test: its INDEX names the committed golden file, so anything inserted before it renumbers the golden.
   `.dats` + `.golden` files feed `computeFingerprint` (uptodate.go), so suite/golden edits bust the "Up to date" fast-exit
+- `src/runner/runner.go` — `WithHostTarget()` assigns `GOOS`/`GOARCH` from `hostos.GOOS()` and `runtime.GOARCH` on every `go` invocation whose
+  output has to RUN here: the test run, the benchmark run, the compile check, and the `go list` calls choosing what those cover. The fork defaults
+  to `GOOS=cosmo` and `go test` fork/execs what it builds, which answers `exec format error` — an APE bootstraps through a shell header `execve`
+  never reads. The APE-only rule governs what SHIPS; a test binary is a throwaway that must run on the machine that built it, and the compiler is
+  the fork either way. Depth: `docs/CI.md`
 - `src/test/` — test runner, coverage parsing, watermark logic. The watermark's storage backend is platform-split: `xattr_unix.go` (`unix && !cosmo`,
   x/sys/unix xattrs; `isXattrNotFound` in the `_linux`/`_darwin` files), `xattr_windows.go` (NTFS ADS), and `xattr_cosmo.go` — GOOS=cosmo has no xattr
   wrappers in the fork's syscall package, so the attribute for target `/a/b` lives in a hidden sidecar file `/a/.b.xattr.<sanitized attr>` NEXT TO the

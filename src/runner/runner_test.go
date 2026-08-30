@@ -1,9 +1,12 @@
 package runner
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 func TestConfigIsCmd(t *testing.T) {
@@ -132,6 +135,21 @@ func TestConfigWithEnv(t *testing.T) {
 	goarch, _ := cfg.Env.Get("GOARCH")
 	assert.Equal(t, "linux", goos)
 	assert.Equal(t, "amd64", goarch)
+}
+
+// A test binary has to run on the machine that just built it. The fork
+// defaults to cosmo, and `go test` fork/execs what it builds, which a fat APE
+// answers with "exec format error" -- so the target is named, never inherited.
+func TestConfigWithHostTarget(t *testing.T) {
+	cfg := Cmd("go", "test").WithHostTarget()
+	goos, ok := cfg.Env.Get("GOOS")
+	require.True(t, ok, "GOOS must be assigned, not left to the fork's default")
+	assert.Equal(t, hostos.GOOS(), goos)
+	assert.NotEqual(t, "cosmo", goos, "a cosmo test binary cannot be exec'd")
+
+	goarch, ok := cfg.Env.Get("GOARCH")
+	require.True(t, ok)
+	assert.Equal(t, runtime.GOARCH, goarch)
 }
 
 func TestConfigWithQuiet(t *testing.T) {
