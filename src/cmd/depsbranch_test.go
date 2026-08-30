@@ -167,7 +167,11 @@ require github.com/wow-look-at-my/foo v0.0.0-20231114221320-abc123def456 // go-t
 	assert.False(t, changed)
 }
 
-func TestUpdateTrackedBranchDeps_IndirectSkipped(t *testing.T) {
+// An indirect org dependency with no direct require of its own -- the shape
+// github.com/wow-look-at-my/yaml-fixed hits as a transitive dependency of
+// go-git -- has no other line to ride along with, so its own marker is what
+// has to resolve it.
+func TestUpdateTrackedBranchDeps_ResolvesAStandaloneIndirectRequire(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -180,11 +184,37 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // indi
 `
 	os.WriteFile("go.mod", []byte(gomod), 0644)
 
+	fullHash := "abc123def456789012345678901234567890abcd"
 	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		if cfg.IsCmd("git", "ls-remote") {
+			require.Equal(t, "https://github.com/wow-look-at-my/foo", cfg.Args[1])
+			require.Equal(t, "refs/heads/v1", cfg.Args[2])
+			return runner.MockProcess([]byte(fullHash+"\trefs/heads/v1\n"), nil), nil
+		}
+		for _, arg := range cfg.Args {
+			if arg == "init" || arg == "fetch" {
+				return runner.MockProcess(nil, nil), nil
+			}
+			if arg == "log" {
+				return runner.MockProcess([]byte("1700000000\n"), nil), nil
+			}
+		}
+		return nil, nil
+	}
+
 	changed, err := UpdateTrackedBranchDeps(mock)
-	assert.NoError(t, err)
-	assert.False(t, changed)
-	assert.Equal(t, 0, len(mock.Calls()))
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	data, err := os.ReadFile("go.mod")
+	require.NoError(t, err)
+	f, err := modfile.Parse("go.mod", data, nil)
+	require.NoError(t, err)
+	require.Len(t, f.Require, 1)
+	assert.Contains(t, f.Require[0].Mod.Version, fullHash[:12])
+	assert.True(t, f.Require[0].Indirect, "the line stays indirect -- only its version and marker are this run's to move")
+	assert.Equal(t, "v1", trackedBranch(f.Require[0].Syntax))
 }
 
 func TestUpdateTrackedBranchDeps_GitFails(t *testing.T) {
