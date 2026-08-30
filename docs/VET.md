@@ -400,6 +400,12 @@ changes, while a bare `403` is the shape of a line number or a row count and
 is still reported. The exemption covers a status-code-width run of digits and
 nothing else, so `HTTP 4 retries` is a count and goes.
 
+A sum of money is exempt: a currency sign directly against the digits makes the
+token an amount, which states what something costs rather than counting what is
+below it -- `$1.43`, `$0`, `under $1`. Only the amount goes free, so `$1 is the
+boundary, and 4 dp under it` still reports the `4`, and `costs $ 5` reports the
+`5`, because the sign is not against the digits.
+
 A token holding `://` is a URL and is skipped whole, so citing an issue by its
 full address is how to keep a reference that carries a number. A qualified
 name -- a marker strictly between word characters, as in `example.com/mod/v2`,

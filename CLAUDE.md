@@ -245,7 +245,8 @@ coverage.
   name (`sha256`, `amd64`, `10ms`), as is a qualified name (`net/http`,
   `example.com/mod/v2`) and anything inside a URL, which is how a reference carrying a number survives. A section sign (`§7.3`, `§ 4`) exempts
   the number it introduces — the citation form for a document that publishes no slug — and `HTTP` immediately before a status-code-width digit
-  run exempts that code, so a bare `403` is still a count. A whole word naming a number is
+  run exempts that code, so a bare `403` is still a count. A currency sign against the digits exempts the amount (`$1.43`), which states a cost
+  rather than counting anything below it; `costs $ 5` is a count again. A whole word naming a number is
   reported, so `once` and `One` go and `someone` stays. Directives and generated files are skipped. A WARNING in every module — stale prose must
   not fail a build by itself, and the warnings budget is what turns a repo full of them red. A warning is spent per file:line, so a sentence
   naming several numbers costs one. No opt-out marker. Depth: `docs/VET.md`

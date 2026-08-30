@@ -36,6 +36,8 @@ func TestCommentNumbersReadsACount(t *testing.T) {
 		{"a status code with no prefix", "// the proxy answers 403 here", "403"},
 		{"a count after the prefix", "// the HTTP 4 retries", "4"},
 		{"a count after a section citation", "// §7.3 covers 4 shapes", "4"},
+		{"a count beside an amount", "// $1 is the boundary, and 4 dp under it", "4"},
+		{"a spaced currency sign", "// costs $ 5 per call", "5"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			found := commentNumbers(c.text)
@@ -70,6 +72,9 @@ func TestCommentNumbersLeavesNamesAlone(t *testing.T) {
 		{"an http status ending a sentence", "// the fetch fails with HTTP 404."},
 		{"a section citation", "// the encoding of §7.3 governs this"},
 		{"a spaced section citation", "// see § 4 of the specification"},
+		{"a dollar amount", "// $1.43 would be the lie the report exists to stop"},
+		{"a bare dollar", "// renders $0 rather than an empty cell"},
+		{"a dollar boundary", "// under $1 the cents matter"},
 		{"prose with no number", "// the analyzer reports what it finds"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
