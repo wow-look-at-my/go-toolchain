@@ -2,12 +2,14 @@ package vet
 
 import (
 	"go/ast"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/astutil"
 )
@@ -29,10 +31,9 @@ type fileEdit struct {
 	fix  ASTFix
 }
 
-// setFixable reports whether this pass sees every use of obj. A local
-// variable is used where it is declared. A package-level variable is reachable
-// from the package's test files, which this pass holds only when the package
-// has none, and from another package when it is exported.
+// setFixable reports whether this pass sees every use of obj. A local variable
+// is used where it is declared. An exported package-level variable is reachable
+// from another package, so it is never fixable here.
 func setFixable(pass *analysis.Pass, obj types.Object) bool {
 	if obj == nil || pass.Pkg == nil {
 		return false
@@ -43,17 +44,47 @@ func setFixable(pass *analysis.Pass, obj types.Object) bool {
 	if obj.Exported() || len(pass.Files) == 0 {
 		return false
 	}
+	return passHoldsWholePackage(pass)
+}
+
+// passHoldsWholePackage reports whether pass.Files covers every file in the
+// package's directory that can name an unexported package-level identifier.
+// Tests load as their own variant: the plain variant lacks the in-package test
+// files and must not rewrite, the internal-test variant holds them and may. An
+// external test file reaches only exported names, so it never counts. Any other
+// absent file -- excluded by this build configuration -- hides a use, and the
+// rewrite that misses it does not compile.
+func passHoldsWholePackage(pass *analysis.Pass) bool {
+	held := set.New[string]()
 	dir := filepath.Dir(pass.Fset.Position(pass.Files[0].Pos()).Filename)
+	for _, f := range pass.Files {
+		held.Add(filepath.Base(pass.Fset.Position(f.Pos()).Filename))
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
+	external := pass.Pkg.Name() + "_test"
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), "_test.go") {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || held.Contains(name) {
+			continue
+		}
+		if declaredPackageName(filepath.Join(dir, name)) != external {
 			return false
 		}
 	}
 	return true
+}
+
+// declaredPackageName returns the package a file declares, or the empty string
+// when it cannot be read.
+func declaredPackageName(path string) string {
+	f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly)
+	if err != nil || f.Name == nil {
+		return ""
+	}
+	return f.Name.Name
 }
 
 // initializedVars maps each initializer expression to the variable it
@@ -384,8 +415,10 @@ func method(id *ast.Ident, name string, args ...ast.Expr) *ast.CallExpr {
 	}
 }
 
-// setFixesByFile groups the edits per file and adds the set import to each
-// file it touches. A file that already spells something else "set" keeps its
+// setFixesByFile groups the edits per file, importing the set package into the
+// files that go on to name it. A file whose rewrite only calls methods on the
+// variable never spells the package, and an import it does not use is a
+// compile error. A file that already spells something else "set" keeps its
 // diagnostic and loses its fix.
 func setFixesByFile(pass *analysis.Pass, edits []fileEdit) []*ASTFixes {
 	byFile := make(map[*ast.File][]ASTFix)
@@ -397,10 +430,33 @@ func setFixesByFile(pass *analysis.Pass, edits []fileEdit) []*ASTFixes {
 		if !setNameFree(file) {
 			continue
 		}
-		astutil.AddImport(pass.Fset, file, setPackage)
+		if fixesNameSetPackage(fixes) {
+			astutil.AddImport(pass.Fset, file, setPackage)
+		}
 		result = append(result, &ASTFixes{File: file, Fset: pass.Fset, Fixes: fixes})
 	}
 	return result
+}
+
+// fixesNameSetPackage reports whether any replacement node qualifies an
+// identifier with the set package, which is what makes the import necessary.
+func fixesNameSetPackage(fixes []ASTFix) bool {
+	found := false
+	for _, fix := range fixes {
+		for _, node := range fix.NewNodes {
+			ast.Inspect(node, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return !found
+				}
+				if id, ok := sel.X.(*ast.Ident); ok && id.Name == setPkgName {
+					found = true
+				}
+				return !found
+			})
+		}
+	}
+	return found
 }
 
 // setNameFree reports whether "set" names the set package in file, or nothing at all.

@@ -27,7 +27,8 @@ const (
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
 
-	testTimeout = 30 * time.Second
+	// Bounds the run, and must clear the SLOWEST host: the windows leg killed src/cmd and src/vet here.
+	testTimeout = 2 * time.Minute
 )
 
 // TimelineRecorder records pipeline timeline entries. Satisfied by *summary.Timeline.
