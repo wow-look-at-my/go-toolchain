@@ -294,13 +294,20 @@ jobs:
           done
           exit $rc
 
-  # Cross-OS smoke of the actual release artifacts: download the build-output hand-off the... see docs/CI.md
-  smoke-linux:
+# One suite -- the union of the old per-OS fixtures -- run by ONE dats call on
+# every host: each runner executes every OS's assertions, and the ones
+# describing another host fail there by design. see docs/CI.md
+  smoke:
     needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
+    timeout-minutes: 30
     steps:
-      # Only for the dats fixture .github/dats-fixtures/*.dats copied in below -- this job otherwise... see docs/CI.md
+      # Only for the dats fixtures in .github/dats-fixtures/ -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
 
       # Explicit name on purpose: by this point the run holds SEVERAL hand-offs (host-go-toolchain... see docs/CI.md
@@ -323,67 +330,8 @@ jobs:
         with:
           args: '--no-sandbox test .github/dats-fixtures/smoke.dats'
 
-  # macos-latest is arm64, and darwin/arm64 is in the APE's platform set, so the APE is what... see docs/CI.md
-  smoke-macos:
-    needs: build
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      # Only for the dats fixture .github/dats-fixtures/*.dats copied in below -- this job otherwise... see docs/CI.md
-      - uses: actions/checkout@v7
-
-      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
-      - name: Download build outputs hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
-        with:
-          name: go-build-build
-          path: dist
-
-      # See smoke-linux for why this is a download, not a local build: no setup-go here,... see docs/CI.md
-      - name: Download socketharness hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
-        with:
-          name: socketharness-build
-          path: harness
-
-      # The outer run opts out so the pipeline test's own dats phase can sandbox the guard fixture... see docs/CI.md
-      - name: Union smoke suite
-        uses: wow-look-at-my/dats@master
-        with:
-          args: '--no-sandbox test .github/dats-fixtures/smoke.dats'
-
-  smoke-windows:
-    needs: build
-    runs-on: windows-latest
-    # A cold stdlib compile under the fork is slower on NT than on the other two hosts.
-    timeout-minutes: 30
-    steps:
-      # Only for the dats fixture .github/dats-fixtures/*.dats copied in below -- this job otherwise... see docs/CI.md
-      - uses: actions/checkout@v7
-
-      # Explicit name: multiple same-run hand-offs -- see smoke-linux.
-      - name: Download build outputs hand-off
-        uses: wow-look-at-my/actions@cache-download#latest
-        with:
-          name: go-build-build
-          path: dist
-
-      # NT has no dats action (its binary lands under a name NT cannot start),
-      # so dats runs by its plain filename here: the buildhost-download step
-      # below already names it dats.exe.
-      - name: Download dats
-        id: dats
-        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
-        with:
-          project: dats
-          path: dats.exe
-
-      # NT has no bwrap and no seatbelt, and windows-latest's docker serves windows containers... see docs/CI.md
-      - name: Union smoke suite
-        shell: bash
-        run: ./dats.exe --no-sandbox test .github/dats-fixtures/smoke.dats
   publish:
-    needs: [identical, smoke-linux, smoke-macos, smoke-windows]
+    needs: [identical, smoke]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
