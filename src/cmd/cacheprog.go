@@ -268,8 +268,10 @@ func enableCacheProg() error {
 // error". The fix wraps the APE in a #!/bin/sh script: the shell's ENOEXEC
 // fallback interprets the APE header directly.
 func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
-	if goos == cosmoOS && hostGOOS == "windows" {
-		exe = cosmoPathToNT(exe)
+	if hostGOOS == "windows" {
+		if native, ok := ntPathFromPosix(exe); ok {
+			exe = native
+		}
 	}
 	if goos != cosmoOS || hostGOOS != "darwin" {
 		return quoteExeForGOCACHEPROG(exe) + " cacheprog", nil
@@ -286,29 +288,18 @@ func cacheProgCommand(goos, hostGOOS, exe string) (string, error) {
 	return quoteExeForGOCACHEPROG(wrapper), nil
 }
 
-// cosmoPathToNT gives back the drive-letter path an APE reports as /d/a/x.exe
-// on NT. Cosmo libc opens that spelling; the native PE go command reading
-// GOCACHEPROG does not. No drive letter passes through.
-func cosmoPathToNT(p string) string {
-	if len(p) < 2 || p[0] != '/' || !isASCIILetter(p[1]) {
-		return p
+// ntPathFromPosix rewrites a shell's POSIX spelling (/d/a/x) into the native
+// spelling (d:\a\x). cmd/go on NT is native and cannot open the POSIX form.
+// filepath cannot do it: GOOS=cosmo makes the separator a forward slash.
+func ntPathFromPosix(p string) (string, bool) {
+	if len(p) < 3 || p[0] != '/' || p[2] != '/' {
+		return "", false
 	}
-	if len(p) > 2 && p[2] != '/' {
-		return p // "/dev/null", not a drive
+	drive := p[1]
+	if (drive < 'a' || drive > 'z') && (drive < 'A' || drive > 'Z') {
+		return "", false
 	}
-	nt := []byte{p[1] &^ 0x20, ':', '\\'}
-	for i := 3; i < len(p); i++ {
-		c := p[i]
-		if c == '/' {
-			c = '\\'
-		}
-		nt = append(nt, c)
-	}
-	return string(nt)
-}
-
-func isASCIILetter(c byte) bool {
-	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+	return string(drive) + ":" + strings.ReplaceAll(p[2:], "/", `\`), true
 }
 
 // quoteExeForGOCACHEPROG quotes an executable path for cmd/go's GOCACHEPROG
