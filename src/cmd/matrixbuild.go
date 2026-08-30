@@ -102,7 +102,7 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	}
 	// -o is the temp spelling; the commit below is what makes the target exist.
 	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
-	forkGoBin := filepath.Join(job.forkGoroot, "bin", "go")
+	forkGoBin := cosmoGoBinPath(job.forkGoroot)
 	// An ambient GOOS is the last way to ask for a native binary, so every variable below is assigned. No output has cgo.
 	cmd := runner.Cmd(forkGoBin, args...).
 		WithEnv("GOTOOLCHAIN", "local").

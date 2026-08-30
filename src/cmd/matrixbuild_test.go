@@ -62,6 +62,27 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 	assert.FileExists(t, job.outputPath, "the commit moved the build onto the target name")
 }
 
+// The compiler is a file on disk, and on a windows host that file is go.exe.
+// runBuild is the one place anything compiles, so a path spelled without the
+// suffix fails to exec every build on that host.
+func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
+	oldHost := cosmoHostPlatformFunc
+	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
+	t.Cleanup(func() { cosmoHostPlatformFunc = oldHost })
+
+	mock := runner.NewMock()
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+		writeMockBuildOutput(cfg, "bin")
+		return runner.MockProcess(nil, nil), nil
+	}
+	job := wasmJob(t, tmpOut(t))
+
+	require.NoError(t, runBuild(mock, job, nil))
+	calls := mock.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, filepath.Join(job.forkGoroot, "bin", "go.exe"), calls[0].Name)
+}
+
 func TestRunBuild(t *testing.T) {
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
