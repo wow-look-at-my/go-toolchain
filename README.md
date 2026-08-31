@@ -156,6 +156,12 @@ go-toolchain version json
 # Print the gosmopolitan release this host would build against
 go-toolchain version cosmo
 
+# Same, but fail if buildhost couldn't name a real release (CI's guarantee that every host uses the same compiler)
+go-toolchain version cosmo --require-release
+
+# Fail unless every named file is byte-identical to the first (CI's cross-host APE identity check)
+go-toolchain verify-identical linux=ape/linux/go-toolchain darwin=ape/darwin/go-toolchain
+
 # Create a GitHub release with checksums
 go-toolchain release --tag v1.0.0
 ```
@@ -200,6 +206,8 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - **`version`** — show build version and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, dates, staleness)
+  - `cosmo` — print the gosmopolitan release this host would build against (`--require-release` fails if it's not a real release)
+- **`verify-identical`** — fail unless every `<name>=<path>` argument names a byte-identical file
 
 ## OpenTelemetry trace export
 

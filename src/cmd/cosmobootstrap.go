@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -96,6 +97,9 @@ func EnsureCosmoToolchain() (string, error) {
 	logger.Info("cosmo-bootstrap: using %s from %s (%s)", key, goRoot, ver)
 	return goRoot, nil
 }
+
+// cosmoReleasePattern matches ResolveCosmoVersion's real-release shape, not its branch-key fallback.
+var cosmoReleasePattern = regexp.MustCompile(`^v[0-9]`)
 
 // ResolveCosmoVersion answers which buildhost release this host would build
 // against, without downloading it. CI resolves it up front and passes it on
