@@ -128,6 +128,12 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	// Namespaces fork-toolchain builds so they never share cache entries.
 	namespace := cache.CanonicalKeyNamespace(os.Getenv(cache.KeyNamespaceEnv))
 
+	// Which channels this process got, said before anything can fail: empty
+	// sockets mean the parent's environment never reached this child, and a
+	// run whose profile reports no cache activity is answered here.
+	logger.WithSubsystem("cache").Info("cacheprog start: namespace=%q daemon-sock=%q stats-sock=%q",
+		namespace, os.Getenv("GOCACHE_DAEMON_SOCK"), os.Getenv("GOCACHE_STATS_SOCK"))
+
 	// Fast path: proxy to a daemon instead of reloading the web index. Skip
 	// this for a namespaced cacheprog: the daemon is unnamespaced and would
 	// leak cache entries.
@@ -139,10 +145,6 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 		// Standalone costs this process its own index load, seconds of it on a big index. Say so rather than pay it quietly.
 		logger.WithSubsystem("cache").Warn("daemon at %s unreachable (%v); loading the index standalone", sock, err)
 	}
-
-	// Which channels this process got: empty sockets mean the parent's environment never reached this child.
-	logger.WithSubsystem("cache").Info("standalone: namespace=%q daemon-sock=%q stats-sock=%q",
-		namespace, os.Getenv("GOCACHE_DAEMON_SOCK"), os.Getenv("GOCACHE_STATS_SOCK"))
 
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 
@@ -261,6 +263,8 @@ func enableCacheProg() error {
 		return nil
 	}
 	os.Setenv("GOCACHEPROG", progCmd)
+	// Names the binary every go invocation will run as its cacheprog, beside the sockets it must find.
+	logger.WithSubsystem("cache").Info("wired GOCACHEPROG=%s daemon-sock=%s stats-sock=%s", progCmd, daemonSock, sockPath)
 	return nil
 }
 
