@@ -107,8 +107,12 @@ tests:
 		"!stderr":
 			- "refused to run"
 
-	- desc: agent output guard names opencode and deletes the module's build outputs
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({outputs.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=blind; n=unnamed; printf "%s" "$out" | grep -q "opencode" && n=named; d=nodelete; printf "%s" "$out" | grep -q "have been DELETED" && d=announced; printf "%s|%s|%s|%s|%s|%s\n" "$(uname -s)" "$g" "$bin" "$sums" "$n" "$d"'
+	# WHICH agent the message names is not asserted, for the reason
+	# dats/cli.dats gives: ancestry outranks the env marker, so a run started
+	# from inside another agent's session legitimately names that one. That the
+	# message names AN agent is the part that must hold.
+	- desc: agent output guard names the agent and deletes the module's build outputs
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({outputs.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=blind; n=unnamed; printf "%s" "$out" | grep -q "You are running under" && n=named; d=nodelete; printf "%s" "$out" | grep -q "have been DELETED" && d=announced; printf "%s|%s|%s|%s|%s|%s\n" "$(uname -s)" "$g" "$bin" "$sums" "$n" "$d"'
 	  timeout: 5m
 	  inputs:
 		env:
@@ -117,7 +121,7 @@ tests:
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|operative\\|deleted\\|kept\\|named\\|announced|(MINGW|MSYS|CYGWIN).*\\|blind\\|kept\\|kept\\|(named|unnamed)\\|nodelete)$"
+			0: "^((Linux|Darwin)\\|operative\\|deleted\\|kept\\|named\\|announced|(MINGW|MSYS|CYGWIN).*\\|blind\\|kept\\|kept\\|unnamed\\|nodelete)$"
 
 	# The other guard tests all hit the pipe allowance; CLAUDECODE discarding to
 	# /dev/null exercises the DIFFERENT sinkDiscard path -- a char device, which
