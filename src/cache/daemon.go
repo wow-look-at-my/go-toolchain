@@ -41,7 +41,7 @@ type Daemon struct {
 	latency   LatencyStats // web-op latencies of the shared WebBackend (wired a single time)
 	statsMu   sync.Mutex
 	statsConn net.Conn // persistent connection to parent's stats socket
-	// conns counts the clients that ever connected; zero means every cacheprog went standalone.
+	// conns counts the clients that ever connected; none means every cacheprog went standalone.
 	conns AtomicCounter
 }
 
@@ -141,9 +141,7 @@ func (d *Daemon) Close() {
 			ws := wb.SummarySnapshot()
 			// MissTotal excludes skipped-*: those already counted in MissNotInIndex.
 			missTotal := ws.MissTotal()
-			// Unconditional: an all-zero line beside a loaded index reports that
-			// the daemon served nobody, and suppressing it hid exactly that on a
-			// run whose profile then called the remote dead.
+			// An empty line beside a loaded index reports that the daemon served nobody; suppressing it hid that.
 			logger.Output("cacheprog: daemon clients=%d", d.conns.Load())
 			logger.Output("cacheprog: web summary: hits=%d puts=%d misses=%d (not-in-index=%d http-404=%d http-err=%d no-outputid=%d read-body=%d decompress=%d checksum=%d buildid=%d modindex=%d network=%d skipped-empty-index=%d skipped-not-in-index=%d skipped-batch-backoff=%d reclaimed-404=%d) put-skipped: known=%d modindex=%d buildid=%d",
 				ws.Hits, ws.Puts, missTotal, ws.MissNotInIndex, ws.MissHTTP404, ws.MissHTTPError, ws.MissNoOutputID, ws.MissReadBody, ws.MissDecompress, ws.MissChecksum, ws.MissBuildID, ws.MissModuleIndex, ws.MissNetwork, ws.SkippedEmptyIndex, ws.SkippedNotInIndex, ws.SkippedBatchBackoff, ws.Reclaimed404, ws.PutSkippedKnown, ws.PutRefusedModIndex, ws.PutRefusedBuildID)
