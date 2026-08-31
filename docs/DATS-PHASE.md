@@ -136,6 +136,20 @@ install cures it, and it stays fatal — degrading there would let a fixable
 setup gap turn every consuming repo's isolation off without anyone noticing.
 `TestDatsSandbox` pins all three cases.
 
+## Why the NT leg provisions no backend
+
+CI tried to give the windows leg a linux daemon through WSL, and the attempt is
+worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd`
+starts, and `docker info` answers — then every `docker run` dies in runc with
+`error during container init: fetch packet length from socket: recvfrom:
+invalid argument`. That daemon is worse than no daemon: it passes dats' probe,
+auto selects it, and every suite fails its setup command instead of taking the
+`ErrNoBackendOnHost` path above. WSL2 would work and cannot be had — a
+GitHub-hosted windows VM is already nested one level, and nested virtualization
+cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing,
+the runner's own daemon serves windows containers and is rejected by OSType,
+and the suites run on the host with the error-level lines above.
+
 ## How the run is configured
 
 - `Paths: []string{"dats"}` — the suite directory, nothing else.

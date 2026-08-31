@@ -229,22 +229,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
-      # bwrap is Linux and seatbelt is macOS, and the runner's own daemon serves windows containers, so the linux daemon comes from WSL.
-      - name: Provision the sandbox backend (docker, linux containers)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          wsl --set-default-version 1
-          wsl --install --no-launch --distribution Ubuntu-24.04
-          wsl --list --verbose
-          wsl -d Ubuntu-24.04 -u root -- bash -c "apt-get update && apt-get install -y docker.io"
-          wsl -d Ubuntu-24.04 -u root -- bash -c "setsid nohup dockerd --host=tcp://0.0.0.0:2375 --iptables=false --bridge=none > /var/log/dockerd.log 2>&1 < /dev/null & disown; sleep 5"
-          "DOCKER_HOST=tcp://127.0.0.1:2375" >> $env:GITHUB_ENV
-          $env:DOCKER_HOST = "tcp://127.0.0.1:2375"
-          $deadline = (Get-Date).AddMinutes(3)
-          while ((Get-Date) -lt $deadline) { docker info 2>$null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep -Seconds 5 }
-          docker info
-          docker pull golang:1.25
+      # The NT leg gets no backend step: a WSL1 dockerd answers `docker version` and then fails every run in runc, which is worse than no daemon. see docs/DATS-PHASE.md
 
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
