@@ -128,8 +128,11 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	// Namespaces fork-toolchain builds so they never share cache entries.
 	namespace := cache.CanonicalKeyNamespace(os.Getenv(cache.KeyNamespaceEnv))
 
-	// Said before anything can fail: empty sockets mean the parent's environment never reached this child.
-	logger.WithSubsystem("cache").Info("cacheprog start: namespace=%q daemon-sock=%q stats-sock=%q",
+	// Through rawStderr, not the logger: this line exists to explain a run whose
+	// cache did nothing, and a logger in an unexpected state is one of the things
+	// it has to be able to report. Empty sockets mean the parent's environment
+	// never reached this child.
+	fmt.Fprintf(rawStderr, "cacheprog start: namespace=%q daemon-sock=%q stats-sock=%q\n",
 		namespace, os.Getenv("GOCACHE_DAEMON_SOCK"), os.Getenv("GOCACHE_STATS_SOCK"))
 
 	// Fast path: proxy to a daemon instead of reloading the web index. Skip
