@@ -129,26 +129,29 @@ APE publishes under its own name, once.
 
 Every run ends by cache-uploading `build/` for downstream jobs.
 
-**Per-job name** — {% raw %}`go-build-${{ github.job }}`{% endraw %}, plus `.m<strategy.job-index>`
-for a matrix job:
+**Per-job+build name** — {% raw %}`go-build-${{ github.job }}`{% endraw %}, plus
+`.m<strategy.job-index>` for a matrix job and `.b<build>` for the build identity
+(the sanitized `working-directory`):
 
 ```
 {% raw %}
-name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}
-key:  cache-xfer-<run_id>-go-build-<job>[.m<idx>]-<run_attempt>
+name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}.b${{ steps.build-id.outputs.id }}
+key:  cache-xfer-<run_id>-go-build-<job>[.m<idx>].b<build>-<run_attempt>
 {% endraw %}
 ```
 
 The matrix and strategy contexts *are* evaluable inside composite steps (the
 runner's manifest schema allows both), and `matrix` is null for a non-matrix
-job, so those names stay byte-identical to what they were. The dot makes the
-suffix collision-proof against job ids, which cannot contain dots, and
-`job-index` is stable across re-run attempts, so cross-attempt restore fallback
-keeps working.
+job, so those suffixes collapse to the empty string for a single, non-matrix
+build. The dots make the suffixes collision-proof against job ids, which cannot
+contain dots, and `job-index` is stable across re-run attempts, so cross-attempt
+restore fallback keeps working.
 
-Being distinct per job *and* per matrix leg is the point: concurrent
-go-toolchain saves in one run — two jobs, or the legs of one matrix job — used
-to 409 on a shared key.
+Being distinct per job, per matrix leg, AND per build is the point: concurrent
+go-toolchain saves in one run — two jobs, the legs of one matrix job, or two
+go-toolchain invocations in the SAME job with different `working-directory`s —
+used to 409 on a shared key. The `.b<build>` suffix is what lets one job build
+two things (e.g. a plugin and the marketplace-build CLI) without colliding.
 
 **Downloading it** — `cache-download` with no `name` self-discovers the current
 run's hand-off through the run-scoped key prefix, and emits a `::notice` naming
@@ -169,19 +172,27 @@ build outputs, as this repo's own CI does — needs an explicit
 `name: go-build-<uploader job id>` (plus `.m<index>` for one leg of a matrix
 producer) on exactly those downloads.
 
-**Legacy bare alias** — a second save under the bare name `go-build`, for
+**Legacy per-job name** — a second save under the pre-build name
+`go-build-<job>[.m<idx>]`, for consumers that still download it (go-toolchain's
+own CI `smoke`/`publish` jobs, and any external caller that has not migrated to
+the job+build name). It is marked `continue-on-error`, because in a multi-build
+job the second save collides and the conflict is absorbed — first finisher wins,
+exactly like the bare alias. The strict per-job+build save stays the sole
+authoritative one.
+
+**Legacy bare alias** — a third save under the bare name `go-build`, for
 download-only consumers that still restore it (webhook-runner, buildhost,
 api-cli, github-state-mirror, publish-ghcr callers). It is preceded by a
 `::notice` deprecation annotation and marked `continue-on-error`, because a bare
 key is inherently racy in a multi-producer run: first finisher wins and the
-second save's conflict is absorbed. The strict per-job/per-leg save stays the
+second save's conflict is absorbed. The strict per-job+build save stays the
 sole authoritative one. Proposed for removal once those consumers migrate to
 `go-build-<uploader job id>`.
 
-**Why the name carries the job id and a leg index.** The hand-off runs on EVERY
-go-toolchain run, through the org cache-upload action, which replaces
-`actions/upload-artifact`: cache storage is free and artifact storage is billed.
-The name carries the calling job's id, so the cache key
+**Why the name carries the job id, a leg index, and a build identity.** The
+hand-off runs on EVERY go-toolchain run, through the org cache-upload action,
+which replaces `actions/upload-artifact`: cache storage is free and artifact
+storage is billed. The name carries the calling job's id, so the cache key
 (`cache-xfer-<run_id>-go-build-<job>-<run_attempt>`) is distinct per job.
 Concurrent jobs in one run, the standard linux plus darwin pattern, can then no
 longer collide. The old shared `go-build` name made the second finisher fail its
@@ -194,11 +205,17 @@ action-manifest schema allows both in step expressions. For a non-matrix job
 `matrix` is null, so the suffix collapses to the empty string and the non-matrix
 name stays byte-identical to what it was.
 
-The dot makes the suffix collision-proof against job ids. A job id cannot
-contain a dot, so `go-build-<jobA>.m<i>` can never equal, or restore-prefix
-shadow, any `go-build-<jobB>`. `job-index` is 0-based in matrix definition order
-and identical across re-run attempts of the same leg, which keeps
-cache-download's cross-attempt fallback working.
+`github.job` also does NOT distinguish two go-toolchain invocations in the SAME
+job, so the name additionally carries a build identity `.b<build>` derived from
+the `working-directory` input (slashes and dots replaced with `-`, default `.`
+becomes `root`). Two builds in one job therefore save distinct hand-offs and can
+no longer 409 on a shared key.
+
+The dots make the suffixes collision-proof against job ids. A job id cannot
+contain a dot, so `go-build-<jobA>.m<i>` or `go-build-<jobA>.b<build>` can never
+equal, or restore-prefix shadow, any `go-build-<jobB>`. `job-index` is 0-based in
+matrix definition order and identical across re-run attempts of the same leg,
+which keeps cache-download's cross-attempt fallback working.
 
 A downstream job cache-downloads with NO name, which self-discovers the current
 run's hand-off. That is the preferred mode when the run saves only one hand-off,
@@ -214,7 +231,7 @@ publish-ghcr callers. The alias keeps being saved until they migrate to
 `go-build-<uploader job id>`. In a multi-producer run, several go-toolchain jobs
 or the legs of one matrix job, the bare key is inherently racy, because the
 second save hits an existing entry. That step therefore tolerates failure instead
-of failing the job. The collision-free per-job and per-leg hand-off is the
+of failing the job. The collision-free per-job+build hand-off is the
 authoritative one. Remove the alias step once the named consumers migrate.
 
 ## 4. Autorelease, and the permissions it needs
