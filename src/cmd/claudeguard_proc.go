@@ -171,9 +171,9 @@ const guardInoperativeBanner = "\n%s⚠ go-toolchain's agent output guard is INO
 // anything that isn't a SOCK_STREAM/SOCK_DGRAM AF_UNIX socket.
 
 // pipePeerName returns the comm and pid of another process holding the same
-// pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends of
-// an anonymous pipe share an inode, so a process (other than us) whose fd
-// symlinks to the same target is the consumer.
+// pipe as target ("pipe:[inode]"), i.e. the reader on the far end. Both ends
+// of an anonymous pipe share an inode, so a match here can be the write end
+// too -- fdAccessMode below screens those out.
 func pipePeerName(target string) (comm string, pid int, ok bool) {
 	self := os.Getpid()
 	entries, err := os.ReadDir("/proc")
@@ -195,6 +195,9 @@ func pipePeerName(target string) (comm string, pid int, ok bool) {
 			if err != nil || link != target {
 				continue
 			}
+			if mode, modeOK := fdAccessMode(p, f.Name()); modeOK && mode == oAccModeWriteOnly {
+				continue
+			}
 			if c, _, ok := agent.CommPPID(p); ok {
 				return c, p, true
 			}
@@ -202,4 +205,33 @@ func pipePeerName(target string) (comm string, pid int, ok bool) {
 		}
 	}
 	return "", 0, false
+}
+
+// oAccModeMask and oAccModeWriteOnly are O_ACCMODE and O_WRONLY: fixed POSIX
+// values, read from /proc/pid/fdinfo.
+const (
+	oAccModeMask      = 0x3
+	oAccModeWriteOnly = 0x1
+)
+
+// fdAccessMode reads pid's fd's O_ACCMODE bits. A shell forks a command and
+// keeps its own stdout fd open, matching the same pipe string pipePeerName
+// scans for; this tells that write-end copy apart from the real reader.
+func fdAccessMode(pid int, fdName string) (mode int, ok bool) {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/fdinfo/" + fdName)
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		rest, found := strings.CutPrefix(line, "flags:")
+		if !found {
+			continue
+		}
+		flags, err := strconv.ParseInt(strings.TrimSpace(rest), 8, 64)
+		if err != nil {
+			return 0, false
+		}
+		return int(flags) & oAccModeMask, true
+	}
+	return 0, false
 }
