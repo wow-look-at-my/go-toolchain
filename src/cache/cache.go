@@ -71,6 +71,12 @@ type StatEvent struct {
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 
+	// Web carries a standalone cacheprog's whole web-tier summary, once, on
+	// close. A namespaced cacheprog never proxies to the daemon, so without
+	// this the parent's only web numbers come from a daemon that served none
+	// of the run -- and the build profile reports a live remote as dead.
+	Web *WebSummary `json:"web,omitempty"`
+
 	// Per-action outcome, piggybacked on the get/put counter events. All fields optional, so old senders and listeners stay wire-compatible.
 	Action  string `json:"a,omitempty"`  // truncated actionID (see truncateActionID)
 	Op      string `json:"op,omitempty"` // "get" | "put"
@@ -402,12 +408,18 @@ func (s *Server) lock(key string) *sync.Mutex {
 	return &s.locks[h%lockShards]
 }
 
-// flushLatency reports this Server's own trackers plus the shared HTTP pool
-// in standalone mode; in daemon mode the Daemon reports the pool instead.
+// flushLatency reports this Server's own trackers plus, in standalone mode,
+// the shared HTTP pool and the web tier's counters. In daemon mode the remote
+// is the Daemon's no-close wrapper rather than a *WebBackend, so the assertion
+// fails and the Daemon reports both itself -- which is what keeps a daemon
+// connection from double-counting the numbers the Daemon already owns.
 func (s *Server) flushLatency() {
 	snap := s.Latency.Snapshot()
+	ev := StatEvent{Latency: &snap}
 	if wb, ok := s.remote.(*WebBackend); ok {
 		snap.Pool = wb.Pool.Snapshot()
+		ws := wb.SummarySnapshot()
+		ev.Web = &ws
 	}
-	s.sendStat(StatEvent{Latency: &snap})
+	s.sendStat(ev)
 }

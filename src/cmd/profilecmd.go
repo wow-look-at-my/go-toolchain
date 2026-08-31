@@ -90,11 +90,7 @@ func emitBuildProfile() {
 		overflow = statsListener.ActionsOverflow()
 		totals = cacheTotalsFromStats(statsListener.Stats())
 	}
-	var web *cache.WebSummary
-	if cacheDaemon != nil {
-		web = cacheDaemon.WebSummary()
-	}
-	r := profile.BuildReport(profileGraph, outcomes, totals, web, overflow)
+	r := profile.BuildReport(profileGraph, outcomes, totals, runWebSummary(), overflow)
 	if !jsonOutput {
 		r.PrintConsole(os.Stdout)
 	}
@@ -104,6 +100,44 @@ func emitBuildProfile() {
 	if err := r.AppendStepSummary(); err != nil {
 		logger.Warn("⇒ Warning: build profile: step summary: %v", err)
 	}
+}
+
+// runWebSummary is the whole run's web tier, not one component's. A
+// namespaced cacheprog runs standalone and never touches the daemon, so a
+// pipeline whose every phase is namespaced leaves the daemon holding an index
+// it loaded and nothing else -- a live remote then reads as a dead one. Both
+// sources are folded together, and nothing is double counted because a daemon
+// connection's Server reports no web summary at all.
+func runWebSummary() *cache.WebSummary {
+	var merged cache.WebSummary
+	first := true
+	for _, ws := range []*cache.WebSummary{daemonWebSummary(), listenerWebSummary()} {
+		if ws == nil {
+			continue
+		}
+		cache.MergeWebSummary(&merged, *ws, first)
+		first = false
+	}
+	if first {
+		return nil
+	}
+	return &merged
+}
+
+// daemonWebSummary is the daemon's own tier, final after its Close.
+func daemonWebSummary() *cache.WebSummary {
+	if cacheDaemon == nil {
+		return nil
+	}
+	return cacheDaemon.WebSummary()
+}
+
+// listenerWebSummary is what the standalone cacheprogs reported over the stats socket.
+func listenerWebSummary() *cache.WebSummary {
+	if statsListener == nil {
+		return nil
+	}
+	return statsListener.WebSummary()
 }
 
 // cacheTotalsFromStats converts the listener aggregate into the profile's

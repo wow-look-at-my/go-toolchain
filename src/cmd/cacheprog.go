@@ -132,10 +132,13 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	// this for a namespaced cacheprog: the daemon is unnamespaced and would
 	// leak cache entries.
 	if sock := daemonSockUnlessNamespaced(namespace); sock != "" {
-		if err := cache.ProxyToDaemon(sock); err == nil {
+		err := cache.ProxyToDaemon(sock)
+		if err == nil {
 			return nil
 		}
-		// Daemon unavailable — fall through to standalone mode.
+		// Standalone costs this process its own index load, seconds of it on a
+		// big index, once per go invocation. Say so rather than pay it quietly.
+		logger.WithSubsystem("cache").Warn("daemon at %s unreachable (%v); loading the index standalone", sock, err)
 	}
 
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
