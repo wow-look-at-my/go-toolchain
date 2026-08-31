@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Cmd is a GOCACHEPROG command verb.
@@ -70,6 +72,9 @@ type StatEvent struct {
 	BatchUse  uint32 `json:"bu,omitempty"` // prefetched entries this local hit read back
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
+
+	// Web is a standalone cacheprog's web tier, sent as it closes; nothing else tells the parent what the remote did for it.
+	Web *WebSummary `json:"web,omitempty"`
 
 	// Per-action outcome, piggybacked on the get/put counter events. All fields optional, so old senders and listeners stay wire-compatible.
 	Action  string `json:"a,omitempty"`  // truncated actionID (see truncateActionID)
@@ -130,17 +135,21 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 	}
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
-		if err == nil {
-			// Wait for the accept-ack: a unix dial succeeds before accept runs, so stat events could drop into an unread queue.
-			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-			var ack [1]byte
-			if _, err := conn.Read(ack[:]); err == nil {
-				conn.SetReadDeadline(time.Time{})
-				s.statsConn = conn
-			} else {
-				conn.Close()
-			}
+		if err != nil {
+			// Without this channel the parent's profile reports a working cache as an absent cache.
+			logger.WithSubsystem("cache").Warn("stats socket %s: %v; this process reports no counters", sock, err)
+			return s
 		}
+		// Wait for the accept-ack: a unix dial succeeds before accept runs, so stat events could drop into an unread queue.
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		var ack [1]byte
+		if _, err := conn.Read(ack[:]); err != nil {
+			logger.WithSubsystem("cache").Warn("stats socket %s never acked (%v); this process reports no counters", sock, err)
+			conn.Close()
+			return s
+		}
+		conn.SetReadDeadline(time.Time{})
+		s.statsConn = conn
 	}
 	return s
 }
@@ -402,12 +411,16 @@ func (s *Server) lock(key string) *sync.Mutex {
 	return &s.locks[h%lockShards]
 }
 
-// flushLatency reports this Server's own trackers plus the shared HTTP pool
-// in standalone mode; in daemon mode the Daemon reports the pool instead.
+// flushLatency reports this Server's trackers plus, in standalone mode, the
+// HTTP pool and the web tier. A daemon connection's remote is the no-close
+// wrapper, so the assertion fails and the Daemon reports those itself.
 func (s *Server) flushLatency() {
 	snap := s.Latency.Snapshot()
+	ev := StatEvent{Latency: &snap}
 	if wb, ok := s.remote.(*WebBackend); ok {
 		snap.Pool = wb.Pool.Snapshot()
+		ws := wb.SummarySnapshot()
+		ev.Web = &ws
 	}
-	s.sendStat(StatEvent{Latency: &snap})
+	s.sendStat(ev)
 }

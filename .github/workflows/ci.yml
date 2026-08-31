@@ -271,7 +271,7 @@ jobs:
 
   # One suite, every host: a host-specific answer is paired with uname inside the fixture. see docs/CI.md
   smoke:
-    needs: build
+    needs: [host-build, build]
     strategy:
       fail-fast: false
       matrix:
@@ -297,9 +297,11 @@ jobs:
           name: socketharness-build
           path: harness
 
-      # Sandboxed like every other suite: the pipeline test nests a dats phase inside this one... see docs/CI.md
+      # Sandboxed like every other suite, on the fork host-build resolved -- unpinned it downloads master and straddles two compilers. see docs/CI.md
       - name: Smoke suite
         uses: wow-look-at-my/dats@master
+        env:
+          GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
         with:
           tests: .github/dats-fixtures/smoke.dats
 
