@@ -136,9 +136,7 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
 		if err != nil {
-			// Losing this channel costs the parent every counter and every
-			// per-action outcome, so its build profile then reports a working
-			// cache as an absent one. Never lose it quietly.
+			// Without this channel the parent's profile reports a working cache as an absent cache.
 			logger.WithSubsystem("cache").Warn("stats socket %s: %v; this process reports no counters", sock, err)
 			return s
 		}
