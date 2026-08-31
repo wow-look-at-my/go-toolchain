@@ -115,7 +115,10 @@ coverage.
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see
   them) and run SANDBOXED and SERIAL; a failure fails the build. **A repo with suites but no `go.mod` runs them anyway** (`runDatsOnly`) instead of
-  erroring. Never turn the sandbox off here — that is the SUITE's declaration to make. Depth: `docs/DATS-PHASE.md`
+  erroring. The sandbox is never turned off by choice: `datsSandbox` asks dats for a backend and only a host that can have NONE
+  (`runner.ErrNoBackendOnHost` — an NT host, where bwrap is linux, seatbelt is macOS and the local daemon serves windows containers) runs on the
+  host, loudly, because refusing takes the suites away from the host they cover. A missing bwrap on linux is fixable and stays fatal. Depth:
+  `docs/DATS-PHASE.md`
 - `dats/` — this repo's own dats suite (`cli.dats` + committed `cli.snapshots/` goldens + README with the conventions): exercises the built binary's
   version/help surface, unknown-flag/-subcommand rejection (one stderr snapshot golden — regenerate with `dats --update test dats`), the
   agent-output-guard abort ("refused to run", exit 1, guard-positive via each agent's marker — `CLAUDECODE=1`, `GROK_AGENT=1`, `OPENCODE=1` — with

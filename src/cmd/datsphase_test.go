@@ -15,6 +15,33 @@ import (
 	datsrunner "github.com/wow-look-at-my/dats/runner"
 )
 
+// The suites are what a host is covered BY, so a host that can never sandbox
+// must still run them. A host merely missing bubblewrap must not: an install
+// fixes that, and dropping isolation there is how it stays missing.
+func TestDatsSandbox(t *testing.T) {
+	forceProbe := func(t *testing.T, err error) {
+		t.Helper()
+		previous := datsSandboxProbe
+		datsSandboxProbe = func() error { return err }
+		t.Cleanup(func() { datsSandboxProbe = previous })
+	}
+
+	t.Run("a host with a backend runs sandboxed", func(t *testing.T) {
+		forceProbe(t, nil)
+		assert.Equal(t, dats.Sandbox{}, datsSandbox(), "the zero Sandbox is auto")
+	})
+
+	t.Run("a host that can never sandbox runs on the host", func(t *testing.T) {
+		forceProbe(t, fmt.Errorf("%w: no usable sandbox backend", datsrunner.ErrNoBackendOnHost))
+		assert.Equal(t, datsrunner.SandboxNone, datsSandbox().Mode)
+	})
+
+	t.Run("a fixable gap keeps asking for a sandbox", func(t *testing.T) {
+		forceProbe(t, fmt.Errorf("no usable sandbox backend: bwrap: not found in $PATH"))
+		assert.Equal(t, dats.Sandbox{}, datsSandbox(), "installing bubblewrap fixes this, so the run must still fail")
+	})
+}
+
 func TestHasDatsSuites(t *testing.T) {
 	write := func(t *testing.T, dir, rel string) {
 		t.Helper()
