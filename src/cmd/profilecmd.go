@@ -90,11 +90,7 @@ func emitBuildProfile() {
 		overflow = statsListener.ActionsOverflow()
 		totals = cacheTotalsFromStats(statsListener.Stats())
 	}
-	var web *cache.WebSummary
-	if cacheDaemon != nil {
-		web = cacheDaemon.WebSummary()
-	}
-	r := profile.BuildReport(profileGraph, outcomes, totals, web, overflow)
+	r := profile.BuildReport(profileGraph, outcomes, totals, runWebSummary(), overflow)
 	if !jsonOutput {
 		r.PrintConsole(os.Stdout)
 	}
@@ -104,6 +100,42 @@ func emitBuildProfile() {
 	if err := r.AppendStepSummary(); err != nil {
 		logger.Warn("⇒ Warning: build profile: step summary: %v", err)
 	}
+}
+
+// runWebSummary is the whole run's web tier, not the share any component saw:
+// a namespaced cacheprog never touches the daemon, which then holds an index
+// and nothing else, and a live remote reads as dead. A daemon connection
+// reports no summary of its own, so the sources never restate each other.
+func runWebSummary() *cache.WebSummary {
+	var merged cache.WebSummary
+	fresh := true
+	for _, ws := range []*cache.WebSummary{daemonWebSummary(), listenerWebSummary()} {
+		if ws == nil {
+			continue
+		}
+		cache.MergeWebSummary(&merged, *ws, fresh)
+		fresh = false
+	}
+	if fresh {
+		return nil
+	}
+	return &merged
+}
+
+// daemonWebSummary is the daemon's own tier, final after its Close.
+func daemonWebSummary() *cache.WebSummary {
+	if cacheDaemon == nil {
+		return nil
+	}
+	return cacheDaemon.WebSummary()
+}
+
+// listenerWebSummary is what the standalone cacheprogs reported over the stats socket.
+func listenerWebSummary() *cache.WebSummary {
+	if statsListener == nil {
+		return nil
+	}
+	return statsListener.WebSummary()
 }
 
 // cacheTotalsFromStats converts the listener aggregate into the profile's

@@ -70,6 +70,10 @@ type StatsListener struct {
 	actionsMu       sync.Mutex
 	actions         map[string]*ActionOutcome
 	actionsOverflow uint64 // action IDs dropped after maxTrackedActions was hit
+
+	webMu  sync.Mutex
+	web    WebSummary
+	gotWeb bool // set as soon as a standalone cacheprog reports its web tier
 }
 
 // SetHasRemote marks a remote backend as configured, so Stats() includes
@@ -151,6 +155,9 @@ func (sl *StatsListener) handleConn(conn net.Conn) {
 			sl.latency.Merge(*ev.Latency)
 			sl.pool.Merge(ev.Latency.Pool)
 		}
+		if ev.Web != nil {
+			sl.recordWeb(*ev.Web)
+		}
 		if ev.Action != "" {
 			sl.recordAction(&ev)
 		}
@@ -202,6 +209,27 @@ func (sl *StatsListener) Actions() map[string]ActionOutcome {
 		out[k] = *v
 	}
 	return out
+}
+
+// recordWeb folds a standalone cacheprog's closing web summary into the run's
+// aggregate.
+func (sl *StatsListener) recordWeb(ws WebSummary) {
+	sl.webMu.Lock()
+	defer sl.webMu.Unlock()
+	MergeWebSummary(&sl.web, ws, !sl.gotWeb)
+	sl.gotWeb = true
+}
+
+// WebSummary returns what standalone cacheprogs reported, or nil when none
+// did -- they proxied to the daemon, which owns its own counters.
+func (sl *StatsListener) WebSummary() *WebSummary {
+	sl.webMu.Lock()
+	defer sl.webMu.Unlock()
+	if !sl.gotWeb {
+		return nil
+	}
+	ws := sl.web
+	return &ws
 }
 
 // ActionsOverflow returns how many distinct action IDs were dropped after the
