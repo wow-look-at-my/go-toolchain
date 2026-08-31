@@ -264,6 +264,8 @@ jobs:
         run: sha256sum ape/*/go-toolchain
 
       - name: Every host built the same bytes
+        env:
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: '1'
         run: |
           chmod +x ape/linux/go-toolchain
           ape/linux/go-toolchain verify-identical linux=ape/linux/go-toolchain darwin=ape/darwin/go-toolchain windows=ape/windows/go-toolchain
