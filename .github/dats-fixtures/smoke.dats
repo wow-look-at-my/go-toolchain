@@ -8,9 +8,13 @@
 # command prints the APE's answer and `uname -s` on one line, and the pattern
 # matches only the combinations that agree.
 #
-# Every leg runs it with --no-sandbox: the pipeline test drives go-toolchain,
-# whose own dats phase sandboxes the agent-output-guard fixture it stages, and
-# nesting a sandbox inside dats' outer run is what the opt-out avoids.
+# Every leg runs it SANDBOXED, like every other suite. The pipeline test drives
+# go-toolchain, whose own dats phase sandboxes the agent-output-guard fixture it
+# stages, so that phase resolves a backend inside this one -- a nested sandbox,
+# not an opt-out. Turning isolation off to dodge the nesting is not available
+# here and must not be reintroduced: the run-starter owns that decision, and the
+# suites exist to prove the shipped artifact behaves under the isolation a
+# consumer gets.
 #
 # The APE is copied under an .exe name on every host. NT needs the suffix, a
 # posix host does not care, and one name is what keeps this file host-agnostic.

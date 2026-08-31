@@ -747,12 +747,14 @@ detects, and the whole pipeline over a synthetic consumer. A
 workflow step schedules work; the harness holds the assertions, so
 an engineer can run them without pushing a commit.
 
-The run passes --no-sandbox, and that is not a shortcut. The
-pipeline test drives go-toolchain, whose OWN dats phase sandboxes
-the agent-output-guard fixture it stages, and nesting bwrap inside
-bwrap is what the opt-out avoids. The guard fixture's isolation is
-untouched. Only the RUN can make that choice, which is why the file
-does not try to.
+The run is SANDBOXED, like every other suite. The pipeline test
+drives go-toolchain, whose OWN dats phase sandboxes the
+agent-output-guard fixture it stages, so a backend is resolved
+inside this run's backend. That nesting is the cost of keeping the
+isolation, and keeping it is the point: the suites exist to prove
+the shipped artifact behaves under what a consumer gets. The dats
+action exposes no way to turn it off, and nothing here should ask
+for one.
 
 ### the APE detects a linux host by measurement
 
@@ -831,12 +833,11 @@ pipeline over a synthetic consumer, and the two unsandboxed socket
 cases. A workflow step schedules work; the harness holds the
 assertions.
 
-The run passes --no-sandbox, which is what lets the unsandboxed
-assertions live in a suite at all: a file may narrow its own
-sandbox but never turn it off, so only the RUN can decide this.
-The sandboxed twins still exist -- go-toolchain's own dats phase
-runs the guard fixture under seatbelt from inside the pipeline
-test.
+The run is sandboxed. A file may narrow its own sandbox and never
+turn it off, and the action offers no opt-out either, so every
+assertion here holds under the isolation a consumer gets --
+including the guard fixture go-toolchain's own dats phase runs
+from inside the pipeline test.
 
 ### the APE detects a darwin host by measurement
 
@@ -908,11 +909,13 @@ at RUNNER_TEMP/dats, and NT dispatches on the extension, so the
 name it chooses cannot be started here. The download names it
 dats.exe instead. Fixing the action upstream retires this step.
 
-The run passes --no-sandbox. dats' backends are bwrap,
-sandbox-exec and docker: NT has neither of the first two, and
-windows-latest's docker daemon serves windows containers, so no
-backend here can build a sandbox. That opt-out belongs to whoever
-starts the run, which is why the file itself cannot make it.
+dats' backends are bwrap, sandbox-exec and docker: NT has neither
+of the first two, and windows-latest's docker daemon serves
+windows containers, so no backend here can build one. dats marks
+that failure ErrNoBackendOnHost; go-toolchain's own dats phase
+reads the marker and runs the suites on the host, loudly. The dats
+ACTION has no such handling yet, so this leg is where that gap
+shows up -- the fix belongs there, never in an opt-out here.
 
 ### the shipped artifact carries the APE magic
 
