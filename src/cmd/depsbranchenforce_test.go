@@ -143,7 +143,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-t
 	}
 }
 
-// An indirect org require gets the same bare marker a direct one does: the
+// An indirect org require gets the same bare marker a direct require does: the
 // module is version-pinned exactly like a direct require, and it has no
 // direct require of its own to ride along with.
 func TestEnforceOrgBranchTrackingMarksAVersionPinnedIndirectOrgRequire(t *testing.T) {
@@ -162,7 +162,7 @@ require github.com/wow-look-at-my/foo v1.2.3 // indirect
 	assert.Equal(t, "// indirect; go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/foo"))
 }
 
-// A third-party indirect require is not this org's problem and is left alone.
+// An indirect require from outside the org is not this org's problem and is left alone.
 func TestEnforceOrgBranchTrackingLeavesAThirdPartyIndirectRequireAlone(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
@@ -269,8 +269,8 @@ replace github.com/wow-look-at-my/foo => ../foo
 	assert.Equal(t, "// indirect; go-toolchain:auto-branch", suffixFor(t, "wow-look-at-my/foo v1.2.3"))
 }
 
-// Both the direct sibling and the indirect one behind it get marked in the
-// same pass now -- neither needs the other to already be tracked.
+// The direct sibling and the indirect require behind it get marked in the
+// same pass -- neither needs the other to already be tracked.
 func TestEnforceOrgBranchTrackingMarksBothSidesOfASiblingPair(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module github.com/wow-look-at-my/repo/cli

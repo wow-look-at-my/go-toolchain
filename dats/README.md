@@ -79,17 +79,18 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   `GO_TOOLCHAIN_GITHUB_API_URL` the same way: the staleness footer is a
   separate query against api.github.com, and leaving it live makes that test's
   duration a network measurement.
-- The agent-output-guard tests in `cli.dats` assume a **linux host**, because
-  this suite only runs when this repo builds ITSELF, which only happens on
-  linux (`build`/`host-build`). darwin has its own real guard classifier
-  (`src/cmd/claudeguard_darwin.go`) and its own dats coverage, but that suite
-  cannot live under this repo's `dats/` — every suite here runs during this
-  repo's own linux self-build too, and a suite that execs a native darwin
-  binary would fail there. Instead it's a committed fixture,
-  `.github/dats-fixtures/smoke-macos-agent-output-guard.dats` (with a linux
-  sibling for the shipped APE), that the smoke-macos/smoke-linux jobs
-  (`.github/workflows/ci.yml`) run `actions/checkout` just to copy into a
-  throwaway module and run against the actual published binary.
+- The agent-output-guard tests in `cli.dats` name **no host**. `build-everywhere`
+  runs this repo's whole pipeline on linux, darwin and NT, so the suite runs on
+  all three; each guard test prints its answer next to `uname -s` and the
+  pattern accepts only the pairs that agree. That is what keeps one file
+  covering a guard whose correct answer differs by host — it refuses a captured
+  run where it can classify a descriptor, and says INOPERATIVE on an NT host
+  where it cannot. The SHIPPED artifact is a separate question, and a committed
+  fixture answers it:
+  `.github/dats-fixtures/agent-output-guard.dats` — one file for every host,
+  which every leg of the smoke job (`.github/workflows/ci.yml`) runs
+  `actions/checkout` just to copy into a throwaway module and run against the
+  actual published binary.
 - CI provisions **bubblewrap** before running the pipeline (`.github/workflows/ci.yml`,
   `host-build` and `build`), so suites run under the native Linux sandbox rather than
   the docker fallback, and an unusable bwrap fails the job instead of silently
