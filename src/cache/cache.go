@@ -71,8 +71,8 @@ type StatEvent struct {
 
 	Latency *LatencyStatsSnapshot `json:"lat,omitempty"` // flush latency on close
 
-	// Web carries a standalone cacheprog's whole web-tier summary, once, on
-	// close. A namespaced cacheprog never proxies to the daemon, so without
+	// Web carries a standalone cacheprog's whole web-tier summary, sent as it
+	// closes. A namespaced cacheprog never proxies to the daemon, so without
 	// this the parent's only web numbers come from a daemon that served none
 	// of the run -- and the build profile reports a live remote as dead.
 	Web *WebSummary `json:"web,omitempty"`

@@ -21,7 +21,7 @@ func TestMergeWebSummary_AddsCountersAndKeepsTheLargestIndex(t *testing.T) {
 	assert.Equal(t, uint32(5), dst.MissNotInIndex)
 	assert.Equal(t, uint32(5), dst.SkippedNotInIndex)
 	assert.Equal(t, uint32(2), dst.MissChecksum)
-	assert.Equal(t, 1200, dst.IndexKeys, "one index offered to every process: the largest view of it, never the sum")
+	assert.Equal(t, 1200, dst.IndexKeys, "the same index is offered to every process: the largest view of it, never the sum")
 	assert.True(t, dst.IndexAuthoritative)
 }
 
@@ -37,7 +37,7 @@ func TestMergeWebSummary_AuthoritativeNeedsEveryReporter(t *testing.T) {
 	var early WebSummary
 	MergeWebSummary(&early, WebSummary{IndexAuthoritative: false}, true)
 	MergeWebSummary(&early, WebSummary{IndexAuthoritative: true}, false)
-	assert.False(t, early.IndexAuthoritative, "the first summary must not be able to hide a later fallback")
+	assert.False(t, early.IndexAuthoritative, "an earlier summary must not be able to hide a later fallback")
 }
 
 func TestStatsListener_WebSummaryIsNilUntilStandaloneReports(t *testing.T) {
@@ -54,7 +54,7 @@ func TestStatsListener_WebSummaryIsNilUntilStandaloneReports(t *testing.T) {
 	assert.Equal(t, 10, got.IndexKeys)
 }
 
-// The load-bearing half: a standalone cacheprog is the only process that knows
+// The load-bearing half: nothing but the standalone cacheprog itself knows
 // what the remote did for it, so its close must carry those numbers to the
 // parent. Without this a run whose every phase is namespaced reports a live
 // remote as a dead one.

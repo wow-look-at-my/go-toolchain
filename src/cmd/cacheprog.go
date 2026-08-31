@@ -137,7 +137,7 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 		// Standalone costs this process its own index load, seconds of it on a
-		// big index, once per go invocation. Say so rather than pay it quietly.
+		// big index, per go invocation. Say so rather than pay it quietly.
 		logger.WithSubsystem("cache").Warn("daemon at %s unreachable (%v); loading the index standalone", sock, err)
 	}
 

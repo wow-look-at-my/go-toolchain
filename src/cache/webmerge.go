@@ -1,15 +1,15 @@
 package cache
 
-// MergeWebSummary folds src into dst. Counters add, because each standalone
-// cacheprog reports its own slice of one run. IndexKeys is the size of the
-// index every process was offered, so it takes the largest value seen rather
-// than a sum. IndexAuthoritative holds only while every reporter had an
-// authoritative index: one loader that fell back leaves the run without a
+// MergeWebSummary folds src into dst. Counters add, because every standalone
+// cacheprog reports its own slice of the same run. IndexKeys is the size of
+// the index each process was offered, so it takes the largest value seen
+// rather than a sum. IndexAuthoritative holds only while every reporter had an
+// authoritative index: a loader that fell back leaves the run without a
 // trustworthy view of what the remote holds.
 //
-// first says whether dst is still the zero accumulator, which is what lets
+// fresh says whether dst is still the zero accumulator, which is what lets
 // IndexAuthoritative start from src instead of from false.
-func MergeWebSummary(dst *WebSummary, src WebSummary, first bool) {
+func MergeWebSummary(dst *WebSummary, src WebSummary, fresh bool) {
 	dst.Hits += src.Hits
 	dst.Puts += src.Puts
 
@@ -36,7 +36,7 @@ func MergeWebSummary(dst *WebSummary, src WebSummary, first bool) {
 	if src.IndexKeys > dst.IndexKeys {
 		dst.IndexKeys = src.IndexKeys
 	}
-	if first {
+	if fresh {
 		dst.IndexAuthoritative = src.IndexAuthoritative
 	} else {
 		dst.IndexAuthoritative = dst.IndexAuthoritative && src.IndexAuthoritative

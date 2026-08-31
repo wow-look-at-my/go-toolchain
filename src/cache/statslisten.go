@@ -71,9 +71,9 @@ type StatsListener struct {
 	actions         map[string]*ActionOutcome
 	actionsOverflow uint64 // action IDs dropped after maxTrackedActions was hit
 
-	webMu   sync.Mutex
-	web     WebSummary
-	gotWeb  bool // a standalone cacheprog reported its web tier at least once
+	webMu  sync.Mutex
+	web    WebSummary
+	gotWeb bool // set as soon as a standalone cacheprog reports its web tier
 }
 
 // SetHasRemote marks a remote backend as configured, so Stats() includes
@@ -211,8 +211,8 @@ func (sl *StatsListener) Actions() map[string]ActionOutcome {
 	return out
 }
 
-// recordWeb folds one standalone cacheprog's closing web summary into the
-// run's aggregate.
+// recordWeb folds a standalone cacheprog's closing web summary into the run's
+// aggregate.
 func (sl *StatsListener) recordWeb(ws WebSummary) {
 	sl.webMu.Lock()
 	defer sl.webMu.Unlock()
