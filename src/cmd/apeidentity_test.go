@@ -40,6 +40,8 @@ func TestRunVerifyIdentical_AllMatch(t *testing.T) {
 }
 
 func TestRunVerifyIdentical_ReportsEveryMismatch(t *testing.T) {
+	// logger.Error routes to stdout as a ::error:: annotation under GITHUB_ACTIONS=true; pin non-GHA mode for stderr capture.
+	t.Setenv("GITHUB_ACTIONS", "")
 	dir := t.TempDir()
 	a := writeTempFile(t, dir, "a", []byte("reference"))
 	b := writeTempFile(t, dir, "b", []byte("different"))
@@ -56,6 +58,8 @@ func TestRunVerifyIdentical_ReportsEveryMismatch(t *testing.T) {
 }
 
 func TestRunVerifyIdentical_MissingFileNamesTheHost(t *testing.T) {
+	// logger.Error routes to stdout as a ::error:: annotation under GITHUB_ACTIONS=true; pin non-GHA mode for stderr capture.
+	t.Setenv("GITHUB_ACTIONS", "")
 	dir := t.TempDir()
 	a := writeTempFile(t, dir, "a", []byte("x"))
 
