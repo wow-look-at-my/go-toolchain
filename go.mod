@@ -12,7 +12,7 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/dats v0.0.0-20260831032616-7df5fdf9d8a4 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/dats v0.0.0-20260831102759-0db6094f7bea // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-mmap v0.0.0-20260824191519-1d122070e11e // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830192305-84ca26c6535b // go-toolchain:auto-branch
