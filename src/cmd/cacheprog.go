@@ -128,9 +128,7 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	// Namespaces fork-toolchain builds so they never share cache entries.
 	namespace := cache.CanonicalKeyNamespace(os.Getenv(cache.KeyNamespaceEnv))
 
-	// Which channels this process got, said before anything can fail: empty
-	// sockets mean the parent's environment never reached this child, and a
-	// run whose profile reports no cache activity is answered here.
+	// Said before anything can fail: empty sockets mean the parent's environment never reached this child.
 	logger.WithSubsystem("cache").Info("cacheprog start: namespace=%q daemon-sock=%q stats-sock=%q",
 		namespace, os.Getenv("GOCACHE_DAEMON_SOCK"), os.Getenv("GOCACHE_STATS_SOCK"))
 
