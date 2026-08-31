@@ -81,13 +81,25 @@ Every leg runs the SAME command, linux included, rather than reusing `build`'s
 result. That costs one extra build and buys an unambiguous gate: a difference
 is then the host, never the invocation. It also does not go through
 `uses: ./` — the composite action installs itself with `sudo`, which a Windows
-runner has not, which is why the smoke jobs stage the APE by hand too. Caching
-is off in this job: it changes how long a build takes and never what it emits,
-so leaving it out removes a variable rather than adding one.
+runner has not, which is why the smoke jobs stage the APE by hand too.
+
+The NT leg builds uncached, and the matrix says so with `uncached: '1'`, which
+reaches the step as `GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED`. The
+runner logs `GO_BUILDCACHE_CONFIG` in that step's environment and the APE then
+reports it unset, so the credential the job holds cannot be used there; without
+the flag the run refuses to start rather than building. The flag makes the run
+say what it lost on stderr instead. Caching changes how long a build takes and
+never what it emits, so the leg still answers the question this job asks.
 
 A missing hand-off fails rather than passing on the survivors: comparing the
 hosts that answered would report green for a property no host was checked on.
 `publish` needs `identical`, so a build that is not reproducible never ships.
+
+Both assertions live in `.github/dats-fixtures/`, not in the workflow:
+`identical.dats` asserts every host handed off an APE and that the bytes match,
+and `cosmo-version.dats` asserts `version cosmo` names a release rather than
+something a later leg would resolve differently. The jobs stage the files and
+invoke the suite; a workflow step schedules work and is not a test harness.
 
 One compiler builds all three. gosmopolitan publishes on every green push, so a
 run that spans a publish resolved a different fork on each leg and `identical`
@@ -247,33 +259,49 @@ Should someone pick up the isolation work anyway, for its own sake:
 per-backend directory on `WebConfig` would remove the environment half of the
 problem along with the reason those tests set `TMPDIR` at all.
 
-## The three smoke jobs
+## The smoke job
 
-Each is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
+It is one matrix job over ubuntu, macOS and Windows, and every leg runs the SAME
+file: `.github/dats-fixtures/smoke.dats`. One APE is what every host downloads,
+so the question is the same everywhere, and a per-host copy of the suite is how
+one host's coverage quietly falls behind another's.
+
+An answer that differs by host is asserted by PAIRING it with `uname -s` on one
+line — `host: windows ...|MINGW64_NT-10.0` — and matching only the combinations
+that agree. That keeps the assertion strong (a Linux answer on a mac still
+fails) without the file branching on where it runs. The same idiom carries the
+guard's two correct answers: a refusal on a host it can classify, the
+INOPERATIVE banner on one it cannot see into. The APE is copied under an `.exe`
+name on every host: NT needs the suffix and a posix host does not care.
+
+The guard regression staged into the pipeline test's module is one file too,
+`.github/dats-fixtures/agent-output-guard.dats`, merged from what used to be a
+linux copy and a macOS copy. It runs INSIDE the sandbox, so its host is Linux
+under a docker backend and Darwin under seatbelt, and the same uname pairing
+covers both.
+
+The job is `timeout-minutes`-bounded and downloads the `go-build-build` hand-off
 the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest`
 (run-keyed cross-OS cache wrapper; the download `path` is the destination
 directory). The action names its hand-off `go-build-<job id>` per calling job,
 with a `.m<job-index>` suffix per leg when the caller is a matrix job, so
 concurrent same-run saves never collide on one key.
 
-They EXECUTE throwaway copies of the artifacts in `dist/`, never the downloaded
-file itself.
-
-All three run the SAME file, `dist/go-toolchain` — there is one
-artifact now, and each job proves it boots on that host.
+The suite EXECUTES throwaway copies of the artifacts in `dist/`, never the
+downloaded file itself. Every leg runs the SAME file, `dist/go-toolchain` —
+there is a single artifact now, and each leg proves it boots on that host.
 
 **linux** — APE magic `MZqFpD`, then `version`, `--help`, host detection, and
 the FULL default pipeline in a tiny module under the APE. The agent-output-guard regression is a
 committed dats fixture
-(`.github/dats-fixtures/smoke-linux-agent-output-guard.dats`), copied into that
+(`.github/dats-fixtures/agent-output-guard.dats`), copied into that
 module's `dats/` dir and run automatically by the pipeline's dats phase — not
 hand-rolled bash, so it exercises the real released APE the same way a
 consumer's own build would.
 
 **macOS** — magic, `version`, and the FULL default pipeline under the APE, plus
-the darwin sibling of the guard fixture
-(`smoke-macos-agent-output-guard.dats`). This is the consumer-critical mac gate,
-and it is deliberately not reduced.
+the same guard fixture every other leg runs. This is the consumer-critical mac
+gate, and it is deliberately not reduced.
 
 It used to be: darwin/arm64 shipped as a native carve-out and the mac gate ran
 that binary, because a full pipeline WEDGED AT EXIT under the APE on macOS —
@@ -617,6 +645,15 @@ prints -- cache-satisfied percentage and the poison tripwires. High
 and zero mean a slow runner, and the limit is the thing to re-derive
 from fresh numbers; a real cache failure does not look like this.
 
+The tripwires themselves are asserted by
+`.github/dats-fixtures/cache-profile.dats`, run by the dats action in
+`host-build` the same way `identical.dats` and `smoke.dats` are run by
+their jobs. They were a workflow step once, which meant a push was the
+only way to reproduce a red; the fixture runs against any local
+`build/profile.json`. The second-build time limit above is still a
+workflow step, because asserting it means driving `go-toolchain` twice
+and timing it -- something the suite cannot do to the binary running it.
+
 ### Cross-compile socketharness
 
 socketharness reproduces a coding agent's own tool-execution plumbing
@@ -719,12 +756,14 @@ detects, and the whole pipeline over a synthetic consumer. A
 workflow step schedules work; the harness holds the assertions, so
 an engineer can run them without pushing a commit.
 
-The run passes --no-sandbox, and that is not a shortcut. The
-pipeline test drives go-toolchain, whose OWN dats phase sandboxes
-the agent-output-guard fixture it stages, and nesting bwrap inside
-bwrap is what the opt-out avoids. The guard fixture's isolation is
-untouched. Only the RUN can make that choice, which is why the file
-does not try to.
+The run is SANDBOXED, like every other suite. The pipeline test
+drives go-toolchain, whose OWN dats phase sandboxes the
+agent-output-guard fixture it stages, so a backend is resolved
+inside this run's backend. That nesting is the cost of keeping the
+isolation, and keeping it is the point: the suites exist to prove
+the shipped artifact behaves under what a consumer gets. The dats
+action exposes no way to turn it off, and nothing here should ask
+for one.
 
 ### the APE detects a linux host by measurement
 
@@ -803,12 +842,11 @@ pipeline over a synthetic consumer, and the two unsandboxed socket
 cases. A workflow step schedules work; the harness holds the
 assertions.
 
-The run passes --no-sandbox, which is what lets the unsandboxed
-assertions live in a suite at all: a file may narrow its own
-sandbox but never turn it off, so only the RUN can decide this.
-The sandboxed twins still exist -- go-toolchain's own dats phase
-runs the guard fixture under seatbelt from inside the pipeline
-test.
+The run is sandboxed. A file may narrow its own sandbox and never
+turn it off, and the action offers no opt-out either, so every
+assertion here holds under the isolation a consumer gets --
+including the guard fixture go-toolchain's own dats phase runs
+from inside the pipeline test.
 
 ### the APE detects a darwin host by measurement
 
@@ -829,7 +867,7 @@ the job's first real bootstrap, then tidy/vet/test/coverage/build,
 then the dats phase over the guard fixture staged beside the module.
 
 That guard regression is a committed dats fixture
-(.github/dats-fixtures/smoke-macos-agent-output-guard.dats), not
+(.github/dats-fixtures/agent-output-guard.dats), not
 hand-rolled bash: go-toolchain links dats in and runs any dats/
 suite found (recursively) in the module it is building -- there is
 no separate suite-running step, which is exactly why this fixture is
@@ -880,11 +918,13 @@ at RUNNER_TEMP/dats, and NT dispatches on the extension, so the
 name it chooses cannot be started here. The download names it
 dats.exe instead. Fixing the action upstream retires this step.
 
-The run passes --no-sandbox. dats' backends are bwrap,
-sandbox-exec and docker: NT has neither of the first two, and
-windows-latest's docker daemon serves windows containers, so no
-backend here can build a sandbox. That opt-out belongs to whoever
-starts the run, which is why the file itself cannot make it.
+dats' backends are bwrap, sandbox-exec and docker: NT has neither
+of the first two, and windows-latest's docker daemon serves
+windows containers, so no backend here can build one. dats marks
+that failure ErrNoBackendOnHost; go-toolchain's own dats phase
+reads the marker and runs the suites on the host, loudly. The dats
+ACTION has no such handling yet, so this leg is where that gap
+shows up -- the fix belongs there, never in an opt-out here.
 
 ### the shipped artifact carries the APE magic
 

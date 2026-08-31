@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,6 +12,7 @@ import (
 	"sync"
 
 	dats "github.com/wow-look-at-my/dats"
+	datsrunner "github.com/wow-look-at-my/dats/runner"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -171,6 +173,27 @@ func loudSandboxErr(err error) error {
 	return fmt.Errorf("%w\n%s", err, datsSandboxHint)
 }
 
+// datsSandboxProbe resolves dats' auto backend. Swapped in tests.
+var datsSandboxProbe = func() error {
+	_, err := datsrunner.NewSandboxConfig(datsrunner.SandboxAuto, "").Backend()
+	return err
+}
+
+// datsSandbox picks the isolation the suites run under: auto wherever a
+// backend can exist, the host where none can. Refusing on an NT host would
+// take the suites away from the host they exist to cover, so the phase says
+// what it lost and runs them. A missing bwrap on linux is fixable, carries no
+// marker, and stays fatal.
+func datsSandbox() dats.Sandbox {
+	err := datsSandboxProbe()
+	if err == nil || !errors.Is(err, datsrunner.ErrNoBackendOnHost) {
+		return dats.Sandbox{} // auto, and a fixable gap still fails the run
+	}
+	logger.Error("dats suites run UNSANDBOXED on this host: %v", err)
+	logger.Error("every suite still runs and every assertion still holds; what is gone is the isolation between a command and this machine")
+	return dats.Sandbox{Mode: datsrunner.SandboxNone}
+}
+
 // runDatsPhase runs the module's dats suites (if any) against the binaries
 // just built, in this process: go-toolchain links the dats library, so the
 // suite-presence gate is the only thing standing between a module and its
@@ -215,8 +238,9 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 	// GOCACHEPROG/GOCACHE_STATS_SOCK are cleared so a suite's `go` cannot
 	// reach the outer cacheprog daemon.
 	res, err := datsRunFunc(context.Background(), dats.Options{
-		Paths:  []string{datsSuiteDir},
-		Output: out,
+		Paths:   []string{datsSuiteDir},
+		Output:  out,
+		Sandbox: datsSandbox(),
 		Env: []string{
 			datsBuildDirEnv + "=" + buildDir,
 			"GOCACHEPROG=",

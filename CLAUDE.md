@@ -114,20 +114,24 @@ coverage.
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see
-  them) and run SANDBOXED and SERIAL; a failure fails the build. An unusable-sandbox error from `dats.Run` is rewritten to name the action prelude
-  and `vars.CI_RUNNER_DIND`. **A repo with suites but no `go.mod` runs them anyway** (`runDatsOnly`) instead of erroring. Never turn the sandbox off
-  here — that is the SUITE's declaration to make. Depth: `docs/DATS-PHASE.md`
+  them) and run SANDBOXED and SERIAL; a failure fails the build. The sandbox is never turned off by choice: `datsSandbox` asks dats for a backend and
+  only a host that can have NONE (`runner.ErrNoBackendOnHost` — an NT host, where bwrap is linux, seatbelt is macOS and the local daemon serves
+  windows containers) runs on the host, loudly, because refusing takes the suites away from the host they cover. A missing bwrap on linux is fixable
+  and stays fatal; an unusable-sandbox error from `dats.Run` is rewritten to name the action prelude and `vars.CI_RUNNER_DIND`. **A repo with suites
+  but no `go.mod` runs them anyway** (`runDatsOnly`) instead of erroring. Depth: `docs/DATS-PHASE.md`
 - `dats/` — this repo's own dats suite (`cli.dats` + committed `cli.snapshots/` goldens + README with the conventions): exercises the built binary's
   version/help surface, unknown-flag/-subcommand rejection (one stderr snapshot golden — regenerate with `dats --update test dats`), the
-  agent-output-guard abort ("refused to run", exit 1, guard-positive via each agent's marker — `CLAUDECODE=1`, `GROK_AGENT=1`, `OPENCODE=1` — with
+  agent-output-guard abort ("refused to run", guard-positive via each agent's marker — `CLAUDECODE=1`, `GROK_AGENT=1`, `OPENCODE=1` — with
   dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and that `version` is NOT exempt (only
   `cacheprog` is), and the update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
   so version tests assert only the stable `Version:`/`Commit:` lines), and that host detection is a MEASUREMENT rather than its linux fallback.
-  These guard tests assume a linux host, because this suite only runs when this repo builds ITSELF (`build`/`host-build`, linux-only). A macOS host
-  gets the sibling fixture `.github/dats-fixtures/smoke-macos-agent-output-guard.dats`, which smoke-macos (which runs `actions/checkout` for exactly
-  this) copies into a throwaway module and runs against the real published APE — a suite asserting darwin-host behavior cannot live under this repo's
-  own `dats/`, since every suite there runs during this repo's linux self-build too. Only windows stays a documented no-op. New tests go AFTER the
+  The guard tests are HOST-AGNOSTIC: `build-everywhere` runs this suite on all three hosts, and the guard is inoperative on NT, so each pairs its
+  answer with `uname -s` in one line (a refusal where a classifier exists, the INOPERATIVE banner where none does) rather than splitting into
+  per-host copies. Every copy of the binary lands under an `.exe` name for the same reason — NT needs the suffix, a posix host does not care, and
+  the staged name itself carries it there (`datsArtifactName`). `.github/dats-fixtures/agent-output-guard.dats` covers the PUBLISHED APE the same
+  way: `smoke.dats` copies it into a throwaway module so go-toolchain's own dats phase runs it on each host. New tests
+  go AFTER the
   snapshot test: its INDEX names the committed golden file, so anything inserted before it renumbers the golden.
   `.dats` + `.golden` files feed `computeFingerprint` (uptodate.go), so suite/golden edits bust the "Up to date" fast-exit
 - `src/runner/runner.go` — `WithHostTarget()` assigns `GOOS`/`GOARCH` from `hostos.GOOS()` and `runtime.GOARCH` on every `go` invocation whose
@@ -194,7 +198,7 @@ coverage.
   matrix runRelease; `--no-profile` opts out), `captureProfileTrace` (deferred in run() AFTER the WriteChrome defer so it runs first, stashing the
   parsed graph), and `emitBuildProfile` — called from `printCacheStats(close=true)` AFTER `cacheDaemon.Close()` and `statsListener.Close()`, so the
   web counters are post-drain-final and every per-action event has been delivered. CI gates on `build/profile.json` (poison tripwires + dead-remote
-  signature — see `.github/workflows/ci.yml`)
+  signature) through `.github/dats-fixtures/cache-profile.dats`, a suite an engineer can run against a local profile — not a workflow step
 - `src/trace/` — OpenTelemetry trace export for build pipeline timings. The OTLP/HTTP exporter construction is build-tag split: `provider_otlp.go`
   (`!cosmo`) is the real exporter; `provider_otlp_cosmo.go` is a span-dropping no-op because otlptracehttp's internal otlpconfig imports
   google.golang.org/grpc even for pure HTTP (known upstream issue, present at otel v1.44.0) and grpc cannot compile for cosmo — so **GOOS=cosmo
