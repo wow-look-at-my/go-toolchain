@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
 // Cmd is a GOCACHEPROG command verb.
@@ -133,17 +135,23 @@ func NewServer(local LocalStore, remote IBackend) *Server {
 	}
 	if sock := os.Getenv("GOCACHE_STATS_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
-		if err == nil {
-			// Wait for the accept-ack: a unix dial succeeds before accept runs, so stat events could drop into an unread queue.
-			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-			var ack [1]byte
-			if _, err := conn.Read(ack[:]); err == nil {
-				conn.SetReadDeadline(time.Time{})
-				s.statsConn = conn
-			} else {
-				conn.Close()
-			}
+		if err != nil {
+			// Losing this channel costs the parent every counter and every
+			// per-action outcome, so its build profile then reports a working
+			// cache as an absent one. Never lose it quietly.
+			logger.WithSubsystem("cache").Warn("stats socket %s: %v; this process reports no counters", sock, err)
+			return s
 		}
+		// Wait for the accept-ack: a unix dial succeeds before accept runs, so stat events could drop into an unread queue.
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		var ack [1]byte
+		if _, err := conn.Read(ack[:]); err != nil {
+			logger.WithSubsystem("cache").Warn("stats socket %s never acked (%v); this process reports no counters", sock, err)
+			conn.Close()
+			return s
+		}
+		conn.SetReadDeadline(time.Time{})
+		s.statsConn = conn
 	}
 	return s
 }

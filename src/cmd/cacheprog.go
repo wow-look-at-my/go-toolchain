@@ -140,6 +140,12 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 		logger.WithSubsystem("cache").Warn("daemon at %s unreachable (%v); loading the index standalone", sock, err)
 	}
 
+	// Which channels this process actually got. A run whose profile reports no
+	// cache activity is answered here: an empty daemon socket and an empty
+	// stats socket mean the parent's environment never reached this child.
+	logger.WithSubsystem("cache").Info("standalone: namespace=%q daemon-sock=%q stats-sock=%q",
+		namespace, os.Getenv("GOCACHE_DAEMON_SOCK"), os.Getenv("GOCACHE_STATS_SOCK"))
+
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
 
 	// The daemon path purges via NewLocalStore; standalone must do it itself.
