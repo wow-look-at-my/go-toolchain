@@ -40,9 +40,7 @@ func TestRunVerifyIdentical_AllMatch(t *testing.T) {
 }
 
 func TestRunVerifyIdentical_ReportsEveryMismatch(t *testing.T) {
-	// logger.Error reads GITHUB_ACTIONS at emit time and sends an annotation to
-	// STDOUT there instead. Left ambient, this asserts the stderr branch while
-	// running on the one machine that never takes it.
+	// Under GITHUB_ACTIONS logger.Error annotates STDOUT instead, so pin the branch.
 	t.Setenv("GITHUB_ACTIONS", "")
 	dir := t.TempDir()
 	a := writeTempFile(t, dir, "a", []byte("reference"))
@@ -59,8 +57,7 @@ func TestRunVerifyIdentical_ReportsEveryMismatch(t *testing.T) {
 	assert.Contains(t, stderr, "the windows build differs from the linux build")
 }
 
-// The branch CI itself takes, which nothing else asserts: a mismatch has to reach
-// the workflow log as an annotation, not merely fail the command.
+// The branch CI takes: a mismatch reaches the workflow log, not just the exit code.
 func TestRunVerifyIdentical_AnnotatesUnderGitHubActions(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "true")
 	dir := t.TempDir()
