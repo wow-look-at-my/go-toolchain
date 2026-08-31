@@ -128,14 +128,23 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	// Namespaces fork-toolchain builds so they never share cache entries.
 	namespace := cache.CanonicalKeyNamespace(os.Getenv(cache.KeyNamespaceEnv))
 
+	// Through rawStderr, not the logger: this line exists to explain a run whose
+	// cache did nothing, and a logger in an unexpected state is one of the things
+	// it has to be able to report. Empty sockets mean the parent's environment
+	// never reached this child.
+	fmt.Fprintf(rawStderr, "cacheprog start: namespace=%q daemon-sock=%q stats-sock=%q\n",
+		namespace, os.Getenv("GOCACHE_DAEMON_SOCK"), os.Getenv("GOCACHE_STATS_SOCK"))
+
 	// Fast path: proxy to a daemon instead of reloading the web index. Skip
 	// this for a namespaced cacheprog: the daemon is unnamespaced and would
 	// leak cache entries.
 	if sock := daemonSockUnlessNamespaced(namespace); sock != "" {
-		if err := cache.ProxyToDaemon(sock); err == nil {
+		err := cache.ProxyToDaemon(sock)
+		if err == nil {
 			return nil
 		}
-		// Daemon unavailable — fall through to standalone mode.
+		// Standalone costs this process its own index load, seconds of it on a big index. Say so rather than pay it quietly.
+		logger.WithSubsystem("cache").Warn("daemon at %s unreachable (%v); loading the index standalone", sock, err)
 	}
 
 	cacheDir := filepath.Join(cacheHome(), "buildcache")
@@ -255,6 +264,8 @@ func enableCacheProg() error {
 		return nil
 	}
 	os.Setenv("GOCACHEPROG", progCmd)
+	// Names the binary every go invocation will run as its cacheprog, beside the sockets it must find.
+	logger.WithSubsystem("cache").Info("wired GOCACHEPROG=%s daemon-sock=%s stats-sock=%s", progCmd, daemonSock, sockPath)
 	return nil
 }
 
