@@ -121,13 +121,8 @@ jobs:
         id: cosmo
         run: |
           set -euo pipefail
-          v="$(go-toolchain version cosmo)"
-          case "$v" in
-            v[0-9]*) ;;
-            *) echo "::error::buildhost did not name a gosmopolitan release (got '$v'), so each host would resolve its own"; exit 1 ;;
-          esac
-          echo "resolved gosmopolitan $v"
-          echo "version=$v" >> "$GITHUB_OUTPUT"
+          .github/scripts/assert-gosmopolitan-version.sh
+          echo "version=$(cat "$RUNNER_TEMP/gosmopolitan-version")" >> "$GITHUB_OUTPUT"
 
       # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
       - name: Cross-compile socketharness
@@ -276,23 +271,7 @@ jobs:
           path: ape/windows
 
       - name: Every host built the same bytes
-        run: |
-          set -uo pipefail
-          for o in linux darwin windows; do
-            if [ ! -f "ape/$o/go-toolchain" ]; then
-              echo "::error::$o handed off no APE, so identity across hosts is untested, not proven"
-              exit 1
-            fi
-          done
-          sha256sum ape/*/go-toolchain
-          rc=0
-          for o in darwin windows; do
-            cmp -s ape/linux/go-toolchain "ape/$o/go-toolchain" || {
-              echo "::error::the $o build differs from the linux build: the APE is one binary for every host, so every host has to produce it. Compare with cmp -l; the build-ID notes are what -trimpath and -ldflags=-buildid= exist to close (docs/MATRIX.md)"
-              rc=1
-            }
-          done
-          exit $rc
+        run: .github/scripts/assert-ape-identity.sh
 
 # One suite -- the union of the old per-OS fixtures -- run by ONE dats call on every host; each runner executes every OS's assertions, and the ones describing another host fail there by design. see docs/CI.md
   smoke:
