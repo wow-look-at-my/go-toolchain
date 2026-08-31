@@ -45,13 +45,8 @@ func setupCosmoTest(t *testing.T) (cacheDir string) {
 	return cacheDir
 }
 
-// makeCosmoTarball builds an in-memory tar.gz with the gosmopolitan layout
-// (top-level go/ directory containing bin/go).
-//
-// buildhost publishes what distpack made of a HOST build, so the binary
-// carries the host platform's executable name. Deriving that from the same
-// helper the bootstrap probes with keeps the fixture from asserting a name no
-// real archive for that host would use.
+// makeCosmoTarball builds an in-memory tar.gz in the gosmopolitan layout:
+// a top-level go/ directory holding bin/go.
 func makeCosmoTarball(t *testing.T) []byte {
 	t.Helper()
 	return makeCosmoTarballNamed(t, "go")

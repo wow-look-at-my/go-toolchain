@@ -9,8 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-toolchain/src/build"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
+
+// hostLinkName spells a link the way this host runs it: NT needs the .exe suffix.
+func hostLinkName(name string) string {
+	if hostos.GOOS() == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
 
 // wasmJob is a build job runBuild accepts, for tests about everything other
 // than which targets are allowed (that is TestRunBuildRefusesAnythingButThePortableTargets).
@@ -216,7 +225,7 @@ func TestCreateHostSymlinks(t *testing.T) {
 
 	require.NoError(t, createHostSymlinks(targets, tmpDir))
 
-	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
+	linkTarget, err := os.Readlink(filepath.Join(tmpDir, hostLinkName("mytool_host")))
 	assert.Nil(t, err)
 	assert.Equal(t, "mytool", linkTarget)
 
@@ -255,11 +264,11 @@ func TestCreateHostSymlinksReplacesStale(t *testing.T) {
 
 	// A previous run's APE, and a stale link left over from before it existed.
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "mytool"), []byte("APE"), 0755))
-	require.NoError(t, os.Symlink("old_target", filepath.Join(tmpDir, "mytool_host")))
+	require.NoError(t, os.Symlink("old_target", filepath.Join(tmpDir, hostLinkName("mytool_host"))))
 
 	require.NoError(t, createHostSymlinks(targets, tmpDir))
 
-	linkTarget, err := os.Readlink(filepath.Join(tmpDir, "mytool_host"))
+	linkTarget, err := os.Readlink(filepath.Join(tmpDir, hostLinkName("mytool_host")))
 	require.NoError(t, err)
 	assert.Equal(t, "mytool", linkTarget)
 }

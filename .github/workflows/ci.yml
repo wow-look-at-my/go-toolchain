@@ -59,38 +59,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: go run ./src
 
+      # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile
-        uses: wow-look-at-my/actions@typescript#latest
+        uses: wow-look-at-my/dats@master
         with:
-          script: |
-            // Assert on the first build's per-action profile.
-            const path = 'build/profile.json';
-            if (!fs.existsSync(path)) {
-              core.setFailed(`${path} missing — the build profile did not run`);
-            } else {
-              const p = JSON.parse(fs.readFileSync(path, 'utf-8'));
-              core.info(`profile: ${p.total_actions} actions (${p.executed_actions} executed), ` +
-                `${Number(p.cache_satisfied_pct).toFixed(0)}% cache-satisfied, ` +
-                `outcomes=${JSON.stringify(p.cache_outcomes)}`);
-              const web = p.web;
-              if (!web) {
-                core.info('no web tier configured; skipping web-cache assertions');
-              } else {
-                core.info(`web: hits=${web.hits} puts=${web.puts} index_keys=${web.index_keys} ` +
-                  `authoritative=${web.index_authoritative} put_refused_modindex=${web.put_refused_modindex}`);
-                core.info(`tripwires: checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}`);
-                // Any nonzero tripwire means the remote SERVED an object a client-side integrity guard had to refuse (checksum, build-id action, or module index), so the shared cache is carrying poison and needs inspecting. put_refused_modindex is deliberately NOT gated: refusing to UPLOAD module indexes is normal, and large on every cold run.
-                if (web.miss_checksum > 0 || web.miss_buildid > 0 || web.miss_modindex > 0) {
-                  core.setFailed(`cache poison tripwire: the remote served objects that failed integrity gates ` +
-                    `(checksum=${web.miss_checksum} buildid=${web.miss_buildid} modindex=${web.miss_modindex}) — inspect the cache server`);
-                }
-                // A populated advertised index yielding ZERO web hits on a fresh runner's first build is the dead-remote signature: the tier is serving nothing.
-                if (web.index_keys > 1000 && web.hits === 0) {
-                  core.setFailed(`dead-remote signature: ${web.index_keys} advertised index keys but zero web hits ` +
-                    `on the first build — the remote cache tier is serving nothing`);
-                }
-              }
-            }
+          tests: .github/dats-fixtures/cache-profile.dats
 
       - name: Cache validation (second build)
         # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
@@ -117,6 +90,11 @@ jobs:
           path: build/go-toolchain
 
       # Comparing three hosts' APEs says something only if one compiler built them. see docs/CI.md
+      - name: The release name is a release name
+        uses: wow-look-at-my/dats@master
+        with:
+          tests: .github/dats-fixtures/cosmo-version.dats
+
       - name: Pin the gosmopolitan release for this run
         id: cosmo
         run: |
@@ -187,12 +165,16 @@ jobs:
           - origin: linux
             runner: ubuntu-latest
             gt: gt-ape
+            uncached: ''
           - origin: darwin
             runner: macos-latest
             gt: gt-ape
+            uncached: ''
+          # The APE reads no GO_BUILDCACHE_CONFIG on an NT host: the runner logs the variable in this step's env, and the binary reports it unset. So this leg builds uncached and says so.
           - origin: windows
             runner: windows-latest
             gt: gt-ape.exe
+            uncached: '1'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -220,6 +202,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
+      # The NT leg gets no backend step: a WSL1 dockerd answers `docker version` and then fails every run in runc, which is worse than no daemon. see docs/DATS-PHASE.md
+
       - name: Download host binary
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -241,6 +225,8 @@ jobs:
           GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
+          # Set on the leg whose host cannot receive the credential; the run then warns instead of failing.
+          GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: ${{ matrix.uncached }}
         run: |
           set -euo pipefail
           "$RUNNER_TEMP/${{ matrix.gt }}" matrix --no-benchmark
@@ -257,6 +243,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Only for the dats fixture below -- this job otherwise runs no repo code.
+      - uses: actions/checkout@v7
+
       - name: Download each host's APE
         uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -271,12 +260,21 @@ jobs:
           name: ape-windows
           path: ape/windows
 
+      - name: What each host handed off
+        run: sha256sum ape/*/go-toolchain
+
       - name: Every host built the same bytes
         run: |
           chmod +x ape/linux/go-toolchain
           ape/linux/go-toolchain verify-identical linux=ape/linux/go-toolchain darwin=ape/darwin/go-toolchain windows=ape/windows/go-toolchain
 
-# One dats suite runs on every host; assertions for another host fail there by design. See docs/CI.md.
+      # A missing hand-off fails too: comparing the hosts that answered proves nothing. see docs/CI.md
+      - name: Every host built the same bytes
+        uses: wow-look-at-my/dats@master
+        with:
+          tests: .github/dats-fixtures/identical.dats
+
+  # One suite, every host: a host-specific answer is paired with uname inside the fixture. see docs/CI.md
   smoke:
     needs: build
     strategy:
@@ -304,11 +302,11 @@ jobs:
           name: socketharness-build
           path: harness
 
-      # The outer run opts out so the pipeline test's own dats phase can sandbox the guard fixture... see docs/CI.md
-      - name: Union smoke suite
+      # Sandboxed like every other suite: the pipeline test nests a dats phase inside this one... see docs/CI.md
+      - name: Smoke suite
         uses: wow-look-at-my/dats@master
         with:
-          args: '--no-sandbox test .github/dats-fixtures/smoke.dats'
+          tests: .github/dats-fixtures/smoke.dats
 
   publish:
     needs: [identical, smoke]

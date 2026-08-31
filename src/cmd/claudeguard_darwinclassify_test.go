@@ -38,9 +38,6 @@ func TestClassifyDarwinFD(t *testing.T) {
 			{"socket peer", func(p *darwinFDProbes) {
 				p.socketPeer = func() (int, bool, bool) { return 0, false, false }
 			}, sIFSOCK},
-			{"terminal test", func(p *darwinFDProbes) {
-				p.isTerminal = func() (bool, bool) { return false, false }
-			}, sIFCHR},
 			{"path", func(p *darwinFDProbes) {
 				p.path = func() (string, bool) { return "", false }
 			}, sIFREG},
@@ -191,6 +188,35 @@ func TestClassifyDarwinFD(t *testing.T) {
 			assert.True(t, ok)
 			assert.Equal(t, sinkDiscard, sink.kind)
 			assert.Equal(t, "/dev/null", sink.detail)
+		})
+
+		// An APE on a darwin host cannot ask TCGETS, and blind on a char device
+		// waves `> /dev/null` through. The device's own path decides instead.
+		t.Run("an unaskable terminal probe falls back to the device path", func(t *testing.T) {
+			p := okProbes(sIFCHR)
+			p.isTerminal = func() (bool, bool) { return false, false }
+			p.path = func() (string, bool) { return "/dev/null", true }
+			sink, ok := classifyDarwinFD(p)
+			assert.True(t, ok)
+			assert.Equal(t, sinkDiscard, sink.kind)
+			assert.Equal(t, "/dev/null", sink.detail)
+		})
+
+		t.Run("an unaskable terminal probe reads a tty path as visible", func(t *testing.T) {
+			p := okProbes(sIFCHR)
+			p.isTerminal = func() (bool, bool) { return false, false }
+			p.path = func() (string, bool) { return "/dev/ttys003", true }
+			sink, ok := classifyDarwinFD(p)
+			assert.True(t, ok)
+			assert.Equal(t, sinkVisible, sink.kind)
+		})
+
+		t.Run("an unaskable terminal probe with no path stays blind", func(t *testing.T) {
+			p := okProbes(sIFCHR)
+			p.isTerminal = func() (bool, bool) { return false, false }
+			p.path = func() (string, bool) { return "", false }
+			_, ok := classifyDarwinFD(p)
+			assert.False(t, ok)
 		})
 
 		// The path only names the device in the message, so losing it must not
