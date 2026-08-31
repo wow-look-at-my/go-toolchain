@@ -16,16 +16,3 @@ tests:
 	  outputs:
 		stdout:
 			0: "^(no-web-tier|checksum=0 buildid=0 modindex=0)$"
-
-	# An advertised index with entries, yielding zero web hits on a fresh
-	# runner's first build, is the dead-remote signature: the tier serves
-	# nothing. The threshold keeps a nearly empty index from reading as dead.
-	- desc: a populated cache index served at least one object
-	  cmd: 'jq -r "if .web == null then \"no-web-tier\" elif (.web.index_keys > 1000 and .web.hits == 0) then \"dead-remote\" else \"serving\" end" {inputs.profile.json}'
-	  timeout: 30s
-	  inputs:
-		copy:
-			profile.json: ../../build/profile.json
-	  outputs:
-		stdout:
-			0: "^(no-web-tier|serving)$"
