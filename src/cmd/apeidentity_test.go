@@ -40,34 +40,33 @@ func TestRunVerifyIdentical_AllMatch(t *testing.T) {
 }
 
 func TestRunVerifyIdentical_ReportsEveryMismatch(t *testing.T) {
-	// logger.Error routes to stdout as a ::error:: annotation under GITHUB_ACTIONS=true; pin non-GHA mode for stderr capture.
-	t.Setenv("GITHUB_ACTIONS", "")
 	dir := t.TempDir()
 	a := writeTempFile(t, dir, "a", []byte("reference"))
 	b := writeTempFile(t, dir, "b", []byte("different"))
 	c := writeTempFile(t, dir, "c", []byte("also different"))
 
-	var stderr string
 	var err error
-	stderr = captureStderr(t, func() {
+	// logger.Error goes to stdout as a ::error:: annotation under GITHUB_ACTIONS=true and to
+	// stderr otherwise. Capture both so the assertion holds in real CI and locally alike.
+	stdout, stderr := captureStdoutStderr(t, func() {
 		err = runVerifyIdentical(nil, []string{"linux=" + a, "darwin=" + b, "windows=" + c})
 	})
 	require.Error(t, err)
-	assert.Contains(t, stderr, "the darwin build differs from the linux build")
-	assert.Contains(t, stderr, "the windows build differs from the linux build")
+	out := stdout + stderr
+	assert.Contains(t, out, "the darwin build differs from the linux build")
+	assert.Contains(t, out, "the windows build differs from the linux build")
 }
 
 func TestRunVerifyIdentical_MissingFileNamesTheHost(t *testing.T) {
-	// logger.Error routes to stdout as a ::error:: annotation under GITHUB_ACTIONS=true; pin non-GHA mode for stderr capture.
-	t.Setenv("GITHUB_ACTIONS", "")
 	dir := t.TempDir()
 	a := writeTempFile(t, dir, "a", []byte("x"))
 
-	var stderr string
 	var err error
-	stderr = captureStderr(t, func() {
+	// logger.Error goes to stdout as a ::error:: annotation under GITHUB_ACTIONS=true and to
+	// stderr otherwise. Capture both so the assertion holds in real CI and locally alike.
+	stdout, stderr := captureStdoutStderr(t, func() {
 		err = runVerifyIdentical(nil, []string{"linux=" + a, "darwin=" + filepath.Join(dir, "missing")})
 	})
 	require.Error(t, err)
-	assert.Contains(t, stderr, "darwin handed off no APE")
+	assert.Contains(t, stdout+stderr, "darwin handed off no APE")
 }
