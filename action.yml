@@ -270,8 +270,25 @@ runs:
         fi
         timeout "${TIMEOUT_SECONDS}" go-toolchain matrix $ARGS
 
-    # The name must stay unique per job AND per matrix leg. see docs/ACTION.md
-    - name: Hand off build outputs (go-build-<job>)
+    # The name must stay unique per job, per matrix leg, AND per build (working-directory). see docs/ACTION.md
+    - name: Compute hand-off build identity
+      id: build-id
+      shell: bash
+      run: |
+        wd="${{ inputs.working-directory }}"
+        id="$(printf '%s' "$wd" | tr '/.' '-' | sed -E 's/^-+//; s/-+$//')"
+        [ -n "$id" ] || id="root"
+        echo "id=$id" >> "$GITHUB_OUTPUT"
+
+    - name: Hand off build outputs (go-build-<job>.<build>)
+      uses: wow-look-at-my/actions@cache-upload#latest
+      with:
+        name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}.b${{ steps.build-id.outputs.id }}
+        path: ${{ inputs.working-directory }}/build
+
+    # Legacy per-job name, kept until consumers migrate to the job+build name. see docs/ACTION.md
+    - name: Hand off build outputs (legacy go-build-<job>)
+      continue-on-error: true
       uses: wow-look-at-my/actions@cache-upload#latest
       with:
         name: go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}
@@ -279,7 +296,7 @@ runs:
 
     - name: Deprecation notice (legacy go-build alias)
       shell: bash
-      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
+      run: echo "::notice title=go-toolchain hand-off deprecation::The bare 'go-build' cache hand-off is deprecated; migrate downloads to nameless self-discovery (cache-download with no name) or to 'go-build-<uploader job id>' (this run also saved 'go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}.b${{ steps.build-id.outputs.id }}'). Proposed alias removal after 2026-08-01, once webhook-runner, buildhost, api-cli, github-state-mirror and publish-ghcr callers migrate."
 
     # A racy legacy alias, kept until its consumers migrate. see docs/ACTION.md
     - name: Hand off build outputs (legacy go-build alias)
