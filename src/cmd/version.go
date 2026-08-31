@@ -115,16 +115,32 @@ func init() {
 			logger.Output("goos: %s, goarch: %s", runtime.GOOS, runtime.GOARCH)
 		},
 	})
+	var requireRelease bool
 	// Every host in a CI run must build against the same compiler. This
 	// prints the release to hand them through GO_TOOLCHAIN_COSMO_VERSION.
-	versionCmd.AddCommand(&cobra.Command{
+	cosmoCmd := &cobra.Command{
 		Use:   "cosmo",
 		Short: "Print the gosmopolitan release this host would build against",
-		Run: func(cmd *cobra.Command, args []string) {
-			logger.Output("%s", ResolveCosmoVersion())
-		},
-	})
+		RunE:  func(cmd *cobra.Command, args []string) error { return runVersionCosmo(requireRelease) },
+	}
+	cosmoCmd.Flags().BoolVar(&requireRelease, "require-release", false, "Fail if the resolved version is not a real numbered buildhost release")
+	versionCmd.AddCommand(cosmoCmd)
 	rootCmd.AddCommand(versionCmd)
+}
+
+// runVersionCosmo prints the resolved gosmopolitan version and, with
+// requireRelease, fails when it is a branch-key fallback rather than a real
+// numbered release -- CI's guarantee that every host resolves the same
+// compiler (docs/CI.md).
+func runVersionCosmo(requireRelease bool) error {
+	v := ResolveCosmoVersion()
+	logger.Output("%s", v)
+	if requireRelease && !cosmoReleasePattern.MatchString(v) {
+		// rawStderr, not logger.Error: the caller captures stdout as the version value.
+		fmt.Fprintf(rawStderr, "::error::buildhost did not name a gosmopolitan release (got %q), so each host would resolve its own\n", v)
+		return fmt.Errorf("resolved version %q is not a real gosmopolitan release", v)
+	}
+	return nil
 }
 
 type versionOutput struct {

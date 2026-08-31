@@ -121,11 +121,7 @@ jobs:
         id: cosmo
         run: |
           set -euo pipefail
-          v="$(go-toolchain version cosmo)"
-          case "$v" in
-            v[0-9]*) ;;
-            *) echo "::error::buildhost did not name a gosmopolitan release (got '$v'), so each host would resolve its own"; exit 1 ;;
-          esac
+          v="$(go-toolchain version cosmo --require-release)"
           echo "resolved gosmopolitan $v"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
@@ -275,28 +271,13 @@ jobs:
           name: ape-windows
           path: ape/windows
 
+      # The linux APE is itself a runnable cosmo binary, so it does its own check here.
       - name: Every host built the same bytes
         run: |
-          set -uo pipefail
-          for o in linux darwin windows; do
-            if [ ! -f "ape/$o/go-toolchain" ]; then
-              echo "::error::$o handed off no APE, so identity across hosts is untested, not proven"
-              exit 1
-            fi
-          done
-          sha256sum ape/*/go-toolchain
-          rc=0
-          for o in darwin windows; do
-            cmp -s ape/linux/go-toolchain "ape/$o/go-toolchain" || {
-              echo "::error::the $o build differs from the linux build: the APE is one binary for every host, so every host has to produce it. Compare with cmp -l; the build-ID notes are what -trimpath and -ldflags=-buildid= exist to close (docs/MATRIX.md)"
-              rc=1
-            }
-          done
-          exit $rc
+          chmod +x ape/linux/go-toolchain
+          ape/linux/go-toolchain verify-identical linux=ape/linux/go-toolchain darwin=ape/darwin/go-toolchain windows=ape/windows/go-toolchain
 
-# One suite -- the union of the old per-OS fixtures -- run by ONE dats call on
-# every host: each runner executes every OS's assertions, and the ones
-# describing another host fail there by design. see docs/CI.md
+# One dats suite runs on every host; assertions for another host fail there by design. See docs/CI.md.
   smoke:
     needs: build
     strategy:
