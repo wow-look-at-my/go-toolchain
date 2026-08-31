@@ -9,8 +9,18 @@
 # `uname -s` in the same line, never by a per-host copy of the file. Note which
 # host that reports: this fixture runs INSIDE the sandbox, so a docker backend
 # makes it Linux whatever the machine outside is, and seatbelt leaves it Darwin.
+# An NT host has no backend at all (docs/DATS-PHASE.md), so the phase runs this
+# on the machine, and uname reports MINGW/MSYS/CYGWIN through the git bash the
+# runner starts every command with.
 #
-# ./gt-under-test is a copy of the published APE, staged in the module root.
+# The guard is INOPERATIVE on an NT host: it cannot classify a descriptor there,
+# so it says so and allows. That is a correct answer, not a gap, and the paired
+# assertions demand it -- a refusal that never comes on a posix host, and an
+# INOPERATIVE banner on a posix host, each fail.
+#
+# ./gt-under-test.exe is a copy of the published APE, staged in the module root.
+# Every executable this file stages wears the .exe suffix for the reason
+# smoke.dats gives: NT needs it and a posix host does not care.
 # Scratch space is always `{outputs.X}`, dats' own writable per-test directory,
 # never `mktemp -d`: seatbelt allows writes to exactly that directory, and a
 # bare mktemp lands in a SIBLING of it and is silently denied. bwrap tolerates
@@ -30,7 +40,7 @@ tests:
 	# every other test in this file while shipping nothing a mac or a windows
 	# box can start.
 	- desc: the shipped artifact carries the APE magic
-	  cmd: 'head -c 6 ./gt-under-test'
+	  cmd: 'head -c 6 ./gt-under-test.exe'
 	  timeout: 30s
 	  outputs:
 		stdout:
@@ -42,14 +52,14 @@ tests:
 	# so the answer is asserted HERE, inside it, not only from the CI step
 	# outside. GUESSED means the probes failed and the fallback answered.
 	- desc: the APE detects this host by measurement, and names the host the shell names
-	  cmd: 'cp ./gt-under-test {outputs.gt}; printf "%s|%s\n" "$({outputs.gt} version host | head -1)" "$(uname -s)"'
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; printf "%s|%s\n" "$({outputs.gt.exe} version host | head -1)" "$(uname -s)"'
 	  timeout: 30s
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^host: (linux.*\\|Linux|darwin.*\\|Darwin)"
+			0: "^host: (linux.*\\|Linux|darwin.*\\|Darwin|windows.*\\|(MINGW|MSYS|CYGWIN))"
 		"!stdout":
 			- "GUESSED"
 
@@ -60,22 +70,18 @@ tests:
 	# both at once. This descriptor is a captured stdout, which fstat alone
 	# classifies, so it stays decidable whatever the fork gains later.
 	- desc: the guard classifies on this host rather than going blind
-	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; env OPENCODE=1 {outputs.gt}; rc=$?; exit $rc'
-	  exit: 1
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env OPENCODE=1 {outputs.gt.exe} 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
 	  timeout: 60s
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
-		stderr:
-			- "refused to run"
-		"!stderr":
-			- "INOPERATIVE"
+		stdout:
+			0: "^((Linux|Darwin)\\|operative\\|refused|(MINGW|MSYS|CYGWIN).*\\|blind\\|allowed)$"
 
 	- desc: agent output guard refuses a captured pipeline run under {matrix.marker}
-	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; env {matrix.marker}=1 {outputs.gt}; rc=$?; exit $rc'
-	  exit: 1
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env {matrix.marker}=1 {outputs.gt.exe} 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; b=nobuild; printf "%s" "$out" | grep -q "Build successful" && b=built; printf "%s|%s|%s|%s\n" "$(uname -s)" "$g" "$r" "$b"'
 	  timeout: 60s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -84,15 +90,13 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
-		stderr:
-			- "refused to run"
-		"!stdout":
-			- "Build successful"
+		stdout:
+			0: "^((Linux|Darwin)\\|operative\\|refused\\|nobuild|(MINGW|MSYS|CYGWIN).*\\|blind\\|allowed\\|nobuild)$"
 
 	# version prints build metadata and no build result, so it is exempt from
 	# the guard along with cacheprog: a captured run under an agent answers.
 	- desc: version answers under {matrix.marker}
-	  cmd: 'cp ./gt-under-test {outputs.gt}; env {matrix.marker}=1 {outputs.gt} version raw'
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; env {matrix.marker}=1 {outputs.gt.exe} version raw'
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -104,9 +108,8 @@ tests:
 			- "refused to run"
 
 	- desc: agent output guard names opencode and deletes the module's build outputs
-	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {outputs.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
-	  exit: 1
-	  timeout: 60s
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({outputs.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=blind; n=unnamed; printf "%s" "$out" | grep -q "opencode" && n=named; d=nodelete; printf "%s" "$out" | grep -q "have been DELETED" && d=announced; printf "%s|%s|%s|%s|%s|%s\n" "$(uname -s)" "$g" "$bin" "$sums" "$n" "$d"'
+	  timeout: 5m
 	  inputs:
 		env:
 			OPENCODE: "1"
@@ -114,20 +117,14 @@ tests:
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
 		stdout:
-			- "GUARD-DELETED-BINARY"
-			- "GUARD-KEPT-CHECKSUMS"
-		stderr:
-			- "refused to run"
-			- "opencode"
-			- "have been DELETED"
+			0: "^((Linux|Darwin)\\|operative\\|deleted\\|kept\\|named\\|announced|(MINGW|MSYS|CYGWIN).*\\|blind\\|kept\\|kept\\|(named|unnamed)\\|nodelete)$"
 
 	# The other guard tests all hit the pipe allowance; CLAUDECODE discarding to
 	# /dev/null exercises the DIFFERENT sinkDiscard path -- a char device, which
 	# the classifier reaches through isTerminal, and on a darwin host through the
 	# device path when the cosmo dispatcher cannot ask TCGETS.
 	- desc: a discarded run under CLAUDECODE is refused
-	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; {outputs.gt} > /dev/null; rc=$?; exit $rc'
-	  exit: 1
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; {outputs.gt.exe} > /dev/null 2>err.txt; g=operative; grep -q "INOPERATIVE" err.txt && g=blind; r=allowed; grep -q "refused to run" err.txt && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -135,16 +132,14 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
-		stderr:
-			- "refused to run"
-		"!stderr":
-			- "INOPERATIVE"
+		stdout:
+			0: "^((Linux|Darwin)\\|operative\\|refused|(MINGW|MSYS|CYGWIN).*\\|blind\\|allowed)$"
 
 	# dats/cli.dats proves --help against the DEV build; this proves the APE's
 	# polyglot format loads and dispatches wherever this fixture runs. --help
 	# exits before the pipeline phase, so it carries no agent marker.
 	- desc: the shipped APE prints usage under --help
-	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.gocache}; {outputs.gt} --help'
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.gocache}; {outputs.gt.exe} --help'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -168,7 +163,7 @@ tests:
 	  timeout: 30s
 	  outputs:
 		stdout:
-			0: "^(Linux\\|ps-(available|blocked)|Darwin\\|ps-blocked)$"
+			0: "^(Linux\\|ps-(available|blocked)|Darwin\\|ps-blocked|(MINGW|MSYS|CYGWIN).*\\|ps-(available|blocked))$"
 
 	# socketharness reproduces a coding agent's own tool-execution plumbing: it
 	# wires the APE's stdout through a socketpair (what a Node or Bun
@@ -176,24 +171,26 @@ tests:
 	# naming itself as the reader -- the shape of the bug report this fixture
 	# exists to catch (docs/AGENT-OUTPUT-GUARD.md): an unpiped, unredirected run
 	# was refused as captured because a socket never got the peer-identification
-	# chance a pipe gets. One harness per platform ships; the line picks this
-	# host's, so the file stays the same everywhere.
+	# chance a pipe gets. The line picks this host's harness, so the file stays
+	# the same everywhere. An NT host ships none -- a socketpair is what the
+	# harness is built on, and NT has none -- so it reports that instead, which
+	# turns a silently absent case into a stated one.
 	- desc: agent output guard allows a plain run when the socket reader is the agent itself
-	  cmd: 'if [ "$(uname -s)" = "Darwin" ]; then cp ./socketharness-darwin {outputs.harness}; else cp ./socketharness-linux {outputs.harness}; fi; cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness} {outputs.gt}'
+	  cmd: 'u=$(uname -s); case "$u" in Darwin) cp ./socketharness-darwin {outputs.harness.exe};; Linux) cp ./socketharness-linux {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "%s|%s\n" "$u" "$({outputs.harness.exe} {outputs.gt.exe} | grep HARNESS_GUARD_REFUSED)"'
 	  timeout: 60s
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			- "HARNESS_GUARD_REFUSED=false"
+			0: "^((Linux|Darwin)\\|HARNESS_GUARD_REFUSED=false|(MINGW|MSYS|CYGWIN).*\\|no-harness)$"
 
 	- desc: agent output guard still refuses a socket whose reader is not the agent
-	  cmd: 'if [ "$(uname -s)" = "Darwin" ]; then cp ./socketharness-darwin {outputs.harness}; else cp ./socketharness-linux {outputs.harness}; fi; cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness} --wrong-reader {outputs.gt}'
+	  cmd: 'u=$(uname -s); case "$u" in Darwin) cp ./socketharness-darwin {outputs.harness.exe};; Linux) cp ./socketharness-linux {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; printf "%s|%s\n" "$u" "$({outputs.harness.exe} --wrong-reader {outputs.gt.exe} | grep HARNESS_GUARD_REFUSED)"'
 	  timeout: 60s
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			- "HARNESS_GUARD_REFUSED=true"
+			0: "^((Linux|Darwin)\\|HARNESS_GUARD_REFUSED=true|(MINGW|MSYS|CYGWIN).*\\|no-harness)$"

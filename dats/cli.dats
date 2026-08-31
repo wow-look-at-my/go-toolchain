@@ -23,12 +23,11 @@
 #
 # NOTE: build-everywhere self-builds this repo on all three hosts, so every
 # test here runs on linux, darwin and windows. Nothing below may name a host.
-# The per-host ANSWERS are pinned where they belong: each smoke job asserts
-# its own, and the darwin guard direction is the sibling fixture
-# .github/dats-fixtures/smoke-macos-agent-output-guard.dats, which the
-# smoke-macos job copies into a throwaway module. That fixture cannot live
-# under this repo's own dats/: dats runs every suite it finds recursively
-# there, so a suite asserting darwin-host behavior would run on all three.
+# The SHIPPED artifact's guard is pinned by the sibling fixture
+# .github/dats-fixtures/agent-output-guard.dats, one file for every host, which
+# every smoke job copies into a throwaway module. That fixture cannot live under
+# this repo's own dats/: dats runs every suite it finds recursively there, so it
+# would also run against the dev build this file already covers.
 
 # Sandboxed like every other suite (dats' default). The one adjustment: under
 # the docker backend the commands run in the IMAGE's filesystem, and every

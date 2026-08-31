@@ -77,13 +77,13 @@ tests:
 	# a copy of the one that ran the pipeline is no longer what a user gets.
 	# Both harnesses travel: the fixture picks the one this host can run.
 	- desc: the full pipeline runs in a tiny module on this host
-	  cmd: 'cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test ./socketharness-linux ./socketharness-darwin; {shared.gt-ape.exe}'
+	  cmd: 'cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe ./socketharness-linux ./socketharness-darwin; {shared.gt-ape.exe}'
 	  timeout: 20m
 	  inputs:
 		env:
 			GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: "1"
 		copy:
-			gt-under-test: ../../dist/go-toolchain
+			gt-under-test.exe: ../../dist/go-toolchain
 			socketharness-linux: ../../harness/socketharness-linux-amd64
 			socketharness-darwin: ../../harness/socketharness-darwin-arm64
 			dats/agent-output-guard.dats: agent-output-guard.dats

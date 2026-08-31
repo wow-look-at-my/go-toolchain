@@ -290,14 +290,15 @@ flag to disable it.
   darwin (`build`/`host-build` are linux-only), so this file needs a real
   Mac (or darwin CI runner) to execute, not just cross-compile; it's a
   local-developer check, not a CI gate.
-- `dats/cli.dats` — the shipped binary refusing a captured run under each
-  agent's marker, the `version` exemption, and the build-output deletion, for
-  the linux/cosmo classifier. The suite does not assert WHICH agent the
-  message names: ancestry outranks the env marker, so running the suite from
-  inside another agent's session would legitimately name that agent. Runs on
-  linux only (see CLAUDE.md).
-- `.github/dats-fixtures/smoke-linux-agent-output-guard.dats` and
-  `smoke-macos-agent-output-guard.dats`, copied by their respective CI jobs
+- `dats/cli.dats` — the dev build refusing a captured run under each agent's
+  marker, the `version` exemption, and the build-output deletion. The suite
+  does not assert WHICH agent the message names: ancestry outranks the env
+  marker, so running the suite from inside another agent's session would
+  legitimately name that agent. It runs on every host `build-everywhere`
+  covers, and each guard test pairs its answer with `uname -s`, so the NT
+  arm demands the INOPERATIVE banner where the other two demand a refusal.
+- `.github/dats-fixtures/agent-output-guard.dats`, one file copied by every
+  leg of the smoke job
   (`.github/workflows/ci.yml`) into a throwaway module's `dats/` directory
   (each job runs `actions/checkout` just for this), alongside a copy of the
   real shipped binary (the cosmo APE / the native darwin/arm64 binary) — not

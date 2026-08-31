@@ -285,15 +285,14 @@ there is a single artifact now, and each leg proves it boots on that host.
 **linux** — APE magic `MZqFpD`, then `version`, `--help`, host detection, and
 the FULL default pipeline in a tiny module under the APE. The agent-output-guard regression is a
 committed dats fixture
-(`.github/dats-fixtures/smoke-linux-agent-output-guard.dats`), copied into that
+(`.github/dats-fixtures/agent-output-guard.dats`), copied into that
 module's `dats/` dir and run automatically by the pipeline's dats phase — not
 hand-rolled bash, so it exercises the real released APE the same way a
 consumer's own build would.
 
 **macOS** — magic, `version`, and the FULL default pipeline under the APE, plus
-the darwin sibling of the guard fixture
-(`smoke-macos-agent-output-guard.dats`). This is the consumer-critical mac gate,
-and it is deliberately not reduced.
+the same guard fixture every other leg runs. This is the consumer-critical mac
+gate, and it is deliberately not reduced.
 
 It used to be: darwin/arm64 shipped as a native carve-out and the mac gate ran
 that binary, because a full pipeline WEDGED AT EXIT under the APE on macOS —
@@ -849,7 +848,7 @@ the job's first real bootstrap, then tidy/vet/test/coverage/build,
 then the dats phase over the guard fixture staged beside the module.
 
 That guard regression is a committed dats fixture
-(.github/dats-fixtures/smoke-macos-agent-output-guard.dats), not
+(.github/dats-fixtures/agent-output-guard.dats), not
 hand-rolled bash: go-toolchain links dats in and runs any dats/
 suite found (recursively) in the module it is building -- there is
 no separate suite-running step, which is exactly why this fixture is
