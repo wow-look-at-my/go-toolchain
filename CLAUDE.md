@@ -51,7 +51,7 @@ coverage.
 - `src/cmd/staleoutputs.go` — **build outputs only survive a green run**: a leftover `build/<target>` is the last thing that can pass for a build
   that never happened, so every exit that is not a green pipeline deletes the module's own artifacts. No flag or env var disables it. Depth:
   `docs/BUILD-OUTPUTS.md` (which paths count, the three sweep sites, and the dats-suite footgun)
-- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
+- `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, verify-identical, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` builds ONE fat APE**, the org's only native
   output: no target flags means one `<name>` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
   fork as `GOCOSMOPLATFORMS`; unverified hosts are refused, and an unaware toolchain is detected and warned about rather than silently ignoring
