@@ -13,9 +13,20 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-func TestComputeFingerprint(t *testing.T) {
+// chdirTemp enters a fresh temp directory and restores the old cwd after.
+// An NT host refuses to delete a directory that is still a process's cwd.
+func chdirTemp(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
 	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { os.Chdir(oldWd) })
+	return dir
+}
+
+func TestComputeFingerprint(t *testing.T) {
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n\nfunc main() {}\n"), 0644)
@@ -37,8 +48,7 @@ func TestComputeFingerprint(t *testing.T) {
 }
 
 func TestComputeFingerprintIncludesGoSum(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -57,8 +67,7 @@ func TestComputeFingerprintIncludesGoSum(t *testing.T) {
 // NAME hid every edit under this repo's own src/build, so the fast exit served
 // a stale binary and called the run finished.
 func TestComputeFingerprintCountsASourceDirNamedBuild(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 	old := outputDir
 	outputDir = "build"
 	defer func() { outputDir = old }()
@@ -88,8 +97,7 @@ func TestComputeFingerprintCountsASourceDirNamedBuild(t *testing.T) {
 // bust the fingerprint -- otherwise the run fast-exits "Up to date" and those
 // assertions never re-run locally.
 func TestComputeFingerprintIncludesActionYML(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -173,8 +181,7 @@ func TestComputeFingerprintIncludesTestdata(t *testing.T) {
 }
 
 func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -191,8 +198,7 @@ func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
 }
 
 func TestFingerprintFile(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 
 	fp := fingerprintFile()
 	assert.Contains(t, fp, "go-toolchain-fingerprint")
@@ -200,8 +206,7 @@ func TestFingerprintFile(t *testing.T) {
 }
 
 func TestIsUpToDateNoFingerprint(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -211,8 +216,7 @@ func TestIsUpToDateNoFingerprint(t *testing.T) {
 }
 
 func TestIsUpToDateWithMatchingFingerprint(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("src", 0755)
@@ -230,8 +234,7 @@ func TestIsUpToDateWithMatchingFingerprint(t *testing.T) {
 }
 
 func TestIsUpToDateStaleAfterChange(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.MkdirAll("src", 0755)
@@ -249,8 +252,7 @@ func TestIsUpToDateStaleAfterChange(t *testing.T) {
 }
 
 func TestSaveFingerprint(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)
@@ -315,8 +317,7 @@ func TestEmbeddedFilesGoListError(t *testing.T) {
 }
 
 func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	dir := chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
 	os.WriteFile("main.go", []byte("package main\n"), 0644)

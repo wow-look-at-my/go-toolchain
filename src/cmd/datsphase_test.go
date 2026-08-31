@@ -15,6 +15,35 @@ import (
 	datsrunner "github.com/wow-look-at-my/dats/runner"
 )
 
+// forceDatsProbe pins the backend answer, so a sandbox assertion reads the
+// code rather than the host it runs on.
+func forceDatsProbe(t *testing.T, err error) {
+	t.Helper()
+	previous := datsSandboxProbe
+	datsSandboxProbe = func() error { return err }
+	t.Cleanup(func() { datsSandboxProbe = previous })
+}
+
+// The suites are what a host is covered BY, so a host that can never sandbox
+// must still run them. A host merely missing bubblewrap must not: an install
+// fixes that, and dropping isolation there is how it stays missing.
+func TestDatsSandbox(t *testing.T) {
+	t.Run("a host with a backend runs sandboxed", func(t *testing.T) {
+		forceDatsProbe(t, nil)
+		assert.Equal(t, dats.Sandbox{}, datsSandbox(), "the zero Sandbox is auto")
+	})
+
+	t.Run("a host that can never sandbox runs on the host", func(t *testing.T) {
+		forceDatsProbe(t, fmt.Errorf("%w: no usable sandbox backend", datsrunner.ErrNoBackendOnHost))
+		assert.Equal(t, datsrunner.SandboxNone, datsSandbox().Mode)
+	})
+
+	t.Run("a fixable gap keeps asking for a sandbox", func(t *testing.T) {
+		forceDatsProbe(t, fmt.Errorf("no usable sandbox backend: bwrap: not found in $PATH"))
+		assert.Equal(t, dats.Sandbox{}, datsSandbox(), "installing bubblewrap fixes this, so the run must still fail")
+	})
+}
+
 func TestHasDatsSuites(t *testing.T) {
 	write := func(t *testing.T, dir, rel string) {
 		t.Helper()
@@ -177,6 +206,7 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 func TestRunDatsPhaseOptions(t *testing.T) {
 	dir := chdirWithSuite(t)
 	calls := swapDatsRun(t, okResult(1), nil)
+	forceDatsProbe(t, nil) // an NT host has none, and would hand dats SandboxNone
 	require.NoError(t, runDatsPhase(false, nil))
 
 	require.Len(t, *calls, 1)
@@ -186,7 +216,7 @@ func TestRunDatsPhaseOptions(t *testing.T) {
 	// Serial on purpose: a deterministic report, no concurrent APE self-assimilation.
 	assert.Zero(t, opts.Jobs)
 
-	// Sandbox stays dats' default (auto); whether a suite needs the host is the SUITE's call.
+	// The phase hands dats what datsSandbox decided: auto, for the host pinned above.
 	assert.Equal(t, dats.Sandbox{}, opts.Sandbox)
 
 	// The handoff dir must be absolute and inside the module root: only the cwd is visible in the sandbox.

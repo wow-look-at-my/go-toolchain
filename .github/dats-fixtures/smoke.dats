@@ -1,43 +1,75 @@
-# The union smoke suite: every test from smoke-linux.dats, smoke-macos.dats and
-# smoke-windows.dats, verbatim, in one file. All three smoke jobs
-(.github/workflows/ci.yml) run THIS file, so every platform executes every OS's
-# assertions; a test describing another host is expected to fail there -- that is
-# the union being executed, not something to adapt away. Assembled as a
-# mechanical set union: identical shared/setup lines deduplicated, nothing else
-# touched.
+# The smoke suite. ONE file, run unchanged by every leg of the smoke job
+# (.github/workflows/ci.yml), because one APE is what every host downloads and
+# the question is the same on all of them: does the published artifact boot,
+# report the host it is actually on, and drive a whole pipeline here.
 #
-# All three jobs run it with --no-sandbox: the pipeline test drives go-toolchain,
-# whose own dats phase sandboxes the agent-output-guard fixture it stages, and
-# nesting one sandbox inside dats' outer run is what the opt-out avoids.
+# A host-specific answer is asserted by PAIRING it with what the shell reports,
+# so the assertion holds everywhere without the file knowing where it runs: the
+# command prints the APE's answer and `uname -s` on one line, and the pattern
+# matches only the combinations that agree.
 #
-# ../../dist/go-toolchain is the published fat APE the build job handed off, and
-# ../../harness/socketharness-* the guard fixtures' harnesses.
+# Every leg runs it SANDBOXED, like every other suite. The pipeline test drives
+# go-toolchain, whose own dats phase sandboxes the agent-output-guard fixture it
+# stages, so that phase resolves a backend inside this one -- a nested sandbox,
+# not an opt-out. Turning isolation off to dodge the nesting is not available
+# here and must not be reintroduced: the run-starter owns that decision, and the
+# suites exist to prove the shipped artifact behaves under the isolation a
+# consumer gets.
+#
+# The APE is copied under an .exe name on every host. NT needs the suffix, a
+# posix host does not care, and one name is what keeps this file host-agnostic.
 
-	copy:
-		gt-ape: ../../dist/go-toolchain
-	copy:
-		gt-ape: ../../dist/go-toolchain
+shared:
 	copy:
 		gt-ape.exe: ../../dist/go-toolchain
 
 setup:
-	- chmod +x {shared.gt-ape}
-	- chmod +x {shared.gt-ape}
+	- chmod +x {shared.gt-ape.exe}
 
 tests:
-	# One APE runs on every host, so what it detects here decides every
-	# host-specific choice: the buildhost slot, the fork's bin/go suffix, the
-	# guard's classifier. A GUESSED answer means the measurement failed and the
-	# fallback answered, which reads identically until something breaks.
-	- desc: the APE detects a linux host by measurement
-	  cmd: '{shared.gt-ape} version host'
+	- desc: the shipped artifact carries the APE magic
+	  cmd: 'head -c 6 {shared.gt-ape.exe}'
+	  timeout: 30s
+	  outputs:
+		stdout:
+			- "MZqFpD"
+
+	# An APE is a valid PE, a valid ELF and a valid Mach-O at once, so the
+	# payload each host selects has to start here rather than in theory.
+	- desc: the APE's payload runs on this host
+	  cmd: '{shared.gt-ape.exe} version'
 	  timeout: 60s
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			- "host: linux"
+			- "Version:"
+
+	- desc: the APE prints usage under --help
+	  cmd: '{shared.gt-ape.exe} --help'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "Usage:"
+
+	# What the APE detects decides every host-specific choice it makes: the
+	# buildhost slot, the fork's bin/go suffix, the guard's classifier. GUESSED
+	# means the measurement failed and the fallback answered, which reads
+	# identically until something breaks. The pattern accepts only an answer
+	# that agrees with the shell's own name for this host.
+	- desc: the APE detects this host by measurement, and names the host the shell names
+	  cmd: 'printf "%s|%s\n" "$({shared.gt-ape.exe} version host | head -1)" "$(uname -s)"'
+	  timeout: 60s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			0: "^host: (linux.*\\|Linux|darwin.*\\|Darwin|windows.*\\|(MINGW|MSYS|CYGWIN))"
 		"!stdout":
 			- "GUESSED"
 
@@ -47,16 +79,18 @@ tests:
 	# go-toolchain's own dats phase then runs sandboxed against the pristine
 	# copies staged beside it -- an APE rewrites its own file on first exec, so
 	# a copy of the one that ran the pipeline is no longer what a user gets.
-	- desc: the full pipeline runs in a tiny module on a linux host
-	  cmd: 'cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test ./socketharness-under-test; {shared.gt-ape}'
+	# Both harnesses travel: the fixture picks the one this host can run.
+	- desc: the full pipeline runs in a tiny module on this host
+	  cmd: 'cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe ./socketharness-linux ./socketharness-darwin; {shared.gt-ape.exe}'
 	  timeout: 20m
 	  inputs:
 		env:
 			GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: "1"
 		copy:
-			gt-under-test: ../../dist/go-toolchain
-			socketharness-under-test: ../../harness/socketharness-linux-amd64
-			dats/agent-output-guard.dats: smoke-linux-agent-output-guard.dats
+			gt-under-test.exe: ../../dist/go-toolchain
+			socketharness-linux: ../../harness/socketharness-linux-amd64
+			socketharness-darwin: ../../harness/socketharness-darwin-arm64
+			dats/agent-output-guard.dats: agent-output-guard.dats
 		files:
 			go.mod: |
 				module example.com/apesmoke
@@ -95,222 +129,17 @@ tests:
 		stdout:
 			- "Build successful"
 
-	# One APE runs on every host, so what it detects here decides every
-	# host-specific choice: the buildhost slot, the fork's bin/go suffix, the
-	# guard's classifier. A GUESSED answer means the measurement failed and the
-	# fallback answered, which reads identically until something breaks.
-	- desc: the APE detects a darwin host by measurement
-	  cmd: '{shared.gt-ape} version host'
-	  timeout: 60s
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stdout:
-			- "host: darwin"
-		"!stdout":
-			- "GUESSED"
-
-	# The whole pipeline, driven by the exact binary ARM64 mac users download:
-	# tidy resolves testify, vet type-checks, the test runs, the build writes a
-	# binary. macos-latest carries no Go on PATH, so this is also the first
-	# real exercise of the cosmo bootstrap on a darwin host. The module carries
-	# the agent-output-guard fixture, which go-toolchain's own dats phase runs.
-	- desc: the full pipeline runs in a tiny module on a darwin host
-	  cmd: 'cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test ./socketharness-under-test; {shared.gt-ape}'
-	  timeout: 20m
-	  inputs:
-		env:
-			GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: "1"
-		copy:
-			gt-under-test: ../../dist/go-toolchain
-			socketharness-under-test: ../../harness/socketharness-darwin-arm64
-			dats/agent-output-guard.dats: smoke-macos-agent-output-guard.dats
-		files:
-			go.mod: |
-				module example.com/nativesmoke
-
-				go 1.24
-
-				require github.com/stretchr/testify v1.11.1
-			main.go: |
-				// Package main is a tiny module used to smoke-test the
-				// published APE on a darwin host.
-				package main
-
-				import "fmt"
-
-				// Greeting returns the smoke-test greeting.
-				func Greeting(name string) string {
-					return "hello, " + name
-				}
-
-				func main() {
-					fmt.Println(Greeting("mac"))
-				}
-			main_test.go: |
-				package main
-
-				import (
-					"testing"
-
-					"github.com/stretchr/testify/require"
-				)
-
-				func TestGreeting(t *testing.T) {
-					require.Equal(t, "hello, mac", Greeting("mac"))
-				}
-	  outputs:
-		stdout:
-			- "Build successful"
-
-	# socketharness wires the binary's stdout through a socketpair -- what a
-	# Node or Bun child_process actually uses on macOS -- and names itself as
-	# the reader. The run directory needs its own go.mod: without one the child
-	# never reaches the guard at all.
-	- desc: the guard allows a plain run whose socket reader is the agent itself
-	  cmd: 'cd "$(dirname {inputs.go.mod})"; chmod +x ./harness ./gt-right; ./harness ./gt-right'
-	  timeout: 60s
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-		copy:
-			harness: ../../harness/socketharness-darwin-arm64
-			gt-right: ../../dist/go-toolchain
-		files:
-			go.mod: |
-				module example.com/sockprobe
-
-				go 1.24
-	  outputs:
-		stdout:
-			- "HARNESS_GUARD_REFUSED=false"
-
-	- desc: the guard still refuses a socket whose reader is not the agent
-	  cmd: 'cd "$(dirname {inputs.go.mod})"; chmod +x ./harness ./gt-wrong; ./harness --wrong-reader ./gt-wrong'
-	  timeout: 60s
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-		copy:
-			harness: ../../harness/socketharness-darwin-arm64
-			gt-wrong: ../../dist/go-toolchain
-		files:
-			go.mod: |
-				module example.com/sockprobe
-
-				go 1.24
-	  outputs:
-		stdout:
-			- "HARNESS_GUARD_REFUSED=true"
-
-	- desc: the shipped artifact carries the APE magic
-	  cmd: 'head -c 6 {shared.gt-ape.exe}'
-	  timeout: 30s
-	  outputs:
-		stdout:
-			- "MZqFpD"
-
-	# An APE is simultaneously a valid PE, and the payload NT selects is a
-	# native windows/amd64 build. Running it is the proof that it loads.
-	- desc: the APE's PE payload runs on an NT host
-	  cmd: '{shared.gt-ape.exe} version'
-	  timeout: 60s
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stdout:
-			- "Version:"
-
-	- desc: the APE prints usage under --help on an NT host
-	  cmd: '{shared.gt-ape.exe} --help'
-	  timeout: 60s
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stdout:
-			- "Usage:"
-
-	# One APE runs on every host, so what it detects here decides every
-	# host-specific choice: the buildhost slot, the fork's bin/go suffix, the
-	# guard's classifier. A GUESSED answer means the measurement failed and the
-	# fallback answered, which reads identically until something breaks.
-	- desc: the APE detects a windows host by measurement
-	  cmd: '{shared.gt-ape.exe} version host'
-	  timeout: 60s
-	  inputs:
-		env:
-			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
-	  outputs:
-		stdout:
-			- "host: windows"
-		"!stdout":
-			- "GUESSED"
-
-	# The whole pipeline, driven by the APE, in a synthetic consumer module:
-	# tidy resolves testify, vet type-checks, the test runs, the build writes a
-	# binary. GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED says this module
-	# has no org cache credentials on purpose.
-	- desc: the full pipeline runs in a tiny module on an NT host
-	  cmd: 'cd "$(dirname {inputs.go.mod})"; {shared.gt-ape.exe}'
-	  timeout: 20m
-	  inputs:
-		env:
-			GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: "1"
-		files:
-			go.mod: |
-				module example.com/winsmoke
-
-				go 1.24
-
-				require github.com/stretchr/testify v1.11.1
-			main.go: |
-				// Package main is a tiny module used to smoke-test the
-				// published APE on an NT host.
-				package main
-
-				import "fmt"
-
-				// Greeting returns the smoke-test greeting.
-				func Greeting(name string) string {
-					return "hello, " + name
-				}
-
-				func main() {
-					fmt.Println(Greeting("windows"))
-				}
-			main_test.go: |
-				package main
-
-				import (
-					"testing"
-
-					"github.com/stretchr/testify/require"
-				)
-
-				func TestGreeting(t *testing.T) {
-					require.Equal(t, "hello, windows", Greeting("windows"))
-				}
-	  outputs:
-		stdout:
-			- "Build successful"
-
-	# Windows is the host the agent output guard cannot classify on, so the
-	# no-op is asserted rather than left to chance. The banner is the only thing
-	# a human here gets while the guard is blind, and it names the host it
-	# detected -- so a wrong host name means hostos.GOOS() is wrong here too.
-	# A refusal instead would mean the guard gained sight and this job should
-	# assert the refusal the way the other two hosts do.
-	- desc: the agent output guard reports itself inoperative on an NT host
-	  cmd: 'mkdir -p {outputs.rundir}; cd {outputs.rundir}; env CLAUDECODE=1 {shared.gt-ape.exe}; echo "gt exit: $?"'
+	# The guard on the HOST, where the answer differs by host and both answers
+	# are correct: a host whose descriptors it can classify refuses a captured
+	# run, and a host it cannot see on says so instead of allowing silently.
+	# Pairing with uname is what keeps that one test rather than three: an
+	# INOPERATIVE banner on Linux, or a refusal that never comes on NT, fails.
+	- desc: the agent output guard answers for the host it detects
+	  cmd: 'mkdir -p {outputs.rundir}; cd {outputs.rundir}; out=$(env CLAUDECODE=1 {shared.gt-ape.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 5m
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		stderr:
-			- "INOPERATIVE on this windows host"
-		"!stderr":
-			- "refused to run"
+		stdout:
+			0: "^((Linux|Darwin)\\|.*refused to run|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"

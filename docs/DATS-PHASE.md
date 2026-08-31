@@ -105,12 +105,50 @@ sandbox's private `/tmp` and execs the copy — `dats/cli.dats` does exactly
 that in every test.
 
 Never answer any of this by turning the sandbox off. A suite cannot even ask
-for that any more: dats removed the file-level opt-out, so the `sandbox:` block
-only NARROWS (`network`, or `image:` for something specific of the docker
-backend) and disabling is `--no-sandbox` on the run. A toolchain-level opt-out
-would unsandbox every suite command in every consuming repo, so this phase does
-not pass that flag. This repo's own suite pins `image: golang:1.25` so the
-docker backend has a Go for the bootstrap.
+for that: dats removed the file-level opt-out, so the `sandbox:` block only
+NARROWS (`network`, or `image:` for something specific of the docker backend)
+and disabling is `--no-sandbox` on the run. There is no toolchain-level opt-out
+either — no flag and no environment variable — because one would unsandbox
+every suite command in every consuming repo, and a knob like that gets set once
+and left set. This repo's own suite pins `image: golang:1.25` so the docker
+backend has a Go for the bootstrap.
+
+## The host that cannot sandbox at all
+
+`datsSandbox` asks dats for a backend before the run and passes the answer as
+`Options.Sandbox`. Auto is what almost every host gets. The exception is a host
+where NO backend can exist: bwrap is linux, seatbelt is macOS, and an NT host
+is left with its own daemon, which serves windows containers a linux sandbox
+image cannot run on. dats marks that failure `runner.ErrNoBackendOnHost`, and
+only that marker selects `SandboxNone`.
+
+The alternative was to fail, and failing is what takes the suites away from the
+host they exist to cover — the NT leg of `build-everywhere` runs this repo's
+whole pipeline precisely to prove an NT host behaves. So the phase keeps every
+suite and every assertion and gives up the one property it cannot have, at
+error level, naming what is gone: the isolation between a suite command and the
+machine. Reduced function with a signal is engineering; reduced function in
+silence is the lie `claude_snippets/silent-degradation-is-a-lie.md` describes,
+which is why this path is loud rather than a quiet fallback.
+
+A missing bubblewrap on a linux host is NOT this. It carries no marker, an
+install cures it, and it stays fatal — degrading there would let a fixable
+setup gap turn every consuming repo's isolation off without anyone noticing.
+`TestDatsSandbox` pins all three cases.
+
+## Why the NT leg provisions no backend
+
+CI tried to give the windows leg a linux daemon through WSL, and the attempt is
+worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd`
+starts, and `docker info` answers — then every `docker run` dies in runc with
+`error during container init: fetch packet length from socket: recvfrom:
+invalid argument`. That daemon is worse than no daemon: it passes dats' probe,
+auto selects it, and every suite fails its setup command instead of taking the
+`ErrNoBackendOnHost` path above. WSL2 would work and cannot be had — a
+GitHub-hosted windows VM is already nested one level, and nested virtualization
+cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing,
+the runner's own daemon serves windows containers and is rejected by OSType,
+and the suites run on the host with the error-level lines above.
 
 ## How the run is configured
 
