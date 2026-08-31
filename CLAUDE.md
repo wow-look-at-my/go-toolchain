@@ -198,7 +198,7 @@ coverage.
   matrix runRelease; `--no-profile` opts out), `captureProfileTrace` (deferred in run() AFTER the WriteChrome defer so it runs first, stashing the
   parsed graph), and `emitBuildProfile` — called from `printCacheStats(close=true)` AFTER `cacheDaemon.Close()` and `statsListener.Close()`, so the
   web counters are post-drain-final and every per-action event has been delivered. CI gates on `build/profile.json` (poison tripwires + dead-remote
-  signature — see `.github/workflows/ci.yml`)
+  signature) through `.github/dats-fixtures/cache-profile.dats`, a suite an engineer can run against a local profile — not a workflow step
 - `src/trace/` — OpenTelemetry trace export for build pipeline timings. The OTLP/HTTP exporter construction is build-tag split: `provider_otlp.go`
   (`!cosmo`) is the real exporter; `provider_otlp_cosmo.go` is a span-dropping no-op because otlptracehttp's internal otlpconfig imports
   google.golang.org/grpc even for pure HTTP (known upstream issue, present at otel v1.44.0) and grpc cannot compile for cosmo — so **GOOS=cosmo

@@ -636,6 +636,15 @@ prints -- cache-satisfied percentage and the poison tripwires. High
 and zero mean a slow runner, and the limit is the thing to re-derive
 from fresh numbers; a real cache failure does not look like this.
 
+The tripwires themselves are asserted by
+`.github/dats-fixtures/cache-profile.dats`, run by the dats action in
+`host-build` the same way `identical.dats` and `smoke.dats` are run by
+their jobs. They were a workflow step once, which meant a push was the
+only way to reproduce a red; the fixture runs against any local
+`build/profile.json`. The second-build time limit above is still a
+workflow step, because asserting it means driving `go-toolchain` twice
+and timing it -- something the suite cannot do to the binary running it.
+
 ### Cross-compile socketharness
 
 socketharness reproduces a coding agent's own tool-execution plumbing
