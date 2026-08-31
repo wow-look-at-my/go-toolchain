@@ -123,17 +123,11 @@ tests:
 
 	# The other guard tests all hit the pipe allowance; CLAUDECODE discarding to
 	# /dev/null exercises the DIFFERENT sinkDiscard path -- a char device, which
-	# the classifier reaches only through isTerminal.
-	#
-	# MEASURED, and a gap rather than a design: a linux host refuses this run and
-	# a darwin host does not. The darwin probe asks TCGETS through the cosmo
-	# dispatcher (claudeguard_fdprobe_cosmo.go, isTerminalOnDarwinHost), which
-	# reports UNSUPPORTED rather than "not a terminal", so the classifier goes
-	# blind on the one descriptor shape it should find easiest. The line records
-	# which host answered which way, so closing that gap turns this red and says
-	# to assert the refusal on both.
-	- desc: a discarded run under CLAUDECODE is refused where the guard can classify a char device
-	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; {outputs.gt} > /dev/null 2> {outputs.err.txt}; if grep -q "refused to run" {outputs.err.txt}; then verdict=refused; else verdict=allowed; fi; printf "%s|%s\n" "$(uname -s)" "$verdict"'
+	# the classifier reaches through isTerminal, and on a darwin host through the
+	# device path when the cosmo dispatcher cannot ask TCGETS.
+	- desc: a discarded run under CLAUDECODE is refused
+	  cmd: 'cp ./gt-under-test {outputs.gt}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; {outputs.gt} > /dev/null; rc=$?; exit $rc'
+	  exit: 1
 	  timeout: 60s
 	  inputs:
 		env:
@@ -141,8 +135,10 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
-		stdout:
-			0: "^(Linux\\|refused|Darwin\\|allowed)$"
+		stderr:
+			- "refused to run"
+		"!stderr":
+			- "INOPERATIVE"
 
 	# dats/cli.dats proves --help against the DEV build; this proves the APE's
 	# polyglot format loads and dispatches wherever this fixture runs. --help

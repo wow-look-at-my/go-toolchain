@@ -104,7 +104,16 @@ platform that can actually introspect a file descriptor. A third platform
   path itself (needed for `agent.IsCapturePath`) comes from the `F_GETPATH`
   fcntl, darwin's one substitute for `/proc/self/fd`'s readlink.
 - **Char device** — `isTerminal` uses the `github.com/mattn/go-isatty`
-  package (its BSD/darwin variant), not a hand-rolled ioctl.
+  package (its BSD/darwin variant), not a hand-rolled ioctl. A cosmo APE on a
+  darwin host cannot ask that question at all: the probe reports UNSUPPORTED
+  rather than "not a terminal", and going blind there would wave every
+  `> /dev/null` run through, which is the shape `CLAUDECODE` takes. So an
+  unaskable probe falls back to `F_GETPATH`, which DOES answer on that host,
+  and the device's own path decides: a `/dev/tty…`, `/dev/pts/…`,
+  `/dev/console` or `/dev/ptmx` spelling is the terminal, anything else is a
+  discard. Only a descriptor whose path is unreadable too stays blind.
+  `.github/dats-fixtures/agent-output-guard.dats` asserts the refusal on
+  every host, so the fallback failing on darwin turns the macOS smoke leg red.
 
 ## A pty cannot name its own reader: the `script(1)` bypass
 
