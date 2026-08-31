@@ -126,10 +126,11 @@ coverage.
   `cacheprog` is), and the update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
   so version tests assert only the stable `Version:`/`Commit:` lines), and that host detection is a MEASUREMENT rather than its linux fallback.
-  These guard tests assume a linux host, because this suite only runs when this repo builds ITSELF (`build`/`host-build`, linux-only). Every other
-  host is covered by `.github/dats-fixtures/agent-output-guard.dats`, ONE fixture that `smoke.dats` copies into a throwaway module and runs against
-  the published APE on each host — a suite asserting another host's behavior cannot live under this repo's own `dats/`, since every suite there runs
-  during the linux self-build too. What differs by host is paired with `uname -s` in the same line rather than split into per-host copies. New tests
+  The guard tests are HOST-AGNOSTIC: `build-everywhere` runs this suite on all three hosts, and the guard is inoperative on NT, so each pairs its
+  answer with `uname -s` in one line (a refusal where a classifier exists, the INOPERATIVE banner where none does) rather than splitting into
+  per-host copies. Every copy of the binary lands under an `.exe` name for the same reason — NT needs the suffix, a posix host does not care, and
+  the staged name itself carries it there (`datsArtifactName`). `.github/dats-fixtures/agent-output-guard.dats` covers the PUBLISHED APE the same
+  way: `smoke.dats` copies it into a throwaway module so go-toolchain's own dats phase runs it on each host. New tests
   go AFTER the
   snapshot test: its INDEX names the committed golden file, so anything inserted before it renumbers the golden.
   `.dats` + `.golden` files feed `computeFingerprint` (uptodate.go), so suite/golden edits bust the "Up to date" fast-exit

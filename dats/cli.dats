@@ -5,7 +5,7 @@
 # pipeline just built. It is READ-ONLY inside the sandbox (it lives under the
 # working directory), and the binary under test may be an APE, whose loader
 # rewrites its own file on first exec and exits 121 from a read-only path. So
-# setup copies it once to `{shared.gt}` and every test execs that copy; a test
+# setup copies it once to `{shared.gt.exe}` and every test execs that copy; a test
 # needing a directory to work in makes its own `{outputs.mod}`.
 #
 # Scratch space is ALWAYS a dats placeholder, never `mktemp -d`. `{shared.X}`
@@ -42,9 +42,11 @@ sandbox:
 setup:
 	# Sanity: the staged binary exists and executes from a writable copy.
 	# `version raw` is the cheapest invocation — no Go bootstrap, no update
-	# check, no network.
-	- test -x "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"
-	- 'cp "$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain" {shared.gt}; {shared.gt} version raw'
+	# check, no network. The staged name carries .exe on a windows host
+	# (datsArtifactName), so the source is resolved rather than spelled, and the
+	# copy always lands under .exe: NT needs the suffix to exec it and a posix
+	# host does not care, which keeps one name working everywhere.
+	- 'src="$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; [ -x "$src" ] || src="$src.exe"; test -x "$src"; cp "$src" {shared.gt.exe}; {shared.gt.exe} version raw'
 
 tests:
 	# The only test here that reaches the staleness footer, whose commit queries
@@ -52,7 +54,7 @@ tests:
 	# client timeout each, spent inside the second-build wall-clock budget
 	# host-build enforces. Unreachable base = the offline footer, instantly.
 	- desc: version reports the build stamp
-	  cmd: '{shared.gt} version'
+	  cmd: '{shared.gt.exe} version'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -71,7 +73,7 @@ tests:
 	# agree -- an agent is exactly who runs this suite, and the guard firing on
 	# version made that pair unsatisfiable.
 	- desc: version is exempt from the agent output guard
-	  cmd: '{shared.gt} version raw'
+	  cmd: '{shared.gt.exe} version raw'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -91,17 +93,21 @@ tests:
 	# would delete the very binaries this pipeline just built. With no go.mod
 	# there are no targets to delete, so this stays a pure guard assertion —
 	# the deletion itself is asserted by the next test.
-	- desc: agent output guard refuses a captured pipeline run
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt}'
-	  exit: 1
+	#
+	# The guard is INOPERATIVE on a windows host -- the APE gets no classifier
+	# there, says so once, and allows -- so the answer is paired with `uname -s`
+	# rather than split into a second copy of this file. Losing the refusal
+	# where a classifier exists, or gaining the banner there, fails.
+	- desc: the agent output guard answers a captured pipeline run
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; out=$({shared.gt.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 60s
 	  inputs:
 		env:
 			CLAUDECODE: "1"
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		stderr:
-			- "refused to run"
+		stdout:
+			0: "^((Linux|Darwin)\\|.*refused to run|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
 		"!stdout":
 			- "Build successful"
 
@@ -111,9 +117,10 @@ tests:
 	# that never happened. The abort must delete it (src/cmd/staleoutputs.go)
 	# and say so, while leaving non-binary outputs alone. A throwaway module
 	# with a planted binary: the guard aborts long before anything is compiled.
-	- desc: agent output guard deletes the module's build outputs
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; {shared.gt}; rc=$?; [ ! -e build/stalebin ] && echo GUARD-DELETED-BINARY; [ -f build/checksums.txt ] && echo GUARD-KEPT-CHECKSUMS; exit $rc'
-	  exit: 1
+	# Deleting is what a REFUSAL does, so it is asserted where a refusal happens
+	# and paired with uname like the test above.
+	- desc: the agent output guard deletes the module's build outputs where it refuses
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({shared.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; printf "%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -121,14 +128,10 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			- "GUARD-DELETED-BINARY"
-			- "GUARD-KEPT-CHECKSUMS"
-		stderr:
-			- "refused to run"
-			- "have been DELETED"
+			0: "^((Linux|Darwin)\\|deleted\\|kept\\|.*refused to run.*have been DELETED|(MINGW|MSYS|CYGWIN).*\\|kept\\|kept\\|.*INOPERATIVE on this windows host)"
 
 	- desc: root help prints usage
-	  cmd: '{shared.gt} --help'
+	  cmd: '{shared.gt.exe} --help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -146,7 +149,7 @@ tests:
 	# (locally the warning goes to stderr; in GitHub Actions it becomes a
 	# ::warning annotation on stdout).
 	- desc: update check is silent when buildhost is unreachable
-	  cmd: '{shared.gt} --help'
+	  cmd: '{shared.gt.exe} --help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -160,7 +163,7 @@ tests:
 			- "out of date"
 
 	- desc: subcommand help
-	  cmd: '{shared.gt} {matrix.sub} --help'
+	  cmd: '{shared.gt.exe} {matrix.sub} --help'
 	  timeout: 60s
 	  matrix:
 		sub: [matrix, bench, lint, release, version]
@@ -181,7 +184,7 @@ tests:
 	# stays stable. If logx's threshold ever drops low enough for this line to
 	# get timed, this assertion is the first thing that goes red.
 	- desc: unknown flag is rejected
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt} --definitely-not-a-flag'
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt.exe} --definitely-not-a-flag'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -197,7 +200,7 @@ tests:
 			stderr: true
 
 	- desc: unknown subcommand is rejected
-	  cmd: '{shared.gt} definitely-not-a-subcommand'
+	  cmd: '{shared.gt.exe} definitely-not-a-subcommand'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -215,7 +218,7 @@ tests:
 	# each host reports is pinned per host by the three smoke jobs, and this
 	# suite runs on all three -- naming one here would fail on the other two.
 	- desc: host detection is a runtime measurement, never the fallback guess
-	  cmd: '{shared.gt} version host'
+	  cmd: '{shared.gt.exe} version host'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -230,7 +233,7 @@ tests:
 	# promise: the platform-set flag exists with the documented default, and no
 	# --os/--arch flag exists to silently reintroduce a cartesian product.
 	- desc: matrix --help documents the single-APE default
-	  cmd: '{shared.gt} matrix --help'
+	  cmd: '{shared.gt.exe} matrix --help'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -256,9 +259,8 @@ tests:
 	# The message's agent NAME is asserted by unit tests, not here: process
 	# ancestry outranks the env marker, so running this suite from inside a
 	# different agent's session would legitimately name that agent instead.
-	- desc: agent output guard refuses a captured pipeline run under {matrix.marker}
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; env {matrix.marker}=1 {shared.gt}'
-	  exit: 1
+	- desc: the agent output guard answers a captured pipeline run under {matrix.marker}
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; out=$(env {matrix.marker}=1 {shared.gt.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 60s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -266,14 +268,14 @@ tests:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
-		stderr:
-			- "refused to run"
+		stdout:
+			0: "^((Linux|Darwin)\\|.*refused to run|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
 		"!stdout":
 			- "Build successful"
 
 	# version answers under every agent, not only Claude.
 	- desc: version answers under {matrix.marker}
-	  cmd: 'env {matrix.marker}=1 {shared.gt} version raw'
+	  cmd: 'env {matrix.marker}=1 {shared.gt.exe} version raw'
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -294,7 +296,7 @@ tests:
 	# inside a command dats is already sandboxing, and nested bwrap is not a
 	# thing worth depending on for coverage the unit tests already give.
 	- desc: no module and no suites names both halves
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt}'
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt.exe}'
 	  exit: 1
 	  timeout: 60s
 	  inputs:
@@ -324,7 +326,7 @@ tests:
 	# a toolchain is fetched to build one (the fork download would blow the
 	# timeout and mask what is being asserted).
 	- desc: --targets refuses a native platform
-	  cmd: '{shared.gt} matrix --targets {matrix.target}'
+	  cmd: '{shared.gt.exe} matrix --targets {matrix.target}'
 	  exit: 1
 	  timeout: 30s
 	  matrix:
