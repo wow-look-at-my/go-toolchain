@@ -389,9 +389,18 @@ func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
 	return filesChanged, nil
 }
 
+// instrumentedAnalyzers tracks which *analysis.Analyzer pointers already
+// carry the trace wrapper, across every call in the process. The analyzers
+// are package-level singletons shared by every vet run in this binary, so a
+// call-local set is not enough: a second run would wrap the already-wrapped
+// Run func again, and each further run adds one more layer — unbounded
+// nesting that eventually overflows the stack.
+var instrumentedAnalyzers sync.Map // *analysis.Analyzer -> struct{}
+
 // instrumentAnalyzers wraps each analyzer's Run function in-place to record
 // per-analyzer per-package timing in the trace. Mutates the original analyzers
-// since cloning breaks checker.Analyze's internal pointer-identity maps.
+// since cloning breaks checker.Analyze's internal pointer-identity maps. Safe
+// to call more than once on the same analyzer: a re-wrap is skipped.
 func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 	seen := set.New[*analysis.Analyzer]()
 	var instrument func(a *analysis.Analyzer)
@@ -399,13 +408,15 @@ func instrumentAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 		if !seen.Add(a) {
 			return
 		}
-		origRun := a.Run
-		name := a.Name
-		a.Run = func(pass *analysis.Pass) (interface{}, error) {
-			_, task := runtimetrace.NewTask(context.Background(), "analyze/"+name+"/"+pass.Pkg.Path())
-			result, err := origRun(pass)
-			task.End()
-			return result, err
+		if _, already := instrumentedAnalyzers.LoadOrStore(a, struct{}{}); !already {
+			origRun := a.Run
+			name := a.Name
+			a.Run = func(pass *analysis.Pass) (interface{}, error) {
+				_, task := runtimetrace.NewTask(context.Background(), "analyze/"+name+"/"+pass.Pkg.Path())
+				result, err := origRun(pass)
+				task.End()
+				return result, err
+			}
 		}
 		for _, req := range a.Requires {
 			instrument(req)
