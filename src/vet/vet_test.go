@@ -97,13 +97,16 @@ func TestLoadModeFromSource(t *testing.T) {
 }
 
 func TestSourceLocationShortLoc(t *testing.T) {
-	// filepath.Rel will make any absolute path relative to cwd
 	cwd, _ := os.Getwd()
 	absPath := "/some/path/file.go"
 	loc := SourceLocation{File: absPath, Line: 42, Column: 10}
 	short := loc.ShortLoc()
 
-	expected, _ := filepath.Rel(cwd, absPath)
+	// A drive-rooted cwd relates to nothing here, and ShortLoc then keeps what it was given.
+	expected, err := filepath.Rel(cwd, absPath)
+	if err != nil {
+		expected = absPath
+	}
 	assert.Equal(t, expected+":42", short)
 }
 
@@ -246,7 +249,7 @@ func TestSourceLocationShortLocRelative(t *testing.T) {
 	cwd, _ := os.Getwd()
 	loc := SourceLocation{File: filepath.Join(cwd, "subdir", "file.go"), Line: 10, Column: 5}
 	short := loc.ShortLoc()
-	assert.Equal(t, "subdir/file.go:10", short)
+	assert.Equal(t, filepath.Join("subdir", "file.go")+":10", short)
 }
 
 func TestRedundantCastFixes(t *testing.T) {
@@ -418,14 +421,16 @@ func foo() {
 }
 
 func TestSourceLocationShortLocAbsolute(t *testing.T) {
-	// filepath.Rel will return a relative path even for paths outside cwd
 	cwd, _ := os.Getwd()
 	absPath := "/nonexistent/path/file.go"
 	loc := SourceLocation{File: absPath, Line: 10}
 	short := loc.ShortLoc()
 
-	// The result should end with the file and its line
-	expected, _ := filepath.Rel(cwd, absPath)
+	// A path outside cwd still relates to it, unless the host roots them differently.
+	expected, err := filepath.Rel(cwd, absPath)
+	if err != nil {
+		expected = absPath
+	}
 	assert.Equal(t, expected+":10", short)
 }
 
