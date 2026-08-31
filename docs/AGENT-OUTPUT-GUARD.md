@@ -55,7 +55,12 @@ platform that can actually introspect a file descriptor. A third platform
   every single run under them. A filter in a shell pipeline is a sibling, and
   a `$(...)` reader is a shell, so neither is an agent-named ancestor. An
   agent whose binary is renamed beyond its roster prefixes and exports no pid
-  var fails closed.
+  var fails closed. `pipePeerName`'s /proc scan matches on the "pipe:[ino]"
+  string alone, which both ends of a pipe share -- so the shell that forks a
+  command and keeps its own stdout fd open (every shell does this) matches
+  too. `fdAccessMode` reads that candidate's O_ACCMODE from
+  `/proc/pid/fdinfo` and skips a write-end match, which is what let a plain
+  grok-build run refuse itself as "piped into `bash`".
 - **Socket / anon-inode** — gets the exact same `isHarnessPipeReader` chance a
   pipe gets, but NOT via `pipePeerName`: the two ends of an AF_UNIX
   `socketpair()` are separate sockets with different inodes (unlike a `pipe()`,
