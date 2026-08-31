@@ -81,11 +81,17 @@ tests:
 	# a copy of the one that ran the pipeline is no longer what a user gets.
 	# Both harnesses travel: the fixture picks the one this host can run.
 	- desc: the full pipeline runs in a tiny module on this host
-	  cmd: 'cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe ./socketharness-linux ./socketharness-darwin; {shared.gt-ape.exe}'
+	  cmd: 'mkdir -p "$HOME"; cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe ./socketharness-linux ./socketharness-darwin; {shared.gt-ape.exe}'
 	  timeout: 20m
 	  inputs:
 		env:
 			GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: "1"
+			# The pipeline caches the fork under $HOME, and the sandbox makes only this
+			# test's own directory writable. Named here rather than inherited: bwrap
+			# takes the host's home out of the mount namespace so the APE falls back to
+			# somewhere writable, while seatbelt leaves the path visible and read-only,
+			# so the same command works on linux and is denied on darwin.
+			HOME: "{outputs.home}"
 		copy:
 			gt-under-test.exe: ../../dist/go-toolchain
 			socketharness-linux: ../../harness/socketharness-linux-amd64
