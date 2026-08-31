@@ -195,9 +195,13 @@ dir.
 `branch` as alternatives, so a pinned URL carries `v=<N>` and no branch, and
 the pin keys the cache directly instead of probing. `go-toolchain version
 cosmo` (`ResolveCosmoVersion`) prints the release this host would resolve,
-without downloading it. CI uses the pair: `host-build` resolves once and hands
-the answer to each `build-everywhere` leg, so the three APEs `identical`
-compares come from one compiler even when a run spans a gosmopolitan publish.
+without downloading it; `--require-release` (`cosmoReleasePattern`, `^v[0-9]`)
+turns the branch-key fallback into a failing exit code, since that fallback
+means each host would then resolve its own answer. CI uses the pair:
+`host-build` resolves once (with `--require-release`) and hands the answer to
+each `build-everywhere` leg, so the three APEs `identical` compares (via
+`go-toolchain verify-identical`, `src/cmd/apeidentity.go`) come from one
+compiler even when a run spans a gosmopolitan publish.
 
 The cosmo build runs `<goroot>/bin/go` with `GOTOOLCHAIN=local`, `GOROOT`, a
 prefixed `PATH`, `CGO_ENABLED=0` always (`--cgo` warns), and
