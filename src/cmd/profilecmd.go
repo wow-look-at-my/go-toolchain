@@ -102,12 +102,11 @@ func emitBuildProfile() {
 	}
 }
 
-// runWebSummary is the whole run's web tier, not the share of it that any
-// component saw. A namespaced cacheprog runs standalone and never touches the
-// daemon, so a pipeline whose every phase is namespaced leaves the daemon
-// holding an index it loaded and nothing else -- and a live remote then reads
-// as a dead one. Both sources fold together, and neither counts the other's
-// numbers, because a daemon connection's Server reports no web summary at all.
+// runWebSummary is the whole run's web tier, not the share any component saw.
+// A namespaced cacheprog runs standalone and never touches the daemon, so a
+// pipeline whose every phase is namespaced leaves the daemon holding an index
+// it loaded and nothing else, and a live remote reads as a dead one. Neither
+// source restates the other: a daemon connection reports no web summary.
 func runWebSummary() *cache.WebSummary {
 	var merged cache.WebSummary
 	fresh := true

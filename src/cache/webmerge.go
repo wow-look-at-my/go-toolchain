@@ -7,7 +7,7 @@ package cache
 // authoritative index: a loader that fell back leaves the run without a
 // trustworthy view of what the remote holds.
 //
-// fresh says whether dst is still the zero accumulator, which is what lets
+// fresh says whether dst is still an empty accumulator, which is what lets
 // IndexAuthoritative start from src instead of from false.
 func MergeWebSummary(dst *WebSummary, src WebSummary, fresh bool) {
 	dst.Hits += src.Hits

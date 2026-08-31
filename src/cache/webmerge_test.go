@@ -57,7 +57,7 @@ func TestStatsListener_WebSummaryIsNilUntilStandaloneReports(t *testing.T) {
 // The load-bearing half: nothing but the standalone cacheprog itself knows
 // what the remote did for it, so its close must carry those numbers to the
 // parent. Without this a run whose every phase is namespaced reports a live
-// remote as a dead one.
+// remote as a dead remote.
 func TestFlushLatency_CarriesTheWebTierFromAStandaloneServer(t *testing.T) {
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
@@ -88,7 +88,7 @@ func TestFlushLatency_CarriesTheWebTierFromAStandaloneServer(t *testing.T) {
 }
 
 // The daemon owns its own counters and reports them directly, so a
-// per-connection Server must stay silent or the run counts them twice.
+// per-connection Server must stay silent or the run restates them.
 func TestFlushLatency_SaysNothingAboutTheDaemonsWebTier(t *testing.T) {
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)

@@ -220,9 +220,8 @@ func (sl *StatsListener) recordWeb(ws WebSummary) {
 	sl.gotWeb = true
 }
 
-// WebSummary returns the web-tier counters standalone cacheprogs reported this
-// run, or nil when none did (every cacheprog proxied to the daemon, which owns
-// its own counters).
+// WebSummary returns what standalone cacheprogs reported this run, or nil when
+// none did -- they all proxied to the daemon, which owns its own counters.
 func (sl *StatsListener) WebSummary() *WebSummary {
 	sl.webMu.Lock()
 	defer sl.webMu.Unlock()
