@@ -406,9 +406,8 @@ func (s *Server) lock(key string) *sync.Mutex {
 }
 
 // flushLatency reports this Server's trackers plus, in standalone mode, the
-// HTTP pool and the web tier. In daemon mode the remote is the Daemon's
-// no-close wrapper, so the assertion fails and the Daemon reports those
-// itself, rather than a connection restating what the Daemon already owns.
+// HTTP pool and the web tier. A daemon connection's remote is the no-close
+// wrapper, so the assertion fails and the Daemon reports those itself.
 func (s *Server) flushLatency() {
 	snap := s.Latency.Snapshot()
 	ev := StatEvent{Latency: &snap}
