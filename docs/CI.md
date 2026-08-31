@@ -64,9 +64,11 @@ own content ID both reached the build-ID notes. See
 [MATRIX.md](MATRIX.md) for the measurements and what each flag closes.
 
 `build-everywhere` runs `matrix --no-benchmark` on all three hosts and hands
-each result off under `ape-<origin>`; `identical` downloads them and compares
-the other two against linux. `fail-fast: false`, so one host failing still
-reports the others.
+each result off under `ape-<origin>`; `identical` downloads them and runs the
+downloaded linux APE's own `go-toolchain verify-identical` against all three,
+linux included, so a check that needs a Go toolchain to build never lives in
+the YAML itself. `fail-fast: false`, so one host failing still reports the
+others.
 
 Every leg runs the SAME command, linux included, rather than reusing `build`'s
 result. That costs one extra build and buys an unambiguous gate: a difference
@@ -95,10 +97,11 @@ invoke the suite; a workflow step schedules work and is not a test harness.
 One compiler builds all three. gosmopolitan publishes on every green push, so a
 run that spans a publish resolved a different fork on each leg and `identical`
 read that as a host difference. `host-build` resolves the release once with
-`go-toolchain version cosmo` and exports it to each leg as
-`GO_TOOLCHAIN_COSMO_VERSION`; a probe that cannot name a release fails the step
-rather than letting the legs pick their own. See [CMD.md](CMD.md) for how the
-pin reaches the download URL and the cache key.
+`go-toolchain version cosmo --require-release` and exports it to each leg as
+`GO_TOOLCHAIN_COSMO_VERSION`; `--require-release` fails the step when the
+probe cannot name a real release, rather than letting the legs fall back to
+resolving their own. See [CMD.md](CMD.md) for how the pin reaches the
+download URL and the cache key.
 
 **Windows is red until the fork publishes for it.** The APE cannot complete an
 HTTPS request on an NT host, so it cannot download the toolchain, and buildhost

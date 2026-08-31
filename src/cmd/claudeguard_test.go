@@ -279,6 +279,54 @@ func TestPipePeerNameDetectsConsumer(t *testing.T) {
 	assert.Equal(t, cmd.Process.Pid, pid)
 }
 
+// TestPipePeerNameSkipsAWriteEndSibling reproduces the grok-build false
+// positive: the shell that forks a command keeps its own stdout fd open
+// while the command runs as its child, and that fd resolves to the exact
+// same "pipe:[ino]" string as the write end being inspected. A scan that
+// matches on the string alone can return that shell instead of the real
+// reader, and refuse a run that was never piped anywhere.
+func TestPipePeerNameSkipsAWriteEndSibling(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("pipePeerName needs /proc (linux)")
+	}
+	if _, err := exec.LookPath("sleep"); err != nil {
+		t.Skip("sleep not on PATH")
+	}
+	if _, err := exec.LookPath("cat"); err != nil {
+		t.Skip("cat not on PATH")
+	}
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer w.Close()
+
+	// Holds the read end, the way an agent's harness reads a tool call's stdout.
+	reader := exec.Command("sleep", "30")
+	reader.Stdin = r
+	require.NoError(t, reader.Start())
+	r.Close()
+	defer func() { _ = reader.Process.Kill(); _ = reader.Wait() }()
+
+	// Another holder of the write end, standing in for the shell.
+	siblingStdinR, siblingStdinW, err := os.Pipe()
+	require.NoError(t, err)
+	defer siblingStdinW.Close()
+	sibling := exec.Command("cat")
+	sibling.Stdin = siblingStdinR
+	sibling.Stdout = w
+	require.NoError(t, sibling.Start())
+	siblingStdinR.Close()
+	defer func() { _ = sibling.Process.Kill(); _ = sibling.Wait() }()
+
+	target, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(w.Fd()), 10))
+	require.NoError(t, err)
+
+	name, pid, ok := pipePeerName(target)
+	require.True(t, ok, "expected to identify the read-end consumer past the write-end sibling")
+	assert.Equal(t, "sleep", name)
+	assert.Equal(t, reader.Process.Pid, pid, "must not return the write-end sibling's pid")
+}
+
 func TestPipeReaderAllowanceThroughTheGuard(t *testing.T) {
 	// Pins the classifier's rule: an agent reading our pipe counts as capture; a filter does not.
 	if runtime.GOOS != "linux" {

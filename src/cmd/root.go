@@ -54,7 +54,7 @@ func skipCache(cmd *cobra.Command) bool {
 var unguardedCmds = set.Of("cacheprog", "version")
 
 // toolchainlessCmds run no go command; resolving the fork would download a compiler to answer a question about this binary.
-var toolchainlessCmds = set.Of("cacheprog", "version")
+var toolchainlessCmds = set.Of("cacheprog", "version", "verify-identical")
 
 // checkTargetFlags validates --targets and --cosmo-platforms, for the commands
 // that have them. The build path parses them again where it uses them; this
