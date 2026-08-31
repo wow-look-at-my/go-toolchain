@@ -109,7 +109,16 @@ platform that can actually introspect a file descriptor. A third platform
   path itself (needed for `agent.IsCapturePath`) comes from the `F_GETPATH`
   fcntl, darwin's one substitute for `/proc/self/fd`'s readlink.
 - **Char device** — `isTerminal` uses the `github.com/mattn/go-isatty`
-  package (its BSD/darwin variant), not a hand-rolled ioctl.
+  package (its BSD/darwin variant), not a hand-rolled ioctl. A cosmo APE on a
+  darwin host cannot ask that question at all: the probe reports UNSUPPORTED
+  rather than "not a terminal", and going blind there would wave every
+  `> /dev/null` run through, which is the shape `CLAUDECODE` takes. So an
+  unaskable probe falls back to `F_GETPATH`, which DOES answer on that host,
+  and the device's own path decides: a `/dev/tty…`, `/dev/pts/…`,
+  `/dev/console` or `/dev/ptmx` spelling is the terminal, anything else is a
+  discard. Only a descriptor whose path is unreadable too stays blind.
+  `.github/dats-fixtures/agent-output-guard.dats` asserts the refusal on
+  every host, so the fallback failing on darwin turns the macOS smoke leg red.
 
 ## A pty cannot name its own reader: the `script(1)` bypass
 
@@ -286,14 +295,15 @@ flag to disable it.
   darwin (`build`/`host-build` are linux-only), so this file needs a real
   Mac (or darwin CI runner) to execute, not just cross-compile; it's a
   local-developer check, not a CI gate.
-- `dats/cli.dats` — the shipped binary refusing a captured run under each
-  agent's marker, the `version` exemption, and the build-output deletion, for
-  the linux/cosmo classifier. The suite does not assert WHICH agent the
-  message names: ancestry outranks the env marker, so running the suite from
-  inside another agent's session would legitimately name that agent. Runs on
-  linux only (see CLAUDE.md).
-- `.github/dats-fixtures/smoke-linux-agent-output-guard.dats` and
-  `smoke-macos-agent-output-guard.dats`, copied by their respective CI jobs
+- `dats/cli.dats` — the dev build refusing a captured run under each agent's
+  marker, the `version` exemption, and the build-output deletion. The suite
+  does not assert WHICH agent the message names: ancestry outranks the env
+  marker, so running the suite from inside another agent's session would
+  legitimately name that agent. It runs on every host `build-everywhere`
+  covers, and each guard test pairs its answer with `uname -s`, so the NT
+  arm demands the INOPERATIVE banner where the other two demand a refusal.
+- `.github/dats-fixtures/agent-output-guard.dats`, one file copied by every
+  leg of the smoke job
   (`.github/workflows/ci.yml`) into a throwaway module's `dats/` directory
   (each job runs `actions/checkout` just for this), alongside a copy of the
   real shipped binary (the cosmo APE / the native darwin/arm64 binary) — not

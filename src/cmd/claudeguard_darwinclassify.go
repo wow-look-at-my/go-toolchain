@@ -2,12 +2,25 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
 // isCapturePathFn: the seam for the harness's transcript-capture check, so tests can drive it without a real agent.
 var isCapturePathFn = agent.IsCapturePath
+
+// isTerminalDevicePath reports whether a character device's path names a
+// terminal: darwin spells a pty slave under /dev/tty, linux under /dev/pts.
+func isTerminalDevicePath(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/dev/tty"), strings.HasPrefix(path, "/dev/pts/"):
+		return true
+	case path == "/dev/console", path == "/dev/ptmx":
+		return true
+	}
+	return false
+}
 
 // Decision table: build-constraint-free, so CI tests it everywhere.
 // File-type bits are spelled locally; stdlib omits S_IF* on some GOOS.
@@ -79,7 +92,15 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 	case sIFCHR:
 		terminal, supported := p.isTerminal()
 		if !supported {
-			return outputSink{}, false
+			// Blind waves `> /dev/null` through, and cosmo cannot ask TCGETS on darwin. F_GETPATH answers, so the path decides.
+			path, named := p.path()
+			if !named || path == "" {
+				return outputSink{}, false
+			}
+			terminal, supported = isTerminalDevicePath(path), true
+			if !terminal {
+				return outputSink{kind: sinkDiscard, detail: path}, true
+			}
 		}
 		if terminal {
 			// Same gap claudeguard_ptywrap.go closes on linux/cosmo.

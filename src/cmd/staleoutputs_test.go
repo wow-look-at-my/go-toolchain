@@ -121,7 +121,9 @@ func TestRemoveBuildOutputsInSweepsTempSpellings(t *testing.T) {
 // outputDir at its build/ directory, and resets the tracking state.
 func setupOutputModule(t *testing.T) string {
 	t.Helper()
-	tmp := t.TempDir()
+	// Resolve before the chdir, or the tracked paths get the host's other spelling.
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	oldWd, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(tmp))
@@ -137,10 +139,7 @@ func setupOutputModule(t *testing.T) string {
 		outputDir = oldOut
 		resetTrackedOutputs()
 	})
-	// t.TempDir() on macOS is a /var symlink to /private/var; resolve it to match the tracked absolute paths.
-	resolved, err := filepath.EvalSymlinks(tmp)
-	require.NoError(t, err)
-	return resolved
+	return tmp
 }
 
 func TestClearBuildOutputsDeletesPreviousRunBinaries(t *testing.T) {
@@ -210,7 +209,9 @@ func TestDiscardBuildOutputsFromCWD(t *testing.T) {
 // points outputDir at its build/ directory and resets the tracking state.
 func setupPipelineOutputTest(t *testing.T) (buildDir, binary string) {
 	t.Helper()
-	tmp := t.TempDir()
+	// Resolved before the chdir, for the reason setupOutputModule gives.
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	oldWd, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(tmp))

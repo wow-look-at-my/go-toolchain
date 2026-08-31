@@ -37,7 +37,7 @@ func resolveLogLevel() logger.Level {
 	return logger.LevelInfo
 }
 
-// initLogging installs the global logger, first in the root PersistentPreRunE.
+// initLogging installs the global logger before the rest of the root PersistentPreRunE.
 // cacheprog gets a stderr-only logger: its stdout is the GOCACHEPROG pipe,
 // which a GHA annotation would corrupt.
 func initLogging(cmd *cobra.Command) error {
