@@ -152,16 +152,13 @@ jobs:
           timeout: '15'
 
 
-  # Every host runs the SAME command, so a difference in the output is the host and nothing else. see docs/CI.md
+  # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
     needs: host-build
     strategy:
       fail-fast: false
       matrix:
         include:
-          - origin: linux
-            runner: ubuntu-latest
-            gt: gt-ape
           - origin: darwin
             runner: macos-latest
             gt: gt-ape
@@ -231,17 +228,18 @@ jobs:
 
   # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
   identical:
-    needs: build-everywhere
+    needs: [build, build-everywhere]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       # Only for the dats fixture below -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
 
+      # ape/linux is `build`'s hand-off, the same bytes `publish` ships.
       - name: Download each host's APE
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: ape-linux
+          name: go-build-build
           path: ape/linux
       - uses: wow-look-at-my/actions@cache-download#latest
         with:
