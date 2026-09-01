@@ -30,8 +30,8 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Colorized output** — coverage percentages on a red-to-green gradient.
 - **CI summary** — writes a GitHub Step Summary with test results, source links, coverage, benchmark deltas and a Gantt chart of the pipeline.
 - **One toolchain, one output shape** — every phase compiles with the gosmopolitan fork, and the only outputs are the fat APE and wasm. See [docs/MATRIX.md](docs/MATRIX.md).
-- **Web-backed build cache** — a GOCACHEPROG server that shares a build cache across CI runs, with a FUSE-backed local tier. See [docs/CACHE.md](docs/CACHE.md).
-- **Build profile** — per-action timings joined with cache outcomes: what the build spent its time on, and whether the cache helped. See [docs/PROFILE.md](docs/PROFILE.md).
+- **Web-backed build cache** — the gosmopolitan fork's `cmd/go` shares a build cache across CI runs on its own; see [docs/CACHE.md](docs/CACHE.md).
+- **Build profile** — per-action timings: what the build spent its time on. See [docs/PROFILE.md](docs/PROFILE.md).
 - **Vanity URL resolution** — resolves vanity-URL module dependencies via the Go proxy or go-import meta tags.
 - **Go proxy/sumdb support** — reads `GO_PROXY_CONFIG` (base64 JSON) for the proxy URL, credentials and sumdb key.
 - **Generated code exclusion** — files carrying the standard `DO NOT EDIT.` marker are excluded from tests and coverage.
@@ -224,7 +224,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go-toolchain
 - [docs/PIPELINE.md](docs/PIPELINE.md) — what the default workflow does, step by step
 - [docs/MATRIX.md](docs/MATRIX.md) — the one-binary APE build, and per-platform cross-compilation
 - [docs/WASM.md](docs/WASM.md) — the `wasm/js` and `wasm/wasip1` targets
-- [docs/CACHE.md](docs/CACHE.md) — build cache architecture, pack format, remote tier
+- [docs/CACHE.md](docs/CACHE.md) — build caching (now in gosmopolitan's cmd/go), and what this repo still checks
 - [docs/PROFILE.md](docs/PROFILE.md) — the per-action build profile
 - [docs/DEPS.md](docs/DEPS.md) — dependency updates and branch tracking
 - [docs/VET.md](docs/VET.md) — the custom vet analyzers

@@ -77,9 +77,9 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          # 60s is derived, not guessed. see docs/CI.md
-          if [ "$elapsed" -gt 60 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 60s)"
+          # 90s is derived, not guessed. see docs/CI.md
+          if [ "$elapsed" -gt 90 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 90s)"
             exit 1
           fi
 

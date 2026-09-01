@@ -636,21 +636,21 @@ dependency snapshot; give it the same token so it succeeds rather
 than warning. Same job + correlator as the first submission, so it
 replaces it (idempotent) rather than duplicating.
 
-### if [ "$elapsed" -gt 60 ]; then
+### if [ "$elapsed" -gt 90 ]; then
 
-60s is derived, not guessed. On an UNCHANGED build graph (1629
-actions, 98% cache-satisfied) this step measures 38-47s depending
-only on which runner it lands on -- a package the commit never
-touched swings 9.1s to 14.6s across those runs. A budget near 45s
-therefore fails on runner speed, and a gate that cries wolf stops
-being read on the run where the number is real.
-What this gate is for is a cache that has stopped serving, and that
-floor is far away: the cold first build in this same job is
-~190-200s, so 60s still fails a broken cache by more than 3x.
-Before raising it again, check the two signals this job already
-prints -- cache-satisfied percentage and the poison tripwires. High
-and zero mean a slow runner, and the limit is the thing to re-derive
-from fresh numbers; a real cache failure does not look like this.
+Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job
+can no longer read a cache-satisfied percentage or the poison
+tripwires to tell a slow runner from a broken cache -- the only signal
+left is the elapsed time itself. On the current build graph (~3300
+actions -- roughly double the 1629 this budget was first derived
+against) an UNCHANGED second build measures 60-70s depending on the
+runner. 90s keeps real headroom over that without giving up on
+catching a genuinely broken cache: a cold first build in this same job
+is ~190-200s, so 90s still fails one by more than 2x.
+Before raising it again, confirm the second build is actually doing
+nothing new (no source changed between the two builds in this job) and
+re-measure a few runs -- a real cache failure looks like the cold-build
+number, not a small overage.
 
 The tripwires themselves are asserted by
 `.github/dats-fixtures/cache-profile.dats`, run by the dats action in

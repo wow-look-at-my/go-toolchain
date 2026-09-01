@@ -22,6 +22,7 @@ import (
 var (
 	goCacheDirFunc        = goCacheDir
 	verifyGoToolchainFunc = verifyGoToolchain
+	symlinkFunc           = os.Symlink
 )
 
 // resolvedGoMinor caches the resolved Go minor version so goSupportsFeature avoids re-running "go version".
@@ -247,6 +248,11 @@ func extractTarGz(r io.Reader, destDir string) error {
 	}
 	defer gz.Close()
 
+	// A refused symlink falls back to a copy, deferred until every entry
+	// extracts: a tar stream carries no ordering guarantee between a
+	// symlink and the file it targets.
+	var deferredSymlinks []struct{ target, linkname string }
+
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -287,10 +293,33 @@ func extractTarGz(r io.Reader, destDir string) error {
 				return err
 			}
 			os.Remove(target)
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				return err
+			if err := symlinkFunc(hdr.Linkname, target); err != nil {
+				deferredSymlinks = append(deferredSymlinks, struct{ target, linkname string }{target, hdr.Linkname})
 			}
 		}
 	}
+
+	for _, s := range deferredSymlinks {
+		if err := copySymlinkTarget(s.target, filepath.Join(filepath.Dir(s.target), s.linkname)); err != nil {
+			return fmt.Errorf("symlink %s -> %s refused, and the fallback copy failed too: %w", s.target, s.linkname, err)
+		}
+	}
 	return nil
+}
+
+// copySymlinkTarget copies linkTarget's bytes to target, for a host that
+// refused to create the real symlink.
+func copySymlinkTarget(target, linkTarget string) error {
+	src, err := os.Open(linkTarget)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	_, err = io.Copy(dst, src)
+	return err
 }

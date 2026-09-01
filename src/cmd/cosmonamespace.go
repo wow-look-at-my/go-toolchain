@@ -100,12 +100,3 @@ func hashFrame(h io.Writer, name string, data []byte) {
 	io.WriteString(h, "\x00")
 	h.Write(data)
 }
-
-// daemonSockUnlessNamespaced returns "" when namespaced, since the shared
-// daemon's byte-pipe proxy cannot carry a namespace.
-func daemonSockUnlessNamespaced(namespace string) string {
-	if namespace != "" {
-		return ""
-	}
-	return os.Getenv("GOCACHE_DAEMON_SOCK")
-}
