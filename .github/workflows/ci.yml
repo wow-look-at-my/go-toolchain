@@ -92,7 +92,7 @@ jobs:
           path: build/go-toolchain
 
       # Comparing three hosts' APEs says something only if one compiler built them. see docs/CI.md
-      - name: The release name is a release name
+      - name: go-toolchain version cosmo resolves a vN release tag
         uses: wow-look-at-my/dats@master
         with:
           tests: .github/dats-fixtures/cosmo-version.dats
