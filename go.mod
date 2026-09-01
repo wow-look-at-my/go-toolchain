@@ -5,7 +5,6 @@ go 1.27
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/go-git/go-git/v5 v5.19.2
-	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/spf13/cobra v1.10.2
@@ -14,8 +13,6 @@ require (
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/dats v0.0.0-20260901050600-9ddba3315456 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-mmap v0.0.0-20260824191519-1d122070e11e // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-s3-server/cacheclient v0.0.0-20260830192305-84ca26c6535b // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260823195827-77471848149d // go-toolchain:auto-branch
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0
@@ -51,7 +48,6 @@ require (
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/pierrec/lz4/v4 v4.1.29 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect

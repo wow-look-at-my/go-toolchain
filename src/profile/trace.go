@@ -6,7 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 )
 
@@ -17,10 +16,10 @@ const maxTraceLanes = 32
 // assigning concurrent actions to numbered lanes with a greedy interval
 // scheduler — the Chrome writer clamps overlapping events within a single
 // thread, so without lanes a parallel compile phase would collapse into a
-// serialized smear. The event args carry the package, mode, action ID and
-// observed cache outcome, so clicking a bar in chrome://tracing answers "what
-// was this and why did it run".
-func AddTraceEvents(tr *gotrace.Trace, actions []Action, outcomes map[string]cache.ActionOutcome) {
+// serialized smear. The event args carry the package, mode and action ID, so
+// clicking a bar in chrome://tracing answers "what was this and why did it
+// run".
+func AddTraceEvents(tr *gotrace.Trace, actions []Action) {
 	if tr == nil {
 		return
 	}
@@ -65,9 +64,6 @@ func AddTraceEvents(tr *gotrace.Trace, actions []Action, outcomes map[string]cac
 		}
 		if a.ActionID != "" {
 			args["action_id"] = a.ActionID
-		}
-		if ao, ok := outcomes[a.ActionID]; ok && a.ActionID != "" {
-			args["cache"] = outcomeLabel(Row{Outcome: ao.Get, Put: ao.Put})
 		}
 		tr.Record(gotrace.Event{
 			Name:     traceName(a),

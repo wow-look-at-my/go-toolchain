@@ -38,12 +38,13 @@ var (
 	countGenerated bool
 )
 
-// skipCache reports whether cmd or an ancestor should skip GOCACHEPROG.
+// skipCacheValidation reports whether cmd or an ancestor should skip the
+// CI shared-cache config check.
 // A subcommand (e.g. `version raw`) must inherit its parent's skip.
-func skipCache(cmd *cobra.Command) bool {
+func skipCacheValidation(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "cacheprog", "version", "install", "release":
+		case "version", "install", "release":
 			return true
 		}
 	}
@@ -51,10 +52,10 @@ func skipCache(cmd *cobra.Command) bool {
 }
 
 // unguardedCmds print no build result, so a capture hides nothing. Depth: docs/AGENT-OUTPUT-GUARD.md.
-var unguardedCmds = set.Of("cacheprog", "version")
+var unguardedCmds = set.Of("version")
 
 // toolchainlessCmds run no go command; resolving the fork would download a compiler to answer a question about this binary.
-var toolchainlessCmds = set.Of("cacheprog", "version", "verify-identical")
+var toolchainlessCmds = set.Of("version", "verify-identical")
 
 // checkTargetFlags validates --targets and --cosmo-platforms, for the commands
 // that have them. The build path parses them again where it uses them; this
@@ -118,7 +119,7 @@ var rootCmd = &cobra.Command{
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
 		}
-		if skipCache(cmd) {
+		if skipCacheValidation(cmd) {
 			return nil
 		}
 		if cmd.Parent() == nil && isUpToDate(runner.New()) {
@@ -126,7 +127,7 @@ var rootCmd = &cobra.Command{
 			ReportUpdateCheck()
 			os.Exit(0)
 		}
-		return enableCacheProg()
+		return validateCICacheConfig()
 	},
 	RunE: run,
 }
@@ -165,7 +166,7 @@ func init() {
 
 // Execute runs the root command.
 func Execute() error {
-	defer printCacheStats(true)
+	defer emitBuildProfile()
 	return rootCmd.Execute()
 }
 

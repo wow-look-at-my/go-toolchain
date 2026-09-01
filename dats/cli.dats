@@ -66,8 +66,8 @@ tests:
 		"!stderr":
 			- "panic"
 
-	# version prints build metadata and no build result, so it is exempt along
-	# with cacheprog: a captured `version raw` under an agent still answers.
+	# version prints build metadata and no build result, so it is exempt: a
+	# captured `version raw` under an agent still answers.
 	# The test above asks the same thing with no marker set, and the two have to
 	# agree -- an agent is exactly who runs this suite, and the guard firing on
 	# version made that pair unsatisfiable.

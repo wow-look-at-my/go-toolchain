@@ -122,8 +122,8 @@ coverage.
 - `dats/` — this repo's own dats suite (`cli.dats` + committed `cli.snapshots/` goldens + README with the conventions): exercises the built binary's
   version/help surface, unknown-flag/-subcommand rejection (one stderr snapshot golden — regenerate with `dats --update test dats`), the
   agent-output-guard abort ("refused to run", guard-positive via each agent's marker — `CLAUDECODE=1`, `GROK_AGENT=1`, `OPENCODE=1` — with
-  dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and that `version` is NOT exempt (only
-  `cacheprog` is), and the update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
+  dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and that `version` IS exempt, the
+  update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
   so version tests assert only the stable `Version:`/`Commit:` lines), and that host detection is a MEASUREMENT rather than its linux fallback.
   The guard tests are HOST-AGNOSTIC: `build-everywhere` runs this suite on all three hosts, and the guard is inoperative on NT, so each pairs its
@@ -177,29 +177,21 @@ coverage.
   --git-path`, correct in linked worktrees) — under `.git/`, OUTSIDE the working tree, so unlike a `.gitignore` line the write cannot itself dirty
   anything. The entry is left in place (clone-local; also hides a stale guard from an interrupted build). Best-effort: no git / not a repo / write
   failure all silently degrade to the old `+dirty` behavior, never a failed build
-- `src/cache/` — GOCACHEPROG protocol server, the local tiers (FUSE pack store, loose files) and the stats daemon. The REMOTE tier and the
-  wire protocol are no longer here: they are `github.com/wow-look-at-my/go-s3-server/cacheclient`, a module in the cache server's own repo, so a
-  header or an endpoint cannot change on one side without the other. `src/cache/client.go` is the whole seam — type aliases, the guard helpers, and
-  the logger the client writes through. The local tier defaults to LOOSE FILES and names the tier it picked on every path: go-fuse does not compile
-  for cosmo, so a packed default gives a `go run ./src` build a `packs/` store the shipped APE cannot read, and the two flavors keep disjoint
-  caches. `GOCACHE_FUSE=1` opts into packs. Depth: `docs/CACHE.md`
-- `src/profile/` — the **per-action build profile**: joins cmd/go's `-debug-actiongraph` dumps with the cacheprog's per-action outcome events into
-  "what
-  did the build spend time on, and did the cache help". `collector.go` hands out one dump path per go invocation (`Collector.GraphArg` →
-  `-debug-actiongraph=<$TMPDIR/go-toolchain-profile/actiongraph-PID-SEQ.json>`; the package-level `GraphArg()` consults the `SetActive` collector so
-  injection sites need no plumbing). Injection points: `src/cmd/matrixbuild.go` `runBuild` (each matrix target gets its own dump) and
-  `src/test/test.go` `RunTests` — the latter via the `gotest.GraphArgFunc` hook because src/test cannot import src/profile (cycle via src/trace →
-  src/summary → src/test). `graph.go` parses dumps defensively (missing file silent, malformed = one warning, never fails the build) and merges rows
-  by `ActionID` — the 20-char `base64.RawURLEncoding(actionID[:15])` form, byte-identical to what `truncateActionID` emits in stat events, which is
-  the join key; the executed (then longer) instance wins. `report.go` builds the `Report` (schema 1) — rows sorted by wall time
-  (`TimeDone-TimeStart`), `cache_outcomes` tally, `cache_satisfied_pct`, plus `CacheTotals` and `cache.WebSummary` — and emits the console section,
-  `profile.json` (written to BOTH `build/` and `$TMPDIR/go-toolchain-profile/`), and the Step Summary table. `trace.go` records executed actions into
-  the Chrome trace on greedy-interval "go actions #NN" lanes (cap 32). Wiring lives in `src/cmd/profilecmd.go`: `initBuildProfile` (root run() +
-  matrix runRelease; `--no-profile` opts out), `captureProfileTrace` (deferred in run() AFTER the WriteChrome defer so it runs first, stashing the
-  parsed graph), and `emitBuildProfile` — called from `printCacheStats(close=true)` AFTER `cacheDaemon.Close()` and `statsListener.Close()`, so the
-  web counters are post-drain-final and every per-action event has been delivered. CI gates on `build/profile.json` (a poison tripwire: no integrity
-  gate may refuse an object the remote served) through `.github/dats-fixtures/cache-profile.dats`, a suite an engineer can run against a local profile
-  — not a workflow step
+- **Build caching lives in gosmopolitan, not here.** The fork's `cmd/go` links `github.com/wow-look-at-my/go-s3-server/cacheclient` in process
+  (its `SharedCache`, `cmd/go/internal/cache/shared.go`) and consults it directly whenever `GO_BUILDCACHE_CONFIG` names a bucket — ahead of
+  `GOCACHEPROG`, so this binary never forks a cache program of its own. `src/cmd/buildcache.go` only checks that CI actually set the variable
+  gosmopolitan reads. Depth on the removal and where the counters live now: `docs/CACHE.md`
+- `src/profile/` — the per-action build profile: joins cmd/go's `-debug-actiongraph` dumps into "what did the build spend time on". `collector.go`
+  hands out one dump path per go invocation (`Collector.GraphArg` → `-debug-actiongraph=<$TMPDIR/go-toolchain-profile/actiongraph-PID-SEQ.json>`;
+  the package-level `GraphArg()` consults the `SetActive` collector so injection sites need no plumbing). Injection points:
+  `src/cmd/matrixbuild.go` `runBuild` (each matrix target gets its own dump) and `src/test/test.go` `RunTests` — the latter via the
+  `gotest.GraphArgFunc` hook because src/test cannot import src/profile (cycle via src/trace → src/summary → src/test). `graph.go` parses dumps
+  defensively (missing file silent, malformed = one warning, never fails the build) and merges rows by `ActionID` (the executed, longer instance
+  wins). `report.go` builds the `Report` (schema 2) — rows sorted by wall time — and emits the console section, `profile.json` (written to BOTH
+  `build/` and `$TMPDIR/go-toolchain-profile/`), and the Step Summary table. `trace.go` records executed actions into the Chrome trace on
+  greedy-interval "go actions #NN" lanes (cap 32). Wiring lives in `src/cmd/profilecmd.go`: `initBuildProfile` (root run() + matrix runRelease;
+  `--no-profile` opts out), `captureProfileTrace` (deferred in run() AFTER the WriteChrome defer so it runs first, stashing the parsed graph), and
+  `emitBuildProfile` — deferred from `Execute()`. Carries no cache hit/miss counts: see the caching bullet above
 - `src/trace/` — OpenTelemetry trace export for build pipeline timings. The OTLP/HTTP exporter construction is build-tag split: `provider_otlp.go`
   (`!cosmo`) is the real exporter; `provider_otlp_cosmo.go` is a span-dropping no-op because otlptracehttp's internal otlpconfig imports
   google.golang.org/grpc even for pure HTTP (known upstream issue, present at otel v1.44.0) and grpc cannot compile for cosmo — so **GOOS=cosmo
@@ -210,10 +202,10 @@ coverage.
   checks GITHUB_ACTIONS at emit time), else stderr; Output -> stdout unconditionally (bypasses level filtering, even `silent`). Annotation message
   data and the `file=` property are escaped per the workflow-command encoding (`gha.go`: `%` -> `%25`, CR -> `%0D`, LF -> `%0A`; the property
   additionally `:` -> `%3A`, `,` -> `%2C`), so multi-line messages annotate intact instead of truncating to their first line. `InitSubprocess` is the
-  stderr-only, annotation-free mode for subprocesses whose stdout is a protocol channel -- used by the cacheprog subprocess (everything, including
-  Info/Output, goes to stderr; annotations stay off regardless of GITHUB_ACTIONS). The global default logger is installed by `initLogging`
-  (`src/cmd/logging.go`, first thing in the root `PersistentPreRunE`) with level precedence: `-v`/`--verbose` > `GOCACHE_DEBUG=1`
-  (maps to debug) > info. `src/cmd/logging.go` also holds the documented held-writer bypasses (`rawStderr`/`rawStdout`) for mid-line progress
+  stderr-only, annotation-free mode for a subprocess whose stdout is a protocol channel (everything, including Info/Output, goes to stderr;
+  annotations stay off regardless of GITHUB_ACTIONS). The global default logger is installed by `initLogging` (`src/cmd/logging.go`, first thing
+  in the root `PersistentPreRunE`) with level precedence: `-v`/`--verbose` > info. `src/cmd/logging.go` also holds the documented held-writer
+  bypasses (`rawStderr`/`rawStdout`) for mid-line progress
   fragments and interactive prompts the logger's auto-newline and level filtering would corrupt or hide. **Warnings budget** (`warncount.go` +
   `src/cmd/warningsgate.go`): the budget counts DISTINCT messages -- byte-identical text folds into one `logger.WarnCount` with a repeat count, since
   one root cause repeats per file, per package variant and (structurally) per pipeline pass, as vet's auto-fixer re-runs the whole run and would
@@ -335,11 +327,4 @@ coverage.
 
 ## Known Issues
 
-- **`TestStatsStreaming` (src/cache/cache_test.go)** — RESOLVED. Root cause found and fixed: a unix-socket `connect(2)` completes as soon as the
-  kernel
-  queues the connection, before userspace `accept(2)`, so "dial succeeded" never implied a reader existed. `StatsListener.Close` granted only a 10ms
-  accept-queue grace (via a listener deadline), and once Go's poller published the expired deadline the queued connection was discarded together with
-  every buffered stat event (`Puts=0` under heavy load, when the accept goroutine was starved past the window). Fixed with an accept-side ack
-  handshake: the accept loop writes a 1-byte ack after registering the connection in its WaitGroup, and dialers (`NewServer`, `NewDaemon`) only keep
-  the stats connection after reading that ack (5s deadline; on timeout they close the conn and run stats-off). `Close`'s `wg.Wait()` is now a real
-  happens-before edge; the 10ms drain remains as belt-and-suspenders for a dialer racing Close itself.
+None currently tracked.

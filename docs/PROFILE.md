@@ -1,6 +1,6 @@
 # Per-action build profile
 
-Every run profiles what the build actually did, per compiler/linker/test action, and whether the cache satisfied it. go-toolchain injects `-debug-actiongraph=<file>` into each `go build` / `go test` invocation (one dump per invocation; matrix targets each get their own), then joins the dumped action graph with the cacheprog's per-action outcome events — the join key is the 20-char truncated action ID (`base64.RawURLEncoding(actionID[:15])`), which cmd/go prints as `ActionID` and the cacheprog derives from the wire ID at emit time.
+Every run profiles what the build actually did, per compiler/linker/test action. go-toolchain injects `-debug-actiongraph=<file>` into each `go build` / `go test` invocation (one dump per invocation; matrix targets each get their own), then merges the dumped action graphs into one timing report. It carries no cache hit/miss data: build caching now lives in gosmopolitan's `cmd/go`, out of this process's view — see [CACHE.md](CACHE.md).
 
 The result is emitted four ways at the end of the run:
 
