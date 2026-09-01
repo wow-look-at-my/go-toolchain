@@ -288,9 +288,33 @@ func extractTarGz(r io.Reader, destDir string) error {
 			}
 			os.Remove(target)
 			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				return err
+				// A host can refuse a symlink outright: creating one needs an
+				// elevated privilege on Windows, and a restrictive sandbox can
+				// deny it anywhere. Materialize the same bytes instead, so
+				// this failure to link is never a failure to extract.
+				if copyErr := copySymlinkTarget(target, filepath.Join(filepath.Dir(target), hdr.Linkname)); copyErr != nil {
+					return fmt.Errorf("symlink %s -> %s: %w (fallback copy also failed: %v)", target, hdr.Linkname, err, copyErr)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// copySymlinkTarget copies linkTarget's bytes to target, for a host that
+// refused to create the real symlink. linkTarget must already be extracted
+// (a tar stream lists a symlink after the file it points at).
+func copySymlinkTarget(target, linkTarget string) error {
+	src, err := os.Open(linkTarget)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	_, err = io.Copy(dst, src)
+	return err
 }
