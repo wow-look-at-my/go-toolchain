@@ -10,6 +10,7 @@ import (
 )
 
 func TestCosmoDownloadURLPinReplacesTheBranch(t *testing.T) {
+	t.Parallel()
 	// buildhost reads v and branch as alternatives, so a pin drops the branch.
 	unpinned := cosmoDownloadURL("master", "", "linux", "amd64")
 	assert.Equal(t, "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64", unpinned)
@@ -21,6 +22,7 @@ func TestCosmoDownloadURLPinReplacesTheBranch(t *testing.T) {
 }
 
 func TestCosmoCacheKeyForPinNeedsNoProbe(t *testing.T) {
+	t.Parallel()
 	const dead = "http://127.0.0.1:1/gosmopolitan?v=372&os=linux&arch=amd64"
 	// Nothing answers a probe there, so naming the release proves the pin did.
 	assert.Equal(t, "v372", cosmoCacheKeyFor(dead, "master", "v372"))

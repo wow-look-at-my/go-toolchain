@@ -9,12 +9,12 @@ gosmopolitan repo.
 
 ## What this repo still does
 
-`src/cmd/buildcache.go`'s `validateCICacheConfig` checks, in CI only, that
-`GO_BUILDCACHE_CONFIG` (base64 JSON: `endpoint`, `bucket`, `username`,
-`password` — the deprecated S3-style `key_id`/`access_key`/`region` spellings
-still parse, with a warning) is set. Setting
-`GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED=1` downgrades the missing
-check to a warning. Nothing else here reads that variable: it reaches
+Nothing. The CI cache-config check moved into gosmopolitan itself
+(`cmd/go/internal/cache`'s `validateCIShared`, called from `initDefaultCache`)
+— it now fails outright, with no downgrade-to-warning knob, whenever CI is set
+and `GO_BUILDCACHE_CONFIG` is not. `GO_BUILDCACHE_CONFIG` (base64 JSON:
+`endpoint`, `bucket`, `username`, `password` — the deprecated S3-style
+`key_id`/`access_key`/`region` spellings still parse, with a warning) reaches
 gosmopolitan's `cmd/go` through plain environment inheritance, since every
 `go build`/`go test` invocation is a child process of this binary.
 

@@ -117,6 +117,7 @@ func runScriptWrapperHelper(t *testing.T, extraEnv ...string) (kind sinkKind, de
 // isatty() check alone would have classified this as sinkVisible -- a real
 // terminal -- because a pty slave IS a terminal, regardless of who allocated it.
 func TestScriptWrapperCannotFakeATerminal(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("needs /proc (linux)")
 	}
@@ -128,6 +129,7 @@ func TestScriptWrapperCannotFakeATerminal(t *testing.T) {
 }
 
 func TestAgentOutputMessageVariants(t *testing.T) {
+	t.Parallel()
 	pipe := agentOutputMessage("Claude", outputSink{kind: sinkPipe, detail: "head"}, nil)
 	assert.Contains(t, pipe, "piped into `head`")
 
@@ -177,6 +179,7 @@ func TestAgentOutputMessageVariants(t *testing.T) {
 // assertions above pass on a message whose blank lines have moved, and this
 // message is the only thing the aborted run prints.
 func TestAgentOutputMessageRendersTheWholeDocument(t *testing.T) {
+	t.Parallel()
 	const body = "\n" +
 		"You are running under Claude, where go-toolchain's FULL output must land in\n" +
 		"your transcript so you actually read it — the \"Coverage targets\" list, the\n" +
@@ -250,6 +253,7 @@ func TestDetectAgentNamesTheAgent(t *testing.T) {
 }
 
 func TestPipePeerNameDetectsConsumer(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("pipePeerName needs /proc (linux)")
 	}
@@ -286,6 +290,7 @@ func TestPipePeerNameDetectsConsumer(t *testing.T) {
 // matches on the string alone can return that shell instead of the real
 // reader, and refuse a run that was never piped anywhere.
 func TestPipePeerNameSkipsAWriteEndSibling(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("pipePeerName needs /proc (linux)")
 	}
@@ -328,6 +333,7 @@ func TestPipePeerNameSkipsAWriteEndSibling(t *testing.T) {
 }
 
 func TestPipeReaderAllowanceThroughTheGuard(t *testing.T) {
+	t.Parallel()
 	// Pins the classifier's rule: an agent reading our pipe counts as capture; a filter does not.
 	if runtime.GOOS != "linux" {
 		t.Skip("needs /proc (linux)")
@@ -426,6 +432,7 @@ func TestInspectFDClassification(t *testing.T) {
 }
 
 func TestIsTerminalOnPipeIsFalse(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("isTerminal needs unix termios")
 	}

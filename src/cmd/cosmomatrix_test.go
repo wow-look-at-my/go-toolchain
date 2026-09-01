@@ -214,6 +214,7 @@ func TestRunReleaseWithRunnerInvalidTargets(t *testing.T) {
 // fat APE and wasm) — so the spawned cacheprog scopes every cache key to the
 // toolchain build.
 func TestRunBuildForkEnvSetsCacheNamespace(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		goos   string
@@ -253,6 +254,7 @@ func TestRunBuildForkEnvSetsCacheNamespace(t *testing.T) {
 // site that forgot to fingerprint the toolchain fails loudly instead of
 // silently sharing the un-namespaced cache across toolchain builds.
 func TestRunBuildForkWithoutNamespaceRefuses(t *testing.T) {
+	t.Parallel()
 	mock := runner.NewMock()
 	job := buildJob{
 		goos:       cosmoOS,
@@ -272,6 +274,7 @@ func TestRunBuildForkWithoutNamespaceRefuses(t *testing.T) {
 // so a job naming a native platform, or naming no toolchain, dies here — no
 // call site can reintroduce a per-platform binary or another compiler.
 func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
+	t.Parallel()
 	forkGoroot := filepath.Join(t.TempDir(), "fork-goroot")
 	for _, tc := range []struct {
 		name    string
@@ -320,6 +323,7 @@ func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
 
 // The targets that DO build, through the same chokepoint.
 func TestRunBuildAcceptsTheAPEAndWasm(t *testing.T) {
+	t.Parallel()
 	for _, p := range []buildPlatform{
 		{OS: cosmoOS, Arch: cosmoFatArch},
 		{OS: "js", Arch: wasmArch},

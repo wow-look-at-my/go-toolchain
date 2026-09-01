@@ -40,6 +40,7 @@ func fingerprintGoroot(t *testing.T, files map[string]string) string {
 // string they stamp, which is the constant-version collision that caused the
 // cross-build poisoning).
 func TestForkToolchainCacheNamespace(t *testing.T) {
+	t.Parallel()
 	base := fingerprintGoroot(t, baseFakeGorootFiles())
 
 	// Deterministic and canonical: lowercase hex of the length the pattern below fixes.
@@ -73,6 +74,7 @@ func TestForkToolchainCacheNamespace(t *testing.T) {
 // cannot be fingerprinted — that is an error, never a silent empty namespace
 // (an un-namespaced fork build would reopen cross-toolchain poisoning).
 func TestForkToolchainCacheNamespaceFailsClosed(t *testing.T) {
+	t.Parallel()
 	// Missing pkg/tool entirely.
 	root := filepath.Join(t.TempDir(), "goroot")
 	writeFakeForkGoroot(t, root, map[string]string{"bin/go": "go"})

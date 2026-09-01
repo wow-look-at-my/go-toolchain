@@ -379,6 +379,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 }
 
 func TestIsOrgModule(t *testing.T) {
+	t.Parallel()
 	assert.True(t, isOrgModule("github.com/wow-look-at-my/foo"))
 	assert.True(t, isOrgModule("github.com/wow-look-at-my/foo/v2"))
 	assert.False(t, isOrgModule("github.com/spf13/cobra"))
