@@ -317,17 +317,20 @@ func TestRunBenchSaveWithRunner(t *testing.T) {
 }
 
 func TestRunBenchShow(t *testing.T) {
+	t.Parallel()
 	// This will fail because we're not in a git repo with notes, but exercises code
 	err := runBenchShow(benchShowCmd, []string{})
 	_ = err // expected to fail
 }
 
 func TestRunBenchShowWithArg(t *testing.T) {
+	t.Parallel()
 	err := runBenchShow(benchShowCmd, []string{"HEAD"})
 	_ = err // expected to fail
 }
 
 func TestRunBenchCompare(t *testing.T) {
+	t.Parallel()
 	err := runBenchCompare(benchCompareCmd, []string{"abc123", "def456"})
 	_ = err // expected to fail
 }

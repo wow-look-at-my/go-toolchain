@@ -12,6 +12,7 @@ import (
 )
 
 func TestGenerateChecksums(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create dummy binaries with known content
@@ -56,6 +57,7 @@ func TestGenerateChecksums(t *testing.T) {
 }
 
 func TestGenerateChecksumsEmpty(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	outPath, err := generateChecksums(tmpDir, nil)

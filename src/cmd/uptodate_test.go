@@ -289,6 +289,7 @@ func mockGoListRunner(pkgs ...listPkg) *runner.Mock {
 }
 
 func TestEmbeddedFilesParsesAllThreeFields(t *testing.T) {
+	t.Parallel()
 	mock := mockGoListRunner(
 		listPkg{Dir: "/m", EmbedFiles: []string{"a.txt", "static/app.js"}},
 		listPkg{Dir: "/m/sub", TestEmbedFiles: []string{"t.txt"}, XTestEmbedFiles: []string{"x.txt"}},
@@ -309,6 +310,7 @@ func TestEmbeddedFilesParsesAllThreeFields(t *testing.T) {
 }
 
 func TestEmbeddedFilesGoListError(t *testing.T) {
+	t.Parallel()
 	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-test", "-json", "./..."}, nil, fmt.Errorf("build broken"))
 

@@ -181,8 +181,8 @@ coverage.
   failure all silently degrade to the old `+dirty` behavior, never a failed build
 - **Build caching lives in gosmopolitan, not here.** The fork's `cmd/go` links `github.com/wow-look-at-my/go-s3-server/cacheclient` in process
   (its `SharedCache`, `cmd/go/internal/cache/shared.go`) and consults it directly whenever `GO_BUILDCACHE_CONFIG` names a bucket — ahead of
-  `GOCACHEPROG`, so this binary never forks a cache program of its own. `src/cmd/buildcache.go` only checks that CI actually set the variable
-  gosmopolitan reads. Depth on the removal and where the counters live now: `docs/CACHE.md`
+  `GOCACHEPROG`, so this binary never forks a cache program of its own. The CI-configured check on that variable lives in gosmopolitan itself
+  now, not here. Depth on the removal and where the counters live now: `docs/CACHE.md`
 - `src/profile/` — the per-action build profile: joins cmd/go's `-debug-actiongraph` dumps into "what did the build spend time on". `collector.go`
   hands out one dump path per go invocation (`Collector.GraphArg` → `-debug-actiongraph=<$TMPDIR/go-toolchain-profile/actiongraph-PID-SEQ.json>`;
   the package-level `GraphArg()` consults the `SetActive` collector so injection sites need no plumbing). Injection points:

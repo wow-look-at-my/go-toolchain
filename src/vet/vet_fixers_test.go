@@ -12,6 +12,7 @@ import (
 )
 
 func TestFixFileUnusedRangeVars_NoRangeStatements(t *testing.T) {
+	t.Parallel() // fixFileUnusedRangeVars takes an explicit file path; no cwd, no process-wide state.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n\nfunc main() {\n\tx := 1\n\t_ = x\n}\n"), 0644)
@@ -22,6 +23,7 @@ func TestFixFileUnusedRangeVars_NoRangeStatements(t *testing.T) {
 }
 
 func TestFixFileUnusedRangeVars_UnusedKey(t *testing.T) {
+	t.Parallel() // See TestFixFileUnusedRangeVars_NoRangeStatements.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -44,6 +46,7 @@ func main() {
 }
 
 func TestFixFileUnusedRangeVars_TrulyUnusedKey(t *testing.T) {
+	t.Parallel() // See TestFixFileUnusedRangeVars_NoRangeStatements.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -90,6 +93,7 @@ func foo() {
 }
 
 func TestFixFileUnusedRangeVars_UnusedValue(t *testing.T) {
+	t.Parallel() // See TestFixFileUnusedRangeVars_NoRangeStatements.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -113,6 +117,7 @@ func foo() {
 }
 
 func TestFixFileUnusedRangeVars_BothUsed(t *testing.T) {
+	t.Parallel() // See TestFixFileUnusedRangeVars_NoRangeStatements.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -132,6 +137,7 @@ func foo() {
 }
 
 func TestFixFileUnusedRangeVars_AlreadyUnderscore(t *testing.T) {
+	t.Parallel() // See TestFixFileUnusedRangeVars_NoRangeStatements.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	code := `package main
@@ -151,6 +157,7 @@ func foo() {
 }
 
 func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
+	t.Parallel() // See TestFixFileUnusedRangeVars_NoRangeStatements.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "bad.go")
 	os.WriteFile(src, []byte("this is not valid go {{{"), 0644)
@@ -160,6 +167,7 @@ func TestFixFileUnusedRangeVars_ParseError(t *testing.T) {
 }
 
 func TestCheckFileCommittedExec_Clean(t *testing.T) {
+	t.Parallel() // initGitRepo is hermetic per t.TempDir(); checkFileCommittedExec takes an explicit path.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -170,6 +178,7 @@ func TestCheckFileCommittedExec_Clean(t *testing.T) {
 }
 
 func TestCheckFileCommittedExec_Dirty(t *testing.T) {
+	t.Parallel() // See TestCheckFileCommittedExec_Clean.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -184,6 +193,7 @@ func TestCheckFileCommittedExec_Dirty(t *testing.T) {
 }
 
 func TestCheckFileCommittedExec_NotARepo(t *testing.T) {
+	t.Parallel() // See TestCheckFileCommittedExec_Clean.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -194,6 +204,7 @@ func TestCheckFileCommittedExec_NotARepo(t *testing.T) {
 }
 
 func TestCheckFileCommittedGoGit_Clean(t *testing.T) {
+	t.Parallel() // See TestCheckFileCommittedExec_Clean.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -204,6 +215,7 @@ func TestCheckFileCommittedGoGit_Clean(t *testing.T) {
 }
 
 func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
+	t.Parallel() // See TestCheckFileCommittedExec_Clean.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	os.WriteFile(src, []byte("package main\n"), 0644)
@@ -222,6 +234,7 @@ func TestCheckFileCommittedGoGit_Dirty(t *testing.T) {
 // fallback path, which is load-bearing here. index.skipHash is set explicitly too, so the trigger holds
 // regardless of git version; on an older git the index stays normal and go-git succeeds directly.
 func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
+	t.Parallel() // See TestCheckFileCommittedExec_Clean.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")
 	require.NoError(t, os.WriteFile(src, []byte("package main\n"), 0644))
@@ -241,6 +254,7 @@ func TestCheckFileCommittedByName_ManyFilesIndex(t *testing.T) {
 }
 
 func TestCheckFileCommittedFallback(t *testing.T) {
+	t.Parallel() // See TestCheckFileCommittedExec_Clean.
 	// Happy path: both the go-git and git-CLI paths agree when git CLI works.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "main.go")

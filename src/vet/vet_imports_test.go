@@ -114,6 +114,7 @@ func main() {
 }
 
 func TestLoadErrorMessages(t *testing.T) {
+	t.Parallel() // In-memory packages.Error table, no process-wide state.
 	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
 	embed := perr("oci.go:26:12", "pattern x: no matching files found")
 
@@ -144,6 +145,7 @@ func TestLoadErrorMessages(t *testing.T) {
 // `undefined:` cascade. Reading roots alone dropped the only line that named
 // the broken package. A dependency reached by several paths reports a single time.
 func TestLoadErrorMessagesReportsDependencyErrors(t *testing.T) {
+	t.Parallel() // In-memory packages.Error table, no process-wide state.
 	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
 
 	broken := &packages.Package{

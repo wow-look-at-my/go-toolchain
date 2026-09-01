@@ -103,6 +103,7 @@ func TestDisableGoModuleIndexMergesExistingGODEBUG(t *testing.T) {
 }
 
 func TestTailBufferKeepsBoundedTail(t *testing.T) {
+	t.Parallel()
 	var tb tailBuffer
 	chunk := strings.Repeat("x", 40<<10)
 	_, err := tb.Write([]byte(chunk))

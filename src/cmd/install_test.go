@@ -10,6 +10,7 @@ import (
 )
 
 func TestCopyFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create source file
@@ -34,12 +35,14 @@ func TestCopyFile(t *testing.T) {
 }
 
 func TestCopyFileMissingSource(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	err := copyFile("/nonexistent/file", filepath.Join(tmpDir, "dest"))
 	assert.NotNil(t, err)
 }
 
 func TestCopyFileInvalidDest(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	srcPath := filepath.Join(tmpDir, "source")
@@ -50,6 +53,7 @@ func TestCopyFileInvalidDest(t *testing.T) {
 }
 
 func TestCopyFileLargeFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a larger file to ensure io.Copy path is exercised
@@ -134,6 +138,7 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 }
 
 func TestFileHash(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a matching pair of files, plus a differing file
@@ -157,6 +162,7 @@ func TestFileHash(t *testing.T) {
 }
 
 func TestFileHashMissing(t *testing.T) {
+	t.Parallel()
 	_, err := fileHash("/nonexistent/file")
 	assert.NotNil(t, err)
 }
