@@ -66,10 +66,6 @@ inputs:
     description: 'Timeout in minutes for the go-toolchain build step'
     required: false
     default: '10'
-  wait-ci:
-    description: 'Wait for the latest go-toolchain CI run to finish before downloading the release binary'
-    required: false
-    default: 'false'
   codeql:
     description: 'Run CodeQL security-and-quality analysis around the build (requires security-events: write permission, and the consumer repo must NOT have GitHub default CodeQL setup enabled)'
     required: false
@@ -106,15 +102,6 @@ runs:
       if: env.PRIVATE_ORG_REPO_READ != ''
       shell: bash
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
-
-    - name: Wait for go-toolchain CI to finish
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain' && inputs.wait-ci == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        gh extension install PazerOP/gh-wait-ci || true
-        gh wait-ci -R wow-look-at-my/go-toolchain || true
 
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
