@@ -201,6 +201,7 @@ func TestComputeUpdateWarning_CreatedAtFallback(t *testing.T) {
 }
 
 func TestCommitsMatch(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		a, b string
 		want bool

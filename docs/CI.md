@@ -85,12 +85,9 @@ is then the host, never the invocation. It also does not go through
 `uses: ./` — the composite action installs itself with `sudo`, which a Windows
 runner has not, which is why the smoke jobs stage the APE by hand too.
 
-The NT leg builds uncached, and the matrix says so with `uncached: '1'`, which
-reaches the step as `GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED`. The
-runner logs `GO_BUILDCACHE_CONFIG` in that step's environment and the APE then
-reports it unset, so the credential the job holds cannot be used there; without
-the flag the run refuses to start rather than building. The flag makes the run
-say what it lost on stderr instead. Caching changes how long a build takes and
+The NT leg builds uncached: the runner logs `GO_BUILDCACHE_CONFIG` in that
+step's environment and the APE then reports it unset, so the credential the
+job holds cannot be used there. Caching changes how long a build takes and
 never what it emits, so the leg still answers the question this job asks.
 
 A missing hand-off fails rather than passing on the survivors: comparing the
@@ -978,9 +975,10 @@ consumer module, and prints "Build successful". The module is
 three `inputs.files` entries, so the fixture carries it instead of
 a heredoc in a shell step.
 
-`GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED` says out loud
-that this consumer has no org cache credentials, so the cache
-tier's own absence warning is expected rather than a finding.
+This consumer has no org cache credentials on purpose: gosmopolitan's
+own `cmd/go` treats an unconfigured shared tier as an ordinary,
+silent developer-machine build rather than a warning, so nothing here
+needs to say so.
 
 For a while this assertion could not be made at all, and the job
 asserted the reachable half instead -- that the pipeline got as far

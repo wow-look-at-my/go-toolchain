@@ -45,6 +45,7 @@ func TestDatsSandbox(t *testing.T) {
 }
 
 func TestHasDatsSuites(t *testing.T) {
+	t.Parallel()
 	write := func(t *testing.T, dir, rel string) {
 		t.Helper()
 		path := filepath.Join(dir, rel)
@@ -109,12 +110,14 @@ func TestHasDatsSuites(t *testing.T) {
 }
 
 func TestDatsArtifactName(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "mytool", datsArtifactName("mytool", "linux"))
 	assert.Equal(t, "mytool", datsArtifactName("mytool", "darwin"))
 	assert.Equal(t, "mytool.exe", datsArtifactName("mytool", "windows"))
 }
 
 func TestStageDatsArtifacts(t *testing.T) {
+	t.Parallel()
 	src := t.TempDir()
 	real := filepath.Join(src, "mytool_linux_amd64")
 	require.NoError(t, os.WriteFile(real, []byte("binary bytes"), 0o644))

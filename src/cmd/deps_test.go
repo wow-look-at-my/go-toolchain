@@ -12,6 +12,7 @@ import (
 )
 
 func TestLooksLikeGitVersion(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		version string
 		want    bool
@@ -42,6 +43,7 @@ func TestLooksLikeGitVersion(t *testing.T) {
 }
 
 func TestIsHex(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		s    string
 		want bool
@@ -65,6 +67,7 @@ func TestIsHex(t *testing.T) {
 }
 
 func TestShortenVersion(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		version string
 		want    string
@@ -90,12 +93,14 @@ func TestShortenVersion(t *testing.T) {
 }
 
 func TestPrintOutdatedDeps_Empty(t *testing.T) {
+	t.Parallel()
 	// Should not panic with empty slice
 	PrintOutdatedDeps(nil)
 	PrintOutdatedDeps([]OutdatedDep{})
 }
 
 func TestPrintOutdatedDeps_WithDeps(t *testing.T) {
+	t.Parallel()
 	deps := []OutdatedDep{
 		{
 			Path:    "example.com/foo",
@@ -108,11 +113,13 @@ func TestPrintOutdatedDeps_WithDeps(t *testing.T) {
 }
 
 func TestWaitForOutdatedDeps_Nil(t *testing.T) {
+	t.Parallel()
 	// Should not panic with nil DepChecker
 	WaitForOutdatedDeps(nil)
 }
 
 func TestDepChecker_Progress(t *testing.T) {
+	t.Parallel()
 	dc := &DepChecker{
 		checked: 5,
 		total:   10,
@@ -122,6 +129,7 @@ func TestDepChecker_Progress(t *testing.T) {
 }
 
 func TestDepChecker_Done(t *testing.T) {
+	t.Parallel()
 	dc := &DepChecker{done: false}
 	assert.False(t, dc.Done())
 	dc.done = true
@@ -129,6 +137,7 @@ func TestDepChecker_Done(t *testing.T) {
 }
 
 func TestDepChecker_Cancel(t *testing.T) {
+	t.Parallel()
 	dc := &DepChecker{}
 	assert.False(t, dc.canceled)
 	dc.Cancel()
@@ -136,6 +145,7 @@ func TestDepChecker_Cancel(t *testing.T) {
 }
 
 func TestCheckOutdatedDeps(t *testing.T) {
+	t.Parallel()
 	// Cancel immediately rather than waiting: live checks need network access and can time out.
 	dc := CheckOutdatedDeps()
 	assert.NotNil(t, dc)
@@ -145,6 +155,7 @@ func TestCheckOutdatedDeps(t *testing.T) {
 }
 
 func TestOpenDepsCache(t *testing.T) {
+	t.Parallel()
 	c, err := openDepsCache()
 	require.Nil(t, err)
 	defer c.close()
@@ -159,6 +170,7 @@ func TestOpenDepsCache(t *testing.T) {
 }
 
 func TestListDirectDeps(t *testing.T) {
+	t.Parallel()
 	// This runs in a real Go module, so it should return deps
 	deps, err := listDirectDeps()
 	require.Nil(t, err)
@@ -177,6 +189,7 @@ func TestListDirectDeps(t *testing.T) {
 }
 
 func TestDepChecker_WaitWithProgress_AlreadyDone(t *testing.T) {
+	t.Parallel()
 	// Create a DepChecker that's already done
 	dc := &DepChecker{
 		doneCh: make(chan struct{}),
@@ -235,6 +248,7 @@ func TestCheckDepLive_NoProxy(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheHit(t *testing.T) {
+	t.Parallel()
 	c, err := openDepsCache()
 	require.Nil(t, err)
 	defer c.close()
@@ -252,6 +266,7 @@ func TestDepChecker_checkDep_CacheHit(t *testing.T) {
 }
 
 func TestDepChecker_checkDep_CacheFresh(t *testing.T) {
+	t.Parallel()
 	c, err := openDepsCache()
 	require.Nil(t, err)
 	defer c.close()
@@ -296,6 +311,7 @@ func TestDepChecker_checkDep_CacheExpired(t *testing.T) {
 }
 
 func TestDepChecker_run_Canceled(t *testing.T) {
+	t.Parallel()
 	dc := &DepChecker{
 		doneCh:   make(chan struct{}),
 		canceled: true, // pre-cancel
@@ -308,18 +324,21 @@ func TestDepChecker_run_Canceled(t *testing.T) {
 }
 
 func TestDepChecker_WaitWithProgress_Nil(t *testing.T) {
+	t.Parallel()
 	var dc *DepChecker
 	result := dc.WaitWithProgress()
 	assert.Nil(t, result)
 }
 
 func TestCheckDepLive_NonexistentModule(t *testing.T) {
+	t.Parallel()
 	// Test with a module that doesn't exist
 	_, _, err := checkDepLive("invalid.module.path.that.does.not.exist/foo")
 	assert.NotNil(t, err)
 }
 
 func TestOpenDepsCache_CreatesDir(t *testing.T) {
+	t.Parallel()
 	// This test verifies openDepsCache works when the cache dir needs creation
 	c, err := openDepsCache()
 	require.Nil(t, err)

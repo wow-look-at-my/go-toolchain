@@ -11,6 +11,7 @@ import (
 )
 
 func TestIsOutputArtifact(t *testing.T) {
+	t.Parallel()
 	// Every shape the build phase, the matrix, and the slot copies write.
 	for _, base := range []string{
 		"mytool",
@@ -72,6 +73,7 @@ func writeOutputDir(t *testing.T, dir string, names ...string) string {
 }
 
 func TestRemoveBuildOutputsIn(t *testing.T) {
+	t.Parallel()
 	dir := writeOutputDir(t, filepath.Join(t.TempDir(), "build"),
 		"mytool", "mytool_linux_amd64", "mytool.dbg", "checksums.txt", "unrelated")
 	// A stale host symlink is unlinked like any other artifact; following it is never required.
@@ -104,6 +106,7 @@ func TestRemoveBuildOutputsIn(t *testing.T) {
 // its outputs behind (runBuild deletes its own only on a failure it sees);
 // the sweeps take them like any other artifact. See build.TmpPrefix.
 func TestRemoveBuildOutputsInSweepsTempSpellings(t *testing.T) {
+	t.Parallel()
 	dir := writeOutputDir(t, filepath.Join(t.TempDir(), "build"),
 		".tmp-mytool", ".tmp-mytool.elf", ".tmp-mytool_linux_amd64", "unrelated.txt")
 

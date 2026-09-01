@@ -10,6 +10,7 @@ import (
 // The default matrix builds a SINGLE fat APE, not a per-platform binary each.
 // This is the whole point of the change: no target flags means a lone artifact.
 func TestResolveMatrixPlatformsDefaultsToOneAPE(t *testing.T) {
+	t.Parallel()
 	oldTargets := matrixTargets
 	defer func() { matrixTargets = oldTargets }()
 	matrixTargets = nil
@@ -20,6 +21,7 @@ func TestResolveMatrixPlatformsDefaultsToOneAPE(t *testing.T) {
 }
 
 func TestParseCosmoPlatforms(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		entries []string
@@ -100,6 +102,7 @@ func TestParseCosmoPlatforms(t *testing.T) {
 // "all" publishes the platforms the APE is PROVEN to run on, never the extra
 // ones the fork can also emit — the published set is a promise.
 func TestApeCoverageForAll(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, []buildPlatform{
 		{OS: "darwin", Arch: "arm64"},
 		{OS: "linux", Arch: "amd64"},
@@ -112,6 +115,7 @@ func TestApeCoverageForAll(t *testing.T) {
 }
 
 func TestPlatformList(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "linux/amd64,darwin/arm64", platformList([]buildPlatform{
 		{OS: "linux", Arch: "amd64"},
 		{OS: "darwin", Arch: "arm64"},

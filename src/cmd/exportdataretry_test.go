@@ -31,6 +31,7 @@ src/cache/web_resilience.go:6:2: could not import math/rand/v2 (reading /home/ru
 src/cache/web_resilience.go:187:20: undefined: rand`
 
 func TestIsUnreadableExportData(t *testing.T) {
+	t.Parallel()
 	assert.True(t, isUnreadableExportData(errors.New(realInvalidPackageNameErr)))
 	assert.True(t, isUnreadableExportData(errors.New(realInternalImportErr)))
 	assert.False(t, isUnreadableExportData(nil))
@@ -46,6 +47,7 @@ src/cmd/foo.go:12:3: undefined: Bar`)))
 // decode stages, and a run that keeps hitting the same marker is a different
 // story from a run that alternates.
 func TestExportDataSignature(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, invalidPackageNameMarker, exportDataSignature(errors.New(realInvalidPackageNameErr)))
 	assert.Equal(t, internalImportErrorMarker, exportDataSignature(errors.New(realInternalImportErr)))
 	assert.Empty(t, exportDataSignature(nil))
@@ -55,6 +57,7 @@ func TestExportDataSignature(t *testing.T) {
 // The warning names what could not be read, so a reader can tell an isolated case
 // from a tier that is systematically serving bad entries.
 func TestUnreadableExportPackages(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, []string{
 		"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp",
 		"go.opentelemetry.io/otel/sdk/resource",
@@ -86,6 +89,7 @@ func TestDisableSharedBuildCache(t *testing.T) {
 // The message the source retry could not clear must name what was unreadable and
 // rule out the easy answers -- never leave the caller with the raw cascade.
 func TestUnreadableExportDataError(t *testing.T) {
+	t.Parallel()
 	base := errors.New(realInvalidPackageNameErr)
 	msg := unreadableExportDataError(base).Error()
 	assert.Contains(t, msg, "export data")
