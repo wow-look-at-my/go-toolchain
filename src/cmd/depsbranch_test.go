@@ -16,6 +16,7 @@ import (
 )
 
 func TestTrackedBranch(t *testing.T) {
+	t.Parallel()
 	gomod := `module test
 go 1.21
 
@@ -370,6 +371,7 @@ replace example.com/foo => ../foo // go-toolchain:branch=master
 
 // An absolute replacement target is the same case wearing a different path.
 func TestIsLocalReplacement(t *testing.T) {
+	t.Parallel()
 	local := []module.Version{
 		{Path: "../foo"},
 		{Path: "./foo"},

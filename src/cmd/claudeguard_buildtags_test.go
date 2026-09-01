@@ -103,6 +103,7 @@ func claudeGuardSourceFiles(t *testing.T) []string {
 // per platform that A SINGLE definition is selected -- neither none (the
 // guard silently no-ops) nor several (an ambiguous build).
 func TestClaudeGuardClassifierBuildsForEachPlatform(t *testing.T) {
+	t.Parallel()
 	var classifiers []string
 	for _, f := range claudeGuardSourceFiles(t) {
 		data, err := os.ReadFile(f)
@@ -168,6 +169,7 @@ func claudeGuardSelected(t *testing.T, files []string, goos string, tags map[str
 // ambiguous, and the wrong pick silently sends a Mac down the /proc path that
 // cannot work there.
 func TestClaudeGuardHostDispatchBuildsForEachPlatform(t *testing.T) {
+	t.Parallel()
 	files := claudeGuardDefiners(t, "func hostSpecificInspect(")
 	for goos, tags := range claudeGuardTagSets {
 		selected := claudeGuardSelected(t, files, goos, tags)
@@ -186,6 +188,7 @@ func TestClaudeGuardHostDispatchBuildsForEachPlatform(t *testing.T) {
 // cosmo, the APE loses the only classifier that works on macOS while the
 // darwin unit tests stay green -- exactly the shape of the original bug.
 func TestClaudeGuardDarwinHostClassifierShared(t *testing.T) {
+	t.Parallel()
 	for _, decl := range []string{
 		"func inspectFDDarwinHost(",
 		"func fdFileTypeOnDarwinHost(",
@@ -208,6 +211,7 @@ func TestClaudeGuardDarwinHostClassifierShared(t *testing.T) {
 }
 
 func TestClaudeGuardStubExcludedForRealClassifierPlatforms(t *testing.T) {
+	t.Parallel()
 	const stub = "claudeguard_other.go"
 	require.FileExists(t, stub)
 	line := buildTagLine(t, stub)

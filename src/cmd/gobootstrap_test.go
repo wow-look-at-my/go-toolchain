@@ -52,6 +52,7 @@ func TestRequiredGoVersionTwoParts(t *testing.T) {
 }
 
 func TestNormalizeGoVersion(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "1.25.0", normalizeGoVersion("1.25"))
 	assert.Equal(t, "1.24.11", normalizeGoVersion("1.24.11"))
 	assert.Equal(t, "1.25.1", normalizeGoVersion("1.25.1"))
@@ -81,6 +82,7 @@ func TestRequiredGoVersionNoMod(t *testing.T) {
 }
 
 func TestInstalledGoVersion(t *testing.T) {
+	t.Parallel()
 	v, err := installedGoVersion()
 	assert.Nil(t, err)
 	assert.NotEmpty(t, v)
@@ -91,6 +93,7 @@ func TestInstalledGoVersion(t *testing.T) {
 // The fork reports its own version, which is not semver: the comparison has to
 // read the numeric part or every go.mod check silently passes.
 func TestGoVersionCore(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "1.27.0", goVersionCore("1.27.0cosmo.r685"))
 	assert.Equal(t, "1.24.7", goVersionCore("1.24.7"))
 	assert.Equal(t, "1.27", goVersionCore("1.27rc1"))
@@ -100,6 +103,7 @@ func TestGoVersionCore(t *testing.T) {
 // A colon on NT fuses the fork's bin with the next entry into a directory that
 // does not exist, so the runner's own go wins and the compiler reports skew.
 func TestForkFirstPath(t *testing.T) {
+	t.Parallel()
 	got := forkFirstPath(`C:\fork`, `C:\tools;C:\bin`, "windows")
 	assert.Equal(t, `C:\fork\bin;C:\tools;C:\bin`, got)
 
@@ -126,6 +130,7 @@ func TestForkSatisfiesGoMod(t *testing.T) {
 }
 
 func TestGoCacheDir(t *testing.T) {
+	t.Parallel()
 	dir, err := goCacheDir()
 	assert.Nil(t, err)
 	assert.True(t, filepath.IsAbs(dir))
@@ -160,6 +165,7 @@ func createTestTarGz(t *testing.T, files map[string]string) []byte {
 }
 
 func TestExtractTarGz(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	archive := createTestTarGz(t, map[string]string{
@@ -181,6 +187,7 @@ func TestExtractTarGz(t *testing.T) {
 }
 
 func TestExtractTarGzWithDir(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	var buf bytes.Buffer
@@ -249,11 +256,13 @@ func TestExtractTarGzSymlinkRefusedFallsBackToCopy(t *testing.T) {
 }
 
 func TestExtractTarGzInvalidGzip(t *testing.T) {
+	t.Parallel()
 	err := extractTarGz(bytes.NewReader([]byte("not gzip")), t.TempDir())
 	assert.NotNil(t, err)
 }
 
 func TestExtractTarGzPathTraversal(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	var buf bytes.Buffer
@@ -323,6 +332,7 @@ func writeFakeGoBin(t *testing.T, path string) {
 }
 
 func TestVerifyGoToolchainHealthy(t *testing.T) {
+	t.Parallel()
 	goPath, err := exec.LookPath("go")
 	require.NoError(t, err)
 
