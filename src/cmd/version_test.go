@@ -14,6 +14,7 @@ import (
 )
 
 func TestFormatDuration(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		d    time.Duration
 		want string

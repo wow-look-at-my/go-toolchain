@@ -10,6 +10,7 @@ import (
 )
 
 func TestGitignoreContains_ExactMatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("/build/\n"), 0644)
@@ -18,6 +19,7 @@ func TestGitignoreContains_ExactMatch(t *testing.T) {
 }
 
 func TestGitignoreContains_WithoutLeadingSlash(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("build/\n"), 0644)
@@ -26,6 +28,7 @@ func TestGitignoreContains_WithoutLeadingSlash(t *testing.T) {
 }
 
 func TestGitignoreContains_WithoutTrailingSlash(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("build\n"), 0644)
@@ -34,6 +37,7 @@ func TestGitignoreContains_WithoutTrailingSlash(t *testing.T) {
 }
 
 func TestGitignoreContains_NotPresent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("vendor/\nbin/\n"), 0644)
@@ -42,6 +46,7 @@ func TestGitignoreContains_NotPresent(t *testing.T) {
 }
 
 func TestGitignoreContains_IgnoresComments(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("# build/\n"), 0644)
@@ -50,6 +55,7 @@ func TestGitignoreContains_IgnoresComments(t *testing.T) {
 }
 
 func TestGitignoreContains_MissingFile(t *testing.T) {
+	t.Parallel()
 	assert.False(t, gitignoreContains("/nonexistent/.gitignore", "/build/"))
 }
 
@@ -158,6 +164,7 @@ func TestEnsureBuildDirInGitignore_NoTrailingNewline(t *testing.T) {
 }
 
 func TestNeedsLeadingNewline(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// File ending with newline

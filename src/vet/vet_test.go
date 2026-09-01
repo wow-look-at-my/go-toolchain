@@ -18,6 +18,7 @@ import (
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
+	t.Parallel() // See TestBannedOutputAnalyzer: a committed fixture, no process-wide state.
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, RedundantCastAnalyzer, "redundantcast")

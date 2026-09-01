@@ -47,6 +47,7 @@ func TestHarnessIsPipeReaderRequiresAncestor(t *testing.T) {
 }
 
 func TestParseLsofPipeHandles(t *testing.T) {
+	t.Parallel()
 	const out = "p367\n" +
 		"f94\n" +
 		"tPIPE\n" +
@@ -69,11 +70,13 @@ func TestParseLsofPipeHandles(t *testing.T) {
 }
 
 func TestJoinPids(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "1,2,3", joinPids([]int{1, 2, 3}))
 	assert.Empty(t, joinPids(nil))
 }
 
 func TestParseHexHandle(t *testing.T) {
+	t.Parallel()
 	v, ok := parseHexHandle("0xebc7464f361551ca")
 	assert.True(t, ok)
 	assert.Equal(t, uint64(0xebc7464f361551ca), v)

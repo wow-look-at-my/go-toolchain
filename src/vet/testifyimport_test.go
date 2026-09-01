@@ -13,6 +13,7 @@ import (
 // TestFixFileTestifyImports verifies the per-file rewrite flips the in-house
 // fork back to upstream stretchr/testify (no module/network work involved).
 func TestFixFileTestifyImports(t *testing.T) {
+	t.Parallel() // renderTestifyImports takes an explicit file path; no cwd, no process-wide state.
 	dir := t.TempDir()
 	content := `package example
 
@@ -45,6 +46,7 @@ func TestFoo(t *testing.T) {
 // TestFixFileTestifyImports_AliasPreserved checks that an import alias survives
 // the path rewrite (only the path string changes, not the local name).
 func TestFixFileTestifyImports_AliasPreserved(t *testing.T) {
+	t.Parallel() // See TestFixFileTestifyImports.
 	dir := t.TempDir()
 	content := `package example
 
@@ -71,6 +73,7 @@ func TestFoo(t *testing.T) {
 // TestFixFileTestifyImports_NoChanges verifies a file already on upstream is
 // left untouched.
 func TestFixFileTestifyImports_NoChanges(t *testing.T) {
+	t.Parallel() // See TestFixFileTestifyImports.
 	dir := t.TempDir()
 	content := `package example
 

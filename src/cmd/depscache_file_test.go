@@ -17,6 +17,7 @@ func tempDepsCache(t *testing.T) *fileDepsCache {
 
 // What close writes, a later open reads back -- the whole point of the cache.
 func TestFileDepsCacheSurvivesClose(t *testing.T) {
+	t.Parallel()
 	c := tempDepsCache(t)
 	c.store("example.com/mod", "v1.2.3", "v1.3.0", 1700000000)
 	c.store("example.com/current", "v2.0.0", "", 1700000001)
@@ -41,6 +42,7 @@ func TestFileDepsCacheSurvivesClose(t *testing.T) {
 // A go-toolchain writing beside this must keep its entries: close merges onto
 // the file rather than replacing it with this process's view.
 func TestFileDepsCacheMergesConcurrentWriter(t *testing.T) {
+	t.Parallel()
 	c := tempDepsCache(t)
 	c.store("example.com/mine", "v1.0.0", "", 1700000000)
 
@@ -59,6 +61,7 @@ func TestFileDepsCacheMergesConcurrentWriter(t *testing.T) {
 // A damaged file is not a build failure: the entries are recomputable, and a
 // cache that refuses to open would take the whole run down with it.
 func TestFileDepsCacheDamagedFileReadsEmpty(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), cacheFile)
 	require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o644))
 

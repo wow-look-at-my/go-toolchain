@@ -77,6 +77,7 @@ func TestInspectFDClassificationDarwin(t *testing.T) {
 }
 
 func TestIsTerminalOnPipeIsFalseDarwin(t *testing.T) {
+	t.Parallel()
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	defer r.Close()
@@ -88,6 +89,7 @@ func TestIsTerminalOnPipeIsFalseDarwin(t *testing.T) {
 // this pins that it actually recovers the real path rather than garbage or a
 // silently-wrong answer.
 func TestFDPathRecoversRealPath(t *testing.T) {
+	t.Parallel()
 	f, err := os.CreateTemp(t.TempDir(), "fdpath-*.log")
 	require.NoError(t, err)
 	defer f.Close()
@@ -102,6 +104,7 @@ func TestFDPathRecoversRealPath(t *testing.T) {
 }
 
 func TestFDPathEmptyOnPipe(t *testing.T) {
+	t.Parallel()
 	// A pipe has no path; fdPath must surface "", never a made-up path.
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
@@ -114,6 +117,7 @@ func TestFDPathEmptyOnPipe(t *testing.T) {
 // socketpair belong to this same test process, so the peer pid it reports
 // must be our own.
 func TestSocketPeerPID(t *testing.T) {
+	t.Parallel()
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 	require.NoError(t, err)
 	defer unix.Close(fds[0])
@@ -125,6 +129,7 @@ func TestSocketPeerPID(t *testing.T) {
 }
 
 func TestSocketPeerPIDOnNonSocketFails(t *testing.T) {
+	t.Parallel()
 	f, err := os.CreateTemp(t.TempDir(), "notasocket-*")
 	require.NoError(t, err)
 	defer f.Close()
@@ -136,6 +141,7 @@ func TestSocketPeerPIDOnNonSocketFails(t *testing.T) {
 // TestPipeReaderAllowanceThroughTheGuard, against the sysctl-backed CommPPID
 // from is-this-an-agent, isolating the assertion to name/pid matching.
 func TestPipeReaderAllowanceThroughTheGuardDarwin(t *testing.T) {
+	t.Parallel()
 	parent := os.Getppid()
 	assert.True(t, agent.IsPipeReader("opencode", parent))
 	assert.False(t, agent.IsPipeReader("head", parent), "a filter is not the harness")
@@ -148,6 +154,7 @@ func TestPipeReaderAllowanceThroughTheGuardDarwin(t *testing.T) {
 // the diagnostic gap that shipped originally -- sinkHidden carried a detail
 // field nothing ever printed).
 func TestInspectFDSocketClassification(t *testing.T) {
+	t.Parallel()
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 	require.NoError(t, err)
 	defer unix.Close(fds[1])
@@ -176,6 +183,7 @@ func lookPathNativeDarwinToolchain(t *testing.T) string {
 }
 
 func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) {
+	t.Parallel()
 	bin := lookPathNativeDarwinToolchain(t)
 
 	runWithSocketStdout := func(t *testing.T, recognizedPID bool) (exitErr error, stderr string) {
@@ -225,6 +233,7 @@ func TestAgentGuardAllowsPlainRunWhenSocketReaderIsTheAgentItself(t *testing.T) 
 // dats/cli.dats already covers on linux (matrix.marker), reproduced here
 // because that suite does not run on darwin.
 func TestAgentGuardRefusesPipedRunUnderOpencode(t *testing.T) {
+	t.Parallel()
 	bin := lookPathNativeDarwinToolchain(t)
 	dir := t.TempDir()
 	cmd := exec.Command("sh", "-c", "set -o pipefail; \"$1\" 2>&1 | cat", "sh", bin)
@@ -243,6 +252,7 @@ func TestAgentGuardRefusesPipedRunUnderOpencode(t *testing.T) {
 // itself in GROK_AGENT_PID, the OPENCODE_PID-shaped seam. A real `| cat` still
 // refuses.
 func TestAgentGuardAllowsPlainRunWhenSocketReaderIsGrok(t *testing.T) {
+	t.Parallel()
 	runWithSocketStdout := func(t *testing.T, recognizedPID bool) (exitErr error, stderr string) {
 		fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 		require.NoError(t, err)
@@ -285,6 +295,7 @@ func TestAgentGuardAllowsPlainRunWhenSocketReaderIsGrok(t *testing.T) {
 }
 
 func TestAgentGuardAllowsPlainRunWhenPipeReaderIsGrok(t *testing.T) {
+	t.Parallel()
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	defer r.Close()
@@ -309,6 +320,7 @@ func TestAgentGuardAllowsPlainRunWhenPipeReaderIsGrok(t *testing.T) {
 }
 
 func TestAgentGuardRefusesPipedRunUnderGrok(t *testing.T) {
+	t.Parallel()
 	cmd := exec.Command("sh", "-c", "set -o pipefail; \"$1\" 2>&1 | cat", "sh", os.Args[0])
 	cmd.Dir = t.TempDir()
 	cmd.Env = append(os.Environ(),
@@ -323,6 +335,7 @@ func TestAgentGuardRefusesPipedRunUnderGrok(t *testing.T) {
 }
 
 func TestPipeHandlesMatchBothEnds(t *testing.T) {
+	t.Parallel()
 	p := make([]int, 2)
 	require.NoError(t, unix.Pipe(p))
 	defer unix.Close(p[0])
