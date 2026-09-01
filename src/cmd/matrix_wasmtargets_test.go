@@ -15,6 +15,7 @@ import (
 )
 
 func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
 	// The fork toolchain ships the js exec harness; a js/wasm build copies it next to the artifact.
@@ -104,6 +105,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
+	stubVetPhase(t)
 	// Uses the canonical wasm/js spelling end to end; the js/wasm alias (other tests) produces the same artifact.
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	// --cosmo-platforms is a cosmo-only prerequisite, so an invalid value is ignored with no cosmo target requested.
@@ -127,6 +129,7 @@ func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm"})
 	// The wasmPublishEnv opt-out falls back to the excluded .wasm-suffixed name, skipping the buildhost publish upload set.
 	t.Setenv(wasmPublishEnv, "0")
@@ -162,6 +165,7 @@ func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmToolchainFailureFailsFast(t *testing.T) {
+	stubVetPhase(t)
 	setupCosmoMatrixTest(t, []string{"wasip1/wasm"})
 	ensureCosmoToolchainFunc = func() (string, error) {
 		return "", fmt.Errorf("no fork toolchain for you")
@@ -191,6 +195,7 @@ func writeConstrainedMain(t *testing.T, dir, constraint string) {
 }
 
 func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
 	// Alongside the unconstrained root main ("mytool"): a js&&wasm-only main and a wasip1&&wasm-only main.
@@ -231,6 +236,7 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
 	// A wasip1-only root main leaves js/wasm with no main packages, skipped with a warning; wasip1/wasm still builds.
@@ -262,6 +268,7 @@ func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerNoMainsForAnyTargetFails(t *testing.T) {
+	stubVetPhase(t)
 	_, _ = setupCosmoMatrixTest(t, []string{"js/wasm"})
 	// Only a linux-guarded main: the js/wasm-only target list has nothing to build anywhere, which errors.
 	require.NoError(t, os.Remove("main.go"))

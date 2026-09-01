@@ -14,6 +14,7 @@ import (
 // With no target flags the run takes the single-APE path, which resolves the
 // gosmopolitan toolchain rather than building a per-platform product.
 func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
+	stubVetPhase(t)
 	oldTargets := matrixTargets
 	oldEnsure := ensureCosmoToolchainFunc
 	matrixTargets = nil
@@ -32,6 +33,7 @@ func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerSuccess(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 2
 
@@ -51,6 +53,7 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
 
@@ -69,6 +72,7 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 10 // More workers than jobs
 
@@ -87,6 +91,7 @@ func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	// Canonical spacing, like main.go: the module is real, so in CI vet checks this fixture instead of rewriting it.
 	os.WriteFile("x_test.go", []byte("package main\n\nimport \"testing\"\n\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
@@ -122,6 +127,7 @@ func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
 	noBenchmark = true
@@ -148,6 +154,7 @@ func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
 }
 
 func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 1
 
@@ -176,6 +183,7 @@ func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
 }
 
 func TestMatrixOutputFailureShowsDuration(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
 

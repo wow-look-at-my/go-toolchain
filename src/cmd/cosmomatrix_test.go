@@ -96,6 +96,7 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 // the build directory itself -- rather than from any flag: a copy of the APE
 // under a per-platform name is a thing this repo cannot express.
 func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo"})
 
 	mock := newTestPassMock(0)
@@ -183,6 +184,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerCosmoToolchainFailureFailsFast(t *testing.T) {
+	stubVetPhase(t)
 	setupCosmoMatrixTest(t, []string{"cosmo"})
 	ensureCosmoToolchainFunc = func() (string, error) {
 		return "", fmt.Errorf("no toolchain for you")
@@ -199,6 +201,7 @@ func TestRunReleaseWithRunnerCosmoToolchainFailureFailsFast(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerInvalidTargets(t *testing.T) {
+	stubVetPhase(t)
 	oldTargets := matrixTargets
 	matrixTargets = []string{"cosmo/amd64"}
 	defer func() { matrixTargets = oldTargets }()

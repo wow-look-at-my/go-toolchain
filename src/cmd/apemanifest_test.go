@@ -97,6 +97,7 @@ func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
 // End to end on the default path: a lone APE, a lone manifest, no per-platform
 // copies, and GOCOSMOPLATFORMS carrying the requested set.
 func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
 	t.Setenv("CI", "")
 
@@ -158,6 +159,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 // --cosmo-platforms all asks for every payload the fork emits, so the variable
 // is left unset (the fork's own default) rather than spelled out.
 func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
+	stubVetPhase(t)
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
 	t.Setenv("CI", "")
 	cosmoPlatforms = []string{"all"}
