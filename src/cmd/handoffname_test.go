@@ -14,13 +14,6 @@ import (
 // per job, per matrix leg, AND per build (working-directory); pins action.yml's template.
 const handoffNameTemplate = "go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}.b${{ steps.build-id.outputs.id }}"
 
-// legacyPerJobHandoffName is the pre-build per-job name, kept so consumers that
-// still download `go-build-<job id>` keep working; racy in multi-build jobs, saved continue-on-error.
-const legacyPerJobHandoffName = "go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}"
-
-// legacyHandoffName is the deprecated bare alias; still racy in multi-producer runs, saved continue-on-error.
-const legacyHandoffName = "go-build"
-
 // actionStep is the subset of a composite step the hand-off tests inspect.
 type actionStep struct {
 	Name            string            `yaml:"name"`
@@ -56,7 +49,7 @@ func cacheUploadSteps(t *testing.T, steps []actionStep) []actionStep {
 			uploads = append(uploads, step)
 		}
 	}
-	require.Len(t, uploads, 3, "expected the job+build hand-off, the legacy per-job hand-off, and the bare alias")
+	require.Len(t, uploads, 1, "one hand-off: the job+build name")
 	return uploads
 }
 
@@ -65,41 +58,12 @@ func TestHandoffNameTemplates(t *testing.T) {
 	steps := loadActionSteps(t)
 	uploads := cacheUploadSteps(t, steps)
 
-	authoritative, legacyPerJob, alias := uploads[0], uploads[1], uploads[2]
+	authoritative := uploads[0]
 
 	// Exact template: non-matrix stays `go-build-<job id>.b<build>`, each matrix leg gets its own `.m<job-index>` suffix.
 	assert.Equal(t, handoffNameTemplate, authoritative.With["name"])
 	assert.False(t, authoritative.ContinueOnError,
-		"the authoritative hand-off must fail loudly, never absorb a save conflict")
-
-	// The legacy per-job name: kept for consumers that still download `go-build-<job id>`; racy in multi-build jobs.
-	assert.Equal(t, legacyPerJobHandoffName, legacyPerJob.With["name"])
-	assert.True(t, legacyPerJob.ContinueOnError,
-		"the legacy per-job hand-off must not fail the job on a save conflict in a multi-build job")
-
-	// The deprecated bare alias: tolerated-on-failure since it is racy in multi-producer runs.
-	assert.Equal(t, legacyHandoffName, alias.With["name"])
-	assert.True(t, alias.ContinueOnError,
-		"the racy legacy alias must not fail the job on a save conflict")
-
-	// All three hand off the same build outputs.
-	assert.Equal(t, authoritative.With["path"], legacyPerJob.With["path"])
-	assert.Equal(t, authoritative.With["path"], alias.With["path"])
-}
-
-func TestHandoffDeprecationNoticeNamesTheSavedHandoff(t *testing.T) {
-	t.Parallel()
-	steps := loadActionSteps(t)
-
-	var notice *actionStep
-	for i, step := range steps {
-		if strings.Contains(step.Run, "hand-off deprecation") {
-			require.Nil(t, notice, "expected a single deprecation notice step")
-			notice = &steps[i]
-		}
-	}
-	require.NotNil(t, notice, "the legacy alias must keep its deprecation notice")
-
-	// The notice must name exactly what the authoritative step saves, or the migration hint drifts from reality.
-	assert.Contains(t, notice.Run, handoffNameTemplate)
+		"the hand-off must fail loudly, never absorb a save conflict")
+	assert.Equal(t, "${{ inputs.working-directory }}/build", authoritative.With["path"],
+		"the hand-off carries the build outputs")
 }
