@@ -131,75 +131,29 @@ runs:
         brew install coreutils
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
 
-    - name: Verify autorelease write permissions
+    - name: Require the id-token grant autorelease needs
       if: inputs.autorelease == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ${{ github.repository }}
-        GH_OWNER: ${{ github.repository_owner }}
-        GH_API: ${{ github.api_url }}
-      run: |
-        set -euo pipefail
-        # An empty body creates and records nothing. see docs/ACTION.md
-        probe() {
-          curl -sS -o /dev/null -w "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$1" -d '{}'
-        }
-        DEPLOY_CODE=$(probe "${GH_API}/repos/${GH_REPO}/deployments")
-        if [ "${DEPLOY_CODE}" = "403" ]; then
-          echo "::error title=Missing deployments: write::autorelease registers a GitHub Deployment as part of publishing, with no opt-out. Add 'deployments: write' to this job's permissions, or pass autorelease: 'false'. A job-level permissions block REPLACES the workflow-level one, so it must list every grant the job needs."
-          exit 1
-        fi
-        RECORD_CODE=$(probe "${GH_API}/orgs/${GH_OWNER}/artifacts/metadata/storage-record")
-        if [ "${RECORD_CODE}" = "403" ]; then
-          echo "::error title=Missing artifact-metadata: write::autorelease posts an artifact storage record as part of publishing, with no opt-out. Add 'artifact-metadata: write' to this job's permissions, or pass autorelease: 'false'. A job-level permissions block REPLACES the workflow-level one, so it must list every grant the job needs."
-          exit 1
-        fi
-        echo "autorelease grants confirmed (deployments probe HTTP ${DEPLOY_CODE}, storage-record probe HTTP ${RECORD_CODE})"
-
-    - name: Verify security-events write permission
-      if: inputs.codeql == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ${{ github.repository }}
-        GH_API: ${{ github.api_url }}
-      run: |
-        set -euo pipefail
-        # An empty body uploads nothing. see docs/ACTION.md
-        HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
-          -X POST \
-          -H "Authorization: Bearer ${GH_TOKEN}" \
-          -H "Accept: application/vnd.github+json" \
-          -H "X-GitHub-Api-Version: 2022-11-28" \
-          "${GH_API}/repos/${GH_REPO}/code-scanning/sarifs" \
-          -d '{}')
-        if [ "${HTTP_CODE}" = "403" ]; then
-          echo "::error title=Missing security-events: write::CodeQL is enabled but this workflow lacks 'security-events: write'. Add 'permissions: { security-events: write }' to the workflow, or pass codeql: 'false' to disable CodeQL."
-          exit 1
-        fi
-        echo "security-events: write confirmed (probe HTTP ${HTTP_CODE})"
-
-    - name: Verify autorelease permissions
-      if: inputs.autorelease == 'true'
-      uses: wow-look-at-my/actions@typescript#latest
+      uses: wow-look-at-my/actions@has-permission#latest
       with:
-        script: |
-          // GitHub withholds OIDC on external fork PRs whatever the workflow declares, so a fork PR skips this rather than failing spuriously.
-          const isForkPr = context.eventName === 'pull_request' &&
-            (context.payload as any)?.pull_request?.head?.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
-          if (isForkPr) {
-            core.info("External fork PR: skipping id-token check (OIDC unavailable on external fork PRs)");
-          } else if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
-            core.setFailed("autorelease is enabled but this workflow lacks 'id-token: write', needed to mint an OIDC token for buildhost authentication. Add 'permissions: { id-token: write }', or pass autorelease: 'false' to disable publishing.");
-          } else {
-            core.info('id-token: write confirmed (OIDC environment variables present)');
-          }
+        permission: id-token
+
+    - name: Require the deployments grant autorelease needs
+      if: inputs.autorelease == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: deployments
+
+    - name: Require the artifact-metadata grant autorelease needs
+      if: inputs.autorelease == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: artifact-metadata
+
+    - name: Require the security-events grant CodeQL needs
+      if: inputs.codeql == 'true'
+      uses: wow-look-at-my/actions@has-permission#latest
+      with:
+        permission: security-events
 
     - name: Initialize CodeQL
       if: inputs.codeql == 'true'
