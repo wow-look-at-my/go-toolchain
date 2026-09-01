@@ -228,9 +228,8 @@ func TestRunDatsPhaseOptions(t *testing.T) {
 		"handoff dir %q must live inside the module root %q, or the sandbox cannot see it", buildDir, dir)
 	assert.Equal(t, filepath.Join(outputDir, datsStageDir), rel)
 
-	// The cacheprog plumbing must be cleared for suite commands.
-	assert.Equal(t, "", datsEnvValue(t, opts.Env, "GOCACHEPROG"))
-	assert.Equal(t, "", datsEnvValue(t, opts.Env, "GOCACHE_STATS_SOCK"))
+	// The shared cache must be cleared for suite commands.
+	assert.Equal(t, "", datsEnvValue(t, opts.Env, "GO_BUILDCACHE_CONFIG"))
 }
 
 // datsEnvValue returns the value of key in a dats Options.Env list, failing

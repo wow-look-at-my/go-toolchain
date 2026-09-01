@@ -114,8 +114,8 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 			leaf, _, err := rootCmd.Find(argv)
 			require.NoError(t, err)
 			require.NotNil(t, leaf)
-			assert.True(t, skipCache(leaf),
-				"skipCache should return true for %q (Name=%q)", argv, leaf.Name())
+			assert.True(t, skipCacheValidation(leaf),
+				"skipCacheValidation should return true for %q (Name=%q)", argv, leaf.Name())
 			assert.True(t, skipAgentGuard(leaf),
 				"skipAgentGuard should be true for %q -- it prints no build result", argv)
 			// End-to-end: PersistentPreRunE must not fail for this leaf even when CI cache vars are unset.
@@ -124,9 +124,9 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 	}
 }
 
-// Lock in that subcommands NOT under a skip-listed parent still trigger
-// cache setup — so the ancestor walk in skipCache doesn't accidentally
-// match too broadly.
+// Lock in that subcommands NOT under a skip-listed parent still trigger the
+// cache config check — so the ancestor walk in skipCacheValidation doesn't
+// accidentally match too broadly.
 func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
 	for _, argv := range [][]string{
 		{"bench", "run"},
@@ -136,8 +136,8 @@ func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
 			leaf, _, err := rootCmd.Find(argv)
 			require.NoError(t, err)
 			require.NotNil(t, leaf)
-			assert.False(t, skipCache(leaf),
-				"skipCache should remain false for %q", argv)
+			assert.False(t, skipCacheValidation(leaf),
+				"skipCacheValidation should remain false for %q", argv)
 		})
 	}
 }
