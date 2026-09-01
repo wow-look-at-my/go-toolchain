@@ -66,10 +66,6 @@ inputs:
     description: 'Timeout in minutes for the go-toolchain build step'
     required: false
     default: '10'
-  wait-ci:
-    description: 'Wait for the latest go-toolchain CI run to finish before downloading the release binary'
-    required: false
-    default: 'false'
   codeql:
     description: 'Run CodeQL security-and-quality analysis around the build (requires security-events: write permission, and the consumer repo must NOT have GitHub default CodeQL setup enabled)'
     required: false
@@ -78,19 +74,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # @latest and @master are frozen tags that track nothing. see docs/ACTION.md
-    - name: Refuse a frozen ref
-      shell: bash
-      env:
-        ACTION_REF: ${{ github.action_ref }}
-      run: |
-        case "$ACTION_REF" in
-          latest|master|main)
-            echo "::error::go-toolchain was resolved from @${ACTION_REF}, a frozen tag that does not track development. Use 'wow-look-at-my/go-toolchain@v1' (the default branch) or pin a commit SHA."
-            exit 1
-            ;;
-        esac
-
     - name: Refuse jobs named all-builds
       uses: wow-look-at-my/actions@no-all-builds-job#latest
 
