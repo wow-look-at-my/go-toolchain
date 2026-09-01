@@ -74,14 +74,8 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Refuse jobs named all-builds
-      uses: wow-look-at-my/actions@no-all-builds-job#latest
-
-    - name: Refuse comment walls in workflow and action YAML
-      uses: wow-look-at-my/actions@yaml-comment-block#latest
-
-    - name: Refuse tests written into workflow and action YAML
-      uses: wow-look-at-my/actions@no-tests-in-yaml#latest
+    - name: Run the org's common checks
+      uses: wow-look-at-my/actions@common-checks#latest
 
     - uses: wow-look-at-my/actions@secret-server#latest
 
