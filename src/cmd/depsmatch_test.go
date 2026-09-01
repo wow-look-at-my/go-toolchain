@@ -138,6 +138,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 // A detached HEAD is what CI hands a pull-request build, and there is no branch
 // name in it to match anything against.
 func TestCurrentBranchIsEmptyOnADetachedHead(t *testing.T) {
+	t.Parallel()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		return runner.MockProcess([]byte("HEAD\n"), nil), nil
@@ -148,6 +149,7 @@ func TestCurrentBranchIsEmptyOnADetachedHead(t *testing.T) {
 // Outside a repository there is nothing to ask, and a bare marker keeps the
 // behaviour it had before matching existed.
 func TestCurrentBranchIsEmptyOutsideARepository(t *testing.T) {
+	t.Parallel()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		return runner.MockProcess(nil, os.ErrNotExist), nil

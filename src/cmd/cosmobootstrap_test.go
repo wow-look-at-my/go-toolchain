@@ -356,6 +356,7 @@ func TestEnsureCosmoToolchainRejectsArchiveWithoutGo(t *testing.T) {
 }
 
 func TestSanitizeCacheKey(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "claude-some-branch", sanitizeCacheKey("claude/some-branch"))
 	assert.Equal(t, "v1.2.3", sanitizeCacheKey("v1.2.3"))
 	assert.Equal(t, "a-b-c", sanitizeCacheKey("a b:c"))

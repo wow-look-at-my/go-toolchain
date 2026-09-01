@@ -16,6 +16,7 @@ import (
 )
 
 func TestApeManifestEntries(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
@@ -34,6 +35,7 @@ func TestApeManifestEntries(t *testing.T) {
 }
 
 func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 
@@ -52,6 +54,7 @@ func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
 // the fields buildhost reads. kind is deliberately absent (it selects
 // repackaging and defaults to binary; APE-ness is detected from the bytes).
 func TestWriteBuildhostManifestShape(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path, err := writeBuildhostManifest(dir, []buildhostManifestEntry{{
 		File:      "mytool",
@@ -80,6 +83,7 @@ func TestWriteBuildhostManifestShape(t *testing.T) {
 // The manifest describes the artifacts, so it must not outlive them: a manifest left
 // behind would send the next publish after a file that is gone.
 func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, buildhostManifestName), []byte("{}"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
@@ -194,6 +198,7 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 // native output, and it runs on every host. A per-platform binary sitting in
 // the directory is not an artifact of this build and never wins.
 func TestHostRunnableArtifactIsTheAPE(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := build.Target{ImportPath: "./cmd/mytool", OutputName: "mytool"}
 	ape := filepath.Join(dir, "mytool")
