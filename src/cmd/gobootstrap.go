@@ -248,13 +248,9 @@ func extractTarGz(r io.Reader, destDir string) error {
 	}
 	defer gz.Close()
 
-	// A host can refuse a real symlink outright: creating one needs an
-	// elevated privilege on Windows, and a restrictive sandbox can deny it
-	// anywhere. A refusal falls back to copying the target's bytes instead,
-	// queued here rather than copied immediately -- a tar stream carries no
-	// ordering guarantee between a symlink and the file it points at, so the
-	// target may not exist on disk yet. Copying only after every entry is
-	// extracted guarantees the target is there.
+	// A refused symlink falls back to a copy, deferred until every entry
+	// extracts: a tar stream carries no ordering guarantee between a
+	// symlink and the file it targets.
 	var deferredSymlinks []struct{ target, linkname string }
 
 	tr := tar.NewReader(gz)
