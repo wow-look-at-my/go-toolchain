@@ -22,6 +22,7 @@ import (
 var (
 	goCacheDirFunc        = goCacheDir
 	verifyGoToolchainFunc = verifyGoToolchain
+	symlinkFunc           = os.Symlink
 )
 
 // resolvedGoMinor caches the resolved Go minor version so goSupportsFeature avoids re-running "go version".
@@ -247,6 +248,15 @@ func extractTarGz(r io.Reader, destDir string) error {
 	}
 	defer gz.Close()
 
+	// A host can refuse a real symlink outright: creating one needs an
+	// elevated privilege on Windows, and a restrictive sandbox can deny it
+	// anywhere. A refusal falls back to copying the target's bytes instead,
+	// queued here rather than copied immediately -- a tar stream carries no
+	// ordering guarantee between a symlink and the file it points at, so the
+	// target may not exist on disk yet. Copying only after every entry is
+	// extracted guarantees the target is there.
+	var deferredSymlinks []struct{ target, linkname string }
+
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -287,23 +297,22 @@ func extractTarGz(r io.Reader, destDir string) error {
 				return err
 			}
 			os.Remove(target)
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				// A host can refuse a symlink outright: creating one needs an
-				// elevated privilege on Windows, and a restrictive sandbox can
-				// deny it anywhere. Materialize the same bytes instead, so
-				// this failure to link is never a failure to extract.
-				if copyErr := copySymlinkTarget(target, filepath.Join(filepath.Dir(target), hdr.Linkname)); copyErr != nil {
-					return fmt.Errorf("symlink %s -> %s: %w (fallback copy also failed: %v)", target, hdr.Linkname, err, copyErr)
-				}
+			if err := symlinkFunc(hdr.Linkname, target); err != nil {
+				deferredSymlinks = append(deferredSymlinks, struct{ target, linkname string }{target, hdr.Linkname})
 			}
+		}
+	}
+
+	for _, s := range deferredSymlinks {
+		if err := copySymlinkTarget(s.target, filepath.Join(filepath.Dir(s.target), s.linkname)); err != nil {
+			return fmt.Errorf("symlink %s -> %s refused, and the fallback copy failed too: %w", s.target, s.linkname, err)
 		}
 	}
 	return nil
 }
 
 // copySymlinkTarget copies linkTarget's bytes to target, for a host that
-// refused to create the real symlink. linkTarget must already be extracted
-// (a tar stream lists a symlink after the file it points at).
+// refused to create the real symlink.
 func copySymlinkTarget(target, linkTarget string) error {
 	src, err := os.Open(linkTarget)
 	if err != nil {
