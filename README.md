@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: wow-look-at-my/go-toolchain@v1
+      - uses: wow-look-at-my/go-toolchain@master
 ```
 
 The action fetches secrets, configures the Go proxy and private repo access, wires up the web build cache, runs `go-toolchain matrix`, and runs a CodeQL `security-and-quality` analysis around the build. Every permission above is required, and the build fails without it — [docs/ACTION.md](docs/ACTION.md) says what each one is for.
@@ -92,8 +92,7 @@ To opt out, pass `codeql: 'false'`.
 | `autorelease`       | string   | `true`     | Publish `build/` to buildhost on every branch push (see [docs/ACTION.md](docs/ACTION.md)) |
 | `autorelease_args`  | string   | `''`       | Extra publish options as `key=value` pairs; unknown keys fail the build |
 | `allow-source-build` | string  | `false`    | Build go-toolchain from source when the buildhost binary is unavailable, instead of failing fast |
-| `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step |
-| `wait-ci`           | string   | `false`    | Wait for the latest go-toolchain CI run before downloading the release binary |
+| `timeout`           | string   | `10`       | Timeout in minutes for the go-toolchain build step       |
 | `codeql`            | string   | `true`     | Run CodeQL `security-and-quality` analysis around the build |
 
 ### Build-output hand-off

@@ -271,7 +271,7 @@ coverage.
   files under GOOS=cosmo (empty package, breaking fatih/color ← gotestsum/testjson ← src/test), so this byte-identical copy of v0.0.20 adds one
   `isatty_cosmo.go` (Fstat + S_IFCHR approximation). Non-cosmo builds compile the exact upstream files. Must be re-copied on dep bumps — see its
   README.md
-- `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard, the
+- `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@master`), including the org all-builds shadow guard, the
   comment-wall guard, the tests-in-YAML guard (`no-tests-in-yaml`: an assertion or a written test file inside a `run:` script fails the job, so
   every consumer of this action gets the rule), and the Linux dats sandbox prelude (install/probe bwrap, docker fallback, fail closed; never sysctl).
   Depth: `docs/ACTION.md`
