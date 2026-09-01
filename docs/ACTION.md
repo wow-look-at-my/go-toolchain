@@ -1,6 +1,6 @@
 # action.yml — the composite GitHub Action
 
-What `wow-look-at-my/go-toolchain@v1` does, in order, and what a consuming
+What `wow-look-at-my/go-toolchain@master` does, in order, and what a consuming
 workflow has to grant it.
 
 ## 1. The all-builds shadow guard
@@ -50,20 +50,7 @@ off. It scans the same local call chain the comment-wall guard does, needs no
 permissions beyond a checkout, and warns rather than passing when it finds
 nothing to scan.
 
-## 1c. Refusing a frozen ref
-
-A caller writing `@latest` or `@master` gets a frozen orphan tag, not a moving
-pointer. The default branch is `v1`, so neither name tracks anything. Nothing
-about that is visible from the calling workflow. The build simply runs old code,
-and an input only newer versions declare is dropped as an unknown `with:` key,
-which GitHub reports as a warning nobody reads. One repo built against a
-months-old action that way and only noticed when a `targets:` input silently did
-nothing.
-
-Refusing at the first step turns that into a failure naming the fix. A SHA pin,
-`v1`, or a local `./` reference (an empty `action_ref`) all pass.
-
-## 1d. Installing the binary
+## 1c. Installing the binary
 
 The download goes straight to buildhost's `dl` endpoint with curl, and no npm is
 involved. `--compressed` advertises `Accept-Encoding`, zstd included where curl
