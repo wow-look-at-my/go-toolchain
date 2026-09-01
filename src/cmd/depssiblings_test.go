@@ -89,6 +89,7 @@ require github.com/wow-look-at-my/xml-validator v0.0.0-20260101000000-0000000000
 }
 
 func TestSiblingRequiresWalksTheRepositoryAtOneCommit(t *testing.T) {
+	t.Parallel()
 	mock := repoTreeMock(t, commonAPITree())
 	c, cleanup, err := fetchCommit(mock, "github.com/wow-look-at-my/common-ai-api/go/client", "refs/heads/master")
 	require.NoError(t, err)
@@ -108,6 +109,7 @@ func TestSiblingRequiresWalksTheRepositoryAtOneCommit(t *testing.T) {
 }
 
 func TestSiblingRequiresNeverRequiresTheMainModule(t *testing.T) {
+	t.Parallel()
 	mock := repoTreeMock(t, commonAPITree())
 	c, cleanup, err := fetchCommit(mock, "github.com/wow-look-at-my/common-ai-api/go/client", "refs/heads/master")
 	require.NoError(t, err)
@@ -119,6 +121,7 @@ func TestSiblingRequiresNeverRequiresTheMainModule(t *testing.T) {
 }
 
 func TestSiblingRequiresFailsWhenTheCommitDoesNotCarryTheModule(t *testing.T) {
+	t.Parallel()
 	tree := commonAPITree()
 	delete(tree, "go/core/go.mod")
 	mock := repoTreeMock(t, tree)
@@ -132,6 +135,7 @@ func TestSiblingRequiresFailsWhenTheCommitDoesNotCarryTheModule(t *testing.T) {
 }
 
 func TestInRepo(t *testing.T) {
+	t.Parallel()
 	const root = "github.com/wow-look-at-my/common-ai-api"
 	assert.True(t, inRepo(root, root))
 	assert.True(t, inRepo(root+"/go/core", root))
@@ -140,6 +144,7 @@ func TestInRepo(t *testing.T) {
 }
 
 func TestModuleSubdir(t *testing.T) {
+	t.Parallel()
 	const root = "github.com/org/repo"
 	assert.Equal(t, "", moduleSubdir(root, root))
 	assert.Equal(t, "go/core", moduleSubdir(root+"/go/core", root))

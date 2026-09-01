@@ -61,6 +61,7 @@ func cacheUploadSteps(t *testing.T, steps []actionStep) []actionStep {
 }
 
 func TestHandoffNameTemplates(t *testing.T) {
+	t.Parallel()
 	steps := loadActionSteps(t)
 	uploads := cacheUploadSteps(t, steps)
 
@@ -87,6 +88,7 @@ func TestHandoffNameTemplates(t *testing.T) {
 }
 
 func TestHandoffDeprecationNoticeNamesTheSavedHandoff(t *testing.T) {
+	t.Parallel()
 	steps := loadActionSteps(t)
 
 	var notice *actionStep

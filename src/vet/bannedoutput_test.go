@@ -28,6 +28,7 @@ func TestBannedOutputAnalyzer(t *testing.T) {
 // without module info, e.g. analysistest GOPATH fixtures) keeps the ban
 // active.
 func TestBannedOutputModuleScoping(t *testing.T) {
+	t.Parallel() // Builds its own analysis.Pass in memory; no shared warned-map, no process-wide state.
 	const src = `package main
 
 import "fmt"

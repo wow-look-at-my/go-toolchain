@@ -38,10 +38,10 @@ var (
 	countGenerated bool
 )
 
-// skipCacheValidation reports whether cmd or an ancestor should skip the
-// CI shared-cache config check.
+// skipUpToDateCheck reports whether cmd or an ancestor should skip the
+// fingerprint-based "up to date" fast exit.
 // A subcommand (e.g. `version raw`) must inherit its parent's skip.
-func skipCacheValidation(cmd *cobra.Command) bool {
+func skipUpToDateCheck(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
 		case "version", "install", "release":
@@ -119,7 +119,7 @@ var rootCmd = &cobra.Command{
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
 		}
-		if skipCacheValidation(cmd) {
+		if skipUpToDateCheck(cmd) {
 			return nil
 		}
 		if cmd.Parent() == nil && isUpToDate(runner.New()) {
@@ -127,7 +127,7 @@ var rootCmd = &cobra.Command{
 			ReportUpdateCheck()
 			os.Exit(0)
 		}
-		return validateCICacheConfig()
+		return nil
 	},
 	RunE: run,
 }

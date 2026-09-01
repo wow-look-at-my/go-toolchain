@@ -85,7 +85,6 @@ tests:
 	  timeout: 20m
 	  inputs:
 		env:
-			GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED: "1"
 			# The pipeline caches the fork under $HOME, and the sandbox makes only this
 			# test's own directory writable. Named here rather than inherited: bwrap
 			# takes the host's home out of the mount namespace so the APE falls back to

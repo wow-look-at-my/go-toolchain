@@ -102,8 +102,7 @@ func TestFindGoModules_NoModules(t *testing.T) {
 // captures stdout to assert on it, so a guarded version fails the integration
 // phase of every run under an agent.
 func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
-	defer saveCacheEnv(t)()
-	os.Setenv("CI", "true") // would fail validateCICacheConfig if reached
+	t.Setenv("CI", "true")
 
 	for _, argv := range [][]string{
 		{"version"},
@@ -114,18 +113,18 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 			leaf, _, err := rootCmd.Find(argv)
 			require.NoError(t, err)
 			require.NotNil(t, leaf)
-			assert.True(t, skipCacheValidation(leaf),
-				"skipCacheValidation should return true for %q (Name=%q)", argv, leaf.Name())
+			assert.True(t, skipUpToDateCheck(leaf),
+				"skipUpToDateCheck should return true for %q (Name=%q)", argv, leaf.Name())
 			assert.True(t, skipAgentGuard(leaf),
 				"skipAgentGuard should be true for %q -- it prints no build result", argv)
-			// End-to-end: PersistentPreRunE must not fail for this leaf even when CI cache vars are unset.
+			// End-to-end: PersistentPreRunE must not fail for this leaf.
 			assert.NoError(t, rootCmd.PersistentPreRunE(leaf, nil))
 		})
 	}
 }
 
 // Lock in that subcommands NOT under a skip-listed parent still trigger the
-// cache config check — so the ancestor walk in skipCacheValidation doesn't
+// up-to-date fast exit — so the ancestor walk in skipUpToDateCheck doesn't
 // accidentally match too broadly.
 func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
 	for _, argv := range [][]string{
@@ -136,8 +135,8 @@ func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
 			leaf, _, err := rootCmd.Find(argv)
 			require.NoError(t, err)
 			require.NotNil(t, leaf)
-			assert.False(t, skipCacheValidation(leaf),
-				"skipCacheValidation should remain false for %q", argv)
+			assert.False(t, skipUpToDateCheck(leaf),
+				"skipUpToDateCheck should remain false for %q", argv)
 		})
 	}
 }

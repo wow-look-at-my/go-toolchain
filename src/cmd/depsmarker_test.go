@@ -11,6 +11,7 @@ import (
 )
 
 func TestParseMarker(t *testing.T) {
+	t.Parallel()
 	gomod := `module test
 go 1.25.0
 
@@ -40,11 +41,13 @@ require (
 // What a bare marker resolves to depends on the dependency, so the comment's
 // own meaning has to state both halves rather than promise the default branch.
 func TestMarkerMeaning(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "a branch of this repository's name, or the default branch", marker{tracks: true}.meaning())
 	assert.Equal(t, "branch v1", marker{tracks: true, branch: "v1"}.meaning())
 }
 
 func TestMarkerComment(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "go-toolchain:auto-branch", marker{tracks: true}.comment())
 	assert.Equal(t, "go-toolchain:auto-branch=v1", marker{tracks: true, branch: "v1"}.comment())
 }
@@ -67,6 +70,7 @@ func TestEnforceOrgBranchTrackingLeavesAnAutoBranchLineAlone(t *testing.T) {
 }
 
 func TestGitHubOwnerRepo(t *testing.T) {
+	t.Parallel()
 	owner, repo, ok := gitHubOwnerRepo("github.com/wow-look-at-my/common-ai-api/go/client")
 	assert.True(t, ok)
 	assert.Equal(t, "wow-look-at-my", owner)
@@ -115,6 +119,7 @@ func TestReportUncheckedBranchesSaysItOnce(t *testing.T) {
 // separate comment: modfile renders an extra Suffix comment underneath, and a marker on its
 // own line above the next require is what corrupts the block.
 func TestSetMarkerJoinsAnExistingComment(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		line string
