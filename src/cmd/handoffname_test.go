@@ -49,7 +49,7 @@ func cacheUploadSteps(t *testing.T, steps []actionStep) []actionStep {
 			uploads = append(uploads, step)
 		}
 	}
-	require.Len(t, uploads, 1, "one hand-off: the job+build name")
+	require.Len(t, uploads, 1, "the job+build name is the only hand-off")
 	return uploads
 }
 

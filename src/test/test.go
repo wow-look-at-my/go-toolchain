@@ -130,9 +130,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		return nil, fmt.Errorf("discovering build tags: %w", err)
 	}
 
-	// One `go test` process per build-tag configuration, all at once: each writes
-	// its own coverage profile (only the default configuration asks for one) and
-	// shares no state with the others.
+	// Every build-tag configuration at once; they share no state.
 	type configRun struct {
 		res *TestResult
 		err error
@@ -253,9 +251,8 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
 ) (*TestResult, error) {
 	// Enumerate only packages with test files, avoiding the "no such tool covdata" error and generated-only packages.
-	// -p packages compiled and run at once; -parallel t.Parallel tests at once
-	// inside each one. Both default to GOMAXPROCS, which the fork's runtime can
-	// read as the container's CPU quota; state them so the count is the machine's.
+	// -p spans packages, -parallel spans tests within a package. Both default to
+	// GOMAXPROCS, which a cgroup quota can shrink; state the machine's CPU count.
 	procs := runtime.NumCPU()
 	args := []string{"test", "-json", "-timeout=" + testTimeout.String(),
 		"-p", strconv.Itoa(procs), "-parallel", strconv.Itoa(procs)}

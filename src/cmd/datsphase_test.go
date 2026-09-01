@@ -217,7 +217,7 @@ func TestRunDatsPhaseOptions(t *testing.T) {
 	opts := (*calls)[0].opts
 	assert.Equal(t, []string{datsSuiteDir}, opts.Paths)
 
-	// One worker per CPU, stated rather than left to dats' own default.
+	// Stated rather than left to dats' own default.
 	assert.Equal(t, runtime.NumCPU(), opts.Jobs)
 
 	// The phase hands dats what datsSandbox decided: auto, for the host pinned above.
