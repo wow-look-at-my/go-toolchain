@@ -239,7 +239,7 @@ jobs:
       - name: Download each host's APE
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build-build
+          name: go-build-build.broot
           path: ape/linux
       - uses: wow-look-at-my/actions@cache-download#latest
         with:
@@ -277,7 +277,7 @@ jobs:
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build-build
+          name: go-build-build.broot
           path: dist
 
       # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
@@ -311,7 +311,7 @@ jobs:
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
         with:
-          name: go-build-build
+          name: go-build-build.broot
           path: build/
 
       - uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish@master
