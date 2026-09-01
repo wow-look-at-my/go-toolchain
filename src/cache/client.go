@@ -40,6 +40,9 @@ var errLogged = cacheclient.ErrLogged
 // NewWebBackend builds the remote tier, or nil when no bucket is configured.
 var NewWebBackend = cacheclient.NewWebBackend
 
+// ConfigFromEnv parses GO_BUILDCACHE_CONFIG; an empty Bucket means no remote.
+var ConfigFromEnv = cacheclient.ConfigFromEnv
+
 // The protocol helpers this package still applies to bodies it handles
 // locally: the same guards, so a local tier can never serve what the remote
 // tier would refuse.

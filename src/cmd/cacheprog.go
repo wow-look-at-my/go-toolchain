@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,90 +29,16 @@ func init() {
 	rootCmd.AddCommand(cmd)
 }
 
-// buildCacheConfig is the JSON structure inside GO_BUILDCACHE_CONFIG.
-//
-// The cache server is no longer S3-compatible: it authenticates with plain HTTP
-// Basic Auth, so the native credential fields are username/password. The old
-// S3/AWS-style fields (key_id, access_key, region) are still accepted as
-// deprecated aliases — parseBuildCacheConfig warns when they are used and they
-// will be removed in a future release.
-type buildCacheConfig struct {
-	Endpoint string `json:"endpoint"`
-	Bucket   string `json:"bucket"`
-
-	// Native credential fields (HTTP Basic Auth).
-	Username string `json:"username"`
-	Password string `json:"password"`
-
-	// Deprecated S3/AWS-style aliases.
-	KeyID     string `json:"key_id"`     // deprecated alias for username
-	AccessKey string `json:"access_key"` // deprecated alias for password
-	Region    string `json:"region"`     // S3-only, ignored
-}
-
-// parseBuildCacheConfig reads web cache configuration from GO_BUILDCACHE_CONFIG
-// (base64-encoded JSON) or falls back to individual env vars.
+// parseBuildCacheConfig parses GO_BUILDCACHE_CONFIG through cacheclient's own
+// parser, then stamps this binary's own provenance fields onto the result.
 func parseBuildCacheConfig() cache.WebConfig {
-	raw := os.Getenv("GO_BUILDCACHE_CONFIG")
-	if raw == "" {
+	cfg := cache.ConfigFromEnv()
+	if cfg.Bucket == "" {
 		return cache.WebConfig{}
 	}
-	// Accepts standard or URL-safe base64, padded or not, wrapped or not.
-	normalized := strings.NewReplacer("-", "+", "_", "/", "\n", "", "\r", "", " ", "").Replace(raw)
-	if m := len(normalized) % 4; m != 0 {
-		normalized += strings.Repeat("=", 4-m)
-	}
-	cacheProgLog := logger.WithSubsystem("cache")
-	data, err := base64.StdEncoding.DecodeString(normalized)
-	if err != nil {
-		cacheProgLog.Debug("GO_BUILDCACHE_CONFIG: base64 decode error: %v", err)
-		return cache.WebConfig{}
-	}
-	var cfg buildCacheConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		cacheProgLog.Debug("GO_BUILDCACHE_CONFIG: json unmarshal error: %v", err)
-		return cache.WebConfig{}
-	}
-	if cfg.Endpoint == "" {
-		cacheProgLog.Debug("GO_BUILDCACHE_CONFIG: missing endpoint field")
-		return cache.WebConfig{}
-	}
-
-	// Prefer native username/password; fall back to deprecated S3-style aliases.
-	var deprecated []string
-	username := cfg.Username
-	if username == "" && cfg.KeyID != "" {
-		username = cfg.KeyID
-		deprecated = append(deprecated, "key_id (use username)")
-	}
-	password := cfg.Password
-	if password == "" && cfg.AccessKey != "" {
-		password = cfg.AccessKey
-		deprecated = append(deprecated, "access_key (use password)")
-	}
-	if cfg.Region != "" {
-		deprecated = append(deprecated, "region (ignored; the cache server is not S3)")
-	}
-	if len(deprecated) > 0 {
-		cacheProgLog.Warn("GO_BUILDCACHE_CONFIG: deprecated S3-style field(s): %s; these will be removed in a future release", strings.Join(deprecated, ", "))
-	}
-	if username == "" || password == "" {
-		cacheProgLog.Warn("GO_BUILDCACHE_CONFIG: missing username or password")
-		return cache.WebConfig{}
-	}
-	bucket := cfg.Bucket
-	if bucket == "" {
-		bucket = "gobuildcache"
-	}
-	return cache.WebConfig{
-		Bucket:    bucket,
-		Endpoint:  cfg.Endpoint,
-		AccessKey: username,
-		SecretKey: password,
-		Version:   buildVersion,
-		// X-Cache-Meta-Module; empty (omitted) when the CWD has no go.mod.
-		Module: gomod.ReadModulePath(),
-	}
+	cfg.Version = buildVersion
+	cfg.Module = gomod.ReadModulePath() // empty when the CWD has no go.mod
+	return cfg
 }
 
 func runCacheProg(cmd *cobra.Command, args []string) error {
@@ -128,10 +52,8 @@ func runCacheProg(cmd *cobra.Command, args []string) error {
 	// Namespaces fork-toolchain builds so they never share cache entries.
 	namespace := cache.CanonicalKeyNamespace(os.Getenv(cache.KeyNamespaceEnv))
 
-	// Through rawStderr, not the logger: this line exists to explain a run whose
-	// cache did nothing, and a logger in an unexpected state is one of the things
-	// it has to be able to report. Empty sockets mean the parent's environment
-	// never reached this child.
+	// Through rawStderr: explains an empty cache run even with a broken logger.
+	// Empty sockets mean the parent never reached this child.
 	fmt.Fprintf(rawStderr, "cacheprog start: namespace=%q daemon-sock=%q stats-sock=%q\n",
 		namespace, os.Getenv("GOCACHE_DAEMON_SOCK"), os.Getenv("GOCACHE_STATS_SOCK"))
 
