@@ -74,19 +74,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # @latest and @master are frozen tags that track nothing. see docs/ACTION.md
-    - name: Refuse a frozen ref
-      shell: bash
-      env:
-        ACTION_REF: ${{ github.action_ref }}
-      run: |
-        case "$ACTION_REF" in
-          latest|master|main)
-            echo "::error::go-toolchain was resolved from @${ACTION_REF}, a frozen tag that does not track development. Use 'wow-look-at-my/go-toolchain@v1' (the default branch) or pin a commit SHA."
-            exit 1
-            ;;
-        esac
-
     - name: Refuse jobs named all-builds
       uses: wow-look-at-my/actions@no-all-builds-job#latest
 

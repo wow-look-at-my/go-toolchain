@@ -266,7 +266,7 @@ coverage.
   `go-toolchain version host` shows both; each smoke job asserts its own host, inside dats' sandbox and outside. Consumers: cosmobootstrap (the
   buildhost slot and the fork's `bin/go` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host symlinks, and the agent output guard's
   classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE always runs the payload matching the host arch
-- `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@v1`), including the org all-builds shadow guard, the
+- `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@master`), including the org all-builds shadow guard, the
   comment-wall guard, and the tests-in-YAML guard (`no-tests-in-yaml`: an assertion or a written test file inside a `run:` script fails the job, so
   every consumer of this action gets the rule). Depth:
   `docs/ACTION.md`
