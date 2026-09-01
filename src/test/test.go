@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -251,7 +253,12 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
 ) (*TestResult, error) {
 	// Enumerate only packages with test files, avoiding the "no such tool covdata" error and generated-only packages.
-	args := []string{"test", "-json", "-timeout=" + testTimeout.String()}
+	// -p packages compiled and run at once; -parallel t.Parallel tests at once
+	// inside each one. Both default to GOMAXPROCS, which the fork's runtime can
+	// read as the container's CPU quota; state them so the count is the machine's.
+	procs := runtime.NumCPU()
+	args := []string{"test", "-json", "-timeout=" + testTimeout.String(),
+		"-p", strconv.Itoa(procs), "-parallel", strconv.Itoa(procs)}
 	if arg := tagCfg.Arg(); arg != "" {
 		args = append(args, "-tags", arg)
 	}
