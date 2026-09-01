@@ -206,15 +206,12 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 	}
 
 	// Serial, so staged APE copies never race their self-assimilation.
-	// GO_BUILDCACHE_CONFIG is cleared so a suite's `go` cannot reach the
-	// outer shared cache -- gosmopolitan's cmd/go consults it directly.
 	res, err := datsRunFunc(context.Background(), dats.Options{
 		Paths:   []string{datsSuiteDir},
 		Output:  out,
 		Sandbox: datsSandbox(),
 		Env: []string{
 			datsBuildDirEnv + "=" + buildDir,
-			"GO_BUILDCACHE_CONFIG=",
 		},
 	})
 	if err != nil {
