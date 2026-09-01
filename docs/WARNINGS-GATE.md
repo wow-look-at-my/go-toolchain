@@ -12,9 +12,8 @@ process). The gate runs
 at the very END of the pipeline commands — the root run (before
 `saveFingerprint`, so a gate-failed run is never stamped up-to-date) and matrix
 `runRelease` — so every warning prints before the failure; non-pipeline
-subcommands (version, install, cacheprog — a separate process whose warnings
-never reach the counter — and the `release` tag-and-push flow) are deliberately
-not gated.
+subcommands (version, install, and the `release` tag-and-push flow) are
+deliberately not gated.
 
 ## The budget counts DISTINCT warnings
 
@@ -92,8 +91,7 @@ with a raw `fmt.Fprintf(w.origStderr, ...)` (`src/cmd/watchdog.go`) that
 deliberately bypasses the logger, because the logger writes to the current
 `os.Stderr` — which is the watchdog's own monitored pipe, so routing the
 warning there would feed it back into `forward()` and reset the stall timer.
-Loud, red, `⚠`-prefixed, and uncounted. The `cacheprog` subprocess is a
-separate process whose warnings never reach this counter.
+Loud, red, `⚠`-prefixed, and uncounted.
 
 A run that fails the gate while the log is full of STALLED lines usually has a
 shared root cause rather than a causal link — e.g. a slow cache-index fetch

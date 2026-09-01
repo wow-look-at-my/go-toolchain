@@ -219,6 +219,35 @@ func TestExtractTarGzWithDir(t *testing.T) {
 	assert.Equal(t, "go", target)
 }
 
+func TestExtractTarGzSymlinkRefusedFallsBackToCopy(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	oldSymlink := symlinkFunc
+	symlinkFunc = func(oldname, newname string) error { return fmt.Errorf("function not implemented") }
+	defer func() { symlinkFunc = oldSymlink }()
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	// The symlink comes BEFORE the file it points at, the real-tarball
+	// ordering that broke a fallback assuming the target was already there.
+	tw.WriteHeader(&tar.Header{Name: "go/bin/link", Typeflag: tar.TypeSymlink, Linkname: "go"})
+	content := []byte("binary")
+	tw.WriteHeader(&tar.Header{Name: "go/bin/go", Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))})
+	tw.Write(content)
+
+	tw.Close()
+	gw.Close()
+
+	require.NoError(t, extractTarGz(bytes.NewReader(buf.Bytes()), tmpDir))
+
+	// The symlink's bytes were copied, not linked -- symlinkFunc always fails.
+	data, err := os.ReadFile(filepath.Join(tmpDir, "go", "bin", "link"))
+	require.NoError(t, err)
+	assert.Equal(t, "binary", string(data))
+}
+
 func TestExtractTarGzInvalidGzip(t *testing.T) {
 	err := extractTarGz(bytes.NewReader([]byte("not gzip")), t.TempDir())
 	assert.NotNil(t, err)

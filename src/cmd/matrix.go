@@ -80,7 +80,7 @@ type buildResult struct {
 
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
-	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for printCacheStats.
+	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for emitBuildProfile.
 	initBuildProfile()
 	defer captureProfileTrace()
 	r := runner.New()

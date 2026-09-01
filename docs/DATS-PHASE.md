@@ -156,11 +156,10 @@ and the suites run on the host with the error-level lines above.
 - `Jobs: 0` (serial) on purpose: the report stays byte-deterministic, and
   staged APE copies never race their first-exec self-assimilation.
 - `Sandbox` is dats' zero value, which is auto (bwrap → seatbelt → docker).
-- `Env` carries `GO_TOOLCHAIN_DATS_BUILD_DIR`, plus `GOCACHEPROG=` and
-  `GOCACHE_STATS_SOCK=` — cleared, so a suite command that runs `go ...`
-  cannot spawn cacheprog children of THIS binary against the outer daemon
-  (stats pollution, stdout pipe stalls). Same clearing the bench runner and
-  `embeddedFiles` do.
+- `Env` carries only `GO_TOOLCHAIN_DATS_BUILD_DIR`. Build caching now lives
+  in gosmopolitan's `cmd/go` (see [CACHE.md](CACHE.md)), which degrades
+  gracefully when its shared-cache endpoint is unreachable, so a suite's own
+  `go` commands need no isolation from it.
 - Output goes to stdout through `logStep("Running dats suites")`, wrapped in
   `noteFirstWrite` so the step's `...` line is terminated by the report's
   first byte. Under `--json` it goes to stderr instead, so stdout stays clean
