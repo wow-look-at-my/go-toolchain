@@ -52,26 +52,24 @@ nothing to scan.
 
 ## 1c. Installing the binary
 
-The download goes straight to buildhost's `dl` endpoint with curl, and no npm is
-involved. `--compressed` advertises `Accept-Encoding`, zstd included where curl
-was built with it, so buildhost streams the stored zstd blob as-is and curl
-decompresses client-side. The server never pays the decompression cost. Where
-curl lacks zstd it just gets the plain binary. buildhost normalizes platform
-aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so
-those values pass through verbatim. It serves the branch tip `no-store`, so no
-cache-buster is needed.
+The download is `wow-look-at-my/buildhost`'s own buildhost-download action
+against the `dl` endpoint, with `required: 'false'`: a miss is reported in its
+`downloaded` output instead of failing the step, and the install below runs only
+on `downloaded == 'true'`. The action defaults os/arch to the runner's own
+platform, so nothing is spelled here.
 
-**The `?branch=v1` pin is load-bearing.** buildhost's apex "latest" resolves
-against a project's default branch. Until buildhost has learned that
-go-toolchain's default branch is `v1` it assumes `master`, which go-toolchain
-never publishes to, so the unqualified download 404s and hard-fails every
-consumer's build. Revert to the unqualified URL once buildhost has resolved the
-default branch to `v1`, which needs a buildhost deploy plus the next publish.
+**The `branch: v1` pin is load-bearing, and it names a buildhost branch, not a
+git one.** buildhost's apex "latest" resolves against the project's default
+branch, which on buildhost is still `v1` — the branch every release to date was
+published from. The git branch `v1` no longer exists; `master` is the default
+branch, and it has published nothing yet, so `branch: master` 404s until the
+first green `master` run publishes. Flip the pin to `master` after that, once
+buildhost's default branch for the project is `master` too (an operator setting;
+the API exposes no write for it), and then drop the pin entirely.
 
-The install runs only on a successful download. A failure is reported rather
-than hidden behind `|| true`, and it is non-fatal at that point. Gating with
-`if` keeps `set -e` from skipping the probe and the source-build fallback below,
-which surface the reason and decide whether the build fails.
+A failure is reported rather than hidden behind `|| true`, and it is non-fatal
+at that point: the probe and the source-build fallback below surface the reason
+and decide whether the build fails.
 
 **The binary runs once BEFORE the root-owned install.** Since the fat-APE
 migration the linux and windows/amd64 slots serve an APE polyglot that
@@ -152,29 +150,19 @@ what it picked, so a consumer never has to know the producing job's id:
 
 Nameless discovery is clean only when the run's hand-off set is unambiguous at
 download time (the exact ambiguity semantics belong to `cache-download` — see
-its docs; the deprecated bare alias below is itself a second saved name until it
-is removed). A run that saves several distinct hand-offs — several go-toolchain
+its docs). A run that saves several distinct hand-offs — several go-toolchain
 jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the
 build outputs, as this repo's own CI does — needs an explicit
-`name: go-build-<uploader job id>` (plus `.m<index>` for one leg of a matrix
-producer) on exactly those downloads.
+`name: go-build-<uploader job id>.b<build>` (plus `.m<index>` for one leg of a
+matrix producer) on exactly those downloads.
 
-**Legacy per-job name** — a second save under the pre-build name
-`go-build-<job>[.m<idx>]`, for consumers that still download it (go-toolchain's
-own CI `smoke`/`publish` jobs, and any external caller that has not migrated to
-the job+build name). It is marked `continue-on-error`, because in a multi-build
-job the second save collides and the conflict is absorbed — first finisher wins,
-exactly like the bare alias. The strict per-job+build save stays the sole
-authoritative one.
-
-**Legacy bare alias** — a third save under the bare name `go-build`, for
-download-only consumers that still restore it (webhook-runner, buildhost,
-api-cli, github-state-mirror, publish-ghcr callers). It is preceded by a
-`::notice` deprecation annotation and marked `continue-on-error`, because a bare
-key is inherently racy in a multi-producer run: first finisher wins and the
-second save's conflict is absorbed. The strict per-job+build save stays the
-sole authoritative one. Proposed for removal once those consumers migrate to
-`go-build-<uploader job id>`.
+**This is the only name saved.** The pre-build per-job name
+`go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone: each was a
+second key that a multi-producer run raced on, so the second finisher's save
+collided and had to be absorbed with `continue-on-error`. A consumer that still
+downloads either gets a miss and must migrate to the name above.
+`src/cmd/handoffname_test.go` pins both the template and the absence of any
+second hand-off.
 
 **Why the name carries the job id, a leg index, and a build identity.** The
 hand-off runs on EVERY go-toolchain run, through the org cache-upload action,
@@ -207,19 +195,10 @@ which keeps cache-download's cross-attempt fallback working.
 A downstream job cache-downloads with NO name, which self-discovers the current
 run's hand-off. That is the preferred mode when the run saves only one hand-off,
 and it needs no knowledge of the producing job's id. A run carrying several
-hand-offs needs an explicit `go-build-<uploader job id>`, or
-`go-build-<uploader job id>.m<index>` such as `go-build-build.m2`, because
-discovery would otherwise be ambiguous. A matrix producer is always such a case,
-because each leg saves its own name.
-
-**The legacy bare alias.** Single-producer consumers still download the bare name
-`go-build`: webhook-runner, buildhost, api-cli, github-state-mirror, and the
-publish-ghcr callers. The alias keeps being saved until they migrate to
-`go-build-<uploader job id>`. In a multi-producer run, several go-toolchain jobs
-or the legs of one matrix job, the bare key is inherently racy, because the
-second save hits an existing entry. That step therefore tolerates failure instead
-of failing the job. The collision-free per-job+build hand-off is the
-authoritative one. Remove the alias step once the named consumers migrate.
+hand-offs needs an explicit `go-build-<uploader job id>.b<build>`, or
+`go-build-<uploader job id>.m<index>.b<build>` such as `go-build-build.m2.broot`,
+because discovery would otherwise be ambiguous. A matrix producer is always such
+a case, because each leg saves its own name.
 
 ## 4. Autorelease, and the permissions it needs
 
