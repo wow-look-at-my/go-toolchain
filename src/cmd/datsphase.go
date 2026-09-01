@@ -206,16 +206,12 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 	}
 
 	// Serial, so staged APE copies never race their self-assimilation.
-	// GOCACHEPROG/GOCACHE_STATS_SOCK are cleared so a suite's `go` cannot
-	// reach the outer cacheprog daemon.
 	res, err := datsRunFunc(context.Background(), dats.Options{
 		Paths:   []string{datsSuiteDir},
 		Output:  out,
 		Sandbox: datsSandbox(),
 		Env: []string{
 			datsBuildDirEnv + "=" + buildDir,
-			"GOCACHEPROG=",
-			"GOCACHE_STATS_SOCK=",
 		},
 	})
 	if err != nil {

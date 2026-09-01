@@ -165,8 +165,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		return false, nil, err
 	}
 
-	printCacheStats(false)
-
 	if dupcode {
 		runDuplicateCheck()
 	}
