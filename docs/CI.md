@@ -63,18 +63,19 @@ host builds the same bytes. Nothing checked that, and until `-trimpath` and
 own content ID both reached the build-ID notes. See
 [MATRIX.md](MATRIX.md) for the measurements and what each flag closes.
 
-`build-everywhere` runs `matrix --no-benchmark` on all three hosts and hands
-each result off under `ape-<origin>`; `identical` downloads them and runs the
-downloaded linux APE's own `go-toolchain verify-identical` against all three,
-linux included, so a check that needs a Go toolchain to build never lives in
-the YAML itself. `fail-fast: false`, so one host failing still reports the
-others.
+`build-everywhere` runs `matrix --no-benchmark` on darwin and windows and hands
+each result off under `ape-<origin>`; `identical` downloads those two plus
+`build`'s `go-build-build.broot` as the linux answer, and runs the downloaded
+linux APE's own `go-toolchain verify-identical` against all three, so a check
+that needs a Go toolchain to build never lives in the YAML itself.
+`fail-fast: false`, so one host failing still reports the others.
 
-Every leg runs the SAME command, linux included, rather than reusing `build`'s
-result. That costs one extra build and buys an unambiguous gate: a difference
-is then the host, never the invocation. It also does not go through
-`uses: ./` — the composite action installs itself with `sudo`, which a Windows
-runner has not, which is why the smoke jobs stage the APE by hand too.
+Linux comes from `build` rather than from a leg of its own. `build` already
+builds this repo's APE on ubuntu with the same host binary, and its hand-off is
+the one `publish` ships — so taking linux from anywhere else would leave the
+published bytes as the only ones nobody compared. The non-linux legs do not go
+through `uses: ./`: the composite action installs itself with `sudo`, which a
+Windows runner has not, which is why the smoke jobs stage the APE by hand too.
 
 The NT leg builds uncached: the runner logs `GO_BUILDCACHE_CONFIG` in that
 step's environment and the APE then reports it unset, so the credential the
