@@ -1,6 +1,6 @@
 // Package codeql wraps the CodeQL Go extractor and analyze CLI invocations,
 // emitting them as native go-toolchain pipeline steps so they are captured
-// in the timeline and OTLP traces alongside vet/test/build/matrix work.
+// in the timeline alongside vet/test/build/matrix work.
 //
 // It assumes github/codeql-action/init has already run and exported the
 // CODEQL_DIST and CODEQL_EXTRACTOR_GO_* environment variables. Enabled()
