@@ -47,6 +47,7 @@ func cacheUploadSteps(steps []actionStep) []actionStep {
 			uploads = append(uploads, step)
 		}
 	}
+	require.Len(t, uploads, 1, "the job+build name is the only hand-off")
 	return uploads
 }
 

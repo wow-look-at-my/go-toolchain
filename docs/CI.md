@@ -63,18 +63,19 @@ host builds the same bytes. Nothing checked that, and until `-trimpath` and
 own content ID both reached the build-ID notes. See
 [MATRIX.md](MATRIX.md) for the measurements and what each flag closes.
 
-`build-everywhere` runs `matrix --no-benchmark` on all three hosts and hands
-each result off under `ape-<origin>`; `identical` downloads them and runs the
-downloaded linux APE's own `go-toolchain verify-identical` against all three,
-linux included, so a check that needs a Go toolchain to build never lives in
-the YAML itself. `fail-fast: false`, so one host failing still reports the
-others.
+`build-everywhere` runs `matrix --no-benchmark` on darwin and windows and hands
+each result off under `ape-<origin>`; `identical` downloads those two plus
+`build`'s `go-build-build.broot` as the linux answer, and runs the downloaded
+linux APE's own `go-toolchain verify-identical` against all three, so a check
+that needs a Go toolchain to build never lives in the YAML itself.
+`fail-fast: false`, so one host failing still reports the others.
 
-Every leg runs the SAME command, linux included, rather than reusing `build`'s
-result. That costs one extra build and buys an unambiguous gate: a difference
-is then the host, never the invocation. It also does not go through
-`uses: ./` — the composite action installs itself with `sudo`, which a Windows
-runner has not, which is why the smoke jobs stage the APE by hand too.
+Linux comes from `build` rather than from a leg of its own. `build` already
+builds this repo's APE on ubuntu with the same host binary, and its hand-off is
+the one `publish` ships — so taking linux from anywhere else would leave the
+published bytes as the only ones nobody compared. The non-linux legs do not go
+through `uses: ./`: the composite action installs itself with `sudo`, which a
+Windows runner has not, which is why the smoke jobs stage the APE by hand too.
 
 The NT leg builds uncached: the runner logs `GO_BUILDCACHE_CONFIG` in that
 step's environment and the APE then reports it unset, so the credential the
@@ -696,8 +697,8 @@ host-go-toolchain (run-scoped keys with cross-attempt fallback), so
 
 The go-toolchain action itself cache-uploads build/ under the per-job+build
 name `go-build-<job id>.b<build>` on every run (unconditional) -- here that is
-`go-build-build.broot`, which the smoke-linux/macos/windows and publish
-jobs below cache-download. The job id and build identity in the name keep
+`go-build-build.broot`, which the identical, smoke-linux/macos/windows and
+publish jobs below cache-download. The job id and build identity in the name keep
 concurrent same-run invocations (in other repos: the linux + darwin two-job
 pattern, or two builds in one job) from colliding on one run-scoped key; there
 is no standalone upload step here.
@@ -726,9 +727,9 @@ otherwise runs entirely off the downloaded release artifact.
 
 Explicit name on purpose: by this point the run holds SEVERAL
 hand-offs (host-go-toolchain and socketharness-build from host-build,
-go-build-build.broot from build), so a nameless self-discovering
-download would be ambiguous here. Same for smoke-macos/smoke-windows/
-publish below.
+go-build-build.broot from build, and one ape-<origin> per
+build-everywhere leg), so a nameless self-discovering download would be
+ambiguous here. Same for smoke-macos/smoke-windows/publish below.
 
 ### Download socketharness hand-off
 

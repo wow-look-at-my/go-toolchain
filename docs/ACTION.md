@@ -98,11 +98,11 @@ A caller-provided `binary:` is staged through `/tmp` and pre-run once for the
 same APE reason. Staging also keeps the caller's own file byte-identical. For a
 native binary this changes nothing.
 
-## 1e. The CodeQL permission probe
+## 1e. The CodeQL permission check
 
-The probe posts an empty body to the SARIF upload endpoint. 403 means the
-workflow lacks `security-events: write`. 422 means the permission is there and
-the body is invalid, which is expected, and no upload occurs.
+`wow-look-at-my/actions@has-permission` reads `security-events` off the running
+workflow file, and fails the build where the grant is missing. Reading the
+declared block needs no token and spends no API call.
 
 ## 2. Secrets, then the build
 
@@ -166,8 +166,11 @@ matrix producer) on exactly those downloads.
 **This is the only name saved.** The pre-build per-job name
 `go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone: each was a
 second key that a multi-producer run raced on, so the second finisher's save
-collided and had to be absorbed with `continue-on-error`. A consumer that still
-downloads either gets a miss and must migrate to the name above.
+collided and had to be absorbed with `continue-on-error`. The action now saves
+ONE hand-off, under that name; a download naming anything else restores
+nothing, which is why this repo's own `identical`, `smoke` and `publish` jobs
+spell `go-build-build.broot` in full. A consumer that still downloads either
+legacy name gets a miss and must migrate to the name above.
 `src/cmd/handoffname_test.go` pins both the template and the absence of any
 second hand-off.
 
@@ -221,17 +224,23 @@ be silently ignored. An empty input leaves every output empty, and
 buildhost-publish treats an empty input as absent, so the publish stays
 byte-identical.
 
-**The grants are probed before the build.** A missing `deployments: write` or
-`artifact-metadata: write` used to surface as `Resource not accessible by
-integration` AFTER the whole build had run, which is expensive to rediscover. A
-step now probes both in the first seconds of the job, with an empty POST body.
-An empty body creates and records nothing: 403 means the grant is missing, and
-any other code means the request got past permission checking. The deployments
-probe posts to `/repos/{owner}/{repo}/deployments`, and the storage-record probe
-posts to `/orgs/{owner}/artifacts/metadata/storage-record`, which is the endpoint
-the publish itself uses. Each failure names the grant, the `autorelease: 'false'`
-alternative, and the job-level replacement rule. The probe only runs where
-`autorelease` is on.
+**The grants are read before the build.** A missing `id-token: write`,
+`deployments: write` or `artifact-metadata: write` used to surface as `Resource
+not accessible by integration` AFTER the whole build had run, which is expensive
+to rediscover. `wow-look-at-my/actions@has-permission` now reads each one in the
+first seconds of the job. It reads the running workflow file and resolves the
+scope the way GitHub does: the job's own `permissions:` block, then the
+workflow-level block when the job declares none. A missing grant fails the step
+that reads it, and the error names the grant and the block it came from. The
+check only runs where `autorelease` is on.
+
+It replaced a set of empty-body `POST` probes that read a 403 off the live API.
+Reading the declared block needs no token, spends no API call, and cannot be
+confused by a failure that has nothing to do with permissions. It also removed
+a fork-PR carve-out: the old `id-token` check read `ACTIONS_ID_TOKEN_REQUEST_URL`
+out of the environment, which GitHub withholds on an external fork PR whatever
+the workflow declares, so that case had to be skipped by name. The declared
+block is the same on a fork.
 
 The publish step itself needs only `id-token: write`. But publishing also
 **registers a GitHub Deployment and posts an artifact storage record**, and
