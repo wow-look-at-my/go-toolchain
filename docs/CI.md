@@ -189,7 +189,7 @@ and were reverted:
 
 A third attempt did land, on the isolated two-thirds of `src/cache`, once the
 classifier followed the call graph instead of the test body — `t.Setenv` hides
-behind `setTempDir`, `setHome` and `hermeticOTel`. It took `test run
+behind `setTempDir` and `setHome`. It took `test run
 src/cache` from 11.4s to 6.51s on linux and left Windows where it was:
 28.822s before, 30.337s after. That is the result to remember. The runner has
 four cores and `go test` already runs four package binaries side by side, so
