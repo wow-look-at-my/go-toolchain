@@ -194,10 +194,8 @@ coverage.
   greedy-interval "go actions #NN" lanes (cap 32). Wiring lives in `src/cmd/profilecmd.go`: `initBuildProfile` (root run() + matrix runRelease;
   `--no-profile` opts out), `captureProfileTrace` (deferred in run() AFTER the WriteChrome defer so it runs first, stashing the parsed graph), and
   `emitBuildProfile` — deferred from `Execute()`. Carries no cache hit/miss counts: see the caching bullet above
-- `src/trace/` — OpenTelemetry trace export for build pipeline timings. The OTLP/HTTP exporter construction is build-tag split: `provider_otlp.go`
-  (`!cosmo`) is the real exporter; `provider_otlp_cosmo.go` is a span-dropping no-op because otlptracehttp's internal otlpconfig imports
-  google.golang.org/grpc even for pure HTTP (known upstream issue, present at otel v1.44.0) and grpc cannot compile for cosmo — so **GOOS=cosmo
-  binaries currently ship without OTel export** (accepted temporary regression; the full tracing API surface still works)
+- `src/trace/` — the Chrome trace (`build/trace.json`): `Trace` collects `Event`s from the phases and the build profile, and `WriteChrome` joins
+  them with the pipeline timeline. Nothing is exported off the machine; there is no OpenTelemetry in this module
 - `src/logger/` -- the leveled logging facility every stdout/stderr write must route through (enforced by the `bannedoutput` vet analyzer, see
   src/vet).
   Routing: Debug -> stderr; Info -> stdout; Warn/Error -> `::warning`/`::error` workflow annotations on stdout when running in GitHub Actions (GHAAuto
@@ -300,7 +298,7 @@ coverage.
   it was disabling vet's auto-fix check). **Compiling is not the test, though: RUN each payload.** `modernc.org/sqlite` compiles for cosmo and its
   `modernc.org/libc` init still panics on the windows payload, killing every Windows invocation before `main` — which is why the deps cache is
   dependency-free (`depscache_file.go`). A `_cosmo.go` file is for a genuine gap only —
-  `otlptracehttp` is the surviving one, via grpc's `syscall.TCP_INFO`. Either a dedicated implementation already exists
+  `src/test/xattr_cosmo.go` is the surviving one, since the fork's syscall package has no xattr wrappers. Either a dedicated implementation already exists
   (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
   (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
 - **`_cosmo` in a filename is a real GOOS filter now, so a file that must build everywhere cannot carry it.** Stock Go knows no GOOS called cosmo
@@ -322,7 +320,7 @@ coverage.
 - **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
   wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
   `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`,
-  `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/TRACING.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means
+  `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means
   updating it in place, never appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an
   edit shows up as a reviewable diff. A literal
   double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's
