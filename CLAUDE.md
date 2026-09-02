@@ -11,8 +11,8 @@ buildhost, which always has the current build:
 
 ```bash
 # Download and install go-toolchain (do this first if not installed).
-# Source: buildhost (pazer.build). The ?branch=v1 pin matches action.yml.
-curl -fL --compressed "https://dl.pazer.build/go-toolchain?branch=v1&os=linux&arch=amd64" -o /tmp/go-toolchain
+# Source: buildhost (pazer.build), the same URL action.yml uses.
+curl -fL --compressed "https://dl.pazer.build/go-toolchain?os=linux&arch=amd64" -o /tmp/go-toolchain
 chmod +x /tmp/go-toolchain
 # The linux slots serve a fat APE. It never rewrites its own file: the shell
 # header extracts a loader under $TMPDIR, so a read-only binary in a read-only

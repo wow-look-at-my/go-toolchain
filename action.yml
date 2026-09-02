@@ -89,8 +89,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # The ?branch=v1 pin is load-bearing. see docs/ACTION.md
-        URL="https://dl.pazer.build/go-toolchain?branch=v1&os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
+        URL="https://dl.pazer.build/go-toolchain?os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
         # The `if` keeps `set -e` from skipping the probe and source-build fallback.
         if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
           chmod +x /tmp/go-toolchain
