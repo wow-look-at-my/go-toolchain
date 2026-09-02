@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -216,8 +217,8 @@ func TestRunDatsPhaseOptions(t *testing.T) {
 	opts := (*calls)[0].opts
 	assert.Equal(t, []string{datsSuiteDir}, opts.Paths)
 
-	// Serial on purpose: a deterministic report, no concurrent APE self-assimilation.
-	assert.Zero(t, opts.Jobs)
+	// Stated rather than left to dats' own default.
+	assert.Equal(t, runtime.NumCPU(), opts.Jobs)
 
 	// The phase hands dats what datsSandbox decided: auto, for the host pinned above.
 	assert.Equal(t, dats.Sandbox{}, opts.Sandbox)

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -234,9 +235,11 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		out = &noteFirstWrite{w: out, note: st.noteOutput}
 	}
 
-	// Serial, so staged APE copies never race their self-assimilation.
 	res, err := datsRunFunc(context.Background(), dats.Options{
-		Paths:   []string{datsSuiteDir},
+		Paths: []string{datsSuiteDir},
+		// A staged APE extracts its loader under TMPDIR rather than
+		// rewriting its own file, so concurrent copies do not race.
+		Jobs:    runtime.NumCPU(),
 		Output:  out,
 		Sandbox: datsSandbox(),
 		Env: []string{
