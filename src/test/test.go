@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
@@ -127,8 +130,13 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		return nil, fmt.Errorf("discovering build tags: %w", err)
 	}
 
-	var merged *TestResult
-	var firstErr error
+	// Every build-tag configuration at once; they share no state.
+	type configRun struct {
+		res *TestResult
+		err error
+	}
+	runs := make([]configRun, len(discovery.Configs))
+	var wg sync.WaitGroup
 	for i, tagCfg := range discovery.Configs {
 		// Coverage is collected only on the default config; extra configs still run and can fail, just uncovered.
 		cf := coverFile
@@ -142,11 +150,21 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 			}
 			logger.Info("tests: build tags %s (%s)", tagCfg, strings.Join(only, " "))
 		}
-		res, err := runTestsOnce(r, verbose, cf, cb, timeline, tagCfg, only)
-		if err != nil && firstErr == nil {
-			firstErr = err
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runs[i].res, runs[i].err = runTestsOnce(r, verbose, cf, cb, timeline, tagCfg, only)
+		}()
+	}
+	wg.Wait()
+
+	var merged *TestResult
+	var firstErr error
+	for _, run := range runs {
+		if run.err != nil && firstErr == nil {
+			firstErr = run.err
 		}
-		merged = mergeTestResults(merged, res)
+		merged = mergeTestResults(merged, run.res)
 	}
 	if firstErr != nil {
 		return merged, firstErr
@@ -233,7 +251,11 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
 ) (*TestResult, error) {
 	// Enumerate only packages with test files, avoiding the "no such tool covdata" error and generated-only packages.
-	args := []string{"test", "-json", "-timeout=" + testTimeout.String()}
+	// -p spans packages, -parallel spans tests within a package. Both default to
+	// GOMAXPROCS, which a cgroup quota can shrink; state the machine's CPU count.
+	procs := runtime.NumCPU()
+	args := []string{"test", "-json", "-timeout=" + testTimeout.String(),
+		"-p", strconv.Itoa(procs), "-parallel", strconv.Itoa(procs)}
 	if arg := tagCfg.Arg(); arg != "" {
 		args = append(args, "-tags", arg)
 	}
