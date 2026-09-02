@@ -55,8 +55,6 @@ jobs:
 
       - name: Build and test
         env:
-          OTEL_EXPORTER_OTLP_ENDPOINT: https://otel.pazer.tube
-          OTEL_SERVICE_NAME: ${{ github.repository }}
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
         run: go run ./src

@@ -100,7 +100,7 @@ func (h *coverageHandler) Event(event testjson.TestEvent, exec *testjson.Executi
 			})
 		}
 
-		// Record per-test timeline entries for OTEL trace spans
+		// Record per-test timeline entries for the step summary and the Chrome trace.
 		if h.timeline != nil && event.Elapsed >= 0.1 {
 			switch event.Action {
 			case testjson.ActionPass, testjson.ActionFail, testjson.ActionSkip:
