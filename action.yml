@@ -84,33 +84,25 @@ runs:
       shell: bash
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-    # The branch:v1 pin is load-bearing. see docs/ACTION.md
-    - name: Download go-toolchain from buildhost
-      if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
-      id: buildhost-download
-      uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
-      with:
-        project: go-toolchain
-        branch: v1
-        path: /tmp/go-toolchain
-        required: 'false'
-
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
       run: |
         set -euo pipefail
+        # The ?branch=v1 pin is load-bearing. see docs/ACTION.md
+        URL="https://dl.pazer.build/go-toolchain?branch=v1&os=${RUNNER_OS}&arch=${RUNNER_ARCH}"
         # The `if` keeps `set -e` from skipping the probe and source-build fallback.
-        if [ "${{ steps.buildhost-download.outputs.downloaded }}" = "true" ]; then
+        if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
+          chmod +x /tmp/go-toolchain
           # Run it once while still writable in /tmp. see docs/ACTION.md
           /tmp/go-toolchain version || true
           sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
         else
-          echo "::warning::Download from buildhost failed"
+          echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
         fi
         # Capture the probe output: it names a 404, a missing PATH entry, or a crash.
         if ! probe=$(go-toolchain version 2>&1); then
-          echo "buildhost go-toolchain not usable; probe output:"
+          echo "buildhost go-toolchain (${URL}) not usable; probe output:"
           echo "${probe}"
           # A silent source build hides a buildhost outage. see docs/ACTION.md
           if [ "${{ inputs.allow-source-build }}" != "true" ]; then

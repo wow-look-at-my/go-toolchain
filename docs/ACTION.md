@@ -52,24 +52,31 @@ nothing to scan.
 
 ## 1c. Installing the binary
 
-The download is `wow-look-at-my/buildhost`'s own buildhost-download action
-against the `dl` endpoint, with `required: 'false'`: a miss is reported in its
-`downloaded` output instead of failing the step, and the install below runs only
-on `downloaded == 'true'`. The action defaults os/arch to the runner's own
-platform, so nothing is spelled here.
+The download goes straight to buildhost's `dl` endpoint with curl, and no npm is
+involved. `--compressed` advertises `Accept-Encoding`, zstd included where curl
+was built with it, so buildhost streams the stored zstd blob as-is and curl
+decompresses client-side. The server never pays the decompression cost. Where
+curl lacks zstd it just gets the plain binary. buildhost normalizes platform
+aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so
+those values pass through verbatim. It serves the branch tip `no-store`, so no
+cache-buster is needed. Download, the one pre-install run, and the copy into
+`/usr/local/bin` are one step: nothing in the org's action set can write there
+(the runner is not root), and dats' sandbox mounts only the standard paths, so a
+split would only move the `sudo cp` into a second step.
 
-**The `branch: v1` pin is load-bearing, and it names a buildhost branch, not a
+**The `?branch=v1` pin is load-bearing, and it names a buildhost branch, not a
 git one.** buildhost's apex "latest" resolves against the project's default
 branch, which on buildhost is still `v1` — the branch every release to date was
 published from. The git branch `v1` no longer exists; `master` is the default
-branch, and it has published nothing yet, so `branch: master` 404s until the
+branch, and it has published nothing yet, so `branch=master` 404s until the
 first green `master` run publishes. Flip the pin to `master` after that, once
 buildhost's default branch for the project is `master` too (an operator setting;
 the API exposes no write for it), and then drop the pin entirely.
 
-A failure is reported rather than hidden behind `|| true`, and it is non-fatal
-at that point: the probe and the source-build fallback below surface the reason
-and decide whether the build fails.
+The install runs only on a successful download. A failure is reported rather
+than hidden behind `|| true`, and it is non-fatal at that point. Gating with
+`if` keeps `set -e` from skipping the probe and the source-build fallback below,
+which surface the reason and decide whether the build fails.
 
 **The binary runs once BEFORE the root-owned install.** Since the fat-APE
 migration the linux and windows/amd64 slots serve an APE polyglot that
