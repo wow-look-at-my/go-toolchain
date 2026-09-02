@@ -122,6 +122,9 @@ a built APE twice leaves its sha256 unchanged. Depth: gosmopolitan's
 
 That staging needs a SHELL to read the header, and `execve` alone cannot. A
 direct exec works only where binfmt_misc carries an `APE` entry, which
-registering needs root; macOS has no such mechanism. So a runner reaches an APE
-through a shell, and nothing may assume a bare `exec` of one succeeds.
+registering needs root; macOS has no such mechanism. `action.yml` registers that
+entry on a Linux runner and warns where it cannot (see
+[ACTION.md](ACTION.md#1b3-the-ape-binfmt-handler)), so the entry is a capability
+a host may or may not have. Every caller still reaches an APE through a shell,
+and nothing may assume a bare `exec` of one succeeds.
 
