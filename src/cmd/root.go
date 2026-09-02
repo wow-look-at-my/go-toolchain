@@ -265,16 +265,6 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		logger.Warn("⇒ Warning: failed to write step summary: %v", writeErr)
 	}
 
-	// Export OTel traces (no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset).
-	if tl := GetTimeline(); tl != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := gotrace.Export(ctx, tl.Entries()); err != nil {
-			logger.Warn("⇒ Warning: failed to export traces: %v", err)
-		}
-
-	}
-
 	os.Chdir(startDir)
 
 	// Fail before saveFingerprint when warnings exceed budget, so a failed
