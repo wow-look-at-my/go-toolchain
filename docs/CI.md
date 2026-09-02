@@ -276,9 +276,9 @@ The job is `timeout-minutes`-bounded and downloads the `go-build-build.broot`
 hand-off the `build` job uploaded, via `wow-look-at-my/actions@cache-download#latest`
 (run-keyed cross-OS cache wrapper; the download `path` is the destination
 directory). The action names its hand-off `go-build-<job id>.b<build>` per
-calling job and build (the sanitized `working-directory`, `.` becoming `root`),
-with a `.m<job-index>` suffix per leg when the caller is a matrix job, so
-concurrent same-run saves never collide on one key.
+calling job and build (the sanitized `working-directory`, `root` for `.`), with
+a `.m<job-index>` suffix per leg when the caller is a matrix job, so concurrent
+same-run saves never collide on one key. That is the only name it saves.
 
 The suite EXECUTES throwaway copies of the artifacts in `dist/`, never the
 downloaded file itself. Every leg runs the SAME file, `dist/go-toolchain` —
