@@ -10,8 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The one hand-off name: go-build-<job id>[.m<index>].b<build>, distinct
-// per job, per matrix leg, AND per build (working-directory); pins action.yml's template.
+// Pins action.yml's hand-off name template, distinct per job, matrix leg and build.
 const handoffNameTemplate = "go-build-${{ github.job }}${{ matrix && format('.m{0}', strategy.job-index) || '' }}.b${{ steps.build-id.outputs.id }}"
 
 // actionStep is the subset of a composite step the hand-off tests inspect.
