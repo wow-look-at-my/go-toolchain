@@ -59,14 +59,19 @@ decompresses client-side. The server never pays the decompression cost. Where
 curl lacks zstd it just gets the plain binary. buildhost normalizes platform
 aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so
 those values pass through verbatim. It serves the branch tip `no-store`, so no
-cache-buster is needed.
+cache-buster is needed. Download, the one pre-install run, and the copy into
+`/usr/local/bin` are one step: nothing in the org's action set can write there
+(the runner is not root), and dats' sandbox mounts only the standard paths, so a
+split would only move the `sudo cp` into a second step.
 
-**The `?branch=v1` pin is load-bearing.** buildhost's apex "latest" resolves
-against a project's default branch. Until buildhost has learned that
-go-toolchain's default branch is `v1` it assumes `master`, which go-toolchain
-never publishes to, so the unqualified download 404s and hard-fails every
-consumer's build. Revert to the unqualified URL once buildhost has resolved the
-default branch to `v1`, which needs a buildhost deploy plus the next publish.
+**The `?branch=v1` pin is load-bearing, and it names a buildhost branch, not a
+git one.** buildhost's apex "latest" resolves against the project's default
+branch, which on buildhost is still `v1` — the branch every release to date was
+published from. The git branch `v1` no longer exists; `master` is the default
+branch, and it has published nothing yet, so `branch=master` 404s until the
+first green `master` run publishes. Flip the pin to `master` after that, once
+buildhost's default branch for the project is `master` too (an operator setting;
+the API exposes no write for it), and then drop the pin entirely.
 
 The install runs only on a successful download. A failure is reported rather
 than hidden behind `|| true`, and it is non-fatal at that point. Gating with
@@ -158,9 +163,16 @@ build outputs, as this repo's own CI does — needs an explicit
 `name: go-build-<uploader job id>.b<build>` (plus `.m<index>` for one leg of a
 matrix producer) on exactly those downloads.
 
-The action saves ONE hand-off, under that name. A download naming anything else
-restores nothing, which is why this repo's own `identical`, `smoke` and
-`publish` jobs spell `go-build-build.broot` in full.
+**This is the only name saved.** The pre-build per-job name
+`go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone: each was a
+second key that a multi-producer run raced on, so the second finisher's save
+collided and had to be absorbed with `continue-on-error`. The action now saves
+ONE hand-off, under that name; a download naming anything else restores
+nothing, which is why this repo's own `identical`, `smoke` and `publish` jobs
+spell `go-build-build.broot` in full. A consumer that still downloads either
+legacy name gets a miss and must migrate to the name above.
+`src/cmd/handoffname_test.go` pins both the template and the absence of any
+second hand-off.
 
 **Why the name carries the job id, a leg index, and a build identity.** The
 hand-off runs on EVERY go-toolchain run, through the org cache-upload action,
