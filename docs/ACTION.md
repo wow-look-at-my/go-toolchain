@@ -64,14 +64,10 @@ cache-buster is needed. Download, the one pre-install run, and the copy into
 (the runner is not root), and dats' sandbox mounts only the standard paths, so a
 split would only move the `sudo cp` into a second step.
 
-**The `?branch=v1` pin is load-bearing, and it names a buildhost branch, not a
-git one.** buildhost's apex "latest" resolves against the project's default
-branch, which on buildhost is still `v1` — the branch every release to date was
-published from. The git branch `v1` no longer exists; `master` is the default
-branch, and it has published nothing yet, so `branch=master` 404s until the
-first green `master` run publishes. Flip the pin to `master` after that, once
-buildhost's default branch for the project is `master` too (an operator setting;
-the API exposes no write for it), and then drop the pin entirely.
+**The URL carries no `branch=` pin.** buildhost's bare "latest" resolves against
+the project's default branch, and that is `master` on buildhost as well as in
+git. A pin would name a buildhost branch, not a git one, and would have to be
+kept in step with an operator setting the API exposes no write for.
 
 The install runs only on a successful download. A failure is reported rather
 than hidden behind `|| true`, and it is non-fatal at that point. Gating with
