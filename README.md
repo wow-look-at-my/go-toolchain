@@ -208,16 +208,6 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
   - `cosmo` — print the gosmopolitan release this host would build against (`--require-release` fails if it's not a real release)
 - **`verify-identical`** — fail unless every `<name>=<path>` argument names a byte-identical file
 
-## OpenTelemetry trace export
-
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` and the pipeline's timings export as OTLP traces; leave it unset and nothing is exported, at no cost. See [docs/TRACING.md](docs/TRACING.md).
-
-```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go-toolchain
-```
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go-toolchain
-```
-
 ## Documentation
 
 - [docs/PIPELINE.md](docs/PIPELINE.md) — what the default workflow does, step by step
@@ -232,7 +222,6 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go-toolchain
 - [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md) — when `build/` artifacts are deleted
 - [docs/ACTION.md](docs/ACTION.md) — the composite GitHub Action
 - [docs/CI.md](docs/CI.md) — this repo's own CI workflow
-- [docs/TRACING.md](docs/TRACING.md) — OpenTelemetry trace export
 - [docs/AGENT-OUTPUT-GUARD.md](docs/AGENT-OUTPUT-GUARD.md), [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md), [docs/BUILDHOST-MANIFEST.md](docs/BUILDHOST-MANIFEST.md)
 
 ## Development
