@@ -17,13 +17,10 @@ func writeFile(t *testing.T, dir, name, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
 
-// chdir changes into dir for the duration of the test.
+// chdir enters dir for the test and holds the serial barrier.
 func chdir(t *testing.T, dir string) {
 	t.Helper()
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(orig) })
+	t.Chdir(dir)
 }
 
 // newModule creates a temporary module rooted at a temp dir and chdirs into it.
