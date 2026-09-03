@@ -60,15 +60,15 @@ func Inject(dir string) (bool, error) {
 }
 
 // mainPackageDirs returns the directory, relative to the module root, of every
-// main package under the current module: "." for the root package, "cmd/tool"
+// main package under the module at root: "." for the root package, "cmd/tool"
 // for a nested package, and so on. It is the shared discovery used by InjectAll
 // and CleanupAll. When there is no module (no go.mod) it returns nil.
-func mainPackageDirs() ([]string, error) {
-	pkgs, err := gomod.FindMainPackages(".")
+func mainPackageDirs(root string) ([]string, error) {
+	pkgs, err := gomod.FindMainPackages(root)
 	if err != nil {
 		return nil, err
 	}
-	modPath := gomod.ReadModulePath(".")
+	modPath := gomod.ReadModulePath(root)
 
 	dirs := make([]string, 0, len(pkgs))
 	for _, importPath := range pkgs {
@@ -81,18 +81,18 @@ func mainPackageDirs() ([]string, error) {
 	return dirs, nil
 }
 
-// InjectAll discovers every main package under the current module and injects
+// InjectAll discovers every main package under the module at root and injects
 // the guard into each. It returns the directories that were created or updated.
 // When there is no module (no go.mod) it is a no-op.
-func InjectAll() ([]string, error) {
-	dirs, err := mainPackageDirs()
+func InjectAll(root string) ([]string, error) {
+	dirs, err := mainPackageDirs(root)
 	if err != nil {
 		return nil, err
 	}
 
 	var changed []string
 	for _, dir := range dirs {
-		updated, err := Inject(dir)
+		updated, err := Inject(filepath.Join(root, dir))
 		if err != nil {
 			return changed, err
 		}
@@ -103,19 +103,19 @@ func InjectAll() ([]string, error) {
 	return changed, nil
 }
 
-// CleanupAll removes the injected guard from every main package under the current module, returning the
+// CleanupAll removes the injected guard from every main package under the module at root, returning the
 // directories a guard was removed from. It is InjectAll's inverse, run immediately after the build so the
 // generated file never lingers or shows up as an uncommitted change. A guard already absent is not an error;
 // with no module it is a no-op.
-func CleanupAll() ([]string, error) {
-	dirs, err := mainPackageDirs()
+func CleanupAll(root string) ([]string, error) {
+	dirs, err := mainPackageDirs(root)
 	if err != nil {
 		return nil, err
 	}
 
 	var removed []string
 	for _, dir := range dirs {
-		target := filepath.Join(dir, GuardFileName)
+		target := filepath.Join(root, dir, GuardFileName)
 		switch err := os.Remove(target); {
 		case err == nil:
 			removed = append(removed, dir)
