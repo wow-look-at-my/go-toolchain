@@ -244,6 +244,7 @@ func TestGuessPackage(t *testing.T) {
 }
 
 func TestRunGenerateWithHash(t *testing.T) {
+	t.Serial()
 	// Save current directory
 	origDir, err := os.Getwd()
 	require.Nil(t, err)
@@ -279,6 +280,7 @@ func TestRunGenerateWithHash(t *testing.T) {
 }
 
 func TestRunGenerateWrongHash(t *testing.T) {
+	t.Serial()
 	// Save current directory
 	origDir, err := os.Getwd()
 	require.Nil(t, err)
@@ -303,6 +305,7 @@ func TestRunGenerateWrongHash(t *testing.T) {
 }
 
 func TestRunGenerateSkip(t *testing.T) {
+	t.Serial()
 	// Save current directory
 	origDir, err := os.Getwd()
 	require.Nil(t, err)
@@ -327,6 +330,7 @@ func TestRunGenerateSkip(t *testing.T) {
 }
 
 func TestRunGenerateNoDirectives(t *testing.T) {
+	t.Serial()
 	// Save current directory
 	origDir, err := os.Getwd()
 	require.Nil(t, err)

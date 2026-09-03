@@ -21,6 +21,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 }
 `
@@ -60,6 +61,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 }
 `

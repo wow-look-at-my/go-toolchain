@@ -63,6 +63,7 @@ func TestAnalyzers(t *testing.T) {
 }
 
 func TestRunNoGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(dir)
@@ -76,6 +77,7 @@ func TestRunNoGoMod(t *testing.T) {
 // dependency, so NeedDeps is the whole point of it -- and the flag has to come
 // back off, or every later pass pays for a source-loaded stdlib.
 func TestLoadModeFromSource(t *testing.T) {
+	t.Serial()
 	assert.Zero(t, loadMode()&packages.NeedDeps, "the default reads export data")
 
 	dir := t.TempDir()

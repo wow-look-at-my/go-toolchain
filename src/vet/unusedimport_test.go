@@ -55,6 +55,7 @@ func TestImportNameBlankImport(t *testing.T) {
 }
 
 func TestFixUnusedRangeVarsNoFiles(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -66,6 +67,7 @@ func TestFixUnusedRangeVarsNoFiles(t *testing.T) {
 }
 
 func TestFixUnusedRangeVarsNothingToFix(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -89,6 +91,7 @@ func main() {
 }
 
 func TestFixUnusedRangeVarsFixesUnused(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -116,6 +119,7 @@ func main() {
 }
 
 func TestFixUnusedRangeVarsGlobPattern(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -137,6 +141,7 @@ func main() {
 }
 
 func TestFixUnusedRangeVarsSkipsVendor(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)

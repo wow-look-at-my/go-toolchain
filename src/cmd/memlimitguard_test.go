@@ -148,6 +148,7 @@ func TestEnsureGuardExcludedHandlesMissingTrailingNewline(t *testing.T) {
 // Outside any repository the exclude step is a silent no-op — and so is the
 // whole inject path, which must not fail the build over it.
 func TestEnsureGuardExcludedNoRepoIsNoOp(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	orig, err := os.Getwd()
 	require.NoError(t, err)

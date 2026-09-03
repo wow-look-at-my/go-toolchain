@@ -14,6 +14,7 @@ import (
 )
 
 func TestInjectVanityReplacesNoGoSum(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -25,6 +26,7 @@ func TestInjectVanityReplacesNoGoSum(t *testing.T) {
 }
 
 func TestInjectVanityReplacesAllReachable(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -47,6 +49,7 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 }
 
 func TestInjectAndRemoveVanityReplaces(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -113,6 +116,7 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 }
 
 func TestInjectVanityReplacesMultipleModulesSameHost(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -169,6 +173,7 @@ modernc.org/libc v1.67.6/go.mod h1:ddd=
 }
 
 func TestInjectVanityReplacesSkipsUnresolvable(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -205,6 +210,7 @@ func TestInjectVanityReplacesSkipsUnresolvable(t *testing.T) {
 }
 
 func TestInjectVanityReplacesAppendsVersionSuffix(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -246,6 +252,7 @@ func TestInjectVanityReplacesAppendsVersionSuffix(t *testing.T) {
 }
 
 func TestInjectVanityReplacesSubModule(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -301,6 +308,7 @@ go.opentelemetry.io/otel/sdk v1.35.0 h1:ccc=
 }
 
 func TestInjectVanityReplacesSkipsNonDirectHost(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -341,6 +349,7 @@ func TestRemoveVanityReplacesEmpty(t *testing.T) {
 }
 
 func TestInjectVanityReplacesPreservesExistingGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -413,6 +422,7 @@ func runVanityTestGit(t *testing.T, args ...string) {
 // for the phases behind it, and the final cleanup leaves the committed tree
 // byte-identical.
 func TestCheckDirtyInCIWithVanityRestored(t *testing.T) {
+	t.Serial()
 	// Hermetic git: host/user config must not leak into the test repo.
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)

@@ -180,6 +180,7 @@ func TestDiscardBuildOutputsRemovesBinariesBuiltThisRun(t *testing.T) {
 }
 
 func TestDiscardBuildOutputsIsIndependentOfWorkingDirectory(t *testing.T) {
+	t.Serial()
 	tmp := setupOutputModule(t)
 	dir := writeOutputDir(t, filepath.Join(tmp, "build"), "mytool")
 	require.NoError(t, clearBuildOutputs(runner.New()))
@@ -276,6 +277,7 @@ func TestPipelineKeepsTheBinaryItJustBuilt(t *testing.T) {
 }
 
 func TestDiscardBuildOutputsFromCWDWithoutModule(t *testing.T) {
+	t.Serial()
 	// No go.mod, no targets: silent no-op, never an error or a panic.
 	tmp := t.TempDir()
 	oldWd, err := os.Getwd()

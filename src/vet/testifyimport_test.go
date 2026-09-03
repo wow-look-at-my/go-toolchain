@@ -112,6 +112,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.True(t, true)
 }
 `
@@ -150,6 +151,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.True(t, true)
 }
 `
@@ -187,6 +189,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.True(t, true)
 }
 `
@@ -210,6 +213,7 @@ func TestFoo(t *testing.T) {
 
 // TestSyncVendorIfPresent_NoVendor is a no-op when there is no vendor tree.
 func TestSyncVendorIfPresent_NoVendor(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(dir))
@@ -250,6 +254,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, 1, Foo())
 }
 `)

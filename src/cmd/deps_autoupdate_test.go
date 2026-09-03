@@ -8,6 +8,7 @@ import (
 )
 
 func TestGetAutoUpdatePrefix_ValidModule(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -18,6 +19,7 @@ func TestGetAutoUpdatePrefix_ValidModule(t *testing.T) {
 }
 
 func TestGetAutoUpdatePrefix_GitLabModule(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -28,6 +30,7 @@ func TestGetAutoUpdatePrefix_GitLabModule(t *testing.T) {
 }
 
 func TestGetAutoUpdatePrefix_NoGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -37,6 +40,7 @@ func TestGetAutoUpdatePrefix_NoGoMod(t *testing.T) {
 }
 
 func TestGetAutoUpdatePrefix_SingleComponent(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -47,6 +51,7 @@ func TestGetAutoUpdatePrefix_SingleComponent(t *testing.T) {
 }
 
 func TestGetAutoUpdatePrefix_MalformedGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -57,6 +62,7 @@ func TestGetAutoUpdatePrefix_MalformedGoMod(t *testing.T) {
 }
 
 func TestGetAutoUpdatePrefix_EmptyGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)

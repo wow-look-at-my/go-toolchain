@@ -29,6 +29,7 @@ func TestWithGitStderr(t *testing.T) {
 }
 
 func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -43,6 +44,7 @@ func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
 }
 
 func TestFixBogusDepsVersions_NoBogusVersions(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -66,6 +68,7 @@ require (
 }
 
 func TestFixBogusDepsVersions_DetectsBogusVersions(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -114,6 +117,7 @@ func lsRemoteURL(cfg runner.Config) string {
 }
 
 func TestFixBogusDepsVersions_GitLsRemoteFails(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -187,6 +191,7 @@ func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
 }
 
 func TestFixBogusDepsVersions_ParseError(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -205,6 +210,7 @@ func TestFixBogusDepsVersions_ParseError(t *testing.T) {
 }
 
 func TestFixBogusDepsVersions_NoV000Deps(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -229,6 +235,7 @@ require github.com/spf13/cobra v1.8.0
 }
 
 func TestFixBogusDepsVersions_PrintsMessage(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
