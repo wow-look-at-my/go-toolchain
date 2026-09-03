@@ -17,6 +17,7 @@ import (
 // TestSliceSetAnalyzer runs the fixture: every shape the check reports, and
 // every neighbouring shape it must leave alone.
 func TestSliceSetAnalyzer(t *testing.T) {
+	t.Serial()
 	t.Parallel() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)

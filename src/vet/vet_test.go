@@ -18,6 +18,7 @@ import (
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
+	t.Serial()
 	t.Parallel() // See TestBannedOutputAnalyzer: a committed fixture, no process-wide state.
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
@@ -27,6 +28,7 @@ func TestRedundantCastAnalyzer(t *testing.T) {
 // Each of these reads a committed fixture and touches no process state, so it
 // joins the parallel analyzer group instead of extending the serial tail.
 func TestAssertLintAnalyzer(t *testing.T) {
+	t.Serial()
 	t.Parallel()
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
@@ -34,6 +36,7 @@ func TestAssertLintAnalyzer(t *testing.T) {
 }
 
 func TestAssertNormAnalyzer(t *testing.T) {
+	t.Serial()
 	t.Parallel()
 	dir, err := filepath.Abs("testdata/src/assertnorm")
 	require.Nil(t, err)
@@ -41,6 +44,7 @@ func TestAssertNormAnalyzer(t *testing.T) {
 }
 
 func TestDeadCodeAnalyzer(t *testing.T) {
+	t.Serial()
 	t.Parallel()
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)

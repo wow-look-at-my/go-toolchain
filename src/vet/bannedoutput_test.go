@@ -15,6 +15,7 @@ import (
 // TestBannedOutputAnalyzer checks the fixture: direct fmt/log stdio writes
 // report, Sprintf-style calls and non-stdio Fprint* writers must not.
 func TestBannedOutputAnalyzer(t *testing.T) {
+	t.Serial()
 	t.Parallel() // analysistest loads real packages; each analyzer's dedup state is its own.
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)

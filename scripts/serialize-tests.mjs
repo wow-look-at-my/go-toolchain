@@ -1,18 +1,23 @@
-// Inserts t.Serial() into every top-level Test function whose body calls
-// ResetWarnCount.
+// Inserts t.Serial() into every top-level Test function whose body contains a
+// marker string.
 //
-// The warnings budget counts the whole run, so its counters are process-wide by
-// design. A test that resets them and then asserts on them owns the process for
-// its duration, and the fork runs tests in parallel unless one says so.
+// The fork runs tests in parallel unless one takes the serial barrier. Some
+// tests cannot share a process at all, and each kind announces itself in the
+// source:
 //
-// Usage: node scripts/serialize-warncount-tests.mjs src/logger src/cmd
+//   ResetWarnCount   the warnings budget counts a whole run, so its counters
+//                    are process-wide and a test that resets them owns them
+//   analysistest.    x/tools chdirs into the fixture, and nothing here can
+//                    pass it a directory instead
+//
+// Usage: node scripts/serialize-tests.mjs <marker> <dir>...
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const roots = process.argv.slice(2);
-if (roots.length === 0) {
-	console.error("usage: serialize-warncount-tests.mjs <dir>...");
+const [marker, ...roots] = process.argv.slice(2);
+if (!marker || roots.length === 0) {
+	console.error("usage: serialize-tests.mjs <marker> <dir>...");
 	process.exit(2);
 }
 
@@ -45,7 +50,7 @@ for (const root of roots) {
 			const m = testFunc.exec(lines[from]);
 			if (!m) continue;
 			const body = lines.slice(from + 1, to);
-			if (!body.some((l) => l.includes("ResetWarnCount()"))) continue;
+			if (!body.some((l) => l.includes(marker))) continue;
 			if ((lines[from + 1] ?? "").trim() === `${m[2]}.Serial()`) continue;
 			insertAt.push([from + 1, `\t${m[2]}.Serial()`]);
 		}
