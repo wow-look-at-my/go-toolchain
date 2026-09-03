@@ -34,7 +34,13 @@ func captureInstalled(t *testing.T, fn func()) string {
 	origOut, origErr := os.Stdout, os.Stderr
 	os.Stdout = tmpOut
 	os.Stderr = tmpErr
+	// Flush is what releases drainedWG, and it is package-level: a test that
+	// fails or panics inside fn leaves its drainers blocked on a pipe nobody
+	// closes, and every later Flush waits on them until the package hits its
+	// timeout. Flush is safe to repeat, so the explicit call below still reads
+	// as the point the output is complete.
 	defer func() {
+		Flush()
 		os.Stdout = origOut
 		os.Stderr = origErr
 	}()

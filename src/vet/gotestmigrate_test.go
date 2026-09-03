@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// These tests scan the working directory, so each takes it with t.Chdir. The
+// hand-rolled pair here dropped os.Chdir's error, and a chdir that quietly did
+// not happen leaves the scan on the previous test's fixture -- which is how the
+// clean case found a gotest.tools import it never wrote.
 func TestMigrateGotestTools_Basic(t *testing.T) {
 	dir := t.TempDir()
 
@@ -28,9 +32,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
@@ -66,9 +68,7 @@ func TestFoo(t *testing.T) {
 	filePath := filepath.Join(dir, "example_test.go")
 	assert.Nil(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := MigrateGotestTools(ed)
@@ -96,9 +96,7 @@ func TestFoo(t *testing.T) {}
 `
 	assert.Nil(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := MigrateGotestTools(ed)
