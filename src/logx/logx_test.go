@@ -21,7 +21,7 @@ import (
 func captureInstalled(t *testing.T, fn func()) string {
 	t.Helper()
 	// Reset installation state so we can call Install again inside this test.
-	installOnce = sync.Once{}
+	installOnce = new(sync.Once)
 	installed = false
 
 	tmpOut, err := os.CreateTemp(t.TempDir(), "stdout-*")

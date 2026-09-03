@@ -47,7 +47,11 @@ const ColorDimCyan = "\033[38;2;100;160;160m"
 const colorReset = "\033[0m"
 
 var (
-	installOnce sync.Once
+	// installOnce is a POINTER so a test can arm a fresh one. Assigning a
+	// sync.Once value copies the mutex inside it, and a copy taken while
+	// Install's drain goroutines are still live unlocks a mutex those
+	// goroutines never locked, which the runtime answers with a fatal error.
+	installOnce = new(sync.Once)
 	installed   bool
 	origStdout  *os.File
 	origStderr  *os.File
