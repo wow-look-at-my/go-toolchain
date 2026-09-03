@@ -20,8 +20,9 @@ import (
 // serially (t.Parallel is NOT called).
 func captureInstalled(t *testing.T, fn func()) string {
 	t.Helper()
-	// Tear down whatever a previous test left installed; a no-op when nothing is.
-	Flush()
+	// Reset installation state so we can call Install again inside this test.
+	installOnce = sync.Once{}
+	installed = false
 
 	tmpOut, err := os.CreateTemp(t.TempDir(), "stdout-*")
 	require.Nil(t, err)

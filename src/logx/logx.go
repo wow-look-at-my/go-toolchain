@@ -47,8 +47,7 @@ const ColorDimCyan = "\033[38;2;100;160;160m"
 const colorReset = "\033[0m"
 
 var (
-	// installMu guards installed and the pipe fields, so a re-entered Install cannot orphan a live drain goroutine.
-	installMu   sync.Mutex
+	installOnce sync.Once
 	installed   bool
 	origStdout  *os.File
 	origStderr  *os.File
@@ -64,44 +63,38 @@ var (
 // Do NOT call this in GOCACHEPROG mode — the Go toolchain expects raw
 // JSON on stdout there.
 func Install() {
-	installMu.Lock()
-	defer installMu.Unlock()
-	if installed {
-		return
-	}
+	installOnce.Do(func() {
+		origStdout = os.Stdout
+		origStderr = os.Stderr
 
-	origStdout = os.Stdout
-	origStderr = os.Stderr
+		prOut, pwOut, err := os.Pipe()
+		if err != nil {
+			return
+		}
+		prErr, pwErr, err := os.Pipe()
+		if err != nil {
+			prOut.Close()
+			pwOut.Close()
+			return
+		}
 
-	prOut, pwOut, err := os.Pipe()
-	if err != nil {
-		return
-	}
-	prErr, pwErr, err := os.Pipe()
-	if err != nil {
-		prOut.Close()
-		pwOut.Close()
-		return
-	}
+		os.Stdout = pwOut
+		os.Stderr = pwErr
+		pipeStdoutW = pwOut
+		pipeStderrW = pwErr
 
-	os.Stdout = pwOut
-	os.Stderr = pwErr
-	pipeStdoutW = pwOut
-	pipeStderrW = pwErr
+		drainedWG.Add(2)
+		go drain(prOut, origStdout)
+		go drain(prErr, origStderr)
 
-	drainedWG.Add(2)
-	go drain(prOut, origStdout)
-	go drain(prErr, origStderr)
-
-	installed = true
+		installed = true
+	})
 }
 
 // Flush closes the pipe write-ends and waits for drainer goroutines to
 // finish. os.Stdout and os.Stderr are restored, so a late write reaches the
 // terminal, never a closed pipe. Safe to call repeatedly, and before Install().
 func Flush() {
-	installMu.Lock()
-	defer installMu.Unlock()
 	if !installed {
 		return
 	}
