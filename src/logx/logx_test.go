@@ -20,8 +20,7 @@ import (
 // serially (t.Parallel is NOT called).
 func captureInstalled(t *testing.T, fn func()) string {
 	t.Helper()
-	// Tear down whatever a previous test left installed, so Install below
-	// starts from a clean pair of pipes. A no-op when nothing is installed.
+	// Tear down whatever a previous test left installed; a no-op when nothing is.
 	Flush()
 
 	tmpOut, err := os.CreateTemp(t.TempDir(), "stdout-*")

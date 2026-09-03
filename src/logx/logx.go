@@ -47,11 +47,7 @@ const ColorDimCyan = "\033[38;2;100;160;160m"
 const colorReset = "\033[0m"
 
 var (
-	// installMu guards installed and the pipe fields under it. A second
-	// Install must not overwrite pipeStdoutW while the first install's drain
-	// goroutine is still reading the pipe it named: nothing closes that write
-	// end afterwards, the goroutine never reaches EOF, and every later Flush
-	// blocks in drainedWG.Wait().
+	// installMu guards installed and the pipe fields, so a re-entered Install cannot orphan a live drain goroutine.
 	installMu   sync.Mutex
 	installed   bool
 	origStdout  *os.File
