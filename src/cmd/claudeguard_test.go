@@ -290,7 +290,6 @@ func TestPipePeerNameDetectsConsumer(t *testing.T) {
 // matches on the string alone can return that shell instead of the real
 // reader, and refuse a run that was never piped anywhere.
 func TestPipePeerNameSkipsAWriteEndSibling(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("pipePeerName needs /proc (linux)")
 	}
