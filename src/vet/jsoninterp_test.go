@@ -123,6 +123,7 @@ func TestJSONInterpReadsTemplates(t *testing.T) {
 // checker could not resolve it.
 func runJSONInterpOnSource(t *testing.T, src string, module *analysis.Module) []analysis.Diagnostic {
 	t.Helper()
+	t.Serial() // See runCommentSpanOn.
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "/consumer/main.go", src, parser.ParseComments)
 	require.NoError(t, err)

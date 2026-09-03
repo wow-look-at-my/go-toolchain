@@ -70,8 +70,11 @@ for (const root of roots) {
 			if (!m) continue;
 			const body = lines.slice(from + 1, to);
 			if (!body.some((l) => l.includes(marker))) continue;
+			// Only a hold taken at the top covers the whole test. t.Chdir and
+			// t.Setenv take the barrier where they are called, so a test that
+			// reads shared state before one of them still raced up to there.
 			const holds = new RegExp(`\\b${m[2]}\\.(Serial\\(\\)|Chdir\\(|Setenv\\()`);
-			if (body.some((l) => holds.test(l))) continue;
+			if (body.slice(0, 2).some((l) => holds.test(l))) continue;
 			// A test cannot be both. The barrier is the stronger claim, so an
 			// opt-in to parallelism gives way to it, comment and all.
 			const parallel = new RegExp(`^\\s*${m[2]}\\.Parallel\\(\\)`).test(body[0] ?? "") ? 1 : 0;

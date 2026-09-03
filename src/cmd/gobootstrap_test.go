@@ -225,8 +225,7 @@ func TestExtractTarGzSymlinkRefusedFallsBackToCopy(t *testing.T) {
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 
-	// The symlink comes BEFORE the file it points at, the real-tarball
-	// ordering that broke a fallback assuming the target was already there.
+	// The symlink comes BEFORE the file it points at.
 	tw.WriteHeader(&tar.Header{Name: "go/bin/link", Typeflag: tar.TypeSymlink, Linkname: "go"})
 	content := []byte("binary")
 	tw.WriteHeader(&tar.Header{Name: "go/bin/go", Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))})

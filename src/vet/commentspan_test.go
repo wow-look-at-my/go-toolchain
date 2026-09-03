@@ -33,6 +33,7 @@ func fixtureComment(t *testing.T, lines, chars int) string {
 // file back from disk to measure it) and runs the analyzer over it.
 func runCommentSpanOn(t *testing.T, src string) []logger.Warning {
 	t.Helper()
+	t.Serial() // The dedup record and the counters belong to the run.
 	resetCommentSpanWarnings()
 	logger.ResetWarnCount()
 	t.Cleanup(logger.ResetWarnCount)

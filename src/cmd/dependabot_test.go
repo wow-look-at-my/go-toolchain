@@ -119,6 +119,7 @@ func TestPostDepSnapshot_MissingRepo(t *testing.T) {
 }
 
 func TestPostDepSnapshot_Success(t *testing.T) {
+	t.Serial()
 	var received depSnapshot
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
@@ -165,6 +166,7 @@ func TestPostDepSnapshot_Success(t *testing.T) {
 }
 
 func TestPostDepSnapshot_GHTokenFallback(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "token fallback-token", r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusCreated)
@@ -184,6 +186,7 @@ func TestPostDepSnapshot_GHTokenFallback(t *testing.T) {
 }
 
 func TestPostDepSnapshot_APIError(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`{"message":"Resource not accessible"}`))
@@ -206,6 +209,7 @@ func TestPostDepSnapshot_APIError(t *testing.T) {
 }
 
 func TestPostDepSnapshot_APIErrorNon403(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"message":"boom"}`))
@@ -246,6 +250,7 @@ func TestMaybeSubmitDeps_NoSHA(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_Success(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	}))
@@ -267,6 +272,7 @@ func TestMaybeSubmitDeps_Success(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
@@ -310,6 +316,7 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 // as this repository's dependency graph. That carve-out exists for this
 // repository alone -- see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
 func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
+	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -346,6 +353,7 @@ func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 // this, any repo could dodge dependency submission by cd-ing to a temp dir and
 // stay green while dropping out of vulnerability scanning.
 func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
+	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -380,6 +388,7 @@ func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
 
 // The guard must not swing the other way: a real build, in the checkout, submits.
 func TestMaybeSubmitDeps_SubmitsRepoWorkspace(t *testing.T) {
+	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++

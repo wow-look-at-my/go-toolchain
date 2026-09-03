@@ -276,6 +276,7 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 	})
 }
 func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
+	t.Serial()
 	for _, tc := range []struct {
 		name     string
 		cov, unc int

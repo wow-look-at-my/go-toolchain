@@ -13,8 +13,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// chdirTemp enters a fresh temp directory and restores the old cwd after.
-// An NT host refuses to delete a directory that is still a process's cwd.
+// chdirTemp enters a fresh temp directory for the test.
 func chdirTemp(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

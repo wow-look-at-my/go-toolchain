@@ -127,6 +127,7 @@ func TestFastTestSummaryAccumulatesAcrossSlowTests(t *testing.T) {
 }
 
 func TestFastTestSummarySkippedInVerbose(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 	h.verbose = true

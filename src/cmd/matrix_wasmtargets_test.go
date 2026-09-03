@@ -127,6 +127,7 @@ func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm"})
 	// The wasmPublishEnv opt-out falls back to the excluded .wasm-suffixed name, skipping the buildhost publish upload set.
 	t.Setenv(wasmPublishEnv, "0")

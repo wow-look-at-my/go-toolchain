@@ -270,6 +270,7 @@ func TestPipelineKeepsTheBinaryItJustBuilt(t *testing.T) {
 }
 
 func TestDiscardBuildOutputsFromCWDWithoutModule(t *testing.T) {
+	t.Serial()
 	// No go.mod, no targets: silent no-op, never an error or a panic.
 	tmp := t.TempDir()
 	t.Chdir(tmp)
