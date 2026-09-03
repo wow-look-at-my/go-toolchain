@@ -16,7 +16,6 @@ import (
 )
 
 func TestRequiredGoVersion(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -29,7 +28,6 @@ func TestRequiredGoVersion(t *testing.T) {
 }
 
 func TestRequiredGoVersionToolchainDirective(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -42,7 +40,6 @@ func TestRequiredGoVersionToolchainDirective(t *testing.T) {
 }
 
 func TestRequiredGoVersionTwoParts(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -62,7 +59,6 @@ func TestNormalizeGoVersion(t *testing.T) {
 }
 
 func TestRequiredGoVersionNoGoDirective(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -75,7 +71,6 @@ func TestRequiredGoVersionNoGoDirective(t *testing.T) {
 }
 
 func TestRequiredGoVersionNoMod(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -119,7 +114,6 @@ func TestForkFirstPath(t *testing.T) {
 // A fork older than the module's go directive has no fallback to hide behind:
 // there is no other toolchain, so this fails and names the repair.
 func TestForkSatisfiesGoMod(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(dir))

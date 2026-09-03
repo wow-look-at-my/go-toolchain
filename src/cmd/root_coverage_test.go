@@ -17,7 +17,6 @@ import (
 // parent-has-subtest skip, and a normal recorded leaf test), and passes a
 // non-nil SummaryData to cover the summary accumulation code path.
 func TestRunWithRunnerActiveTrace(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -74,7 +73,6 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 // the generateHash="skip" path through runGenerate, including the post-generate
 // repeat mod-tidy step.
 func TestRunWithRunnerGenerateSkip(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -129,7 +127,6 @@ func newNoTestFilesMock() *runner.Mock {
 // uasset-decoder's web/) must pass the coverage check vacuously instead of
 // panicking with "coverage data is missing or broken".
 func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -151,7 +148,6 @@ func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
 // TestRunWithRunnerNoTestsWithCodeFails: a module WITH coverable statements
 // but no tests at all must fail with an actionable error, not a panic.
 func TestRunWithRunnerNoTestsWithCodeFails(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)

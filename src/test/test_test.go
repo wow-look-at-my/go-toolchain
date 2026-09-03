@@ -248,7 +248,6 @@ func TestListTestPackages(t *testing.T) {
 }
 
 func TestListTestPackagesNoGoMod(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -294,7 +293,6 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 }
 
 func TestRunTestsFallsBackToEllipsis(t *testing.T) {
-	t.Serial()
 	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()

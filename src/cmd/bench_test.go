@@ -145,7 +145,6 @@ func TestRunBenchmarkInBuildFails(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildSkipsWhenNoBenchmarks(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte("package p\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n"), 0644)
 	oldWd, _ := os.Getwd()
@@ -162,7 +161,6 @@ func TestRunBenchmarkInBuildSkipsWhenNoBenchmarks(t *testing.T) {
 }
 
 func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -210,7 +208,6 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 }
 
 func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)

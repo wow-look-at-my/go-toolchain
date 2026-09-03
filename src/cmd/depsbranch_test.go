@@ -40,7 +40,6 @@ require (
 }
 
 func TestUpdateTrackedBranchDeps_NoGoMod(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -54,7 +53,6 @@ func TestUpdateTrackedBranchDeps_NoGoMod(t *testing.T) {
 }
 
 func TestUpdateTrackedBranchDeps_ParseError(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -69,7 +67,6 @@ func TestUpdateTrackedBranchDeps_ParseError(t *testing.T) {
 }
 
 func TestUpdateTrackedBranchDeps_NoMarkers(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -90,7 +87,6 @@ require github.com/spf13/cobra v1.8.0
 }
 
 func TestUpdateTrackedBranchDeps_UpdatesVersion(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -137,7 +133,6 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 }
 
 func TestUpdateTrackedBranchDeps_NoChangeWhenSame(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -178,7 +173,6 @@ require github.com/wow-look-at-my/foo v0.0.0-20231114221320-abc123def456 // go-t
 // go-git -- has no other line to ride along with, so its own marker is what
 // has to resolve it.
 func TestUpdateTrackedBranchDeps_ResolvesAStandaloneIndirectRequire(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -225,7 +219,6 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // indi
 }
 
 func TestUpdateTrackedBranchDeps_GitFails(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -246,7 +239,6 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 }
 
 func TestUpdateTrackedBranchDeps_NoRefFound(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)

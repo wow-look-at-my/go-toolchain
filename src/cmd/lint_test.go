@@ -242,7 +242,6 @@ func TestRunLintImpl_NoGoFiles(t *testing.T) {
 }
 
 func TestRunLintImpl_DefaultArgs(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(dir)
@@ -262,7 +261,6 @@ func TestRunLintImpl_DefaultArgs(t *testing.T) {
 }
 
 func TestRunDuplicateCheck_NoDuplicates(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(dir)
@@ -282,7 +280,6 @@ func TestRunDuplicateCheck_NoDuplicates(t *testing.T) {
 }
 
 func TestRunDuplicateCheck_WithDuplicates(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(dir)
@@ -307,7 +304,6 @@ func TestRunDuplicateCheck_WithDuplicates(t *testing.T) {
 }
 
 func TestRunDuplicateCheck_JSONMode(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(dir)
@@ -330,7 +326,6 @@ func TestRunDuplicateCheck_JSONMode(t *testing.T) {
 }
 
 func TestRunDuplicateCheck_EmptyDir(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(dir)

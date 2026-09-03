@@ -20,7 +20,6 @@ func TestBuildDepSnapshot_MissingSHA(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_NoGoMod(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -73,7 +72,6 @@ func TestBuildDepSnapshot_DefaultRef(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_IndirectDeps(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -298,7 +296,6 @@ func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -319,7 +316,6 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 // as this repository's dependency graph. That carve-out exists for this
 // repository alone -- see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
 func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
-	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -358,7 +354,6 @@ func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 // this, any repo could dodge dependency submission by cd-ing to a temp dir and
 // stay green while dropping out of vulnerability scanning.
 func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
-	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -395,7 +390,6 @@ func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
 
 // The guard must not swing the other way: a real build, in the checkout, submits.
 func TestMaybeSubmitDeps_SubmitsRepoWorkspace(t *testing.T) {
-	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++

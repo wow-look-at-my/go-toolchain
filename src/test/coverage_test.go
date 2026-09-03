@@ -182,7 +182,6 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 }
 
 func TestReachablePackages(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -206,7 +205,6 @@ func TestReachablePackages(t *testing.T) {
 }
 
 func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -229,7 +227,6 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 }
 
 func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -251,7 +248,6 @@ func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
 }
 
 func TestReachablePackagesModuleFailure(t *testing.T) {
-	t.Serial()
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(tmpDir)

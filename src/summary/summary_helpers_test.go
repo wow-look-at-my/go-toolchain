@@ -78,7 +78,6 @@ func TestFormatBenchBytes(t *testing.T) {
 }
 
 func TestReadModulePath(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -93,7 +92,6 @@ func TestReadModulePath(t *testing.T) {
 }
 
 func TestReadModulePathEmptyFile(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -104,7 +102,6 @@ func TestReadModulePathEmptyFile(t *testing.T) {
 }
 
 func TestReadModulePathExtraWhitespace(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)

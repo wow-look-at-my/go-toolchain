@@ -10,7 +10,6 @@ import (
 )
 
 func TestParseVanityModulesFromSum(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -44,7 +43,6 @@ gopkg.in/yaml.v3 v3.0.1 h1:ggg=
 }
 
 func TestParseVanityModulesFromSumNoFile(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -57,7 +55,6 @@ func TestParseVanityModulesFromSumNoFile(t *testing.T) {
 }
 
 func TestParseVanityModulesFromSumDedup(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -124,7 +121,6 @@ func TestParseGoImportMetaNotFound(t *testing.T) {
 }
 
 func TestWellKnownHostsExcluded(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)

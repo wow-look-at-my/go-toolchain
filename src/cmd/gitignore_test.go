@@ -60,7 +60,6 @@ func TestGitignoreContains_MissingFile(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_AddsEntry(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 
 	// Create a git repo
@@ -87,7 +86,6 @@ func TestEnsureBuildDirInGitignore_AddsEntry(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_AlreadyPresent(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 
@@ -111,7 +109,6 @@ func TestEnsureBuildDirInGitignore_AlreadyPresent(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_NoGitRepo(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 
 	orig, _ := os.Getwd()
@@ -126,7 +123,6 @@ func TestEnsureBuildDirInGitignore_NoGitRepo(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_CreatesGitignore(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 
@@ -146,7 +142,6 @@ func TestEnsureBuildDirInGitignore_CreatesGitignore(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_NoTrailingNewline(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 
@@ -192,7 +187,6 @@ func TestNeedsLeadingNewline(t *testing.T) {
 }
 
 func TestRemoveFromGitignore_RemovesGuardLine(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 	gitignorePath := filepath.Join(dir, ".gitignore")
@@ -210,7 +204,6 @@ func TestRemoveFromGitignore_RemovesGuardLine(t *testing.T) {
 }
 
 func TestRemoveFromGitignore_NoOpWhenAbsent(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 	gitignorePath := filepath.Join(dir, ".gitignore")
@@ -232,7 +225,6 @@ func TestRemoveFromGitignore_NoOpWhenAbsent(t *testing.T) {
 // .gitignore an older go-toolchain polluted with the guard line is cleaned up
 // while the build-dir entry is still ensured.
 func TestEnsureBuildDirInGitignore_StripsStaleGuard(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 	gitignorePath := filepath.Join(dir, ".gitignore")

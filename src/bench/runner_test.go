@@ -125,7 +125,6 @@ func TestRunBenchmarksNoStreamWhenNil(t *testing.T) {
 }
 
 func TestHasBenchmarksFindsNone(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(dir+"/main_test.go", []byte("package main\nfunc TestFoo(t *testing.T) {}\n"), 0644))
 
@@ -137,7 +136,6 @@ func TestHasBenchmarksFindsNone(t *testing.T) {
 }
 
 func TestHasBenchmarksFindsOne(t *testing.T) {
-	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(dir+"/bench_test.go", []byte("package main\n\nimport \"testing\"\n\nfunc BenchmarkFoo(b *testing.B) {}\n"), 0644))
 
