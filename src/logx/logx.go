@@ -47,11 +47,12 @@ const ColorDimCyan = "\033[38;2;100;160;160m"
 const colorReset = "\033[0m"
 
 var (
-	// installOnce is a POINTER so a test can arm a fresh one. Assigning a
-	// sync.Once value copies the mutex inside it, and a copy taken while
-	// Install's drain goroutines are still live unlocks a mutex those
-	// goroutines never locked, which the runtime answers with a fatal error.
-	installOnce = new(sync.Once)
+	// installMu guards installed and the pipe fields under it. A second
+	// Install must not overwrite pipeStdoutW while the first install's drain
+	// goroutine is still reading the pipe it named: nothing closes that write
+	// end afterwards, the goroutine never reaches EOF, and every later Flush
+	// blocks in drainedWG.Wait().
+	installMu   sync.Mutex
 	installed   bool
 	origStdout  *os.File
 	origStderr  *os.File
@@ -67,38 +68,44 @@ var (
 // Do NOT call this in GOCACHEPROG mode — the Go toolchain expects raw
 // JSON on stdout there.
 func Install() {
-	installOnce.Do(func() {
-		origStdout = os.Stdout
-		origStderr = os.Stderr
+	installMu.Lock()
+	defer installMu.Unlock()
+	if installed {
+		return
+	}
 
-		prOut, pwOut, err := os.Pipe()
-		if err != nil {
-			return
-		}
-		prErr, pwErr, err := os.Pipe()
-		if err != nil {
-			prOut.Close()
-			pwOut.Close()
-			return
-		}
+	origStdout = os.Stdout
+	origStderr = os.Stderr
 
-		os.Stdout = pwOut
-		os.Stderr = pwErr
-		pipeStdoutW = pwOut
-		pipeStderrW = pwErr
+	prOut, pwOut, err := os.Pipe()
+	if err != nil {
+		return
+	}
+	prErr, pwErr, err := os.Pipe()
+	if err != nil {
+		prOut.Close()
+		pwOut.Close()
+		return
+	}
 
-		drainedWG.Add(2)
-		go drain(prOut, origStdout)
-		go drain(prErr, origStderr)
+	os.Stdout = pwOut
+	os.Stderr = pwErr
+	pipeStdoutW = pwOut
+	pipeStderrW = pwErr
 
-		installed = true
-	})
+	drainedWG.Add(2)
+	go drain(prOut, origStdout)
+	go drain(prErr, origStderr)
+
+	installed = true
 }
 
 // Flush closes the pipe write-ends and waits for drainer goroutines to
 // finish. os.Stdout and os.Stderr are restored, so a late write reaches the
 // terminal, never a closed pipe. Safe to call repeatedly, and before Install().
 func Flush() {
+	installMu.Lock()
+	defer installMu.Unlock()
 	if !installed {
 		return
 	}
