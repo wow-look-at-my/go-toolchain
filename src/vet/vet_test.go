@@ -18,8 +18,7 @@ import (
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
-	t.Serial()
-	t.Parallel() // See TestBannedOutputAnalyzer: a committed fixture, no process-wide state.
+	t.Serial() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, RedundantCastAnalyzer, "redundantcast")
@@ -29,7 +28,6 @@ func TestRedundantCastAnalyzer(t *testing.T) {
 // joins the parallel analyzer group instead of extending the serial tail.
 func TestAssertLintAnalyzer(t *testing.T) {
 	t.Serial()
-	t.Parallel()
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, AssertLintAnalyzer, "assertlint")
@@ -37,7 +35,6 @@ func TestAssertLintAnalyzer(t *testing.T) {
 
 func TestAssertNormAnalyzer(t *testing.T) {
 	t.Serial()
-	t.Parallel()
 	dir, err := filepath.Abs("testdata/src/assertnorm")
 	require.Nil(t, err)
 	analysistest.Run(t, dir, AssertNormAnalyzer, ".")
@@ -45,7 +42,6 @@ func TestAssertNormAnalyzer(t *testing.T) {
 
 func TestDeadCodeAnalyzer(t *testing.T) {
 	t.Serial()
-	t.Parallel()
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, DeadCodeAnalyzer, "deadcode")
@@ -69,9 +65,7 @@ func TestAnalyzers(t *testing.T) {
 func TestRunNoGoMod(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := Run(false)
 	assert.Nil(t, err)
@@ -85,9 +79,7 @@ func TestLoadModeFromSource(t *testing.T) {
 	assert.Zero(t, loadMode()&packages.NeedDeps, "the default reads export data")
 
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	seen := packages.LoadMode(0)
 	// No go.mod here, so RunFromSource returns before loading; read the mode from inside it.
@@ -136,9 +128,7 @@ func main() {
 `
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := RunOnPattern("./...", false, nil)
 	assert.Nil(t, err)

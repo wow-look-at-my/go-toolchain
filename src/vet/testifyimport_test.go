@@ -112,16 +112,13 @@ import (
 )
 
 func TestFoo(t *testing.T) {
-	t.Serial()
 	assert.True(t, true)
 }
 `
 	filePath := filepath.Join(dir, "example_test.go")
 	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := FixTestifyImports(ed)
@@ -151,15 +148,12 @@ import (
 )
 
 func TestFoo(t *testing.T) {
-	t.Serial()
 	assert.True(t, true)
 }
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := FixTestifyImports(ed)
@@ -189,15 +183,12 @@ import (
 )
 
 func TestFoo(t *testing.T) {
-	t.Serial()
 	assert.True(t, true)
 }
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	wrote, err := FixTestifyImports(NewEditor(true))
 	require.NoError(t, err)
@@ -215,9 +206,7 @@ func TestFoo(t *testing.T) {
 func TestSyncVendorIfPresent_NoVendor(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	assert.NoError(t, syncVendorIfPresent())
 }
@@ -254,14 +243,11 @@ import (
 )
 
 func TestFoo(t *testing.T) {
-	t.Serial()
 	assert.Equal(t, 1, Foo())
 }
 `)
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Set up a vendored state on the fork (resolved via the local stub).
 	for _, args := range [][]string{{"mod", "tidy"}, {"mod", "vendor"}} {

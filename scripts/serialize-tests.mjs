@@ -21,6 +21,10 @@
 // second take.
 //
 // Usage: node scripts/serialize-tests.mjs <marker> <dir>...
+//
+// scripts/serial-in-fixture.mjs audits the result: it fails on a barrier call
+// that landed inside a Go string literal, which is what an earlier version of
+// this script did to vet's fixtures.
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -49,9 +53,14 @@ let serialized = 0;
 for (const root of roots) {
 	for (const path of testFiles(root)) {
 		const lines = readFileSync(path, "utf8").split("\n");
+		// A fixture holds Go source, and its own func starts at column zero
+		// inside the raw string. Editing that corrupts the fixture and leaves
+		// the test around it parallel, so the literal is skipped entirely.
 		const starts = [];
+		let inRaw = false;
 		for (let i = 0; i < lines.length; i++) {
-			if (/^func /.test(lines[i])) starts.push(i);
+			if (!inRaw && /^func /.test(lines[i])) starts.push(i);
+			for (const _ of lines[i].matchAll(/`/g)) inRaw = !inRaw;
 		}
 		const insertAt = [];
 		for (let s = 0; s < starts.length; s++) {
@@ -63,10 +72,13 @@ for (const root of roots) {
 			if (!body.some((l) => l.includes(marker))) continue;
 			const holds = new RegExp(`\\b${m[2]}\\.(Serial\\(\\)|Chdir\\(|Setenv\\()`);
 			if (body.some((l) => holds.test(l))) continue;
-			insertAt.push([from + 1, `\t${m[2]}.Serial()`]);
+			// A test cannot be both. The barrier is the stronger claim, so an
+			// opt-in to parallelism gives way to it, comment and all.
+			const parallel = new RegExp(`^\\s*${m[2]}\\.Parallel\\(\\)`).test(body[0] ?? "") ? 1 : 0;
+			insertAt.push([from + 1, parallel, `\t${m[2]}.Serial()`]);
 		}
 		if (insertAt.length === 0) continue;
-		for (const [at, text] of insertAt.reverse()) lines.splice(at, 0, text);
+		for (const [at, replaced, text] of insertAt.reverse()) lines.splice(at, replaced, text);
 		writeFileSync(path, lines.join("\n"));
 		changed++;
 		serialized += insertAt.length;

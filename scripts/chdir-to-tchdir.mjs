@@ -70,12 +70,26 @@ let touched = 0;
 for (const file of files) {
 	const before = readFileSync(file, 'utf8');
 	// A top-level func opens at column zero and the next one closes the last.
-	const blocks = before.split(/^(?=func )/m);
+	// A fixture's own func does too, inside a raw string, so the literal is
+	// skipped rather than cut in half.
+	const lines = before.split('\n');
+	const starts = [];
+	let inRaw = false;
+	for (const [i, line] of lines.entries()) {
+		if (!inRaw && /^func /.test(line)) starts.push(i);
+		for (const _ of line.matchAll(/`/g)) inRaw = !inRaw;
+	}
+	const blocks = [];
+	let at = 0;
+	for (const start of [...starts, lines.length]) {
+		if (start > at) blocks.push(lines.slice(at, start));
+		at = start;
+	}
 	let converted = 0;
 	const rebuilt = blocks.map((block) => {
-		if (!block.includes('os.Chdir(')) return block;
-		const out = convert(block.split('\n'));
-		if (out === null) return block;
+		if (!block.some((l) => l.includes('os.Chdir('))) return block.join('\n');
+		const out = convert(block);
+		if (out === null) return block.join('\n');
 		converted++;
 		return out.join('\n');
 	});
@@ -83,7 +97,7 @@ for (const file of files) {
 		console.log(`${file}: no idiom found`);
 		continue;
 	}
-	let after = rebuilt.join('');
+	let after = rebuilt.join('\n');
 	// An import the file no longer spells does not compile.
 	if (!/\bos\./.test(after)) after = after.replace(/\n\t"os"\n/, '\n');
 	writeFileSync(file, after);

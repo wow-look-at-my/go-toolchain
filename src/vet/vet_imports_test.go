@@ -104,9 +104,7 @@ func main() {
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := vetSemantic("./...", NewEditor(false), nil)
 	assert.NotNil(t, err)
@@ -183,7 +181,6 @@ func TestGenerateBinaryReplacementCompound(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
-	t.Serial()
 	x := true
 	y := false
 	if x && y {
@@ -194,9 +191,7 @@ func TestFoo(t *testing.T) {
 	os.WriteFile(testFile, []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Just run it to exercise the compound condition path
 	_, err := vetSemantic("./...", NewEditor(false), nil)

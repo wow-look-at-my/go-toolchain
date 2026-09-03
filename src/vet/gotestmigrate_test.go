@@ -21,7 +21,6 @@ import (
 )
 
 func TestFoo(t *testing.T) {
-	t.Serial()
 	assert.NilError(t, nil)
 }
 `
@@ -29,9 +28,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
@@ -61,16 +58,13 @@ import (
 )
 
 func TestFoo(t *testing.T) {
-	t.Serial()
 	assert.NilError(t, nil)
 }
 `
 	filePath := filepath.Join(dir, "example_test.go")
 	assert.Nil(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := MigrateGotestTools(ed)
@@ -98,9 +92,7 @@ func TestFoo(t *testing.T) {}
 `
 	assert.Nil(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := MigrateGotestTools(ed)

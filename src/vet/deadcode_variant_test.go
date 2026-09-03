@@ -30,16 +30,13 @@ func trulyDead() int { return 8 }
 import "testing"
 
 func TestUsed(t *testing.T) {
-	t.Serial()
 	if usedByTestOnly() != 7 {
 		t.Fatal("bad")
 	}
 }
 `)
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := RunOnPattern("./...", false, nil)
 

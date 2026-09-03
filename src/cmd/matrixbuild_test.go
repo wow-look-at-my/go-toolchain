@@ -195,7 +195,6 @@ func TestRunBuild(t *testing.T) {
 // assigned off either way rather than left to the flag or the environment.
 func TestRunBuildForcesCGOOffEvenWithTheFlag(t *testing.T) {
 	t.Serial()
-	t.Parallel()
 	for _, flag := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cgoEnabled=%v", flag), func(t *testing.T) {
 			oldCgo := cgoEnabled
