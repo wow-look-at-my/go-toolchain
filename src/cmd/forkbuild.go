@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -53,7 +54,26 @@ func (e forkBuildEnv) apeJob(srcPath, outputPath string) buildJob {
 		forkGoroot:     e.goroot,
 		cacheNamespace: e.cacheNamespace,
 		cosmoPlatforms: e.apePlatforms,
+		ldflags:        jobLDFlags(srcPath, os.Getenv("GOFLAGS")),
 	}
+}
+
+// jobLDFlags is what the caller asked the linker for, plus the revision stamp.
+func jobLDFlags(srcPath, goflags string) string {
+	return joinLDFlags(stampLDFlags(srcPath), callerLDFlags(goflags))
+}
+
+// joinLDFlags puts the stamp ahead of the caller's own flags, so an explicit
+// -X overrides it: the linker keeps the LAST value given for a name. Depth:
+// docs/VCS-STAMP.md.
+func joinLDFlags(stamp, caller string) string {
+	if stamp == "" {
+		return caller
+	}
+	if caller == "" {
+		return stamp
+	}
+	return stamp + " " + caller
 }
 
 // warnCGOUnavailable says so when --cgo was asked for. Neither output this
