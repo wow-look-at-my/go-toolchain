@@ -365,5 +365,5 @@ func sourceURL(tc gotest.TestCaseResult, commitSHA, repo, modulePath string, cac
 
 // readModulePath reads the module path from go.mod in the current directory.
 func readModulePath() string {
-	return gomod.ReadModulePath()
+	return gomod.ReadModulePath(".")
 }

@@ -59,7 +59,7 @@ type TestResult struct {
 
 // readModulePath reads the module path from go.mod in the current directory.
 func readModulePath() string {
-	return gomod.ReadModulePath()
+	return gomod.ReadModulePath(".")
 }
 
 // listTestPackages returns the import paths of packages that contain test files,

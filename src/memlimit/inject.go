@@ -64,11 +64,11 @@ func Inject(dir string) (bool, error) {
 // for a nested package, and so on. It is the shared discovery used by InjectAll
 // and CleanupAll. When there is no module (no go.mod) it returns nil.
 func mainPackageDirs() ([]string, error) {
-	pkgs, err := gomod.FindMainPackages()
+	pkgs, err := gomod.FindMainPackages(".")
 	if err != nil {
 		return nil, err
 	}
-	modPath := gomod.ReadModulePath()
+	modPath := gomod.ReadModulePath(".")
 
 	dirs := make([]string, 0, len(pkgs))
 	for _, importPath := range pkgs {

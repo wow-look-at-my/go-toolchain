@@ -185,14 +185,14 @@ func ParseProfileFiltered(filename string, reachable set.Set[string]) (float32, 
 // go list -deps ./... which includes all packages.
 func ReachablePackages(r runner.CommandRunner) (set.Set[string], error) {
 	// Get module prefix from go.mod
-	modulePrefix := gomod.ReadModulePath()
+	modulePrefix := gomod.ReadModulePath(".")
 	if modulePrefix == "" {
 		return set.Set[string]{}, nil
 	}
 
 	// Entry-point roots, not ./..., so build-tag-excluded packages never count toward coverage.
 	roots := "./..."
-	mainPkgs, _ := gomod.FindMainPackages()
+	mainPkgs, _ := gomod.FindMainPackages(".")
 	if len(mainPkgs) > 0 {
 		roots = strings.Join(mainPkgs, "\n")
 	}

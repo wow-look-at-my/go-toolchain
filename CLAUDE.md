@@ -157,7 +157,8 @@ coverage.
   `dats/cli.dats` against the built binary
 - `src/gomod/` — shared Go module utilities. `FindMainPackages` honors build constraints, so a `//go:build ignore` generator is never mistaken for a
   directory's main package. `IsNestedModule` is the shared predicate every filesystem walker skips nested modules by — their files belong to their
-  own module. Depth: `docs/GOMOD.md`
+  own module. Every walk takes its ROOT as an argument (production passes `"."`), so a test names a directory instead of calling `os.Chdir` and
+  moving the working directory under the tests running beside it. Depth: `docs/GOMOD.md`
 - `src/memlimit/` — injects a stdlib-only cgroup→GOMEMLIMIT startup guard into every main package built (discovered via `gomod.FindMainPackages`,
   which honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package)
   (`gomemlimit_gen.go`, embedded verbatim from `testdata/guard.go`), so each binary caps the Go heap at the container's cgroup memory limit instead of
