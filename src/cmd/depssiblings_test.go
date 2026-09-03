@@ -214,6 +214,7 @@ require (
 // either path to the same commit: the repository resolves a single time,
 // however many of its lines carry the marker.
 func TestUpdateTrackedBranchDepsResolvesAnIndirectSibling(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module example.com/consumer
 

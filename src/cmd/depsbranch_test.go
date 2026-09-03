@@ -342,6 +342,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 // A replacement into a local directory has no remote and no version. The
 // marker on such a line is a mistake, and a mistake gets said out loud.
 func TestUpdateTrackedBranchDepsSkipsAFilesystemReplacement(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 

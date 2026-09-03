@@ -102,6 +102,7 @@ func TestReportTemporaryBranchesFailsInCIAndWarnsOutsideIt(t *testing.T) {
 // of course. A single message names every branch it covers; saying it per line
 // would fire on every run of every repo forever.
 func TestReportUncheckedBranchesSaysItOnce(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 

@@ -164,6 +164,7 @@ require github.com/wow-look-at-my/foo v1.2.3 // indirect
 
 // An indirect require from outside the org is not this org's problem and is left alone.
 func TestEnforceOrgBranchTrackingLeavesAThirdPartyIndirectRequireAlone(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -272,6 +273,7 @@ replace github.com/wow-look-at-my/foo => ../foo
 // The direct sibling and the indirect require behind it get marked in the
 // same pass -- neither needs the other to already be tracked.
 func TestEnforceOrgBranchTrackingMarksBothSidesOfASiblingPair(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module github.com/wow-look-at-my/repo/cli
 go 1.21
@@ -322,6 +324,7 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard
 // build resolves. It warns, because a name kept for that reason is a name
 // somebody may want to drop later.
 func TestEnforceOrgBranchTrackingKeepsTheNameWhenTheRemoteIsUnreachable(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
