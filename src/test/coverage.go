@@ -183,16 +183,16 @@ func ParseProfileFiltered(filename string, reachable set.Set[string]) (float32, 
 //
 // If no main packages are found (library-only project), falls back to
 // go list -deps ./... which includes all packages.
-func ReachablePackages(r runner.CommandRunner) (set.Set[string], error) {
+func ReachablePackages(root string, r runner.CommandRunner) (set.Set[string], error) {
 	// Get module prefix from go.mod
-	modulePrefix := gomod.ReadModulePath(".")
+	modulePrefix := gomod.ReadModulePath(root)
 	if modulePrefix == "" {
 		return set.Set[string]{}, nil
 	}
 
 	// Entry-point roots, not ./..., so build-tag-excluded packages never count toward coverage.
 	roots := "./..."
-	mainPkgs, _ := gomod.FindMainPackages(".")
+	mainPkgs, _ := gomod.FindMainPackages(root)
 	if len(mainPkgs) > 0 {
 		roots = strings.Join(mainPkgs, "\n")
 	}
@@ -206,7 +206,7 @@ func ReachablePackages(r runner.CommandRunner) (set.Set[string], error) {
 			args = append(args, pkg)
 		}
 	}
-	proc, err := runner.Cmd("go", args...).WithHostTarget().WithQuiet().Run(r)
+	proc, err := runner.Cmd("go", args...).WithDir(root).WithHostTarget().WithQuiet().Run(r)
 	if err != nil {
 		return set.Set[string]{}, err
 	}

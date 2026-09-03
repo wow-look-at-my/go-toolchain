@@ -29,6 +29,7 @@ type IProcess interface {
 type Config struct {
 	Name          string
 	Args          []string
+	Dir           string                               // Working directory; empty means the caller's own
 	Env           *sortedmap.SortedMap[string, string] // Merged with current environment
 	Quiet         bool                                 // Don't tee stdout/stderr to console
 	OnFirstOutput func()                               // Called before any output byte is written to console
@@ -83,6 +84,12 @@ func (c *Config) WithHostTarget() *Config {
 	return c.WithEnv("GOOS", hostos.GOOS()).WithEnv("GOARCH", runtime.GOARCH)
 }
 
+// WithDir runs the command in dir, so a caller need not move the process.
+func (c *Config) WithDir(dir string) *Config {
+	c.Dir = dir
+	return c
+}
+
 // WithQuiet suppresses stdout/stderr tee to console
 func (c *Config) WithQuiet() *Config {
 	c.Quiet = true
@@ -120,6 +127,7 @@ type realRunner struct{}
 
 func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	cmd := exec.Command(cfg.Name, cfg.Args...)
+	cmd.Dir = cfg.Dir
 
 	if cfg.Env != nil && cfg.Env.Len() > 0 {
 		// Merge overrides into the environment, dropping overridden keys up front: a duplicate key's platform behavior varies.
