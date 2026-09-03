@@ -30,9 +30,7 @@ func TestWithGitStderr(t *testing.T) {
 
 func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	mock := runner.NewMock()
 
@@ -44,9 +42,7 @@ func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
 
 func TestFixBogusDepsVersions_NoBogusVersions(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// Create go.mod with normal versions
 	gomod := `module test
@@ -67,9 +63,7 @@ require (
 
 func TestFixBogusDepsVersions_DetectsBogusVersions(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// Create go.mod with placeholder-version dependencies
 	gomod := `module test
@@ -115,9 +109,7 @@ func lsRemoteURL(cfg runner.Config) string {
 
 func TestFixBogusDepsVersions_GitLsRemoteFails(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -188,9 +180,7 @@ func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
 
 func TestFixBogusDepsVersions_ParseError(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// Create invalid go.mod
 	os.WriteFile("go.mod", []byte("not valid go.mod content {{{"), 0644)
@@ -206,9 +196,7 @@ func TestFixBogusDepsVersions_ParseError(t *testing.T) {
 
 func TestFixBogusDepsVersions_NoV000Deps(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// go.mod with no placeholder-version dependencies
 	gomod := `module test
@@ -230,9 +218,7 @@ require github.com/spf13/cobra v1.8.0
 
 func TestFixBogusDepsVersions_PrintsMessage(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21

@@ -67,9 +67,7 @@ func stubForkToolchain(t *testing.T) string {
 func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir string) {
 	t.Helper()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	t.Cleanup(func() { os.Chdir(oldWd) })
+	t.Chdir(tmpDir)
 
 	// A named module so ResolveBuildTargets derives a real binary name; main.go must stay gofmt-canonical for vet's check mode in CI.
 	os.WriteFile("go.mod", []byte("module example.com/mytool\n\ngo 1.21\n"), 0644)

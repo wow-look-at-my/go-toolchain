@@ -14,12 +14,11 @@ func chdirWithBenchFile(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "x_test.go"), []byte("package p\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	t.Cleanup(func() { os.Chdir(oldWd) })
+	t.Chdir(dir)
 }
 
 func TestRunBenchmarkInBuild(t *testing.T) {
+	t.Serial()
 	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
@@ -55,6 +54,7 @@ func TestRunBenchmarkInBuild(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildJSON(t *testing.T) {
+	t.Serial()
 	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
@@ -83,6 +83,7 @@ func TestRunBenchmarkInBuildJSON(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
+	t.Serial()
 	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
@@ -118,6 +119,7 @@ func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildFails(t *testing.T) {
+	t.Serial()
 	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
@@ -147,9 +149,7 @@ func TestRunBenchmarkInBuildFails(t *testing.T) {
 func TestRunBenchmarkInBuildSkipsWhenNoBenchmarks(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte("package p\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n"), 0644)
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	mock := runner.NewMock()
 	br, err := runBenchmarkInBuild(mock)
@@ -162,9 +162,7 @@ func TestRunBenchmarkInBuildSkipsWhenNoBenchmarks(t *testing.T) {
 
 func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile(filepath.Join(tmpDir, "x_test.go"), []byte("package p\nimport \"testing\"\nfunc BenchmarkX(b *testing.B) {}\n"), 0644)
 
@@ -209,9 +207,7 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 
 func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	stubForkToolchain(t)
 	mock := newTestPassMock(0)
@@ -241,6 +237,7 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 }
 
 func TestRunBenchRunWithRunner(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 
 	// Set up benchmark response
@@ -275,6 +272,7 @@ func TestRunBenchRunWithRunner(t *testing.T) {
 }
 
 func TestRunBenchSaveWithRunner(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 
 	// Set up benchmark response
@@ -336,6 +334,7 @@ func TestRunBenchCompare(t *testing.T) {
 }
 
 func TestRunBenchRun(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
@@ -367,6 +366,7 @@ func TestRunBenchRun(t *testing.T) {
 }
 
 func TestRunBenchSave(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`

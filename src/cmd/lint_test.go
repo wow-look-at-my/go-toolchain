@@ -177,6 +177,7 @@ func TestListGoFilesInDir_NonexistentDir(t *testing.T) {
 }
 
 func TestRunLintImpl_NoDuplicates(t *testing.T) {
+	t.Serial()
 	t.Parallel()
 	dir := t.TempDir()
 	writeUniqueGoFile(t, dir, "a.go", "funcA")
@@ -193,6 +194,7 @@ func TestRunLintImpl_NoDuplicates(t *testing.T) {
 }
 
 func TestRunLintImpl_WithDuplicates(t *testing.T) {
+	t.Serial()
 	t.Parallel()
 	dir := t.TempDir()
 	writeDuplicateGoFiles(t, dir)
@@ -211,6 +213,7 @@ func TestRunLintImpl_WithDuplicates(t *testing.T) {
 }
 
 func TestRunLintImpl_JSON(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	writeDuplicateGoFiles(t, dir)
 
@@ -230,6 +233,7 @@ func TestRunLintImpl_JSON(t *testing.T) {
 }
 
 func TestRunLintImpl_NoGoFiles(t *testing.T) {
+	t.Serial()
 	t.Parallel()
 	dir := t.TempDir()
 
@@ -243,9 +247,7 @@ func TestRunLintImpl_NoGoFiles(t *testing.T) {
 
 func TestRunLintImpl_DefaultArgs(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	writeUniqueGoFile(t, dir, "a.go", "funcA")
 
@@ -262,9 +264,7 @@ func TestRunLintImpl_DefaultArgs(t *testing.T) {
 
 func TestRunDuplicateCheck_NoDuplicates(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	writeUniqueGoFile(t, dir, "a.go", "funcA")
 
@@ -281,9 +281,7 @@ func TestRunDuplicateCheck_NoDuplicates(t *testing.T) {
 
 func TestRunDuplicateCheck_WithDuplicates(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	writeDuplicateGoFiles(t, dir)
 
@@ -305,9 +303,7 @@ func TestRunDuplicateCheck_WithDuplicates(t *testing.T) {
 
 func TestRunDuplicateCheck_JSONMode(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	writeDuplicateGoFiles(t, dir)
 
@@ -327,9 +323,7 @@ func TestRunDuplicateCheck_JSONMode(t *testing.T) {
 
 func TestRunDuplicateCheck_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	oldJSON := jsonOutput
 	jsonOutput = false

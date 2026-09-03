@@ -11,9 +11,7 @@ import (
 
 func TestParseVanityModulesFromSum(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gosum := `github.com/spf13/cobra v1.10.2 h1:abc123=
 github.com/spf13/cobra v1.10.2/go.mod h1:def456=
@@ -44,9 +42,7 @@ gopkg.in/yaml.v3 v3.0.1 h1:ggg=
 
 func TestParseVanityModulesFromSumNoFile(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	modules, err := parseVanityModulesFromSum()
 	assert.NotNil(t, err)
@@ -56,9 +52,7 @@ func TestParseVanityModulesFromSumNoFile(t *testing.T) {
 
 func TestParseVanityModulesFromSumDedup(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Same module appears in both hash and go.mod hash lines
 	gosum := `gotest.tools/gotestsum v1.13.0 h1:aaa=
@@ -122,9 +116,7 @@ func TestParseGoImportMetaNotFound(t *testing.T) {
 
 func TestWellKnownHostsExcluded(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gosum := `github.com/foo/bar v1.0.0 h1:aaa=
 gitlab.com/baz/qux v2.0.0 h1:bbb=

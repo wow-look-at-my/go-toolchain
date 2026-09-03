@@ -84,6 +84,7 @@ func TestCachedOpenCVPkgConfig_FoundInLib64(t *testing.T) {
 }
 
 func TestSetupCGOEnvironment_Disabled(t *testing.T) {
+	t.Serial()
 	oldCGO := cgoEnabled
 	cgoEnabled = false
 	defer func() { cgoEnabled = oldCGO }()

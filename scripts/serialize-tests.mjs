@@ -13,6 +13,12 @@
 //                    test beside it. Prefer giving the code under test a
 //                    root argument; reach for this only where the suite is
 //                    short enough that running it serially costs nothing.
+//   a package global the test assigns a variable its own package reads, so
+//                    every test reading it sees the write
+//
+// A test already holding the barrier is skipped. t.Chdir and t.Setenv take it
+// themselves, so a test spelling either one is already serial and needs no
+// second take.
 //
 // Usage: node scripts/serialize-tests.mjs <marker> <dir>...
 
@@ -55,7 +61,8 @@ for (const root of roots) {
 			if (!m) continue;
 			const body = lines.slice(from + 1, to);
 			if (!body.some((l) => l.includes(marker))) continue;
-			if ((lines[from + 1] ?? "").trim() === `${m[2]}.Serial()`) continue;
+			const holds = new RegExp(`\\b${m[2]}\\.(Serial\\(\\)|Chdir\\(|Setenv\\()`);
+			if (body.some((l) => holds.test(l))) continue;
 			insertAt.push([from + 1, `\t${m[2]}.Serial()`]);
 		}
 		if (insertAt.length === 0) continue;

@@ -127,10 +127,7 @@ func setupOutputModule(t *testing.T) string {
 	// Resolve before the chdir, or the tracked paths get the host's other spelling.
 	tmp, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	oldWd, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmp))
-	t.Cleanup(func() { os.Chdir(oldWd) })
+	t.Chdir(tmp)
 
 	require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/mytool\n\ngo 1.21\n"), 0o644))
 	require.NoError(t, os.WriteFile("main.go", []byte("package main\n\nfunc main() {}\n"), 0o644))
@@ -187,7 +184,7 @@ func TestDiscardBuildOutputsIsIndependentOfWorkingDirectory(t *testing.T) {
 
 	// A multi-module run can fail after chdir'ing elsewhere; tracked paths are absolute.
 	other := t.TempDir()
-	require.NoError(t, os.Chdir(other))
+	t.Chdir(other)
 	discardBuildOutputs()
 
 	assert.NoFileExists(t, filepath.Join(dir, "mytool"))
@@ -215,10 +212,7 @@ func setupPipelineOutputTest(t *testing.T) (buildDir, binary string) {
 	// Resolved before the chdir, for the reason setupOutputModule gives.
 	tmp, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	oldWd, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmp))
-	t.Cleanup(func() { os.Chdir(oldWd) })
+	t.Chdir(tmp)
 	setupMockProject(t)
 
 	oldOut, oldJSON := outputDir, jsonOutput
@@ -278,10 +272,7 @@ func TestPipelineKeepsTheBinaryItJustBuilt(t *testing.T) {
 func TestDiscardBuildOutputsFromCWDWithoutModule(t *testing.T) {
 	// No go.mod, no targets: silent no-op, never an error or a panic.
 	tmp := t.TempDir()
-	oldWd, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmp))
-	t.Cleanup(func() { os.Chdir(oldWd) })
+	t.Chdir(tmp)
 
 	oldOut := outputDir
 	outputDir = "build"

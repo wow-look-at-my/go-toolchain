@@ -15,6 +15,7 @@ import (
 )
 
 func TestRunWithRunnerModTidyFails(t *testing.T) {
+	t.Serial()
 	mock := newModTidyFailMock()
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -23,6 +24,7 @@ func TestRunWithRunnerModTidyFails(t *testing.T) {
 }
 
 func TestRunWithRunnerTestsFail(t *testing.T) {
+	t.Serial()
 	mock := newTestPipesFailMock()
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -32,9 +34,7 @@ func TestRunWithRunnerTestsFail(t *testing.T) {
 
 func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 	mock := newTestPassMock(50)
 	jsonOutput = true
@@ -45,9 +45,7 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 
 func TestRunWithRunnerSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 	mock := newTestPassMock(0)
 	jsonOutput = true
@@ -65,9 +63,7 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 // and there is no host-shaped build left for it to distinguish.
 func TestRunWithRunnerBinaryNameCarriesNoPlatform(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	mock := newTestPassMock(0)
@@ -95,9 +91,7 @@ func TestRunWithRunnerBinaryNameCarriesNoPlatform(t *testing.T) {
 
 func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	oldCgo := cgoEnabled
@@ -127,9 +121,7 @@ func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 
 func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	oldCgo := cgoEnabled
@@ -159,9 +151,7 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 
 func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	mock := newTestPassMock(0)
@@ -181,9 +171,7 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 
 func TestRunWithRunnerNonJSON(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	mock := newTestPassMock(0)
@@ -201,9 +189,7 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 
 func TestRunWithRunnerBuildFails(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	mock := newBuildFailMock()
@@ -221,9 +207,7 @@ func TestRunWithRunnerBuildFails(t *testing.T) {
 
 func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	mock := newTestPassMock(50)
@@ -237,9 +221,7 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 
 func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	mock := newTestPassMock(50)
@@ -252,9 +234,7 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 }
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 	// The watermark sets the bar, grace lowers it, and the effective bar is whichever of that and the floor is lower.
 	gotest.SetWatermark(".", 60.0)
@@ -268,9 +248,7 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 
 func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 	// Coverable statements below are what make the empty profile "broken".
 	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
@@ -308,9 +286,7 @@ func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			oldWd, _ := os.Getwd()
-			os.Chdir(tmpDir)
-			defer os.Chdir(oldWd)
+			t.Chdir(tmpDir)
 			setupMockProject(t)
 			jsonOutput = false
 			err := runWithRunner(newSmallMock(tc.cov, tc.unc), nil)
@@ -326,9 +302,7 @@ func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 
 func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	// The watermark's grace floor lands under the run's coverage, so the run passes.
@@ -349,9 +323,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 
 func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	// The run covers everything, so the watermark should ratchet up
@@ -376,9 +348,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 
 func TestRunWithRunnerFailedTest(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	mock := newTestFailMock()
@@ -396,9 +366,7 @@ func TestRunWithRunnerFailedTest(t *testing.T) {
 
 func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	mock := newTestFailWithErrorMock()

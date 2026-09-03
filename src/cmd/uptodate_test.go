@@ -18,10 +18,7 @@ import (
 func chdirTemp(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	oldWd, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { os.Chdir(oldWd) })
+	t.Chdir(dir)
 	return dir
 }
 
@@ -67,6 +64,7 @@ func TestComputeFingerprintIncludesGoSum(t *testing.T) {
 // NAME hid every edit under this repo's own src/build, so the fast exit served
 // a stale binary and called the run finished.
 func TestComputeFingerprintCountsASourceDirNamedBuild(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 	old := outputDir
 	outputDir = "build"

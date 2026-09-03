@@ -22,10 +22,7 @@ func setupGuardModule(t *testing.T) string {
 	require.NoError(t, os.WriteFile(filepath.Join(mod, "go.mod"), []byte("module example.com/thing\n\ngo 1.19\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(mod, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644))
 
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	require.NoError(t, os.Chdir(mod))
+	t.Chdir(mod)
 	return mod
 }
 
@@ -80,10 +77,7 @@ func setupRealGitModule(t *testing.T) string {
 	require.NoError(t, os.WriteFile(filepath.Join(mod, "go.mod"), []byte("module example.com/thing\n\ngo 1.19\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(mod, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644))
 
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	require.NoError(t, os.Chdir(mod))
+	t.Chdir(mod)
 	return mod
 }
 
@@ -149,10 +143,7 @@ func TestEnsureGuardExcludedHandlesMissingTrailingNewline(t *testing.T) {
 // whole inject path, which must not fail the build over it.
 func TestEnsureGuardExcludedNoRepoIsNoOp(t *testing.T) {
 	dir := t.TempDir()
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 	// GIT_CEILING keeps discovery from escaping the temp dir if an outer repo surrounds it.
 	t.Setenv("GIT_CEILING_DIRECTORIES", dir)
 
