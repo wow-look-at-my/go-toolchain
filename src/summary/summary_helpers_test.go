@@ -1,7 +1,6 @@
 package summary
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,38 +74,4 @@ func TestFormatBenchBytes(t *testing.T) {
 	for _, tc := range tests {
 		assert.Equal(t, tc.want, formatBenchBytes(tc.b), "b=%v", tc.b)
 	}
-}
-
-func TestReadModulePath(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	// No go.mod
-	assert.Equal(t, "", readModulePath())
-
-	// Valid go.mod
-	os.WriteFile("go.mod", []byte("module github.com/user/pkg\n\ngo 1.21\n"), 0644)
-	assert.Equal(t, "github.com/user/pkg", readModulePath())
-}
-
-func TestReadModulePathEmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	os.WriteFile("go.mod", []byte(""), 0644)
-	assert.Equal(t, "", readModulePath())
-}
-
-func TestReadModulePathExtraWhitespace(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	os.WriteFile("go.mod", []byte("module   github.com/user/pkg  \n"), 0644)
-	assert.Equal(t, "github.com/user/pkg", readModulePath())
 }

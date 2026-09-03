@@ -17,6 +17,26 @@ func writeFile(t *testing.T, dir, name, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
 
+func TestReadModulePath(t *testing.T) {
+	dir := t.TempDir()
+	assert.Equal(t, "", ReadModulePath(dir), "a directory with no go.mod names no module")
+
+	writeFile(t, dir, "go.mod", "module github.com/user/pkg\n\ngo 1.21\n")
+	assert.Equal(t, "github.com/user/pkg", ReadModulePath(dir))
+}
+
+func TestReadModulePathEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "")
+	assert.Equal(t, "", ReadModulePath(dir))
+}
+
+func TestReadModulePathExtraWhitespace(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "module   github.com/user/pkg  \n")
+	assert.Equal(t, "github.com/user/pkg", ReadModulePath(dir))
+}
+
 // newModule writes a go.mod in a temp dir and returns the root to walk.
 func newModule(t *testing.T, modPath string) string {
 	t.Helper()

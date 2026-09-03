@@ -57,18 +57,13 @@ type TestResult struct {
 	TestCases     []TestCaseResult
 }
 
-// readModulePath reads the module path from go.mod in the current directory.
-func readModulePath() string {
-	return gomod.ReadModulePath(".")
-}
-
 // listTestPackages returns the import paths of packages that contain test files,
 // excluding packages where all non-test .go files are generated code (e.g. sqlc).
 // It walks the filesystem directly instead of shelling out to `go list`, which
 // is significantly faster.
 // On any error it returns nil, signaling the caller to fall back to "./...".
 func listTestPackages(_ runner.CommandRunner) []string {
-	modPath := readModulePath()
+	modPath := gomod.ReadModulePath(".")
 	if modPath == "" {
 		return nil
 	}
