@@ -71,6 +71,7 @@ func TestBlindGuardAnnouncementIsOncePerRun(t *testing.T) {
 // The banner must never reach stdout. The guard exists for runs whose stdout
 // is captured, so stdout is the only channel that cannot carry its own warning.
 func TestBlindGuardAnnouncementNeverTouchesStdout(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	old := agentGuardOut
 	agentGuardOut = &buf

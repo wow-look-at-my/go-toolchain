@@ -149,6 +149,7 @@ func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
 }
 
 func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
+	t.Serial()
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 1
 
@@ -177,6 +178,7 @@ func TestMatrixOutputShowsProgressAndDuration(t *testing.T) {
 }
 
 func TestMatrixOutputFailureShowsDuration(t *testing.T) {
+	t.Serial()
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
 

@@ -262,6 +262,7 @@ func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerNoMainsForAnyTargetFails(t *testing.T) {
+	t.Serial()
 	_, _ = setupCosmoMatrixTest(t, []string{"js/wasm"})
 	// Only a linux-guarded main: the js/wasm-only target list has nothing to build anywhere, which errors.
 	require.NoError(t, os.Remove("main.go"))

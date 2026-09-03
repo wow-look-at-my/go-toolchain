@@ -28,6 +28,7 @@ func TestJSONInterpAnalyzer(t *testing.T) {
 // carry: the remedy is the standard library either way, but only an org module
 // is bound by this repo's conventions, so only there does a finding fail.
 func TestJSONInterpSeverityFollowsTheModule(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 import "fmt"

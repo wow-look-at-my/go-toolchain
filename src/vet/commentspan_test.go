@@ -167,6 +167,7 @@ func TestCommentSpanAttachesToTheRightNode(t *testing.T) {
 // test: go/packages loads a package several ways, so a repeated run over
 // the same pass must not spend the budget again on a site already warned.
 func TestCommentSpanWarnsOncePerSite(t *testing.T) {
+	t.Serial()
 	src := "package p\n\n" + fixtureComment(t, 1, 160) + "\nconst x = 1\n"
 	resetCommentSpanWarnings()
 	logger.ResetWarnCount()

@@ -353,6 +353,7 @@ func captureStdoutStderr(t *testing.T, fn func()) (stdout, stderr string) {
 }
 
 func TestRunVersionCosmo_RequireReleasePassesOnRealRelease(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +372,7 @@ func TestRunVersionCosmo_RequireReleasePassesOnRealRelease(t *testing.T) {
 }
 
 func TestRunVersionCosmo_RequireReleaseFailsOnBranchFallback(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
@@ -395,6 +397,7 @@ func TestRunVersionCosmo_RequireReleaseFailsOnBranchFallback(t *testing.T) {
 }
 
 func TestRunVersionCosmo_WithoutRequireReleaseNeverFails(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {

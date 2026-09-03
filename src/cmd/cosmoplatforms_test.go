@@ -126,6 +126,7 @@ func TestPlatformList(t *testing.T) {
 // A toolchain that cannot restrict coverage must SAY SO. Reporting a slimmed
 // build that was not slimmed is the failure this warning exists to prevent.
 func TestCosmoPlatformsEnvValue(t *testing.T) {
+	t.Serial()
 	old := cosmoPlatformsSupportedFunc
 	defer func() { cosmoPlatformsSupportedFunc = old }()
 	platforms := []buildPlatform{{OS: "linux", Arch: "amd64"}, {OS: "darwin", Arch: "arm64"}}

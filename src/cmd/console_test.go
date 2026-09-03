@@ -105,6 +105,7 @@ func captureCombinedOutput(f func()) string {
 }
 
 func TestLogStepSilent(t *testing.T) {
+	t.Serial()
 	output := captureStdout(func() {
 		s := logStep("go build")
 		time.Sleep(10 * time.Millisecond)
@@ -119,6 +120,7 @@ func TestLogStepSilent(t *testing.T) {
 }
 
 func TestLogStepNoisy(t *testing.T) {
+	t.Serial()
 	output := captureStdout(func() {
 		s := logStep("go mod tidy")
 		s.noteOutput()
@@ -133,6 +135,7 @@ func TestLogStepNoisy(t *testing.T) {
 }
 
 func TestLogStepFailed(t *testing.T) {
+	t.Serial()
 	output := captureStdout(func() {
 		s := logStep("Running tests")
 		s.noteOutput()
@@ -144,6 +147,7 @@ func TestLogStepFailed(t *testing.T) {
 }
 
 func TestLogStepFailedSilent(t *testing.T) {
+	t.Serial()
 	output := captureStdout(func() {
 		s := logStep("go vet")
 		s.failed()
@@ -263,6 +267,7 @@ func TestTimedLineWriterClosesOnPartialContent(t *testing.T) {
 }
 
 func TestLogStepNoteOutputIdempotent(t *testing.T) {
+	t.Serial()
 	output := captureStdout(func() {
 		s := logStep("test")
 		s.noteOutput()

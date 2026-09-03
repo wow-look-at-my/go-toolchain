@@ -28,6 +28,7 @@ func TestSliceSetAnalyzer(t *testing.T) {
 // single org require away, so it fails; anywhere else the fix would add a
 // dependency the author never chose, so it warns.
 func TestSliceSetSeverityFollowsTheModule(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 import "slices"

@@ -213,6 +213,7 @@ func emit(b, other *strings.Builder, s struct{ buf *strings.Builder }, n int, na
 // A fingerprint frames its input, and a run of writes IS the framing; the
 // document type next to it, written the same way, still warns.
 func TestWriteRunsSkipsAHash(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 type digest struct{}
@@ -274,6 +275,7 @@ func render(d doc) {
 // file, so a site that warned per variant would spend much of the warnings
 // budget on a single line.
 func TestWriteRunsSpendsOneWarningPerSite(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 import "strings"

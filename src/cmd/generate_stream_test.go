@@ -68,6 +68,7 @@ func TestExecuteDirectiveStreamsOutputWhileRunning(t *testing.T) {
 }
 
 func TestStreamPrefixWriter(t *testing.T) {
+	t.Serial()
 	var w streamPrefixWriter
 
 	// A complete line is emitted on arrival; a partial line waits for Flush.
