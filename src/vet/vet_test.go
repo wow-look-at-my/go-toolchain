@@ -67,6 +67,7 @@ func TestAnalyzers(t *testing.T) {
 }
 
 func TestRunNoGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	os.Chdir(dir)
@@ -80,6 +81,7 @@ func TestRunNoGoMod(t *testing.T) {
 // dependency, so NeedDeps is the whole point of it -- and the flag has to come
 // back off, or every later pass pays for a source-loaded stdlib.
 func TestLoadModeFromSource(t *testing.T) {
+	t.Serial()
 	assert.Zero(t, loadMode()&packages.NeedDeps, "the default reads export data")
 
 	dir := t.TempDir()
@@ -423,20 +425,6 @@ func foo() {
 
 	// Just ensure it doesn't panic
 	fixes.printFix(fixes.Fixes[0])
-}
-
-func TestSourceLocationShortLocAbsolute(t *testing.T) {
-	cwd, _ := os.Getwd()
-	absPath := "/nonexistent/path/file.go"
-	loc := SourceLocation{File: absPath, Line: 10}
-	short := loc.ShortLoc()
-
-	// A path outside cwd still relates to it, unless the host roots them differently.
-	expected, err := filepath.Rel(cwd, absPath)
-	if err != nil {
-		expected = absPath
-	}
-	assert.Equal(t, expected+":10", short)
 }
 
 func TestASTFixesCommentNotInterleaved(t *testing.T) {

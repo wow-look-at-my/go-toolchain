@@ -183,6 +183,7 @@ func TestGenerateBinaryReplacementCompound(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	x := true
 	y := false
 	if x && y {

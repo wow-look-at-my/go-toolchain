@@ -9,6 +9,10 @@
 //                    are process-wide and a test that resets them owns them
 //   analysistest.    x/tools chdirs into the fixture, and nothing here can
 //                    pass it a directory instead
+//   os.Chdir         the test moves the process, which moves it for every
+//                    test beside it. Prefer giving the code under test a
+//                    root argument; reach for this only where the suite is
+//                    short enough that running it serially costs nothing.
 //
 // Usage: node scripts/serialize-tests.mjs <marker> <dir>...
 

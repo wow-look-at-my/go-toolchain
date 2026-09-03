@@ -74,9 +74,7 @@ func fixCanonicalizeFixture(t *testing.T) (string, map[string]string) {
 	gomod := "module testmod\n\ngo 1.21\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 	initGitRepo(t, dir)
 
 	changed, err := vetSemantic("./...", NewEditor(true), nil)

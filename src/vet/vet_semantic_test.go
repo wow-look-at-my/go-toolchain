@@ -54,6 +54,7 @@ func TestGenerateReplacementFallback(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	x := []int{1, 2, 3}
 	if len(x) > 0 {
 		t.Error("should be empty")
@@ -101,6 +102,7 @@ func TestVetSemanticWithDiagnostics(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	err := error(nil)
 	if err != nil {
 		t.Error("oops")
@@ -142,6 +144,7 @@ func TestVetSemanticWithFixRecursive(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	x := 5
 	if x != 5 {
 		t.Error("x should be 5")
@@ -198,6 +201,7 @@ import (
 )
 
 func TestMode(t *testing.T) {
+	t.Serial()
 	info, _ := os.Stat(".")
 	assert.NotEqual(t, 0, info.Mode()&os.ModeSymlink)
 }

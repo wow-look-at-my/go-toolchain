@@ -385,9 +385,8 @@ func writeFile(t *testing.T, path, content string) {
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 }
 
+// chdir enters dir for the test and holds the serial barrier.
 func chdir(t *testing.T, dir string) {
 	t.Helper()
-	old, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { os.Chdir(old) })
+	t.Chdir(dir)
 }
