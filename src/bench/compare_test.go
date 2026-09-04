@@ -138,6 +138,11 @@ func TestStripCPUSuffix(t *testing.T) {
 }
 
 func TestComparisonPrint(t *testing.T) {
+	// os.Stdout is process-wide: without the hold, a sibling test restores
+	// the real file while Print is still writing, so this buffer comes back
+	// empty and the table lands on the terminal instead.
+	t.Serial()
+
 	comp := &Comparison{
 		Packages: map[string][]Delta{
 			"example.com/pkg": {
@@ -168,6 +173,8 @@ func TestComparisonPrint(t *testing.T) {
 }
 
 func TestComparisonPrintEmpty(t *testing.T) {
+	t.Serial() // swaps os.Stdout; see TestComparisonPrint
+
 	comp := &Comparison{
 		Packages: map[string][]Delta{},
 	}

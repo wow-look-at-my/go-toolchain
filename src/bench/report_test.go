@@ -102,6 +102,8 @@ func TestFormatBenchBytes(t *testing.T) {
 }
 
 func TestBenchmarkReportPrint(t *testing.T) {
+	t.Serial() // swaps os.Stdout; see TestComparisonPrint
+
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"example.com/pkg": {
@@ -129,6 +131,8 @@ func TestBenchmarkReportPrint(t *testing.T) {
 }
 
 func TestBenchmarkReportPrintEmpty(t *testing.T) {
+	t.Serial() // swaps os.Stdout; see TestComparisonPrint
+
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{},
 	}
