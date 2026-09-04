@@ -357,8 +357,7 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		return err
 	}
 
-	// Runs after the build phase (memlimit guard already cleaned up); a
-	// failing suite fails before saveFingerprint.
+	// Runs after the build phase; a failing suite fails before saveFingerprint.
 	if err := runDatsPhase(quiet, builtArtifacts); err != nil {
 		return err
 	}
@@ -384,12 +383,6 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 	if err := checkDirtyInCI(); err != nil {
 		return nil, nil, err
 	}
-
-	if err := injectMemLimitGuard(quiet); err != nil {
-		return nil, nil, err
-	}
-	// Build-time-only artifact; remove it as soon as it is compiled in, so it never lingers in the tree.
-	defer cleanupMemLimitGuards()
 
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {

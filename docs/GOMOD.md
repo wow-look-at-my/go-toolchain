@@ -12,9 +12,8 @@ notably the `//go:build ignore` / `// +build ignore` generator idiom (`//go:buil
 GOOS/GOARCH filename/tag mismatches.
 
 Without this gate an `ignore`-tagged `package main` generator sitting next to a real `package bench`/`package e2e` would be miscounted as a main
-package, and memlimit would inject a non-ignored `package main` guard into that dir, breaking the cross-compile with `found packages bench
-(bench_test.go) and main (gomemlimit_gen.go)`. A legitimately-constrained main (e.g. a `package main` under `//go:build linux`) is still
-discoverable under the matching context — only build-excluded files are dropped.
+package, and the build would try to compile a directory whose files disagree about which package they are in. A legitimately-constrained main
+(e.g. a `package main` under `//go:build linux`) is still discoverable under the matching context — only build-excluded files are dropped.
 
 ## Nested modules
 

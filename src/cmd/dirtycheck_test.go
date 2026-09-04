@@ -60,21 +60,10 @@ func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
 
 func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
 	t.Parallel()
-	// Guard files are ignored in every state, including migration deletions, while real changes remain.
-	status := " M .gitignore\n" +
-		" D gomemlimit_gen.go\n" +
-		" D cmd/tool/gomemlimit_gen.go\n" +
-		"?? gomemlimit_gen.go\n" +
-		" M src/main.go\n"
+	// Nothing this run wrote on its own authority, so every line is a real change.
+	status := " M .gitignore\n M src/main.go\n"
 	got := dirtyFilesExcludingToolchainWrites(status)
 	assert.Equal(t, " M .gitignore\n M src/main.go", got)
-}
-
-func TestDirtyFilesExcludingToolchainWritesOnlyGuards(t *testing.T) {
-	t.Parallel()
-	// A tree dirty *only* with guard files reads as clean.
-	status := " D gomemlimit_gen.go\n?? cmd/tool/gomemlimit_gen.go\n"
-	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(status))
 }
 
 func TestDirtyFilesExcludingToolchainWritesEmpty(t *testing.T) {
@@ -118,38 +107,19 @@ func TestDirtyDiffReportsWhenGitCannotAnswer(t *testing.T) {
 
 func TestStatusLineIsToolchainWrite(t *testing.T) {
 	t.Parallel()
+	// With no pins, nothing in a status line is this run's own write.
 	cases := map[string]bool{
-		" D gomemlimit_gen.go":           true,
-		"?? gomemlimit_gen.go":           true,
-		" M cmd/tool/gomemlimit_gen.go":  true,
-		"R  old.go -> gomemlimit_gen.go": true, // rename destination is the guard
-		" M .gitignore":                  false,
-		" M src/gomemlimit_gen.go.bak":   false,
-		"":                               false,
+		" M .gitignore":     false,
+		" M src/main.go":    false,
+		"R  old.go -> a.go": false,
+		"":                  false,
 	}
 	for line, want := range cases {
 		assert.Equalf(t, want, statusLineIsToolchainWrite(line, nil), "line %q", line)
 	}
-}
 
-func TestDiffOnlyDropsGuard(t *testing.T) {
-	t.Parallel()
-	header := "diff --git a/.gitignore b/.gitignore\n" +
-		"index abc1234..def5678 100644\n" +
-		"--- a/.gitignore\n" +
-		"+++ b/.gitignore\n" +
-		"@@ -1,3 +1,2 @@\n"
-
-	// Only the guard line removed -> the toolchain's own cleanup, excluded.
-	assert.True(t, diffOnlyDropsGuard(header+" /build/\n-gomemlimit_gen.go\n vendor/\n"))
-
-	// A real addition alongside the removal -> a developer edit, not excluded.
-	assert.False(t, diffOnlyDropsGuard(header+"-gomemlimit_gen.go\n+something-new\n"))
-
-	// Removing a non-guard line -> not excluded.
-	assert.False(t, diffOnlyDropsGuard(header+" /build/\n-vendor/\n"))
-
-	// No removal at all (empty diff, or pure additions) -> nothing to exclude.
-	assert.False(t, diffOnlyDropsGuard(""))
-	assert.False(t, diffOnlyDropsGuard(header+"+/build/\n"))
+	// A tracked pin's own go.mod is this run's write; another module's is not.
+	pins := map[string][]string{".": {"example.com/dep"}}
+	assert.True(t, statusLineIsToolchainWrite(" M go.mod", pins))
+	assert.False(t, statusLineIsToolchainWrite(" M sub/go.mod", pins))
 }

@@ -7,19 +7,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
 // checkDirtyInCI returns an error if running in CI with a dirty working
 // tree, so binaries are never shipped built from uncommitted changes.
 //
-// Excluded: the transient GOMEMLIMIT guard in any state (added, modified,
-// deleted -- it is generated for the build and removed after, so it must
-// never count), and a branch-tracked pin's version token moving to its
-// branch's current commit (a cache of the last resolution, not something a
-// human commits). Anything else in go.mod, and any go.sum line for a module
-// that did not move, still counts as dirty.
+// Excluded: a branch-tracked pin's version token moving to its branch's
+// current commit (a cache of the last resolution, not something a human
+// commits). Anything else in go.mod, and any go.sum line for a module that
+// did not move, still counts as dirty.
 func checkDirtyInCI() error {
 	if os.Getenv("CI") == "" {
 		return nil
@@ -122,9 +118,9 @@ func dirtyDiffPaths(files string) []string {
 }
 
 // dirtyFilesExcludingToolchainWrites returns the trimmed `git status --short`
-// lines that represent real uncommitted changes, dropping the GOMEMLIMIT
-// guard and a branch-tracked pin following its branch. An empty result means
-// the tree is clean apart from those.
+// lines that represent real uncommitted changes, dropping a branch-tracked pin
+// following its branch. An empty result means the tree is clean apart from
+// those.
 func dirtyFilesExcludingToolchainWrites(statusOut string) string {
 	pins := trackedPinMoves(statusOut)
 	var kept []string
@@ -139,16 +135,12 @@ func dirtyFilesExcludingToolchainWrites(statusOut string) string {
 
 // statusLineIsToolchainWrite reports whether a `git status --short` porcelain
 // line refers to a file this run rewrote on its own authority. The format is
-// "XY <path>" (or "XY <old> -> <new>" for renames); the GOMEMLIMIT guard is
-// matched by base name so it is ignored in any package directory, while the
-// go.mod and go.sum cases are decided per module directory from pins.
+// "XY <path>" (or "XY <old> -> <new>" for renames); the go.mod and go.sum
+// cases are decided per module directory from pins.
 func statusLineIsToolchainWrite(line string, pins map[string][]string) bool {
 	path := statusLinePath(line)
 	if path == "" {
 		return false
-	}
-	if filepath.Base(path) == memlimit.GuardFileName {
-		return true
 	}
 	// A tracked pin's new commit, and the go.sum hashes that follow it. pins
 	// holds a directory only when its go.mod changed in no other way.
@@ -159,10 +151,6 @@ func statusLineIsToolchainWrite(line string, pins map[string][]string) bool {
 		case "go.sum":
 			return goSumFollowsPins(path, moved)
 		}
-	}
-	// A .gitignore diff that only drops the stale guard line is toolchain migration cleanup, not a developer edit.
-	if filepath.Base(path) == ".gitignore" && gitignoreChangeOnlyDropsGuard(path) {
-		return true
 	}
 	return false
 }
@@ -178,43 +166,4 @@ func statusLinePath(line string) string {
 		path = path[i+len(" -> "):]
 	}
 	return strings.Trim(path, "\"")
-}
-
-// gitignoreChangeOnlyDropsGuard reports whether the working-tree change to the
-// .gitignore at path, relative to HEAD, is solely the removal of the GOMEMLIMIT
-// guard line.
-func gitignoreChangeOnlyDropsGuard(path string) bool {
-	out, err := exec.Command("git", "diff", "HEAD", "--", path).Output()
-	if err != nil {
-		return false
-	}
-	return diffOnlyDropsGuard(string(out))
-}
-
-// diffOnlyDropsGuard parses a unified diff and reports whether every content
-// change is the removal of the guard line: a guard line removed, no
-// additions, and nothing else removed (blank-line churn aside). It is split out
-// from the git invocation so it can be unit-tested without a repository.
-func diffOnlyDropsGuard(diff string) bool {
-	sawGuardRemoval := false
-	for _, line := range strings.Split(diff, "\n") {
-		switch {
-		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-			// file headers, not content
-		case strings.HasPrefix(line, "+"):
-			if strings.TrimSpace(line[1:]) != "" {
-				return false // a real addition
-			}
-		case strings.HasPrefix(line, "-"):
-			content := strings.TrimSpace(line[1:])
-			if content == "" {
-				continue // removed blank line: cosmetic
-			}
-			if content != memlimit.GuardFileName {
-				return false // removed something other than the guard
-			}
-			sawGuardRemoval = true
-		}
-	}
-	return sawGuardRemoval
 }

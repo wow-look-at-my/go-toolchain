@@ -22,7 +22,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval.
 - **Dependency handling** — auto-updates same-org deps; every `github.com/wow-look-at-my/` dependency tracks a branch via a `// go-toolchain:auto-branch` marker. See [docs/DEPS.md](docs/DEPS.md).
 - **Dependency graph submission** — submits a dependency snapshot to GitHub in CI, feeding the repo's dependency graph. No opt-out; a failed submission fails the build.
-- **Automatic GOMEMLIMIT** — every built binary caps its Go heap at the container's cgroup limit instead of being OOM-killed. See [docs/MEMLIMIT.md](docs/MEMLIMIT.md).
+- **Automatic GOMEMLIMIT** — the compiler's runtime caps every binary's Go heap at the container's cgroup limit instead of being OOM-killed; `GOMEMLIMIT=off` opts out at run time.
 - **Output stall watchdog** — prints a loud `STALLED: no output for Ns` warning when the pipeline goes silent for 5+ seconds. Disable with `GO_TOOLCHAIN_NO_WATCHDOG=1`.
 - **CPU profiling** — run benchmarks under pprof via the `profile` subcommand.
 - **Local install** — `install` puts the binary in `~/.local/bin`.
@@ -207,7 +207,6 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - [docs/DEPS.md](docs/DEPS.md) — dependency updates and branch tracking
 - [docs/VET.md](docs/VET.md) — the custom vet analyzers
 - [docs/DATS-PHASE.md](docs/DATS-PHASE.md) — CLI test suites
-- [docs/MEMLIMIT.md](docs/MEMLIMIT.md) — the injected GOMEMLIMIT guard
 - [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md) — when `build/` artifacts are deleted
 - [docs/ACTION.md](docs/ACTION.md) — the composite GitHub Action
 - [docs/CI.md](docs/CI.md) — this repo's own CI workflow
