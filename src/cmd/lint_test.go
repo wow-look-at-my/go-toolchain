@@ -177,7 +177,6 @@ func TestListGoFilesInDir_NonexistentDir(t *testing.T) {
 }
 
 func TestRunLintImpl_NoDuplicates(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	writeUniqueGoFile(t, dir, "a.go", "funcA")
 	writeUniqueGoFile(t, dir, "b.go", "funcB")
@@ -193,7 +192,6 @@ func TestRunLintImpl_NoDuplicates(t *testing.T) {
 }
 
 func TestRunLintImpl_WithDuplicates(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	writeDuplicateGoFiles(t, dir)
 
@@ -230,7 +228,6 @@ func TestRunLintImpl_JSON(t *testing.T) {
 }
 
 func TestRunLintImpl_NoGoFiles(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 
 	oldJSON := jsonOutput

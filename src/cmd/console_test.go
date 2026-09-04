@@ -170,8 +170,9 @@ func withTimedLineMinDuration(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { timedLineMinDuration = old })
 }
 
+// The default timedLineMinDuration is what this asserts against, and
+// withTimedLineMinDuration below rewrites it, so this cannot run in parallel.
 func TestTimedLineWriterFastLinesOmitDuration(t *testing.T) {
-	t.Parallel()
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
 
@@ -236,7 +237,6 @@ func TestTimedLineWriterPartialWrites(t *testing.T) {
 }
 
 func TestTimedLineWriterFlushPartial(t *testing.T) {
-	t.Parallel()
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
 

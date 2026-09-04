@@ -11,8 +11,8 @@ func TestCallerLDFlagsSurvivesGOFLAGS(t *testing.T) {
 	// argv, so this pipeline's own -ldflags used to replace the caller's.
 	assert.Equal(t, "-X=main.gitHash=abc123",
 		callerLDFlags("-trimpath -ldflags=-X=main.gitHash=abc123 -mod=mod"))
-	assert.Equal(t, "-s -w", callerLDFlags("--ldflags=-s -w"),
-		"the go command accepts a doubled dash, so this has to as well")
+	assert.Equal(t, "-s", callerLDFlags("--ldflags=-s -w"),
+		"a doubled dash names the same flag, and -w past the space is its own GOFLAG")
 	assert.Equal(t, "", callerLDFlags(""))
 	assert.Equal(t, "", callerLDFlags("-trimpath -mod=mod"))
 	assert.Equal(t, "", callerLDFlags("-ldflags"), "a bare flag names no value")

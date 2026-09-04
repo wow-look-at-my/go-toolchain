@@ -174,7 +174,6 @@ func TestCheckFileLength_NoSkipNoticeWhenNothingSkipped(t *testing.T) {
 }
 
 func TestCheckFileLength_CountGeneratedFailsLargeGenerated(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 
 	var sb strings.Builder
