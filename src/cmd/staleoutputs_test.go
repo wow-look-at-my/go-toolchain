@@ -11,7 +11,7 @@ import (
 )
 
 func TestIsOutputArtifact(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// Every shape the build phase, the matrix, and the slot copies write.
 	for _, base := range []string{
 		"mytool",
@@ -73,7 +73,7 @@ func writeOutputDir(t *testing.T, dir string, names ...string) string {
 }
 
 func TestRemoveBuildOutputsIn(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := writeOutputDir(t, filepath.Join(t.TempDir(), "build"),
 		"mytool", "mytool_linux_amd64", "mytool.dbg", "checksums.txt", "unrelated")
 	// A stale host symlink is unlinked like any other artifact; following it is never required.
@@ -106,7 +106,7 @@ func TestRemoveBuildOutputsIn(t *testing.T) {
 // its outputs behind (runBuild deletes its own only on a failure it sees);
 // the sweeps take them like any other artifact. See build.TmpPrefix.
 func TestRemoveBuildOutputsInSweepsTempSpellings(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := writeOutputDir(t, filepath.Join(t.TempDir(), "build"),
 		".tmp-mytool", ".tmp-mytool.elf", ".tmp-mytool_linux_amd64", "unrelated.txt")
 
@@ -143,6 +143,7 @@ func setupOutputModule(t *testing.T) string {
 }
 
 func TestClearBuildOutputsDeletesPreviousRunBinaries(t *testing.T) {
+	t.Serial()
 	tmp := setupOutputModule(t)
 	dir := writeOutputDir(t, filepath.Join(tmp, "build"),
 		"mytool", "mytool_linux_amd64", "checksums.txt")
@@ -162,6 +163,7 @@ func TestClearBuildOutputsDeletesPreviousRunBinaries(t *testing.T) {
 }
 
 func TestDiscardBuildOutputsRemovesBinariesBuiltThisRun(t *testing.T) {
+	t.Serial()
 	tmp := setupOutputModule(t)
 	dir := filepath.Join(tmp, "build")
 
@@ -177,6 +179,7 @@ func TestDiscardBuildOutputsRemovesBinariesBuiltThisRun(t *testing.T) {
 }
 
 func TestDiscardBuildOutputsIsIndependentOfWorkingDirectory(t *testing.T) {
+	t.Serial()
 	tmp := setupOutputModule(t)
 	dir := writeOutputDir(t, filepath.Join(tmp, "build"), "mytool")
 	require.NoError(t, clearBuildOutputs(runner.New()))
@@ -191,6 +194,7 @@ func TestDiscardBuildOutputsIsIndependentOfWorkingDirectory(t *testing.T) {
 }
 
 func TestDiscardBuildOutputsFromCWD(t *testing.T) {
+	t.Serial()
 	tmp := setupOutputModule(t)
 	dir := writeOutputDir(t, filepath.Join(tmp, "build"), "mytool", "mytool_host", "checksums.txt")
 
@@ -226,6 +230,7 @@ func setupPipelineOutputTest(t *testing.T) (buildDir, binary string) {
 }
 
 func TestPipelineDeletesStaleBinaryWhenTestsFail(t *testing.T) {
+	t.Serial()
 	buildDir, binary := setupPipelineOutputTest(t)
 	// A binary left by an earlier, successful run.
 	writeOutputDir(t, buildDir, binary)
@@ -238,6 +243,7 @@ func TestPipelineDeletesStaleBinaryWhenTestsFail(t *testing.T) {
 }
 
 func TestPipelineDeletesStaleBinaryWhenBuildFails(t *testing.T) {
+	t.Serial()
 	buildDir, binary := setupPipelineOutputTest(t)
 	writeOutputDir(t, buildDir, binary)
 
@@ -248,6 +254,7 @@ func TestPipelineDeletesStaleBinaryWhenBuildFails(t *testing.T) {
 }
 
 func TestPipelineKeepsTheBinaryItJustBuilt(t *testing.T) {
+	t.Serial()
 	buildDir, binary := setupPipelineOutputTest(t)
 	// The stale binary is deleted up front; what must survive is the binary this run's build writes.
 	writeOutputDir(t, buildDir, binary)
@@ -270,6 +277,7 @@ func TestPipelineKeepsTheBinaryItJustBuilt(t *testing.T) {
 }
 
 func TestDiscardBuildOutputsFromCWDWithoutModule(t *testing.T) {
+	t.Serial()
 	// No go.mod, no targets: silent no-op, never an error or a panic.
 	tmp := t.TempDir()
 	t.Chdir(tmp)

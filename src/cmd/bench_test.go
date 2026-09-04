@@ -18,6 +18,7 @@ func chdirWithBenchFile(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuild(t *testing.T) {
+	t.Serial()
 	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
@@ -53,6 +54,7 @@ func TestRunBenchmarkInBuild(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildJSON(t *testing.T) {
+	t.Serial()
 	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
@@ -81,6 +83,7 @@ func TestRunBenchmarkInBuildJSON(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
+	t.Serial()
 	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
@@ -116,6 +119,7 @@ func TestRunBenchmarkInBuildWithPrevious(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildFails(t *testing.T) {
+	t.Serial()
 	chdirWithBenchFile(t)
 	mock := runner.NewMock()
 
@@ -143,6 +147,7 @@ func TestRunBenchmarkInBuildFails(t *testing.T) {
 }
 
 func TestRunBenchmarkInBuildSkipsWhenNoBenchmarks(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte("package p\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n"), 0644)
 	t.Chdir(dir)
@@ -157,6 +162,7 @@ func TestRunBenchmarkInBuildSkipsWhenNoBenchmarks(t *testing.T) {
 }
 
 func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -202,6 +208,7 @@ func TestRunWithRunnerBenchmarksByDefault(t *testing.T) {
 }
 
 func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -233,6 +240,7 @@ func TestRunWithRunnerNoBenchmarkFlag(t *testing.T) {
 }
 
 func TestRunBenchRunWithRunner(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 
 	// Set up benchmark response
@@ -267,6 +275,7 @@ func TestRunBenchRunWithRunner(t *testing.T) {
 }
 
 func TestRunBenchSaveWithRunner(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 
 	// Set up benchmark response
@@ -309,25 +318,26 @@ func TestRunBenchSaveWithRunner(t *testing.T) {
 }
 
 func TestRunBenchShow(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// This will fail because we're not in a git repo with notes, but exercises code
 	err := runBenchShow(benchShowCmd, []string{})
 	_ = err // expected to fail
 }
 
 func TestRunBenchShowWithArg(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	err := runBenchShow(benchShowCmd, []string{"HEAD"})
 	_ = err // expected to fail
 }
 
 func TestRunBenchCompare(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	err := runBenchCompare(benchCompareCmd, []string{"abc123", "def456"})
 	_ = err // expected to fail
 }
 
 func TestRunBenchRun(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`
@@ -359,6 +369,7 @@ func TestRunBenchRun(t *testing.T) {
 }
 
 func TestRunBenchSave(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 
 	benchOutput := `{"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}`

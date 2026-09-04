@@ -10,6 +10,7 @@ import (
 )
 
 func TestConfigIsCmd(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name     string
 		cfg      Config
@@ -75,6 +76,7 @@ func TestConfigIsCmd(t *testing.T) {
 }
 
 func TestConfigHasArg(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name     string
 		cfg      Config
@@ -122,6 +124,7 @@ func TestConfigHasArg(t *testing.T) {
 }
 
 func TestCmd(t *testing.T) {
+	t.Serial()
 	cfg := Cmd("go", "test", "-v")
 	assert.Equal(t, "go", cfg.Name)
 	assert.Equal(t, []string{"test", "-v"}, cfg.Args)
@@ -130,6 +133,7 @@ func TestCmd(t *testing.T) {
 }
 
 func TestConfigWithEnv(t *testing.T) {
+	t.Serial()
 	cfg := Cmd("go", "build").WithEnv("GOOS", "linux").WithEnv("GOARCH", "amd64")
 	goos, _ := cfg.Env.Get("GOOS")
 	goarch, _ := cfg.Env.Get("GOARCH")
@@ -141,6 +145,7 @@ func TestConfigWithEnv(t *testing.T) {
 // defaults to cosmo, and `go test` fork/execs what it builds, which a fat APE
 // answers with "exec format error" -- so the target is named, never inherited.
 func TestConfigWithHostTarget(t *testing.T) {
+	t.Serial()
 	cfg := Cmd("go", "test").WithHostTarget()
 	goos, ok := cfg.Env.Get("GOOS")
 	require.True(t, ok, "GOOS must be assigned, not left to the fork's default")
@@ -153,17 +158,20 @@ func TestConfigWithHostTarget(t *testing.T) {
 }
 
 func TestConfigWithQuiet(t *testing.T) {
+	t.Serial()
 	cfg := Cmd("go", "build").WithQuiet()
 	assert.True(t, cfg.Quiet)
 }
 
 func TestNewMock(t *testing.T) {
+	t.Serial()
 	mock := NewMock()
 	assert.NotNil(t, mock)
 	assert.Empty(t, mock.Calls())
 }
 
 func TestMockSetResponse(t *testing.T) {
+	t.Serial()
 	mock := NewMock()
 	mock.SetResponse("go", []string{"version"}, []byte("go1.21"), nil)
 
@@ -178,6 +186,7 @@ func TestMockSetResponse(t *testing.T) {
 }
 
 func TestMockSetStderr(t *testing.T) {
+	t.Serial()
 	mock := NewMock()
 	mock.SetResponse("go", []string{"build"}, nil, nil)
 	mock.SetStderr("go", []string{"build"}, []byte("some warning"))
@@ -191,6 +200,7 @@ func TestMockSetStderr(t *testing.T) {
 }
 
 func TestMockCalls(t *testing.T) {
+	t.Serial()
 	mock := NewMock()
 
 	mock.Run(Config{Name: "go", Args: []string{"mod", "tidy"}})
@@ -203,6 +213,7 @@ func TestMockCalls(t *testing.T) {
 }
 
 func TestMockHandler(t *testing.T) {
+	t.Serial()
 	mock := NewMock()
 	mock.Handler = func(cfg Config) (IProcess, error) {
 		if cfg.IsCmd("go", "test") {
@@ -220,6 +231,7 @@ func TestMockHandler(t *testing.T) {
 }
 
 func TestMockHandlerFallthrough(t *testing.T) {
+	t.Serial()
 	mock := NewMock()
 	mock.SetResponse("go", []string{"build"}, []byte("build output"), nil)
 	mock.Handler = func(cfg Config) (IProcess, error) {
@@ -244,6 +256,7 @@ func TestMockHandlerFallthrough(t *testing.T) {
 }
 
 func TestMockProcessWait(t *testing.T) {
+	t.Serial()
 	proc := MockProcess([]byte("output"), nil)
 	err := proc.Wait()
 	assert.Nil(t, err)
@@ -254,12 +267,14 @@ func TestMockProcessWait(t *testing.T) {
 }
 
 func TestMockProcessWaitError(t *testing.T) {
+	t.Serial()
 	proc := MockProcess(nil, assert.AnError)
 	err := proc.Wait()
 	assert.Equal(t, assert.AnError, err)
 }
 
 func TestRealRunnerEcho(t *testing.T) {
+	t.Serial()
 	r := New()
 	proc, err := r.Run(Config{Name: "echo", Args: []string{"hello", "world"}, Quiet: true})
 	assert.Nil(t, err)
@@ -273,6 +288,7 @@ func TestRealRunnerEcho(t *testing.T) {
 }
 
 func TestRealRunnerWithEnv(t *testing.T) {
+	t.Serial()
 	r := New()
 	proc, err := r.Run(Config{
 		Name:  "sh",
@@ -290,6 +306,7 @@ func TestRealRunnerWithEnv(t *testing.T) {
 }
 
 func TestRealRunnerStderr(t *testing.T) {
+	t.Serial()
 	r := New()
 	proc, err := r.Run(Config{
 		Name:  "sh",
@@ -306,6 +323,7 @@ func TestRealRunnerStderr(t *testing.T) {
 }
 
 func TestRealRunnerFailingCommand(t *testing.T) {
+	t.Serial()
 	r := New()
 	proc, err := r.Run(Config{Name: "false", Quiet: true})
 	assert.Nil(t, err) // Start succeeds
@@ -315,12 +333,14 @@ func TestRealRunnerFailingCommand(t *testing.T) {
 }
 
 func TestRealRunnerCommandNotFound(t *testing.T) {
+	t.Serial()
 	r := New()
 	_, err := r.Run(Config{Name: "nonexistent_command_12345"})
 	assert.NotNil(t, err)
 }
 
 func TestConfigRun(t *testing.T) {
+	t.Serial()
 	mock := NewMock()
 	mock.SetResponse("echo", []string{"test"}, []byte("test\n"), nil)
 
@@ -331,11 +351,13 @@ func TestConfigRun(t *testing.T) {
 }
 
 func TestWithOnFirstOutput(t *testing.T) {
+	t.Serial()
 	cfg := Cmd("echo", "test").WithOnFirstOutput(func() {})
 	assert.NotNil(t, cfg.OnFirstOutput)
 }
 
 func TestRealRunnerNonQuietStreamsOutput(t *testing.T) {
+	t.Serial()
 	// Non-quiet mode: Wait() should copy stdout/stderr to console
 	r := New()
 	proc, err := r.Run(Config{
@@ -352,6 +374,7 @@ func TestRealRunnerNonQuietStreamsOutput(t *testing.T) {
 }
 
 func TestRealRunnerNonQuietNoOutput(t *testing.T) {
+	t.Serial()
 	r := New()
 	proc, err := r.Run(Config{
 		Name: "true",
@@ -364,6 +387,7 @@ func TestRealRunnerNonQuietNoOutput(t *testing.T) {
 }
 
 func TestRealRunnerOnFirstOutputCallback(t *testing.T) {
+	t.Serial()
 	called := false
 	r := New()
 	proc, err := r.Run(Config{
@@ -378,6 +402,7 @@ func TestRealRunnerOnFirstOutputCallback(t *testing.T) {
 }
 
 func TestRealRunnerOnFirstOutputNotCalledWhenQuiet(t *testing.T) {
+	t.Serial()
 	called := false
 	r := New()
 	proc, err := r.Run(Config{
@@ -393,12 +418,14 @@ func TestRealRunnerOnFirstOutputNotCalledWhenQuiet(t *testing.T) {
 }
 
 func TestHadOutputWithMockProcess(t *testing.T) {
+	t.Serial()
 	// HadOutput returns false for mock processes (not *process type)
 	proc := MockProcess([]byte("output"), nil)
 	assert.False(t, HadOutput(proc))
 }
 
 func TestRealRunnerWaitIdempotent(t *testing.T) {
+	t.Serial()
 	r := New()
 	proc, err := r.Run(Config{Name: "true"})
 	assert.Nil(t, err)
@@ -410,6 +437,7 @@ func TestRealRunnerWaitIdempotent(t *testing.T) {
 }
 
 func TestRealRunnerStderrNonQuiet(t *testing.T) {
+	t.Serial()
 	// Test that stderr streams correctly in non-quiet mode
 	r := New()
 	proc, err := r.Run(Config{

@@ -15,6 +15,7 @@ import (
 )
 
 func TestRunWithRunnerModTidyFails(t *testing.T) {
+	t.Serial()
 	mock := newModTidyFailMock()
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -23,6 +24,7 @@ func TestRunWithRunnerModTidyFails(t *testing.T) {
 }
 
 func TestRunWithRunnerTestsFail(t *testing.T) {
+	t.Serial()
 	mock := newTestPipesFailMock()
 	jsonOutput = true
 	defer func() { jsonOutput = false }()
@@ -31,6 +33,7 @@ func TestRunWithRunnerTestsFail(t *testing.T) {
 }
 
 func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -42,6 +45,7 @@ func TestRunWithRunnerCoverageBelowThreshold(t *testing.T) {
 }
 
 func TestRunWithRunnerSuccess(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -60,6 +64,7 @@ func TestRunWithRunnerSuccess(t *testing.T) {
 // would claim a property the fat APE does not have -- it runs on every host --
 // and there is no host-shaped build left for it to distinguish.
 func TestRunWithRunnerBinaryNameCarriesNoPlatform(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -88,6 +93,7 @@ func TestRunWithRunnerBinaryNameCarriesNoPlatform(t *testing.T) {
 }
 
 func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -118,6 +124,7 @@ func TestRunWithRunnerCGODisabledByDefault(t *testing.T) {
 }
 
 func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -148,6 +155,7 @@ func TestRunWithRunnerCGOEnabledFlag(t *testing.T) {
 }
 
 func TestRunWithRunnerSuccessVerbose(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -168,6 +176,7 @@ func TestRunWithRunnerSuccessVerbose(t *testing.T) {
 }
 
 func TestRunWithRunnerNonJSON(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -186,6 +195,7 @@ func TestRunWithRunnerNonJSON(t *testing.T) {
 }
 
 func TestRunWithRunnerBuildFails(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -204,6 +214,7 @@ func TestRunWithRunnerBuildFails(t *testing.T) {
 }
 
 func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -218,6 +229,7 @@ func TestRunWithRunnerCoverageBelowThresholdNonJSON(t *testing.T) {
 }
 
 func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -231,6 +243,7 @@ func TestRunWithRunnerCoverageBelowThresholdJSON(t *testing.T) {
 	assert.NotNil(t, err)
 }
 func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -245,6 +258,7 @@ func TestRunWithRunnerWatermarkEnforcement(t *testing.T) {
 }
 
 func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -274,6 +288,7 @@ func TestRunWithRunnerBrokenCoverageDataPanics(t *testing.T) {
 	})
 }
 func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
+	t.Serial()
 	for _, tc := range []struct {
 		name     string
 		cov, unc int
@@ -299,6 +314,7 @@ func TestRunWithRunnerReducedCoverageSmallProgram(t *testing.T) {
 }
 
 func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -320,6 +336,7 @@ func TestRunWithRunnerWatermarkGracePass(t *testing.T) {
 }
 
 func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -345,6 +362,7 @@ func TestRunWithRunnerWatermarkRatchetUp(t *testing.T) {
 }
 
 func TestRunWithRunnerFailedTest(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)
@@ -363,6 +381,7 @@ func TestRunWithRunnerFailedTest(t *testing.T) {
 }
 
 func TestRunWithRunnerTestsFailWithOutput(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	setupMockProject(t)

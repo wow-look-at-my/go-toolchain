@@ -56,6 +56,7 @@ func runWriteRunsOn(t *testing.T, src string) []int {
 // free and the rest are the document, so the lines past the allowance
 // warn.
 func TestWriteRunsWarnsPastTheSecondWrite(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 import (
@@ -77,6 +78,7 @@ func emit(script *strings.Builder, apeRunDir string) {
 // TestWriteRunsNamesTheRemedy verifies the warning says what to write instead.
 // A count with no remedy leaves the reader to guess.
 func TestWriteRunsNamesTheRemedy(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 import "strings"
@@ -97,6 +99,7 @@ func emit(b *strings.Builder) {
 // TestWriteRunsBoundaries covers what starts a run, what ends it, and what is
 // not a write at all.
 func TestWriteRunsBoundaries(t *testing.T) {
+	t.Serial()
 	cases := []struct {
 		name  string
 		body  string
@@ -213,6 +216,7 @@ func emit(b, other *strings.Builder, s struct{ buf *strings.Builder }, n int, na
 // A fingerprint frames its input, and a run of writes IS the framing; the
 // document type next to it, written the same way, still warns.
 func TestWriteRunsSkipsAHash(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 type digest struct{}
@@ -274,6 +278,7 @@ func render(d doc) {
 // file, so a site that warned per variant would spend much of the warnings
 // budget on a single line.
 func TestWriteRunsSpendsOneWarningPerSite(t *testing.T) {
+	t.Serial()
 	const src = `package ape
 
 import "strings"

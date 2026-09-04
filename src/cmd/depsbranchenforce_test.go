@@ -66,6 +66,7 @@ func suffixFor(t *testing.T, mod string) string {
 }
 
 func TestEnforceOrgBranchTrackingMarksAVersionPinnedOrgRequire(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -90,6 +91,7 @@ require (
 // stale snapshot until the branch is resolved, which is the next step of the
 // same pipeline phase.
 func TestEnforceOrgBranchTrackingThenUpdateResolvesTheBranchHead(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -117,6 +119,7 @@ require github.com/wow-look-at-my/foo v1.2.3
 // the default is dropped, and the line stops caring what the branch is called.
 // A name that does not is kept, because it was a deliberate choice.
 func TestEnforceOrgBranchTrackingMigratesTheLegacySpelling(t *testing.T) {
+	t.Serial()
 	for _, tc := range []struct {
 		branch string
 		want   string
@@ -147,6 +150,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-t
 // module is version-pinned exactly like a direct require, and it has no
 // direct require of its own to ride along with.
 func TestEnforceOrgBranchTrackingMarksAVersionPinnedIndirectOrgRequire(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -164,6 +168,7 @@ require github.com/wow-look-at-my/foo v1.2.3 // indirect
 
 // An indirect require from outside the org is not this org's problem and is left alone.
 func TestEnforceOrgBranchTrackingLeavesAThirdPartyIndirectRequireAlone(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -183,6 +188,7 @@ require github.com/spf13/cobra v1.8.0 // indirect
 // A fork keeps upstream's module path, so the version that reaches the build
 // lives on the replace line -- which is where the marker has to go.
 func TestEnforceOrgBranchTrackingMarksTheReplaceNotTheRequire(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -205,6 +211,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 // version, so that line still has to track. The replace itself stays bare,
 // because a directory has no branch.
 func TestEnforceOrgBranchTrackingMarksARequireBehindALocalReplacement(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -230,6 +237,7 @@ replace github.com/wow-look-at-my/foo => ./vendor/foo
 // name a commit older than the sibling's own go.mod, and every consumer got
 // "missing go.mod at revision".
 func TestEnforceOrgBranchTrackingMarksASiblingRequireBehindARelativeReplace(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module github.com/wow-look-at-my/repo/writer
 go 1.21
@@ -252,6 +260,7 @@ replace github.com/wow-look-at-my/repo/reader => ../reader
 // consumers too, exactly like the direct case above: the replace is
 // main-module-only and names no branch, so the require still has to track.
 func TestEnforceOrgBranchTrackingMarksAnIndirectRequireBehindALocalReplacement(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -272,6 +281,7 @@ replace github.com/wow-look-at-my/foo => ../foo
 // The direct sibling and the indirect require behind it get marked in the
 // same pass -- neither needs the other to already be tracked.
 func TestEnforceOrgBranchTrackingMarksBothSidesOfASiblingPair(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module github.com/wow-look-at-my/repo/cli
 go 1.21
@@ -300,6 +310,7 @@ replace github.com/wow-look-at-my/repo/reader => ../reader
 // line still carrying the old go-toolchain:pinned comment gets marked same
 // as any other unmarked line -- the prose stays, inert, alongside the marker.
 func TestEnforceOrgBranchTrackingNoLongerHonorsAPinComment(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -322,6 +333,7 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:pinned v2 is a hard
 // build resolves. It warns, because a name kept for that reason is a name
 // somebody may want to drop later.
 func TestEnforceOrgBranchTrackingKeepsTheNameWhenTheRemoteIsUnreachable(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -350,6 +362,7 @@ require github.com/wow-look-at-my/foo v1.2.3 // go-toolchain:branch=master
 }
 
 func TestEnforceOrgBranchTrackingIsANoOpWithoutAGoMod(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 
 	mock := runner.NewMock()
@@ -360,6 +373,7 @@ func TestEnforceOrgBranchTrackingIsANoOpWithoutAGoMod(t *testing.T) {
 }
 
 func TestUntrackedOrgDepsNamesEveryUnmarkedLine(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	writeGoMod(t, `module test
 go 1.21
@@ -379,7 +393,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 }
 
 func TestIsOrgModule(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.True(t, isOrgModule("github.com/wow-look-at-my/foo"))
 	assert.True(t, isOrgModule("github.com/wow-look-at-my/foo/v2"))
 	assert.False(t, isOrgModule("github.com/spf13/cobra"))

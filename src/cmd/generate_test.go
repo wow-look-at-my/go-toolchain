@@ -12,7 +12,7 @@ import (
 )
 
 func TestParseDirectives(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// Create a temp directory with a test file
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
@@ -37,7 +37,7 @@ func TestParseDirectives(t *testing.T) {
 }
 
 func TestParseDirectivesLongLines(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
@@ -61,7 +61,7 @@ func TestParseDirectivesLongLines(t *testing.T) {
 }
 
 func TestParseDirectivesNoDirectives(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
@@ -78,7 +78,7 @@ func main() {}
 }
 
 func TestParseDirectivesRejectsGoFmt(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
@@ -92,7 +92,7 @@ func TestParseDirectivesRejectsGoFmt(t *testing.T) {
 }
 
 func TestParseDirectivesRejectsShellWrappedGoFmt(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 
@@ -106,7 +106,7 @@ func TestParseDirectivesRejectsShellWrappedGoFmt(t *testing.T) {
 }
 
 func TestFindGenerateDirectives(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create subdirectory
@@ -132,7 +132,7 @@ func TestFindGenerateDirectives(t *testing.T) {
 }
 
 func TestFindGenerateDirectivesSkipsVendor(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create vendor directory
@@ -156,7 +156,7 @@ func TestFindGenerateDirectivesSkipsVendor(t *testing.T) {
 }
 
 func TestExecuteDirectiveSuccess(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
@@ -172,7 +172,7 @@ func TestExecuteDirectiveSuccess(t *testing.T) {
 }
 
 func TestExecuteDirectiveFailure(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
 	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
@@ -189,7 +189,7 @@ func TestExecuteDirectiveFailure(t *testing.T) {
 }
 
 func TestPrefixOutput(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		name   string
 		input  string
@@ -226,7 +226,7 @@ func TestPrefixOutput(t *testing.T) {
 }
 
 func TestGuessPackage(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		path   string
 		expect string
@@ -244,6 +244,7 @@ func TestGuessPackage(t *testing.T) {
 }
 
 func TestRunGenerateWithHash(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -273,6 +274,7 @@ func TestRunGenerateWithHash(t *testing.T) {
 }
 
 func TestRunGenerateWrongHash(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -291,6 +293,7 @@ func TestRunGenerateWrongHash(t *testing.T) {
 }
 
 func TestRunGenerateSkip(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -309,6 +312,7 @@ func TestRunGenerateSkip(t *testing.T) {
 }
 
 func TestRunGenerateNoDirectives(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -320,7 +324,7 @@ func TestRunGenerateNoDirectives(t *testing.T) {
 }
 
 func TestComputeDirectivesHash(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	directives := []generateDirective{
 		{File: "a.go", Line: 1, Command: "echo a"},
 		{File: "b.go", Line: 2, Command: "echo b"},
@@ -346,7 +350,7 @@ func TestComputeDirectivesHash(t *testing.T) {
 }
 
 func TestSplitGenerateCommand(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		name    string
 		input   string
@@ -439,7 +443,7 @@ func TestSplitGenerateCommand(t *testing.T) {
 }
 
 func TestExpandGenerateVars(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	d := generateDirective{
 		File:    "sub/foo.go",
 		Line:    42,
@@ -458,7 +462,7 @@ func TestExpandGenerateVars(t *testing.T) {
 }
 
 func TestExecuteDirectivePreservesMetachars(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	requireShebangHelper(t)
 	dir := t.TempDir()
 

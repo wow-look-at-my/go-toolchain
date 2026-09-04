@@ -29,8 +29,7 @@ type Row struct {
 
 // Report is the build profile written to build/profile.json. WallMSTotal sums
 // per-action wall time without folding out parallelism, and Actions sorts by
-// wall time descending. No field carries a cache hit or miss: gosmopolitan's
-// cmd/go caches in process.
+// wall time descending. No field carries a cache hit or miss.
 type Report struct {
 	Schema          int       `json:"schema"`
 	Created         time.Time `json:"created"`

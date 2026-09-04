@@ -13,7 +13,7 @@ import (
 )
 
 func TestCheckFileLength_UnderThreshold(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "short.go"), []byte("package foo\n\nfunc Foo() {}\n"), 0644)
 
@@ -22,7 +22,7 @@ func TestCheckFileLength_UnderThreshold(t *testing.T) {
 }
 
 func TestCheckFileLength_Warning(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 
 	var sb strings.Builder
@@ -38,7 +38,7 @@ func TestCheckFileLength_Warning(t *testing.T) {
 }
 
 func TestCheckFileLength_Error(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 
 	var sb strings.Builder
@@ -54,7 +54,7 @@ func TestCheckFileLength_Error(t *testing.T) {
 }
 
 func TestIsGeneratedFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	cases := []struct {
 		name string
 		src  string
@@ -121,6 +121,7 @@ func TestIsGeneratedFile(t *testing.T) {
 }
 
 func TestCheckFileLength_SkipsGenerated(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	var sb strings.Builder
@@ -154,6 +155,7 @@ func TestCheckFileLength_SkipsGenerated(t *testing.T) {
 }
 
 func TestCheckFileLength_NoSkipNoticeWhenNothingSkipped(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "short.go"), []byte("package foo\n\nfunc Foo() {}\n"), 0644)
 
@@ -174,6 +176,7 @@ func TestCheckFileLength_NoSkipNoticeWhenNothingSkipped(t *testing.T) {
 }
 
 func TestCheckFileLength_CountGeneratedFailsLargeGenerated(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	var sb strings.Builder
@@ -193,7 +196,7 @@ func TestCheckFileLength_CountGeneratedFailsLargeGenerated(t *testing.T) {
 }
 
 func TestCheckFileLength_SkipsVendor(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	vendorDir := filepath.Join(dir, "vendor", "pkg")
 	os.MkdirAll(vendorDir, 0755)
@@ -210,6 +213,7 @@ func TestCheckFileLength_SkipsVendor(t *testing.T) {
 }
 
 func TestCheckFileLength_GHAWarningAnnotation(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	var sb strings.Builder
@@ -240,6 +244,7 @@ func TestCheckFileLength_GHAWarningAnnotation(t *testing.T) {
 }
 
 func TestCheckFileLength_GHAErrorAnnotation(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	var sb strings.Builder
@@ -269,6 +274,7 @@ func TestCheckFileLength_GHAErrorAnnotation(t *testing.T) {
 }
 
 func TestCheckFileLength_NoGHAAnnotationsLocally(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	var sb strings.Builder
@@ -298,7 +304,7 @@ func TestCheckFileLength_NoGHAAnnotationsLocally(t *testing.T) {
 }
 
 func TestCheckFileLength_TestFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 
 	var sb strings.Builder

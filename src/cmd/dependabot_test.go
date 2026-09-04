@@ -13,6 +13,7 @@ import (
 )
 
 func TestBuildDepSnapshot_MissingSHA(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_SHA", "")
 	_, err := buildDepSnapshot()
 	assert.NotNil(t, err)
@@ -20,6 +21,7 @@ func TestBuildDepSnapshot_MissingSHA(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_NoGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -31,6 +33,7 @@ func TestBuildDepSnapshot_NoGoMod(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_Success(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_SHA", "abc123def456")
 	t.Setenv("GITHUB_REF", "refs/heads/main")
 	t.Setenv("GITHUB_RUN_ID", "99999")
@@ -61,6 +64,7 @@ func TestBuildDepSnapshot_Success(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_DefaultRef(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_REF", "")
 
@@ -70,6 +74,7 @@ func TestBuildDepSnapshot_DefaultRef(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_IndirectDeps(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -88,6 +93,7 @@ func TestBuildDepSnapshot_IndirectDeps(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_WorkspaceRelativePath(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_WORKSPACE", "/")
 
@@ -101,6 +107,7 @@ func TestBuildDepSnapshot_WorkspaceRelativePath(t *testing.T) {
 }
 
 func TestPostDepSnapshot_MissingToken(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	err := postDepSnapshot(&depSnapshot{})
@@ -111,6 +118,7 @@ func TestPostDepSnapshot_MissingToken(t *testing.T) {
 }
 
 func TestPostDepSnapshot_MissingRepo(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	t.Setenv("GITHUB_REPOSITORY", "")
 	err := postDepSnapshot(&depSnapshot{})
@@ -119,6 +127,7 @@ func TestPostDepSnapshot_MissingRepo(t *testing.T) {
 }
 
 func TestPostDepSnapshot_Success(t *testing.T) {
+	t.Serial()
 	var received depSnapshot
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
@@ -165,6 +174,7 @@ func TestPostDepSnapshot_Success(t *testing.T) {
 }
 
 func TestPostDepSnapshot_GHTokenFallback(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "token fallback-token", r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusCreated)
@@ -184,6 +194,7 @@ func TestPostDepSnapshot_GHTokenFallback(t *testing.T) {
 }
 
 func TestPostDepSnapshot_APIError(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`{"message":"Resource not accessible"}`))
@@ -206,6 +217,7 @@ func TestPostDepSnapshot_APIError(t *testing.T) {
 }
 
 func TestPostDepSnapshot_APIErrorNon403(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"message":"boom"}`))
@@ -228,17 +240,20 @@ func TestPostDepSnapshot_APIErrorNon403(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_NotCI(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoRepo(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "")
 	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoSHA(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "")
@@ -246,6 +261,7 @@ func TestMaybeSubmitDeps_NoSHA(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_Success(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	}))
@@ -267,6 +283,7 @@ func TestMaybeSubmitDeps_Success(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
@@ -292,6 +309,7 @@ func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -310,6 +328,7 @@ func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 // as this repository's dependency graph. That carve-out exists for this
 // repository alone -- see TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere.
 func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
+	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -346,6 +365,7 @@ func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 // this, any repo could dodge dependency submission by cd-ing to a temp dir and
 // stay green while dropping out of vulnerability scanning.
 func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
+	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -380,6 +400,7 @@ func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
 
 // The guard must not swing the other way: a real build, in the checkout, submits.
 func TestMaybeSubmitDeps_SubmitsRepoWorkspace(t *testing.T) {
+	t.Serial()
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++

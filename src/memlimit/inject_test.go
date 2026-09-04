@@ -10,6 +10,7 @@ import (
 )
 
 func TestInjectCreatesFile(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	created, err := Inject(dir)
@@ -22,6 +23,7 @@ func TestInjectCreatesFile(t *testing.T) {
 }
 
 func TestInjectIdempotent(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	_, err := Inject(dir)
@@ -33,6 +35,7 @@ func TestInjectIdempotent(t *testing.T) {
 }
 
 func TestInjectOverwritesStale(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	target := filepath.Join(dir, GuardFileName)
 	require.NoError(t, os.WriteFile(target, []byte("package main\n// stale\n"), 0o644))
@@ -47,6 +50,7 @@ func TestInjectOverwritesStale(t *testing.T) {
 }
 
 func TestInjectAllDiscoversMainPackages(t *testing.T) {
+	t.Serial()
 	mod := t.TempDir()
 	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
 	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
@@ -76,6 +80,7 @@ func TestInjectAllDiscoversMainPackages(t *testing.T) {
 }
 
 func TestCleanupAllRemovesInjectedGuards(t *testing.T) {
+	t.Serial()
 	mod := t.TempDir()
 	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
 	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
@@ -105,6 +110,7 @@ func TestCleanupAllRemovesInjectedGuards(t *testing.T) {
 }
 
 func TestCleanupAllIdempotentWhenAbsent(t *testing.T) {
+	t.Serial()
 	mod := t.TempDir()
 	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
 	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
@@ -118,6 +124,7 @@ func TestCleanupAllIdempotentWhenAbsent(t *testing.T) {
 }
 
 func TestCleanupAllNoModule(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -127,6 +134,7 @@ func TestCleanupAllNoModule(t *testing.T) {
 }
 
 func TestInjectAllThenCleanupAllRoundTrip(t *testing.T) {
+	t.Serial()
 	mod := t.TempDir()
 	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
 	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")

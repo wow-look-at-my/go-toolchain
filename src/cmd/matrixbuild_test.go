@@ -52,7 +52,7 @@ func tmpOut(t *testing.T) string {
 }
 
 func TestRunBuildCapturesStderr(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if isGoBuild(cfg) {
@@ -68,7 +68,7 @@ func TestRunBuildCapturesStderr(t *testing.T) {
 }
 
 func TestRunBuildNoStderrOnSuccess(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	// The mocked compiler obeys a real compiler's contract: a successful go build
 	// materializes its -o target.
@@ -87,6 +87,7 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 // runBuild is where everything compiles, so a path spelled without the suffix
 // fails to exec every build on that host.
 func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
+	t.Serial()
 	oldHost := cosmoHostPlatformFunc
 	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
 	t.Cleanup(func() { cosmoHostPlatformFunc = oldHost })
@@ -110,7 +111,7 @@ func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
 // through the build-ID notes, and each flag closes its own channel, so a build
 // missing either still leaves the hosts disagreeing.
 func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	for _, job := range []buildJob{wasmJob(t, tmpOut(t)), cosmoJob(t, tmpOut(t))} {
 		t.Run(job.goos, func(t *testing.T) {
 			mock := runner.NewMock()
@@ -133,7 +134,7 @@ func TestRunBuildIsReproducibleAcrossHosts(t *testing.T) {
 // An explicit ldflags survives, and the reproducibility flag still wins:
 // dropping it silently would give up cross-host identity without saying so.
 func TestRunBuildKeepsCallerLDFlagsAndStillEmptiesTheBuildID(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		writeMockBuildOutput(cfg, "bin")
@@ -157,7 +158,7 @@ func TestRunBuildKeepsCallerLDFlagsAndStillEmptiesTheBuildID(t *testing.T) {
 }
 
 func TestRunBuild(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		writeMockBuildOutput(cfg, "bin")
@@ -194,6 +195,7 @@ func TestRunBuild(t *testing.T) {
 // --cgo cannot turn cgo on: the APE and wasm both lack it, so CGO_ENABLED is
 // assigned off either way rather than left to the flag or the environment.
 func TestRunBuildForcesCGOOffEvenWithTheFlag(t *testing.T) {
+	t.Serial()
 	for _, flag := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cgoEnabled=%v", flag), func(t *testing.T) {
 			oldCgo := cgoEnabled
@@ -219,7 +221,7 @@ func TestRunBuildForcesCGOOffEvenWithTheFlag(t *testing.T) {
 // The APE already occupies the bare name, so only the _host convenience link
 // is created. Overwriting the bare name would delete the artifact itself.
 func TestCreateHostSymlinks(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -244,7 +246,7 @@ func TestCreateHostSymlinks(t *testing.T) {
 }
 
 func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -263,7 +265,7 @@ func TestCreateHostSymlinksSkipsMissing(t *testing.T) {
 }
 
 func TestCreateHostSymlinksReplacesStale(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	targets := []build.Target{
@@ -285,7 +287,7 @@ func TestCreateHostSymlinksReplacesStale(t *testing.T) {
 // outside runBuild: the -o arg carries the .tmp- spelling, the result ends up
 // on the target file, and the temp name is gone.
 func TestRunBuildMovesOutputIntoPlace(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	final := filepath.Join(t.TempDir(), "mytool")
 	var built string
 	mock := runner.NewMock()
@@ -312,7 +314,7 @@ func TestRunBuildMovesOutputIntoPlace(t *testing.T) {
 // what the compiler already wrote under the temp spelling is removed, and the
 // target file never appears.
 func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	final := filepath.Join(t.TempDir(), "mytool")
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
@@ -334,7 +336,7 @@ func TestRunBuildDeletesTempOutputOnFailure(t *testing.T) {
 // producing its -o target is not shippable — the run fails loudly instead of
 // reporting a build whose output nobody can find.
 func TestRunBuildRefusesToCommitMissingOutput(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	final := filepath.Join(t.TempDir(), "mytool")
 	// A build that "succeeds" but writes nothing, unlike a real compiler.
 	mock := runner.NewMock()

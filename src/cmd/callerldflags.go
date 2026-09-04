@@ -4,7 +4,7 @@ import "strings"
 
 // callerLDFlags is the -ldflags the caller set in GOFLAGS. The go command
 // applies GOFLAGS before parsing argv, so a -ldflags on the command line
-// REPLACES it -- and this pipeline always passes one.
+// REPLACES it, and this pipeline always passes its own.
 func callerLDFlags(goflags string) string {
 	var values []string
 	for _, field := range splitGOFLAGS(goflags) {

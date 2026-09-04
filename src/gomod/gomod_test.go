@@ -28,6 +28,7 @@ func newModule(t *testing.T, modPath string) string {
 }
 
 func TestHasMainPackage_IgnoresBuildIgnoreMain(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A dir whose only package main file is //go:build ignore is not a main package.
 	writeFile(t, root, "gen.go", "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
@@ -36,6 +37,7 @@ func TestHasMainPackage_IgnoresBuildIgnoreMain(t *testing.T) {
 }
 
 func TestHasMainPackage_IgnoresPlusBuildIgnoreMain(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// Old-style "// +build ignore" must also be honored.
 	writeFile(t, root, "gen.go", "// +build ignore\n\npackage main\n\nfunc main() {}\n")
@@ -44,12 +46,14 @@ func TestHasMainPackage_IgnoresPlusBuildIgnoreMain(t *testing.T) {
 }
 
 func TestHasMainPackage_NormalMainIsFound(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
 	assert.True(t, hasMainPackage(root), "a normal package main dir must be found")
 }
 
 func TestHasMainPackage_RealMainAlongsideIgnoredGenerator(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A real main next to an ignored generator main must still be discovered.
 	writeFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
@@ -59,6 +63,7 @@ func TestHasMainPackage_RealMainAlongsideIgnoredGenerator(t *testing.T) {
 }
 
 func TestHasMainPackage_BenchDirWithOnlyIgnoredGeneratorIsNotMain(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A package bench dir with only an ignored generator main is not a main package.
 	writeFile(t, root, "bench_test.go", "package bench\n")
@@ -68,6 +73,7 @@ func TestHasMainPackage_BenchDirWithOnlyIgnoredGeneratorIsNotMain(t *testing.T) 
 }
 
 func TestFindMainPackages_HonorsBuildConstraints(t *testing.T) {
+	t.Serial()
 	modPath := "example.com/honors"
 	newModule(t, modPath)
 
@@ -89,6 +95,7 @@ func TestFindMainPackages_HonorsBuildConstraints(t *testing.T) {
 }
 
 func TestHasMainPackage_OnlyConstraintChecksMainCandidates(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A directory full of non-main files plus a single real package main.
 	writeFile(t, root, "a.go", "package lib\n")
@@ -110,6 +117,7 @@ func TestHasMainPackage_OnlyConstraintChecksMainCandidates(t *testing.T) {
 }
 
 func TestFindMainPackages_RootMain(t *testing.T) {
+	t.Serial()
 	modPath := "example.com/rootmain"
 	newModule(t, modPath)
 	writeFile(t, ".", "main.go", "package main\n\nfunc main() {}\n")
@@ -130,6 +138,7 @@ you may not use this file except in compliance with the License.
 `
 
 func TestPackageNameFromFile_BlockCommentHeader(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	writeFile(t, root, "main.go", k8sHeader+"package main\n\nfunc main() {}\n")
 	assert.Equal(t, "main", packageNameFromFile(filepath.Join(root, "main.go")),
@@ -137,6 +146,7 @@ func TestPackageNameFromFile_BlockCommentHeader(t *testing.T) {
 }
 
 func TestPackageNameFromFile_Forms(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	cases := []struct {
 		name, content, want string
@@ -157,6 +167,7 @@ func TestPackageNameFromFile_Forms(t *testing.T) {
 }
 
 func TestHasMainPackage_BlockCommentHeaderMain(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// End-to-end: a main file behind a block-comment header must still be found.
 	writeFile(t, root, "main.go", k8sHeader+"package main\n\nfunc main() {}\n")
@@ -165,6 +176,7 @@ func TestHasMainPackage_BlockCommentHeaderMain(t *testing.T) {
 }
 
 func TestIsNestedModule(t *testing.T) {
+	t.Serial()
 	newModule(t, "example.com/outer")
 	writeFile(t, "plain", "lib.go", "package lib\n")
 	writeFile(t, "nested", "go.mod", "module example.com/nested\n\ngo 1.25\n")
@@ -176,6 +188,7 @@ func TestIsNestedModule(t *testing.T) {
 }
 
 func TestFindMainPackages_SkipsNestedModule(t *testing.T) {
+	t.Serial()
 	modPath := "example.com/outer"
 	newModule(t, modPath)
 	writeFile(t, "cmd/app", "main.go", "package main\n\nfunc main() {}\n")
@@ -189,6 +202,7 @@ func TestFindMainPackages_SkipsNestedModule(t *testing.T) {
 }
 
 func TestFindMainPackagesForTarget(t *testing.T) {
+	t.Serial()
 	newModule(t, "example.com/multi")
 	writeFile(t, "cmd/everywhere", "main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, "cmd/wasmonly", "main.go", "//go:build js && wasm\n\npackage main\n\nfunc main() {}\n")
@@ -220,6 +234,7 @@ func TestFindMainPackagesForTarget(t *testing.T) {
 }
 
 func TestFindMainPackagesSkipsMemLimitGuard(t *testing.T) {
+	t.Serial()
 	newModule(t, "example.com/guarded")
 	// The unconstrained guard file must not leak this dir into other targets.
 	writeFile(t, "cmd/linuxonly", "main.go", "//go:build linux\n\npackage main\n\nfunc main() {}\n")

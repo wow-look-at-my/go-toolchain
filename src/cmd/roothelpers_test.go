@@ -11,6 +11,7 @@ import (
 )
 
 func TestNeedsGenerateNoDirectives(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	os.WriteFile(dir+"/main.go", []byte("package main\nfunc main() {}\n"), 0644)
 
@@ -20,6 +21,7 @@ func TestNeedsGenerateNoDirectives(t *testing.T) {
 }
 
 func TestNeedsGenerateWithDirective(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	os.WriteFile(dir+"/main.go", []byte("package main\n//go:generate echo hello\nfunc main() {}\n"), 0644)
 
@@ -29,6 +31,7 @@ func TestNeedsGenerateWithDirective(t *testing.T) {
 }
 
 func TestFindGoModules_CurrentDir(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
 
@@ -40,6 +43,7 @@ func TestFindGoModules_CurrentDir(t *testing.T) {
 }
 
 func TestFindGoModules_Subdirectories(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	// No go.mod in root — create subdirectories with go.mod
 	os.MkdirAll(filepath.Join(dir, "svc-a"), 0755)
@@ -54,6 +58,7 @@ func TestFindGoModules_Subdirectories(t *testing.T) {
 }
 
 func TestFindGoModules_SkipsHiddenAndVendor(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	// No go.mod in root
 	os.MkdirAll(filepath.Join(dir, ".hidden"), 0755)
@@ -73,6 +78,7 @@ func TestFindGoModules_SkipsHiddenAndVendor(t *testing.T) {
 }
 
 func TestFindGoModules_NoModules(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	t.Chdir(dir)
@@ -90,6 +96,7 @@ func TestFindGoModules_NoModules(t *testing.T) {
 // captures stdout to assert on it, so a guarded version fails the integration
 // phase of every run under an agent.
 func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 
 	for _, argv := range [][]string{
@@ -115,6 +122,7 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 // up-to-date fast exit — so the ancestor walk in skipUpToDateCheck doesn't
 // accidentally match too broadly.
 func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
+	t.Serial()
 	for _, argv := range [][]string{
 		{"bench", "run"},
 		{"unignore", "coverage"},

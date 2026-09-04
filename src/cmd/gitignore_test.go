@@ -10,7 +10,7 @@ import (
 )
 
 func TestGitignoreContains_ExactMatch(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("/build/\n"), 0644)
@@ -19,7 +19,7 @@ func TestGitignoreContains_ExactMatch(t *testing.T) {
 }
 
 func TestGitignoreContains_WithoutLeadingSlash(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("build/\n"), 0644)
@@ -28,7 +28,7 @@ func TestGitignoreContains_WithoutLeadingSlash(t *testing.T) {
 }
 
 func TestGitignoreContains_WithoutTrailingSlash(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("build\n"), 0644)
@@ -37,7 +37,7 @@ func TestGitignoreContains_WithoutTrailingSlash(t *testing.T) {
 }
 
 func TestGitignoreContains_NotPresent(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("vendor/\nbin/\n"), 0644)
@@ -46,7 +46,7 @@ func TestGitignoreContains_NotPresent(t *testing.T) {
 }
 
 func TestGitignoreContains_IgnoresComments(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	os.WriteFile(path, []byte("# build/\n"), 0644)
@@ -55,11 +55,12 @@ func TestGitignoreContains_IgnoresComments(t *testing.T) {
 }
 
 func TestGitignoreContains_MissingFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.False(t, gitignoreContains("/nonexistent/.gitignore", "/build/"))
 }
 
 func TestEnsureBuildDirInGitignore_AddsEntry(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create a git repo
@@ -84,6 +85,7 @@ func TestEnsureBuildDirInGitignore_AddsEntry(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_AlreadyPresent(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 
@@ -105,6 +107,7 @@ func TestEnsureBuildDirInGitignore_AlreadyPresent(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_NoGitRepo(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	t.Chdir(dir)
@@ -117,6 +120,7 @@ func TestEnsureBuildDirInGitignore_NoGitRepo(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_CreatesGitignore(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 
@@ -134,6 +138,7 @@ func TestEnsureBuildDirInGitignore_CreatesGitignore(t *testing.T) {
 }
 
 func TestEnsureBuildDirInGitignore_NoTrailingNewline(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 
@@ -154,7 +159,7 @@ func TestEnsureBuildDirInGitignore_NoTrailingNewline(t *testing.T) {
 }
 
 func TestNeedsLeadingNewline(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 
 	// File ending with newline
@@ -177,6 +182,7 @@ func TestNeedsLeadingNewline(t *testing.T) {
 }
 
 func TestRemoveFromGitignore_RemovesGuardLine(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 	gitignorePath := filepath.Join(dir, ".gitignore")
@@ -192,6 +198,7 @@ func TestRemoveFromGitignore_RemovesGuardLine(t *testing.T) {
 }
 
 func TestRemoveFromGitignore_NoOpWhenAbsent(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 	gitignorePath := filepath.Join(dir, ".gitignore")
@@ -211,6 +218,7 @@ func TestRemoveFromGitignore_NoOpWhenAbsent(t *testing.T) {
 // .gitignore an older go-toolchain polluted with the guard line is cleaned up
 // while the build-dir entry is still ensured.
 func TestEnsureBuildDirInGitignore_StripsStaleGuard(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0755))
 	gitignorePath := filepath.Join(dir, ".gitignore")

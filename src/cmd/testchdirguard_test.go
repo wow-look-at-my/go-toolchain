@@ -21,7 +21,7 @@ import (
 // restores the directory itself and fails the test that cannot chdir, so it is
 // the only spelling this suite allows.
 func TestNoTestCallsOsChdir(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 
 	var offenders []string
 	err := filepath.WalkDir(moduleRootForGuard(t), func(path string, d fs.DirEntry, err error) error {
@@ -45,7 +45,7 @@ func TestNoTestCallsOsChdir(t *testing.T) {
 		"a test must take the working directory with t.Chdir, which restores it and fails when the chdir cannot happen")
 }
 
-// osChdirCalls reports every os.Chdir call site in one file, as file:line.
+// osChdirCalls reports the os.Chdir call sites in path, as file:line.
 func osChdirCalls(t *testing.T, path string) []string {
 	t.Helper()
 	fset := token.NewFileSet()

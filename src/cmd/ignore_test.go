@@ -11,6 +11,7 @@ import (
 )
 
 func TestIgnoreCoverageBlockedOnCI(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	err := runIgnoreCoverage(nil, nil)
 	require.NotNil(t, err)
@@ -18,6 +19,7 @@ func TestIgnoreCoverageBlockedOnCI(t *testing.T) {
 }
 
 func TestIgnoreCoverageBlockedOnClaudeCodeRemote(t *testing.T) {
+	t.Serial()
 	t.Setenv("CLAUDE_CODE_REMOTE", "true")
 	err := runIgnoreCoverage(nil, nil)
 	require.NotNil(t, err)
@@ -25,6 +27,7 @@ func TestIgnoreCoverageBlockedOnClaudeCodeRemote(t *testing.T) {
 }
 
 func TestIgnoreCoverage(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	t.Setenv("CLAUDE_CODE_REMOTE", "")
 	tmpDir := t.TempDir()
@@ -40,6 +43,7 @@ func TestIgnoreCoverage(t *testing.T) {
 }
 
 func TestIgnoreCoverageAlreadyExists(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	t.Setenv("CLAUDE_CODE_REMOTE", "")
 	tmpDir := t.TempDir()
@@ -54,6 +58,7 @@ func TestIgnoreCoverageAlreadyExists(t *testing.T) {
 }
 
 func TestUnignoreCoverage(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	gotest.SetWatermark(".", 90.0)
@@ -64,6 +69,7 @@ func TestUnignoreCoverage(t *testing.T) {
 }
 
 func TestUnignoreCoverageNoWatermark(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 	err := runUnignoreCoverage(nil, nil)
@@ -71,6 +77,7 @@ func TestUnignoreCoverageNoWatermark(t *testing.T) {
 }
 
 func TestUnignoreConfirmationAbort(t *testing.T) {
+	t.Serial()
 	oldStdin := os.Stdin
 	rIn, wIn, _ := os.Pipe()
 	wIn.WriteString("n\n")
@@ -83,6 +90,7 @@ func TestUnignoreConfirmationAbort(t *testing.T) {
 }
 
 func TestUnignoreConfirmationAccept(t *testing.T) {
+	t.Serial()
 	oldStdin := os.Stdin
 	rIn, wIn, _ := os.Pipe()
 	wIn.WriteString("y\n")
@@ -94,6 +102,7 @@ func TestUnignoreConfirmationAccept(t *testing.T) {
 }
 
 func TestUnignoreCoverageNoWatermarkMessage(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 

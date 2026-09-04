@@ -16,7 +16,7 @@ import (
 // status was the whole report -- naming neither the repository git worked in
 // nor its objection, on a windows host where nothing else says why.
 func TestWithGitStderr(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	base := errors.New("exit status")
 
 	assert.NoError(t, withGitStderr(nil, []byte("not a failure")))
@@ -29,6 +29,7 @@ func TestWithGitStderr(t *testing.T) {
 }
 
 func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -41,6 +42,7 @@ func TestFixBogusDepsVersions_NoGoMod(t *testing.T) {
 }
 
 func TestFixBogusDepsVersions_NoBogusVersions(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -62,6 +64,7 @@ require (
 }
 
 func TestFixBogusDepsVersions_DetectsBogusVersions(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -108,6 +111,7 @@ func lsRemoteURL(cfg runner.Config) string {
 }
 
 func TestFixBogusDepsVersions_GitLsRemoteFails(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -129,7 +133,7 @@ require git.internal/broken v0.0.0
 }
 
 func TestResolveLatestVersionViaGit_Success(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	fullHash := "abc123def456789012345678901234567890abcd"
 
 	mock := runner.NewMock()
@@ -159,7 +163,7 @@ func TestResolveLatestVersionViaGit_Success(t *testing.T) {
 }
 
 func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	// Return empty output (no HEAD ref)
 	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, []byte(""), nil)
@@ -169,7 +173,7 @@ func TestResolveLatestVersionViaGit_NoHeadRef(t *testing.T) {
 }
 
 func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	// Return hash that's too short
 	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, []byte("abc123\tHEAD\n"), nil)
@@ -179,6 +183,7 @@ func TestResolveLatestVersionViaGit_ShortHash(t *testing.T) {
 }
 
 func TestFixBogusDepsVersions_ParseError(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -195,6 +200,7 @@ func TestFixBogusDepsVersions_ParseError(t *testing.T) {
 }
 
 func TestFixBogusDepsVersions_NoV000Deps(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -217,6 +223,7 @@ require github.com/spf13/cobra v1.8.0
 }
 
 func TestFixBogusDepsVersions_PrintsMessage(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -236,7 +243,7 @@ require git.internal/foo v0.0.0
 }
 
 func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
 
@@ -247,7 +254,7 @@ func TestResolveLatestVersionViaGit_LsRemoteFails(t *testing.T) {
 // Guards the error-wrapping bug: mock.SetResponse's err surfaces from the process's
 // Wait(), not from Run(), so the real error must not get replaced by Run()'s stale nil.
 func TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("git", []string{"ls-remote", "--symref", "https://example.com/repo", "HEAD"}, nil, os.ErrNotExist)
 
@@ -257,7 +264,7 @@ func TestResolveLatestVersionViaGit_LsRemoteFails_ReportsTheRealError(t *testing
 }
 
 func TestResolveGitURLAndRef(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	t.Run("module at repo root resolves on the first try", func(t *testing.T) {
 		mock := runner.NewMock()
 		mock.SetResponse("git", []string{"ls-remote", "--symref", "https://github.com/wow-look-at-my/agentic-loop", "HEAD"},
@@ -343,7 +350,7 @@ func TestResolveGitURLAndRef(t *testing.T) {
 // were both issued against the unclonable
 // "https://github.com/wow-look-at-my/agentic-loop/go".
 func TestResolveVersionViaGit_SubdirectoryModule(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	const mod = "github.com/wow-look-at-my/agentic-loop/go"
 	const repoRoot = "https://github.com/wow-look-at-my/agentic-loop"
 	fullHash := "82fff4e9411d179f66b298a6549311698a096122"
@@ -382,7 +389,7 @@ func TestResolveVersionViaGit_SubdirectoryModule(t *testing.T) {
 // rejects a mismatched pin with `go.mod has post-v0 module path "..." at revision`,
 // so every branch-tracked major-suffixed module got an unresolvable pin.
 func TestPseudoVersionForDerivesTheMajorFromTheModulePath(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// Measured: go list -m github.com/wow-look-at-my/bubbletea/v2@master.
 	assert.Equal(t, "v2.0.0-20260812203640-351d2159f8d8", pseudoVersionFor(
 		"github.com/wow-look-at-my/bubbletea/v2",
@@ -401,7 +408,7 @@ func TestPseudoVersionForDerivesTheMajorFromTheModulePath(t *testing.T) {
 }
 
 func TestResolveVersionViaGitCarriesTheMajorThrough(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	const fullHash = "351d2159f8d8a85613aa2a6e98c8c63df3c98623"
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {

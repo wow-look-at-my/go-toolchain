@@ -51,7 +51,7 @@ func cacheUploadSteps(steps []actionStep) []actionStep {
 }
 
 func TestHandoffNameTemplate(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	uploads := cacheUploadSteps(loadActionSteps(t))
 	require.Len(t, uploads, 1, "exactly one hand-off: a second name is a second key to collide on")
 
@@ -66,7 +66,7 @@ func TestHandoffNameTemplate(t *testing.T) {
 // The per-job name and the bare `go-build` alias were racy in a multi-producer
 // run; a consumer that still downloads either must migrate, not get the alias back.
 func TestNoLegacyHandoffRemains(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	for _, step := range loadActionSteps(t) {
 		if name := step.With["name"]; strings.HasPrefix(name, "go-build") {
 			assert.Equal(t, handoffNameTemplate, name, "step %q saves a legacy hand-off name", step.Name)

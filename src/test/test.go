@@ -250,8 +250,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(),
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
 ) (*TestResult, error) {
-	// -p spans packages, -parallel spans tests within a package. Both default
-	// to GOMAXPROCS, which a cgroup quota shrinks; state the CPU count.
+	// -p spans packages and -parallel spans tests; GOMAXPROCS shrinks under a cgroup quota, so state the CPU count.
 	procs := runtime.NumCPU()
 	args := []string{"test", "-json", "-timeout=" + testTimeout.String(),
 		"-p", strconv.Itoa(procs), "-parallel", strconv.Itoa(procs)}

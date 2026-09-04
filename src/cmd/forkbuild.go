@@ -63,8 +63,7 @@ func jobLDFlags(srcPath, goflags string) string {
 	return joinLDFlags(stampLDFlags(srcPath), callerLDFlags(goflags))
 }
 
-// joinLDFlags puts the stamp first, so an explicit -X wins:
-// the linker keeps the LAST value for a name.
+// joinLDFlags puts the stamp ahead of the caller, so an explicit -X wins: the linker keeps the LAST value for a name.
 func joinLDFlags(stamp, caller string) string {
 	if stamp == "" {
 		return caller

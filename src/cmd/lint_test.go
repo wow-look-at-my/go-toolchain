@@ -65,7 +65,7 @@ func ` + funcName + `() {
 }
 
 func TestResolveGoFiles_RecursivePattern(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "sub")
 	require.NoError(t, os.MkdirAll(sub, 0755))
@@ -80,7 +80,7 @@ func TestResolveGoFiles_RecursivePattern(t *testing.T) {
 }
 
 func TestResolveGoFiles_Directory(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	writeUniqueGoFile(t, dir, "a.go", "a")
 	writeUniqueGoFile(t, dir, "b.go", "b")
@@ -91,7 +91,7 @@ func TestResolveGoFiles_Directory(t *testing.T) {
 }
 
 func TestResolveGoFiles_SingleFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	writeUniqueGoFile(t, dir, "a.go", "a")
 
@@ -101,20 +101,20 @@ func TestResolveGoFiles_SingleFile(t *testing.T) {
 }
 
 func TestResolveGoFiles_NonexistentGoFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	files, err := resolveGoFiles("/nonexistent/path.go")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/nonexistent/path.go"}, files)
 }
 
 func TestResolveGoFiles_NonexistentNonGoFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	_, err := resolveGoFiles("/nonexistent/path.txt")
 	assert.Error(t, err)
 }
 
 func TestResolveGoFiles_ExistingNonGoFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	f := filepath.Join(dir, "readme.txt")
 	require.NoError(t, os.WriteFile(f, []byte("hello"), 0644))
@@ -125,7 +125,7 @@ func TestResolveGoFiles_ExistingNonGoFile(t *testing.T) {
 }
 
 func TestWalkGoFiles_SkipsHiddenAndVendor(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	hidden := filepath.Join(dir, ".hidden")
 	vendor := filepath.Join(dir, "vendor")
@@ -146,7 +146,7 @@ func TestWalkGoFiles_SkipsHiddenAndVendor(t *testing.T) {
 }
 
 func TestWalkGoFiles_SkipsTestFiles(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	writeUniqueGoFile(t, dir, "main.go", "main")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main_test.go"), []byte("package p"), 0644))
@@ -158,7 +158,7 @@ func TestWalkGoFiles_SkipsTestFiles(t *testing.T) {
 }
 
 func TestListGoFilesInDir(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	writeUniqueGoFile(t, dir, "a.go", "a")
 	writeUniqueGoFile(t, dir, "b.go", "b")
@@ -171,12 +171,13 @@ func TestListGoFilesInDir(t *testing.T) {
 }
 
 func TestListGoFilesInDir_NonexistentDir(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	_, err := listGoFilesInDir("/nonexistent/dir")
 	assert.Error(t, err)
 }
 
 func TestRunLintImpl_NoDuplicates(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	writeUniqueGoFile(t, dir, "a.go", "funcA")
 	writeUniqueGoFile(t, dir, "b.go", "funcB")
@@ -192,6 +193,7 @@ func TestRunLintImpl_NoDuplicates(t *testing.T) {
 }
 
 func TestRunLintImpl_WithDuplicates(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	writeDuplicateGoFiles(t, dir)
 
@@ -209,6 +211,7 @@ func TestRunLintImpl_WithDuplicates(t *testing.T) {
 }
 
 func TestRunLintImpl_JSON(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	writeDuplicateGoFiles(t, dir)
 
@@ -228,6 +231,7 @@ func TestRunLintImpl_JSON(t *testing.T) {
 }
 
 func TestRunLintImpl_NoGoFiles(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	oldJSON := jsonOutput
@@ -239,6 +243,7 @@ func TestRunLintImpl_NoGoFiles(t *testing.T) {
 }
 
 func TestRunLintImpl_DefaultArgs(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -256,6 +261,7 @@ func TestRunLintImpl_DefaultArgs(t *testing.T) {
 }
 
 func TestRunDuplicateCheck_NoDuplicates(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -273,6 +279,7 @@ func TestRunDuplicateCheck_NoDuplicates(t *testing.T) {
 }
 
 func TestRunDuplicateCheck_WithDuplicates(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -295,6 +302,7 @@ func TestRunDuplicateCheck_WithDuplicates(t *testing.T) {
 }
 
 func TestRunDuplicateCheck_JSONMode(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -315,6 +323,7 @@ func TestRunDuplicateCheck_JSONMode(t *testing.T) {
 }
 
 func TestRunDuplicateCheck_EmptyDir(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 

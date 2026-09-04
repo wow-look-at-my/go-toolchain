@@ -14,6 +14,7 @@ import (
 // not happen leaves the scan on the previous test's fixture -- which is how the
 // clean case found a gotest.tools import it never wrote.
 func TestMigrateGotestTools_Basic(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -25,6 +26,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 }
 `
@@ -52,6 +54,7 @@ func TestFoo(t *testing.T) {
 // (fix=false, the CI path) a file importing gotest.tools/v3/assert is reported
 // as a hard error and is NOT rewritten.
 func TestMigrateGotestTools_CheckModeRejects(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -62,6 +65,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 }
 `
@@ -87,6 +91,7 @@ func TestFoo(t *testing.T) {
 // TestMigrateGotestTools_CheckModeClean verifies check mode is a no-op when no
 // file imports gotest.tools.
 func TestMigrateGotestTools_CheckModeClean(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -106,6 +111,7 @@ func TestFoo(t *testing.T) {}
 }
 
 func TestMigrateGotestTools_FuncRenames(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -117,6 +123,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.Error(t, err, "expected msg")
 	assert.DeepEqual(t, a, b)
 	assert.Equal(t, a, b)
@@ -146,6 +153,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestMigrateGotestTools_Assert(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := "package example\n\nimport (\n\t\"testing\"\n\n\t\"gotest.tools/v3/assert\"\n)\n\nfunc TestFoo(t *testing.T) {\n\tassert.Assert(t, len(items) > 0)\n}\n"
@@ -166,6 +174,7 @@ func TestMigrateGotestTools_Assert(t *testing.T) {
 }
 
 func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// File that already has testify/require AND gotest.tools/assert
@@ -188,6 +197,7 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 }
 
 func TestMigrateGotestTools_NoChanges(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -199,6 +209,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	require.NoError(t, nil)
 }
 `
@@ -212,6 +223,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestMigrateGotestTools_Check(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -223,6 +235,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 	assert.Check(t, someExpr)
 }
@@ -250,6 +263,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestMigrateGotestTools_CmpUnwrap(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -262,6 +276,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 	assert.Check(t, cmp.Equal(a, b))
 	assert.Assert(t, cmp.Nil(x))
