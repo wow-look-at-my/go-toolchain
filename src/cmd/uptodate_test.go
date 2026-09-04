@@ -155,8 +155,11 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 	fp1, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 
-	require.NoError(t, rootCmd.Flags().Set("generate", "deadbeef"))
-	defer rootCmd.Flags().Set("generate", "")
+	// PersistentFlags, not Flags: cobra folds a persistent flag into the local
+	// set while it parses, so Flags() carries "generate" only once something
+	// has run the root command -- which made this test depend on its neighbours.
+	require.NoError(t, rootCmd.PersistentFlags().Set("generate", "deadbeef"))
+	defer rootCmd.PersistentFlags().Set("generate", "")
 	fp2, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 	assert.NotEqual(t, fp1, fp2, "a flag that changes what the run does must bust the fingerprint")
