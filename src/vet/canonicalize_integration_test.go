@@ -14,7 +14,7 @@ const canonicalizeDocFile = "doccomment_test.go"
 const canonicalizeHoistFile = "hoist_test.go"
 
 // The file carries an assertlint-fixable comparison, a top-level doc comment
-// holding the POSIX 'foo'\”bar' escape, and an already space-aligned struct.
+// holding the POSIX 'foo'\''bar' escape, and an already space-aligned struct.
 const canonicalizeDocCode = "package main\n\n" +
 	"import \"testing\"\n\n" +
 	"// Doc: foo'bar becomes 'foo'\\''bar' in a POSIX shell.\n" +
