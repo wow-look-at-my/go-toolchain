@@ -271,6 +271,9 @@ jobs:
       # Only for the dats fixtures in .github/dats-fixtures/ -- this job otherwise runs no repo code.
       - uses: actions/checkout@v7
 
+      # For GO_BUILDCACHE_CONFIG alone: the fork refuses a CI build without it. see docs/CI.md
+      - uses: wow-look-at-my/actions@secret-server#latest
+
       # Explicit name on purpose: by this point the run holds SEVERAL hand-offs (host-go-toolchain... see docs/CI.md
       - name: Download build outputs hand-off
         uses: wow-look-at-my/actions@cache-download#latest
@@ -290,6 +293,9 @@ jobs:
         uses: wow-look-at-my/dats@master
         env:
           GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
+          # The org proxy wants auth for a sumdb lookup on a module it has never seen, and this
+          # job's throwaway module always is one, so it keeps the public path. see docs/CI.md
+          GO_PROXY_CONFIG: ""
         with:
           tests: .github/dats-fixtures/smoke.dats
 

@@ -775,10 +775,10 @@ host-build, build, and build-everywhere fetch `GO_BUILDCACHE_CONFIG` and
 with the shared cache and the org proxy on every host that builds this
 repo, not only on the linux host-build leg. The org proxy requires auth
 for a sumdb lookup on a module it has never resolved before, which the
-smoke jobs' throwaway module always is -- so the smoke jobs keep the
-public, unauthenticated `proxy.golang.org` path instead. What that costs
-them now is the fork's own in-CI cache check: see the smoke-linux entry
-below.
+smoke jobs' throwaway module always is -- so the smoke jobs blank
+`GO_PROXY_CONFIG` on the dats step and keep the public, unauthenticated
+`proxy.golang.org` path instead. They take the secret-server step for the
+cache half: see the smoke-linux entry below.
 
 ### cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
 
@@ -795,13 +795,13 @@ no-op while unit tests stayed green). It is staged inside the module
 root so dats' sandbox (bwrap) can reach it, same reasoning as
 smoke-macos.
 
-This synthetic consumer has no org cache credentials (no secret-server
-step here on purpose), and nothing says so to the fork any more. Its
-`validateCIShared` (`cmd/go/internal/cache/shared.go`) refuses any build
-whose environment carries `CI` without `GO_BUILDCACHE_CONFIG`, and it
-reads no knob, so this job fails before it compiles anything. The repair
-is the fork's: an escape hatch it honors, or a probe that does not run
-the check. The repo's own host-build/build jobs keep the shared cache.
+The fork's `validateCIShared` (`cmd/go/internal/cache/shared.go`) refuses
+any build whose environment carries `CI` without `GO_BUILDCACHE_CONFIG`,
+and its own test pins that there is no knob to downgrade the refusal. So
+this job takes the secret-server step after all -- for the cache variable
+alone, which is why the dats step blanks `GO_PROXY_CONFIG` beside it. A
+throwaway module that resolves nothing twice gains little from the shared
+tier; what the step buys is a build the fork will start at all.
 
 ### smoke-macos
 
