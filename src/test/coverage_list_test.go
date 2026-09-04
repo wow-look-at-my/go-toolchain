@@ -11,11 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// captureOutput runs f with os.Stdout redirected into a pipe and returns
-// what it wrote. os.Stdout is process-wide, so this takes the serial hold:
-// two tests swapping it at once means one restores the real file while the
-// other is still printing, and that one's output lands on the terminal
-// instead of in its buffer.
+// captureOutput returns what f writes to os.Stdout. That file is
+// process-wide, so this holds serial: a concurrent swapper restores the
+// real stdout mid-print and the buffer comes back empty.
 func captureOutput(t *testing.T, f func()) string {
 	t.Helper()
 	t.Serial()

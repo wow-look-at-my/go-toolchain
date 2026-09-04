@@ -138,9 +138,7 @@ func TestStripCPUSuffix(t *testing.T) {
 }
 
 func TestComparisonPrint(t *testing.T) {
-	// os.Stdout is process-wide: without the hold, a sibling test restores
-	// the real file while Print is still writing, so this buffer comes back
-	// empty and the table lands on the terminal instead.
+	// os.Stdout is process-wide: a concurrent swapper empties this buffer mid-Print.
 	t.Serial()
 
 	comp := &Comparison{

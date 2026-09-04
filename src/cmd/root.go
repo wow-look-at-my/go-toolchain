@@ -158,11 +158,8 @@ func init() {
 	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
 
-	// Fingerprint covers the invoked flags; see flagFingerprint for why it excludes rootCmd itself.
-	// LocalFlags folds the persistent flags in, so the captured set holds every
-	// flag from here rather than from whenever cobra first parses a command line.
-	rootCmd.LocalFlags()
-	fingerprintFlags = rootCmd.Flags()
+	// Fingerprint covers the invoked flags -- LocalFlags folds the persistent flags in. See flagFingerprint.
+	fingerprintFlags = rootCmd.LocalFlags()
 
 	Register(rootCmd)
 }
