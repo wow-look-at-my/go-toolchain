@@ -347,14 +347,8 @@ func TestOpenDepsCache_CreatesDir(t *testing.T) {
 
 func TestDepChecker_run_DBOpenError(t *testing.T) {
 	// Test when we can't open the DB (by using a bad HOME env)
-	oldHome := os.Getenv("HOME")
-	oldCache := os.Getenv("XDG_CACHE_HOME")
-	os.Setenv("HOME", "/nonexistent/path/that/does/not/exist")
-	os.Setenv("XDG_CACHE_HOME", "/nonexistent/path/that/does/not/exist")
-	defer func() {
-		os.Setenv("HOME", oldHome)
-		os.Setenv("XDG_CACHE_HOME", oldCache)
-	}()
+	t.Setenv("HOME", "/nonexistent/path/that/does/not/exist")
+	t.Setenv("XDG_CACHE_HOME", "/nonexistent/path/that/does/not/exist")
 
 	dc := &DepChecker{
 		doneCh: make(chan struct{}),

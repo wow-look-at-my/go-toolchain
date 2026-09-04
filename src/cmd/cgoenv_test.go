@@ -11,28 +11,19 @@ import (
 )
 
 func TestAddPkgConfigPath_Empty(t *testing.T) {
-	old := os.Getenv("PKG_CONFIG_PATH")
-	defer os.Setenv("PKG_CONFIG_PATH", old)
-
-	os.Setenv("PKG_CONFIG_PATH", "")
+	t.Setenv("PKG_CONFIG_PATH", "")
 	addPkgConfigPath("/usr/lib/pkgconfig")
 	assert.Equal(t, "/usr/lib/pkgconfig", os.Getenv("PKG_CONFIG_PATH"))
 }
 
 func TestAddPkgConfigPath_Existing(t *testing.T) {
-	old := os.Getenv("PKG_CONFIG_PATH")
-	defer os.Setenv("PKG_CONFIG_PATH", old)
-
-	os.Setenv("PKG_CONFIG_PATH", "/existing/path")
+	t.Setenv("PKG_CONFIG_PATH", "/existing/path")
 	addPkgConfigPath("/new/path")
 	assert.Equal(t, "/new/path:/existing/path", os.Getenv("PKG_CONFIG_PATH"))
 }
 
 func TestAddPkgConfigPath_AlreadyPresent(t *testing.T) {
-	old := os.Getenv("PKG_CONFIG_PATH")
-	defer os.Setenv("PKG_CONFIG_PATH", old)
-
-	os.Setenv("PKG_CONFIG_PATH", "/some/path:/other/path")
+	t.Setenv("PKG_CONFIG_PATH", "/some/path:/other/path")
 	addPkgConfigPath("/some/path")
 	// Should not duplicate
 	assert.Equal(t, "/some/path:/other/path", os.Getenv("PKG_CONFIG_PATH"))
@@ -95,9 +86,7 @@ func TestSetupCGOEnvironment_Disabled(t *testing.T) {
 	// Reset sync.Once so it can run
 	setupCGOOnce = sync.Once{}
 
-	old := os.Getenv("PKG_CONFIG_PATH")
-	defer os.Setenv("PKG_CONFIG_PATH", old)
-	os.Setenv("PKG_CONFIG_PATH", "")
+	t.Setenv("PKG_CONFIG_PATH", "")
 
 	setupCGOEnvironment()
 	// PKG_CONFIG_PATH should not change
