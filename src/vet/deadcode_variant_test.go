@@ -36,9 +36,7 @@ func TestUsed(t *testing.T) {
 }
 `)
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := RunOnPattern("./...", false, nil)
 

@@ -128,9 +128,7 @@ func TestHasBenchmarksFindsNone(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(dir+"/main_test.go", []byte("package main\nfunc TestFoo(t *testing.T) {}\n"), 0644))
 
-	orig, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(orig)
+	t.Chdir(dir)
 
 	assert.False(t, HasBenchmarks())
 }
@@ -139,9 +137,7 @@ func TestHasBenchmarksFindsOne(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(dir+"/bench_test.go", []byte("package main\n\nimport \"testing\"\n\nfunc BenchmarkFoo(b *testing.B) {}\n"), 0644))
 
-	orig, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(orig)
+	t.Chdir(dir)
 
 	assert.True(t, HasBenchmarks())
 }

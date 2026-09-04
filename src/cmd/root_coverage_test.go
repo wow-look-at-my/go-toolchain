@@ -18,9 +18,7 @@ import (
 // non-nil SummaryData to cover the summary accumulation code path.
 func TestRunWithRunnerActiveTrace(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	oldTrace := activeTrace
@@ -74,9 +72,7 @@ func TestRunWithRunnerActiveTrace(t *testing.T) {
 // repeat mod-tidy step.
 func TestRunWithRunnerGenerateSkip(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 
 	// Add a //go:generate directive so needsGenerate() returns true.
@@ -128,9 +124,7 @@ func newNoTestFilesMock() *runner.Mock {
 // panicking with "coverage data is missing or broken".
 func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t) // pkg/main.go is "package main\n" — no coverable statements
 
 	mock := newNoTestFilesMock()
@@ -149,9 +143,7 @@ func TestRunWithRunnerZeroStatementModulePasses(t *testing.T) {
 // but no tests at all must fail with an actionable error, not a panic.
 func TestRunWithRunnerNoTestsWithCodeFails(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 	os.WriteFile(filepath.Join("pkg", "main.go"), []byte("package main\n\nfunc main() { println(\"x\") }\n"), 0644)
 

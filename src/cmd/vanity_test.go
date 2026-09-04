@@ -15,9 +15,7 @@ import (
 
 func TestInjectVanityReplacesNoGoSum(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	state, err := injectVanityReplaces()
 	assert.Nil(t, err)
@@ -26,9 +24,7 @@ func TestInjectVanityReplacesNoGoSum(t *testing.T) {
 
 func TestInjectVanityReplacesAllReachable(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gosum := `gotest.tools/gotestsum v1.13.0 h1:aaa=
 gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
@@ -48,9 +44,7 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 
 func TestInjectAndRemoveVanityReplaces(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gomod := "module test\n\ngo 1.21\n\nrequire gotest.tools/gotestsum v1.13.0\n"
 	os.WriteFile("go.mod", []byte(gomod), 0644)
@@ -114,9 +108,7 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 
 func TestInjectVanityReplacesMultipleModulesSameHost(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gomod := "module test\n\ngo 1.21\n\nrequire (\n\tmodernc.org/sqlite v1.45.0\n\tmodernc.org/libc v1.67.6\n)\n"
 	os.WriteFile("go.mod", []byte(gomod), 0644)
@@ -170,9 +162,7 @@ modernc.org/libc v1.67.6/go.mod h1:ddd=
 
 func TestInjectVanityReplacesSkipsUnresolvable(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gomod := "module test\n\ngo 1.21\n\nrequire gotest.tools/gotestsum v1.13.0\n"
 	os.WriteFile("go.mod", []byte(gomod), 0644)
@@ -206,9 +196,7 @@ func TestInjectVanityReplacesSkipsUnresolvable(t *testing.T) {
 
 func TestInjectVanityReplacesAppendsVersionSuffix(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gomod := "module test\n\ngo 1.21\n\nrequire go.yaml.in/yaml/v3 v3.0.4\n"
 	os.WriteFile("go.mod", []byte(gomod), 0644)
@@ -247,9 +235,7 @@ func TestInjectVanityReplacesAppendsVersionSuffix(t *testing.T) {
 
 func TestInjectVanityReplacesSubModule(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gomod := "module test\n\ngo 1.21\n\nrequire (\n\tgo.opentelemetry.io/otel v1.35.0\n\tgo.opentelemetry.io/otel/trace v1.35.0\n\tgo.opentelemetry.io/otel/sdk v1.35.0\n)\n"
 	os.WriteFile("go.mod", []byte(gomod), 0644)
@@ -302,9 +288,7 @@ go.opentelemetry.io/otel/sdk v1.35.0 h1:ccc=
 
 func TestInjectVanityReplacesSkipsNonDirectHost(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gomod := "module test\n\ngo 1.21\n\nrequire vanity.test/widget v1.2.3\n"
 	os.WriteFile("go.mod", []byte(gomod), 0644)
@@ -342,9 +326,7 @@ func TestRemoveVanityReplacesEmpty(t *testing.T) {
 
 func TestInjectVanityReplacesPreservesExistingGoMod(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// go.mod with existing replace directive
 	gomod := `module test
@@ -417,10 +399,7 @@ func TestCheckDirtyInCIWithVanityRestored(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 	dir := t.TempDir()
-	// Best-effort: a prior test can leave the process cwd deleted, making Getwd fail.
-	origDir, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	// modfile-canonical form so removeVanityReplaces's parse-drop-format round trip restores the bytes exactly.
 	parsed, err := modfile.Parse("go.mod", []byte("module test\ngo 1.21\nrequire gotest.tools/gotestsum v1.13.0\n"), nil)

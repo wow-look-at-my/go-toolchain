@@ -56,9 +56,7 @@ func TestImportNameBlankImport(t *testing.T) {
 
 func TestFixUnusedRangeVarsNoFiles(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	fixed, err := FixUnusedRangeVars("./...")
 	require.NoError(t, err)
@@ -67,9 +65,7 @@ func TestFixUnusedRangeVarsNoFiles(t *testing.T) {
 
 func TestFixUnusedRangeVarsNothingToFix(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Create a Go file where range vars are used
 	code := `package main
@@ -90,9 +86,7 @@ func main() {
 
 func TestFixUnusedRangeVarsFixesUnused(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Create a Go file with unused range variable
 	code := `package main
@@ -117,9 +111,7 @@ func main() {
 
 func TestFixUnusedRangeVarsGlobPattern(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	code := `package main
 
@@ -138,9 +130,7 @@ func main() {
 
 func TestFixUnusedRangeVarsSkipsVendor(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Create a file in vendor/
 	os.MkdirAll(filepath.Join(dir, "vendor", "pkg"), 0755)

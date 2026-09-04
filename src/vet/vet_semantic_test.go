@@ -63,9 +63,7 @@ func TestFoo(t *testing.T) {
 	os.WriteFile(testFile, []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Run to exercise the path
 	_, err := vetSemantic("./...", NewEditor(false), nil)
@@ -84,9 +82,7 @@ func main() {
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := Run(false)
 	assert.Nil(t, err)
@@ -110,9 +106,7 @@ func TestFoo(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(code), 0644)
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module testmod\n\ngo 1.21\n"), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Should find issues and return error with diagnostics
 	_, err := vetSemantic("./...", NewEditor(false), nil)
@@ -153,9 +147,7 @@ func TestFoo(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
 
 	// Initialize git repo and commit the file (required by checkFileCommitted)
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Initialize git repo
 	initGitRepo(t, dir)
@@ -207,9 +199,7 @@ func TestMode(t *testing.T) {
 	gomod := "module testmod\n\ngo 1.24\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	initGitRepo(t, dir)
 

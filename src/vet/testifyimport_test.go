@@ -118,9 +118,7 @@ func TestFoo(t *testing.T) {
 	filePath := filepath.Join(dir, "example_test.go")
 	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := FixTestifyImports(ed)
@@ -155,9 +153,7 @@ func TestFoo(t *testing.T) {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := FixTestifyImports(ed)
@@ -192,9 +188,7 @@ func TestFoo(t *testing.T) {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	wrote, err := FixTestifyImports(NewEditor(true))
 	require.NoError(t, err)
@@ -211,9 +205,7 @@ func TestFoo(t *testing.T) {
 // TestSyncVendorIfPresent_NoVendor is a no-op when there is no vendor tree.
 func TestSyncVendorIfPresent_NoVendor(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	assert.NoError(t, syncVendorIfPresent())
 }
@@ -254,9 +246,7 @@ func TestFoo(t *testing.T) {
 }
 `)
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	// Set up a vendored state on the fork (resolved via the local stub).
 	for _, args := range [][]string{{"mod", "tidy"}, {"mod", "vendor"}} {

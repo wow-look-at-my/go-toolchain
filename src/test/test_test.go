@@ -220,9 +220,7 @@ func setupTestModule(t *testing.T, modPath string, testPkgDirs []string) string 
 		os.MkdirAll(pkgDir, 0755)
 		os.WriteFile(filepath.Join(pkgDir, "foo_test.go"), []byte("package "+filepath.Base(rel)+"\n"), 0644)
 	}
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	t.Cleanup(func() { os.Chdir(origDir) })
+	t.Chdir(dir)
 	return dir
 }
 
@@ -249,9 +247,7 @@ func TestListTestPackages(t *testing.T) {
 
 func TestListTestPackagesNoGoMod(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	mock := runner.NewMock()
 	pkgs := listTestPackages(mock)
@@ -295,9 +291,7 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 func TestRunTestsFallsBackToEllipsis(t *testing.T) {
 	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	t.Cleanup(func() { os.Chdir(origDir) })
+	t.Chdir(dir)
 
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 

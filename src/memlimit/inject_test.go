@@ -53,8 +53,7 @@ func TestInjectAllDiscoversMainPackages(t *testing.T) {
 	writeFile(t, mod, "cmd/tool/main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, mod, "internal/lib/lib.go", "package lib\n")
 
-	restore := chdir(t, mod)
-	defer restore()
+	t.Chdir(mod)
 
 	changed, err := InjectAll()
 	require.NoError(t, err)
@@ -83,8 +82,7 @@ func TestCleanupAllRemovesInjectedGuards(t *testing.T) {
 	writeFile(t, mod, "cmd/tool/main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, mod, "internal/lib/lib.go", "package lib\n")
 
-	restore := chdir(t, mod)
-	defer restore()
+	t.Chdir(mod)
 
 	_, err := InjectAll()
 	require.NoError(t, err)
@@ -111,8 +109,7 @@ func TestCleanupAllIdempotentWhenAbsent(t *testing.T) {
 	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
 	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
 
-	restore := chdir(t, mod)
-	defer restore()
+	t.Chdir(mod)
 
 	// No guards were ever injected: cleanup is a clean no-op, not an error.
 	removed, err := CleanupAll()
@@ -122,8 +119,7 @@ func TestCleanupAllIdempotentWhenAbsent(t *testing.T) {
 
 func TestCleanupAllNoModule(t *testing.T) {
 	dir := t.TempDir()
-	restore := chdir(t, dir)
-	defer restore()
+	t.Chdir(dir)
 
 	removed, err := CleanupAll()
 	require.NoError(t, err)
@@ -136,8 +132,7 @@ func TestInjectAllThenCleanupAllRoundTrip(t *testing.T) {
 	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, mod, "cmd/tool/main.go", "package main\n\nfunc main() {}\n")
 
-	restore := chdir(t, mod)
-	defer restore()
+	t.Chdir(mod)
 
 	injected, err := InjectAll()
 	require.NoError(t, err)
@@ -156,12 +151,4 @@ func writeFile(t *testing.T, root, rel, content string) {
 	path := filepath.Join(root, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-}
-
-func chdir(t *testing.T, dir string) func() {
-	t.Helper()
-	prev, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	return func() { _ = os.Chdir(prev) }
 }

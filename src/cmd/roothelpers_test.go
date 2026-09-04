@@ -14,9 +14,7 @@ func TestNeedsGenerateNoDirectives(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(dir+"/main.go", []byte("package main\nfunc main() {}\n"), 0644)
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	assert.False(t, needsGenerate())
 }
@@ -25,9 +23,7 @@ func TestNeedsGenerateWithDirective(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(dir+"/main.go", []byte("package main\n//go:generate echo hello\nfunc main() {}\n"), 0644)
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	assert.True(t, needsGenerate())
 }
@@ -36,9 +32,7 @@ func TestFindGoModules_CurrentDir(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	modules := findGoModules()
 	require.Equal(t, 1, len(modules))
@@ -53,9 +47,7 @@ func TestFindGoModules_Subdirectories(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "svc-a", "go.mod"), []byte("module test/a\ngo 1.21\n"), 0644)
 	os.WriteFile(filepath.Join(dir, "svc-b", "go.mod"), []byte("module test/b\ngo 1.21\n"), 0644)
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	modules := findGoModules()
 	assert.Equal(t, 2, len(modules))
@@ -73,9 +65,7 @@ func TestFindGoModules_SkipsHiddenAndVendor(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "node_modules", "go.mod"), []byte("module nm\n"), 0644)
 	os.WriteFile(filepath.Join(dir, "real", "go.mod"), []byte("module real\n"), 0644)
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	modules := findGoModules()
 	require.Equal(t, 1, len(modules))
@@ -85,9 +75,7 @@ func TestFindGoModules_SkipsHiddenAndVendor(t *testing.T) {
 func TestFindGoModules_NoModules(t *testing.T) {
 	dir := t.TempDir()
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	modules := findGoModules()
 	assert.Equal(t, 0, len(modules))

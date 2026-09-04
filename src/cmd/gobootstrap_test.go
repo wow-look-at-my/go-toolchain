@@ -17,9 +17,7 @@ import (
 
 func TestRequiredGoVersion(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("module test\n\ngo 1.24.11\n"), 0644)
 	v, err := requiredGoVersion()
@@ -29,9 +27,7 @@ func TestRequiredGoVersion(t *testing.T) {
 
 func TestRequiredGoVersionToolchainDirective(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("module test\n\ngo 1.24.0\n\ntoolchain go1.25.0\n"), 0644)
 	v, err := requiredGoVersion()
@@ -41,9 +37,7 @@ func TestRequiredGoVersionToolchainDirective(t *testing.T) {
 
 func TestRequiredGoVersionTwoParts(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("module test\n\ngo 1.25\n"), 0644)
 	v, err := requiredGoVersion()
@@ -60,9 +54,7 @@ func TestNormalizeGoVersion(t *testing.T) {
 
 func TestRequiredGoVersionNoGoDirective(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("module test\n"), 0644)
 	v, err := requiredGoVersion()
@@ -72,9 +64,7 @@ func TestRequiredGoVersionNoGoDirective(t *testing.T) {
 
 func TestRequiredGoVersionNoMod(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	v, err := requiredGoVersion()
 	assert.NotNil(t, err)
@@ -115,9 +105,7 @@ func TestForkFirstPath(t *testing.T) {
 // there is no other toolchain, so this fails and names the repair.
 func TestForkSatisfiesGoMod(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 	require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/x\n\ngo 1.30.0\n"), 0644))
 
 	err := forkSatisfiesGoMod("1.27.0cosmo.r685")

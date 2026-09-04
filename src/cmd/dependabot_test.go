@@ -21,9 +21,7 @@ func TestBuildDepSnapshot_MissingSHA(t *testing.T) {
 
 func TestBuildDepSnapshot_NoGoMod(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	t.Setenv("GITHUB_SHA", "abc123")
 
@@ -73,9 +71,7 @@ func TestBuildDepSnapshot_DefaultRef(t *testing.T) {
 
 func TestBuildDepSnapshot_IndirectDeps(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gomod := "module test\ngo 1.21\n\nrequire (\n\tgithub.com/spf13/cobra v1.8.0\n\tgithub.com/spf13/pflag v1.0.5 // indirect\n)\n"
 	os.WriteFile("go.mod", []byte(gomod), 0644)
@@ -297,9 +293,7 @@ func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
 
 func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	t.Setenv("GITHUB_WORKSPACE", dir)
 	t.Setenv("CI", "true")
@@ -334,9 +328,7 @@ func TestMaybeSubmitDeps_SkipsSmokeFixtureInOwnRepo(t *testing.T) {
 	require.Nil(t, os.MkdirAll(workspace, 0o755))
 	require.Nil(t, os.MkdirAll(elsewhere, 0o755))
 
-	origDir, _ := os.Getwd()
-	require.Nil(t, os.Chdir(elsewhere))
-	defer os.Chdir(origDir)
+	t.Chdir(elsewhere)
 
 	t.Setenv("GITHUB_WORKSPACE", workspace)
 	t.Setenv("CI", "true")
@@ -371,9 +363,7 @@ func TestMaybeSubmitDeps_OtherRepoCannotSkipByBuildingElsewhere(t *testing.T) {
 	require.Nil(t, os.MkdirAll(workspace, 0o755))
 	require.Nil(t, os.MkdirAll(elsewhere, 0o755))
 
-	origDir, _ := os.Getwd()
-	require.Nil(t, os.Chdir(elsewhere))
-	defer os.Chdir(origDir)
+	t.Chdir(elsewhere)
 
 	t.Setenv("GITHUB_WORKSPACE", workspace)
 	t.Setenv("CI", "true")
@@ -405,9 +395,7 @@ func TestMaybeSubmitDeps_SubmitsRepoWorkspace(t *testing.T) {
 	require.Nil(t, os.WriteFile(filepath.Join(workspace, "go.mod"),
 		[]byte("module example.com/inrepo\n\ngo 1.25\n"), 0o644))
 
-	origDir, _ := os.Getwd()
-	require.Nil(t, os.Chdir(workspace))
-	defer os.Chdir(origDir)
+	t.Chdir(workspace)
 
 	t.Setenv("GITHUB_WORKSPACE", workspace)
 	t.Setenv("CI", "true")

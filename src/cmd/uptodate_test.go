@@ -18,10 +18,7 @@ import (
 func chdirTemp(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	oldWd, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { os.Chdir(oldWd) })
+	t.Chdir(dir)
 	return dir
 }
 

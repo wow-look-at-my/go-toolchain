@@ -64,9 +64,7 @@ func TestAnalyzers(t *testing.T) {
 
 func TestRunNoGoMod(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := Run(false)
 	assert.Nil(t, err)
@@ -79,9 +77,7 @@ func TestLoadModeFromSource(t *testing.T) {
 	assert.Zero(t, loadMode()&packages.NeedDeps, "the default reads export data")
 
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	seen := packages.LoadMode(0)
 	// No go.mod here, so RunFromSource returns before loading; read the mode from inside it.
@@ -130,9 +126,7 @@ func main() {
 `
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0644)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := RunOnPattern("./...", false, nil)
 	assert.Nil(t, err)

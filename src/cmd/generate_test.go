@@ -244,14 +244,8 @@ func TestGuessPackage(t *testing.T) {
 }
 
 func TestRunGenerateWithHash(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.Nil(t, err)
-	defer os.Chdir(origDir)
-
-	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
@@ -279,14 +273,8 @@ func TestRunGenerateWithHash(t *testing.T) {
 }
 
 func TestRunGenerateWrongHash(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.Nil(t, err)
-	defer os.Chdir(origDir)
-
-	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
@@ -296,21 +284,15 @@ func TestRunGenerateWrongHash(t *testing.T) {
 	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	// With wrong hash, command should NOT run and should return error
-	err = runGenerate(true, "wronghash123")
+	err := runGenerate(true, "wronghash123")
 	require.NotNil(t, err)
 	_, err = os.Stat(outputFile)
 	assert.True(t, os.IsNotExist(err))
 }
 
 func TestRunGenerateSkip(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.Nil(t, err)
-	defer os.Chdir(origDir)
-
-	// Create temp directory with a generate directive
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	testFile := filepath.Join(dir, "main.go")
 	outputFile := filepath.Join(dir, "generated.txt")
@@ -320,26 +302,20 @@ func TestRunGenerateSkip(t *testing.T) {
 	require.NoError(t, os.WriteFile(testFile, []byte(content), 0644))
 
 	// With "skip", command should NOT run but should succeed
-	err = runGenerate(true, "skip")
+	err := runGenerate(true, "skip")
 	require.Nil(t, err)
 	_, err = os.Stat(outputFile)
 	assert.True(t, os.IsNotExist(err))
 }
 
 func TestRunGenerateNoDirectives(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.Nil(t, err)
-	defer os.Chdir(origDir)
-
-	// Create temp directory with no generate directives
 	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
+	t.Chdir(dir)
 
 	testFile := filepath.Join(dir, "main.go")
 	require.NoError(t, os.WriteFile(testFile, []byte("package main\n"), 0644))
 
-	err = runGenerate(true, "")
+	err := runGenerate(true, "")
 	require.Nil(t, err)
 }
 

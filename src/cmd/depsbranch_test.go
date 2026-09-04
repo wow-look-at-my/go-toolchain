@@ -41,9 +41,7 @@ require (
 
 func TestUpdateTrackedBranchDeps_NoGoMod(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	mock := runner.NewMock()
 	changed, err := UpdateTrackedBranchDeps(mock)
@@ -54,9 +52,7 @@ func TestUpdateTrackedBranchDeps_NoGoMod(t *testing.T) {
 
 func TestUpdateTrackedBranchDeps_ParseError(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("not valid go.mod content {{{"), 0644)
 
@@ -68,9 +64,7 @@ func TestUpdateTrackedBranchDeps_ParseError(t *testing.T) {
 
 func TestUpdateTrackedBranchDeps_NoMarkers(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -88,9 +82,7 @@ require github.com/spf13/cobra v1.8.0
 
 func TestUpdateTrackedBranchDeps_UpdatesVersion(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -134,9 +126,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 
 func TestUpdateTrackedBranchDeps_NoChangeWhenSame(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// The pseudo-version already matches what ls-remote will report.
 	fullHash := "abc123def456789012345678901234567890abcd"
@@ -174,9 +164,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20231114221320-abc123def456 // go-t
 // has to resolve it.
 func TestUpdateTrackedBranchDeps_ResolvesAStandaloneIndirectRequire(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -220,9 +208,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // indi
 
 func TestUpdateTrackedBranchDeps_GitFails(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -240,9 +226,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 
 func TestUpdateTrackedBranchDeps_NoRefFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21

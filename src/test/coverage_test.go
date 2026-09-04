@@ -183,9 +183,7 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 
 func TestReachablePackages(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// Set up filesystem: go.mod + a main package in cmd/app
 	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
@@ -206,9 +204,7 @@ func TestReachablePackages(t *testing.T) {
 
 func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// Main package imports pkg1; pkg2 is behind a build tag and unreachable from the entry point.
 	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
@@ -228,9 +224,7 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 
 func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// No main packages found — falls back to ./...
 	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
@@ -249,9 +243,7 @@ func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
 
 func TestReachablePackagesModuleFailure(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// No go.mod — ReadModulePath returns ""
 	mock := newMockRunnerForReachable("")

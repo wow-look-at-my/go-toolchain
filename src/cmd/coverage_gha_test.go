@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,9 +12,7 @@ import (
 // Actions, so the failure shows up as a tagged error in the workflow UI.
 func TestCoverageBelowMinimum_GHAErrorAnnotation(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "true")
 	jsonOutput = false
@@ -40,9 +37,7 @@ func TestCoverageBelowMinimum_GHAErrorAnnotation(t *testing.T) {
 // error message that cobra already prints).
 func TestCoverageBelowMinimum_NoGHAAnnotationLocally(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "")
 	jsonOutput = false
@@ -66,9 +61,7 @@ func TestCoverageBelowMinimum_NoGHAAnnotationLocally(t *testing.T) {
 // it for programmatic consumers.
 func TestCoverageBelowMinimum_NoGHAAnnotationInJSONMode(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 	setupMockProject(t)
 	t.Setenv("GITHUB_ACTIONS", "true")
 	jsonOutput = true

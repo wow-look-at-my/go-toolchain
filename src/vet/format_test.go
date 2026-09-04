@@ -387,7 +387,5 @@ func writeFile(t *testing.T, path, content string) {
 
 func chdir(t *testing.T, dir string) {
 	t.Helper()
-	old, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { os.Chdir(old) })
+	t.Chdir(dir)
 }
