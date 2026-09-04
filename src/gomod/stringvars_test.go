@@ -16,7 +16,6 @@ func writeGoFile(t *testing.T, dir, name, src string) {
 }
 
 func TestPackageStringVarsReportsWhatTheLinkerCanSet(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	writeGoFile(t, dir, "main.go", `package main
 
@@ -50,7 +49,6 @@ func main() {
 }
 
 func TestPackageStringVarsSkipsTestFilesAndUnreadableDirectories(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	writeGoFile(t, dir, "main.go", "package main\n\nvar shipped = \"a\"\n")
 	writeGoFile(t, dir, "main_test.go", "package main\n\nvar fixture = \"b\"\n")
@@ -65,7 +63,6 @@ func TestPackageStringVarsSkipsTestFilesAndUnreadableDirectories(t *testing.T) {
 }
 
 func TestPackageStringVarsReadsThePartialASTOfAFileThatDoesNotParse(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	writeGoFile(t, dir, "broken.go", "package main\n\nvar early = \"a\"\n\nfunc (\n")
 

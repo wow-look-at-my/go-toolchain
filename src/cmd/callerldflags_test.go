@@ -7,7 +7,6 @@ import (
 )
 
 func TestCallerLDFlagsSurvivesGOFLAGS(t *testing.T) {
-	t.Parallel()
 	// The failure this guards: the go command applies GOFLAGS before parsing
 	// argv, so this pipeline's own -ldflags used to replace the caller's.
 	assert.Equal(t, "-X=main.gitHash=abc123",
@@ -20,13 +19,11 @@ func TestCallerLDFlagsSurvivesGOFLAGS(t *testing.T) {
 }
 
 func TestCallerLDFlagsJoinsEveryOccurrence(t *testing.T) {
-	t.Parallel()
 	assert.Equal(t, "-X=main.a=1 -X=main.b=2",
 		callerLDFlags("-ldflags=-X=main.a=1 -ldflags=-X=main.b=2"))
 }
 
 func TestSplitGOFLAGSQuotesAWholeFieldOrNothing(t *testing.T) {
-	t.Parallel()
 	assert.Equal(t, []string{"-a", "-b=c"}, splitGOFLAGS("  -a\t-b=c \n"))
 	// A quote opening mid-field is ordinary text to the go command, so this
 	// spelling breaks into pieces rather than carrying spaces through.
@@ -36,7 +33,6 @@ func TestSplitGOFLAGSQuotesAWholeFieldOrNothing(t *testing.T) {
 }
 
 func TestQuotedGOFLAGSFieldReachesTheLinker(t *testing.T) {
-	t.Parallel()
 	assert.Equal(t, "-X main.gitHash=abc -s",
 		callerLDFlags(`-trimpath '-ldflags=-X main.gitHash=abc -s'`))
 }

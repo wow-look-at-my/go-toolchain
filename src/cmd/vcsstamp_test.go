@@ -9,7 +9,6 @@ import (
 )
 
 func TestUsableRevisionRejectsWhatAnLDFlagsValueCannotCarry(t *testing.T) {
-	t.Parallel()
 	assert.Equal(t, "deadbeef", usableRevision("  deadbeef\n"))
 	assert.Equal(t, "", usableRevision(""))
 	// The go command re-splits the -ldflags value, so a revision holding a
@@ -20,7 +19,6 @@ func TestUsableRevisionRejectsWhatAnLDFlagsValueCannotCarry(t *testing.T) {
 }
 
 func TestRevisionStampNamesOnlyTheDeclaredVariables(t *testing.T) {
-	t.Parallel()
 	declared := set.Of("gitHash", "Commit", "unrelated")
 	got := revisionStamp("example.com/m/cmd/srv", declared, "abc123")
 	assert.Equal(t, "-X example.com/m/cmd/srv.gitHash=abc123 -X example.com/m/cmd/srv.Commit=abc123", got,
@@ -28,20 +26,17 @@ func TestRevisionStampNamesOnlyTheDeclaredVariables(t *testing.T) {
 }
 
 func TestRevisionStampIsEmptyForAPackageThatDeclaresNoStampVariable(t *testing.T) {
-	t.Parallel()
 	assert.Equal(t, "", revisionStamp("example.com/m", set.Of("version", "buildDate"), "abc123"))
 	assert.Equal(t, "", revisionStamp("example.com/m", set.New[string](), "abc123"))
 }
 
 func TestRevisionStampIsEmptyWhenTheBuildKnowsNoRevision(t *testing.T) {
-	t.Parallel()
 	// Warning rather than silence is the point: the binary otherwise ships
 	// its placeholder and reads as a development build wherever it lands.
 	assert.Equal(t, "", revisionStamp("example.com/m", set.Of("gitHash"), ""))
 }
 
 func TestPackageDirMapsAnImportPathBackOntoTheTree(t *testing.T) {
-	t.Parallel()
 	mod := "example.com/m"
 	assert.Equal(t, ".", packageDir(mod, mod))
 	assert.Equal(t, ".", packageDir("", "example.com/other/cmd/x"))

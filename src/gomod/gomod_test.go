@@ -17,21 +17,17 @@ func writeFile(t *testing.T, dir, name, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
 
-// chdir changes into dir for the duration of the test.
-func chdir(t *testing.T, dir string) {
-	t.Helper()
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-}
-
 // newModule creates a temporary module rooted at a temp dir and chdirs into it.
+//
+// t.Chdir, not a hand-rolled pair: the discovery under test walks ".", and the
+// old helper read the directory to return to with os.Getwd, whose error it
+// dropped. A neighbour standing in a removed directory makes that read fail,
+// and the test then restores nothing and walks somebody else's tree.
 func newModule(t *testing.T, modPath string) string {
 	t.Helper()
 	root := t.TempDir()
 	writeFile(t, root, "go.mod", "module "+modPath+"\n\ngo 1.25\n")
-	chdir(t, root)
+	t.Chdir(root)
 	return root
 }
 
