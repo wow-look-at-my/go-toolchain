@@ -293,8 +293,7 @@ jobs:
         uses: wow-look-at-my/dats@master
         env:
           GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
-          # The org proxy wants auth for a sumdb lookup on a module it has never seen, and this
-          # job's throwaway module always is one, so it keeps the public path. see docs/CI.md
+          # The org proxy wants auth to look up a module it has never seen, and this job's throwaway module always is one. see docs/CI.md
           GO_PROXY_CONFIG: ""
         with:
           tests: .github/dats-fixtures/smoke.dats
