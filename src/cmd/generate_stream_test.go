@@ -22,6 +22,7 @@ import (
 // and the helper exits with a failure, so this fails on regression rather than
 // racing a wall-clock deadline.
 func TestExecuteDirectiveStreamsOutputWhileRunning(t *testing.T) {
+	t.Serial()
 	requireShebangHelper(t)
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")

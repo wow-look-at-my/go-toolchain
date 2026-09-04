@@ -181,6 +181,7 @@ func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerCosmoToolchainFailureFailsFast(t *testing.T) {
+	t.Serial()
 	setupCosmoMatrixTest(t, []string{"cosmo"})
 	ensureCosmoToolchainFunc = func() (string, error) {
 		return "", fmt.Errorf("no toolchain for you")
@@ -197,6 +198,7 @@ func TestRunReleaseWithRunnerCosmoToolchainFailureFailsFast(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerInvalidTargets(t *testing.T) {
+	t.Serial()
 	oldTargets := matrixTargets
 	matrixTargets = []string{"cosmo/amd64"}
 	defer func() { matrixTargets = oldTargets }()

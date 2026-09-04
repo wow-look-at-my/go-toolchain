@@ -36,6 +36,7 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestResolvedVersionFromVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
@@ -43,6 +44,7 @@ func TestResolvedVersionFromVCS(t *testing.T) {
 }
 
 func TestResolvedVersionNoVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -74,6 +76,7 @@ func TestGithubRepoFromEnv(t *testing.T) {
 // TestSkipCache_VersionSubcommandsSkip, not kill this whole test binary with
 // the guard's own process exit.
 func TestVersionRaw(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
@@ -103,6 +106,7 @@ func TestVersionRaw(t *testing.T) {
 }
 
 func TestRunVersionJSON_DevBuild(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -162,6 +166,7 @@ func TestRunVersionJSON_WithVCS(t *testing.T) {
 }
 
 func TestPrintVersionInfo(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -172,6 +177,7 @@ func TestPrintVersionInfo(t *testing.T) {
 }
 
 func TestPrintStalenessDevBuild(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -272,6 +278,7 @@ func TestFetchCommitsBehindHTTPError(t *testing.T) {
 }
 
 func TestPrintStalenessUpToDate(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	// Use a timestamp that's in the future relative to the mock
@@ -288,6 +295,7 @@ func TestPrintStalenessUpToDate(t *testing.T) {
 }
 
 func TestPrintStalenessBehind(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -303,6 +311,7 @@ func TestPrintStalenessBehind(t *testing.T) {
 }
 
 func TestPrintStalenessAPIFailure(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{

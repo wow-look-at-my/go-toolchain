@@ -104,6 +104,7 @@ func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmOnlySkipsCosmoPrereqs(t *testing.T) {
+	t.Serial()
 	// Uses the canonical wasm/js spelling end to end; the js/wasm alias (other tests) produces the same artifact.
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	// --cosmo-platforms is a cosmo-only prerequisite, so an invalid value is ignored with no cosmo target requested.
@@ -163,6 +164,7 @@ func TestRunReleaseWithRunnerWasmPublishOptOut(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerWasmToolchainFailureFailsFast(t *testing.T) {
+	t.Serial()
 	setupCosmoMatrixTest(t, []string{"wasip1/wasm"})
 	ensureCosmoToolchainFunc = func() (string, error) {
 		return "", fmt.Errorf("no fork toolchain for you")

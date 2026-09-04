@@ -97,6 +97,7 @@ func TestEnsureCosmoToolchainEnvGorootMissingBinGo(t *testing.T) {
 }
 
 func TestEnsureCosmoToolchainEnvGorootBrokenVersionProbe(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 
 	root := t.TempDir()
@@ -113,6 +114,7 @@ func TestEnsureCosmoToolchainEnvGorootBrokenVersionProbe(t *testing.T) {
 // Every host asks buildhost for its own os/arch. No host list lives here: a
 // went stale and refused darwin/arm64 while buildhost served it.
 func TestEnsureCosmoToolchainDownloadsForEveryHost(t *testing.T) {
+	t.Serial()
 	for _, host := range []struct{ goos, goarch string }{
 		{"linux", "amd64"},
 		{"darwin", "arm64"},
@@ -157,6 +159,7 @@ func TestEnsureCosmoToolchainDownloadsForEveryHost(t *testing.T) {
 // A host buildhost has no toolchain for gets buildhost's own answer, named as
 // such, plus the local-GOROOT escape -- never a refusal from a list here.
 func TestEnsureCosmoToolchainUnpublishedHostNamesTheEscape(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	cosmoHostPlatformFunc = func() (string, string) { return "plan9", "386" }
 
@@ -176,6 +179,7 @@ func TestEnsureCosmoToolchainUnpublishedHostNamesTheEscape(t *testing.T) {
 }
 
 func TestEnsureCosmoToolchainDownloadsAndCaches(t *testing.T) {
+	t.Serial()
 	cacheDir := setupCosmoTest(t)
 	tarball := makeCosmoTarball(t)
 
@@ -222,6 +226,7 @@ func TestEnsureCosmoToolchainDownloadsAndCaches(t *testing.T) {
 // has to agree on the suffix. A path spelled by hand rejects a good archive
 // here, and misses the cache on every later run.
 func TestEnsureCosmoToolchainWindowsHostUsesExeSuffix(t *testing.T) {
+	t.Serial()
 	cacheDir := setupCosmoTest(t)
 	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
 	tarball := makeCosmoTarballNamed(t, "go.exe")
@@ -256,6 +261,7 @@ func TestEnsureCosmoToolchainWindowsHostUsesExeSuffix(t *testing.T) {
 
 // The rejection names the file it wanted, which is the suffix on a windows host.
 func TestEnsureCosmoToolchainWindowsHostRejectsArchiveWithoutExe(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
 	tarball := makeCosmoTarball(t) // a unix distribution: go/bin/go
@@ -298,6 +304,7 @@ func TestEnsureCosmoToolchainBranchEnvSelectsBranch(t *testing.T) {
 }
 
 func TestEnsureCosmoToolchainFallsBackToBranchKey(t *testing.T) {
+	t.Serial()
 	cacheDir := setupCosmoTest(t)
 	tarball := makeCosmoTarball(t)
 
@@ -317,6 +324,7 @@ func TestEnsureCosmoToolchainFallsBackToBranchKey(t *testing.T) {
 }
 
 func TestEnsureCosmoToolchainDownloadHTTPError(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -334,6 +342,7 @@ func TestEnsureCosmoToolchainDownloadHTTPError(t *testing.T) {
 }
 
 func TestEnsureCosmoToolchainRejectsArchiveWithoutGo(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 
 	// A valid tar.gz that lacks go/bin/go.

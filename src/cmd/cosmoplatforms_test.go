@@ -10,7 +10,7 @@ import (
 // The default matrix builds a SINGLE fat APE, not a per-platform binary each.
 // This is the whole point of the change: no target flags means a lone artifact.
 func TestResolveMatrixPlatformsDefaultsToOneAPE(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	oldTargets := matrixTargets
 	defer func() { matrixTargets = oldTargets }()
 	matrixTargets = nil

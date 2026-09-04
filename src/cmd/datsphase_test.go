@@ -185,6 +185,7 @@ func TestRunDatsPhaseNoSuitesIsNoOp(t *testing.T) {
 }
 
 func TestRunDatsPhaseRunsSuites(t *testing.T) {
+	t.Serial()
 	dir := chdirWithSuite(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "build"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "build", "mytool"), []byte("bin"), 0o755))

@@ -192,6 +192,7 @@ func TestParseLevel(t *testing.T) {
 // TestDefaultLogger checks that the default logger is lazily initialized and
 // can be replaced by Init.
 func TestDefaultLogger(t *testing.T) {
+	t.Serial()
 	// Save and restore the global default so this test is hermetic.
 	defaultMu.Lock()
 	saved := defaultLogger
@@ -230,6 +231,7 @@ func TestDefaultLogger(t *testing.T) {
 // stderr and never emits GHA annotations on stdout, even when
 // GITHUB_ACTIONS=true — stdout may be a protocol channel (e.g. GOCACHEPROG).
 func TestInitSubprocess(t *testing.T) {
+	t.Serial()
 	// Save and restore the global default so this test is hermetic.
 	defaultMu.Lock()
 	saved := defaultLogger

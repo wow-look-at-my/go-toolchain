@@ -71,6 +71,7 @@ func TestUnignoreCoverageNoWatermark(t *testing.T) {
 }
 
 func TestUnignoreConfirmationAbort(t *testing.T) {
+	t.Serial()
 	oldStdin := os.Stdin
 	rIn, wIn, _ := os.Pipe()
 	wIn.WriteString("n\n")
@@ -83,6 +84,7 @@ func TestUnignoreConfirmationAbort(t *testing.T) {
 }
 
 func TestUnignoreConfirmationAccept(t *testing.T) {
+	t.Serial()
 	oldStdin := os.Stdin
 	rIn, wIn, _ := os.Pipe()
 	wIn.WriteString("y\n")

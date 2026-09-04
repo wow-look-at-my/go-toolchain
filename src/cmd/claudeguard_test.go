@@ -205,6 +205,7 @@ func TestAgentOutputMessageRendersTheWholeDocument(t *testing.T) {
 }
 
 func TestAgentOutputViolation(t *testing.T) {
+	t.Serial()
 	origUnder, origSink := runningUnderAgentFn, inspectStdoutFn
 	t.Cleanup(func() { runningUnderAgentFn, inspectStdoutFn = origUnder, origSink })
 
@@ -447,6 +448,7 @@ func TestIsTerminalOnPipeIsFalse(t *testing.T) {
 // reassigns that variable, so following it would misclassify a real
 // terminal or capture file as a hidden sink under every agent.
 func TestInspectStdoutIgnoresStdoutVariableReassignment(t *testing.T) {
+	t.Serial()
 	if runtime.GOOS != "linux" {
 		t.Skip("inspectStdout needs /proc (linux)")
 	}

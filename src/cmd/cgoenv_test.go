@@ -39,6 +39,7 @@ func TestAddPkgConfigPath_AlreadyPresent(t *testing.T) {
 }
 
 func TestCachedOpenCVPkgConfig_NoCache(t *testing.T) {
+	t.Serial()
 	// Not parallel: goCacheDirFunc is a package global, and a sibling's assignment would win.
 	dir := t.TempDir()
 	oldFunc := goCacheDirFunc
@@ -50,6 +51,7 @@ func TestCachedOpenCVPkgConfig_NoCache(t *testing.T) {
 }
 
 func TestCachedOpenCVPkgConfig_Found(t *testing.T) {
+	t.Serial()
 	// Not parallel: goCacheDirFunc is a package global, and a sibling's assignment would win.
 	dir := t.TempDir()
 	oldFunc := goCacheDirFunc
@@ -67,6 +69,7 @@ func TestCachedOpenCVPkgConfig_Found(t *testing.T) {
 }
 
 func TestCachedOpenCVPkgConfig_FoundInLib64(t *testing.T) {
+	t.Serial()
 	// Not parallel: goCacheDirFunc is a package global, and a sibling's assignment would win.
 	dir := t.TempDir()
 	oldFunc := goCacheDirFunc

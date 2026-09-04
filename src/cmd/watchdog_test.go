@@ -35,6 +35,7 @@ func TestWatchdogDisabledByEnv(t *testing.T) {
 // stop(), stdoutR.Close() discarded any bytes forward() hadn't read yet,
 // causing the coverage block to vanish intermittently.
 func TestWatchdogStopDoesNotDropBufferedOutput(t *testing.T) {
+	t.Serial()
 	// Forces single-threaded scheduling so forward() and main compete for the same P; otherwise the race rarely triggers.
 	prevProcs := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() { runtime.GOMAXPROCS(prevProcs) })

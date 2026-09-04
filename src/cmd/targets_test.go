@@ -160,6 +160,7 @@ func TestParseTargetListErrorNamesValidValues(t *testing.T) {
 }
 
 func TestResolveMatrixPlatformsUsesTargetsWhenSet(t *testing.T) {
+	t.Serial()
 	oldTargets := matrixTargets
 	defer func() { matrixTargets = oldTargets }()
 

@@ -61,6 +61,7 @@ func TestDiscoverGitHubToken_Priority(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_ScansEnvForPAT(t *testing.T) {
+	t.Serial()
 	enableTokenSearch(t)
 	// Clear well-known vars.
 	for _, n := range wellKnownTokenVars {
@@ -78,6 +79,7 @@ func TestDiscoverGitHubToken_ScansEnvForPAT(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_FineGrainedPAT(t *testing.T) {
+	t.Serial()
 	enableTokenSearch(t)
 	for _, n := range wellKnownTokenVars {
 		t.Setenv(n, "")
@@ -93,6 +95,7 @@ func TestDiscoverGitHubToken_FineGrainedPAT(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_NoToken(t *testing.T) {
+	t.Serial()
 	enableTokenSearch(t)
 	for _, n := range wellKnownTokenVars {
 		t.Setenv(n, "")

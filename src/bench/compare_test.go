@@ -138,6 +138,7 @@ func TestStripCPUSuffix(t *testing.T) {
 }
 
 func TestComparisonPrint(t *testing.T) {
+	t.Serial()
 	comp := &Comparison{
 		Packages: map[string][]Delta{
 			"example.com/pkg": {
@@ -168,6 +169,7 @@ func TestComparisonPrint(t *testing.T) {
 }
 
 func TestComparisonPrintEmpty(t *testing.T) {
+	t.Serial()
 	comp := &Comparison{
 		Packages: map[string][]Delta{},
 	}

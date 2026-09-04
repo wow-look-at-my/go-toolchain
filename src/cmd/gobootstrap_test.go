@@ -215,6 +215,7 @@ func TestExtractTarGzWithDir(t *testing.T) {
 }
 
 func TestExtractTarGzSymlinkRefusedFallsBackToCopy(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	oldSymlink := symlinkFunc
@@ -276,6 +277,7 @@ func TestExtractTarGzPathTraversal(t *testing.T) {
 // GOTOOLCHAIN, the setting that otherwise lets the go command fetch a stock
 // toolchain behind our back to satisfy a go directive.
 func TestEnsureGoVersionUsesTheForkAndPinsGOTOOLCHAIN(t *testing.T) {
+	t.Serial()
 	forkRoot := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
 	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
@@ -300,6 +302,7 @@ func TestEnsureGoVersionUsesTheForkAndPinsGOTOOLCHAIN(t *testing.T) {
 
 // No fork, no build: there is nothing else that may compile this module.
 func TestEnsureGoVersionFailsWithoutTheFork(t *testing.T) {
+	t.Serial()
 	oldEnsure := ensureCosmoToolchainFunc
 	ensureCosmoToolchainFunc = func() (string, error) { return "", fmt.Errorf("no toolchain published") }
 	defer func() { ensureCosmoToolchainFunc = oldEnsure }()
@@ -373,6 +376,7 @@ func TestVerifyGoToolchainBrokenGOROOT(t *testing.T) {
 // A broken fork is a failed run, not a quiet swap to whatever Go is lying
 // around: the swap is what this whole change exists to prevent.
 func TestEnsureGoVersionBrokenForkFails(t *testing.T) {
+	t.Serial()
 	forkRoot := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
 	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
@@ -395,6 +399,7 @@ func TestEnsureGoVersionBrokenForkFails(t *testing.T) {
 }
 
 func TestRecordGoMinor(t *testing.T) {
+	t.Serial()
 	old := resolvedGoMinor
 	defer func() { resolvedGoMinor = old }()
 

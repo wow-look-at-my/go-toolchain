@@ -14,6 +14,7 @@ import (
 // With no target flags the run takes the single-APE path, which resolves the
 // gosmopolitan toolchain rather than building a per-platform product.
 func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
+	t.Serial()
 	oldTargets := matrixTargets
 	oldEnsure := ensureCosmoToolchainFunc
 	matrixTargets = nil
@@ -32,6 +33,7 @@ func TestRunReleaseWithRunnerNoPlatformsBuildsTheAPE(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerSuccess(t *testing.T) {
+	t.Serial()
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 2
 
@@ -51,6 +53,7 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
+	t.Serial()
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
 
@@ -69,6 +72,7 @@ func TestRunReleaseWithRunnerBuildFails(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerMoreJobsThanWorkers(t *testing.T) {
+	t.Serial()
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js", "wasm/wasip1"})
 	releaseParallel = 10 // More workers than jobs
 
@@ -123,6 +127,7 @@ func TestRunReleaseWithRunnerRunsBenchmarks(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerNoBenchmarkFlag(t *testing.T) {
+	t.Serial()
 	fakeGoroot, _ := setupCosmoMatrixTest(t, []string{"wasm/js"})
 	releaseParallel = 1
 	noBenchmark = true

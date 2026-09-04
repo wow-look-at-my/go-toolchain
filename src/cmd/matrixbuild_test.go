@@ -87,6 +87,7 @@ func TestRunBuildNoStderrOnSuccess(t *testing.T) {
 // runBuild is where everything compiles, so a path spelled without the suffix
 // fails to exec every build on that host.
 func TestRunBuildExecsGoExeOnWindowsHost(t *testing.T) {
+	t.Serial()
 	oldHost := cosmoHostPlatformFunc
 	cosmoHostPlatformFunc = func() (string, string) { return "windows", "amd64" }
 	t.Cleanup(func() { cosmoHostPlatformFunc = oldHost })

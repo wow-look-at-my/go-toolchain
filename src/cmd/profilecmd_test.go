@@ -44,6 +44,7 @@ func seedCollector(t *testing.T) {
 }
 
 func TestInitBuildProfile_RespectsNoProfile(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 
 	noProfile = true
@@ -62,6 +63,7 @@ func TestInitBuildProfile_RespectsNoProfile(t *testing.T) {
 }
 
 func TestCaptureProfileTrace_RecordsLaneEvents(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 	seedCollector(t)
 	profileGraph = nil

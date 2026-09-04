@@ -74,6 +74,7 @@ func TestCopyFileLargeFile(t *testing.T) {
 }
 
 func TestRunInstallImplSymlink(t *testing.T) {
+	t.Serial()
 	// os.Executable() returns the test binary; check it symlinks to the right target.
 	tmpDir := t.TempDir()
 
@@ -98,6 +99,7 @@ func TestRunInstallImplSymlink(t *testing.T) {
 }
 
 func TestRunInstallImplCopy(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	setHome(t, tmpDir)
@@ -119,6 +121,7 @@ func TestRunInstallImplCopy(t *testing.T) {
 }
 
 func TestRunInstallImplReplacesExisting(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	setHome(t, tmpDir)
@@ -176,6 +179,7 @@ func TestInstallStatusNotInstalled(t *testing.T) {
 }
 
 func TestInstallStatusSymlinkCurrent(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	setHome(t, tmpDir)
 
@@ -201,6 +205,7 @@ func TestInstallStatusSymlinkElsewhere(t *testing.T) {
 }
 
 func TestInstallStatusCopyCurrent(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	setHome(t, tmpDir)
 

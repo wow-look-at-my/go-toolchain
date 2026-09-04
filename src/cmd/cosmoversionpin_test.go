@@ -37,6 +37,7 @@ func TestResolveCosmoVersionEchoesThePin(t *testing.T) {
 }
 
 func TestResolveCosmoVersionReadsTheRedirect(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "master", r.URL.Query().Get("branch"), "an unpinned resolve selects by branch")
