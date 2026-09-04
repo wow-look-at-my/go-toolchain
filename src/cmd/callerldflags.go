@@ -2,13 +2,9 @@ package cmd
 
 import "strings"
 
-// callerLDFlags is the -ldflags value the caller set in goflags, the GOFLAGS
-// environment variable's contents.
-//
-// The go command applies GOFLAGS to its flag set BEFORE parsing the command
-// line, so a -ldflags on the command line replaces the GOFLAGS spelling rather
-// than adding to it. This pipeline always passes -ldflags, so without folding
-// the caller's value in here a GOFLAGS stamp is discarded with nothing said.
+// callerLDFlags is the -ldflags the caller set in GOFLAGS. The go command
+// applies GOFLAGS before parsing argv, so a -ldflags on the command line
+// REPLACES it -- and this pipeline always passes one.
 func callerLDFlags(goflags string) string {
 	var values []string
 	for _, field := range splitGOFLAGS(goflags) {

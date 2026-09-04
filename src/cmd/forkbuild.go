@@ -63,9 +63,8 @@ func jobLDFlags(srcPath, goflags string) string {
 	return joinLDFlags(stampLDFlags(srcPath), callerLDFlags(goflags))
 }
 
-// joinLDFlags puts the stamp ahead of the caller's own flags, so an explicit
-// -X overrides it: the linker keeps the LAST value given for a name. Depth:
-// docs/VCS-STAMP.md.
+// joinLDFlags puts the stamp first, so an explicit -X wins:
+// the linker keeps the LAST value for a name.
 func joinLDFlags(stamp, caller string) string {
 	if stamp == "" {
 		return caller

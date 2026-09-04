@@ -34,8 +34,8 @@ func resolveRevision() string {
 	return usableRevision(os.Getenv("GITHUB_SHA"))
 }
 
-// usableRevision trims rev and rejects anything an -ldflags value cannot
-// carry: the go command re-splits that string on whitespace and quotes.
+// usableRevision rejects what -ldflags cannot carry: the go
+// command re-splits it on whitespace and quotes.
 func usableRevision(rev string) string {
 	rev = strings.TrimSpace(rev)
 	if strings.ContainsAny(rev, " \t\n\r\"'") {

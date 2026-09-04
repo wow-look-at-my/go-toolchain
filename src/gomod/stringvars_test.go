@@ -43,8 +43,7 @@ func main() {
 
 	got := PackageStringVars(dir)
 	assert.True(t, got.ContainsAll("typed", "literal", "grouped", "alsoGrouped", "inBlock"))
-	// -X fails the LINK for a variable of another type, so a name whose type
-	// this cannot prove is a string must stay out.
+	// -X fails the LINK for a variable of another type.
 	assert.False(t, got.ContainsAny("computed", "numeric", "named", "mismatch", "local", "compute"))
 }
 

@@ -20,11 +20,7 @@ import (
 // serially (t.Parallel is NOT called).
 func captureInstalled(t *testing.T, fn func()) string {
 	t.Helper()
-	// Reset installation state so we can call Install again inside this test.
-	// drainedWG resets with the rest: an earlier test that skipped Flush leaves
-	// its drainers blocked on a pipe nobody closes, and a Wait that also counts
-	// them never returns -- the package then dies on its timeout rather than on
-	// the test that actually broke.
+	// Reset install state; a leftover drainedWG wedges every later Flush.
 	installOnce = sync.Once{}
 	installed = false
 	drainedWG = sync.WaitGroup{}
@@ -39,11 +35,8 @@ func captureInstalled(t *testing.T, fn func()) string {
 	origOut, origErr := os.Stdout, os.Stderr
 	os.Stdout = tmpOut
 	os.Stderr = tmpErr
-	// Flush is what releases drainedWG, and it is package-level: a test that
-	// fails or panics inside fn leaves its drainers blocked on a pipe nobody
-	// closes, and every later Flush waits on them until the package hits its
-	// timeout. Flush is safe to repeat, so the explicit call below still reads
-	// as the point the output is complete.
+	// Flush releases drainedWG: a panic inside fn would otherwise
+	// leave the drainers blocked and wedge every later Flush.
 	defer func() {
 		Flush()
 		os.Stdout = origOut

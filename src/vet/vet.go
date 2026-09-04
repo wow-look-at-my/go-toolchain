@@ -389,9 +389,8 @@ func finishSemantic(pattern string, ed Editor, progress ProgressFunc,
 	return filesChanged, nil
 }
 
-// instrumentedAnalyzers remembers which package-level *analysis.Analyzer
-// singletons already carry the trace wrapper, so a repeat run cannot wrap an
-// already-wrapped Run func and nest deeper without bound.
+// instrumentedAnalyzers remembers which analyzer singletons already carry
+// the trace wrapper, so a repeat run cannot nest another one.
 var instrumentedAnalyzers sync.Map // *analysis.Analyzer -> struct{}
 
 // instrumentAnalyzers wraps each analyzer's Run function in-place to record

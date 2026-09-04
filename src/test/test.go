@@ -130,7 +130,7 @@ func RunTests(r runner.CommandRunner, verbose bool, coverFile string, onOutput f
 		return nil, fmt.Errorf("discovering build tags: %w", err)
 	}
 
-	// Every build-tag configuration at once; they share no state.
+	// Every build-tag configuration together; they share no state.
 	type configRun struct {
 		res *TestResult
 		err error
@@ -250,9 +250,8 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutput func(),
 	timeline TimelineRecorder, tagCfg buildtags.Config, only []string,
 ) (*TestResult, error) {
-	// Enumerate only packages with test files, avoiding the "no such tool covdata" error and generated-only packages.
-	// -p spans packages, -parallel spans tests within a package. Both default to
-	// GOMAXPROCS, which a cgroup quota can shrink; state the machine's CPU count.
+	// -p spans packages, -parallel spans tests within a package. Both default
+	// to GOMAXPROCS, which a cgroup quota shrinks; state the CPU count.
 	procs := runtime.NumCPU()
 	args := []string{"test", "-json", "-timeout=" + testTimeout.String(),
 		"-p", strconv.Itoa(procs), "-parallel", strconv.Itoa(procs)}

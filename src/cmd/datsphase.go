@@ -208,8 +208,8 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 
 	res, err := datsRunFunc(context.Background(), dats.Options{
 		Paths: []string{datsSuiteDir},
-		// A staged APE extracts its loader under TMPDIR rather than
-		// rewriting its own file, so concurrent copies do not race.
+		// A staged APE extracts its loader under TMPDIR instead of
+		// rewriting itself, so concurrent copies do not race.
 		Jobs:    runtime.NumCPU(),
 		Output:  out,
 		Sandbox: datsSandbox(),

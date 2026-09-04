@@ -74,11 +74,7 @@ func drainPipe(r io.Reader) <-chan string {
 	return done
 }
 
-// captureMu serializes the helpers below. os.Stdout is one variable for the
-// whole package, so two captures at once have the second save the first's pipe
-// as the stream to put back -- and every later write goes to a pipe nobody
-// reads, or to a closed one. This suite runs tests in parallel, so that is not
-// a rare interleaving.
+// captureMu serializes the helpers: concurrent captures of the package-wide os.Stdout put back each other's pipes.
 var captureMu sync.Mutex
 
 // captureStdout runs f with stdout captured and returns the output.

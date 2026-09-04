@@ -17,12 +17,8 @@ func writeFile(t *testing.T, dir, name, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
 
-// newModule creates a temporary module rooted at a temp dir and chdirs into it.
-//
-// t.Chdir, not a hand-rolled pair: the discovery under test walks ".", and the
-// old helper read the directory to return to with os.Getwd, whose error it
-// dropped. A neighbour standing in a removed directory makes that read fail,
-// and the test then restores nothing and walks somebody else's tree.
+// newModule creates a temporary module rooted at a temp dir and chdirs into
+// it, with t.Chdir: the discovery under test walks ".".
 func newModule(t *testing.T, modPath string) string {
 	t.Helper()
 	root := t.TempDir()

@@ -13,11 +13,9 @@ import (
 
 // PackageStringVars returns the package-level string variables dir declares.
 //
-// The linker drops a -X naming a symbol it cannot find, but FAILS the link for
-// a symbol that is not a string variable, so a caller that stamps a name has
-// to know the name is there and holds a string. Only a declaration this can
-// prove is reported: an explicit string type, or an initializer that is a
-// string literal. A computed initializer stays out.
+// The linker FAILS a -X naming a variable of another type, so a caller has to
+// prove the type before it stamps a name. Only an explicit string type or a
+// string-literal initializer counts.
 func PackageStringVars(dir string) set.Set[string] {
 	names := set.New[string]()
 	entries, err := os.ReadDir(dir)
