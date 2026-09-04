@@ -10,10 +10,9 @@ import (
 )
 
 func TestParseVanityModulesFromSum(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gosum := `github.com/spf13/cobra v1.10.2 h1:abc123=
 github.com/spf13/cobra v1.10.2/go.mod h1:def456=
@@ -43,10 +42,9 @@ gopkg.in/yaml.v3 v3.0.1 h1:ggg=
 }
 
 func TestParseVanityModulesFromSumNoFile(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	modules, err := parseVanityModulesFromSum()
 	assert.NotNil(t, err)
@@ -55,10 +53,9 @@ func TestParseVanityModulesFromSumNoFile(t *testing.T) {
 }
 
 func TestParseVanityModulesFromSumDedup(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Same module appears in both hash and go.mod hash lines
 	gosum := `gotest.tools/gotestsum v1.13.0 h1:aaa=
@@ -74,7 +71,7 @@ gotest.tools/gotestsum v1.13.0/go.mod h1:bbb=
 }
 
 func TestVcsURLToModulePath(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		url  string
 		want string
@@ -90,7 +87,7 @@ func TestVcsURLToModulePath(t *testing.T) {
 }
 
 func TestParseGoImportMeta(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	html := `<!DOCTYPE html>
 <html><head>
 <meta name="go-import" content="gotest.tools/gotestsum git https://github.com/gotestyourself/gotestsum">
@@ -103,7 +100,7 @@ func TestParseGoImportMeta(t *testing.T) {
 }
 
 func TestParseGoImportMetaPrefixMatch(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// Module path is longer than the prefix in the meta tag
 	html := `<meta name="go-import" content="gotest.tools git https://github.com/gotestyourself/gotest.tools">`
 
@@ -114,17 +111,16 @@ func TestParseGoImportMetaPrefixMatch(t *testing.T) {
 }
 
 func TestParseGoImportMetaNotFound(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	html := `<html><head><title>Nothing here</title></head></html>`
 	_, _, err := parseGoImportMeta(html, "example.com/foo")
 	assert.NotNil(t, err)
 }
 
 func TestWellKnownHostsExcluded(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	gosum := `github.com/foo/bar v1.0.0 h1:aaa=
 gitlab.com/baz/qux v2.0.0 h1:bbb=

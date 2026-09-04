@@ -72,9 +72,9 @@ func (a *applyEditor) Wrote(path string) bool {
 	return a.written.Contains(editorKey(path))
 }
 
-func (applyEditor) Err() error { return nil }
+func (*applyEditor) Err() error { return nil }
 
-func (applyEditor) Writes() bool { return true }
+func (*applyEditor) Writes() bool { return true }
 
 // editorKey normalizes a path, so a file recorded under either spelling
 // answers Wrote alike.

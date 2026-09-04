@@ -14,7 +14,7 @@ const canonicalizeDocFile = "doccomment_test.go"
 const canonicalizeHoistFile = "hoist_test.go"
 
 // The file carries an assertlint-fixable comparison, a top-level doc comment
-// holding the POSIX 'foo'\''bar' escape, and an already space-aligned struct.
+// holding the POSIX 'foo'\”bar' escape, and an already space-aligned struct.
 const canonicalizeDocCode = "package main\n\n" +
 	"import \"testing\"\n\n" +
 	"// Doc: foo'bar becomes 'foo'\\''bar' in a POSIX shell.\n" +
@@ -74,9 +74,7 @@ func fixCanonicalizeFixture(t *testing.T) (string, map[string]string) {
 	gomod := "module testmod\n\ngo 1.21\n\nrequire github.com/stretchr/testify v1.9.0\n\nreplace github.com/stretchr/testify => " + stub + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644))
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 	initGitRepo(t, dir)
 
 	changed, err := vetSemantic("./...", NewEditor(true), nil)
@@ -97,6 +95,7 @@ func fixCanonicalizeFixture(t *testing.T) (string, map[string]string) {
 // go/printer, which tab-aligns, applies gofmt's doc-comment smart-quote
 // substitution, and hoists an if's init statement out of the if.
 func TestVetSemanticFixCanonicalizes(t *testing.T) {
+	t.Serial()
 	dir, files := fixCanonicalizeFixture(t)
 
 	// The canonicalize step must restore gofmt's "tabs to indent, spaces to

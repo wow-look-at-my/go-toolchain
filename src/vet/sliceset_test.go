@@ -17,6 +17,7 @@ import (
 // TestSliceSetAnalyzer runs the fixture: every shape the check reports, and
 // every neighbouring shape it must leave alone.
 func TestSliceSetAnalyzer(t *testing.T) {
+	t.Serial()
 	t.Parallel() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
@@ -28,6 +29,7 @@ func TestSliceSetAnalyzer(t *testing.T) {
 // single org require away, so it fails; anywhere else the fix would add a
 // dependency the author never chose, so it warns.
 func TestSliceSetSeverityFollowsTheModule(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 import "slices"
@@ -62,6 +64,7 @@ func main() { _ = slices.Contains(known, "a") }
 // silent. Each shape reads position or repetition, or puts the slice somewhere
 // this walk cannot follow, so a set is not provably what the author meant.
 func TestSliceSetLeavesUncertainSlicesAlone(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		body string

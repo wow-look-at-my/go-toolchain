@@ -79,9 +79,7 @@ func TestFormatBenchBytes(t *testing.T) {
 
 func TestReadModulePath(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// No go.mod
 	assert.Equal(t, "", readModulePath())
@@ -93,9 +91,7 @@ func TestReadModulePath(t *testing.T) {
 
 func TestReadModulePathEmptyFile(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	os.WriteFile("go.mod", []byte(""), 0644)
 	assert.Equal(t, "", readModulePath())
@@ -103,9 +99,7 @@ func TestReadModulePathEmptyFile(t *testing.T) {
 
 func TestReadModulePathExtraWhitespace(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	os.WriteFile("go.mod", []byte("module   github.com/user/pkg  \n"), 0644)
 	assert.Equal(t, "github.com/user/pkg", readModulePath())

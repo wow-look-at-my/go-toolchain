@@ -18,7 +18,7 @@ const fifoPeerFile = "claudeguard_fifopeer_cosmo.go"
 // Every lsof invocation goes through lsofCommand, which is the only place the
 // deadline and WaitDelay are set. A bare exec.Command here is the defect.
 func TestFifoPeerLsofAlwaysBounded(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, fifoPeerFile, nil, 0)
 	require.NoError(t, err, "parse %s", fifoPeerFile)
@@ -56,7 +56,7 @@ func TestFifoPeerLsofAlwaysBounded(t *testing.T) {
 // context kills the child, and Wait still blocks until every holder of its
 // output pipe closes it. lsof forks helpers that inherit that pipe.
 func TestFifoPeerSetsWaitDelay(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	src, err := os.ReadFile(fifoPeerFile)
 	require.NoError(t, err)
 	assert.Contains(t, string(src), "WaitDelay",
@@ -68,7 +68,7 @@ func TestFifoPeerSetsWaitDelay(t *testing.T) {
 // The ancestor walk calls into a dependency whose own bound is per-call, so a
 // long chain multiplies it. The loop has to consult the deadline itself.
 func TestFifoPeerWalkChecksTheDeadline(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	src, err := os.ReadFile(fifoPeerFile)
 	require.NoError(t, err)
 	body := string(src)

@@ -69,6 +69,7 @@ func withMinDuration(t *testing.T, d time.Duration) {
 }
 
 func TestInstallOmitsDurationOnFastStderrLine(t *testing.T) {
+	t.Serial()
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stderr, "hello stderr")
 	}))
@@ -76,6 +77,7 @@ func TestInstallOmitsDurationOnFastStderrLine(t *testing.T) {
 }
 
 func TestInstallOmitsDurationOnFastStdoutLine(t *testing.T) {
+	t.Serial()
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stdout, "hello stdout")
 	}))
@@ -83,6 +85,7 @@ func TestInstallOmitsDurationOnFastStdoutLine(t *testing.T) {
 }
 
 func TestInstallAppendsDurationToSlowStderrLine(t *testing.T) {
+	t.Serial()
 	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stderr, "hello stderr")
@@ -92,6 +95,7 @@ func TestInstallAppendsDurationToSlowStderrLine(t *testing.T) {
 }
 
 func TestInstallAppendsDurationToSlowStdoutLine(t *testing.T) {
+	t.Serial()
 	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintln(os.Stdout, "hello stdout")
@@ -101,6 +105,7 @@ func TestInstallAppendsDurationToSlowStdoutLine(t *testing.T) {
 }
 
 func TestInstallHandlesPartialLines(t *testing.T) {
+	t.Serial()
 	// The prefix prints without a newline, then the completion prints
 	// its own duration; drain() must not append a further suffix.
 	got := stripANSI(captureInstalled(t, func() {
@@ -112,6 +117,7 @@ func TestInstallHandlesPartialLines(t *testing.T) {
 }
 
 func TestInstallSkipsAlreadyTimedLines(t *testing.T) {
+	t.Serial()
 	// step.finish writes lines that already end with a fmtDuration suffix.
 	// drain() should detect that and leave the line alone.
 	got := stripANSI(captureInstalled(t, func() {
@@ -126,6 +132,7 @@ func TestInstallSkipsAlreadyTimedLines(t *testing.T) {
 }
 
 func TestInstallOmitsDurationOnEachFastLine(t *testing.T) {
+	t.Serial()
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "one\ntwo\nthree\n")
 	}))
@@ -133,6 +140,7 @@ func TestInstallOmitsDurationOnEachFastLine(t *testing.T) {
 }
 
 func TestInstallAppendsDurationToEachSlowLine(t *testing.T) {
+	t.Serial()
 	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "one\ntwo\nthree\n")
@@ -146,6 +154,7 @@ func TestInstallAppendsDurationToEachSlowLine(t *testing.T) {
 }
 
 func TestPartialLineAtFlushIsEmittedWithoutDurationWhenFast(t *testing.T) {
+	t.Serial()
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "no newline yet")
 		// No newline — Flush should still deliver it.
@@ -154,6 +163,7 @@ func TestPartialLineAtFlushIsEmittedWithoutDurationWhenFast(t *testing.T) {
 }
 
 func TestPartialLineAtFlushIsEmittedWithDurationWhenSlow(t *testing.T) {
+	t.Serial()
 	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		fmt.Fprintf(os.Stderr, "no newline yet")
@@ -164,6 +174,7 @@ func TestPartialLineAtFlushIsEmittedWithDurationWhenSlow(t *testing.T) {
 }
 
 func TestConcurrentWritesDoNotInterleaveMidLine(t *testing.T) {
+	t.Serial()
 	withMinDuration(t, 0)
 	got := stripANSI(captureInstalled(t, func() {
 		var wg sync.WaitGroup

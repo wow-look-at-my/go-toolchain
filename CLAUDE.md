@@ -286,6 +286,10 @@ coverage.
   `src/test/xattr_cosmo.go` is the surviving one, since the fork's syscall package has no xattr wrappers. Either a dedicated implementation already exists
   (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
   (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
+- **Tests run in parallel by default under the fork, so a test that touches process-wide state says so.** `t.Chdir` is the only way to change
+  directory (it takes the serial hold; a hand-rolled `os.Chdir` + restore lets one test delete the directory another is standing in), and a test
+  driving a package-level variable — `jsonOutput`, `outputDir`, the logger's warning counters, an analyzer's dedup map — opens with `t.Serial()`.
+  `src/cmd`, `src/vet`, `src/logx` and `src/logger` are serial packages for that reason. `t.Parallel()` is a no-op here; do not add one
 - **`_cosmo` in a filename is a real GOOS filter now, so a file that must build everywhere cannot carry it.** Stock Go knows no GOOS called cosmo
   and ignored the suffix, which is how `matrix_cosmo_test.go` shipped shared test helpers under a name that promised the opposite. The fork does
   know it, and the test binaries build for the host (`WithHostTarget`), so the file vanished and every caller failed `undefined`. Name a

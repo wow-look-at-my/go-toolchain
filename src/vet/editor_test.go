@@ -10,6 +10,7 @@ import (
 )
 
 func TestApplyEditorRequireWritesOnDiffer(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))
@@ -25,6 +26,7 @@ func TestApplyEditorRequireWritesOnDiffer(t *testing.T) {
 }
 
 func TestApplyEditorNoopWhenEqual(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("same"), 0o644))
@@ -36,6 +38,7 @@ func TestApplyEditorNoopWhenEqual(t *testing.T) {
 }
 
 func TestApplyEditorApplyWrites(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))
@@ -50,6 +53,7 @@ func TestApplyEditorApplyWrites(t *testing.T) {
 }
 
 func TestCheckEditorRequireRecordsAndNeverWrites(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))
@@ -73,6 +77,7 @@ func TestCheckEditorRequireRecordsAndNeverWrites(t *testing.T) {
 }
 
 func TestCheckEditorCleanNoViolation(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("same"), 0o644))
@@ -85,6 +90,7 @@ func TestCheckEditorCleanNoViolation(t *testing.T) {
 }
 
 func TestCheckEditorApplyIsNoop(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(p, []byte("old"), 0o644))

@@ -22,6 +22,7 @@ func okProbes(mode uint32) darwinFDProbes {
 }
 
 func TestClassifyDarwinFD(t *testing.T) {
+	t.Serial()
 	// The behavior the whole design turns on: a probe this build cannot
 	// make is NOT a negative answer. Answering "hidden" would refuse every
 	// legitimate agent run on a Mac; answering "visible" would leave the guard

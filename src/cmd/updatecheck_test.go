@@ -57,6 +57,7 @@ func releaseServerWithList(t *testing.T, rel buildhostRelease, list []buildhostR
 }
 
 func TestFetchLatestBuildhostRelease(t *testing.T) {
+	t.Serial()
 	pub := time.Date(2026, 6, 14, 5, 4, 25, 0, time.UTC)
 	want := buildhostRelease{
 		Version: "202", VersionNum: 202, GitCommit: "6d7723427895dc2e", GitBranch: "v1",
@@ -76,6 +77,7 @@ func TestFetchLatestBuildhostRelease(t *testing.T) {
 }
 
 func TestFetchLatestBuildhostReleaseHTTPError(t *testing.T) {
+	t.Serial()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -88,6 +90,7 @@ func TestFetchLatestBuildhostReleaseHTTPError(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_UpToDate(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "6d7723427895dc2eff7313e610fdb316a1bd5836", "2026-06-14T05:04:19Z")()
 
 	pub := time.Date(2026, 6, 14, 5, 4, 25, 0, time.UTC) // published after our commit
@@ -103,6 +106,7 @@ func TestComputeUpdateWarning_UpToDate(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2024-01-01T00:00:00Z")()
 
 	pub := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC) // newer than our build
@@ -124,6 +128,7 @@ func TestComputeUpdateWarning_OutOfDate(t *testing.T) {
 // update needs both versions and the distance, and every extra word is a word
 // they have to skip past on every build.
 func TestComputeUpdateWarning_IsOneLineWithBothVersions(t *testing.T) {
+	t.Serial()
 	const myCommit = "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	built := time.Date(2024, 5, 29, 0, 0, 0, 0, time.UTC)
 	defer setVCS(t, myCommit, built.Format(time.RFC3339))()
@@ -153,6 +158,7 @@ func stripANSI(s string) string {
 }
 
 func TestComputeUpdateWarning_AheadOfPublished(t *testing.T) {
+	t.Serial()
 	// Our build is newer than the latest published release: stay quiet.
 	defer setVCS(t, "aaaaaaaa1111111111111111111111111111aaaa", "2025-01-01T00:00:00Z")()
 
@@ -168,12 +174,14 @@ func TestComputeUpdateWarning_AheadOfPublished(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_DevBuild(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "", "")() // no revision/time -> resolvedCommit() == "unknown"
 	// No server needed: it must return before any network call.
 	assert.Equal(t, "", computeUpdateWarning(context.Background()))
 }
 
 func TestComputeUpdateWarning_FetchError(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "abc1234def", "2024-01-01T00:00:00Z")()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +195,7 @@ func TestComputeUpdateWarning_FetchError(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_CreatedAtFallback(t *testing.T) {
+	t.Serial()
 	// No published_at -> fall back to created_at for the recency comparison.
 	defer setVCS(t, "1111111aaaa", "2024-01-01T00:00:00Z")()
 
@@ -201,7 +210,7 @@ func TestComputeUpdateWarning_CreatedAtFallback(t *testing.T) {
 }
 
 func TestCommitsMatch(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	cases := []struct {
 		a, b string
 		want bool
@@ -219,6 +228,7 @@ func TestCommitsMatch(t *testing.T) {
 }
 
 func TestStartUpdateCheckCannotBeDisabled(t *testing.T) {
+	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	activeUpdateCheck = nil
 	// There is no opt-out: even the old disable env var must not stop it.
@@ -234,6 +244,7 @@ func TestStartUpdateCheckCannotBeDisabled(t *testing.T) {
 }
 
 func TestReportUpdateCheckNoOp(t *testing.T) {
+	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	activeUpdateCheck = nil
 	// Safe no-op when nothing was started.
@@ -241,6 +252,7 @@ func TestReportUpdateCheckNoOp(t *testing.T) {
 }
 
 func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
+	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	defer setVCS(t, "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2024-01-01T00:00:00Z")()
 
@@ -264,6 +276,7 @@ func TestReportUpdateCheck_PrintsWhenReady(t *testing.T) {
 }
 
 func TestReportUpdateCheck_KillsWhenSlow(t *testing.T) {
+	t.Serial()
 	t.Cleanup(func() { activeUpdateCheck = nil })
 	defer setVCS(t, "abc1234def", "2024-01-01T00:00:00Z")()
 

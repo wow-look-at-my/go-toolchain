@@ -68,6 +68,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 // marker follows the dependency's copy of it: that is what makes the marker
 // resolve to the other half of the change while it is still in flight.
 func TestBareMarkerFollowsTheDependencysBranchOfThisRepositorysName(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod", []byte(bareMarkerGoMod), 0644))
 
@@ -86,6 +87,7 @@ func TestBareMarkerFollowsTheDependencysBranchOfThisRepositorysName(t *testing.T
 // The merge that lands the change deletes the branch, and that is also what
 // makes the match stop matching -- so nothing has to be repointed by hand.
 func TestBareMarkerFallsBackToTheDefaultBranchWhenTheDependencyLacksIt(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod", []byte(bareMarkerGoMod), 0644))
 
@@ -103,6 +105,7 @@ func TestBareMarkerFallsBackToTheDefaultBranchWhenTheDependencyLacksIt(t *testin
 // Naming the branch a dependency's HEAD already points at resolves to the same
 // commit, so it stays HEAD: the marker's whole point is not writing the name down.
 func TestBareMarkerStaysOnHeadWhenTheMatchIsTheDefaultBranch(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod", []byte(bareMarkerGoMod), 0644))
 
@@ -118,6 +121,7 @@ func TestBareMarkerStaysOnHeadWhenTheMatchIsTheDefaultBranch(t *testing.T) {
 // A named marker is a deliberate, permanent choice: the answer must not depend
 // on which branch the reader happens to be standing on.
 func TestANamedMarkerIsNeverMatchedAgainstThisRepositorysBranch(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module test
 go 1.21
@@ -138,7 +142,7 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 // A detached HEAD is what CI hands a pull-request build, and there is no branch
 // name in it to match anything against.
 func TestCurrentBranchIsEmptyOnADetachedHead(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		return runner.MockProcess([]byte("HEAD\n"), nil), nil
@@ -149,7 +153,7 @@ func TestCurrentBranchIsEmptyOnADetachedHead(t *testing.T) {
 // Outside a repository there is nothing to ask, and a bare marker keeps the
 // behaviour it had before matching existed.
 func TestCurrentBranchIsEmptyOutsideARepository(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		return runner.MockProcess(nil, os.ErrNotExist), nil
@@ -160,6 +164,7 @@ func TestCurrentBranchIsEmptyOutsideARepository(t *testing.T) {
 // The fast-exit check and the rewrite have to agree about which ref a line
 // follows, or the cache reports up-to-date against a commit the run would move.
 func TestTrackedBranchDepsMovedFollowsTheMatchingBranchToo(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod", []byte(bareMarkerGoMod), 0644))
 
@@ -172,6 +177,7 @@ func TestTrackedBranchDepsMovedFollowsTheMatchingBranchToo(t *testing.T) {
 
 // A repository is asked a single time however many of its modules go.mod requires.
 func TestTheMatchIsProbedOncePerModule(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module test
 go 1.21
@@ -200,6 +206,7 @@ replace example.com/bar => github.com/wow-look-at-my/foo v0.0.0-20200101000000-0
 // The matched branch is a resolution, never a rewrite: writing the name into
 // go.mod would leave a pin at a branch the next merge deletes.
 func TestAMatchedBranchIsNeverWrittenIntoGoMod(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod", []byte(bareMarkerGoMod), 0644))
 

@@ -33,7 +33,7 @@ func newGoModRepo(t *testing.T, goLine string) (dir, mod string) {
 // green build over such a rewrite, so the refresh must clear it - and must
 // still name a file whose content really moved.
 func TestRefreshGitIndexClearsAStatOnlyChange(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir, mod := newGoModRepo(t, "go 1.27")
 
 	require.NoError(t, os.WriteFile(mod, []byte("module example.com/x\n\ngo 1.27\n"), 0644))
@@ -45,7 +45,7 @@ func TestRefreshGitIndexClearsAStatOnlyChange(t *testing.T) {
 
 // An empty diff reads either way, and the reader is told which.
 func TestNoContentChangeReportNamesTheDisagreement(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir, mod := newGoModRepo(t, "go 1.27")
 	assert.Contains(t, noContentChangeReport(dir), "untracked or already committed")
 
@@ -54,12 +54,13 @@ func TestNoContentChangeReportNamesTheDisagreement(t *testing.T) {
 }
 
 func TestCheckDirtyInCISkipsOutsideCI(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	assert.NoError(t, checkDirtyInCI())
 }
 
 func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// Nothing this run wrote on its own authority, so every line is a real change.
 	status := " M .gitignore\n M src/main.go\n"
 	got := dirtyFilesExcludingToolchainWrites(status)
@@ -67,14 +68,14 @@ func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
 }
 
 func TestDirtyFilesExcludingToolchainWritesEmpty(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(""))
 }
 
 // The message tells the reader to review the diff, so a CI-only failure has to
 // carry it: the runner's tree is gone by the time anyone reads the log.
 func TestDirtyDiffPaths(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	status := " M go.mod\n?? build/extra.txt\nR  old.go -> new.go\n"
 	assert.Equal(t, []string{"go.mod", "build/extra.txt", "new.go"}, dirtyDiffPaths(status))
 	assert.Empty(t, dirtyDiffPaths(""))
@@ -84,7 +85,7 @@ func TestDirtyDiffPaths(t *testing.T) {
 // has to arrive or say why it did not. Returning nothing leaves the reader
 // staring at a file list under an instruction to review something absent.
 func TestDirtyDiffShowsTheChange(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir, mod := newGoModRepo(t, "go 1.27")
 	require.NoError(t, os.WriteFile(mod, []byte("module example.com/x\n\ngo 1.28\n"), 0644))
 
@@ -100,13 +101,13 @@ func TestDirtyDiffShowsTheChange(t *testing.T) {
 // Every path out of dirtyDiff says something. Silence is what sent the last
 // windows failure back around with nothing learned.
 func TestDirtyDiffReportsWhenGitCannotAnswer(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Contains(t, dirtyDiffIn(t.TempDir(), " M go.mod"), "git diff failed")
 	assert.Empty(t, dirtyDiffIn(t.TempDir(), ""))
 }
 
 func TestStatusLineIsToolchainWrite(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// With no pins, nothing in a status line is this run's own write.
 	cases := map[string]bool{
 		" M .gitignore":     false,
