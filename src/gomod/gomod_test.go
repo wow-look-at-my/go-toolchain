@@ -107,6 +107,7 @@ func TestFindMainPackages_HonorsBuildConstraints(t *testing.T) {
 }
 
 func TestHasMainPackage_OnlyConstraintChecksMainCandidates(t *testing.T) {
+	t.Serial()
 	root := t.TempDir()
 	// A directory full of non-main files plus a single real package main.
 	writeFile(t, root, "a.go", "package lib\n")

@@ -46,7 +46,10 @@ function* testFiles(dir) {
 	}
 }
 
-const testFunc = /^func (Test[A-Za-z0-9_]*)\(([a-zA-Z_][A-Za-z0-9_]*) \*testing\.T\) \{$/;
+// A test, and a helper the test hands its own T to: both run as the test, so
+// either one can take the barrier on its behalf. Taking it in the helper covers
+// every caller, which is what a marker naming callers one at a time cannot do.
+const testFunc = /^func ([A-Za-z0-9_]*)\(([a-zA-Z_][A-Za-z0-9_]*) \*testing\.T[,)]/;
 
 let changed = 0;
 let serialized = 0;
@@ -78,7 +81,9 @@ for (const root of roots) {
 			// A test cannot be both. The barrier is the stronger claim, so an
 			// opt-in to parallelism gives way to it, comment and all.
 			const parallel = new RegExp(`^\\s*${m[2]}\\.Parallel\\(\\)`).test(body[0] ?? "") ? 1 : 0;
-			insertAt.push([from + 1, parallel, `\t${m[2]}.Serial()`]);
+			// A helper marks itself first, so the barrier goes under that line.
+			const after = new RegExp(`^\\s*${m[2]}\\.Helper\\(\\)$`).test(body[0] ?? "") ? 1 : 0;
+			insertAt.push([from + 1 + after, parallel, `\t${m[2]}.Serial()`]);
 		}
 		if (insertAt.length === 0) continue;
 		for (const [at, replaced, text] of insertAt.reverse()) lines.splice(at, replaced, text);

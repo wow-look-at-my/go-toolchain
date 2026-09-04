@@ -309,6 +309,7 @@ func TestReportUpdateCheck_KillsWhenSlow(t *testing.T) {
 // setVCS overrides the cached VCS info for a test and returns a restore func.
 func setVCS(t *testing.T, revision, vcsTime string) func() {
 	t.Helper()
+	t.Serial()
 	old := cachedVCS
 	cachedVCS = &vcsInfo{Revision: revision, Time: vcsTime}
 	return func() { cachedVCS = old }

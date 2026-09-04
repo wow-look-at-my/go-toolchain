@@ -16,6 +16,7 @@ import (
 // test mutates, so tests stay independent of ordering.
 func resetProfileState(t *testing.T) {
 	t.Helper()
+	t.Serial()
 	origCollector, origGraph := profileCollector, profileGraph
 	origNoProfile, origJSON, origOut := noProfile, jsonOutput, outputDir
 	origTrace, origHook := activeTrace, gotest.GraphArgFunc
@@ -37,6 +38,7 @@ const testGraphJSON = `[
 // contains testGraphJSON, as if a go invocation had run and dumped it.
 func seedCollector(t *testing.T) {
 	t.Helper()
+	t.Serial()
 	profileCollector = profile.NewCollector(filepath.Join(t.TempDir(), "profile"))
 	arg := profileCollector.GraphArg()
 	path := arg[len("-debug-actiongraph="):]

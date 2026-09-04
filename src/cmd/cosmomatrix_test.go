@@ -44,6 +44,7 @@ func writeBuildOutput(t *testing.T, cfg runner.Config, content string) {
 // fork, so any test reaching the build phase needs this.
 func stubForkToolchain(t *testing.T) string {
 	t.Helper()
+	t.Serial()
 	root := filepath.Join(t.TempDir(), "fake-cosmo-goroot")
 	writeFakeForkGoroot(t, root, map[string]string{
 		"VERSION":                      "go1.26.4cosmo",
@@ -66,6 +67,7 @@ func stubForkToolchain(t *testing.T) string {
 // returns the fake GOROOT and the output directory.
 func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir string) {
 	t.Helper()
+	t.Serial()
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
