@@ -776,9 +776,9 @@ with the shared cache and the org proxy on every host that builds this
 repo, not only on the linux host-build leg. The org proxy requires auth
 for a sumdb lookup on a module it has never resolved before, which the
 smoke jobs' throwaway module always is -- so the smoke jobs keep the
-public, unauthenticated `proxy.golang.org` path instead
-(`GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED`, see the smoke-linux
-entry below).
+public, unauthenticated `proxy.golang.org` path instead. What that costs
+them now is the fork's own in-CI cache check: see the smoke-linux entry
+below.
 
 ### cp "$RUNNER_TEMP/gt-ape" ./gt-under-test
 
@@ -795,11 +795,13 @@ no-op while unit tests stayed green). It is staged inside the module
 root so dats' sandbox (bwrap) can reach it, same reasoning as
 smoke-macos.
 
-`GO_TOOLCHAIN_CACHING_INTENTIONALLY_NOT_CONFIGURED` says out loud
-that this synthetic consumer has no org cache credentials (no
-secret-server step here on purpose): the documented knob downgrades
-the in-CI "caching not configured" error to a warning. The repo's
-own host-build/build jobs keep the shared cache.
+This synthetic consumer has no org cache credentials (no secret-server
+step here on purpose), and nothing says so to the fork any more. Its
+`validateCIShared` (`cmd/go/internal/cache/shared.go`) refuses any build
+whose environment carries `CI` without `GO_BUILDCACHE_CONFIG`, and it
+reads no knob, so this job fails before it compiles anything. The repair
+is the fork's: an escape hatch it honors, or a probe that does not run
+the check. The repo's own host-build/build jobs keep the shared cache.
 
 ### smoke-macos
 
