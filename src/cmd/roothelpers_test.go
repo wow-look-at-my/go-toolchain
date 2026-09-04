@@ -115,6 +115,7 @@ func TestSkipCache_VersionSubcommandsSkip(t *testing.T) {
 // up-to-date fast exit — so the ancestor walk in skipUpToDateCheck doesn't
 // accidentally match too broadly.
 func TestSkipCache_NonSkippedSubcommandsStillRun(t *testing.T) {
+	t.Serial()
 	for _, argv := range [][]string{
 		{"bench", "run"},
 		{"unignore", "coverage"},

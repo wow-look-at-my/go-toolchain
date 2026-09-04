@@ -149,8 +149,11 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 	fp1, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 
-	require.NoError(t, rootCmd.Flags().Set("generate", "deadbeef"))
-	defer rootCmd.Flags().Set("generate", "")
+	// The flag is declared persistent, and Flags() only carries it once cobra has
+	// merged the two sets -- which it does when a command runs, so reading it here
+	// asks whether some other test ran one first.
+	require.NoError(t, rootCmd.PersistentFlags().Set("generate", "deadbeef"))
+	defer rootCmd.PersistentFlags().Set("generate", "")
 	fp2, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 	assert.NotEqual(t, fp1, fp2, "a flag that changes what the run does must bust the fingerprint")
