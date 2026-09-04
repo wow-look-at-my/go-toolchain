@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,8 +74,17 @@ func drainPipe(r io.Reader) <-chan string {
 	return done
 }
 
+// captureMu serializes the helpers below. os.Stdout is one variable for the
+// whole package, so two captures at once have the second save the first's pipe
+// as the stream to put back -- and every later write goes to a pipe nobody
+// reads, or to a closed one. This suite runs tests in parallel, so that is not
+// a rare interleaving.
+var captureMu sync.Mutex
+
 // captureStdout runs f with stdout captured and returns the output.
 func captureStdout(f func()) string {
+	captureMu.Lock()
+	defer captureMu.Unlock()
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -90,6 +100,8 @@ func captureStdout(f func()) string {
 // captureCombinedOutput runs f with stdout and stderr merged. logger.Warn
 // routes to stderr locally and to a ::warning on stdout in CI.
 func captureCombinedOutput(f func()) string {
+	captureMu.Lock()
+	defer captureMu.Unlock()
 	oldOut, oldErr := os.Stdout, os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stdout = w

@@ -21,8 +21,13 @@ import (
 func captureInstalled(t *testing.T, fn func()) string {
 	t.Helper()
 	// Reset installation state so we can call Install again inside this test.
+	// drainedWG resets with the rest: an earlier test that skipped Flush leaves
+	// its drainers blocked on a pipe nobody closes, and a Wait that also counts
+	// them never returns -- the package then dies on its timeout rather than on
+	// the test that actually broke.
 	installOnce = sync.Once{}
 	installed = false
+	drainedWG = sync.WaitGroup{}
 
 	tmpOut, err := os.CreateTemp(t.TempDir(), "stdout-*")
 	require.Nil(t, err)
