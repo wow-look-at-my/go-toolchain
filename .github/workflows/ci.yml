@@ -285,8 +285,7 @@ jobs:
           name: socketharness-build
           path: harness
 
-      # The fork refuses to run under CI without a build cache to write to, and
-      # the smoke's nested pipeline is a CI run like any other. see docs/CI.md
+      # The smoke's nested pipeline is a CI run, and the fork refuses one with no build cache to write to. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
 
       # Sandboxed like every other suite, on the fork host-build resolved -- unpinned it downloads master and straddles two compilers. see docs/CI.md
