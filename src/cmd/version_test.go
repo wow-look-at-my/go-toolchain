@@ -128,6 +128,7 @@ func TestRunVersionJSON_DevBuild(t *testing.T) {
 }
 
 func TestRunVersionJSON_WithVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -203,6 +204,7 @@ func newGitHubMock(t *testing.T, commitTime time.Time, sha string, aheadBy int) 
 
 func withMockGitHub(t *testing.T, server *httptest.Server) func() {
 	t.Helper()
+	t.Serial() // See withFakeAncestry.
 	oldBase := githubAPIBase
 	oldClient := httpClient
 	setGithubAPIBase(server.URL)

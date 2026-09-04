@@ -19,6 +19,7 @@ import (
 // originals when the returned func runs.
 func withMockBuildhost(t *testing.T, server *httptest.Server) func() {
 	t.Helper()
+	t.Serial() // See withFakeAncestry.
 	oldBase := buildhostAPIBase
 	oldClient := httpClient
 	buildhostAPIBase = server.URL
