@@ -67,7 +67,7 @@ files and reports only the package-level variables it can PROVE hold strings.
 An explicit `string` type, or an initializer that is a string literal. That
 narrowness is not fussiness. `cmd/link`'s `addstrdata` returns silently for a
 symbol it cannot find, but calls `Errorf` for a symbol that is not a string
-variable — so an `-X` aimed at `var commit int` FAILS the link. Stamping only
+variable. Stamping only
 what the source proves is a string is what keeps this from breaking a consumer
 that happens to reuse a name.
 

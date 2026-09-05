@@ -8,7 +8,7 @@ so a binary that runs on three of them has no way to say so.
 
 The old workaround was to copy the APE onto each per-platform name. The publish
 action groups files by SHA-256, so the bytes only ever crossed the wire once —
-but each name still became its own artifact row, with its own download link.
+but each name still became its own artifact row.
 The registry showed the same binary three times, and no page ever said the three
 were one file.
 
@@ -19,8 +19,7 @@ A filename cannot carry the set either: the regex components are `[a-z]+` and
 
 go-toolchain writes `buildhost-artifacts.json` at the root of the directory it
 publishes (`build/`). buildhost-publish reads it, removes every listed file from
-the filename scan, and uploads each as ONE artifact row carrying its platform
-set. Files not listed keep the per-platform behavior unchanged.
+the filename scan. Files not listed keep the per-platform behavior unchanged.
 
 ```json
 {
@@ -56,8 +55,7 @@ would be a category error.
 
 **A display label.** The `APE:<platforms>` badge renders from the set buildhost
 stores plus the format it detected. There is no field for a caller-supplied
-label, because a label can disagree with the stored set, and then the badge
-lies about where the binary runs.
+label, because a label can disagree with the stored set.
 
 ## Server side
 
@@ -67,7 +65,7 @@ One request, one blob, one row. The literal `ape` segment replaces the
 `{os}/{arch}` pair, which is why buildhost's `os=cosmo` rejection — a rule of
 the per-platform grammar — cannot fire on this path. The server 400s if the
 bytes are not an APE (`MZqFpD` at offset 0) and `platforms` names more than one
-platform, and 409s if any named platform is already taken in that release.
+platform.
 
 ## Producing it
 

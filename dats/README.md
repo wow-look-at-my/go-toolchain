@@ -28,8 +28,7 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   `No go.mod; running dats suites only`, and the suites are the entire run.
   Nothing was built, so `$GO_TOOLCHAIN_DATS_BUILD_DIR` is an empty directory
   and such a suite exercises what is already in the tree. This is how a shell
-  or TypeScript repo uses dats without fetching a standalone binary and
-  hand-wiring a CI step, at a version free to drift from the one linked here.
+  or TypeScript repo uses dats without fetching a standalone binary.
 - go-toolchain **links the dats library** and runs suites in-process: there is
   no dats binary to install and no version to keep in step. The dats a build
   runs is the one go-toolchain was compiled against.
@@ -58,17 +57,11 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 - Suites run serially (`dats test dats`, no `-j`) so the report is
   byte-deterministic and staged APE copies never race their first exec.
 - dats runs each command in the **module root**, and go-toolchain deletes the
-  module's build outputs on any run that does not succeed. A test that execs
-  a pipeline command must therefore `cd` into a throwaway directory first, or
-  it deletes the binaries the pipeline just built (`d="$(mktemp -d)"; cd "$d";
-  …`). Tests that only exec `$GO_TOOLCHAIN_DATS_BUILD_DIR` copies with `--help`
-  or `version` are unaffected — neither reaches the pipeline.
+  module's build outputs on any run that does not succeed. A test that execs.
 - Snapshot goldens live in `<suite>.snapshots/` next to the suite (e.g.
   `dats/cli.snapshots/` for `dats/cli.dats`) and are committed. Regenerate
   after intentional CLI changes with `dats --update test dats` and review the
-  diff. A stale golden is a red run. The golden's filename carries the test's
-  INDEX, so inserting a test above a snapshot test renames its golden — add
-  new tests at the end of the suite, or regenerate.
+  diff. A stale golden is a red run. The golden's filename carries the test's.
 
 ## Notes specific to this repo's suite
 
@@ -77,28 +70,21 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   deterministic. Consumer suites that exec go-toolchain itself should do the
   same. A test running `version` (not `version raw`) sets
   `GO_TOOLCHAIN_GITHUB_API_URL` the same way: the staleness footer is a
-  separate query against api.github.com, and leaving it live makes that test's
-  duration a network measurement.
+  separate query against api.github.com.
 - The agent-output-guard tests in `cli.dats` name **no host**. `build-everywhere`
   runs this repo's whole pipeline on linux, darwin and NT, so the suite runs on
   all three. Each guard test prints its answer next to `uname -s` and the
   pattern accepts only the pairs that agree. That is what keeps one file
-  covering a guard whose correct answer differs by host — it refuses a captured
-  run where it can classify a descriptor, and says INOPERATIVE on an NT host
-  where it cannot. The SHIPPED artifact is a separate question, and a committed
+  covering a guard whose correct answer differs by host. The SHIPPED artifact is a separate question, and a committed
   fixture answers it:
-  `.github/dats-fixtures/agent-output-guard.dats` — one file for every host,
-  which every leg of the smoke job (`.github/workflows/ci.yml`) runs
-  `actions/checkout` just to copy into a throwaway module and run against the
-  actual published binary.
+  `.github/dats-fixtures/agent-output-guard.dats` — one file for every host.
 - CI provisions **bubblewrap** before running the pipeline (`.github/workflows/ci.yml`,
   `host-build` and `build`). So suites run under the native Linux sandbox rather than
-  the docker fallback, and an unusable bwrap fails the job instead of silently
-  degrading to it.
+  the docker fallback.
 - The suite pins `sandbox: image: golang:1.25`. Every go-toolchain invocation
   past `version` bootstraps a Go toolchain. So under the docker backend (what
   CI falls back to when bwrap is unavailable) an image without Go would make
   each command download one. bwrap and seatbelt ignore `image` and use the
-  host's Go.
+  host's.
 - `version`'s staleness footer varies with GitHub reachability, so tests
   assert only the stable `Version:`/`Commit:` lines.

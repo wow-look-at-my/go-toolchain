@@ -2,7 +2,7 @@
 
 Extracted verbatim from CLAUDE.md (1.85x over its 40,000-character budget).
 
-- `src/vet/` — custom vet checks (assert normalization, unused imports, gotest.tools migration, testify import rewrite fork→upstream with vendor resync, the `testifycast` analyzer that inserts explicit type conversions into cross-type `assert`/`require` `Equal`/`NotEqual` operands so they pass against upstream testify — each edit records any import the spelled type needs (`CastEdit.AddImports`) and applying the fix adds it, because the operand's type package isn't necessarily imported by the file: an `os.FileMode` operand yields a cast spelled `fs.FileMode` (io/fs is the alias's origin package), and writing that cast without the `io/fs` import left the file failing to load (`undefined: fs`), which blocked every later vet run including the fixer's own verify re-run, wedging the tree until the import was added by hand; a conversion whose package name is shadowed or taken by a different import at the use site is skipped instead of emitted broken, and the `bannedoutput` analyzer, which bans `fmt.Print*`, `fmt.Fprint*(os.Stdout|os.Stderr)`, and `log.*` calls outside `src/logger/`, `src/cmd/console.go`, and `_test.go` files so all output routes through `src/logger` -- SCOPED to the go-toolchain module via `pass.Module` (vetSemantic loads packages with `packages.NeedModule`): the analyzer also runs on every consumer project go-toolchain builds, and a consumer's `fmt.Println` must never be flagged (no src/logger to route through; an empty module path fails open to checked so the analysistest GOPATH fixtures still exercise the checks). Writers held in variables are deliberately not flagged, the documented escape hatch for load-bearing streams. The watchdog's `origStderr`, the claudeguard abort message, mid-line progress fragments, interactive prompts). **Fix mode vs check mode (the `Editor` abstraction)**: `root.go` reads `os.Getenv("CI")` in exactly one place and builds a single `vet.Editor` (`src/vet/editor.go`); `vetSemantic` threads it through every fixer. An `applyEditor` (local) writes proposed changes; a `checkEditor` (CI) records them as violations and never writes. No fixer branches on the CI flag itself — each computes the canonical bytes for a file and hands them to the editor via `ed.Require(path, want, reason)` (for sole-detector fixers — gofmt, the `wow-look-at-my/testify` fork and `gotest.tools` import migrations, and the `testifycast` casts — whose recorded violation is what fails CI) or `ed.Apply(path, want)` (for fixes that ALSO emit an analyzer diagnostic, so the diagnostic fails CI and the editor only writes locally / no-ops on CI). `ed.Err()` surfaces the accumulated violations (combined with vet diagnostics), each carrying a unified diff (`src/vet/diff.go`, `github.com/pmezard/go-difflib`) from the file's current content to the canonical `want`, computed once at detection time while both are in hand — so a CI failure is answerable from the log alone, no checkout or local `go-toolchain` run needed. That is what makes it legible to an agent with no code-execution capability. `ed.Writes()` gates write-only preconditions like the uncommitted-changes guard, and `ed.Wrote(path)` exempts a file this run itself rewrote. So two fixers landing in one file (the testify rewrite and the set rewrite both reach `_test.go`) no longer strands the tree half-fixed. This keeps CI from passing green on a tree the local autofixer would have changed (e.g. a lingering fork import). Any new in-place fixer MUST route its writes through the `Editor` (never a bare `os.WriteFile`), or CI will silently stop enforcing it. **Canonical emission (`src/vet/format.go`)**: gofmt's doc-comment formatter (`go/doc/comment`, since Go 1.19) rewrites a doubled apostrophe into U+201D and a doubled backtick into U+201C inside top-level doc comments, silently corrupting literal author text (e.g. a POSIX single-quote shell escape) and turning an ASCII file multi-byte. `RunGofmt` reverts this via `revertDocCommentSmartQuotes`, which restores the ASCII digraph for every U+201C/U+201D that lands **inside a comment** — located by parsing the gofmt-valid source. So curly quotes inside string/rune literals (real program data, not prose) are never touched, and a fast path skips the parse for files with no curly quotes at all. The revert is **curative, not just preventive**: gofmt is the only thing that produces these runes in Go source and no author types one in a comment by hand. So it also heals comments that an earlier, unfixed run already corrupted — not only the file currently being formatted. Every rewriter that re-emits a file through `go/printer` (the `ASTFixes` apply path, the `testifyimport`/`gotestmigrate`/`unusedimport` import fixers, and testifycast's import-adding path — `addImportsToSource`, taken only when an edit recorded a missing import; the plain surgical-byte-edit path never reprints) routes its bytes through `canonicalizeGoSource`, which reruns `go/format` so the output is gofmt-canonical (tabs to indent, spaces to align — `go/printer`'s default mode tab-aligns *both*) and then applies the same revert. Any new rewriter that prints a modified AST MUST emit through `canonicalizeGoSource`, or it will tab-align its output and corrupt comment quotes. The uncommitted-changes guard's go-git backend lives in `gogit.go` (`!cosmo`; go-git's go-billy/osfs needs x/sys/unix, which has no cosmo port) — `gogit_cosmo.go` stubs it so `checkFileCommittedByName` always takes the git-CLI fallback under cosmo. That same fallback is also what supports `feature.manyFiles`/`index.skipHash` repos, whose zero-hash index trailer (git >= 2.40) go-git v5 rejects with "invalid checksum" (regression-tested in vet_semantic_test.go, which also runs its test-repo git commands hermetically so host config can't leak in).
+- `src/vet/` — custom vet checks. Writers held in variables are deliberately not flagged, the documented escape hatch for load-bearing streams. The watchdog's `origStderr`, the claudeguard abort message, mid-line progress fragments, interactive prompts). **Fix mode vs check mode (the `Editor` abstraction)**: `root.go` reads `os.Getenv("CI")` in exactly one place and builds a single `vet.Editor` (`src/vet/editor.go`); `vetSemantic` threads it through every fixer. An `applyEditor` (local) writes proposed changes; a `checkEditor` (CI) records them as violations and never writes. No fixer branches on the CI flag itself — each computes the canonical bytes for a file and hands them to the editor via. `ed.Err()` surfaces the accumulated violations (combined with vet diagnostics), each carrying a unified diff (`src/vet/diff.go`, `github.com/pmezard/go-difflib`) from the file's current content to the canonical. That is what makes it legible to an agent with no code-execution capability. `ed.Writes()` gates write-only preconditions like the uncommitted-changes guard, and `ed.Wrote(path)` exempts a file this run itself rewrote. So two fixers landing in one file (the testify rewrite and the set rewrite both reach `_test.go`) no longer strands the tree half-fixed. This keeps CI from passing green on a tree the local autofixer would have changed (e.g. a lingering fork import). Any new in-place fixer MUST route its writes through the `Editor` (never a bare `os.WriteFile`), or CI will silently stop enforcing it. **Canonical emission (`src/vet/format.go`)**: gofmt's doc-comment formatter (`go/doc/comment`, since Go 1.19) rewrites a doubled apostrophe into U+201D and a doubled backtick into U+201C inside top-level doc comments. `RunGofmt` reverts this via `revertDocCommentSmartQuotes`, which restores the ASCII digraph for every U+201C/U+201D that lands **inside a comment** — located by parsing the gofmt-valid source. So curly quotes inside string/rune literals (real program data, not prose) are never touched, and a fast path skips the parse for files with no curly quotes at all. The revert is **curative, not just preventive**: gofmt is the only thing that produces these runes in Go source and no author types. So it also heals comments that an earlier, unfixed run already corrupted — not only the file currently being formatted. Every rewriter that re-emits a file through `go/printer` (the `ASTFixes` apply path, the `testifyimport`/`gotestmigrate`/`unusedimport` import fixers, and testifycast's import-adding path — `addImportsToSource`, taken only when an edit recorded a missing import; the plain surgical-byte-edit path never reprints) routes its bytes. Any new rewriter that prints a modified AST MUST emit through `canonicalizeGoSource`, or it will tab-align its output and corrupt comment quotes. The uncommitted-changes guard's go-git backend lives in `gogit.go` (`!cosmo`; go-git's go-billy/osfs needs x/sys/unix, which has no cosmo port) — `gogit_cosmo.go` stubs it so `checkFileCommittedByName` always takes the git-CLI fallback under cosmo. That same fallback is also what supports `feature.manyFiles`/`index.skipHash` repos, whose zero-hash index trailer (git >= 2.40) go-git v5 rejects with "invalid checksum" (regression-tested in vet_semantic_test.go, which also runs its test-repo git commands hermetically so host config can't leak in).
 
 ## Which packages a vet run actually loads
 
@@ -12,7 +12,7 @@ kinds of identifier must never become one:
 - **A nested module is not this module's code.** `Scan` stops at any directory
   holding its own `go.mod`. A pattern naming one fails to load outright ("main
   module does not contain package ..."), and its tags belong to its own
-  pipeline, not a configuration this module can be asked to vet itself under.
+  pipeline.
 - **`cosmo` names a build target.** It is the gosmopolitan fork's GOOS, so it is
   absent from the `go tool dist list` values `knownOS` was built from. Under
   `-tags cosmo` on a normal host every `_linux.go` filename constraint still
@@ -41,8 +41,7 @@ in its place. Two shapes FAIL the build:
 
 - a `map[K]bool` composite literal whose every value is the constant `true`.
 - a `map[K]bool` variable made empty -- `make(map[K]bool)`, `map[K]bool{}`,
-  or a bare `var` -- that the package writes `true` into, and never uses in a
-  way that could read a real boolean.
+  or a bare `var` -- that the package writes.
 
 A `map[K]struct{}` gets a WARNING instead, never a diagnostic. That map
 already carries no value, so which of the two to write is the author's call.
@@ -89,9 +88,7 @@ module info fails open to org, so the analysistest fixtures still expect
 diagnostics.
 
 There is no opt-out marker. Every shape the check reports is a set by
-construction, so a suppression comment could only ever hide one -- and the two
-rules already leave a real map alone: write one `false`, read with `v, ok :=`,
-or hand the map to another function, and nothing fires.
+construction, so a suppression comment could only ever hide.
 
 
 ## sliceset: a slice the package asks membership of
@@ -115,22 +112,18 @@ Three findings:
 
 That last one is the map rule with slices' vocabulary. The uses it accepts are
 `append` back into the same variable, `len`, a value-only `range`, a
-comparison against `nil`, `slices.Contains`, and a `slices.Index` compared
-against a constant. A membership test is what makes the slice a set: append
+comparison against `nil`. A membership test is what makes the slice a set: append
 and range alone are a list, and a list stays a list.
 
 **Writing the scan out by hand does not escape the check.** A loop over a
-candidate whose body is one `if` comparing the element to a value IS
-`slices.Contains`, and it counts as the membership read that reports the
-slice.
+candidate whose body is one `if` comparing the element to a value.
 
 ### What keeps a slice a slice
 
 Position and repetition are what a slice has and a set does not, so any use
 that could read either one drops the candidate. An index or a slice
 expression, a `range` whose key is used, the slice spread into somebody
-else's `append`, a `slices.Index` whose result is the answer, and the slice
-as an argument, a return, a field or a channel value. `validGOOS` in
+else's. `validGOOS` in
 `src/cmd/targets.go` is the honest version of that last one: membership
 decides the flag, and `strings.Join` renders the error. So the order is part
 of what the variable is for.
@@ -172,9 +165,7 @@ package-level variable never is, because another package can reach it.
 An unexported package-level variable is fixed by whichever pass holds every
 file that can name it (`passHoldsWholePackage`). Tests load as their own
 package variant, so the plain variant lacks the in-package `_test.go` files and
-declines -- rewriting the declaration from there would leave a test calling
-`m[k] = true` on a `Set` -- while the internal-test variant holds the lot and
-rewrites both. An external test file (`package <name>_test`) reaches only
+declines. An external test file (`package <name>_test`) reaches only
 exported names and never counts. A file this build configuration excludes does,
 and blocks the rewrite, since its uses are invisible here.
 
@@ -235,13 +226,13 @@ The finding ends when the document becomes one piece of text.
 A refactor of this kind must not move a byte of the output. Both documents are
 pinned by an equality test -- `TestRenderGanttRendersTheWholeDocument` and
 `TestAgentOutputMessageRendersTheWholeDocument` -- because the `Contains`
-assertions that surrounded them pass on a message whose blank lines moved.
+assertions that surrounded them pass on a message whose blank lines.
 
 ### What counts as a write
 
 A statement joins a run when its result is dropped (it is an expression
 statement), its writer is one this can name (`w`, `s.buf`), and its text is
-spelled in the source as a string or character literal.
+spelled.
 `fmt.Fprint`/`Fprintf`/`Fprintln` and `io.WriteString` name the writer first;
 `Write`, `WriteString`, `WriteByte` and `WriteRune` name it as the receiver.
 
@@ -317,8 +308,7 @@ context.
 
 So a template whose text is JSON is reported like the other two shapes. This is
 the one place `writeruns` and `jsoninterp` point in opposite directions:
-`writeruns` names `text/template` as the remedy for a document written one line
-at a time, and that remedy is right for a shell script and wrong for JSON.
+`writeruns` names `text/template` as the remedy for a document written one line.
 
 ### What counts as a document
 
@@ -346,16 +336,14 @@ fragment that means nothing alone is still read in place. Two things must hold.
 
 The second condition is why `fmt.Sprintf("{%s}", v)` and `fmt.Sprintf("[%s]",
 tag)` stay silent. Braces around one value are a notation this check cannot
-tell from set notation, a CSS rule or a log tag, and a check that cries wolf on
-ordinary formatting is one nobody reads. The cost is that a JSON array of bare
+tell from set notation, a CSS rule or a log tag. The cost is that a JSON array of bare
 values is missed; the shapes that carry a quote are the ones a value breaks.
 
 ### Scope
 
 A document that is one string constant is never reported: it holds no value, so
 nothing can break it. Neither is a call this walk cannot read the text of -- a
-format string held in a variable, or `template.ParseFiles`, whose document is
-in another file.
+format string held in a variable.
 
 Only `fmt` is read. A logging call that formats JSON-looking text writes a log
 line, and a log line is not a document anybody parses.
@@ -370,15 +358,11 @@ package variant walks the same file, so warned sites are deduplicated by
 
 `src/vet/commentnumbers.go` reports any number written in a Go comment, in
 digits or in words. The remedy it names is always the same: describe what the
-code does and let the reader count, and cite a section of a spec or a document
-by its unique slug or its heading text rather than by its position -- a
-sentence pointing at "section 4.2" is wrong the moment somebody inserts a
-section above it, while the slug still resolves.
+code does and let the reader count.
 
 A number in a comment is a count of what exists on the day it was written. The
 edit that adds an item does not update it, so the comment quietly goes false,
-and the alternative -- hunting down every comment that counted the old set --
-is work nobody asked for. Naming the thing instead survives both.
+and the alternative. Naming the thing instead survives both.
 
 ```go
 // BAD                                 // GOOD
@@ -406,19 +390,17 @@ characters `_`, `.`, `/`, `:` and `-` -- and reports two shapes:
 A number behind a section sign is exempt. `§7.3` and `§ 4` cite a section of a
 document, and the sign is the spelling a reader looks it up by. It is the
 escape hatch for a document that publishes no slug -- the sign covers only the
-number it introduces, so `§7.3 covers 4 shapes` still reports the `4`.
+number it introduces.
 
 An HTTP status code is exempt, but only when the word `HTTP` (in any case)
 sits immediately before it. `HTTP 403` names a protocol answer that no edit
-changes, while a bare `403` is the shape of a line number or a row count and
-is still reported. The exemption covers a status-code-width run of digits and
+changes, while a bare `403` is the shape of a line number or a row count. The exemption covers a status-code-width run of digits and
 nothing else, so `HTTP 4 retries` is a count and goes.
 
 A sum of money is exempt. A currency sign directly against the digits makes the
 token an amount, which states what something costs rather than counting what is
-below it -- `$1.43`, `$0`, `under $1`. Only the amount goes free, so `$1 is the
-boundary, and 4 dp under it` still reports the `4`, and `costs $ 5` reports the
-`5`, because the sign is not against the digits.
+below. Only the amount goes free, so `$1 is the
+boundary, and 4 dp under it` still reports the `4`, and `costs $ 5` reports.
 
 A token holding `://` is a URL and is skipped whole. So citing an issue by its
 full address is how to keep a reference that carries a number. A qualified
@@ -433,8 +415,7 @@ A finding is a WARNING, in every module -- unlike the set checks, org code is
 not held to a harder severity here. A stale count is prose, not broken code,
 so it must not fail a build on its own. They arrive by the dozen though. So
 the warnings budget (`docs/WARNINGS-GATE.md`) is what turns a repo full of
-them red, and a repo with a handful stays green while its author rewrites
-them.
+them red.
 
 There is no opt-out marker and no module exemption. A warning is spent per
 `file:line`. So a sentence naming several numbers costs a single warning and a

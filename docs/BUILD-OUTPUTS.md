@@ -17,14 +17,10 @@ APE's `<name>.…` sidecar ELFs. `checksums.txt`,
 `wasm_exec.js`, `profile.json` and anything else in `build/` are left alone. 
 
 The target file is never written directly. The compiler's `-o` is
-`build/.tmp-<name>`, and only a build that succeeded moves the result — plus
-any sidecar the cosmo APE build names after its `-o` path — onto
-`build/<name>`. A failing build deletes what it wrote; a build killed
-before it could commit is swept on the next delete, because the `.tmp-`
-spelling of every artifact shape above counts as an artifact too. So
+`build/.tmp-<name>`, and only a build that succeeded moves the result. A failing build deletes what it wrote; a build killed
+before it could commit is swept on the next delete. So
 `build/<name>` appears whole or not at all, and only when a build actually
-finished — a half-written binary cannot exist there to be mistaken for a
-result.
+finished.
 
 The point is that a hidden failure cannot be laundered into a success by
 running a leftover binary. With the output discarded and the exit code ignored,
@@ -42,15 +38,13 @@ therefore deleted:
 1. `clearBuildOutputs` before any phase runs — `runWithRunner` (root, per module) and the top of `runReleaseWithRunner` (matrix/release), so a
    failure anywhere, a crash, or a kill leaves nothing runnable;
 2. `discardBuildOutputs` on the failure path — deferred on the named error return of `run()` (registered FIRST so it runs LAST, after every phase
-   has printed) and of `runReleaseWithRunner`, covering a green build followed by a red dats suite / coverage / warnings gate;
+   has printed).
 3. `discardBuildOutputsFromCWD` on the two exits that never enter the pipeline — the agent output guard's abort (which also NAMES the deleted paths
    in its message, so the missing binary doesn't read as a different bug) and, via the exported `DiscardBuildOutputs`, main's bootstrap-failure exit.
 
 What counts as an artifact is `isOutputArtifact`: the bare name (`<name>.exe` and the cosmo fat APE), any `<name>_…` (BinaryName's
 `<name>_<goos>_<goarch>[.exe]`, the wasm shapes, the `<name>_host` symlink), any `<name>.…` (the APE's sidecar ELFs), and the `.tmp-`-prefixed
-spelling of all of those — the compiler's -o under its temp name, which `runBuild` commits onto the target only on success and deletes on failure,
-so the sweeps only ever meet crash orphans (`build.TmpPrefix`) — minus the `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
-`trace.json` — a project whose binary is named `wasm` must not lose `wasm_exec.js`).
+spelling of all.
 
 Discovery is a directory scan keyed on target NAME rather than a re-derivation of the platform matrix. So artifacts of a previous run's platform set
 go too. `clearBuildOutputs` records `{dir, names}` per module (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module

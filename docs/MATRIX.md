@@ -63,8 +63,7 @@ go-toolchain matrix --targets wasm/js,wasm/wasip1
 
 **No per-platform copies.** A cosmo build writes the APE and nothing else.
 There is no flag that copies it onto `<name>_<os>_<arch>` names — the APE
-publishes under its own name through the manifest, as one artifact carrying its
-whole platform set.
+publishes under its own name through the manifest.
 
 **Toolchain resolution.** Building the cosmo target needs the gosmopolitan
 toolchain:
@@ -90,9 +89,7 @@ without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
 is built. Two inputs vary between runners and each flag closes one. `-trimpath`
 drops the paths: where the source was checked out, and where the toolchain was
 installed. `-ldflags=-buildid=` empties the linked binary's Go build ID, which
-is the only channel the toolchain's own identity reaches the output through —
-each host builds the fork itself, so its tools are different files with
-different content IDs, and cmd/go derives the tool ID from that content.
+is the only channel the toolchain's own identity reaches the output.
 
 Measured on the fork, same source. Two checkout paths differ by 200 bytes
 without `-trimpath`, and a differing tool ID differs by about 160 bytes with
@@ -131,6 +128,6 @@ direct exec works only where binfmt_misc carries an `APE` entry, which
 registering needs root; macOS has no such mechanism. `action.yml` registers that
 entry on a Linux runner and warns where it cannot (see
 [ACTION.md](ACTION.md#1b3-the-ape-binfmt-handler)), so the entry is a capability
-a host may or may not have. Every caller still reaches an APE through a shell,
+a host. Every caller still reaches an APE through a shell,
 and nothing may assume a bare `exec` of one succeeds.
 

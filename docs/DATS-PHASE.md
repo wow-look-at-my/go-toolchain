@@ -11,9 +11,7 @@ suites.
 go-toolchain imports `github.com/wow-look-at-my/dats` and calls
 `dats.Run(ctx, dats.Options{...})` (seam: `datsRunFunc`). The suites run in
 this process. There is no binary to resolve, no cache directory, no buildhost
-download, no version that can drift from this one, and no host that can be
-missing one — the dats a build runs is the dats this binary was compiled
-against. The old `GO_TOOLCHAIN_DATS_BIN` / `GO_TOOLCHAIN_DATS_BRANCH`
+download, no version that can drift. The old `GO_TOOLCHAIN_DATS_BIN` / `GO_TOOLCHAIN_DATS_BRANCH`
 bootstrap knobs are gone with the code that needed them.
 
 The dats library's own contract carries the interesting half. `Run` returns an
@@ -38,8 +36,7 @@ dats phase unreachable for a repo that is not Go. That was the wrong boundary.
 The CLI a suite exercises does not have to be written in Go, and dats is linked
 in here rather than distributed on its own. The practical effect was that a
 shell or TypeScript repo wanting its suites run had to fetch a standalone dats
-binary and hand-wire a CI step — duplicating what this binary already does, at
-a version free to drift from the one linked in.
+binary and hand-wire a CI.
 
 So when `findGoModules()` comes back empty, `run()` checks `hasDatsSuites(".")`
 and, if there are suites, hands off to `runDatsOnly`:
@@ -50,8 +47,7 @@ and, if there are suites, hands off to `runDatsOnly`:
 
 The suites ARE the run. There is nothing to tidy, vet, cover or build, so no
 artifacts are staged and `$GO_TOOLCHAIN_DATS_BUILD_DIR` is an **empty**
-directory rather than a missing one — a suite in such a repo exercises what is
-already in the tree, not a binary this pipeline produced.
+directory rather than a missing.
 
 Staging still happens under `build/`, because the sandbox exposes only the
 working directory (see *Read-only in the sandbox*), but a `build/` that existed
@@ -60,17 +56,12 @@ never asked for it. A pre-existing `build/`, or one with anything else left in
 it, is left alone.
 
 Neither a module nor suites is still an error, and the message names both
-halves — `no go.mod and no dats/ suites found` — because `no go.mod found`
-alone sent people off to `go mod init` a shell repo that only wanted its suites
-run.
+halves.
 
 The positive case is covered by unit tests (`TestRunDatsOnly*`), not by
 `dats/cli.dats`. Asserting it from a suite means go-toolchain starting dats
-inside a command dats is already sandboxing, and nested bwrap is not worth
-depending on for coverage the unit tests already give. The suite covers the
-error message instead — and has to clear the agent markers to do it, since
-`CLAUDE_CODE_SESSION_ID` leaking in from a Claude Code session makes the output
-guard refuse before the module check is ever reached.
+inside a command dats is already sandboxing. The suite covers the
+error message instead — and has to clear the agent markers to do.
 
 ## Staging the built binaries
 
@@ -79,9 +70,7 @@ INSIDE the module root, and handed to suites as an absolute path in
 `GO_TOOLCHAIN_DATS_BUILD_DIR`.
 
 It has to be inside the module root because dats sandboxes every suite
-command, and of the host a sandboxed command reaches only the working
-directory (docker mounts it and nothing else; bwrap binds the OS tool tree
-plus the cwd and overlays a private `/tmp`). A staging dir under `$TMPDIR` is
+command. A staging dir under `$TMPDIR` is
 invisible to every backend, and every suite fails its setup command. `build/`
 is gitignored in every repo go-toolchain builds, so staging there never
 dirties the tree.
@@ -101,16 +90,14 @@ its suites (and fails honestly if it needed one).
 The staged binaries are READABLE inside the sandbox, not writable, and there
 is no way to declare otherwise. A suite whose binary rewrites itself on first
 exec (an APE does, exiting 121 from a read-only path) copies it into the
-sandbox's private `/tmp` and execs the copy — `dats/cli.dats` does exactly
-that in every test.
+sandbox's private `/tmp` and execs the copy.
 
 Never answer any of this by turning the sandbox off. A suite cannot even ask
 for that: dats removed the file-level opt-out. So the `sandbox:` block only
 NARROWS (`network`, or `image:` for something specific of the docker backend)
 and disabling is `--no-sandbox` on the run. There is no toolchain-level opt-out
 either — no flag and no environment variable — because one would unsandbox
-every suite command in every consuming repo, and a knob like that gets set once
-and left set. This repo's own suite pins `image: golang:1.25` so the docker
+every suite command in every consuming repo. This repo's own suite pins `image: golang:1.25` so the docker
 backend has a Go for the bootstrap.
 
 ## The host that cannot sandbox at all
@@ -118,13 +105,10 @@ backend has a Go for the bootstrap.
 `datsSandbox` asks dats for a backend before the run and passes the answer as
 `Options.Sandbox`. Auto is what almost every host gets. The exception is a host
 where NO backend can exist. Bwrap is linux, seatbelt is macOS, and an NT host
-is left with its own daemon, which serves windows containers a linux sandbox
-image cannot run on. dats marks that failure `runner.ErrNoBackendOnHost`, and
-only that marker selects `SandboxNone`.
+is left with its own daemon.
 
 The alternative was to fail, and failing is what takes the suites away from the
-host they exist to cover — the NT leg of `build-everywhere` runs this repo's
-whole pipeline precisely to prove an NT host behaves. So the phase keeps every
+host they exist to cover. So the phase keeps every
 suite and every assertion and gives up the one property it cannot have, at
 error level, naming what is gone. The isolation between a suite command and the
 machine. Reduced function with a signal is engineering; reduced function in
@@ -133,22 +117,19 @@ That is why this path is loud rather than a quiet fallback.
 
 A missing bubblewrap on a linux host is NOT this. It carries no marker, an
 install cures it, and it stays fatal — degrading there would let a fixable
-setup gap turn every consuming repo's isolation off without anyone noticing.
+setup gap turn every consuming repo's isolation.
 `TestDatsSandbox` pins all three cases.
 
 ## Why the NT leg provisions no backend
 
 CI tried to give the windows leg a linux daemon through WSL, and the attempt is
 worth recording so nobody spends the afternoon again. WSL1 installs, `dockerd`
-starts, and `docker info` answers — then every `docker run` dies in runc with
-`error during container init: fetch packet length from socket: recvfrom:
-invalid argument`. That daemon is worse than no daemon. It passes dats' probe,
+starts, and `docker info` answers — then every `docker run` dies in runc. That daemon is worse than no daemon. It passes dats' probe,
 auto selects it, and every suite fails its setup command instead of taking the
 `ErrNoBackendOnHost` path above. WSL2 would work and cannot be had — a
 GitHub-hosted windows VM is already nested one level, and nested virtualization
 cannot be enabled inside it. So `build-everywhere`'s NT leg installs nothing,
-the runner's own daemon serves windows containers and is rejected by OSType,
-and the suites run on the host with the error-level lines above.
+the runner's own daemon serves windows containers and is rejected by OSType.
 
 ## How the run is configured
 

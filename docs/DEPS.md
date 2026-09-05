@@ -9,7 +9,7 @@ tree fails the build (`checkDirtyInCI`) with an actionable message.
 ## v0.0.0 repair (`FixBogusDepsVersions`, `src/cmd/depsfix.go`)
 
 A `require` line with version `v0.0.0` is not a valid, fetchable pseudo-version — it shows up when
-a dependency is added by hand (an editor auto-import, a copy-pasted line) instead of via `go get`.
+a dependency is added by hand (an editor auto-import, a copy-pasted line) instead.
 Before `go mod tidy` runs (which would otherwise just fail on it), go-toolchain resolves the
 module's default branch HEAD via `git ls-remote <url> HEAD` and rewrites the line to a real
 pseudo-version (`vX.Y.Z-<timestamp>-<12-hex-hash>`).
@@ -19,9 +19,7 @@ pseudo-version (`vX.Y.Z-<timestamp>-<12-hex-hash>`).
 Every run asynchronously checks each direct dependency's pseudo-version against
 `$GOPROXY/<module>/@latest`. For git-based (untagged) dependencies this proxy endpoint always
 resolves to the module's **default branch**. A module that carries *any* semver tag resolves to
-the highest such tag instead, which for a dependency tracked as a pseudo-version can point at an
-older commit than the branch itself — `go get -u <module>@latest` then moves the require line
-backwards. Branch tracking (below) is the supported way off that path. Any outdated dependency sharing the current module's
+the highest such tag instead. Branch tracking (below) is the supported way off that path. Any outdated dependency sharing the current module's
 `host/org/` prefix (its own org — "trusted") is auto-updated in place via `go get -u` + `go mod
 tidy`. Anything else is only reported, with a `go get -u` hint.
 
@@ -31,24 +29,20 @@ Colloquially "the `//branch` comment" — spelled `go-toolchain:auto-branch` in 
 a checkout for `//branch` finds nothing. Search for `auto-branch` or read on.
 
 The two mechanisms above always resolve to a module's *default* branch — there is no way to ask
-either one to follow a different branch, and letting the org auto-updater run `go get -u` on a
-dependency someone deliberately pinned to a non-default branch would silently drag it back onto
-`main`. A `require` line opts out of both and into branch tracking with a trailing comment:
+either one to follow a different branch. A `require` line opts out of both and into branch tracking with a trailing comment:
 
 ```go
 require github.com/wow-look-at-my/foo v0.0.0-20240101120000-abc123def456 // go-toolchain:auto-branch=v1
 ```
 
 **The marker names no branch by default.** A branch's name lives on the remote, and a copy of it in
-`go.mod` is one more thing that goes stale — the day a default branch is renamed, every hardcoded
-copy across the org resolves to nothing. `auto-branch=<name>` names a different branch
+`go.mod` is one more thing that goes stale. `auto-branch=<name>` names a different branch
 deliberately, and that is the only form that hardcodes anything.
 
 **A bare marker follows the dependency's branch of *this repository's* name, when it has one, and
 its default branch otherwise** (`src/cmd/depsmatch.go`). Two repositories developed in tandem carry
 the same branch name: the change spans both, and neither half is finished without the other. So on
-the feature branch each side builds against the other's feature branch, and when the merge deletes
-that branch the match stops matching and both fall back to the default branch. That now carries
+the feature branch each side builds against the other's feature branch. That now carries
 the same code. Nothing was written down, so nothing has to be repointed — and nothing is left
 pointing at a branch that no longer exists.
 
@@ -77,32 +71,28 @@ and `markBranchTracked` rewrites it the first time it sees it. Nothing has to be
 
 The legacy spelling always names a branch, so the migration asks the remote one question: is that
 name merely the default branch? A name that repeats the default is DROPPED —
-`branch=master` on a repository whose default is `master` becomes plain `auto-branch`, which stops
-caring what the branch is called. A name that does not is KEPT: `branch=v1` becomes
+`branch=master` on a repository whose default is `master` becomes plain. A name that does not is KEPT: `branch=v1` becomes
 `auto-branch=v1`, because that was a deliberate choice. A remote that cannot answer keeps the name
 and warns, so the migration is never a change of meaning.
 
 **Changing the marker's spelling again takes two releases, in this order: read it first, write it
-one release later.** A binary predating a marker does not ignore one it fails to recognize — it
-reads the line as untracked and appends a comment of its own, on a line of its own, ABOVE the
-require, which corrupts the block. So one committed `go.mod` has to satisfy the whole fleet at
-once, and with a single marker per line no text does until every runner reads the new spelling.
+one release later.** A binary predating a marker does not ignore one it fails to recognize. So one committed `go.mod` has to satisfy the whole fleet at
+once, and with a single marker per line no text does until every runner.
 
 Every run re-resolves that branch's current HEAD via `git ls-remote <url> refs/heads/<branch>` and
 rewrites the pseudo-version in place (the comment is preserved, so the pin stays declarative across
 runs). `listDirectDeps` excludes any such line from the org auto-update path so the two mechanisms
 never fight over the same require. The dependency still always resolves to one concrete,
 `go.sum`-verified pseudo-version — go-toolchain does not do unpinned/floating dependency
-resolution — the marker only tells it *which* branch's HEAD that pin should track.
+resolution.
 
 **The recorded version is a cache of the last resolution, not a contract.** `branch=master` says
 the branch is what this dependency means; every run re-answers it. So the rewrite is not a change
 anybody has to sign off on, and `checkDirtyInCI` excludes it. A commit whose whole content is a
 hash nobody chose is noise, and demanding one would make the marker mean a bump commit per
-upstream push — the opposite of what it is for. The exclusion is exactly the version token on a
-line carrying the same marker in `HEAD` and the working tree, plus the `go.sum` hashes for the
-modules that moved. Anything else — a require added or dropped, a marker that appeared, an edited
-comment, a `go.sum` line for a module that did not move — still fails the build as dirt.
+upstream. The exclusion is exactly the version token on a
+line carrying the same marker in `HEAD` and the working tree. Anything else — a require added or dropped, a marker that appeared, an edited
+comment, a `go.sum` line for a module that did not move.
 
 Both direct and indirect requires are tracked. An UNMARKED indirect line is somebody else's
 answer -- what `go mod tidy` computed from the rest of the module graph -- and carries no anchor
@@ -118,13 +108,11 @@ independently tracked, the line keeps being resolved.
 A repository cut into several modules cannot pin itself. `go/client` requires `go/core` at a
 pseudo-version, and that line was written *before* the commit publishing them both existed, so it
 necessarily names an earlier one. At the repository's first publish it names one with no such
-module in it at all, and a consumer gets `missing go.mod at revision <hash>` — which is the whole
-of that bug: not a wrong pin, but the only pin a commit can carry about itself. A relative
+module in it at all, and a consumer gets. A relative
 `replace` hides it inside the repository and nowhere else, because a replace is main-module-only.
 
 So a tracked module brings its siblings with it. Resolving one reads its `go.mod` at the commit it
-resolved to, walks the requires that live in the same repository, and requires each of them here
-at that same commit, marked to keep tracking the same branch:
+resolved to, walks the requires that live in the same repository.
 
 ```go
 require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260815165120-e431c66a9f25 // go-toolchain:auto-branch
@@ -138,9 +126,8 @@ inside it say about each other.
 **Nothing declares which modules share a repository, because the repository already knows.** The
 added line carries the same ordinary marker as the line that brought it in, and cohesion comes from
 `repoResolver` (`depsbranch.go`) instead. It answers each repository ONCE, keyed on the repository
-root it discovers plus the branch being followed, and every module of that repository reuses that
-one answer. Two modules resolved a moment apart therefore cannot land on different commits, and a
-`go.mod` never carries a claim about repository membership that could go stale.
+root it discovers plus the branch being followed. Two modules resolved a moment apart therefore cannot land on different commits, and a
+`go.mod` never carries a claim about repository membership that could go.
 
 The walk is over requirements, not over the repository, so only modules the tracked one actually
 needs come along. A sibling missing at the resolved commit FAILS the run. Writing a pin to a commit
@@ -150,18 +137,15 @@ that does not carry the module is the failure this exists to prevent, not someth
 
 A branch that is the head of an open pull request has a scheduled death: the merge that closes the
 PR deletes it. Point a pin at one and it resolves fine, CI goes green, the change merges — and the
-branch is gone, so the next run on the *default* branch resolves to nothing, after the thing that
-broke it has already landed.
+branch is gone.
 
 So a marker naming an explicit branch is checked against the open pull requests of the repository
 it belongs to. In CI this FAILS, because CI is the last look at a change before it merges and green
-there is what the merge is decided on. Locally it only warns. Developing two repos in tandem,
-pointed at each other's unmerged branches, is a real workflow, and the warning is the reminder to
-repoint before the pull request goes up.
+there is what the merge is decided. Locally it only warns. Developing two repos in tandem,
+pointed at each other's unmerged branches, is a real workflow.
 
 A bare `auto-branch` is never checked. It *can* match a branch with an open pull request — that is
-the tandem workflow above — but it wrote nothing down, so the merge that deletes the branch is also
-what makes it stop matching. There is nothing to repoint, so there is nothing to warn about.
+the tandem workflow above — but it wrote nothing down. There is nothing to repoint, so there is nothing to warn about.
 
 The check needs the GitHub API, and it answers "cannot tell" as no finding plus a warning. A guard
 that turned an unreachable API into a failed build would fail runs over the network rather than
@@ -170,8 +154,7 @@ environment; without one the warning says so.
 
 ### Tracking a fork through a `replace`
 
-A fork keeps upstream's module path — that is what makes it a drop-in — so it is consumed through a
-`replace`, and the `require` line still names *upstream*. The marker therefore goes on the replace
+A fork keeps upstream's module path — that is what makes it a drop-in — so it is consumed. The marker therefore goes on the replace
 line, where the version that actually reaches the build lives:
 
 ```go
@@ -212,12 +195,9 @@ resolved.
 A line already carrying the canonical marker is left exactly as it is. The legacy spelling is
 migrated, which is the one place this asks the remote anything (see above).
 
-The rewrite is the enforcement — locally you review the diff and commit it, in CI the resulting
-dirty tree fails the build (`checkDirtyInCI`), the same contract as every other `go.mod` mutation
-here. A marker appearing is content, not a resolution, so the pin-movement exclusion above does not
+The rewrite is the enforcement — locally you review the diff and commit. A marker appearing is content, not a resolution, so the pin-movement exclusion above does not
 cover it. The up-to-date fast exit consults `untrackedOrgDeps` (a `go.mod` parse, no network) as
-well, because an unchanged tree can predate this requirement and the run being skipped is the one
-that would fix it.
+well, because an unchanged tree can predate this requirement and the run being skipped.
 
 One shape is not rewritten, and it is not silently skipped either: **a require whose version a
 `replace` overrides.** Nothing is lost here: the replacement supplies the version that reaches the
@@ -226,8 +206,7 @@ build, and the replace line is marked in the require's place.
 **Only a `replace` that NAMES A VERSION overrides anything.** A `replace` into a local directory
 (`=> ../reader`) is main-module-only: it points *this* repository at a tree on disk and tells a
 consumer nothing at all. Every consumer resolves the `require`'s own version, so that require is
-still marked and still tracked — the directory replace beside it stays bare, because a directory
-has no branch to follow.
+still marked and still tracked — the directory replace beside it stays bare.
 
 Treating a locally-replaced require as covered was a real hole, and the multi-module case above is
 where it bit. `validator` required its sibling `reader` at a pseudo-version, `replace ../reader`

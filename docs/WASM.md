@@ -48,11 +48,7 @@ targets).
 **Artifacts.** Wasm binaries are named `<name>_wasm_js` /
 `<name>_wasm_wasip1` — buildhost's wasm artifact convention (`os=wasm` with
 `arch=js`/`arch=wasip1`), with the order deliberately swapped relative to
-`GOOS_GOARCH` and **no file extension**: the publish pipeline parses
-artifacts from the trailing two underscore-separated filename tokens after
-stripping only `.exe`, so the bare form is what publishes as
-`os=wasm`/`arch=js|wasip1` (an extension would keep the file out of the
-upload set entirely). The files are still ordinary wasm modules, covered by
+`GOOS_GOARCH`. The files are still ordinary wasm modules, covered by
 `checksums.txt`.
 
 **Buildhost publishing.** By default wasm artifacts are published to
@@ -62,16 +58,11 @@ This **requires a buildhost with wasm artifact support**
 an older server the upload is 400-rejected (`invalid os "wasm"` — the same
 validation that rejects `os=cosmo`, and that rejected the pre-convention
 `os=js` naming with `invalid os "js"` in the field) and a single rejected
-artifact aborts the whole publish. The build logs a warning whenever wasm
+artifact aborts. The build logs a warning whenever wasm
 targets are built, naming the requirement and the opt-out. For consumers
 whose buildhost predates wasm support, set **`GO_TOOLCHAIN_WASM_PUBLISH=0`**:
-wasm artifacts then take the excluded `<name>_<goos>_wasm.wasm` naming, whose
-`.wasm` suffix keeps them outside the publish upload set (the same skip that
-covers `checksums.txt` and `profile.json`) while the real files remain in
-`build/` and `checksums.txt` for any downstream step to pick up. With the opt-out active, a **wasm-only** target list leaves the
-publish step nothing to upload and it fails with "No matrix artifacts" —
-disable `autorelease` in that combination (the build logs a warning for this
-case too). Without the opt-out, wasm-only publishes are fine once the server
+wasm artifacts then take the excluded `<name>_<goos>_wasm.wasm` naming. With the opt-out active, a **wasm-only** target list leaves the
+publish step nothing to upload and it fails. Without the opt-out, wasm-only publishes are fine once the server
 has wasm support.
 
 **wasm_exec.js.** A `wasm/js` build also copies the fork toolchain's
@@ -85,10 +76,7 @@ itself). Missing harness in the fork GOROOT only warns.
 **GOMEMLIMIT guard.** The injected cgroup guard is stdlib-only and compiles
 for both wasm ports; without cgroup files it is a startup no-op. So wasm
 binaries are built from the same guarded source as every other target. The
-guard is injected into main packages visible under the **host** context only;
-a main that exists only under a cross-compile context (such as a
-`js && wasm`-guarded browser entry point) gets no guard — sound, since the
-guard reads Linux cgroup limits and would no-op there anyway. Discovery skips
+guard is injected into main packages visible under the **host** context only. Discovery skips
 the guard file by name. So an injected (or stale) guard never makes a
 host-only main dir look like a main package for another target.
 

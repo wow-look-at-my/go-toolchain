@@ -47,8 +47,7 @@ uses. A shell function named `assert*`, `expect*`, `must*` and friends.
 A step that merely runs a command fails on its own exit code and matches
 nothing, which is what keeps an ordinary build silent. No input turns a rule
 off. It scans the same local call chain the comment-wall guard does, needs no
-permissions beyond a checkout, and warns rather than passing when it finds
-nothing to scan.
+permissions beyond a checkout.
 
 ## 1b3. The APE binfmt handler
 
@@ -64,11 +63,10 @@ The magic is the header a fat APE opens with, `MZqFpD='`, and the interpreter is
 the kernel handing the file to `sh` is the whole mechanism. What it buys is a
 bare `execve` of an APE. Without the entry only a shell can start one, and `go
 run`, `go test` and any exec from a program answer `exec format error` — this
-repo's own CI has shipped that message for `trace.test` (see [CI.md](CI.md)).
+repo's own CI has shipped that message.
 
 The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has
-neither keeps working: it warns, names what is missing, and exits 0, because
-every caller in this org already reaches an APE through a shell. So the entry is
+neither keeps working: it warns, names what is missing, and exits 0. So the entry is
 a capability, never a requirement, and nothing downstream may assume it — see
 [MATRIX.md](MATRIX.md). The step is skipped outright on macOS and Windows, which
 have no such mechanism.
@@ -80,7 +78,7 @@ counted as working, since a disabled entry execs nothing.
 `dats/binfmt.dats` covers the contract: the script names its outcome, reaches
 the same outcome twice, and never fails the job. It registers nothing itself —
 the sandbox grants no root — and where an entry does exist it asserts the magic
-and the interpreter, so a mistyped byte cannot pass.
+and the interpreter.
 
 ## 1c. Installing the binary
 
@@ -97,9 +95,8 @@ cache-buster is needed. Download, the one pre-install run, and the copy into
 split would only move the `sudo cp` into a second step.
 
 **The URL carries no `branch=` pin.** buildhost's bare "latest" resolves against
-the project's default branch, and that is `master` on buildhost as well as in
-git. A pin would name a buildhost branch, not a git one, and would have to be
-kept in step with an operator setting the API exposes no write for.
+the project's default branch. A pin would name a buildhost branch, not a git one, and would have to be
+kept in step with an operator setting the API.
 
 The install runs only on a successful download. A failure is reported rather
 than hidden behind `|| true`, and it is non-fatal at that point. Gating with
@@ -168,9 +165,7 @@ contain dots, and `job-index` is stable across re-run attempts, so cross-attempt
 restore fallback keeps working.
 
 Being distinct per job, per matrix leg, AND per build is the point: concurrent
-go-toolchain saves in one run — two jobs, the legs of one matrix job, or two
-go-toolchain invocations in the SAME job with different `working-directory`s —
-used to 409 on a shared key. The `.b<build>` suffix is what lets one job build
+go-toolchain saves in one run — two jobs. The `.b<build>` suffix is what lets one job build
 two things (e.g. a plugin and the marketplace-build CLI) without colliding.
 
 **Downloading it** — `cache-download` with no `name` self-discovers the current
@@ -187,9 +182,7 @@ Nameless discovery is clean only when the run's hand-off set is unambiguous at
 download time (the exact ambiguity semantics belong to `cache-download` — see
 its docs). A run that saves several distinct hand-offs — several go-toolchain
 jobs, a matrix go-toolchain job, or extra `cache-upload` hand-offs alongside the
-build outputs, as this repo's own CI does — needs an explicit
-`name: go-build-<uploader job id>.b<build>` (plus `.m<index>` for one leg of a
-matrix producer) on exactly those downloads.
+build outputs.
 
 **This is the only name saved.** The pre-build per-job name
 `go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone: each was a
@@ -254,9 +247,8 @@ byte-identical.
 
 **The grants are read before the build.** A missing `id-token: write`,
 `deployments: write` or `artifact-metadata: write` used to surface as `Resource
-not accessible by integration` AFTER the whole build had run, which is expensive
-to rediscover. `wow-look-at-my/actions@has-permission` now reads each one in the
-first seconds of the job. It reads the running workflow file and resolves the
+not accessible by integration` AFTER the whole build had run. `wow-look-at-my/actions@has-permission` now reads each one in the
+first seconds. It reads the running workflow file and resolves the
 scope the way GitHub does. The job's own `permissions:` block, then the
 workflow-level block when the job declares none. A missing grant fails the step
 that reads it, and the error names the grant and the block it came from. The

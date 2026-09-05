@@ -11,16 +11,13 @@ is every emission, and `ResetWarnCount` clears both (for tests, which share one
 process). The gate runs
 at the very END of the pipeline commands — the root run (before
 `saveFingerprint`, so a gate-failed run is never stamped up-to-date) and matrix
-`runRelease` — so every warning prints before the failure; non-pipeline
-subcommands (version, install, and the `release` tag-and-push flow) are
-deliberately not gated.
+`runRelease` — so every warning prints before the failure.
 
 ## The budget counts DISTINCT warnings
 
 Two emissions are the same warning when the recorded text is identical, and the
 budget counts that warning once. One root cause repeats once per file, per
-module, per package variant or per retry, and counting each repeat spends the
-whole 15 on one problem while every other warning in the run goes unreported.
+module, per package variant or per retry.
 The commonest repeat is structural: vet's auto-fixer rewrites the tree, and
 `runWithRunnerOnce` then re-runs the whole pipeline against the corrected code.
 So every warning of the first pass is emitted a second time. Before the fold,
@@ -48,8 +45,7 @@ this one is about the budget.
 ## The failure re-prints what it counted
 
 A bare count is unactionable: the reader scrolls back through thousands of
-lines and guesses which output was to blame — and the guess is usually wrong,
-because the loudest lines in a build log are not the counted ones (see below).
+lines and guesses which output was to blame.
 So the gate prints a numbered recap of every counted warning, in emission
 order, at the point of failure:
 
@@ -88,13 +84,9 @@ location.
 Only `src/logger`'s `Warn`/`WarnFile` reach the counters. In particular the
 output watchdog's `STALLED: no output for Ns` banner does not: it is written
 with a raw `fmt.Fprintf(w.origStderr, ...)` (`src/cmd/watchdog.go`) that
-deliberately bypasses the logger, because the logger writes to the current
-`os.Stderr` — which is the watchdog's own monitored pipe, so routing the
-warning there would feed it back into `forward()` and reset the stall timer.
+deliberately bypasses the logger.
 Loud, red, `⚠`-prefixed, and uncounted.
 
 A run that fails the gate while the log is full of STALLED lines usually has a
-shared root cause rather than a causal link — e.g. a slow cache-index fetch
-both emits the real warnings (`src/cache/web_index.go`'s degradation cascade)
-and makes the pipeline quiet enough for the watchdog to fire. The recap exists
+shared root cause rather than a causal link. The recap exists
 so that distinction never has to be guessed.
