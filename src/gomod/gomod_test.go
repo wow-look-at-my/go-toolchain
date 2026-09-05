@@ -232,27 +232,3 @@ func TestFindMainPackagesForTarget(t *testing.T) {
 	assert.Equal(t, []string{"example.com/multi/cmd/everywhere"}, darwin,
 		"an unmatched context must only see the unconstrained main")
 }
-
-func TestFindMainPackagesSkipsMemLimitGuard(t *testing.T) {
-	t.Serial()
-	newModule(t, "example.com/guarded")
-	// The unconstrained guard file must not leak this dir into other targets.
-	writeFile(t, "cmd/linuxonly", "main.go", "//go:build linux\n\npackage main\n\nfunc main() {}\n")
-	writeFile(t, "cmd/linuxonly", MemLimitGuardFileName, "package main\n")
-	// A dir whose only main-ish file is a stale guard is not a main package.
-	writeFile(t, "cmd/stale", MemLimitGuardFileName, "package main\n")
-
-	js, err := FindMainPackagesForTarget("js", "wasm")
-	require.NoError(t, err)
-	assert.Empty(t, js, "the unconstrained guard must not make a linux-only main dir visible to js/wasm")
-
-	linux, err := FindMainPackagesForTarget("linux", "amd64")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"example.com/guarded/cmd/linuxonly"}, linux,
-		"the real main is still discovered under its own context; the guard-only dir is not")
-
-	host, err := FindMainPackages()
-	require.NoError(t, err)
-	assert.NotContains(t, host, "example.com/guarded/cmd/stale",
-		"a stale guard alone must not make a dir a main package under the host context either")
-}

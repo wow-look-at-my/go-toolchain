@@ -45,9 +45,6 @@ func IsNestedModule(dir string) bool {
 	return err == nil
 }
 
-// MemLimitGuardFileName names the transient memlimit guard; discovery skips it by name.
-const MemLimitGuardFileName = "gomemlimit_gen.go"
-
 // FindMainPackages returns import paths of all main packages, found by walking the module
 // tree, under the host build context.
 func FindMainPackages() ([]string, error) {
@@ -122,11 +119,6 @@ func hasMainPackageMatch(dir string, match func(dir, name string) (bool, error))
 		}
 		name := e.Name()
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		// Skip the transient memlimit guard: counting it would leak host-only main dirs
-		// into other targets' discovery.
-		if name == MemLimitGuardFileName {
 			continue
 		}
 		// Check the package name up front: most files are not "package main", so this skips

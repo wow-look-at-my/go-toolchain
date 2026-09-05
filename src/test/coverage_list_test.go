@@ -11,7 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func captureOutput(f func()) string {
+// captureOutput returns what f writes to os.Stdout. That file is
+// process-wide, so this holds serial: a concurrent swapper restores the
+// real stdout mid-print and the buffer comes back empty.
+func captureOutput(t *testing.T, f func()) string {
+	t.Helper()
+	t.Serial()
+
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -102,7 +108,7 @@ func TestPrintTargetGroupNoOSC8InCI(t *testing.T) {
 		},
 	}
 
-	output := captureOutput(func() {
+	output := captureOutput(t, func() {
 		report.Print()
 	})
 
@@ -228,7 +234,7 @@ func TestPrintCapsAtFivePerGroup(t *testing.T) {
 		},
 	}
 
-	output := captureOutput(func() {
+	output := captureOutput(t, func() {
 		report.Print()
 	})
 
@@ -256,7 +262,7 @@ func TestPrintEmptyReport(t *testing.T) {
 		},
 	}
 
-	output := captureOutput(func() {
+	output := captureOutput(t, func() {
 		report.Print()
 	})
 
@@ -318,7 +324,7 @@ func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
 		},
 	}
 
-	output := captureOutput(func() {
+	output := captureOutput(t, func() {
 		report.Print()
 	})
 

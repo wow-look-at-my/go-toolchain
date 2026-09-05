@@ -82,15 +82,9 @@ but sits outside the buildhost publish set (its name doesn't match
 the publish pipeline's `<binary>_{os}_{arch}` pattern, like `checksums.txt`
 itself). Missing harness in the fork GOROOT only warns.
 
-**GOMEMLIMIT guard.** The injected cgroup guard is stdlib-only and compiles
-for both wasm ports; without cgroup files it is a startup no-op, so wasm
-binaries are built from the same guarded source as every other target. The
-guard is injected into main packages visible under the **host** context only;
-a main that exists only under a cross-compile context (such as a
-`js && wasm`-guarded browser entry point) gets no guard — sound, since the
-guard reads Linux cgroup limits and would no-op there anyway. Discovery skips
-the guard file by name, so an injected (or stale) guard never makes a
-host-only main dir look like a main package for another target.
+**GOMEMLIMIT.** The cgroup default lives in the fork's runtime and reads
+`/proc/self/cgroup`, so it is inert on both wasm ports. Nothing is injected
+into wasm sources, and nothing has to be.
 
 **Running and testing wasm binaries.** The build pipeline never executes
 matrix artifacts, and the test phase always runs on the HOST platform — wasm

@@ -91,6 +91,12 @@ tests:
 			# somewhere writable, while seatbelt leaves the path visible and read-only,
 			# so the same command works on linux and is denied on darwin.
 			HOME: "{outputs.home}"
+			# The fork refuses to run any go command with CI set and no shared
+			# cache configured, because a real CI build's cache decides whether
+			# every other CI run recompiles. This build is a throwaway module in
+			# a sandbox with no credentials and no network, so it has no cache to
+			# contribute and the refusal only says the runner is a runner.
+			CI: ""
 		copy:
 			gt-under-test.exe: ../../dist/go-toolchain
 			socketharness-linux: ../../harness/socketharness-linux-amd64

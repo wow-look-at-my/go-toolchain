@@ -245,6 +245,7 @@ func TestGuessPackage(t *testing.T) {
 
 func TestRunGenerateWithHash(t *testing.T) {
 	t.Serial()
+	// Create temp directory with a generate directive
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -275,6 +276,7 @@ func TestRunGenerateWithHash(t *testing.T) {
 
 func TestRunGenerateWrongHash(t *testing.T) {
 	t.Serial()
+	// Create temp directory with a generate directive
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -294,6 +296,7 @@ func TestRunGenerateWrongHash(t *testing.T) {
 
 func TestRunGenerateSkip(t *testing.T) {
 	t.Serial()
+	// Create temp directory with a generate directive
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -313,6 +316,7 @@ func TestRunGenerateSkip(t *testing.T) {
 
 func TestRunGenerateNoDirectives(t *testing.T) {
 	t.Serial()
+	// Create temp directory with no generate directives
 	dir := t.TempDir()
 	t.Chdir(dir)
 

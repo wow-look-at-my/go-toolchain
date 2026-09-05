@@ -145,7 +145,9 @@ func TestStripCPUSuffix(t *testing.T) {
 }
 
 func TestComparisonPrint(t *testing.T) {
+	// os.Stdout is process-wide: a concurrent swapper empties this buffer mid-Print.
 	t.Serial()
+
 	comp := &Comparison{
 		Packages: map[string][]Delta{
 			"example.com/pkg": {
@@ -176,7 +178,8 @@ func TestComparisonPrint(t *testing.T) {
 }
 
 func TestComparisonPrintEmpty(t *testing.T) {
-	t.Serial()
+	t.Serial() // swaps os.Stdout; see TestComparisonPrint
+
 	comp := &Comparison{
 		Packages: map[string][]Delta{},
 	}

@@ -165,25 +165,12 @@ coverage.
 - `src/gomod/` — shared Go module utilities. `FindMainPackages` honors build constraints, so a `//go:build ignore` generator is never mistaken for a
   directory's main package. `IsNestedModule` is the shared predicate every filesystem walker skips nested modules by — their files belong to their
   own module. Depth: `docs/GOMOD.md`
-- `src/memlimit/` — injects a stdlib-only cgroup→GOMEMLIMIT startup guard into every main package built (discovered via `gomod.FindMainPackages`,
-  which honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package)
-  (`gomemlimit_gen.go`, embedded verbatim from `testdata/guard.go`), so each binary caps the Go heap at the container's cgroup memory limit instead of
-  being OOM-killed; runs at the start of the build phase, unconditionally — there is deliberately NO flag or environment variable to disable injection
-  (the old `GO_TOOLCHAIN_AUTO_MEMLIMIT` kill switch was removed: a build-time knob would eventually be set and left set, silently shipping binaries
-  that allocate until the kernel OOM-kills them, and the run-time `GOMEMLIMIT`/`GOMEMLIMIT=off` escape hatch the guard already honors is the layer
-  that actually knows whether a deployment wants the cap). The guard is a **transient** build artifact, not a committed file: `InjectAll` writes it
-  just before the build and `CleanupAll` deletes it right after (wired as `defer cleanupMemLimitGuards()` in `runBuildPhase` and the matrix/release
-  path in `runReleaseWithRunner`), so it never lingers in the working tree. `checkDirtyInCI` excludes `gomemlimit_gen.go` in every git state
-  (added/modified/deleted, via `dirtyFilesExcludingGuard`), so the in-flight guard never counts as a dirty tree and a repo migrating off an older
-  *committed* guard sheds it cleanly — `CleanupAll` deletes the committed copies and the resulting deletion is ignored by the check (the developer
-  commits it once to finalize). Note the guard is deliberately **not** gitignored: the dirty-check exclusion handles it, and adding a `.gitignore`
-  line would itself dirty the tree across multiple go-toolchain invocations in one CI job. That exclusion is invisible to the go command though, and
-  Go 1.24+ main-module version stamping runs `git status --porcelain` while the guard exists — which used to stamp every built binary's `Main.Version`
-  "+dirty" on clean checkouts (false provenance in consumer /version endpoints). So `injectMemLimitGuard` first calls `ensureGuardExcluded`
-  (src/cmd/memlimitguard.go): it idempotently appends `gomemlimit_gen.go` to the repo's clone-local `.git/info/exclude` (resolved via `git rev-parse
-  --git-path`, correct in linked worktrees) — under `.git/`, OUTSIDE the working tree, so unlike a `.gitignore` line the write cannot itself dirty
-  anything. The entry is left in place (clone-local; also hides a stale guard from an interrupted build). Best-effort: no git / not a repo / write
-  failure all silently degrade to the old `+dirty` behavior, never a failed build
+- **GOMEMLIMIT comes from the compiler, not from a generated file.** The gosmopolitan fork's runtime reads the process's own cgroup memory limit
+  (`memory.max` on v2, `memory.limit_in_bytes` on v1) when `GOMEMLIMIT` is unset, so every binary this builds caps its heap at the container's
+  ceiling instead of being OOM-killed, and `GOMEMLIMIT=off` is the per-deployment opt-out. The old `src/memlimit` package wrote a
+  `gomemlimit_gen.go` guard into each main package for the build and deleted it after; that injection, its `.git/info/exclude` entry, its
+  dirty-check exclusions and its main-package-discovery skip are all gone. A `gomemlimit_gen.go` left in a consumer repo is inert — its init
+  finds a limit already set and returns — and is now the repo's own file to delete
 - **Build caching lives in gosmopolitan, not here.** The fork's `cmd/go` links `github.com/wow-look-at-my/go-s3-server/cacheclient` in process
   (its `SharedCache`, `cmd/go/internal/cache/shared.go`) and consults it directly whenever `GO_BUILDCACHE_CONFIG` names a bucket — ahead of
   `GOCACHEPROG`, so this binary never forks a cache program of its own. The CI-configured check on that variable lives in gosmopolitan itself
@@ -306,6 +293,10 @@ coverage.
   `src/test/xattr_cosmo.go` is the surviving one, since the fork's syscall package has no xattr wrappers. Either a dedicated implementation already exists
   (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
   (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
+- **Tests run in parallel by default under the fork, so a test that touches process-wide state says so.** `t.Chdir` is the only way to change
+  directory (it takes the serial hold; a hand-rolled `os.Chdir` + restore lets one test delete the directory another is standing in), and a test
+  driving a package-level variable — `jsonOutput`, `outputDir`, the logger's warning counters, an analyzer's dedup map — opens with `t.Serial()`.
+  `src/cmd`, `src/vet`, `src/logx` and `src/logger` are serial packages for that reason. `t.Parallel()` is a no-op here; do not add one
 - **`_cosmo` in a filename is a real GOOS filter now, so a file that must build everywhere cannot carry it.** Stock Go knows no GOOS called cosmo
   and ignored the suffix, which is how `matrix_cosmo_test.go` shipped shared test helpers under a name that promised the opposite. The fork does
   know it, and the test binaries build for the host (`WithHostTarget`), so the file vanished and every caller failed `undefined`. Name a
@@ -325,7 +316,7 @@ coverage.
 - **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
   wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
   `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`, `docs/VCS-STAMP.md`,
-  `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means
+  `docs/WASM.md`, `docs/PROFILE.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means
   updating it in place, never appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an
   edit shows up as a reviewable diff. A literal
   double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's

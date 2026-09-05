@@ -164,10 +164,6 @@ func resolveMatrixPlatforms() ([]buildPlatform, error) {
 // context, so a "//go:build js && wasm" main builds only for js/wasm
 // targets. A platform with no main packages is skipped with a warning
 // rather than failing the build.
-//
-// Discovery skips gomod.MemLimitGuardFileName, so the memlimit guard
-// injected into host-context main dirs cannot make a host-only dir look
-// like a main package under another target's context.
 func resolvePlatformTargets(platforms []buildPlatform, hostTargets []build.Target) (map[buildPlatform][]build.Target, bool, error) {
 	perPlatform := make(map[buildPlatform][]build.Target, len(platforms))
 	anyMains := false
