@@ -16,10 +16,9 @@ import (
 )
 
 func TestRequiredGoVersion(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("module test\n\ngo 1.24.11\n"), 0644)
 	v, err := requiredGoVersion()
@@ -28,10 +27,9 @@ func TestRequiredGoVersion(t *testing.T) {
 }
 
 func TestRequiredGoVersionToolchainDirective(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("module test\n\ngo 1.24.0\n\ntoolchain go1.25.0\n"), 0644)
 	v, err := requiredGoVersion()
@@ -40,10 +38,9 @@ func TestRequiredGoVersionToolchainDirective(t *testing.T) {
 }
 
 func TestRequiredGoVersionTwoParts(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("module test\n\ngo 1.25\n"), 0644)
 	v, err := requiredGoVersion()
@@ -52,17 +49,16 @@ func TestRequiredGoVersionTwoParts(t *testing.T) {
 }
 
 func TestNormalizeGoVersion(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "1.25.0", normalizeGoVersion("1.25"))
 	assert.Equal(t, "1.24.11", normalizeGoVersion("1.24.11"))
 	assert.Equal(t, "1.25.1", normalizeGoVersion("1.25.1"))
 }
 
 func TestRequiredGoVersionNoGoDirective(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("module test\n"), 0644)
 	v, err := requiredGoVersion()
@@ -71,10 +67,9 @@ func TestRequiredGoVersionNoGoDirective(t *testing.T) {
 }
 
 func TestRequiredGoVersionNoMod(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	v, err := requiredGoVersion()
 	assert.NotNil(t, err)
@@ -82,7 +77,7 @@ func TestRequiredGoVersionNoMod(t *testing.T) {
 }
 
 func TestInstalledGoVersion(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	v, err := installedGoVersion()
 	assert.Nil(t, err)
 	assert.NotEmpty(t, v)
@@ -93,7 +88,7 @@ func TestInstalledGoVersion(t *testing.T) {
 // The fork reports its own version, which is not semver: the comparison has to
 // read the numeric part or every go.mod check silently passes.
 func TestGoVersionCore(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "1.27.0", goVersionCore("1.27.0cosmo.r685"))
 	assert.Equal(t, "1.24.7", goVersionCore("1.24.7"))
 	assert.Equal(t, "1.27", goVersionCore("1.27rc1"))
@@ -103,7 +98,7 @@ func TestGoVersionCore(t *testing.T) {
 // A colon on NT fuses the fork's bin with the next entry into a directory that
 // does not exist, so the runner's own go wins and the compiler reports skew.
 func TestForkFirstPath(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	got := forkFirstPath(`C:\fork`, `C:\tools;C:\bin`, "windows")
 	assert.Equal(t, `C:\fork\bin;C:\tools;C:\bin`, got)
 
@@ -114,10 +109,9 @@ func TestForkFirstPath(t *testing.T) {
 // A fork older than the module's go directive has no fallback to hide behind:
 // there is no other toolchain, so this fails and names the repair.
 func TestForkSatisfiesGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 	require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/x\n\ngo 1.30.0\n"), 0644))
 
 	err := forkSatisfiesGoMod("1.27.0cosmo.r685")
@@ -130,7 +124,7 @@ func TestForkSatisfiesGoMod(t *testing.T) {
 }
 
 func TestGoCacheDir(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir, err := goCacheDir()
 	assert.Nil(t, err)
 	assert.True(t, filepath.IsAbs(dir))
@@ -165,7 +159,7 @@ func createTestTarGz(t *testing.T, files map[string]string) []byte {
 }
 
 func TestExtractTarGz(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	archive := createTestTarGz(t, map[string]string{
@@ -187,7 +181,7 @@ func TestExtractTarGz(t *testing.T) {
 }
 
 func TestExtractTarGzWithDir(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	var buf bytes.Buffer
@@ -227,6 +221,7 @@ func TestExtractTarGzWithDir(t *testing.T) {
 }
 
 func TestExtractTarGzSymlinkRefusedFallsBackToCopy(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	oldSymlink := symlinkFunc
@@ -237,8 +232,7 @@ func TestExtractTarGzSymlinkRefusedFallsBackToCopy(t *testing.T) {
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 
-	// The symlink comes BEFORE the file it points at, the real-tarball
-	// ordering that broke a fallback assuming the target was already there.
+	// The symlink comes BEFORE the file it points at, which is what a real tarball does and what a naive fallback assumes away.
 	tw.WriteHeader(&tar.Header{Name: "go/bin/link", Typeflag: tar.TypeSymlink, Linkname: "go"})
 	content := []byte("binary")
 	tw.WriteHeader(&tar.Header{Name: "go/bin/go", Typeflag: tar.TypeReg, Mode: 0755, Size: int64(len(content))})
@@ -256,13 +250,13 @@ func TestExtractTarGzSymlinkRefusedFallsBackToCopy(t *testing.T) {
 }
 
 func TestExtractTarGzInvalidGzip(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	err := extractTarGz(bytes.NewReader([]byte("not gzip")), t.TempDir())
 	assert.NotNil(t, err)
 }
 
 func TestExtractTarGzPathTraversal(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	var buf bytes.Buffer
@@ -289,6 +283,7 @@ func TestExtractTarGzPathTraversal(t *testing.T) {
 // GOTOOLCHAIN, the setting that otherwise lets the go command fetch a stock
 // toolchain behind our back to satisfy a go directive.
 func TestEnsureGoVersionUsesTheForkAndPinsGOTOOLCHAIN(t *testing.T) {
+	t.Serial()
 	forkRoot := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
 	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
@@ -313,6 +308,7 @@ func TestEnsureGoVersionUsesTheForkAndPinsGOTOOLCHAIN(t *testing.T) {
 
 // No fork, no build: there is nothing else that may compile this module.
 func TestEnsureGoVersionFailsWithoutTheFork(t *testing.T) {
+	t.Serial()
 	oldEnsure := ensureCosmoToolchainFunc
 	ensureCosmoToolchainFunc = func() (string, error) { return "", fmt.Errorf("no toolchain published") }
 	defer func() { ensureCosmoToolchainFunc = oldEnsure }()
@@ -332,7 +328,7 @@ func writeFakeGoBin(t *testing.T, path string) {
 }
 
 func TestVerifyGoToolchainHealthy(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	goPath, err := exec.LookPath("go")
 	require.NoError(t, err)
 
@@ -341,6 +337,7 @@ func TestVerifyGoToolchainHealthy(t *testing.T) {
 }
 
 func TestVerifyGoToolchainBrokenGOROOT(t *testing.T) {
+	t.Serial()
 	goPath, err := exec.LookPath("go")
 	require.NoError(t, err)
 
@@ -386,6 +383,7 @@ func TestVerifyGoToolchainBrokenGOROOT(t *testing.T) {
 // A broken fork is a failed run, not a quiet swap to whatever Go is lying
 // around: the swap is what this whole change exists to prevent.
 func TestEnsureGoVersionBrokenForkFails(t *testing.T) {
+	t.Serial()
 	forkRoot := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(forkRoot, "bin"), 0755))
 	writeFakeGoBin(t, filepath.Join(forkRoot, "bin", "go"))
@@ -408,6 +406,7 @@ func TestEnsureGoVersionBrokenForkFails(t *testing.T) {
 }
 
 func TestRecordGoMinor(t *testing.T) {
+	t.Serial()
 	old := resolvedGoMinor
 	defer func() { resolvedGoMinor = old }()
 

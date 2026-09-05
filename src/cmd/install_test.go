@@ -10,7 +10,7 @@ import (
 )
 
 func TestCopyFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	// Create source file
@@ -35,14 +35,14 @@ func TestCopyFile(t *testing.T) {
 }
 
 func TestCopyFileMissingSource(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 	err := copyFile("/nonexistent/file", filepath.Join(tmpDir, "dest"))
 	assert.NotNil(t, err)
 }
 
 func TestCopyFileInvalidDest(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	srcPath := filepath.Join(tmpDir, "source")
@@ -53,7 +53,7 @@ func TestCopyFileInvalidDest(t *testing.T) {
 }
 
 func TestCopyFileLargeFile(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	// Create a larger file to ensure io.Copy path is exercised
@@ -74,6 +74,7 @@ func TestCopyFileLargeFile(t *testing.T) {
 }
 
 func TestRunInstallImplSymlink(t *testing.T) {
+	t.Serial()
 	// os.Executable() returns the test binary; check it symlinks to the right target.
 	tmpDir := t.TempDir()
 
@@ -98,6 +99,7 @@ func TestRunInstallImplSymlink(t *testing.T) {
 }
 
 func TestRunInstallImplCopy(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	setHome(t, tmpDir)
@@ -119,6 +121,7 @@ func TestRunInstallImplCopy(t *testing.T) {
 }
 
 func TestRunInstallImplReplacesExisting(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	setHome(t, tmpDir)
@@ -138,7 +141,7 @@ func TestRunInstallImplReplacesExisting(t *testing.T) {
 }
 
 func TestFileHash(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tmpDir := t.TempDir()
 
 	// Create a matching pair of files, plus a differing file
@@ -162,12 +165,13 @@ func TestFileHash(t *testing.T) {
 }
 
 func TestFileHashMissing(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	_, err := fileHash("/nonexistent/file")
 	assert.NotNil(t, err)
 }
 
 func TestInstallStatusNotInstalled(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	setHome(t, tmpDir)
 
@@ -176,6 +180,7 @@ func TestInstallStatusNotInstalled(t *testing.T) {
 }
 
 func TestInstallStatusSymlinkCurrent(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	setHome(t, tmpDir)
 
@@ -189,6 +194,7 @@ func TestInstallStatusSymlinkCurrent(t *testing.T) {
 }
 
 func TestInstallStatusSymlinkElsewhere(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	setHome(t, tmpDir)
 
@@ -201,6 +207,7 @@ func TestInstallStatusSymlinkElsewhere(t *testing.T) {
 }
 
 func TestInstallStatusCopyCurrent(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	setHome(t, tmpDir)
 
@@ -214,6 +221,7 @@ func TestInstallStatusCopyCurrent(t *testing.T) {
 }
 
 func TestInstallStatusCopyOutdated(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	setHome(t, tmpDir)
 

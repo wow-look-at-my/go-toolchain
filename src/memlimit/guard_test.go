@@ -25,6 +25,7 @@ func exeSuffix() string {
 // limit the shipped code detects. This exercises the real bytes that go into
 // every built binary, not a reimplementation.
 func TestGuardDetection(t *testing.T) {
+	t.Serial()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not on PATH; cannot compile the guard")
 	}

@@ -12,6 +12,7 @@ import (
 )
 
 func TestCoverageHandlerExtractsCoverage(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{coverage: make(map[string]float32)}
 
 	// Simulate output event with coverage info
@@ -27,6 +28,7 @@ func TestCoverageHandlerExtractsCoverage(t *testing.T) {
 }
 
 func TestCoverageHandlerIgnoresNonCoverageOutput(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{coverage: make(map[string]float32)}
 
 	event := testjson.TestEvent{
@@ -42,6 +44,7 @@ func TestCoverageHandlerIgnoresNonCoverageOutput(t *testing.T) {
 }
 
 func TestCoverageHandlerIgnoresNonOutputActions(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{coverage: make(map[string]float32)}
 
 	event := testjson.TestEvent{
@@ -56,11 +59,13 @@ func TestCoverageHandlerIgnoresNonOutputActions(t *testing.T) {
 }
 
 func TestCoverageHandlerErr(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{coverage: make(map[string]float32)}
 	assert.NoError(t, h.Err("some error"))
 }
 
 func TestCoverageRegex(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		input    string
 		expected string
@@ -84,6 +89,7 @@ func TestCoverageRegex(t *testing.T) {
 }
 
 func TestCoverageHandlerMultiplePackages(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{coverage: make(map[string]float32)}
 
 	events := []testjson.TestEvent{
@@ -102,6 +108,7 @@ func TestCoverageHandlerMultiplePackages(t *testing.T) {
 }
 
 func TestShortPkg(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		input    string
 		expected string
@@ -118,6 +125,7 @@ func TestShortPkg(t *testing.T) {
 }
 
 func TestRealtimePassOutput(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
@@ -141,6 +149,7 @@ func TestRealtimePassOutput(t *testing.T) {
 }
 
 func TestRealtimePassOutputHiddenWhenFast(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
@@ -161,6 +170,7 @@ func TestRealtimePassOutputHiddenWhenFast(t *testing.T) {
 }
 
 func TestRealtimeFailOutput(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
@@ -184,6 +194,7 @@ func TestRealtimeFailOutput(t *testing.T) {
 }
 
 func TestRealtimeTimeoutOutput(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
@@ -218,6 +229,7 @@ func TestRealtimeTimeoutOutput(t *testing.T) {
 }
 
 func TestRealtimeSkipOutput(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
@@ -240,6 +252,7 @@ func TestRealtimeSkipOutput(t *testing.T) {
 }
 
 func TestRealtimeSkipOutputHiddenWhenFast(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
@@ -260,6 +273,7 @@ func TestRealtimeSkipOutputHiddenWhenFast(t *testing.T) {
 }
 
 func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
@@ -281,6 +295,7 @@ func TestRealtimeNoOutputInVerboseMode(t *testing.T) {
 }
 
 func TestRealtimeNoOutputForPackageEvents(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
@@ -301,6 +316,7 @@ func TestRealtimeNoOutputForPackageEvents(t *testing.T) {
 }
 
 func TestFailureOutputWithStderr(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{
 		coverage:    make(map[string]float32),
 		testOutput:  make(map[string][]string),
@@ -314,6 +330,7 @@ func TestFailureOutputWithStderr(t *testing.T) {
 }
 
 func TestFailureOutputWithFailedTests(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{
 		coverage: make(map[string]float32),
 		testOutput: map[string][]string{
@@ -329,6 +346,7 @@ func TestFailureOutputWithFailedTests(t *testing.T) {
 }
 
 func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{
 		coverage: make(map[string]float32),
 		testOutput: map[string][]string{
@@ -344,6 +362,7 @@ func TestFailureOutputWithStderrAndFailedTests(t *testing.T) {
 }
 
 func TestOnOutputCallbackInPass(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	called := false
 	h := &coverageHandler{
@@ -365,6 +384,7 @@ func TestOnOutputCallbackInPass(t *testing.T) {
 }
 
 func TestOnOutputCallbackInSkip(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	called := false
 	h := &coverageHandler{
@@ -391,6 +411,7 @@ func TestOnOutputCallbackInSkip(t *testing.T) {
 // and an EMPTY Package, so they belonged to no per-package buffer and were
 // dropped -- leaving a summary of an error nobody could see.
 func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{
 		coverage:   make(map[string]float32),
 		testOutput: make(map[string][]string),
@@ -429,6 +450,7 @@ func TestFailureOutputKeepsBuildDiagnostics(t *testing.T) {
 }
 
 func TestFailureOutputOrdersBuildErrorsBeforeStderr(t *testing.T) {
+	t.Serial()
 	h := &coverageHandler{coverage: make(map[string]float32), out: &bytes.Buffer{}}
 	require.NoError(t, h.Event(testjson.TestEvent{
 		Action: testjson.ActionBuild, ImportPath: "example.com/pkg", Output: "./x.go:1:1: syntax error\n",

@@ -23,7 +23,7 @@ import (
 // the publish set entirely (for a server predating that scheme, where an
 // os=wasm upload is rejected and a rejected artifact aborts the whole publish).
 func TestWasmArtifactNamesInBuildhostPublishSet(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// The exact filter from the buildhost-publish action, transcribed from its failure-run logs.
 	publishRe := regexp.MustCompile(`^(.+)_([a-z]+)_([a-z0-9]+)$`)
 	parse := func(name string) (osToken, archToken string, ok bool) {

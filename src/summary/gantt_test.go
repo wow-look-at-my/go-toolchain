@@ -21,11 +21,13 @@ func entry(label, thread string, startOffset, endOffset time.Duration, failed bo
 }
 
 func TestRenderGanttEmpty(t *testing.T) {
+	t.Serial()
 	assert.Empty(t, RenderGantt(nil))
 	assert.Empty(t, RenderGantt([]TimelineEntry{}))
 }
 
 func TestRenderGanttSingleThread(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go mod tidy", "main", 0, 850*time.Millisecond, false),
 		entry("go vet", "main", 850*time.Millisecond, 2400*time.Millisecond, false),
@@ -49,6 +51,7 @@ func TestRenderGanttSingleThread(t *testing.T) {
 // Contains assertions around it would all pass with a stray blank line between
 // adjacent sections, which mermaid reads as the end of the chart.
 func TestRenderGanttRendersTheWholeDocument(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go vet", "main", 0, time.Second, false),
 		entry("go test", "main", time.Second, 2*time.Second, true),
@@ -94,6 +97,7 @@ func TestRenderGanttRendersTheWholeDocument(t *testing.T) {
 }
 
 func TestRenderGanttMultipleThreads(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go test", "main", time.Second, 5*time.Second, false),
 		entry("Dep check", "deps", 0, 3*time.Second, false),
@@ -108,6 +112,7 @@ func TestRenderGanttMultipleThreads(t *testing.T) {
 }
 
 func TestRenderGanttFailedStep(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go test", "main", 0, time.Second, true),
 	}
@@ -117,6 +122,7 @@ func TestRenderGanttFailedStep(t *testing.T) {
 }
 
 func TestRenderGanttLabelSanitization(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("go build -o build/bin:thing", "main", 0, time.Second, false),
 	}
@@ -127,6 +133,7 @@ func TestRenderGanttLabelSanitization(t *testing.T) {
 }
 
 func TestRenderGanttSortsWithinThread(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("second", "main", 2*time.Second, 3*time.Second, false),
 		entry("first", "main", time.Second, 2*time.Second, false),
@@ -140,6 +147,7 @@ func TestRenderGanttSortsWithinThread(t *testing.T) {
 }
 
 func TestRenderGanttMinimumWidth(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("setup", "main", 0, 5*time.Second, false),
 		entry("instant", "main", time.Second, time.Second, false),
@@ -151,12 +159,14 @@ func TestRenderGanttMinimumWidth(t *testing.T) {
 }
 
 func TestSanitizeLabel(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "foo bar", sanitizeLabel("foo:bar"))
 	assert.Equal(t, "a b c", sanitizeLabel("a;b;c"))
 	assert.Equal(t, "no hash", sanitizeLabel("no #hash"))
 }
 
 func TestRenderGanttWorkerThreadOrder(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("linux/amd64", "worker-2", 0, time.Second, false),
 		entry("linux/arm64", "worker-1", 0, time.Second, false),
@@ -173,6 +183,7 @@ func TestRenderGanttWorkerThreadOrder(t *testing.T) {
 }
 
 func TestRenderGanttAxisFormatMinutes(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("long step", "main", 0, 2*time.Minute, false),
 	}
@@ -181,6 +192,7 @@ func TestRenderGanttAxisFormatMinutes(t *testing.T) {
 }
 
 func TestRenderGanttAxisFormatHours(t *testing.T) {
+	t.Serial()
 	entries := []TimelineEntry{
 		entry("very long step", "main", 0, 2*time.Hour, false),
 	}

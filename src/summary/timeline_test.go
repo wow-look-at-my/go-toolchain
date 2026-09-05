@@ -10,12 +10,14 @@ import (
 )
 
 func TestNewTimeline(t *testing.T) {
+	t.Serial()
 	tl := NewTimeline()
 	require.NotNil(t, tl)
 	assert.Empty(t, tl.Entries())
 }
 
 func TestTimelineRecord(t *testing.T) {
+	t.Serial()
 	tl := NewTimeline()
 
 	t0 := time.Now()
@@ -33,6 +35,7 @@ func TestTimelineRecord(t *testing.T) {
 }
 
 func TestTimelineRecordFailed(t *testing.T) {
+	t.Serial()
 	tl := NewTimeline()
 
 	t0 := time.Now()
@@ -44,6 +47,7 @@ func TestTimelineRecordFailed(t *testing.T) {
 }
 
 func TestTimelineEntriesIsCopy(t *testing.T) {
+	t.Serial()
 	tl := NewTimeline()
 	t0 := time.Now()
 	tl.Record("step1", "main", t0, t0.Add(time.Second), false)
@@ -56,6 +60,7 @@ func TestTimelineEntriesIsCopy(t *testing.T) {
 }
 
 func TestTimelineConcurrentRecording(t *testing.T) {
+	t.Serial()
 	tl := NewTimeline()
 	t0 := time.Now()
 

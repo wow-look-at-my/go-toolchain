@@ -15,6 +15,7 @@ import (
 // TestCommentNumbersReadsACount pins what the check calls a number: digits
 // standing alone, digits wearing an ordinal suffix, and a number spelled out.
 func TestCommentNumbersReadsACount(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		text string
@@ -52,6 +53,7 @@ func TestCommentNumbersReadsACount(t *testing.T) {
 // to a technical name, and a number word that belongs to an identifier, are
 // what a comment has to be able to say.
 func TestCommentNumbersLeavesNamesAlone(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		text string
@@ -87,6 +89,7 @@ func TestCommentNumbersLeavesNamesAlone(t *testing.T) {
 // prose, so it never fails a build by itself, in org code or anywhere else.
 // The warnings budget is what turns a repo full of them red.
 func TestCommentNumbersWarnsInEveryModule(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 // holds three entries
@@ -113,6 +116,7 @@ func main() { _ = m }
 // TestCommentNumbersSpendsAWarningPerLine pins the file:line dedup the budget
 // depends on: a line naming several numbers is a sentence to rewrite.
 func TestCommentNumbersSpendsAWarningPerLine(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 // three of the five slots stay empty
@@ -124,6 +128,7 @@ func main() {}
 // TestCommentNumbersNamesTheRemedy pins that a finding quotes the number and
 // says what to do instead, since the author has to rewrite the sentence.
 func TestCommentNumbersNamesTheRemedy(t *testing.T) {
+	t.Serial()
 	warnings := runCommentNumbersOnSource(t, "package main\n\n// runs the probe twice\nfunc main() {}\n", nil)
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0].Message, `"twice" is a number in a comment`)
@@ -134,6 +139,7 @@ func TestCommentNumbersNamesTheRemedy(t *testing.T) {
 // TestCommentNumbersSkipsMachineText pins the comments that are not prose: a
 // directive is read by a tool, and a generated file is written by a program.
 func TestCommentNumbersSkipsMachineText(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		src  string

@@ -14,7 +14,7 @@ import (
 )
 
 func TestFormatDuration(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		d    time.Duration
 		want string
@@ -36,6 +36,7 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestResolvedVersionFromVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
@@ -43,6 +44,7 @@ func TestResolvedVersionFromVCS(t *testing.T) {
 }
 
 func TestResolvedVersionNoVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -50,6 +52,7 @@ func TestResolvedVersionNoVCS(t *testing.T) {
 }
 
 func TestEnvOr(t *testing.T) {
+	t.Serial()
 	t.Setenv("TEST_ENVOR_SET", "from-env")
 	got := envOr("TEST_ENVOR_SET", "fallback")
 	assert.Equal(t, "from-env", got)
@@ -59,6 +62,7 @@ func TestEnvOr(t *testing.T) {
 }
 
 func TestGithubRepoFromEnv(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_REPOSITORY", "other-org/other-repo")
 	// Re-initialize to pick up env var
 	old := githubRepo
@@ -74,6 +78,7 @@ func TestGithubRepoFromEnv(t *testing.T) {
 // TestSkipCache_VersionSubcommandsSkip, not kill this whole test binary with
 // the guard's own process exit.
 func TestVersionRaw(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{Time: "2023-11-14T22:13:20Z"}
@@ -103,6 +108,7 @@ func TestVersionRaw(t *testing.T) {
 }
 
 func TestRunVersionJSON_DevBuild(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -128,6 +134,7 @@ func TestRunVersionJSON_DevBuild(t *testing.T) {
 }
 
 func TestRunVersionJSON_WithVCS(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -161,6 +168,7 @@ func TestRunVersionJSON_WithVCS(t *testing.T) {
 }
 
 func TestPrintVersionInfo(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -171,6 +179,7 @@ func TestPrintVersionInfo(t *testing.T) {
 }
 
 func TestPrintStalenessDevBuild(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{}
@@ -214,6 +223,7 @@ func withMockGitHub(t *testing.T, server *httptest.Server) func() {
 }
 
 func TestFetchLatestCommitFromGitHub(t *testing.T) {
+	t.Serial()
 	commitTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 	server := newGitHubMock(t, commitTime, "abc123def456", 0)
 	defer server.Close()
@@ -226,6 +236,7 @@ func TestFetchLatestCommitFromGitHub(t *testing.T) {
 }
 
 func TestFetchLatestCommitFromGitHubHTTPError(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -238,6 +249,7 @@ func TestFetchLatestCommitFromGitHubHTTPError(t *testing.T) {
 }
 
 func TestFetchLatestCommitFromGitHubEmptyResponse(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]githubCommitResponse{})
 	}))
@@ -249,6 +261,7 @@ func TestFetchLatestCommitFromGitHubEmptyResponse(t *testing.T) {
 }
 
 func TestFetchCommitsBehind(t *testing.T) {
+	t.Serial()
 	server := newGitHubMock(t, time.Now(), "head123", 7)
 	defer server.Close()
 	defer withMockGitHub(t, server)()
@@ -259,6 +272,7 @@ func TestFetchCommitsBehind(t *testing.T) {
 }
 
 func TestFetchCommitsBehindHTTPError(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}))
@@ -270,6 +284,7 @@ func TestFetchCommitsBehindHTTPError(t *testing.T) {
 }
 
 func TestPrintStalenessUpToDate(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	// Use a timestamp that's in the future relative to the mock
@@ -286,6 +301,7 @@ func TestPrintStalenessUpToDate(t *testing.T) {
 }
 
 func TestPrintStalenessBehind(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -301,6 +317,7 @@ func TestPrintStalenessBehind(t *testing.T) {
 }
 
 func TestPrintStalenessAPIFailure(t *testing.T) {
+	t.Serial()
 	oldCache := cachedVCS
 	defer func() { cachedVCS = oldCache }()
 	cachedVCS = &vcsInfo{
@@ -353,6 +370,7 @@ func captureStdoutStderr(t *testing.T, fn func()) (stdout, stderr string) {
 }
 
 func TestRunVersionCosmo_RequireReleasePassesOnRealRelease(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +389,7 @@ func TestRunVersionCosmo_RequireReleasePassesOnRealRelease(t *testing.T) {
 }
 
 func TestRunVersionCosmo_RequireReleaseFailsOnBranchFallback(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
@@ -395,6 +414,7 @@ func TestRunVersionCosmo_RequireReleaseFailsOnBranchFallback(t *testing.T) {
 }
 
 func TestRunVersionCosmo_WithoutRequireReleaseNeverFails(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
