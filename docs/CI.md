@@ -173,6 +173,16 @@ This is not a hole in the APE-only rule. That rule governs what the pipeline SHI
 
 Known gap: the up-to-date fast exit (`src/cmd/uptodate.go`) fingerprints the file list `go list` reports. And that list is per-GOOS. Vet reads the cosmo variant while the tests read the host variant. So a file excluded from the one `go list` it runs does not bust the fingerprint. Picking a variant is not the fix — the fingerprint has to cover both.
 
+## The test-binary budget is spent on process starts
+
+`src/test/test.go` bounds every test binary at five minutes. The number is a property of one package. `src/cmd` holds around 300 tests that call `t.Chdir` or `t.Setenv`. Under the fork either call runs the rest of its test in a child process.
+
+Those children run one at a time, because each of those tests takes the serial barrier first. Two children racing the run's shared `GOCOVERDIR` break on windows. The child renames its counters onto the content-named `covmeta` file. NT answers `Access is denied` while another process holds it, and the child passes its test and then exits 2. So the binary pays around 300 serialized process starts, and windows charges the most for each one.
+
+At two minutes the windows leg died mid-suite. Four `TestRunDatsOnly*` tests were queued behind each other, and every other test in the package sat in `waitParallel`. Dropping the barrier is not the repair. That is what an earlier commit on this branch put back, after windows failed on the rename.
+
+The repair belongs to the fork. A forked child needs a coverage directory of its own, and then the children run beside each other and the barrier goes. Until that lands the clock has to fit the work.
+
 ## A native test binary asks the host for a directory the APE spells differently
 
 The section above builds the test binaries for the host. So inside a test, `os` answers as a native Windows program, while every earlier phase of the same job was the APE answering cosmo's POSIX. Two directories differ, and each one broke a test:
