@@ -121,11 +121,11 @@ coverage.
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see
-  them) and run SANDBOXED and SERIAL; a failure fails the build. **A repo with suites but no `go.mod` runs them anyway** (`runDatsOnly`) instead of
-  erroring. The sandbox is never turned off by choice: `datsSandbox` asks dats for a backend and only a host that can have NONE
-  (`runner.ErrNoBackendOnHost` — an NT host, where bwrap is linux, seatbelt is macOS and the local daemon serves windows containers) runs on the
-  host, loudly, because refusing takes the suites away from the host they cover. A missing bwrap on linux is fixable and stays fatal. Depth:
-  `docs/DATS-PHASE.md`
+  them) and run SANDBOXED and SERIAL; a failure fails the build. The sandbox is never turned off by choice: `datsSandbox` asks dats for a backend and
+  only a host that can have NONE (`runner.ErrNoBackendOnHost` — an NT host, where bwrap is linux, seatbelt is macOS and the local daemon serves
+  windows containers) runs on the host, loudly, because refusing takes the suites away from the host they cover. A missing bwrap on linux is fixable
+  and stays fatal; an unusable-sandbox error from `dats.Run` is rewritten to name the action prelude and `vars.CI_RUNNER_DIND`. **A repo with suites
+  but no `go.mod` runs them anyway** (`runDatsOnly`) instead of erroring. Depth: `docs/DATS-PHASE.md`
 - `dats/` — this repo's own dats suite (`cli.dats` + committed `cli.snapshots/` goldens + README with the conventions): exercises the built binary's
   version/help surface, unknown-flag/-subcommand rejection (one stderr snapshot golden — regenerate with `dats --update test dats`), the
   agent-output-guard abort ("refused to run", guard-positive via each agent's marker — `CLAUDECODE=1`, `GROK_AGENT=1`, `OPENCODE=1` — with
@@ -271,10 +271,15 @@ coverage.
   `go-toolchain version host` shows both; each smoke job asserts its own host, inside dats' sandbox and outside. Consumers: cosmobootstrap (the
   buildhost slot and the fork's `bin/go` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host symlinks, and the agent output guard's
   classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE always runs the payload matching the host arch
+- `src/compat/go-isatty/` — nested module substituted for `github.com/mattn/go-isatty` via a root go.mod `replace`: upstream selects zero
+  implementation
+  files under GOOS=cosmo (empty package, breaking fatih/color ← gotestsum/testjson ← src/test), so this byte-identical copy of v0.0.20 adds one
+  `isatty_cosmo.go` (Fstat + S_IFCHR approximation). Non-cosmo builds compile the exact upstream files. Must be re-copied on dep bumps — see its
+  README.md
 - `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@master`), including the org all-builds shadow guard, the
-  comment-wall guard, and the tests-in-YAML guard (`no-tests-in-yaml`: an assertion or a written test file inside a `run:` script fails the job, so
-  every consumer of this action gets the rule). Depth:
-  `docs/ACTION.md`
+  comment-wall guard, the tests-in-YAML guard (`no-tests-in-yaml`: an assertion or a written test file inside a `run:` script fails the job, so
+  every consumer of this action gets the rule), and the Linux dats sandbox prelude (install/probe bwrap, docker fallback, fail closed; never sysctl).
+  Depth: `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. The smoke legs run ONE host's
   APE everywhere, so every host builds this repo's APE — `build` on linux, `build-everywhere` on darwin and windows — and `identical` fails unless
   the three agree byte for byte; a missing hand-off fails too, since comparing the hosts that answered proves nothing. `identical` compares the very

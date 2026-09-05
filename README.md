@@ -67,7 +67,18 @@ jobs:
 
 The action fetches secrets, configures the Go proxy and private repo access, wires up the web build cache, runs `go-toolchain matrix`, and runs a CodeQL `security-and-quality` analysis around the build. Every permission above is required, and the build fails without it — [docs/ACTION.md](docs/ACTION.md) says what each one is for.
 
-**CodeQL** needs `security-events: write`, and the repo must have GitHub's *default* CodeQL setup disabled (*Settings → Code security → Code scanning → CodeQL → Default setup*). Opt out with `codeql: 'false'`.
+**dats suites on wow-linux.** dats always sandboxes. The action, on Linux and only when the tree has `dats/` suites, installs bubblewrap and probes it before the pipeline. It does not `sudo sysctl` (wow-linux's block is seccomp, not those knobs). If bwrap is blocked and docker is usable, dats falls back to docker; if neither, the job fails rather than skipping the suites. The action cannot change `runs-on`. A consumer with `dats/` on that fleet sets one line to the dind pool (`vars.CI_RUNNER_DIND`; the exact YAML is in [docs/ACTION.md](docs/ACTION.md)). Do not copy `wow-look-at-my/dats/action.yml` into the consumer workflow, and do not `uses: wow-look-at-my/dats` for this (that action downloads and runs the dats CLI; go-toolchain links `dats.Run` in-process). See [docs/DATS-PHASE.md](docs/DATS-PHASE.md).
+
+**Autorelease permissions**: `autorelease` (on by default) publishes through buildhost's `buildhost-publish`, which registers a GitHub Deployment and posts an artifact storage record **as part of publishing** — neither has an opt-out and each fails the build without its grant, so a job that autoreleases must grant `deployments: write` and `artifact-metadata: write`. Job-level `permissions:` blocks REPLACE the workflow-level one, so a job that declares its own has to list these alongside everything else it needs. Without them the build runs to completion and then dies on `Resource not accessible by integration`.
+
+**All-builds guard permissions**: since `no-all-builds-job#3` (2026-07-20) the guard scans the run's jobs (Actions API) and the head commit's check runs (Checks API) and **fails closed** when it cannot scan, so the workflow token must grant `actions: read` + `checks: read` as in the block above. Private repos hard-fail without them ("Resource not accessible by integration"); public repos happen to pass scope-less, but keep the block complete.
+
+**CodeQL prerequisites** (the action runs CodeQL by default):
+
+- The workflow must grant `security-events: write`. The action probes the SARIF upload endpoint up front and **fails fast** if this permission is missing.
+- The repo must NOT have GitHub's default CodeQL setup enabled — disable it under *Settings → Code security → Code scanning → CodeQL → Default setup*. Otherwise SARIF uploads fail with `"CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled"`.
+
+To opt out, pass `codeql: 'false'`.
 
 ### Inputs
 

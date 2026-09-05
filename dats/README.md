@@ -94,7 +94,17 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 - CI provisions **bubblewrap** before running the pipeline (`.github/workflows/ci.yml`,
   `host-build` and `build`), so suites run under the native Linux sandbox rather than
   the docker fallback, and an unusable bwrap fails the job instead of silently
-  degrading to it.
+  degrading to it. That job is GitHub-hosted `ubuntu-latest`; it is not the
+  wow-linux pool.
+- **Consumers** of `wow-look-at-my/go-toolchain@v1` do not copy this, and do
+  not copy `wow-look-at-my/dats/action.yml`. The GitHub Action itself, on
+  Linux and only when the tree has `dats/` suites, installs bubblewrap and
+  probes it before the pipeline. It does **not** `sudo sysctl` (wow-linux's
+  block is seccomp, not those knobs). If bwrap is blocked and docker is
+  usable, dats falls back to docker; if neither, the job fails naming the
+  dind pool. The action cannot change `runs-on`: a consumer with `dats/` on
+  wow-linux sets that one line to the dind pool (`vars.CI_RUNNER_DIND`). See
+  `docs/DATS-PHASE.md` and `docs/ACTION.md`.
 - The suite pins `sandbox: image: golang:1.25`. Every go-toolchain invocation
   past `version` bootstraps a Go toolchain, so under the docker backend (what
   CI falls back to when bwrap is unavailable) an image without Go would make
