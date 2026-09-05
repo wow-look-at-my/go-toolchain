@@ -17,6 +17,7 @@ import (
 var parallelArg = strconv.Itoa(runtime.NumCPU())
 
 func TestRunTestsWithMock(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Create a coverage file for ParseProfile: mostly covered statements
@@ -43,6 +44,7 @@ example.com/pkg/main.go:14.20,16.2 3 0
 }
 
 func TestRunTestsFailure(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	mock := runner.NewMock()
@@ -53,6 +55,7 @@ func TestRunTestsFailure(t *testing.T) {
 }
 
 func TestRunTestsVerbose(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Create coverage file for ParseProfile
@@ -76,6 +79,7 @@ example.com/pkg/main.go:10.20,12.2 1 1
 }
 
 func TestRunTestsNoCoverageFile(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 	// Don't create coverage.out - no profile means no statement-level data
 
@@ -100,6 +104,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 }
 
 func TestRunTestsNoStatementsMarkedCorrectly(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Profile only has pkg1 and pkg2 data; pkg3 has no statements. pkg1 is
@@ -142,6 +147,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 }
 
 func TestRunTestsNoStatementsWithProfile(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Create coverage file that only has data for pkg1 (pkg2 has no statements)
@@ -175,6 +181,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 }
 
 func TestRunTestsPackagesContainFiles(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Coverage profile with a pair of files in pkg1 and a single file in pkg2
@@ -220,13 +227,12 @@ func setupTestModule(t *testing.T, modPath string, testPkgDirs []string) string 
 		os.MkdirAll(pkgDir, 0755)
 		os.WriteFile(filepath.Join(pkgDir, "foo_test.go"), []byte("package "+filepath.Base(rel)+"\n"), 0644)
 	}
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	t.Cleanup(func() { os.Chdir(origDir) })
+	t.Chdir(dir)
 	return dir
 }
 
 func TestListTestPackages(t *testing.T) {
+	t.Serial()
 	setupTestModule(t, "example.com/mymod", []string{"pkg1", "pkg2", "pkg3/sub"})
 	// Also create a dir with no test files
 	os.MkdirAll("notest", 0755)
@@ -248,10 +254,9 @@ func TestListTestPackages(t *testing.T) {
 }
 
 func TestListTestPackagesNoGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	mock := runner.NewMock()
 	pkgs := listTestPackages(mock)
@@ -259,6 +264,7 @@ func TestListTestPackagesNoGoMod(t *testing.T) {
 }
 
 func TestRunTestsUsesExplicitPackages(t *testing.T) {
+	t.Serial()
 	setupTestModule(t, "example.com/proj", []string{"pkg1"})
 
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
@@ -293,11 +299,10 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 }
 
 func TestRunTestsFallsBackToEllipsis(t *testing.T) {
+	t.Serial()
 	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	t.Cleanup(func() { os.Chdir(origDir) })
+	t.Chdir(dir)
 
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 

@@ -11,6 +11,7 @@ import (
 )
 
 func TestParseBenchmarkOutput(t *testing.T) {
+	t.Serial()
 	input := `{"Time":"2024-01-01T00:00:00Z","Action":"start","Package":"pkg/foo"}
 {"Time":"2024-01-01T00:00:01Z","Action":"output","Package":"pkg/foo","Output":"BenchmarkFoo-8   \t   10000\t    123456 ns/op\t   1024 B/op\t      8 allocs/op\n"}
 {"Time":"2024-01-01T00:00:02Z","Action":"output","Package":"pkg/foo","Output":"BenchmarkBar-8   \t    5000\t    234567 ns/op\t   2048 B/op\t     16 allocs/op\n"}
@@ -35,6 +36,7 @@ func TestParseBenchmarkOutput(t *testing.T) {
 }
 
 func TestParseBenchmarkOutputNoAllocStats(t *testing.T) {
+	t.Serial()
 	input := `{"Action":"output","Package":"pkg","Output":"BenchmarkSimple-4   \t 1000000\t      1234 ns/op\n"}`
 
 	report, err := ParseBenchmarkOutput([]byte(input))
@@ -48,6 +50,7 @@ func TestParseBenchmarkOutputNoAllocStats(t *testing.T) {
 }
 
 func TestParseBenchmarkOutputEmpty(t *testing.T) {
+	t.Serial()
 	report, err := ParseBenchmarkOutput([]byte{})
 	require.Nil(t, err)
 
@@ -57,6 +60,7 @@ func TestParseBenchmarkOutputEmpty(t *testing.T) {
 }
 
 func TestParseBenchmarkOutputMalformedJSON(t *testing.T) {
+	t.Serial()
 	input := `not json at all
 {"Action":"output","Package":"pkg","Output":"BenchmarkFoo-8   \t 1000\t  1234 ns/op\n"}
 also not json`
@@ -69,6 +73,7 @@ also not json`
 }
 
 func TestFormatBenchTime(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		ns       float64
 		expected string
@@ -86,6 +91,7 @@ func TestFormatBenchTime(t *testing.T) {
 }
 
 func TestFormatBenchBytes(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		bytes    int64
 		expected string
@@ -102,6 +108,7 @@ func TestFormatBenchBytes(t *testing.T) {
 }
 
 func TestBenchmarkReportPrint(t *testing.T) {
+	t.Serial()
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"example.com/pkg": {
@@ -129,6 +136,7 @@ func TestBenchmarkReportPrint(t *testing.T) {
 }
 
 func TestBenchmarkReportPrintEmpty(t *testing.T) {
+	t.Serial()
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{},
 	}
@@ -150,6 +158,7 @@ func TestBenchmarkReportPrintEmpty(t *testing.T) {
 }
 
 func TestBenchmarkReportJSON(t *testing.T) {
+	t.Serial()
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {
@@ -169,6 +178,7 @@ func TestBenchmarkReportJSON(t *testing.T) {
 }
 
 func TestHasResults(t *testing.T) {
+	t.Serial()
 	empty := &BenchmarkReport{Packages: map[string][]BenchmarkResult{}}
 	assert.False(t, empty.HasResults())
 
@@ -181,6 +191,7 @@ func TestHasResults(t *testing.T) {
 }
 
 func TestToBenchstat(t *testing.T) {
+	t.Serial()
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg/foo": {
@@ -206,6 +217,7 @@ func TestToBenchstat(t *testing.T) {
 }
 
 func TestToBenchstatNoAllocs(t *testing.T) {
+	t.Serial()
 	report := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {

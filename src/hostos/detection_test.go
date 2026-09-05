@@ -14,6 +14,7 @@ import (
 // so" and "linux because nothing answered" are the same string and different
 // facts; only Method separates them.
 func TestDetectReportsItsEvidence(t *testing.T) {
+	t.Serial()
 	d := Detect()
 
 	assert.Equal(t, GOOS(), d.OS, "Detect and GOOS must agree")
@@ -30,6 +31,7 @@ func TestDetectReportsItsEvidence(t *testing.T) {
 // A guessed host is wrong anywhere but Linux and every consumer acts on it, so
 // it must announce itself rather than be returned quietly.
 func TestWarnGuessedHostAnnouncesOncePerRun(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	old := hostosOut
 	hostosOut = &buf
@@ -50,6 +52,7 @@ func TestWarnGuessedHostAnnouncesOncePerRun(t *testing.T) {
 }
 
 func TestDetectionGuessed(t *testing.T) {
+	t.Serial()
 	assert.True(t, Detection{OS: "linux", Method: "default"}.Guessed())
 	for _, m := range []string{"runtime", "uname", "coreservices", "procfs", "compiled"} {
 		assert.False(t, Detection{OS: "linux", Method: m}.Guessed(), m)
@@ -60,6 +63,7 @@ func TestDetectionGuessed(t *testing.T) {
 // method, and a loud marker when the answer is a fallback rather than a
 // measurement.
 func TestDetectionString(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "host: darwin (via coreservices)",
 		Detection{OS: "darwin", Method: "coreservices"}.String())
 

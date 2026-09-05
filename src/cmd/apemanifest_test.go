@@ -16,7 +16,7 @@ import (
 )
 
 func TestApeManifestEntries(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
@@ -35,7 +35,7 @@ func TestApeManifestEntries(t *testing.T) {
 }
 
 func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	targets := []build.Target{{ImportPath: "./cmd/mytool", OutputName: "mytool"}}
 
@@ -54,7 +54,7 @@ func TestApeManifestEntriesRefusesUntrueManifest(t *testing.T) {
 // the fields buildhost reads. kind is deliberately absent (it selects
 // repackaging and defaults to binary; APE-ness is detected from the bytes).
 func TestWriteBuildhostManifestShape(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	path, err := writeBuildhostManifest(dir, []buildhostManifestEntry{{
 		File:      "mytool",
@@ -83,7 +83,7 @@ func TestWriteBuildhostManifestShape(t *testing.T) {
 // The manifest describes the artifacts, so it must not outlive them: a manifest left
 // behind would send the next publish after a file that is gone.
 func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, buildhostManifestName), []byte("{}"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "mytool"), []byte("APE"), 0755))
@@ -97,6 +97,7 @@ func TestManifestIsClearedWithBuildOutputs(t *testing.T) {
 // End to end on the default path: a lone APE, a lone manifest, no per-platform
 // copies, and GOCOSMOPLATFORMS carrying the requested set.
 func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
 	t.Setenv("CI", "")
 
@@ -158,6 +159,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 // --cosmo-platforms all asks for every payload the fork emits, so the variable
 // is left unset (the fork's own default) rather than spelled out.
 func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, nil)
 	t.Setenv("CI", "")
 	cosmoPlatforms = []string{"all"}
@@ -198,7 +200,7 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 // native output, and it runs on every host. A per-platform binary sitting in
 // the directory is not an artifact of this build and never wins.
 func TestHostRunnableArtifactIsTheAPE(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	dir := t.TempDir()
 	target := build.Target{ImportPath: "./cmd/mytool", OutputName: "mytool"}
 	ape := filepath.Join(dir, "mytool")

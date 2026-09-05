@@ -117,7 +117,7 @@ func runScriptWrapperHelper(t *testing.T, extraEnv ...string) (kind sinkKind, de
 // isatty() check alone would have classified this as sinkVisible -- a real
 // terminal -- because a pty slave IS a terminal, regardless of who allocated it.
 func TestScriptWrapperCannotFakeATerminal(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	if runtime.GOOS != "linux" {
 		t.Skip("needs /proc (linux)")
 	}
@@ -129,7 +129,7 @@ func TestScriptWrapperCannotFakeATerminal(t *testing.T) {
 }
 
 func TestAgentOutputMessageVariants(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	pipe := agentOutputMessage("Claude", outputSink{kind: sinkPipe, detail: "head"}, nil)
 	assert.Contains(t, pipe, "piped into `head`")
 
@@ -179,7 +179,7 @@ func TestAgentOutputMessageVariants(t *testing.T) {
 // assertions above pass on a message whose blank lines have moved, and this
 // message is the only thing the aborted run prints.
 func TestAgentOutputMessageRendersTheWholeDocument(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	const body = "\n" +
 		"You are running under Claude, where go-toolchain's FULL output must land in\n" +
 		"your transcript so you actually read it — the \"Coverage targets\" list, the\n" +
@@ -205,6 +205,7 @@ func TestAgentOutputMessageRendersTheWholeDocument(t *testing.T) {
 }
 
 func TestAgentOutputViolation(t *testing.T) {
+	t.Serial()
 	origUnder, origSink := runningUnderAgentFn, inspectStdoutFn
 	t.Cleanup(func() { runningUnderAgentFn, inspectStdoutFn = origUnder, origSink })
 
@@ -234,6 +235,7 @@ func TestAgentOutputViolation(t *testing.T) {
 }
 
 func TestDetectAgentNamesTheAgent(t *testing.T) {
+	t.Serial()
 	// go-toolchain's adapter over the library: whatever the roster answers,
 	// the guard needs the agent's NAME for its message.
 	for _, v := range agent.Roster()[0].EnvVars {
@@ -253,7 +255,7 @@ func TestDetectAgentNamesTheAgent(t *testing.T) {
 }
 
 func TestPipePeerNameDetectsConsumer(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	if runtime.GOOS != "linux" {
 		t.Skip("pipePeerName needs /proc (linux)")
 	}
@@ -290,7 +292,7 @@ func TestPipePeerNameDetectsConsumer(t *testing.T) {
 // matches on the string alone can return that shell instead of the real
 // reader, and refuse a run that was never piped anywhere.
 func TestPipePeerNameSkipsAWriteEndSibling(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	if runtime.GOOS != "linux" {
 		t.Skip("pipePeerName needs /proc (linux)")
 	}
@@ -333,7 +335,7 @@ func TestPipePeerNameSkipsAWriteEndSibling(t *testing.T) {
 }
 
 func TestPipeReaderAllowanceThroughTheGuard(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// Pins the classifier's rule: an agent reading our pipe counts as capture; a filter does not.
 	if runtime.GOOS != "linux" {
 		t.Skip("needs /proc (linux)")
@@ -346,6 +348,7 @@ func TestPipeReaderAllowanceThroughTheGuard(t *testing.T) {
 }
 
 func TestInspectFDClassification(t *testing.T) {
+	t.Serial()
 	if runtime.GOOS != "linux" {
 		t.Skip("inspectFD needs /proc (linux)")
 	}
@@ -432,7 +435,7 @@ func TestInspectFDClassification(t *testing.T) {
 }
 
 func TestIsTerminalOnPipeIsFalse(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	if runtime.GOOS != "linux" {
 		t.Skip("isTerminal needs unix termios")
 	}
@@ -448,6 +451,7 @@ func TestIsTerminalOnPipeIsFalse(t *testing.T) {
 // reassigns that variable, so following it would misclassify a real
 // terminal or capture file as a hidden sink under every agent.
 func TestInspectStdoutIgnoresStdoutVariableReassignment(t *testing.T) {
+	t.Serial()
 	if runtime.GOOS != "linux" {
 		t.Skip("inspectStdout needs /proc (linux)")
 	}

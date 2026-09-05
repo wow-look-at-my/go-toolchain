@@ -23,6 +23,7 @@ func writeCoverableFixture(t *testing.T, files map[string]string) string {
 }
 
 func TestHasCoverableStatements(t *testing.T) {
+	t.Serial()
 	for _, tc := range []struct {
 		name  string
 		files map[string]string
@@ -84,6 +85,7 @@ func TestHasCoverableStatements(t *testing.T) {
 }
 
 func TestFileHasFuncBodyUnparseable(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	bad := filepath.Join(dir, "bad.go")
 	os.WriteFile(bad, []byte("package \x00 not go"), 0o644)

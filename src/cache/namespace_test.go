@@ -10,6 +10,7 @@ import (
 )
 
 func TestCanonicalKeyNamespace(t *testing.T) {
+	t.Serial()
 	t.Parallel()
 	cases := []struct {
 		name string
