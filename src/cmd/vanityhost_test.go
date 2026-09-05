@@ -7,6 +7,7 @@ import (
 )
 
 func TestIsVanityHostReachableWithChecker(t *testing.T) {
+	t.Serial()
 	old := vanityHostChecker
 	defer func() { vanityHostChecker = old }()
 

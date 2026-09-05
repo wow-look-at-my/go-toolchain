@@ -35,6 +35,7 @@ func fastSkipEvent(pkg, test string, elapsed float64) testjson.TestEvent {
 }
 
 func TestFastTestSummaryAtEndOfRun(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -48,6 +49,7 @@ func TestFastTestSummaryAtEndOfRun(t *testing.T) {
 }
 
 func TestFastTestSummaryDeferredUntilEnd(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -71,6 +73,7 @@ func TestFastTestSummaryDeferredUntilEnd(t *testing.T) {
 }
 
 func TestFastTestSummaryDeferredAfterFailure(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -94,6 +97,7 @@ func TestFastTestSummaryDeferredAfterFailure(t *testing.T) {
 }
 
 func TestFastTestSummaryWithMixedFastSkips(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -106,6 +110,7 @@ func TestFastTestSummaryWithMixedFastSkips(t *testing.T) {
 }
 
 func TestFastTestSummaryAccumulatesAcrossSlowTests(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -127,6 +132,7 @@ func TestFastTestSummaryAccumulatesAcrossSlowTests(t *testing.T) {
 }
 
 func TestFastTestSummarySkippedInVerbose(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 	h.verbose = true
@@ -139,6 +145,7 @@ func TestFastTestSummarySkippedInVerbose(t *testing.T) {
 }
 
 func TestFastTestSummarySingular(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 
@@ -151,6 +158,7 @@ func TestFastTestSummarySingular(t *testing.T) {
 }
 
 func TestFastTestSummaryCallsOnOutput(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	called := false
 	h := newTestHandler(&buf)
@@ -163,6 +171,7 @@ func TestFastTestSummaryCallsOnOutput(t *testing.T) {
 }
 
 func TestFastTestNoSummaryWhenNoFastTests(t *testing.T) {
+	t.Serial()
 	var buf bytes.Buffer
 	h := newTestHandler(&buf)
 

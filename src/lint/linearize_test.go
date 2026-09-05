@@ -19,6 +19,7 @@ func parseSource(t *testing.T, src string) (*ast.File, *token.FileSet) {
 }
 
 func TestLinearize_SimpleFunction(t *testing.T) {
+	t.Serial()
 	src := `package p
 func foo() {
 	x := 1
@@ -41,6 +42,7 @@ func foo() {
 }
 
 func TestLinearize_PreservesConcreteValues(t *testing.T) {
+	t.Serial()
 	src := `package p
 func foo() {
 	x := 42
@@ -61,6 +63,7 @@ func foo() {
 }
 
 func TestLinearize_StripsConcretesFromSymbols(t *testing.T) {
+	t.Serial()
 	// A pair of functions with same structure but different names/literals
 	// should produce identical symbol sequences.
 	src := `package p
@@ -88,6 +91,7 @@ func bar() {
 }
 
 func TestLinearize_DifferentStructures(t *testing.T) {
+	t.Serial()
 	src := `package p
 func foo() {
 	if true {
@@ -111,6 +115,7 @@ func bar() {
 }
 
 func TestExtractBlocks_MinNodes(t *testing.T) {
+	t.Serial()
 	src := `package p
 func tiny() { return }
 func bigger() {
@@ -137,6 +142,7 @@ func bigger() {
 }
 
 func TestExtractBlocks_FuncName(t *testing.T) {
+	t.Serial()
 	src := `package p
 func alpha() { x := 1; _ = x }
 func beta() { y := 2; _ = y }
@@ -153,6 +159,7 @@ func beta() { y := 2; _ = y }
 }
 
 func TestSequenceString(t *testing.T) {
+	t.Serial()
 	tokens := []Token{
 		{Symbol: 'I'},
 		{Symbol: '_', Concrete: "x"},
@@ -162,6 +169,7 @@ func TestSequenceString(t *testing.T) {
 }
 
 func TestNodeTypeName(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		node     ast.Node
 		expected string
@@ -205,6 +213,7 @@ func TestNodeTypeName(t *testing.T) {
 }
 
 func TestLinearize_AllNodeTypes(t *testing.T) {
+	t.Serial()
 	// Exercise as many AST node types as possible in a single function
 	src := `package p
 
@@ -313,6 +322,7 @@ done:
 }
 
 func TestExtractBlocks_InnerBlocks(t *testing.T) {
+	t.Serial()
 	src := `package p
 
 func example() {
@@ -347,6 +357,7 @@ func example() {
 }
 
 func TestExtractBlocks_InnerBlocks_MinNodesFilter(t *testing.T) {
+	t.Serial()
 	src := `package p
 
 func example() {

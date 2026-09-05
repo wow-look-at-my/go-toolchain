@@ -44,6 +44,7 @@ func seedCollector(t *testing.T) {
 }
 
 func TestInitBuildProfile_RespectsNoProfile(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 
 	noProfile = true
@@ -62,6 +63,7 @@ func TestInitBuildProfile_RespectsNoProfile(t *testing.T) {
 }
 
 func TestCaptureProfileTrace_RecordsLaneEvents(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 	seedCollector(t)
 	profileGraph = nil
@@ -77,6 +79,7 @@ func TestCaptureProfileTrace_RecordsLaneEvents(t *testing.T) {
 }
 
 func TestEmitBuildProfile_WritesBothJSONFiles(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 	seedCollector(t)
 	profileGraph = nil
@@ -96,6 +99,7 @@ func TestEmitBuildProfile_WritesBothJSONFiles(t *testing.T) {
 }
 
 func TestEmitBuildProfile_SkipsCleanly(t *testing.T) {
+	t.Serial()
 	resetProfileState(t)
 
 	// No collector at all (--no-profile or a non-building command).

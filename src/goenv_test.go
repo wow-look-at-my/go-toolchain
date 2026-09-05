@@ -13,6 +13,7 @@ import (
 )
 
 func TestEnsureDirectFallback(t *testing.T) {
+	t.Serial()
 	// No "direct" present: append "|direct" so any proxy error falls through.
 	assert.Equal(t, "https://proxy.example.com|direct", ensureDirectFallback("https://proxy.example.com"))
 	// Existing "|direct" stays as-is.
@@ -24,6 +25,7 @@ func TestEnsureDirectFallback(t *testing.T) {
 }
 
 func TestParseProxyConfig_Valid(t *testing.T) {
+	t.Serial()
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	cfg := parseProxyConfig()
@@ -37,6 +39,7 @@ func TestParseProxyConfig_Valid(t *testing.T) {
 }
 
 func TestParseProxyConfig_UsernameField(t *testing.T) {
+	t.Serial()
 	raw := `{"proxy":"https://p.example.com","username":"bob","pass":"hunter2"}`
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	cfg := parseProxyConfig()
@@ -46,6 +49,7 @@ func TestParseProxyConfig_UsernameField(t *testing.T) {
 }
 
 func TestParseProxyConfig_LoginField(t *testing.T) {
+	t.Serial()
 	raw := `{"proxy":"https://p.example.com","login":"carol","pass":"pw123"}`
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte(raw)))
 	cfg := parseProxyConfig()
@@ -55,21 +59,25 @@ func TestParseProxyConfig_LoginField(t *testing.T) {
 }
 
 func TestParseProxyConfig_Unset(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "")
 	assert.Nil(t, parseProxyConfig())
 }
 
 func TestParseProxyConfig_InvalidBase64(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "not-valid-base64!!!")
 	assert.Nil(t, parseProxyConfig())
 }
 
 func TestParseProxyConfig_InvalidJSON(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", base64.StdEncoding.EncodeToString([]byte("not json")))
 	assert.Nil(t, parseProxyConfig())
 }
 
 func TestProxyConfig_ProxyHost(t *testing.T) {
+	t.Serial()
 	cfg := proxyConfig{Proxy: "https://goproxy.example.com/some/path"}
 	assert.Equal(t, "goproxy.example.com", cfg.proxyHost())
 
@@ -78,16 +86,19 @@ func TestProxyConfig_ProxyHost(t *testing.T) {
 }
 
 func TestProxyConfig_GosumdbNoKey(t *testing.T) {
+	t.Serial()
 	cfg := proxyConfig{Proxy: "https://proxy.example.com"}
 	assert.Empty(t, cfg.gosumdb())
 }
 
 func TestProxyConfig_GosumdbNoProxy(t *testing.T) {
+	t.Serial()
 	cfg := proxyConfig{SumDBKey: "mydb+abc+AKey"}
 	assert.Empty(t, cfg.gosumdb())
 }
 
 func TestProxyConfig_GosumdbTrailingSlash(t *testing.T) {
+	t.Serial()
 	cfg := proxyConfig{Proxy: "https://proxy.example.com/", SumDBKey: "mydb+abc+AKey"}
 	assert.Equal(t, "mydb+abc+AKey https://proxy.example.com/sumdb/mydb", cfg.gosumdb())
 }
@@ -100,6 +111,7 @@ func setHome(t *testing.T, dir string) {
 }
 
 func TestWriteNetrc_CreatesFile(t *testing.T) {
+	t.Serial()
 	home := t.TempDir()
 	setHome(t, home)
 	writeNetrc("proxy.example.com", "alice", "secret")
@@ -110,6 +122,7 @@ func TestWriteNetrc_CreatesFile(t *testing.T) {
 }
 
 func TestWriteNetrc_SkipsDuplicate(t *testing.T) {
+	t.Serial()
 	home := t.TempDir()
 	setHome(t, home)
 	netrcPath := filepath.Join(home, ".netrc")
@@ -124,6 +137,7 @@ func TestWriteNetrc_SkipsDuplicate(t *testing.T) {
 }
 
 func TestWriteNetrc_EmptyCredentials(t *testing.T) {
+	t.Serial()
 	home := t.TempDir()
 	setHome(t, home)
 	writeNetrc("proxy.example.com", "", "secret")
@@ -135,6 +149,7 @@ func TestWriteNetrc_EmptyCredentials(t *testing.T) {
 }
 
 func TestConfigureGoEnv_Default(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "")
 	t.Setenv("GOSUMDB", "")
@@ -149,6 +164,7 @@ func TestConfigureGoEnv_Default(t *testing.T) {
 }
 
 func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com")
 	t.Setenv("GOSUMDB", "")
@@ -163,6 +179,7 @@ func TestConfigureGoEnv_ExplicitProxy(t *testing.T) {
 }
 
 func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com,direct")
 	// A private checksum database: configureGoEnv refuses the public database outright (see TestUsesPublicSumDB).
@@ -180,6 +197,7 @@ func TestConfigureGoEnv_ExplicitProxyAndSumDB(t *testing.T) {
 }
 
 func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
+	t.Serial()
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
 	home := t.TempDir()
 	setHome(t, home)
@@ -203,6 +221,7 @@ func TestConfigureGoEnv_GOProxyConfig(t *testing.T) {
 }
 
 func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
+	t.Serial()
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret","sumdb_key":"mydb+abc123+AKeyHere"}`
 	home := t.TempDir()
 	setHome(t, home)
@@ -221,6 +240,7 @@ func TestConfigureGoEnv_GOProxyConfigExplicitOverride(t *testing.T) {
 }
 
 func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
+	t.Serial()
 	raw := `{"proxy":"https://proxy.example.com","user":"alice","password":"secret"}`
 	home := t.TempDir()
 	setHome(t, home)
@@ -239,6 +259,7 @@ func TestConfigureGoEnv_GOProxyConfigNoSumDBKey(t *testing.T) {
 }
 
 func TestConfigureGoEnv_DirectPassthrough(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "direct")
 	t.Setenv("GOSUMDB", "")
@@ -251,6 +272,7 @@ func TestConfigureGoEnv_DirectPassthrough(t *testing.T) {
 }
 
 func TestConfigureGoEnv_OffPassthrough(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "off")
 	t.Setenv("GOSUMDB", "")
@@ -266,6 +288,7 @@ func TestConfigureGoEnv_OffPassthrough(t *testing.T) {
 // module, so it can only ever fail on such a module, and asking it about a
 // module announces that module's path to an outside party.
 func TestUsesPublicSumDB(t *testing.T) {
+	t.Serial()
 	// Refused: Go would contact sum.golang.org itself.
 	assert.True(t, usesPublicSumDB("sum.golang.org"))
 	assert.True(t, usesPublicSumDB("sum.golang.org+033de0ae+AkeyHere"))
@@ -282,6 +305,7 @@ func TestUsesPublicSumDB(t *testing.T) {
 }
 
 func TestSumDBURLHost(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "sum.golang.org", sumDBURLHost("https://sum.golang.org/sumdb/x"))
 	assert.Equal(t, "sum.golang.org", sumDBURLHost("sum.golang.org"))
 	assert.Equal(t, "proxy.example.com", sumDBURLHost("http://proxy.example.com:8080/sumdb/x"))
@@ -291,6 +315,7 @@ func TestSumDBURLHost(t *testing.T) {
 // it must keep doing so via GONOSUMDB rather than GOSUMDB=off (which would
 // also break toolchain auto-downloads).
 func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
+	t.Serial()
 	for _, k := range proxyEnvVars {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
@@ -309,6 +334,7 @@ func TestConfigureGoEnvDefaultDisablesSumDB(t *testing.T) {
 // is refused and the build dies in `go mod tidy`. Every org prefix must
 // therefore be exempt whenever a database is configured.
 func TestConfigureGoEnvExemptsOrgModulesFromSumDB(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_PROXY_CONFIG", "")
 	t.Setenv("GOPROXY", "https://proxy.example.com")
 	t.Setenv("GOSUMDB", "mydb+abc123 https://proxy.example.com/sumdb/mydb")

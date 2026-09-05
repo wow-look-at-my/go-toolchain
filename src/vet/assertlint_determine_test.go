@@ -9,6 +9,7 @@ import (
 )
 
 func TestDetermineAssertionNotInit(t *testing.T) {
+	t.Serial()
 	// Test with init that's not an AssignStmt
 	ifStmt := &ast.IfStmt{
 		Init: &ast.ExprStmt{X: &ast.Ident{Name: "x"}},
@@ -37,6 +38,7 @@ func TestDetermineAssertionNotInit(t *testing.T) {
 }
 
 func TestDetermineAssertionInitMultipleLhs(t *testing.T) {
+	t.Serial()
 	// Test with init that has multiple LHS
 	ifStmt := &ast.IfStmt{
 		Init: &ast.AssignStmt{
@@ -70,6 +72,7 @@ func TestDetermineAssertionInitMultipleLhs(t *testing.T) {
 }
 
 func TestDetermineAssertionCondNotBinary(t *testing.T) {
+	t.Serial()
 	// Test with init where cond is not binary
 	ifStmt := &ast.IfStmt{
 		Init: &ast.AssignStmt{
@@ -98,6 +101,7 @@ func TestDetermineAssertionCondNotBinary(t *testing.T) {
 }
 
 func TestDeterminePositiveAssertFuncNEQ(t *testing.T) {
+	t.Serial()
 	// Test NotEqual
 	cond := &ast.BinaryExpr{
 		X:  &ast.Ident{Name: "x"},
@@ -108,6 +112,7 @@ func TestDeterminePositiveAssertFuncNEQ(t *testing.T) {
 }
 
 func TestDetermineNegativeAssertFuncComparisons(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		op       token.Token
 		expected string
@@ -127,6 +132,7 @@ func TestDetermineNegativeAssertFuncComparisons(t *testing.T) {
 }
 
 func TestDetermineAssertionInitNotDefine(t *testing.T) {
+	t.Serial()
 	// Test with init that uses = instead of :=
 	ifStmt := &ast.IfStmt{
 		Init: &ast.AssignStmt{
@@ -159,6 +165,7 @@ func TestDetermineAssertionInitNotDefine(t *testing.T) {
 }
 
 func TestDetermineAssertionCondVarMismatch(t *testing.T) {
+	t.Serial()
 	// Test where condition variable doesn't match init variable
 	ifStmt := &ast.IfStmt{
 		Init: &ast.AssignStmt{
@@ -191,6 +198,7 @@ func TestDetermineAssertionCondVarMismatch(t *testing.T) {
 }
 
 func TestDetermineAssertionCondNotNil(t *testing.T) {
+	t.Serial()
 	// Test where condition Y is not nil
 	ifStmt := &ast.IfStmt{
 		Init: &ast.AssignStmt{
@@ -223,6 +231,7 @@ func TestDetermineAssertionCondNotNil(t *testing.T) {
 }
 
 func TestDetermineAssertionCondEQL(t *testing.T) {
+	t.Serial()
 	// Test where condition is == instead of !=
 	ifStmt := &ast.IfStmt{
 		Init: &ast.AssignStmt{
@@ -255,6 +264,7 @@ func TestDetermineAssertionCondEQL(t *testing.T) {
 }
 
 func TestDetermineAssertionCondXNotIdent(t *testing.T) {
+	t.Serial()
 	// Test where condition X is not an Ident
 	ifStmt := &ast.IfStmt{
 		Init: &ast.AssignStmt{

@@ -14,6 +14,7 @@ import (
 // Reading the plain variant instead made every test-only helper in this repo a
 // vet violation, and reported a genuinely dead symbol repeatedly.
 func TestDeadCodeAnswersFromTheVariantThatHoldsTheTests(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	write := func(name, body string) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644))
@@ -30,15 +31,14 @@ func trulyDead() int { return 8 }
 import "testing"
 
 func TestUsed(t *testing.T) {
+	t.Serial()
 	if usedByTestOnly() != 7 {
 		t.Fatal("bad")
 	}
 }
 `)
 
-	oldWd, _ := os.Getwd()
-	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	_, err := RunOnPattern("./...", false, nil)
 

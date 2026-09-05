@@ -22,6 +22,7 @@ import (
 // and the helper exits with a failure, so this fails on regression rather than
 // racing a wall-clock deadline.
 func TestExecuteDirectiveStreamsOutputWhileRunning(t *testing.T) {
+	t.Serial()
 	requireShebangHelper(t)
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.go")
@@ -68,6 +69,7 @@ func TestExecuteDirectiveStreamsOutputWhileRunning(t *testing.T) {
 }
 
 func TestStreamPrefixWriter(t *testing.T) {
+	t.Serial()
 	var w streamPrefixWriter
 
 	// A complete line is emitted on arrival; a partial line waits for Flush.
