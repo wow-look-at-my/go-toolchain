@@ -3,6 +3,29 @@
 CLI commands (root, matrix, bench, lint, install, version, release,
 ignore/unignore, cacheprog) using Cobra, plus the phases they drive.
 
+## matrix walks every module, as the default pipeline does
+
+`matrix.go`'s `runMatrixModules` calls `findGoModules()` and runs
+`runReleaseWithRunner` once per module, from that module's directory. A
+repository root with no `go.mod` is a tree of modules, not a broken repository:
+before this, matrix tidied the root, found nothing, and died on `no go.mod
+found` while a bare `go-toolchain` built the same tree fine. The action runs
+`matrix`, so that gap reached every consumer that split itself into modules.
+`release --build` runs the same walk.
+
+Two rules keep a tree of modules honest:
+
+- A module with no main package under the target's build context builds
+  nothing and says so, instead of failing the run. `libraryModulesAllowed`
+  (matrixrun.go) carries that permission, and only a multi-module walk sets
+  it. That module's tests, vet, coverage gate and dats suites still run.
+- A run that built no binary in any module fails, and names the module count.
+  `matrixBuiltBinaries` counts what every module built. A single-module
+  repository keeps the older message, `no main packages found to build`.
+
+Publishing stays per working directory, so a tree whose modules each ship a
+binary needs one job per module to publish them all.
+
 ## Dependency graph submission
 
 `dependabot.go` submits a dependency-graph snapshot to GitHub in CI. **A failed

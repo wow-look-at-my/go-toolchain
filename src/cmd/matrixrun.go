@@ -15,6 +15,20 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
+// libraryModulesAllowed lets a module with no main package pass through the
+// build phase with an empty job list instead of failing the run. runRelease
+// sets it while it walks a tree of modules: a library beside the module that
+// ships the binary is the ordinary shape there, and its tests and dats suites
+// still have to run. A single-module repo leaves it false, so "no main
+// packages found to build" still fails that run.
+//
+// matrixBuiltBinaries counts what every module built, so a whole run that
+// produced no binary at all still fails.
+var (
+	libraryModulesAllowed bool
+	matrixBuiltBinaries   int
+)
+
 func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	setupCGOEnvironment()
 	// Same contract as staleoutputs.go: clear outputs up front, and again on failure.
@@ -77,7 +91,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	if err != nil {
 		return err
 	}
-	if !anyMains {
+	if !anyMains && !libraryModulesAllowed {
 		return fmt.Errorf("no main packages found to build")
 	}
 
@@ -104,11 +118,14 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 	}
 
-	if len(matrixTargets) == 0 {
+	if len(jobs) == 0 {
+		logger.Info("⇒ No main package here, so there is nothing to cross-compile")
+	} else if len(matrixTargets) == 0 {
 		logger.Info("⇒ Building %d fat APE(s) covering %s", len(jobs), platformList(apeCoverage(apePlatforms)))
 	} else {
 		logger.Info("⇒ Building %d binaries (%d targets)", len(jobs), len(platforms))
 	}
+	matrixBuiltBinaries += len(jobs)
 	buildStart := time.Now()
 
 	// Run builds in parallel
@@ -227,14 +244,20 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		}
 	}
 
-	// Host/bare symlinks; skipped in CI, since upload-artifact dereferences symlinks into full duplicate copies.
-	if os.Getenv("CI") == "" {
+	// Create _host and bare symlinks for the current platform. In CI these
+	// are pointless (nothing consumes them) and harmful: upload-artifact
+	// dereferences symlinks, bloating the artifact with full duplicate copies.
+	// A module that built nothing has no host binary to point at, and saying
+	// so once above is enough.
+	if os.Getenv("CI") == "" && len(jobs) > 0 {
 		if err := createHostSymlinks(hostTargets, outputDir); err != nil {
 			return err
 		}
 	}
 
-	logger.Info("⇒ All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	if len(jobs) > 0 {
+		logger.Info("⇒ All %d binaries built successfully in %s/ %s", len(jobs), outputDir, fmtDuration(time.Since(buildStart)))
+	}
 
 	// Run benchmarks after successful build
 	if !noBenchmark {

@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -77,14 +81,63 @@ type buildResult struct {
 	duration time.Duration
 }
 
+// runMatrixModules cross-compiles every module in the tree, the way the
+// default pipeline gates every module. A repository whose root carries no
+// go.mod is a tree of modules, not a broken one -- before this, matrix tidied
+// the root, found nothing, and died on "no go.mod found" while the same tree
+// built fine under a bare go-toolchain.
+func runMatrixModules(r runner.CommandRunner) error {
+	modules := findGoModules()
+	if len(modules) == 0 {
+		// Suites without a module are the whole run, as in the default
+		// pipeline: the CLI a suite drives does not have to be Go.
+		if hasDatsSuites(".") {
+			return runDatsOnly()
+		}
+		return fmt.Errorf("no go.mod and no dats/ suites found — initialize a module with: go mod init <module-path>")
+	}
+
+	startDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	defer os.Chdir(startDir)
+
+	libraryModulesAllowed = len(modules) > 1
+	matrixBuiltBinaries = 0
+
+	for i, modDir := range modules {
+		if len(modules) > 1 {
+			if i > 0 {
+				logger.Info("")
+			}
+			logger.Info("⇒ Module: %s", modDir)
+		}
+		if modDir != "." {
+			if err := os.Chdir(filepath.Join(startDir, modDir)); err != nil {
+				return fmt.Errorf("failed to enter %s: %w", modDir, err)
+			}
+		}
+		if err := runReleaseWithRunner(r); err != nil {
+			return err
+		}
+	}
+
+	// Every module was a library. The command exists to produce binaries, so
+	// a run that produced none is a failure, not a quiet success.
+	if matrixBuiltBinaries == 0 {
+		return fmt.Errorf("no main packages found to build in any of the %d modules", len(modules))
+	}
+	return nil
+}
+
 func runRelease(cmd *cobra.Command, args []string) error {
 	InitTimeline()
 	// Collects per-action build profiles; no Chrome trace here, but the deferred capture still parses graphs for emitBuildProfile.
 	initBuildProfile()
 	defer captureProfileTrace()
 	r := runner.New()
-	err := runReleaseWithRunner(r)
-	if err != nil {
+	if err := runMatrixModules(r); err != nil {
 		return err
 	}
 

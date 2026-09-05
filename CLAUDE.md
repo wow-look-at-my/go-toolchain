@@ -52,6 +52,8 @@ coverage.
   that never happened, so every exit that is not a green pipeline deletes the module's own artifacts. No flag or env var disables it. Depth:
   `docs/BUILD-OUTPUTS.md` (which paths count, the three sweep sites, and the dats-suite footgun)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, verify-identical, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
+- `src/cmd/matrix.go` — `runMatrixModules` walks every module, as the default pipeline does, so a repo root with no `go.mod` cross-compiles its tree
+  instead of dying on "no go.mod found". A library module builds nothing and says so; a run that built nothing anywhere fails. Depth: `docs/CMD.md`
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` builds ONE fat APE**, the org's only native
   output: no target flags means one `<name>` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
   fork as `GOCOSMOPLATFORMS`; unverified hosts are refused, and an unaware toolchain is detected and warned about rather than silently ignoring
