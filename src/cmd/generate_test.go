@@ -244,7 +244,7 @@ func TestGuessPackage(t *testing.T) {
 }
 
 func TestRunGenerateWithHash(t *testing.T) {
-	t.Serial()
+	t.Serial() // t.Chdir forks, and children racing the run's shared gocoverdir fail on windows.
 	dir := t.TempDir()
 	t.Chdir(dir)
 

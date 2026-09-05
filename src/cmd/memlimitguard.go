@@ -18,7 +18,7 @@ import (
 func injectMemLimitGuard(quiet bool) error {
 	// Exclude BEFORE writing, so no git status during the build window (Go's version stamping) can see it.
 	ensureGuardExcluded()
-	changed, err := memlimit.InjectAll()
+	changed, err := memlimit.InjectAll(".")
 	if err != nil {
 		return fmt.Errorf("injecting GOMEMLIMIT guard: %w", err)
 	}
@@ -72,7 +72,7 @@ func ensureGuardExcluded() {
 
 // cleanupMemLimitGuards removes the guards injectMemLimitGuard wrote. Best-effort: a failed removal never fails the build.
 func cleanupMemLimitGuards() {
-	if _, err := memlimit.CleanupAll(); err != nil {
+	if _, err := memlimit.CleanupAll("."); err != nil {
 		logger.Warn("  warning: failed to remove GOMEMLIMIT guard: %v", err)
 	}
 }

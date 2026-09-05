@@ -410,6 +410,7 @@ func TestCheckDirtyInCIWithVanityRestored(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 	dir := t.TempDir()
+	// Best-effort: a prior test can leave the process cwd deleted, making Getwd fail.
 	t.Chdir(dir)
 
 	// modfile-canonical form so removeVanityReplaces's parse-drop-format round trip restores the bytes exactly.

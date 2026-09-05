@@ -58,7 +58,7 @@ func GenerateMarkdown(data *SummaryData) string {
 
 	commitSHA := os.Getenv("GITHUB_SHA")
 	repo := os.Getenv("GITHUB_REPOSITORY")
-	modulePath := readModulePath()
+	modulePath := gomod.ReadModulePath(".")
 
 	var sb strings.Builder
 
@@ -361,9 +361,4 @@ func sourceURL(tc gotest.TestCaseResult, commitSHA, repo, modulePath string, cac
 	}
 
 	return fmt.Sprintf("https://github.com/%s/blob/%s/%s#L%d", repo, commitSHA, loc.file, loc.line)
-}
-
-// readModulePath reads the module path from go.mod in the current directory.
-func readModulePath() string {
-	return gomod.ReadModulePath()
 }

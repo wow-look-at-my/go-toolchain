@@ -217,7 +217,7 @@ example.com/pkg2/baz.go:10.20,12.2 5 0
 }
 
 // setupTestModule creates a temporary directory with a go.mod and test files,
-// chdirs into it, and returns a cleanup function that restores the original dir.
+// and returns its root.
 func setupTestModule(t *testing.T, modPath string, testPkgDirs []string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -227,23 +227,20 @@ func setupTestModule(t *testing.T, modPath string, testPkgDirs []string) string 
 		os.MkdirAll(pkgDir, 0755)
 		os.WriteFile(filepath.Join(pkgDir, "foo_test.go"), []byte("package "+filepath.Base(rel)+"\n"), 0644)
 	}
-	t.Chdir(dir)
 	return dir
 }
 
 func TestListTestPackages(t *testing.T) {
-	t.Serial()
-	setupTestModule(t, "example.com/mymod", []string{"pkg1", "pkg2", "pkg3/sub"})
+	dir := setupTestModule(t, "example.com/mymod", []string{"pkg1", "pkg2", "pkg3/sub"})
 	// Also create a dir with no test files
-	os.MkdirAll("notest", 0755)
-	os.WriteFile("notest/main.go", []byte("package notest\n"), 0644)
+	os.MkdirAll(filepath.Join(dir, "notest"), 0755)
+	os.WriteFile(filepath.Join(dir, "notest", "main.go"), []byte("package notest\n"), 0644)
 	// A nested module's packages must not be listed as import paths of the outer module.
-	os.MkdirAll("nestedmod/sub", 0755)
-	os.WriteFile("nestedmod/go.mod", []byte("module example.com/othermodule\n\ngo 1.25\n"), 0644)
-	os.WriteFile("nestedmod/sub/foo_test.go", []byte("package sub\n"), 0644)
+	os.MkdirAll(filepath.Join(dir, "nestedmod", "sub"), 0755)
+	os.WriteFile(filepath.Join(dir, "nestedmod", "go.mod"), []byte("module example.com/othermodule\n\ngo 1.25\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "nestedmod", "sub", "foo_test.go"), []byte("package sub\n"), 0644)
 
-	mock := runner.NewMock()
-	pkgs := listTestPackages(mock)
+	pkgs := listTestPackages(dir)
 
 	assert.Contains(t, pkgs, "example.com/mymod/pkg1")
 	assert.Contains(t, pkgs, "example.com/mymod/pkg2")
@@ -254,18 +251,14 @@ func TestListTestPackages(t *testing.T) {
 }
 
 func TestListTestPackagesNoGoMod(t *testing.T) {
-	t.Serial()
-	dir := t.TempDir()
-	t.Chdir(dir)
-
-	mock := runner.NewMock()
-	pkgs := listTestPackages(mock)
+	pkgs := listTestPackages(t.TempDir())
 	assert.Nil(t, pkgs, "should return nil when no go.mod exists")
 }
 
 func TestRunTestsUsesExplicitPackages(t *testing.T) {
 	t.Serial()
-	setupTestModule(t, "example.com/proj", []string{"pkg1"})
+	// RunTests reads the working directory.
+	t.Chdir(setupTestModule(t, "example.com/proj", []string{"pkg1"}))
 
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
@@ -301,8 +294,7 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 func TestRunTestsFallsBackToEllipsis(t *testing.T) {
 	t.Serial()
 	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
-	dir := t.TempDir()
-	t.Chdir(dir)
+	t.Chdir(t.TempDir())
 
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 

@@ -195,14 +195,14 @@ func TestReachablePackages(t *testing.T) {
 	t.Chdir(tmpDir)
 
 	// Set up filesystem: go.mod + a main package in cmd/app
-	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
-	os.MkdirAll("cmd/app", 0755)
-	os.WriteFile("cmd/app/main.go", []byte("package main\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll(filepath.Join(tmpDir, "cmd", "app"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "cmd", "app", "main.go"), []byte("package main\n"), 0644)
 
 	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
 
-	reachable, err := ReachablePackages(mock)
+	reachable, err := ReachablePackages(tmpDir, mock)
 	require.NoError(t, err)
 
 	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
@@ -217,14 +217,14 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 	t.Chdir(tmpDir)
 
 	// Main package imports pkg1; pkg2 is behind a build tag and unreachable from the entry point.
-	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
-	os.MkdirAll("cmd/app", 0755)
-	os.WriteFile("cmd/app/main.go", []byte("package main\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll(filepath.Join(tmpDir, "cmd", "app"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "cmd", "app", "main.go"), []byte("package main\n"), 0644)
 
 	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nstrings\n")
 
-	reachable, err := ReachablePackages(mock)
+	reachable, err := ReachablePackages(tmpDir, mock)
 	require.NoError(t, err)
 
 	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
@@ -238,14 +238,14 @@ func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
 	t.Chdir(tmpDir)
 
 	// No main packages found — falls back to ./...
-	os.WriteFile("go.mod", []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
-	os.MkdirAll("pkg/lib", 0755)
-	os.WriteFile("pkg/lib/lib.go", []byte("package lib\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
+	os.MkdirAll(filepath.Join(tmpDir, "pkg", "lib"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "pkg", "lib", "lib.go"), []byte("package lib\n"), 0644)
 
 	mock := newMockRunnerForReachable(
 		"fmt\nexample.com/mymod/pkg1\nexample.com/mymod/pkg2\nstrings\n")
 
-	reachable, err := ReachablePackages(mock)
+	reachable, err := ReachablePackages(tmpDir, mock)
 	require.NoError(t, err)
 
 	assert.True(t, reachable.Contains("example.com/mymod/pkg1"))
@@ -260,7 +260,7 @@ func TestReachablePackagesModuleFailure(t *testing.T) {
 	// No go.mod — ReadModulePath returns ""
 	mock := newMockRunnerForReachable("")
 
-	reachable, err := ReachablePackages(mock)
+	reachable, err := ReachablePackages(tmpDir, mock)
 	// An empty module prefix reports an empty set, which filters nothing.
 	assert.True(t, reachable.IsEmpty())
 	assert.Nil(t, err)

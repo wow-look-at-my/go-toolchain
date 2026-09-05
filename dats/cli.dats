@@ -116,10 +116,14 @@ tests:
 	# that never happened. The abort must delete it (src/cmd/staleoutputs.go)
 	# and say so, while leaving non-binary outputs alone. A throwaway module
 	# with a planted binary: the guard aborts long before anything is compiled.
-	# Deleting is what a REFUSAL does, so it is asserted where a refusal happens
-	# and paired with uname like the test above.
+	# Deleting is what a REFUSAL does, so the module is planted only where a
+	# refusal happens. A windows host has no classifier and allows, so there the
+	# same module would put a whole pipeline -- tidy, vet, test, build -- inside
+	# this budget, and its outcome, not the guard, would decide whether the
+	# planted binary survives. So that host reports the banner from an empty
+	# directory, the way the test above does, and records no verdict.
 	- desc: the agent output guard deletes the module's build outputs where it refuses
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({shared.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; printf "%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$(printf "%s" "$out" | tr "\n" " ")"'
+	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) out=$({shared.gt.exe} 2>&1); printf "%s|no-refusal|no-refusal|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")";; *) printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({shared.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; printf "%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$(printf "%s" "$out" | tr "\n" " ")";; esac'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -127,7 +131,7 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|deleted\\|kept\\|.*refused to run.*have been DELETED|(MINGW|MSYS|CYGWIN).*\\|kept\\|kept\\|.*INOPERATIVE on this windows host)"
+			0: "^((Linux|Darwin)\\|deleted\\|kept\\|.*refused to run.*have been DELETED|(MINGW|MSYS|CYGWIN).*\\|no-refusal\\|no-refusal\\|.*INOPERATIVE on this windows host)"
 
 	- desc: root help prints usage
 	  cmd: '{shared.gt.exe} --help'

@@ -159,6 +159,7 @@ func TestCommentNumbersSkipsMachineText(t *testing.T) {
 // No type information is needed, since the check reads comments.
 func runCommentNumbersOnSource(t *testing.T, src string, module *analysis.Module) []logger.Warning {
 	t.Helper()
+	t.Serial() // See runCommentSpanOn.
 	resetCommentNumbersWarnings()
 	logger.ResetWarnCount()
 	t.Cleanup(logger.ResetWarnCount)

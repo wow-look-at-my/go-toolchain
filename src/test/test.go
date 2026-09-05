@@ -30,8 +30,11 @@ const (
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
 
-	// Bounds the run, and must clear the SLOWEST host: the windows leg killed src/cmd and src/vet here.
-	testTimeout = 2 * time.Minute
+	// Bounds the run, and must clear the SLOWEST host. src/cmd spends most of it on process starts: the fork's
+	// t.Chdir and t.Setenv each run their test in a child, and those children take the serial barrier in turn
+	// because children racing the run's shared gocoverdir fail on windows. So the binary pays a serialized
+	// process start per such test, and windows charges the most for each one. Depth: docs/CI.md.
+	testTimeout = 5 * time.Minute
 )
 
 // TimelineRecorder records pipeline timeline entries. Satisfied by *summary.Timeline.
@@ -57,32 +60,31 @@ type TestResult struct {
 	TestCases     []TestCaseResult
 }
 
-// readModulePath reads the module path from go.mod in the current directory.
-func readModulePath() string {
-	return gomod.ReadModulePath()
-}
-
 // listTestPackages returns the import paths of packages that contain test files,
 // excluding packages where all non-test .go files are generated code (e.g. sqlc).
 // It walks the filesystem directly instead of shelling out to `go list`, which
 // is significantly faster.
 // On any error it returns nil, signaling the caller to fall back to "./...".
-func listTestPackages(_ runner.CommandRunner) []string {
-	modPath := readModulePath()
+func listTestPackages(root string) []string {
+	modPath := gomod.ReadModulePath(root)
 	if modPath == "" {
 		return nil
 	}
 	var pkgs []string
-	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable dirs
 		}
 		if !d.IsDir() {
 			return nil
 		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
 		// Skip hidden dirs, non-source dirs, and nested modules (different module, not our import paths).
 		name := d.Name()
-		if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path)) {
+		if rel != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || gomod.IsNestedModule(path)) {
 			return filepath.SkipDir
 		}
 		// Skip packages where all non-test .go files are generated code
@@ -95,11 +97,10 @@ func listTestPackages(_ runner.CommandRunner) []string {
 		}
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
-				rel := filepath.ToSlash(path)
 				if rel == "." {
 					pkgs = append(pkgs, modPath)
 				} else {
-					pkgs = append(pkgs, modPath+"/"+rel)
+					pkgs = append(pkgs, modPath+"/"+filepath.ToSlash(rel))
 				}
 				break
 			}
@@ -272,7 +273,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	case len(only) > 0:
 		args = append(args, only...)
 	default:
-		if pkgs := listTestPackages(r); len(pkgs) > 0 {
+		if pkgs := listTestPackages("."); len(pkgs) > 0 {
 			args = append(args, pkgs...)
 		} else {
 			args = append(args, "./...")
@@ -393,7 +394,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	}
 
 	// Determine reachable packages to filter coverage (non-fatal on error)
-	reachable, _ := ReachablePackages(r)
+	reachable, _ := ReachablePackages(".", r)
 
 	// Parse coverage profile for total and file coverage (files contain functions)
 	totalCoverage, files, _ := ParseProfileFiltered(coverFile, reachable)

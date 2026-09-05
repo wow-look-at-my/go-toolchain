@@ -157,9 +157,8 @@ func init() {
 	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
 
-	// Fingerprint covers the invoked flags; see flagFingerprint for why it excludes rootCmd itself.
 	fingerprintFlags = rootCmd.Flags()
-	// Kept apart: Flags() merges these in only at parse time.
+	// Kept apart: Flags() merges these in only at parse time, so flagFingerprint visits both sets and dedupes by name.
 	fingerprintPersistentFlags = rootCmd.PersistentFlags()
 
 	Register(rootCmd)
