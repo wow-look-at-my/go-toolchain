@@ -38,9 +38,8 @@ var (
 	countGenerated bool
 )
 
-// skipUpToDateCheck reports whether cmd or an ancestor should skip the
-// fingerprint-based "up to date" fast exit.
-// A subcommand (e.g. `version raw`) must inherit its parent's skip.
+// skipUpToDateCheck reports whether cmd or an ancestor skips the
+// fingerprint "up to date" fast exit. A subcommand inherits it.
 func skipUpToDateCheck(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
@@ -160,6 +159,8 @@ func init() {
 
 	// Fingerprint covers the invoked flags -- LocalFlags folds the persistent flags in. See flagFingerprint.
 	fingerprintFlags = rootCmd.LocalFlags()
+	// Kept apart: Flags() merges these in only at parse time.
+	fingerprintPersistentFlags = rootCmd.PersistentFlags()
 
 	Register(rootCmd)
 }

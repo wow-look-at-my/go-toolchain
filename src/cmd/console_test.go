@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,8 +74,13 @@ func drainPipe(r io.Reader) <-chan string {
 	return done
 }
 
+// captureMu serializes the helpers: concurrent captures of the package-wide os.Stdout put back each other's pipes.
+var captureMu sync.Mutex
+
 // captureStdout runs f with stdout captured and returns the output.
 func captureStdout(f func()) string {
+	captureMu.Lock()
+	defer captureMu.Unlock()
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -90,6 +96,8 @@ func captureStdout(f func()) string {
 // captureCombinedOutput runs f with stdout and stderr merged. logger.Warn
 // routes to stderr locally and to a ::warning on stdout in CI.
 func captureCombinedOutput(f func()) string {
+	captureMu.Lock()
+	defer captureMu.Unlock()
 	oldOut, oldErr := os.Stdout, os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -166,6 +174,8 @@ func withTimedLineMinDuration(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { timedLineMinDuration = old })
 }
 
+// The default timedLineMinDuration is what this asserts against, and
+// withTimedLineMinDuration below rewrites it, so this cannot run in parallel.
 func TestTimedLineWriterFastLinesOmitDuration(t *testing.T) {
 	t.Serial()
 	var buf bytes.Buffer

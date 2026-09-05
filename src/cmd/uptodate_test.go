@@ -13,8 +13,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// chdirTemp enters a fresh temp directory and restores the old cwd after.
-// An NT host refuses to delete a directory that is still a process's cwd.
+// chdirTemp enters a fresh temp directory. An NT host will not delete a
+// directory that is a process's cwd, so the restore has to happen.
 func chdirTemp(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -155,8 +155,9 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 	fp1, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 
-	require.NoError(t, rootCmd.Flags().Set("generate", "deadbeef"))
-	defer rootCmd.Flags().Set("generate", "")
+	// PersistentFlags is where the flag lives; root.go folds it into the fingerprinted set.
+	require.NoError(t, rootCmd.PersistentFlags().Set("generate", "deadbeef"))
+	defer rootCmd.PersistentFlags().Set("generate", "")
 	fp2, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 	assert.NotEqual(t, fp1, fp2, "a flag that changes what the run does must bust the fingerprint")

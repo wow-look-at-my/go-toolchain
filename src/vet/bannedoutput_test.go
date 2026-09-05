@@ -16,7 +16,6 @@ import (
 // report, Sprintf-style calls and non-stdio Fprint* writers must not.
 func TestBannedOutputAnalyzer(t *testing.T) {
 	t.Serial()
-	t.Parallel() // analysistest loads real packages; each analyzer's dedup state is its own.
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, BannedOutputAnalyzer, "bannedoutput")
@@ -30,7 +29,6 @@ func TestBannedOutputAnalyzer(t *testing.T) {
 // active.
 func TestBannedOutputModuleScoping(t *testing.T) {
 	t.Serial()
-	t.Parallel() // Builds its own analysis.Pass in memory; no shared warned-map, no process-wide state.
 	const src = `package main
 
 import "fmt"

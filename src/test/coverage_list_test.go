@@ -33,6 +33,7 @@ func captureOutput(t *testing.T, f func()) string {
 }
 
 func TestParseCoverageStatements(t *testing.T) {
+	t.Serial()
 	// Create temp file with coverage data
 	content := `mode: set
 example.com/pkg/foo.go:10.1,12.1 3 1
@@ -69,6 +70,7 @@ example.com/pkg/bar.go:14.1,16.1 4 0
 }
 
 func TestSortByUncovered(t *testing.T) {
+	t.Serial()
 	files := []FileCoverage{
 		{baseCoverageItem: baseCoverageItem{Statements: 8, Covered: 3}, File: "example.com/pkg/foo.go"},
 		{baseCoverageItem: baseCoverageItem{Statements: 14, Covered: 10}, File: "example.com/pkg/bar.go"},
@@ -81,6 +83,7 @@ func TestSortByUncovered(t *testing.T) {
 }
 
 func TestPrintTargetGroupNoOSC8InCI(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 
 	file := FileCoverage{
@@ -115,6 +118,7 @@ func TestPrintTargetGroupNoOSC8InCI(t *testing.T) {
 }
 
 func TestDimText(t *testing.T) {
+	t.Serial()
 	// Full brightness
 	assert.Equal(t, "\033[38;2;255;255;255m", dimText(1.0))
 	// Half brightness
@@ -124,6 +128,7 @@ func TestDimText(t *testing.T) {
 }
 
 func TestHsvToRGB(t *testing.T) {
+	t.Serial()
 	// Red
 	r, g, b := hsvToRGB(0, 1.0, 1.0)
 	assert.Equal(t, uint8(255), r)
@@ -162,6 +167,7 @@ func TestHsvToRGB(t *testing.T) {
 }
 
 func TestColorGain(t *testing.T) {
+	t.Serial()
 	// High gain should be red — most urgent
 	high := colorGain(1.0)
 	assert.Contains(t, high, " 1.0%")
@@ -176,6 +182,7 @@ func TestColorGain(t *testing.T) {
 }
 
 func TestShortFile(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "pkg/file.go", shortFile("example.com/org/pkg/file.go"))
 	assert.Equal(t, "src/main.go", shortFile("github.com/user/repo/src/main.go"))
 	assert.Equal(t, "file.go", shortFile("file.go"))
@@ -183,6 +190,7 @@ func TestShortFile(t *testing.T) {
 }
 
 func TestPrintCapsAtFivePerGroup(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 
 	// Create more untested and partial functions than a group displays — only the largest should appear
@@ -244,6 +252,7 @@ func TestPrintCapsAtFivePerGroup(t *testing.T) {
 }
 
 func TestPrintEmptyReport(t *testing.T) {
+	t.Serial()
 	report := Report{
 		Packages: []PackageCoverage{
 			{
@@ -263,6 +272,7 @@ func TestPrintEmptyReport(t *testing.T) {
 }
 
 func TestPrintShowsTopUncoveredFunctions(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 
 	// File with a partially-covered function (Covered is non-empty)

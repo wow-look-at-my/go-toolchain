@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// These tests scan the working directory, so each takes it with t.Chdir. The
+// hand-rolled pair here dropped os.Chdir's error, and a chdir that quietly did
+// not happen leaves the scan on the previous test's fixture -- which is how the
+// clean case found a gotest.tools import it never wrote.
 func TestMigrateGotestTools_Basic(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
