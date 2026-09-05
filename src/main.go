@@ -68,7 +68,8 @@ func shouldCheckForUpdate() bool {
 		if arg == "--" {
 			return true
 		}
-		if arg == "version" {
+		switch arg {
+		case "version", "cacheprog":
 			return false
 		}
 	}
