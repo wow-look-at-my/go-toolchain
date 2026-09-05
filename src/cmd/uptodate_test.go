@@ -155,7 +155,7 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 	fp1, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 
-	// PersistentFlags, not Flags: Flags() carries "generate" only after the root command has run.
+	// PersistentFlags is where the flag lives; root.go folds it into the fingerprinted set.
 	require.NoError(t, rootCmd.PersistentFlags().Set("generate", "deadbeef"))
 	defer rootCmd.PersistentFlags().Set("generate", "")
 	fp2, err := computeFingerprint(runner.NewMock())
