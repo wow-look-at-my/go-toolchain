@@ -10,7 +10,7 @@ import (
 // ensuring the env-scan path doesn't pick up real tokens from the test host.
 func withEmptyEnviron(t *testing.T) {
 	t.Helper()
-	t.Serial() // See withFakeAncestry.
+	t.Fork() // See withFakeAncestry.
 	old := environFunc
 	environFunc = func() []string { return nil }
 	t.Cleanup(func() { environFunc = old })

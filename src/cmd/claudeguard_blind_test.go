@@ -17,7 +17,7 @@ import (
 // per-run latch, so each case observes its own output.
 func captureGuardOut(t *testing.T, f func()) string {
 	t.Helper()
-	t.Serial()
+	t.Fork() // See withFakeAncestry.
 	var buf bytes.Buffer
 	old := agentGuardOut
 	agentGuardOut = &buf

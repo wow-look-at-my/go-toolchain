@@ -19,7 +19,7 @@ func (c fakeAncestry) lookup(pid int) (string, int, bool) {
 
 func withFakeAncestry(t *testing.T, start int, chain fakeAncestry) {
 	t.Helper()
-	t.Serial() // The seams are the package's, so replacing them replaces them for every test.
+	t.Fork() // The seams are package variables, so this test needs its own copy of them.
 	origParent, origLookup := ptyWrapperParentPIDFn, ptyWrapperCommPPIDFn
 	t.Cleanup(func() { ptyWrapperParentPIDFn, ptyWrapperCommPPIDFn = origParent, origLookup })
 	ptyWrapperParentPIDFn = func() int { return start }

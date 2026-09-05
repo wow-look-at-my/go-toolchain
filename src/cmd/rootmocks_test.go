@@ -130,7 +130,7 @@ func setHome(t *testing.T, dir string) {
 // list per call, and this package runs the pipeline dozens of times.
 func stubVetPhase(t *testing.T) {
 	t.Helper()
-	t.Serial()
+	t.Fork() // See withFakeAncestry.
 	old := vetRunFunc
 	vetRunFunc = func(bool, vet.ProgressFunc) (bool, error) { return false, nil }
 	t.Cleanup(func() { vetRunFunc = old })

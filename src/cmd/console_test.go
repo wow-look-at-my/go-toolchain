@@ -169,7 +169,7 @@ func TestLogStepFailedSilent(t *testing.T) {
 // it can exercise the slow-line path without sleeping for real.
 func withTimedLineMinDuration(t *testing.T, d time.Duration) {
 	t.Helper()
-	t.Serial() // The threshold is the package's, so lowering it lowers it for every test.
+	t.Fork() // The threshold is a package variable. See withFakeAncestry.
 	old := timedLineMinDuration
 	timedLineMinDuration = d
 	t.Cleanup(func() { timedLineMinDuration = old })
