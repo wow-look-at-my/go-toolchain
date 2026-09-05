@@ -157,11 +157,7 @@ func init() {
 	rootCmd.Flags().IntVarP(&benchCount, "count", "n", 1, "Number of times to run each benchmark")
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
 
-	// Fingerprint covers the invoked flags; see flagFingerprint for why it excludes rootCmd itself.
-	// Cobra merges the persistent set into Flags() on the way into a command, so a set captured
-	// here misses --generate until the merge below.
 	fingerprintFlags = rootCmd.Flags()
-	fingerprintFlags.AddFlagSet(rootCmd.PersistentFlags())
 	// Kept apart: Flags() merges these in only at parse time; flagFingerprint
 	// visits both sets directly and dedupes by name.
 	fingerprintPersistentFlags = rootCmd.PersistentFlags()

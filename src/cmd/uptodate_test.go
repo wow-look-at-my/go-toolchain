@@ -155,8 +155,7 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 	fp1, err := computeFingerprint(runner.NewMock())
 	require.NoError(t, err)
 
-	// Set where the flag is declared: --generate is persistent, and init merges that
-	// set into the one the fingerprint reads.
+	// --generate is persistent, and flagFingerprint visits that set directly.
 	require.NoError(t, rootCmd.PersistentFlags().Set("generate", "deadbeef"))
 	defer rootCmd.PersistentFlags().Set("generate", "")
 	fp2, err := computeFingerprint(runner.NewMock())
