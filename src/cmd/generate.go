@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -223,7 +224,8 @@ func executeDirective(d generateDirective, quiet bool) error {
 		logger.Info("\t%s", d.Command)
 	}
 
-	env := os.Environ()
+	// A directive's tool must RUN here, so it targets the host. Depth: docs/PIPELINE.md
+	env := append(os.Environ(), "GOOS="+hostos.GOOS(), "GOARCH="+runtime.GOARCH)
 	env = append(env,
 		"GOFILE="+filepath.Base(d.File),
 		fmt.Sprintf("GOLINE=%d", d.Line),
