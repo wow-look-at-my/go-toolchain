@@ -49,7 +49,7 @@ coverage.
 - `src/main.go` — entry point
 - `src/integration/` — dats integration test runner
 - `src/cmd/staleoutputs.go` — **build outputs only survive a green run**: a leftover `build/<target>` is the last thing that can pass for a build
-  that never happened, so every exit that is not a green pipeline deletes the module's own artifacts. No flag or env var disables it. Depth:
+  that never happened. So every exit that is not a green pipeline deletes the module's own artifacts. No flag or env var disables it. Depth:
   `docs/BUILD-OUTPUTS.md` (which paths count, the three sweep sites, and the dats-suite footgun)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, verify-identical, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` builds ONE fat APE**, the org's only native
@@ -60,42 +60,42 @@ coverage.
   no flag copies it onto per-platform names, so a duplicate is unreachable rather than checked for. Depth: `docs/CMD.md`
 - `src/cmd/gobootstrap.go`, `src/cmd/forkbuild.go`, `src/cmd/matrixbuild.go` — **the gosmopolitan fork is the only compiler, and the APE and wasm
   are the only outputs**. `EnsureGoVersion` resolves the fork onto PATH/GOROOT with `GOTOOLCHAIN=local` (the half that stops the go command
-  fetching a stock toolchain for a go.mod directive); no go.dev path remains, so a fork older than the go directive fails and names the repair.
+  fetching a stock toolchain for a go.mod directive); no go.dev path remains. So a fork older than the go directive fails and names the repair.
   `checkPortableJob` enforces the rule in `runBuild`, the one place anything compiles, and every compiler- or target-selecting variable is
   assigned rather than inherited. The default build phase emits the same APE `matrix` publishes, so `build/<name>` is the APE everywhere. Depth:
   `docs/MATRIX.md`
 - `src/cmd/vcsstamp.go`, `src/cmd/callerldflags.go` — the `-ldflags` a build passes is `<revision stamp> <caller's GOFLAGS -ldflags> -buildid=`. The go
   command applies GOFLAGS BEFORE parsing argv, so this pipeline's own `-ldflags` used to REPLACE a caller's `GOFLAGS=-ldflags=-X=main.gitHash=…` with
-  nothing said; it is folded in now, and trails the stamp so an explicit `-X` still wins (the linker keeps the last value per name). The stamp itself
-  covers what Go's automatic `vcs.revision` cannot: a container build whose context excluded `.git` has no history to read, so every binary reported an
+  nothing said. It is folded in now, and trails the stamp so an explicit `-X` still wins (the linker keeps the last value per name). The stamp itself
+  covers what Go's automatic `vcs.revision` cannot: a container build whose context excluded `.git` has no history to read. So every binary reported an
   unknown commit. `stampVarNames` is `-X`'d onto the string variables the main package actually DECLARES (`gomod.PackageStringVars`) — `-X` fails the
   link for a var of another type, so the source has to prove the type. Revision order: `GO_TOOLCHAIN_VCS_REVISION`, `git rev-parse HEAD`,
   `GITHUB_SHA`; a declared variable with no revision to fill it warns instead of shipping its placeholder in silence. Depth: `docs/VCS-STAMP.md`
 - `src/cmd/apemanifest.go` — `build/buildhost-artifacts.json`: names the APE, its platform SET and the plain filename the download is served
-  under, so buildhost publishes it as ONE artifact row with one download link instead of one row per platform. Depth: `docs/BUILDHOST-MANIFEST.md`
+  under. So buildhost publishes it as ONE artifact row with one download link instead of one row per platform. Depth: `docs/BUILDHOST-MANIFEST.md`
 - `src/cmd/exportdataretry.go` — export data the type-check cannot read surfaces as a cascade of undefined symbols in an untouched package, which
   reads as a source error and gets re-run as a flake. TWO reports, by how far the decode got: `invalid package name: ""` when the header is
   unreadable, `internal error in importing` when the header survives and the type graph does not. TWO causes: a damaged cache entry, and export data
   the importer cannot represent — x/tools carries the `go/types` of the toolchain that built this binary, and the fork's stdlib is ahead of it
   (`math/rand/v2`'s generic method `N[Int]` panics `NewSignatureType`). So the retry is `vet.RunFromSource` (adds `packages.NeedDeps`), which
-  type-checks every dependency from source and reads no export data at all, covering both; `GOCACHEPROG` goes off alongside it. A repeat means
+  type-checks every dependency from source and reads no export data at all, covering both. `GOCACHEPROG` goes off alongside it. A repeat means
   neither cause applies and says so. Sibling of `modindexretry.go` (different signature, different cure). Depth: `docs/CI.md`
 - `src/cmd/depsbranchenforce.go` — the branch pin is the CANONICAL form for a `github.com/wow-look-at-my/` dependency, not a
-  version pin, direct or indirect: an org require/replace carrying a plain version gets the bare `// go-toolchain:auto-branch`
+  version pin, direct or indirect. An org require/replace carrying a plain version gets the bare `// go-toolchain:auto-branch`
   appended, which the rewrite-then-dirty-tree-fails-CI contract enforces. That costs no lookup, since the marker names no
-  branch. A line already carrying the canonical marker is left alone; a legacy one is migrated, which is the one place this
+  branch. A line already carrying the canonical marker is left alone; a legacy one is migrated. That is the one place this
   asks the remote anything (`git ls-remote --symref`, and a remote that cannot answer keeps the name and warns). A require
   overridden by a replace is marked on the replace line instead. There is no pin opt-out: every org dependency tracks a
   branch. Depth: `docs/DEPS.md`
 - `src/cmd/hostscratch.go` — a path CROSSES OUT of cosmo when another program parses it. The APE answers cosmo's POSIX view,
-  which cosmo translates on its own calls (`cmd.Dir`, its own file I/O) and does not translate inside an argument list, so on
+  which cosmo translates on its own calls (`cmd.Dir`, its own file I/O) and does not translate inside an argument list. So on
   an NT host `go.exe` and `git` get a spelling neither can open. `scratchBase` serves `os.MkdirTemp`, `argListTempDir` a
   caller that joins; both answer the go cache directory on NT and `os.TempDir()` everywhere else. Four crossings found so far
   (`GOCACHEPROG`, the git scratch clone, `-coverprofile`, `-debug-actiongraph`); `codeql.Analyze` is the known unfixed one and
   has no production caller. Depth: `docs/CI.md`
 - `src/cmd/depsfix.go`, `src/cmd/depsbranch.go`, `src/cmd/deps.go`, `src/cmd/depsreport.go` — v0.0.0 repair, branch-tracked
   deps (`// go-toolchain:auto-branch`), and the same-org auto-updater; the three never fight over the same dependency.
-  The marker rides a require OR a replace line -- a fork keeps upstream's module path, so it is reached through a replace,
+  The marker rides a require OR a replace line -- a fork keeps upstream's module path. So it is reached through a replace,
   and the replacement's repo and version are what get resolved. A tracked branch's HEAD is the one pipeline input that is
   not a file, so the up-to-date fast exit checks it too -- otherwise a dependency that moved is invisible on an unchanged
   tree and the pin never updates. Depth: `docs/DEPS.md`
@@ -104,7 +104,7 @@ coverage.
   repository along at the same commit, because a multi-module repo's sibling require necessarily names a commit older than
   the one publishing it -- at a first publish, one with no such module in it (`missing go.mod at revision`). Each repository
   resolves ONCE (`repoResolver`), so two of its modules cannot land on different commits. And the
-  re-resolution is excluded from the CI dirty check, so it never demands a bump commit; the exclusion covers the version
+  re-resolution is excluded from the CI dirty check, so it never demands a bump commit. The exclusion covers the version
   token on a same-marker line plus the `go.sum` hashes that follow it, nothing else. Depth: `docs/DEPS.md`
 - Markers (`src/cmd/depsmarker.go`, `depsmatch.go`): ONE marker is the whole vocabulary. `auto-branch` names no branch:
   it follows the dependency's branch of THIS repository's name when it has one, else the DEFAULT branch -- so two repos
@@ -113,27 +113,27 @@ coverage.
   non-default choice and is never matched against. Nothing
   declares repository membership -- `repoResolver` reads that off the repository. The legacy `branch=<name>` spelling is
   still read and migrates itself, dropping a name that merely repeats the default branch. Respelling the marker again takes
-  TWO releases (read it, then write it one release later): an older binary treats an unrecognized marker as an untracked
+  TWO releases (read it, then write it one release later). An older binary treats an unrecognized marker as an untracked
   line and appends its own comment ABOVE the require, corrupting the block. Depth: `docs/DEPS.md`
 - `src/cmd/depsbranchguard.go` — a marker naming a branch that is the head of an OPEN pull request FAILS in CI and warns
-  locally. That branch dies with the merge, so it resolves right up until the change lands and never again; CI is the last
+  locally. That branch dies with the merge, so it resolves right up until the change lands and never again. CI is the last
   look before the merge, and tandem development across two repos is why local is only a warning. Depth: `docs/DEPS.md`
 - `src/cmd/datsphase.go` — the **dats phase**: after the build phase, `runDatsPhase` runs the module's [dats](https://github.com/wow-look-at-my/dats)
   CLI test suites. dats is LINKED IN as a library (`dats.Run`, seam `datsRunFunc`) — no download, no cached binary, no version drift. Gate first
   (`hasDatsSuites`): no `dats/` suites = silent no-op. Suites are staged into `build/.dats-stage/` (inside the module root, or the sandbox cannot see
   them) and run SANDBOXED and SERIAL; a failure fails the build. **A repo with suites but no `go.mod` runs them anyway** (`runDatsOnly`) instead of
-  erroring. The sandbox is never turned off by choice: `datsSandbox` asks dats for a backend and only a host that can have NONE
+  erroring. The sandbox is never turned off by choice. `datsSandbox` asks dats for a backend and only a host that can have NONE
   (`runner.ErrNoBackendOnHost` — an NT host, where bwrap is linux, seatbelt is macOS and the local daemon serves windows containers) runs on the
   host, loudly, because refusing takes the suites away from the host they cover. A missing bwrap on linux is fixable and stays fatal. Depth:
   `docs/DATS-PHASE.md`
-- `dats/` — this repo's own dats suite (`cli.dats` + committed `cli.snapshots/` goldens + README with the conventions): exercises the built binary's
+- `dats/` — this repo's own dats suite (`cli.dats` + committed `cli.snapshots/` goldens + README with the conventions). Exercises the built binary's
   version/help surface, unknown-flag/-subcommand rejection (one stderr snapshot golden — regenerate with `dats --update test dats`), the
   agent-output-guard abort ("refused to run", guard-positive via each agent's marker — `CLAUDECODE=1`, `GROK_AGENT=1`, `OPENCODE=1` — with
   dats' captured stdout — which also guarantees the bare-root test can never recurse into a nested pipeline) and that `version` IS exempt, the
   update-check-silent-on-error guarantee (every exec sets `GO_TOOLCHAIN_BUILDHOST_URL=http://127.0.0.1:1` so the background check fails
   instantly+silently; the silent-check test uses `--help` because `version` never starts the background check and its staleness footer queries GitHub,
   so version tests assert only the stable `Version:`/`Commit:` lines), and that host detection is a MEASUREMENT rather than its linux fallback.
-  The guard tests are HOST-AGNOSTIC: `build-everywhere` runs this suite on all three hosts, and the guard is inoperative on NT, so each pairs its
+  The guard tests are HOST-AGNOSTIC: `build-everywhere` runs this suite on all three hosts, and the guard is inoperative on NT. So each pairs its
   answer with `uname -s` in one line (a refusal where a classifier exists, the INOPERATIVE banner where none does) rather than splitting into
   per-host copies. Every copy of the binary lands under an `.exe` name for the same reason — NT needs the suffix, a posix host does not care, and
   the staged name itself carries it there (`datsArtifactName`). `.github/dats-fixtures/agent-output-guard.dats` covers the PUBLISHED APE the same
@@ -142,39 +142,39 @@ coverage.
   snapshot test: its INDEX names the committed golden file, so anything inserted before it renumbers the golden.
   `.dats` + `.golden` files feed `computeFingerprint` (uptodate.go), so suite/golden edits bust the "Up to date" fast-exit
 - `src/runner/runner.go` — `WithHostTarget()` assigns `GOOS`/`GOARCH` from `hostos.GOOS()` and `runtime.GOARCH` on every `go` invocation whose
-  output has to RUN here: the test run, the benchmark run, the compile check, and the `go list` calls choosing what those cover. The fork defaults
+  output has to RUN here. The test run, the benchmark run, the compile check, and the `go list` calls choosing what those cover. The fork defaults
   to `GOOS=cosmo` and `go test` fork/execs what it builds, which answers `exec format error` — an APE bootstraps through a shell header `execve`
-  never reads. The APE-only rule governs what SHIPS; a test binary is a throwaway that must run on the machine that built it, and the compiler is
+  never reads. The APE-only rule governs what SHIPS. A test binary is a throwaway that must run on the machine that built it, and the compiler is
   the fork either way. Depth: `docs/CI.md`
 - `src/test/` — test runner, coverage parsing, watermark logic. The watermark's storage backend is platform-split: `xattr_unix.go` (`unix && !cosmo`,
   x/sys/unix xattrs; `isXattrNotFound` in the `_linux`/`_darwin` files), `xattr_windows.go` (NTFS ADS), and `xattr_cosmo.go` — GOOS=cosmo has no xattr
-  wrappers in the fork's syscall package, so the attribute for target `/a/b` lives in a hidden sidecar file `/a/.b.xattr.<sanitized attr>` NEXT TO the
+  wrappers in the fork's syscall package. So the attribute for target `/a/b` lives in a hidden sidecar file `/a/.b.xattr.<sanitized attr>` NEXT TO the
   target (in its parent, so the module-root watermark never dirties `git status`)
 - `src/build/` — build target resolution via filesystem walking. A binary's NAME comes from the module when its main package sits at
   or one level below the module root, and from the leaf directory when deeper -- but `nameTargets` gives the module-derived name only
   to a package that is ALONE in wanting it. Two mains one level down both derive the module's name, and the old code kept whichever it
-  saw first, so a build shipped missing a binary and still reported success. A contested name falls back to each package's own
+  saw first. So a build shipped missing a binary and still reported success. A contested name falls back to each package's own
   directory; one still contested after that is a hard error, never a dropped target. tmpoutput.go holds the write-then-move regime the outputs
   follow (`runBuild` in matrixbuild.go is the one chokepoint that compiles anything): the compiler's -o is `build/.tmp-<name>`
   (`TempOutputPath`), and `CommitOutput` renames it onto `build/<name>` — plus any `<base>.…` sidecar shape the cosmo fork derives from
   the -o path, never a `<base>_…` shape, which belongs to another target's own build — only after the build succeeded, failing loudly when an
   exit-0 go wrote nothing; on failure the temp spellings are deleted instead (`DiscardOutput`).
 - `src/integration/` — runs a consumer module's `tests/*.dats` after the build phase (an absent directory is a silent no-op). This repo keeps no
-  `tests/` of its own: a fixture spelling `go run ./src` builds an APE the fork/exec cannot start, so this repo's CLI assertions live in
+  `tests/` of its own: a fixture spelling `go run ./src` builds an APE the fork/exec cannot start. So this repo's CLI assertions live in
   `dats/cli.dats` against the built binary
 - `src/gomod/` — shared Go module utilities. `FindMainPackages` honors build constraints, so a `//go:build ignore` generator is never mistaken for a
   directory's main package. `IsNestedModule` is the shared predicate every filesystem walker skips nested modules by — their files belong to their
-  own module. Every walk takes its ROOT as an argument (production passes `"."`), so a test names a directory instead of calling `os.Chdir` and
+  own module. Every walk takes its ROOT as an argument (production passes `"."`). So a test names a directory instead of calling `os.Chdir` and
   moving the working directory under the tests running beside it. Depth: `docs/GOMOD.md`
 - `src/memlimit/` — injects a stdlib-only cgroup→GOMEMLIMIT startup guard into every main package built (discovered via `gomod.FindMainPackages`,
   which honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package)
-  (`gomemlimit_gen.go`, embedded verbatim from `testdata/guard.go`), so each binary caps the Go heap at the container's cgroup memory limit instead of
-  being OOM-killed; runs at the start of the build phase, unconditionally — there is deliberately NO flag or environment variable to disable injection
+  (`gomemlimit_gen.go`, embedded verbatim from `testdata/guard.go`). So each binary caps the Go heap at the container's cgroup memory limit instead of
+  being OOM-killed. Runs at the start of the build phase, unconditionally — there is deliberately NO flag or environment variable to disable injection
   (the old `GO_TOOLCHAIN_AUTO_MEMLIMIT` kill switch was removed: a build-time knob would eventually be set and left set, silently shipping binaries
   that allocate until the kernel OOM-kills them, and the run-time `GOMEMLIMIT`/`GOMEMLIMIT=off` escape hatch the guard already honors is the layer
   that actually knows whether a deployment wants the cap). The guard is a **transient** build artifact, not a committed file: `InjectAll` writes it
   just before the build and `CleanupAll` deletes it right after (wired as `defer cleanupMemLimitGuards()` in `runBuildPhase` and the matrix/release
-  path in `runReleaseWithRunner`), so it never lingers in the working tree. `checkDirtyInCI` excludes `gomemlimit_gen.go` in every git state
+  path in `runReleaseWithRunner`). So it never lingers in the working tree. `checkDirtyInCI` excludes `gomemlimit_gen.go` in every git state
   (added/modified/deleted, via `dirtyFilesExcludingGuard`), so the in-flight guard never counts as a dirty tree and a repo migrating off an older
   *committed* guard sheds it cleanly — `CleanupAll` deletes the committed copies and the resulting deletion is ignored by the check (the developer
   commits it once to finalize). Note the guard is deliberately **not** gitignored: the dirty-check exclusion handles it, and adding a `.gitignore`
@@ -197,7 +197,7 @@ coverage.
   defensively (missing file silent, malformed = one warning, never fails the build) and merges rows by `ActionID` (the executed, longer instance
   wins). `report.go` builds the `Report` (schema 2) — rows sorted by wall time — and emits the console section, `profile.json` (written to BOTH
   `build/` and `$TMPDIR/go-toolchain-profile/`), and the Step Summary table. `trace.go` records executed actions into the Chrome trace on
-  greedy-interval "go actions #NN" lanes (cap 32). Wiring lives in `src/cmd/profilecmd.go`: `initBuildProfile` (root run() + matrix runRelease;
+  greedy-interval "go actions #NN" lanes (cap 32). Wiring lives in `src/cmd/profilecmd.go`. `initBuildProfile` (root run() + matrix runRelease;
   `--no-profile` opts out), `captureProfileTrace` (deferred in run() AFTER the WriteChrome defer so it runs first, stashing the parsed graph), and
   `emitBuildProfile` — deferred from `Execute()`. Carries no cache hit/miss counts: see the caching bullet above
 - `src/trace/` — the Chrome trace (`build/trace.json`): `Trace` collects `Event`s from the phases and the build profile, and `WriteChrome` joins
@@ -207,7 +207,7 @@ coverage.
   Routing: Debug -> stderr; Info -> stdout; Warn/Error -> `::warning`/`::error` workflow annotations on stdout when running in GitHub Actions (GHAAuto
   checks GITHUB_ACTIONS at emit time), else stderr; Output -> stdout unconditionally (bypasses level filtering, even `silent`). Annotation message
   data and the `file=` property are escaped per the workflow-command encoding (`gha.go`: `%` -> `%25`, CR -> `%0D`, LF -> `%0A`; the property
-  additionally `:` -> `%3A`, `,` -> `%2C`), so multi-line messages annotate intact instead of truncating to their first line. `InitSubprocess` is the
+  additionally `:` -> `%3A`, `,` -> `%2C`). So multi-line messages annotate intact instead of truncating to their first line. `InitSubprocess` is the
   stderr-only, annotation-free mode for a subprocess whose stdout is a protocol channel (everything, including Info/Output, goes to stderr;
   annotations stay off regardless of GITHUB_ACTIONS). The global default logger is installed by `initLogging` (`src/cmd/logging.go`, first thing
   in the root `PersistentPreRunE`) with level precedence: `-v`/`--verbose` > info. `src/cmd/logging.go` also holds the documented held-writer
@@ -215,23 +215,23 @@ coverage.
   fragments and interactive prompts the logger's auto-newline and level filtering would corrupt or hide. **Warnings budget** (`warncount.go` +
   `src/cmd/warningsgate.go`): the budget counts DISTINCT messages -- byte-identical text folds into one `logger.WarnCount` with a repeat count, since
   one root cause repeats per file, per package variant and (structurally) per pipeline pass, as vet's auto-fixer re-runs the whole run and would
-  otherwise double every warning. `TotalWarnCount` keeps every emission and nothing is suppressed; `checkWarningsGate` fails the run past 15 distinct
+  otherwise double every warning. `TotalWarnCount` keeps every emission and nothing is suppressed. `checkWarningsGate` fails the run past 15 distinct
   warnings AND re-prints each with its repeat count as a numbered recap (one multi-line `::error` annotation in GHA). The watchdog's STALLED banner
   bypasses the logger and is NOT counted -- see docs/WARNINGS-GATE.md
 - `src/vet/` — custom vet checks (assert normalization, unused imports, gotest.tools migration, banned output, testify fixes) and the auto-fixer.
   Depth:
   `docs/VET.md`
-- `src/vet/mapset.go` — the `mapset` analyzer: a `map[K]bool` is a set when its literal writes only `true`, or when the package makes it empty and
+- `src/vet/mapset.go` — the `mapset` analyzer. A `map[K]bool` is a set when its literal writes only `true`, or when the package makes it empty and
   every use is a `true` write, delete, clear, len, key-only range or index read. Both FAIL, naming `go-containers/set`. A `v, ok :=` read, a computed
   value, or the map escaping to another function keeps it a map. A `map[K]struct{}` only WARNS (deduplicated per file:line by
   `resetMapSetWarnings`; the `set` package itself is exempt, `isSetPackage`, since `Set[T]` IS that map) — it already carries no value. No opt-out marker, and no
   module skips the check: an org module FAILS on the bool findings (`isOrgModule`), everyone else WARNS on them. A bool finding is also REWRITTEN
   wherever every use is visible — see `src/vet/setfix.go`. Depth: `docs/VET.md`
-- `src/vet/sliceset.go` — the `sliceset` analyzer: told a `map[K]bool` is a set, the cheapest exit is a slice and `slices.Contains`, which answers the
+- `src/vet/sliceset.go` — the `sliceset` analyzer. Told a `map[K]bool` is a set, the cheapest exit is a slice and `slices.Contains`, which answers the
   same question by walking everything ever added. So a slice the package creates and asks membership of is a set too, on the same org-FAILS /
   everyone-else-WARNS split. Three findings: a literal spelled inside the lookup, `if !slices.Contains(s, v) { s = append(s, v) }` (add-if-absent IS
   an insert), and a slice whose every use is a set op. A loop comparing each element to one value IS `slices.Contains`, so writing the scan out by
-  hand does not escape. Position and repetition are what a slice has and a set does not, so an index, a keyed range, a spread, or the slice as an
+  hand does not escape. Position and repetition are what a slice has and a set does not. So an index, a keyed range, a spread, or the slice as an
   argument or a return keeps it a slice — `validGOOS`'s `strings.Join` is the honest version of that. A parameter belongs to its caller. Depth:
   `docs/VET.md`
 - `src/vet/setfix.go` — the fixer both set checks share: `make`→`set.New[K]()`, an all-true or element literal→`set.Of[K](…)`, `m[k]=true` and
@@ -242,13 +242,13 @@ coverage.
   excludes. An UNEXPORTED one is rewritten by whichever variant holds every file that can name it — tests load as their own variant, so the plain one
   declines and the internal-test one does the work. Depth: `docs/VET.md`
 - `src/vet/writeruns.go` — the `writeruns` analyzer: three or more adjacent statements writing source-spelled text to ONE writer are a document
-  nobody can read in the source, so the third and each later write WARNS and names `text/template`. Never a build failure by itself; a long run still
+  nobody can read in the source. So the third and each later write WARNS and names `text/template`. Never a build failure by itself; a long run still
   fails through the warnings budget, which this repo's 25-write mermaid header did. A run ends at any other statement, at a different writer, and at
-  a write whose text is computed (`b.WriteByte(c)`); a writer that digests its input never counts (`isHashWriter`). Every module, warning severity,
+  a write whose text is computed (`b.WriteByte(c)`). A writer that digests its input never counts (`isHashWriter`). Every module, warning severity,
   no opt-out marker. Depth: `docs/VET.md`
 - `src/vet/jsoninterp.go` — the `jsoninterp` analyzer: a JSON document built out of string pieces, by a `fmt` format string, by a `+` concatenation,
-  or by a template. None of the three escapes for JSON, so a quote or a backslash in a value breaks the DOCUMENT and a value the user controls
-  chooses the object; `%q` is Go quoting, not JSON. There is no `json/template` and no JSON context in either template package — html/template's
+  or by a template. None of the three escapes for JSON. So a quote or a backslash in a value breaks the DOCUMENT and a value the user controls
+  chooses the object. `%q` is Go quoting, not JSON. There is no `json/template` and no JSON context in either template package — html/template's
   `json.Marshal` escaper is reachable only inside a `<script>` — so a JSON template is reported too, which is the one place this and `writeruns`
   point in opposite directions. The shape test (`jsonshape.go`) is deliberately narrow, so prose quoting an example is silent. Org modules FAIL,
   everyone else WARNS, no opt-out marker. Depth: `docs/VET.md`
@@ -256,7 +256,7 @@ coverage.
   today, and the edit that adds an item leaves it wrong — so it is banned, and the message names the remedy (describe what the code does and
   let the reader count; cite a section of a spec by its unique slug or heading, never by its position). A digit run touching a letter is a
   name (`sha256`, `amd64`, `10ms`), as is a qualified name (`net/http`,
-  `example.com/mod/v2`) and anything inside a URL, which is how a reference carrying a number survives. A section sign (`§7.3`, `§ 4`) exempts
+  `example.com/mod/v2`) and anything inside a URL. That is how a reference carrying a number survives. A section sign (`§7.3`, `§ 4`) exempts
   the number it introduces — the citation form for a document that publishes no slug — and `HTTP` immediately before a status-code-width digit
   run exempts that code, so a bare `403` is still a count. A currency sign against the digits exempts the amount (`$1.43`), which states a cost
   rather than counting anything below it; `costs $ 5` is a count again. A whole word naming a number is
@@ -266,10 +266,10 @@ coverage.
 - `src/hostos/` — `hostos.GOOS()`, the host OS as opposed to `runtime.GOOS` (what the binary was compiled for). A fat APE reports
   `runtime.GOOS == "cosmo"` on **every** host, Windows included — there is no native windows payload to fall back on, which is how NT silently took
   the `"linux"` default. The answer comes from `runtime.CosmoHostOS()`, the runtime's own `__hostos`: the APE entry stub records it before any Go
-  code runs and every syscall dispatches on it, so no sandbox can deny it and no target can ENOSYS it. It arrives through the `hostSignalFunc` seam
+  code runs and every syscall dispatches on it. So no sandbox can deny it and no target can ENOSYS it. It arrives through the `hostSignalFunc` seam
   ahead of `syscall.Uname` and the filesystem probes (`/System/Library/CoreServices` → darwin, `/proc/self` → linux), which stay for a host the fork
   has no port for and end in a `"linux"` GUESS. So `Detect()` returns the METHOD alongside the answer, a guess prints a one-time banner, and
-  `go-toolchain version host` shows both; each smoke job asserts its own host, inside dats' sandbox and outside. Consumers: cosmobootstrap (the
+  `go-toolchain version host` shows both. Each smoke job asserts its own host, inside dats' sandbox and outside. Consumers: cosmobootstrap (the
   buildhost slot and the fork's `bin/go` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host symlinks, and the agent output guard's
   classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE always runs the payload matching the host arch
 - `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@master`): the org all-builds shadow guard, the comment-wall
@@ -286,9 +286,9 @@ coverage.
 ## Code Conventions
 
 - Go module: `github.com/wow-look-at-my/go-toolchain`
-- Go version: 1.27 (module). It is a FLOOR set by the fork, not a preference: the pipeline type-checks code the gosmopolitan fork compiles, and
+- Go version: 1.27 (module). It is a FLOOR set by the fork, not a preference. The pipeline type-checks code the gosmopolitan fork compiles, and
   `go/types` links in from whatever toolchain built this binary. Built with go1.26 it cannot read the fork's export data (`math/rand/v2`'s generic
-  method) or its source (`file requires newer Go version go1.27`), so the go directive is what makes CI's `actions/setup-go` install a Go that can.
+  method) or its source (`file requires newer Go version go1.27`). So the go directive is what makes CI's `actions/setup-go` install a Go that can.
   Depth: `docs/CI.md`
 - CLI framework: `github.com/spf13/cobra`
 - Test parsing: `gotest.tools/gotestsum/testjson`
