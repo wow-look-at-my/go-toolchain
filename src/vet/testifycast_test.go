@@ -67,6 +67,7 @@ func applyCastFixtures(t *testing.T) (output, stderrText string, all []*CastEdit
 }
 
 func TestTestifyCastAnalyzer(t *testing.T) {
+	t.Serial()
 	out, stderr, all := applyCastFixtures(t)
 	require.NotEmpty(t, out, "expected some fixes to be applied")
 
@@ -159,6 +160,7 @@ func TestTestifyCastAnalyzer(t *testing.T) {
 }
 
 func TestIsForkNumeric(t *testing.T) {
+	t.Serial()
 	numeric := []types.BasicKind{
 		types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
 		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.Uintptr,
@@ -176,6 +178,7 @@ func TestIsForkNumeric(t *testing.T) {
 }
 
 func TestIsUntypedLiteral(t *testing.T) {
+	t.Serial()
 	assert.True(t, isUntypedLiteral(&ast.BasicLit{Kind: token.INT, Value: "0"}))
 	assert.True(t, isUntypedLiteral(&ast.BasicLit{Kind: token.FLOAT, Value: "1.5"}))
 	assert.False(t, isUntypedLiteral(&ast.Ident{Name: "x"}))
@@ -183,6 +186,7 @@ func TestIsUntypedLiteral(t *testing.T) {
 }
 
 func TestConstRepresentable(t *testing.T) {
+	t.Serial()
 	intT := types.Typ[types.Int]
 	int8T := types.Typ[types.Int8]
 	uint8T := types.Typ[types.Uint8]
@@ -234,6 +238,7 @@ func TestConstRepresentable(t *testing.T) {
 }
 
 func TestCastEditsApply(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "x.go")
 	src := "package p\n\nvar _ = 0\n"
@@ -271,6 +276,7 @@ func TestCastEditsApply(t *testing.T) {
 // (a conversion naming a package the file doesn't import must not leave the
 // file unloadable), merged into the existing import block gofmt-canonically.
 func TestCastEditsApplyAddsImport(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "x.go")
 	src := "package p\n\nimport \"os\"\n\nvar _ = os.Getenv(\"\")\n\nvar _ = 0\n"
@@ -313,6 +319,7 @@ func TestCastEditsApplyAddsImport(t *testing.T) {
 // TestCastEditsApplyCheckMode verifies a check-mode (CI) editor records the
 // pending conversion as a violation and does NOT rewrite the file.
 func TestCastEditsApplyCheckMode(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "x.go")
 	src := "package p\n\nvar _ = 0\n"
@@ -349,6 +356,7 @@ func TestCastEditsApplyCheckMode(t *testing.T) {
 }
 
 func TestImportsUpstreamTestify(t *testing.T) {
+	t.Serial()
 	withImport := func(path string) *ast.File {
 		return &ast.File{Imports: []*ast.ImportSpec{
 			{Path: &ast.BasicLit{Kind: token.STRING, Value: `"` + path + `"`}},

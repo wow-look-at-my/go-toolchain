@@ -248,9 +248,7 @@ func extractTarGz(r io.Reader, destDir string) error {
 	}
 	defer gz.Close()
 
-	// A refused symlink falls back to a copy, deferred until every entry
-	// extracts: a tar stream carries no ordering guarantee between a
-	// symlink and the file it targets.
+	// A refused symlink falls back to a copy, deferred until every entry extracts: a tar stream orders no link against its target.
 	var deferredSymlinks []struct{ target, linkname string }
 
 	tr := tar.NewReader(gz)

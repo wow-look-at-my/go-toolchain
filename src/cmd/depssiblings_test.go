@@ -89,7 +89,7 @@ require github.com/wow-look-at-my/xml-validator v0.0.0-20260101000000-0000000000
 }
 
 func TestSiblingRequiresWalksTheRepositoryAtOneCommit(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := repoTreeMock(t, commonAPITree())
 	c, cleanup, err := fetchCommit(mock, "github.com/wow-look-at-my/common-ai-api/go/client", "refs/heads/master")
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestSiblingRequiresWalksTheRepositoryAtOneCommit(t *testing.T) {
 }
 
 func TestSiblingRequiresNeverRequiresTheMainModule(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := repoTreeMock(t, commonAPITree())
 	c, cleanup, err := fetchCommit(mock, "github.com/wow-look-at-my/common-ai-api/go/client", "refs/heads/master")
 	require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestSiblingRequiresNeverRequiresTheMainModule(t *testing.T) {
 }
 
 func TestSiblingRequiresFailsWhenTheCommitDoesNotCarryTheModule(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tree := commonAPITree()
 	delete(tree, "go/core/go.mod")
 	mock := repoTreeMock(t, tree)
@@ -135,7 +135,7 @@ func TestSiblingRequiresFailsWhenTheCommitDoesNotCarryTheModule(t *testing.T) {
 }
 
 func TestInRepo(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	const root = "github.com/wow-look-at-my/common-ai-api"
 	assert.True(t, inRepo(root, root))
 	assert.True(t, inRepo(root+"/go/core", root))
@@ -144,7 +144,7 @@ func TestInRepo(t *testing.T) {
 }
 
 func TestModuleSubdir(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	const root = "github.com/org/repo"
 	assert.Equal(t, "", moduleSubdir(root, root))
 	assert.Equal(t, "go/core", moduleSubdir(root+"/go/core", root))
@@ -156,6 +156,7 @@ func TestModuleSubdir(t *testing.T) {
 // ends up requiring the whole repo at the same commit, so the stale pin inside the
 // dependency loses minimal version selection and is never fetched.
 func TestUpdateTrackedBranchDepsRequiresSiblingsAtTheSameCommit(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module example.com/consumer
 
@@ -186,6 +187,7 @@ require github.com/wow-look-at-my/common-ai-api/go/client v0.0.0-20260101000000-
 // go-toolchain:pinned comment moves with the rest of its repository like any
 // other unmarked sibling, since that comment names no branch to anchor on.
 func TestUpdateTrackedBranchDepsMovesAFormerlyPinnedSiblingToo(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module example.com/consumer
 
@@ -214,6 +216,7 @@ require (
 // either path to the same commit: the repository resolves a single time,
 // however many of its lines carry the marker.
 func TestUpdateTrackedBranchDepsResolvesAnIndirectSibling(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module example.com/consumer
 
@@ -246,6 +249,7 @@ require github.com/wow-look-at-my/common-ai-api/go/core v0.0.0-20260101000000-00
 // modules share a repository is read off the repository, so neither line has
 // to say anything about the other.
 func TestUpdateTrackedBranchDepsResolvesEachRepositoryOnce(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module example.com/consumer
 

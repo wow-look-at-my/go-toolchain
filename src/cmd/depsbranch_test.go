@@ -16,7 +16,7 @@ import (
 )
 
 func TestTrackedBranch(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	gomod := `module test
 go 1.21
 
@@ -40,10 +40,9 @@ require (
 }
 
 func TestUpdateTrackedBranchDeps_NoGoMod(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	mock := runner.NewMock()
 	changed, err := UpdateTrackedBranchDeps(mock)
@@ -53,10 +52,9 @@ func TestUpdateTrackedBranchDeps_NoGoMod(t *testing.T) {
 }
 
 func TestUpdateTrackedBranchDeps_ParseError(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	os.WriteFile("go.mod", []byte("not valid go.mod content {{{"), 0644)
 
@@ -67,10 +65,9 @@ func TestUpdateTrackedBranchDeps_ParseError(t *testing.T) {
 }
 
 func TestUpdateTrackedBranchDeps_NoMarkers(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -87,10 +84,9 @@ require github.com/spf13/cobra v1.8.0
 }
 
 func TestUpdateTrackedBranchDeps_UpdatesVersion(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -133,10 +129,9 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 }
 
 func TestUpdateTrackedBranchDeps_NoChangeWhenSame(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	// The pseudo-version already matches what ls-remote will report.
 	fullHash := "abc123def456789012345678901234567890abcd"
@@ -173,10 +168,9 @@ require github.com/wow-look-at-my/foo v0.0.0-20231114221320-abc123def456 // go-t
 // go-git -- has no other line to ride along with, so its own marker is what
 // has to resolve it.
 func TestUpdateTrackedBranchDeps_ResolvesAStandaloneIndirectRequire(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -219,10 +213,9 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // indi
 }
 
 func TestUpdateTrackedBranchDeps_GitFails(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -239,10 +232,9 @@ require github.com/wow-look-at-my/foo v0.0.0-20200101000000-000000000000 // go-t
 }
 
 func TestUpdateTrackedBranchDeps_NoRefFound(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	gomod := `module test
 go 1.21
@@ -309,6 +301,7 @@ func gitBranchMock(t *testing.T, fullHash, ref string, epoch int64) (*runner.Moc
 // and the require line names UPSTREAM. The marker on the replace tracks the
 // replacement's repository, and rewrites the replacement's version.
 func TestUpdateTrackedBranchDepsFollowsTheMarkerOnAReplaceLine(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module test
 go 1.21
@@ -342,6 +335,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 // A replacement into a local directory has no remote and no version. The
 // marker on such a line is a mistake, and a mistake gets said out loud.
 func TestUpdateTrackedBranchDepsSkipsAFilesystemReplacement(t *testing.T) {
+	t.Serial()
 	logger.ResetWarnCount()
 	defer logger.ResetWarnCount()
 
@@ -371,7 +365,7 @@ replace example.com/foo => ../foo // go-toolchain:branch=master
 
 // An absolute replacement target is the same case wearing a different path.
 func TestIsLocalReplacement(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	local := []module.Version{
 		{Path: "../foo"},
 		{Path: "./foo"},
@@ -385,6 +379,7 @@ func TestIsLocalReplacement(t *testing.T) {
 }
 
 func TestUpdateTrackedBranchDepsLeavesAnUnmarkedReplaceAlone(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module test
 go 1.21
@@ -410,6 +405,7 @@ replace example.com/foo => github.com/wow-look-at-my/foo v0.0.0-20200101000000-0
 
 // The up-to-date fast exit has to see a moved branch behind a replace too.
 func TestTrackedBranchDepsMovedSeesAMovedReplacement(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	gomod := `module test
 go 1.21
@@ -443,12 +439,14 @@ func writeTrackedGoMod(t *testing.T, version string) {
 // file. Without this check a moved dependency was invisible: the tree was
 // unchanged, so the run exited before the updater that exists to notice.
 func TestTrackedBranchDepsMovedSeesAMovedBranchOnAnUnchangedTree(t *testing.T) {
+	t.Serial()
 	writeTrackedGoMod(t, "v0.0.0-20200101000000-000000000000")
 	moved := gitLsRemoteMock(t, "abc123def456789012345678901234567890abcd")
 	assert.True(t, trackedBranchDepsMoved(moved))
 }
 
 func TestTrackedBranchDepsMovedIsFalseWhenTheBranchIsWhereGoModSaysItIs(t *testing.T) {
+	t.Serial()
 	const hash = "abc123def456789012345678901234567890abcd"
 	writeTrackedGoMod(t, "v0.0.0-20231114221320-"+hash[:12])
 	assert.False(t, trackedBranchDepsMoved(gitLsRemoteMock(t, hash)))
@@ -458,6 +456,7 @@ func TestTrackedBranchDepsMovedIsFalseWhenTheBranchIsWhereGoModSaysItIs(t *testi
 // a network blip into a full rebuild, which is the opposite of what a cache
 // check is for. The real run reports the failure.
 func TestTrackedBranchDepsMovedIsFalseWhenItCannotTell(t *testing.T) {
+	t.Serial()
 	writeTrackedGoMod(t, "v0.0.0-20200101000000-000000000000")
 	mock := runner.NewMock()
 	mock.Handler = func(runner.Config) (runner.IProcess, error) {
@@ -471,6 +470,7 @@ func TestTrackedBranchDepsMovedIsFalseWhenItCannotTell(t *testing.T) {
 
 // A repository with no tracked require must pay nothing for this check.
 func TestTrackedBranchDepsMovedMakesNoCallWithoutATrackedRequire(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	require.NoError(t, os.WriteFile("go.mod",
 		[]byte("module test\ngo 1.21\n\nrequire github.com/wow-look-at-my/foo v1.2.3\n"), 0644))

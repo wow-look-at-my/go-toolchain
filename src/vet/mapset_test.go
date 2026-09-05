@@ -17,7 +17,7 @@ import (
 // TestMapSetAnalyzer: an all-true or emptied-then-set-only bool map is reported; a lookup
 // table, comma-ok read, computed value, escaping map, or map[K]struct{} is not.
 func TestMapSetAnalyzer(t *testing.T) {
-	t.Parallel() // See TestBannedOutputAnalyzer.
+	t.Serial()
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
 	analysistest.Run(t, testdata, MapSetAnalyzer, "mapset")
@@ -27,6 +27,7 @@ func TestMapSetAnalyzer(t *testing.T) {
 // itself: Set[T] IS a map[T]struct{}, and its storage sites would spend half
 // the warnings budget saying so.
 func TestMapSetSkipsTheSetPackageItself(t *testing.T) {
+	t.Serial()
 	const src = `package set
 
 type Set[T comparable] struct {
@@ -69,6 +70,7 @@ type Set[T comparable] struct {
 // same finding is a warning, because the fix would add a dependency the author
 // never chose.
 func TestMapSetSeverityFollowsTheModule(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 var seen = map[string]bool{"a": true}
@@ -115,6 +117,7 @@ func main() { _ = seen }
 // even in an org module. It already carries no value; the diagnostic is
 // reserved for the map[K]bool default.
 func TestMapSetStructMapOnlyWarns(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 var seen = map[string]struct{}{}

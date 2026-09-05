@@ -23,6 +23,8 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Dependency handling** — auto-updates same-org deps; every `github.com/wow-look-at-my/` dependency tracks a branch via a `// go-toolchain:auto-branch` marker. See [docs/DEPS.md](docs/DEPS.md).
 - **Dependency graph submission** — submits a dependency snapshot to GitHub in CI, feeding the repo's dependency graph. No opt-out; a failed submission fails the build.
 - **Automatic GOMEMLIMIT** — every built binary caps its Go heap at the container's cgroup limit instead of being OOM-killed. See [docs/MEMLIMIT.md](docs/MEMLIMIT.md).
+- **Revision stamping** — declare `var gitHash string` in a main package and the build fills it, covering the container builds where Go's own
+  `vcs.revision` finds no `.git`. A `-ldflags` set in `GOFLAGS` is honored rather than replaced. See [docs/VCS-STAMP.md](docs/VCS-STAMP.md).
 - **Output stall watchdog** — prints a loud `STALLED: no output for Ns` warning when the pipeline goes silent for 5+ seconds. Disable with `GO_TOOLCHAIN_NO_WATCHDOG=1`.
 - **CPU profiling** — run benchmarks under pprof via the `profile` subcommand.
 - **Local install** — `install` puts the binary in `~/.local/bin`.
@@ -219,6 +221,7 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - [docs/VET.md](docs/VET.md) — the custom vet analyzers
 - [docs/DATS-PHASE.md](docs/DATS-PHASE.md) — CLI test suites
 - [docs/MEMLIMIT.md](docs/MEMLIMIT.md) — the injected GOMEMLIMIT guard
+- [docs/VCS-STAMP.md](docs/VCS-STAMP.md) — the revision stamp, and the `GOFLAGS` `-ldflags` a build used to discard
 - [docs/BUILD-OUTPUTS.md](docs/BUILD-OUTPUTS.md) — when `build/` artifacts are deleted
 - [docs/ACTION.md](docs/ACTION.md) — the composite GitHub Action
 - [docs/CI.md](docs/CI.md) — this repo's own CI workflow

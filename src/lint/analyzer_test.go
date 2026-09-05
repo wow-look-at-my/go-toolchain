@@ -12,6 +12,7 @@ import (
 )
 
 func TestAnalyzerRun_DetectsDuplicates(t *testing.T) {
+	t.Serial()
 	// Test the analysis.Pass-based run function with duplicate code
 	src := `package p
 
@@ -68,6 +69,7 @@ func handleOrder(id string) {
 }
 
 func TestAnalyzerRun_NoDuplicates(t *testing.T) {
+	t.Serial()
 	src := `package p
 
 func add(a, b int) int {
@@ -103,6 +105,7 @@ func sub(a, b int) int {
 }
 
 func TestRunOnFiles_DetectsNearDuplicates(t *testing.T) {
+	t.Serial()
 	// A pair of functions with identical structure, different variable names
 	src := `package p
 
@@ -164,6 +167,7 @@ func processOrder(id string) error {
 }
 
 func TestRunOnFiles_NoDuplicates(t *testing.T) {
+	t.Serial()
 	src := `package p
 
 func add(a, b int) int {
@@ -189,6 +193,7 @@ func multiply(a, b int) int {
 }
 
 func TestRunOnFiles_AcrossFiles(t *testing.T) {
+	t.Serial()
 	srcA := `package p
 
 func handleGet(w http.ResponseWriter, r *http.Request) {
@@ -237,6 +242,7 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestRunOnFiles_MinNodesFilter(t *testing.T) {
+	t.Serial()
 	src := `package p
 func a() { x := 1; _ = x }
 func b() { y := 1; _ = y }
@@ -257,6 +263,7 @@ func b() { y := 1; _ = y }
 }
 
 func TestRunOnFiles_ThresholdSensitivity(t *testing.T) {
+	t.Serial()
 	// A pair of functions that are somewhat similar but not identical
 	src := `package p
 
@@ -295,6 +302,7 @@ func funcB() {
 }
 
 func TestRunOnFiles_IntraFunctionDuplicates(t *testing.T) {
+	t.Serial()
 	// Models the runBuildPhase pattern: if/else branches that both run
 	// similar sequences of setup + exec with different arguments.
 	src := `package p
@@ -336,6 +344,7 @@ func runBuildPhase(targets []string) {
 }
 
 func TestRunOnFiles_IntraFunctionNoFalsePositive(t *testing.T) {
+	t.Serial()
 	// An if/else with genuinely different structure should not be flagged.
 	// The if-branch uses assignments + calls + return; the else-branch
 	// uses a for-loop + switch + defer — structurally very different.
