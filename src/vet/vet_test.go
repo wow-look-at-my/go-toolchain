@@ -138,7 +138,6 @@ func main() {
 	assert.Nil(t, err)
 }
 
-
 func TestSourceLocationShortLocRelative(t *testing.T) {
 	t.Serial()
 	cwd, err := os.Getwd()

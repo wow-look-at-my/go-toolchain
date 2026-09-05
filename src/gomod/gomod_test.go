@@ -232,4 +232,3 @@ func TestFindMainPackagesForTarget(t *testing.T) {
 	assert.Equal(t, []string{"example.com/multi/cmd/everywhere"}, darwin,
 		"an unmatched context must only see the unconstrained main")
 }
-

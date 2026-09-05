@@ -67,7 +67,6 @@ func TestDirtyFilesExcludingToolchainWrites(t *testing.T) {
 	assert.Equal(t, " M .gitignore\n M src/main.go", got)
 }
 
-
 func TestDirtyFilesExcludingToolchainWritesEmpty(t *testing.T) {
 	t.Serial()
 	assert.Equal(t, "", dirtyFilesExcludingToolchainWrites(""))
