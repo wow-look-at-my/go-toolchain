@@ -212,7 +212,6 @@ func newGitHubMock(t *testing.T, commitTime time.Time, sha string, aheadBy int) 
 
 func withMockGitHub(t *testing.T, server *httptest.Server) func() {
 	t.Helper()
-	t.Fork() // See withFakeAncestry.
 	oldBase := githubAPIBase
 	oldClient := httpClient
 	setGithubAPIBase(server.URL)

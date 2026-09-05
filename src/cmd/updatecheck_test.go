@@ -19,7 +19,6 @@ import (
 // originals when the returned func runs.
 func withMockBuildhost(t *testing.T, server *httptest.Server) func() {
 	t.Helper()
-	t.Fork() // See withFakeAncestry.
 	oldBase := buildhostAPIBase
 	oldClient := httpClient
 	buildhostAPIBase = server.URL
@@ -310,7 +309,6 @@ func TestReportUpdateCheck_KillsWhenSlow(t *testing.T) {
 // setVCS overrides the cached VCS info for a test and returns a restore func.
 func setVCS(t *testing.T, revision, vcsTime string) func() {
 	t.Helper()
-	t.Fork() // See withFakeAncestry.
 	old := cachedVCS
 	cachedVCS = &vcsInfo{Revision: revision, Time: vcsTime}
 	return func() { cachedVCS = old }

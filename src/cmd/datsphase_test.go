@@ -20,7 +20,6 @@ import (
 // code rather than the host it runs on.
 func forceDatsProbe(t *testing.T, err error) {
 	t.Helper()
-	t.Fork() // See withFakeAncestry.
 	previous := datsSandboxProbe
 	datsSandboxProbe = func() error { return err }
 	t.Cleanup(func() { datsSandboxProbe = previous })
@@ -152,7 +151,6 @@ type datsCall struct {
 // recorded calls.
 func swapDatsRun(t *testing.T, res *dats.Result, err error) *[]datsCall {
 	t.Helper()
-	t.Fork() // See withFakeAncestry.
 	calls := &[]datsCall{}
 	old := datsRunFunc
 	datsRunFunc = func(_ context.Context, opts dats.Options) (*dats.Result, error) {

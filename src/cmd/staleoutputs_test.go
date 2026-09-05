@@ -124,7 +124,6 @@ func TestRemoveBuildOutputsInSweepsTempSpellings(t *testing.T) {
 // outputDir at its build/ directory, and resets the tracking state.
 func setupOutputModule(t *testing.T) string {
 	t.Helper()
-	t.Fork() // See withFakeAncestry.
 	// Resolve before the chdir, or the tracked paths get the host's other spelling.
 	tmp, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
@@ -214,7 +213,6 @@ func TestDiscardBuildOutputsFromCWD(t *testing.T) {
 // points outputDir at its build/ directory and resets the tracking state.
 func setupPipelineOutputTest(t *testing.T) (buildDir, binary string) {
 	t.Helper()
-	t.Fork() // See withFakeAncestry.
 	// Resolved before the chdir, for the reason setupOutputModule gives.
 	tmp, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
