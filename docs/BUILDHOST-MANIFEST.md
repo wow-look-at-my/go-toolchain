@@ -42,7 +42,7 @@ set. Files not listed keep the per-platform behavior unchanged.
   where the artifact names are still in hand.
 - `platforms` — `os/arch` pairs, at least one. The FIRST is the row's canonical
   slot: what appears in the row's os/arch columns, and what `dl` canonicalizes
-  every covered platform's redirect to, so all three platforms resolve to one
+  every covered platform's redirect to. So all three platforms resolve to one
   identical `static` URL, one digest, one ETag.
 - `filename` — what the download is served as. Without it a consumer would
   receive a file called `go-toolchain`.
@@ -72,6 +72,6 @@ platform, and 409s if any named platform is already taken in that release.
 ## Producing it
 
 `src/cmd/apemanifest.go`. Written whenever a cosmo APE was built — it is the
-only way the APE publishes, so there is no build that produces one without the
+only way the APE publishes. So there is no build that produces one without the
 other. `checksums.txt` lists the APE once, under its real filename; buildhost
 skips `checksums.txt` and never reads it.

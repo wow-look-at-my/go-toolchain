@@ -18,7 +18,7 @@ binary without editing the build command. It did not work here, and it failed
 silently.
 
 The go command applies GOFLAGS to its flag set BEFORE it parses argv
-(`cmd/go/main.go` calls `base.SetFromGOFLAGS` and then `cmd.Flag.Parse`), so a
+(`cmd/go/main.go` calls `base.SetFromGOFLAGS` and then `cmd.Flag.Parse`). So a
 command-line `-ldflags` REPLACES the GOFLAGS spelling rather than adding to it.
 This pipeline always passes `-ldflags`, so the caller's value was discarded on
 every build, with no message. The binary shipped carrying its placeholder and
@@ -43,7 +43,7 @@ reads it back. That is automatic and needs no help — as long as the build
 directory is inside a git work tree.
 
 A container build usually is not. `COPY . .` with `.git` in `.dockerignore`
-hands the builder a source tree and no history, so the go command's stamping
+hands the builder a source tree and no history. So the go command's stamping
 finds nothing, `vcs.revision` is absent, and every binary the image carries
 reports an unknown commit. Nothing said so.
 
@@ -63,8 +63,8 @@ asked for one. Declaring `var gitHash string` in `package main` is the whole
 opt-in — there is no flag, no input, and no configuration file.
 
 Discovery is `gomod.PackageStringVars`, which parses the package's non-test
-files and reports only the package-level variables it can PROVE hold strings:
-an explicit `string` type, or an initializer that is a string literal. That
+files and reports only the package-level variables it can PROVE hold strings.
+An explicit `string` type, or an initializer that is a string literal. That
 narrowness is not fussiness. `cmd/link`'s `addstrdata` returns silently for a
 symbol it cannot find, but calls `Errorf` for a symbol that is not a string
 variable — so an `-X` aimed at `var commit int` FAILS the link. Stamping only
@@ -79,7 +79,7 @@ In order:
 2. `git rev-parse HEAD`
 3. `GITHUB_SHA`
 
-The explicit variable leads because it answers the case the others cannot: a
+The explicit variable leads because it answers the case the others cannot. A
 build whose tree has no history, where git has nothing to report and the CI
 variable is not in the container either. A Dockerfile passes it through:
 
@@ -89,7 +89,7 @@ RUN GO_TOOLCHAIN_VCS_REVISION="${GIT_HASH}" go-toolchain
 ```
 
 A revision holding whitespace or a quote is rejected (`usableRevision`) rather
-than passed through: the go command re-splits the `-ldflags` value, so such a
+than passed through. The go command re-splits the `-ldflags` value, so such a
 revision would silently become extra flags.
 
 When a package declares a stamp variable and NO source names a revision, the
@@ -102,6 +102,6 @@ placeholder, which is exactly the state that used to pass unnoticed.
 `strdata` per name, so a later occurrence overwrites an earlier one). The stamp
 leads and the caller's own flags trail it, so an explicit `-X` from GOFLAGS
 overrides the resolved revision. `-buildid=` stays last of all, which is a
-different flag and a different rule: the go command takes the final `-ldflags`
+different flag and a different rule. The go command takes the final `-ldflags`
 string as a whole, and the reproducibility flag has to be in it (see
 [MATRIX.md](MATRIX.md)).

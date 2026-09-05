@@ -35,7 +35,7 @@ defaults to `linux/amd64,darwin/arm64,windows/amd64`. `all` covers everything
 the fork can emit.
 
 A narrower set is **not** automatically a smaller binary, and the default set
-saves nothing: an APE carries one payload per ARCHITECTURE, and those three
+saves nothing. An APE carries one payload per ARCHITECTURE, and those three
 platforms still need both — darwin/arm64 boots the arm64 image, linux/amd64 and
 windows/amd64 the amd64 one. Measured saving for the default set: **0%**. Only
 collapsing to a single architecture drops a payload (**-46.9%**). The win of the
@@ -47,7 +47,7 @@ Accepted: `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`.
 says where the binary runs, so an unproven host cannot be in it.
 
 **Publishing.** The APE publishes as a *single* artifact carrying its whole
-platform set: one upload, one download link, one checksum, with an
+platform set. One upload, one download link, one checksum, with an
 `APE:<platforms>` badge. go-toolchain writes `buildhost-artifacts.json`
 alongside the binary to say so — see
 [BUILDHOST-MANIFEST.md](BUILDHOST-MANIFEST.md).
@@ -75,8 +75,8 @@ toolchain:
    (`https://dl.pazer.build/gosmopolitan?branch=<GO_TOOLCHAIN_COSMO_BRANCH>`,
    default branch `master`) and cached under
    `~/.cache/go-toolchain/cosmo/v<N>/` keyed by the buildhost release version,
-   so it downloads once per release. Every host asks for its own `os`/`arch`;
-   buildhost decides what exists, and a host it publishes nothing for fails
+   so it downloads once per release. Every host asks for its own `os`/`arch`.
+   Buildhost decides what exists, and a host it publishes nothing for fails
    with that answer plus the `GO_TOOLCHAIN_COSMO_GOROOT` escape. Nothing here
    keeps a list of supported hosts — one went stale and refused darwin/arm64
    while buildhost was serving it.
@@ -94,7 +94,7 @@ is the only channel the toolchain's own identity reaches the output through —
 each host builds the fork itself, so its tools are different files with
 different content IDs, and cmd/go derives the tool ID from that content.
 
-Measured on the fork, same source: two checkout paths differ by 200 bytes
+Measured on the fork, same source. Two checkout paths differ by 200 bytes
 without `-trimpath`, and a differing tool ID differs by about 160 bytes with
 `-trimpath` alone. Both are the Go build-ID note and the GNU build-ID note, one
 pair per payload — never code. With both flags the builds are byte-identical.
@@ -104,7 +104,7 @@ the final link is affected: a cached package archive keeps the stamp the cache
 poison guards read, so [CACHE.md](CACHE.md) is untouched. Action IDs still
 differ per host, so this buys identical bytes and never a cross-host cache hit.
 
-`-buildid=` is the tail of a longer `-ldflags` value: the revision stamp and
+`-buildid=` is the tail of a longer `-ldflags` value. The revision stamp and
 whatever the caller put in `GOFLAGS` come ahead of it, and
 [VCS-STAMP.md](VCS-STAMP.md) covers why the order is what it is. Neither part
 varies by host — the stamp is the commit, which every runner in a CI run shares

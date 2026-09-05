@@ -7,7 +7,7 @@ workflow has to grant it.
 
 The first step runs `wow-look-at-my/actions@no-all-builds-job#latest`, which
 fails the job if any workflow job is named `all-builds`. That name belongs to
-the org's required status, posted by the required-builds-manager app; a job
+the org's required status, posted by the required-builds-manager app. A job
 wearing it cannot satisfy the gate and only shadows the real status in the UI.
 
 Since `no-all-builds-job#3` the guard scans **the run's jobs** (Actions API) and
@@ -36,7 +36,7 @@ permissions, only a checkout.
 The step after it runs `wow-look-at-my/actions@no-tests-in-yaml#latest`. A test
 written inside a `run:` script fails the job. A workflow step is a scheduler: an
 assertion living there runs only on a runner, only after a push, and only in
-that one repository, so nobody can run it against a change before sending it.
+that one repository. So nobody can run it against a change before sending it.
 
 Three rules, each reading only `run:` scripts. A redirect or heredoc writing a
 file that is a test by name (`*_test.go`, `*.test.ts`, `*.dats`, and the rest).
@@ -74,7 +74,7 @@ a capability, never a requirement, and nothing downstream may assume it — see
 have no such mechanism.
 
 Registering is idempotent. An entry that is already present and enabled is left
-alone; one that is present and disabled is reported rather than silently
+alone. One that is present and disabled is reported rather than silently
 counted as working, since a disabled entry execs nothing.
 
 `dats/binfmt.dats` covers the contract: the script names its outcome, reaches
@@ -92,8 +92,8 @@ curl lacks zstd it just gets the plain binary. buildhost normalizes platform
 aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so
 those values pass through verbatim. It serves the branch tip `no-store`, so no
 cache-buster is needed. Download, the one pre-install run, and the copy into
-`/usr/local/bin` are one step: nothing in the org's action set can write there
-(the runner is not root), and dats' sandbox mounts only the standard paths, so a
+`/usr/local/bin` are one step. Nothing in the org's action set can write there
+(the runner is not root), and dats' sandbox mounts only the standard paths. So a
 split would only move the `sudo cp` into a second step.
 
 **The URL carries no `branch=` pin.** buildhost's bare "latest" resolves against
@@ -116,7 +116,7 @@ native binary. For a native slot such as darwin/arm64 the run is only an early
 version check. Its failures are tolerated with `|| true`, because the probe that
 follows is the single pass/fail gate and it surfaces the reason.
 
-The probe captures its output rather than discarding it, so the real reason the
+The probe captures its output rather than discarding it. So the real reason the
 binary is unusable is shown: a 404, a missing PATH entry, or a crash. A source
 build happens only where the caller opted in. A silent fallback hides a
 buildhost outage and ships a locally-compiled toolchain that can differ from the
@@ -139,7 +139,7 @@ Fetches secrets over OIDC, then runs `go-toolchain matrix`.
 **What the target inputs build.** With `targets` unset — the default — the run
 produces ONE fat APE covering `cosmo-platforms`
 (`linux/amd64,darwin/arm64,windows/amd64`), published as a single
-multi-platform artifact. The fat APE is the action's only native output:
+multi-platform artifact. The fat APE is the action's only native output.
 `targets` adds wasm artifacts alongside it (`wasm/js`, `wasm/wasip1`), or
 replaces it entirely with wasm alone by leaving `cosmo` out of the list.
 There is no input that copies the APE onto per-platform artifact names; the
@@ -162,8 +162,8 @@ key:  cache-xfer-<run_id>-go-build-<job>[.m<idx>].b<build>-<run_attempt>
 
 The matrix and strategy contexts *are* evaluable inside composite steps (the
 runner's manifest schema allows both), and `matrix` is null for a non-matrix
-job, so those suffixes collapse to the empty string for a single, non-matrix
-build. The dots make the suffixes collision-proof against job ids, which cannot
+job. So those suffixes collapse to the empty string for a single, non-matrix
+build. The dots make the suffixes collision-proof against job ids. That cannot
 contain dots, and `job-index` is stable across re-run attempts, so cross-attempt
 restore fallback keeps working.
 
@@ -175,7 +175,7 @@ two things (e.g. a plugin and the marketplace-build CLI) without colliding.
 
 **Downloading it** — `cache-download` with no `name` self-discovers the current
 run's hand-off through the run-scoped key prefix, and emits a `::notice` naming
-what it picked, so a consumer never has to know the producing job's id:
+what it picked. So a consumer never has to know the producing job's id:
 
 ```yaml
 - uses: wow-look-at-my/actions@cache-download#latest
@@ -193,10 +193,10 @@ matrix producer) on exactly those downloads.
 
 **This is the only name saved.** The pre-build per-job name
 `go-build-<job>[.m<idx>]` and the bare `go-build` alias are gone: each was a
-second key that a multi-producer run raced on, so the second finisher's save
+second key that a multi-producer run raced on. So the second finisher's save
 collided and had to be absorbed with `continue-on-error`. The action now saves
 ONE hand-off, under that name; a download naming anything else restores
-nothing, which is why this repo's own `identical`, `smoke` and `publish` jobs
+nothing. That is why this repo's own `identical`, `smoke` and `publish` jobs
 spell `go-build-build.broot` in full. A consumer that still downloads either
 legacy name gets a miss and must migrate to the name above.
 `src/cmd/handoffname_test.go` pins both the template and the absence of any
@@ -219,7 +219,7 @@ action-manifest schema allows both in step expressions. For a non-matrix job
 name stays byte-identical to what it was.
 
 `github.job` also does NOT distinguish two go-toolchain invocations in the SAME
-job, so the name additionally carries a build identity `.b<build>` derived from
+job. So the name additionally carries a build identity `.b<build>` derived from
 the `working-directory` input (slashes and dots replaced with `-`, default `.`
 becomes `root`). Two builds in one job therefore save distinct hand-offs and can
 no longer 409 on a shared key.
@@ -257,7 +257,7 @@ byte-identical.
 not accessible by integration` AFTER the whole build had run, which is expensive
 to rediscover. `wow-look-at-my/actions@has-permission` now reads each one in the
 first seconds of the job. It reads the running workflow file and resolves the
-scope the way GitHub does: the job's own `permissions:` block, then the
+scope the way GitHub does. The job's own `permissions:` block, then the
 workflow-level block when the job declares none. A missing grant fails the step
 that reads it, and the error names the grant and the block it came from. The
 check only runs where `autorelease` is on.
@@ -265,14 +265,14 @@ check only runs where `autorelease` is on.
 It replaced a set of empty-body `POST` probes that read a 403 off the live API.
 Reading the declared block needs no token, spends no API call, and cannot be
 confused by a failure that has nothing to do with permissions. It also removed
-a fork-PR carve-out: the old `id-token` check read `ACTIONS_ID_TOKEN_REQUEST_URL`
+a fork-PR carve-out. The old `id-token` check read `ACTIONS_ID_TOKEN_REQUEST_URL`
 out of the environment, which GitHub withholds on an external fork PR whatever
-the workflow declares, so that case had to be skipped by name. The declared
+the workflow declares. So that case had to be skipped by name. The declared
 block is the same on a fork.
 
 The publish step itself needs only `id-token: write`. But publishing also
 **registers a GitHub Deployment and posts an artifact storage record**, and
-neither has an opt-out, so a job that autoreleases must additionally grant:
+neither has an opt-out. So a job that autoreleases must additionally grant:
 
 ```yaml
 permissions:
@@ -288,7 +288,7 @@ these alongside everything else it needs.
 
 The one case that does not register is a publish whose target server is
 loopback or plain http (buildhost's own e2e spawns one on
-`http://localhost:18080`): a deployment asserts "this publish is live at
+`http://localhost:18080`). A deployment asserts "this publish is live at
 `<environment_url>`", which is false for a server nothing outside the runner
 can reach. That is a property of the target, not an opt-out — every publish to
 a real https server registers, and a failure there is fatal.
@@ -301,6 +301,6 @@ They were not three topics but three generations of one, and merging them meant
 resolving where they disagreed rather than keeping all three. The newest had the
 current cache key (verified against `action.yml`) but had **dropped** the
 `deployments: write` / `artifact-metadata: write` requirement the previous one
-stated as mandatory; that requirement is real (`action.yml:43`, `README.md`, and
+stated as mandatory. That requirement is real (`action.yml:43`, `README.md`, and
 this repo's own `ci.yml` grants both) and is restored above. The oldest predated
 the guard's API-scanning permissions entirely.*

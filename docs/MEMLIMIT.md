@@ -14,7 +14,7 @@ allocate until the kernel OOM-kills it.
 
 The guard is a **transient build artifact**: go-toolchain writes it into each
 `main` package immediately before compiling and removes it again as soon as the
-build is done, so it never lingers in your working tree and never needs to be
+build is done. So it never lingers in your working tree and never needs to be
 committed. The CI dirty-tree check ignores `gomemlimit_gen.go` in every git
 state — added, modified, or deleted — so neither the in-flight guard nor a copy
 left behind by an interrupted build ever fails a build. Before injecting,
@@ -33,7 +33,7 @@ non-Linux systems.
 
 If a repository committed the guard under an older go-toolchain, the cleanup
 deletes those files from the working tree on the next run (without failing the
-build); commit that deletion once to drop the stale files for good.
+build). Commit that deletion once to drop the stale files for good.
 
 Injection is unconditional — there is no build-time flag or environment variable
 to turn it off. Opting out is a run-time decision instead, via the variables

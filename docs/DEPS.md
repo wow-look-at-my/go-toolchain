@@ -2,8 +2,8 @@
 
 Depth for the "Dependency checking" line in the [README](../README.md#features) and step 3 of
 [the pipeline](PIPELINE.md). Four independent mechanisms run early in every
-pipeline, all before `go mod tidy`; each rewrites `go.mod` in place, so the same rules as any
-other pipeline mutation apply: locally you see the diff and commit it, in CI a resulting dirty
+pipeline, all before `go mod tidy`. Each rewrites `go.mod` in place, so the same rules as any
+other pipeline mutation apply. Locally you see the diff and commit it, in CI a resulting dirty
 tree fails the build (`checkDirtyInCI`) with an actionable message.
 
 ## v0.0.0 repair (`FixBogusDepsVersions`, `src/cmd/depsfix.go`)
@@ -23,7 +23,7 @@ the highest such tag instead, which for a dependency tracked as a pseudo-version
 older commit than the branch itself — `go get -u <module>@latest` then moves the require line
 backwards. Branch tracking (below) is the supported way off that path. Any outdated dependency sharing the current module's
 `host/org/` prefix (its own org — "trusted") is auto-updated in place via `go get -u` + `go mod
-tidy`; anything else is only reported, with a `go get -u` hint.
+tidy`. Anything else is only reported, with a `go get -u` hint.
 
 ## Branch-tracked dependencies (`src/cmd/depsbranch.go`)
 
@@ -48,11 +48,11 @@ deliberately, and that is the only form that hardcodes anything.
 its default branch otherwise** (`src/cmd/depsmatch.go`). Two repositories developed in tandem carry
 the same branch name: the change spans both, and neither half is finished without the other. So on
 the feature branch each side builds against the other's feature branch, and when the merge deletes
-that branch the match stops matching and both fall back to the default branch, which now carries
+that branch the match stops matching and both fall back to the default branch. That now carries
 the same code. Nothing was written down, so nothing has to be repointed — and nothing is left
 pointing at a branch that no longer exists.
 
-Three things all mean "follow the default branch": this repository is on a detached HEAD (or is not
+Three things all mean "follow the default branch". This repository is on a detached HEAD (or is not
 a repository), the dependency has no branch of that name, or the dependency's own HEAD already
 points at it. The matching branch and the default branch are one `ls-remote`, not two round trips,
 and the answer is cached per module. A `go.mod` with no branch-tracked line asks nothing at all.
@@ -90,14 +90,14 @@ once, and with a single marker per line no text does until every runner reads th
 
 Every run re-resolves that branch's current HEAD via `git ls-remote <url> refs/heads/<branch>` and
 rewrites the pseudo-version in place (the comment is preserved, so the pin stays declarative across
-runs); `listDirectDeps` excludes any such line from the org auto-update path so the two mechanisms
+runs). `listDirectDeps` excludes any such line from the org auto-update path so the two mechanisms
 never fight over the same require. The dependency still always resolves to one concrete,
 `go.sum`-verified pseudo-version — go-toolchain does not do unpinned/floating dependency
 resolution — the marker only tells it *which* branch's HEAD that pin should track.
 
 **The recorded version is a cache of the last resolution, not a contract.** `branch=master` says
 the branch is what this dependency means; every run re-answers it. So the rewrite is not a change
-anybody has to sign off on, and `checkDirtyInCI` excludes it: a commit whose whole content is a
+anybody has to sign off on, and `checkDirtyInCI` excludes it. A commit whose whole content is a
 hash nobody chose is noise, and demanding one would make the marker mean a bump commit per
 upstream push — the opposite of what it is for. The exclusion is exactly the version token on a
 line carrying the same marker in `HEAD` and the working tree, plus the `go.sum` hashes for the
@@ -106,11 +106,11 @@ comment, a `go.sum` line for a module that did not move — still fails the buil
 
 Both direct and indirect requires are tracked. An UNMARKED indirect line is somebody else's
 answer -- what `go mod tidy` computed from the rest of the module graph -- and carries no anchor
-of its own. But a marked indirect line resolves exactly like a marked direct one: an org
+of its own. But a marked indirect line resolves exactly like a marked direct one. An org
 dependency with no direct require of its own (`github.com/wow-look-at-my/yaml-fixed`, reached only
 as a transitive dependency of `go-git`, is the case that motivated this) has no other line to ride
-along with, so its own marker is the only way to track it. A same-repository sibling (below) works
-either way: whether `go mod tidy` marked the line indirect on its own, or the line was already
+along with. So its own marker is the only way to track it. A same-repository sibling (below) works
+either way. Whether `go mod tidy` marked the line indirect on its own, or the line was already
 independently tracked, the line keeps being resolved.
 
 ### Multi-module repositories resolve as a unit (`src/cmd/depssiblings.go`)
@@ -137,13 +137,13 @@ inside it say about each other.
 
 **Nothing declares which modules share a repository, because the repository already knows.** The
 added line carries the same ordinary marker as the line that brought it in, and cohesion comes from
-`repoResolver` (`depsbranch.go`) instead: it answers each repository ONCE, keyed on the repository
+`repoResolver` (`depsbranch.go`) instead. It answers each repository ONCE, keyed on the repository
 root it discovers plus the branch being followed, and every module of that repository reuses that
 one answer. Two modules resolved a moment apart therefore cannot land on different commits, and a
 `go.mod` never carries a claim about repository membership that could go stale.
 
 The walk is over requirements, not over the repository, so only modules the tracked one actually
-needs come along. A sibling missing at the resolved commit FAILS the run: writing a pin to a commit
+needs come along. A sibling missing at the resolved commit FAILS the run. Writing a pin to a commit
 that does not carry the module is the failure this exists to prevent, not something to skip past.
 
 ### A tracked branch with an open pull request (`src/cmd/depsbranchguard.go`)
@@ -155,7 +155,7 @@ broke it has already landed.
 
 So a marker naming an explicit branch is checked against the open pull requests of the repository
 it belongs to. In CI this FAILS, because CI is the last look at a change before it merges and green
-there is what the merge is decided on. Locally it only warns: developing two repos in tandem,
+there is what the merge is decided on. Locally it only warns. Developing two repos in tandem,
 pointed at each other's unmerged branches, is a real workflow, and the warning is the reminder to
 repoint before the pull request goes up.
 
@@ -163,7 +163,7 @@ A bare `auto-branch` is never checked. It *can* match a branch with an open pull
 the tandem workflow above — but it wrote nothing down, so the merge that deletes the branch is also
 what makes it stop matching. There is nothing to repoint, so there is nothing to warn about.
 
-The check needs the GitHub API, and it answers "cannot tell" as no finding plus a warning: a guard
+The check needs the GitHub API, and it answers "cannot tell" as no finding plus a warning. A guard
 that turned an unreachable API into a failed build would fail runs over the network rather than
 over the thing it checks. A private repository needs `GITHUB_TOKEN` or `GH_TOKEN` in the
 environment; without one the warning says so.
@@ -184,7 +184,7 @@ The branch is resolved against the **replacement's** repository (`github.com/wow
 and rewrites the **replacement's** version. Putting the marker on that require instead would track
 upstream's branch, which is never what anyone means by it. `listDirectDeps` excludes a require
 covered by a tracked replace from the org auto-update path as well, for the same reason it excludes
-a tracked require: the effective version is owned by branch tracking.
+a tracked require. The effective version is owned by branch tracking.
 
 A replacement into a local directory (`=> ../foo`, `=> ./foo`, or an absolute path) has no remote
 and carries no version, so there is no branch to resolve. A marker on one is skipped with a
@@ -201,10 +201,10 @@ path is not a valid version: the go command rejects it with
 
 A version pin on a `github.com/wow-look-at-my/` module is a snapshot of whenever someone last
 ran `go get`. These modules are co-developed with their consumers and have no release cadence to
-pin to, so nothing ever moves that snapshot forward and the consumer silently builds against
-month-old code. There is no exception for staleness here: an org module tracks a branch whether it
+pin to. So nothing ever moves that snapshot forward and the consumer silently builds against
+month-old code. There is no exception for staleness here. An org module tracks a branch whether it
 is a direct or an indirect require, with no version-pin opt-out. The branch pin is the canonical
-form for them, and `go.mod` is rewritten into it: an org require or replace carrying a plain
+form for them, and `go.mod` is rewritten into it. An org require or replace carrying a plain
 version gets the bare `// go-toolchain:auto-branch` comment appended, direct or indirect.
 Appending it costs no lookup — it names no branch, so there is nothing to ask until the line is
 resolved.
@@ -230,7 +230,7 @@ still marked and still tracked — the directory replace beside it stays bare, b
 has no branch to follow.
 
 Treating a locally-replaced require as covered was a real hole, and the multi-module case above is
-where it bit: `validator` required its sibling `reader` at a pseudo-version, `replace ../reader`
+where it bit. `validator` required its sibling `reader` at a pseudo-version, `replace ../reader`
 hid it from this repository's own builds, and nothing ever moved it. The pin ended up naming a
 commit older than `reader/go.mod` itself, so every CI run here was green while every consumer got
 `missing go.mod at revision`.

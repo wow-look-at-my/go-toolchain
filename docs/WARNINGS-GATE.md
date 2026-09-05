@@ -22,26 +22,26 @@ budget counts that warning once. One root cause repeats once per file, per
 module, per package variant or per retry, and counting each repeat spends the
 whole 15 on one problem while every other warning in the run goes unreported.
 The commonest repeat is structural: vet's auto-fixer rewrites the tree, and
-`runWithRunnerOnce` then re-runs the whole pipeline against the corrected code,
-so every warning of the first pass is emitted a second time. Before the fold,
+`runWithRunnerOnce` then re-runs the whole pipeline against the corrected code.
+So every warning of the first pass is emitted a second time. Before the fold,
 that alone doubled a dirty tree's count and could fail a run that a clean tree
 passed.
 
-What stays distinct: `WarnFile` records the `<file>: ` prefix, so the same
+What stays distinct: `WarnFile` records the `<file>: ` prefix. So the same
 sentence about two files is two warnings, and a message naming the value it
 found keeps its own identity. What folds: byte-identical text, however far
 apart the two emissions are.
 
 Folding governs the COUNT only. Every warning still prints or annotates as it
 did, and the recap names the repeat count of each (`(emitted 5 times)`) beside
-a total, so a folded repeat is visible rather than hidden:
+a total. So a folded repeat is visible rather than hidden:
 
 ```
 build failed: 17 distinct warnings emitted (threshold: 15), 34 emitted in total (a repeat counts once).
 ```
 
 An analyzer that deduplicates its own findings (`mapset`, `writeruns`, both
-keyed on `file:line`) is doing a different job: it keeps the site from PRINTING
+keyed on `file:line`) is doing a different job. It keeps the site from PRINTING
 four times as go/packages loads a package four ways. That one is about the log;
 this one is about the budget.
 
@@ -64,7 +64,7 @@ Routing:
 
 - **Local**: one red block on stderr (`logError` → `logger.Error`).
 - **GitHub Actions**: ONE `::error` annotation carrying the whole list —
-  `gha.go` escapes the newlines (`%0A`), so the annotation keeps every line
+  `gha.go` escapes the newlines (`%0A`). So the annotation keeps every line
   instead of truncating to the first. It is a single annotation on purpose:
   the individual warnings were already `::warning` annotations, and re-emitting
   them per line would double the run's annotation count.
@@ -75,7 +75,7 @@ The returned error is the one-line `build failed: N distinct warnings emitted
 (threshold: 15)`, so the process's final error line names one number.
 
 `logger.EmittedWarnings` retains the first `logger.MaxRecordedWarnings` (200)
-DISTINCT warnings, each with its repeat count; the distinct count itself is
+DISTINCT warnings, each with its repeat count. The distinct count itself is
 unbounded, and the recap reports the difference explicitly (`... and N more
 (only the first 200 are recorded)`) rather than silently truncating. The
 deduplication set outlives that retention cap, so a repeat of an unretained

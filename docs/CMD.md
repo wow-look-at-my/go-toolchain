@@ -8,7 +8,7 @@ ignore/unignore, cacheprog) using Cobra, plus the phases they drive.
 `dependabot.go` submits a dependency-graph snapshot to GitHub in CI. **A failed
 snapshot or submission is fatal to the build.**
 
-There is deliberately NO opt-out env var: submission is part of building in CI,
+There is deliberately NO opt-out env var. Submission is part of building in CI,
 and a knob that turned it off would eventually be set and left set, leaving a
 repo silently absent from vulnerability scanning while its builds stayed green.
 
@@ -53,7 +53,7 @@ unreachable address is how a CLI suite keeps the footer offline and instant.
 `uptodate.go`: the root `PersistentPreRunE` exits 0 with "Up to date, nothing to
 do" when the stored fingerprint matches and every build output still exists. The
 fingerprint is a SHA-256 over the Go version, this binary's version, `outputDir`,
-the run's flags, the run's environment, and the content of every tracked file:
+the run's flags, the run's environment, and the content of every tracked file.
 `.go`, `go.mod`/`go.sum`, `.dats` suites and their `.golden` snapshots,
 `action.yml`, anything under a `testdata` directory, and every file `go list`
 reports for a `//go:embed` directive.
@@ -62,14 +62,14 @@ Two of those inputs are not files, and both are there because leaving them out
 made the skip lie:
 
 - **The environment.** An env-gated test or benchmark switched on between two
-  runs is a pipeline the stored fingerprint never described; skipping it reported
+  runs is a pipeline the stored fingerprint never described. Skipping it reported
   a green run that never executed the thing that was turned on. Which variables a
   project's tests read cannot be known from here, so the whole environment is
   folded in except `volatileEnv` — `_`, `OLDPWD`, `SHLVL`, which the shell
   rewrites on every command line and nothing can read as configuration. The
   snapshot is taken by `captureRunEnv` at the top of `PersistentPreRunE`, ahead of
-  both `isUpToDate` and `saveFingerprint`: the pipeline sets variables of its own
-  as it goes (the cacheprog's socket paths carry the PID), so hashing
+  both `isUpToDate` and `saveFingerprint`. The pipeline sets variables of its own
+  as it goes (the cacheprog's socket paths carry the PID). So hashing
   `os.Environ()` at save time would stamp a fingerprint no later run could match,
   silently disabling the skip forever.
 - **The flags.** `--generate` executes go:generate directives, `--cgo` changes
@@ -133,7 +133,7 @@ things split:
   engine, and it is compiled into every binary — a build tag here would take
   the cache away from whatever the tag excludes. `close` merges onto the file
   before rewriting it atomically, so a go-toolchain running alongside keeps its
-  entries. Keep the backend free of third-party packages: the APE carries a
+  entries. Keep the backend free of third-party packages. The APE carries a
   payload per platform, and a package init that fails on any of them kills that
   platform's binary before `main` runs (a sqlite backend did exactly that on
   Windows, through `modernc.org/libc`).
@@ -148,7 +148,7 @@ platforms in two cases:
   `--cosmo-platforms`. One file, three platforms, one published artifact.
 - **`--targets`.** An exact, validated list containing `cosmo` and/or the wasm
   targets (`wasm/js`, `wasm/wasip1`) — nothing else. The fat APE is the
-  command's only native output, so a native `os/arch` pair is rejected with a
+  command's only native output. So a native `os/arch` pair is rejected with a
   pointer to `--cosmo-platforms`, which is how the APE's own host coverage is
   chosen.
 
@@ -166,7 +166,7 @@ Only a single-architecture set drops a payload (-46.9%). What the default buys
 is one artifact instead of six.
 
 `cosmoRuntimeStatus` is the accepted set, and it is deliberately narrower than
-what the fork can emit: `darwin/amd64` (Intel-mac runtime never executed on real
+what the fork can emit. `darwin/amd64` (Intel-mac runtime never executed on real
 hardware) and `windows/arm64` (amd64-only PE payload, and WoA x86-64 emulation
 fails to boot it) are refused with their reason. The published platform set is
 what tells a consumer where the binary runs, so a platform whose runtime was
@@ -192,14 +192,14 @@ key is `v<N>` parsed from the dl endpoint's redirect `Location`
 dir.
 
 `GO_TOOLCHAIN_COSMO_VERSION` pins that release. buildhost reads `v` and
-`branch` as alternatives, so a pinned URL carries `v=<N>` and no branch, and
+`branch` as alternatives. So a pinned URL carries `v=<N>` and no branch, and
 the pin keys the cache directly instead of probing. `go-toolchain version
 cosmo` (`ResolveCosmoVersion`) prints the release this host would resolve,
-without downloading it; `--require-release` (`cosmoReleasePattern`, `^v[0-9]`)
+without downloading it. `--require-release` (`cosmoReleasePattern`, `^v[0-9]`)
 turns the branch-key fallback into a failing exit code, since that fallback
 means each host would then resolve its own answer. CI uses the pair:
 `host-build` resolves once (with `--require-release`) and hands the answer to
-each `build-everywhere` leg, so the three APEs `identical` compares (via
+each `build-everywhere` leg. So the three APEs `identical` compares (via
 `go-toolchain verify-identical`, `src/cmd/apeidentity.go`) come from one
 compiler even when a run spans a gosmopolitan publish.
 
@@ -215,9 +215,9 @@ chars of a SHA-256 over the toolchain's VERSION + `bin/` + `pkg/tool/` tool
 binaries.
 
 The fork stamps a constant version, which gives DIFFERENT fork builds colliding
-tool/action IDs: a shared cache then serves one build's objects into another's
+tool/action IDs. A shared cache then serves one build's objects into another's
 links (the 2026-07-20 SIGSEGV-APE cross-build poisoning). The job's cacheprog
-scopes every cache key to that namespace (see `docs/CACHE.md`); a fingerprint
+scopes every cache key to that namespace (see `docs/CACHE.md`). A fingerprint
 failure fails the matrix run, and `runBuild` refuses a fork job whose
 `buildJob.cacheNamespace` is empty (last-chokepoint guard). Normal targets set
 no namespace and keep byte-identical cache behavior.
@@ -242,15 +242,15 @@ not on disk, or an empty platform set.
 ## One APE is one file, by construction
 
 A cosmo build writes the APE and nothing else. There is no flag, no default and
-no code path that copies it onto per-platform names: the copier, its
+no code path that copies it onto per-platform names. The copier, its
 `--cosmo-slots` flag and the symlink/drop machinery that hid the APE's old
 `_cosmo_fat` name from a publish pipeline are all gone. The behavior is not a policy CI
 checks after the fact — a duplicate is unreachable, so there is nothing to
 check.
 
 What the deleted machinery existed for is gone too. It replaced the fat name
-because buildhost 400-rejected `os=cosmo` in the per-platform filename grammar;
-the manifest above is how the APE publishes now, under its own name, as one row.
+because buildhost 400-rejected `os=cosmo` in the per-platform filename grammar.
+The manifest above is how the APE publishes now, under its own name, as one row.
 
 `release --build` registers the same flags.
 

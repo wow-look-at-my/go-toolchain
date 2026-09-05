@@ -25,7 +25,7 @@ with:
 
 **Per-target main-package discovery.** With an explicit `--targets` list,
 main packages are discovered under **each wasm target's own build context**
-(GOOS/GOARCH), not the host's: a main package guarded `//go:build js && wasm`
+(GOOS/GOARCH), not the host's. A main package guarded `//go:build js && wasm`
 (e.g. a browser entry point importing `syscall/js`) is built for `wasm/js`
 targets and never attempted for `wasm/wasip1`, and an unconstrained main
 builds for every target. A target whose context has no main packages at all
@@ -76,20 +76,20 @@ has wasm support.
 
 **wasm_exec.js.** A `wasm/js` build also copies the fork toolchain's
 `lib/wasm/wasm_exec.js` — the JS harness that loads the wasm in a browser or
-Node, which must byte-match the toolchain that built it — into
+Node. That must byte-match the toolchain that built it — into
 `build/wasm_exec.js`. It is covered by `checksums.txt` and stays in `build/`,
 but sits outside the buildhost publish set (its name doesn't match
 the publish pipeline's `<binary>_{os}_{arch}` pattern, like `checksums.txt`
 itself). Missing harness in the fork GOROOT only warns.
 
 **GOMEMLIMIT guard.** The injected cgroup guard is stdlib-only and compiles
-for both wasm ports; without cgroup files it is a startup no-op, so wasm
+for both wasm ports; without cgroup files it is a startup no-op. So wasm
 binaries are built from the same guarded source as every other target. The
 guard is injected into main packages visible under the **host** context only;
 a main that exists only under a cross-compile context (such as a
 `js && wasm`-guarded browser entry point) gets no guard — sound, since the
 guard reads Linux cgroup limits and would no-op there anyway. Discovery skips
-the guard file by name, so an injected (or stale) guard never makes a
+the guard file by name. So an injected (or stale) guard never makes a
 host-only main dir look like a main package for another target.
 
 **Running and testing wasm binaries.** The build pipeline never executes
@@ -105,7 +105,7 @@ PATH="$GOROOT/bin:$GOROOT/lib/wasm:$PATH" GOTOOLCHAIN=local \
   GOOS=js GOARCH=wasm go test ./...
 ```
 
-Rejected spellings fail fast with a pointer to the right one: `js/amd64`,
+Rejected spellings fail fast with a pointer to the right one. `js/amd64`,
 `linux/wasm` and `wasm/amd64` (impossible pairings), a native `os/arch` pair
 in `--targets` (the fat APE is the only native output; use
 `--cosmo-platforms` to choose which hosts it covers), and a wasm target in

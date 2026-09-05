@@ -6,7 +6,7 @@ Shared Go module utilities: module path reading, main package discovery.
 
 `ReadModulePath`, `FindMainPackages` and `FindMainPackagesForTarget` each take the module root to read. Production passes `"."`, so the behaviour is
 what it always was; a test passes its own temp directory and never calls `os.Chdir`. That matters because the gosmopolitan fork runs tests in
-parallel unless one takes the serial barrier: a test that changed the process directory moved it under every test beside it, which showed up as
+parallel unless one takes the serial barrier. A test that changed the process directory moved it under every test beside it, which showed up as
 `getwd: no such file or directory`, as one test's fixtures landing inside another's temp tree, and as fixture directories left behind in
 `src/gomod` itself.
 

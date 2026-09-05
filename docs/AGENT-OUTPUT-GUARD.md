@@ -8,7 +8,7 @@ result. `version` does not, and is exempt (`skipAgentGuard`): it prints
 four lines of build metadata -- no coverage report, no test result, nothing the
 guard exists to keep in front of a reader. `version` is also what this
 repository's own `dats/cli.dats` runs, and dats captures a command's
-stdout to assert on it, so a guarded `version` refuses inside the dats
+stdout to assert on it. So a guarded `version` refuses inside the dats
 phase and fails every run under an agent -- the exact reader the guard is for.
 `install`/`release` skip the CI cache config check (`skipCacheValidation`) but are NOT exempt from
 the guard. It aborts with exit 1
@@ -26,7 +26,7 @@ because go-toolchain is not the only thing that needs the answer — and while i
 kept its own list, the list stopped at the agents go-toolchain happened to know.
 
 Add an agent THERE and every consumer gets it, this guard included. What lives
-here is go-toolchain's own half: classifying where stdout went, and refusing to
+here is go-toolchain's own half. Classifying where stdout went, and refusing to
 run when the answer means the agent will never read the output.
 
 `detectAgent` (claudeguard.go) is the whole adapter: `agent.Detect()` for the
@@ -47,10 +47,10 @@ platform that can actually introspect a file descriptor. A third platform
 `/proc/self/fd` + `stat`:
 
 - **Pipe** — allowed only when `isHarnessPipeReader` says the reader is the
-  agent itself: an ancestor process whose name matches a roster prefix, or an
+  agent itself. An ancestor process whose name matches a roster prefix, or an
   ancestor whose pid the agent exported (`OPENCODE_PID`, `GROK_AGENT_PID`).
   This allowance is load-bearing, not a nicety: grok and opencode always pipe
-  a command's stdout back to themselves, so without it the guard would refuse
+  a command's stdout back to themselves. So without it the guard would refuse
   every single run under them. A filter in a shell pipeline is a sibling, and
   a `$(...)` reader is a shell, so neither is an agent-named ancestor. An
   agent whose binary is renamed beyond its roster prefixes and exports no pid
@@ -58,7 +58,7 @@ platform that can actually introspect a file descriptor. A third platform
   string alone, which both ends of a pipe share -- so the shell that forks a
   command and keeps its own stdout fd open (every shell does this) matches
   too. `fdAccessMode` reads that candidate's O_ACCMODE from
-  `/proc/pid/fdinfo` and skips a write-end match, which is what let a plain
+  `/proc/pid/fdinfo` and skips a write-end match. That is what let a plain
   grok-build run refuse itself as "piped into `bash`".
 - **Socket / anon-inode** — gets the exact same `isHarnessPipeReader` chance a
   pipe gets, but NOT via `pipePeerName`: the two ends of an AF_UNIX
@@ -66,12 +66,12 @@ platform that can actually introspect a file descriptor. A third platform
   where both ends share one), so an fd-target string match can never find the
   other end. `socketPeerPID` uses `getsockopt(SOL_SOCKET, SO_PEERCRED)` on the
   fd instead — the kernel's own record of the connection's creator, fixed at
-  `socketpair()` time, so it still resolves after that creator (opencode/Node)
+  `socketpair()` time. So it still resolves after that creator (opencode/Node)
   closes its own copy of the child's fd, which real child_process plumbing
   does immediately. `pipePeerName`'s inode scan is kept only as a fallback for
   a target that SO_PEERCRED can't resolve. This closed a real gap: opencode's
   bash tool wires a spawned child's stdio through a socketpair, not a bare
-  pipe, so a plain, unpiped `go-toolchain` invocation was refused as "captured
+  pipe. So a plain, unpiped `go-toolchain` invocation was refused as "captured
   instead of printed to the terminal" — the pipe allowance existed, but
   sockets never got a mechanism that could actually resolve their peer.
 - **Regular file** — allowed only if its path is the harness capture
@@ -94,7 +94,7 @@ platform that can actually introspect a file descriptor. A third platform
   agent renamed beyond its roster prefixes.
 - **UNIX-domain socket** — unlike a FIFO, `getsockopt(SOL_LOCAL,
   LOCAL_PEERPID)` gives the exact peer pid straight from the kernel, no
-  `libproc` needed, so a socket DOES get the same allowance a pipe gets on
+  `libproc` needed. So a socket DOES get the same allowance a pipe gets on
   linux (`socketPeerPID` + `agent.CommPPID`, the latter now backed by
   `sysctl(KERN_PROC)` in is-this-an-agent's `proc_darwin.go` rather than the
   `!linux && !cosmo && !darwin` stub every darwin build used before). This
@@ -109,11 +109,11 @@ platform that can actually introspect a file descriptor. A third platform
   fcntl, darwin's one substitute for `/proc/self/fd`'s readlink.
 - **Char device** — `isTerminal` uses the `github.com/mattn/go-isatty`
   package (its BSD/darwin variant), not a hand-rolled ioctl. A cosmo APE on a
-  darwin host cannot ask that question at all: the probe reports UNSUPPORTED
+  darwin host cannot ask that question at all. The probe reports UNSUPPORTED
   rather than "not a terminal", and going blind there would wave every
   `> /dev/null` run through, which is the shape `CLAUDECODE` takes. So an
   unaskable probe falls back to `F_GETPATH`, which DOES answer on that host,
-  and the device's own path decides: a `/dev/tty…`, `/dev/pts/…`,
+  and the device's own path decides. A `/dev/tty…`, `/dev/pts/…`,
   `/dev/console` or `/dev/ptmx` spelling is the terminal, anything else is a
   discard. Only a descriptor whose path is unreadable too stays blind.
   `.github/dats-fixtures/agent-output-guard.dats` asserts the refusal on
@@ -138,12 +138,12 @@ isatty cannot see the wrapper; ancestry can. `claudeguard_ptywrap.go` walks
 this process's parent chain (`agent.CommPPID`, the same lookup agent
 detection itself uses) and checks each comm against a short, exact-match
 roster of tools whose whole purpose is forkpty()-ing a child to make its
-isatty() checks pass: `script`, `scriptreplay`, `ttyrec`, `ttyplay`,
+isatty() checks pass. `script`, `scriptreplay`, `ttyrec`, `ttyplay`,
 `asciinema`, `unbuffer`, `expect`. A char device that passes isatty AND has
 one of these as an ancestor classifies as `sinkHidden` (detail: the wrapper's
 name) instead of `sinkVisible`.
 
-`tmux` and `screen` are deliberately absent from that roster: they also
+`tmux` and `screen` are deliberately absent from that roster. They also
 forkpty(), but they relay a real pty to another real display a human
 attends to, not to a file an agent can grep afterward. Adding them would
 refuse every developer's ordinary multiplexed session -- the same
@@ -151,11 +151,11 @@ false-positive cost `isHarnessPipeReader`'s ancestry allowance exists to
 avoid on the pipe/socket side.
 
 This closes the same class of gap `isCapturePathFn`/`isHarnessCapturePath`
-polices on the regular-file side, from the opposite direction: there, a
-FILE that LOOKS hidden is let through because the harness itself owns it;
-here, a TERMINAL that looks visible is refused because a known wrapper, not
+polices on the regular-file side, from the opposite direction. There, a
+FILE that LOOKS hidden is let through because the harness itself owns it.
+Here, a TERMINAL that looks visible is refused because a known wrapper, not
 a human, owns it. Both are advisory, exactly like agent detection itself
-(see the package comment in `is-this-an-agent`): a renamed wrapper binary,
+(see the package comment in `is-this-an-agent`). A renamed wrapper binary,
 or one not on the roster, is a known gap, not a promise. Test coverage:
 `claudeguard_ptywrap_test.go` drives the ancestry walk itself against a fake
 process chain; `claudeguard_test.go`'s `TestScriptWrapperCannotFakeATerminal`
@@ -171,7 +171,7 @@ classifier for that release target MUST be `linux || cosmo` — the old
 never fired in production (while GOOS=linux unit tests stayed green).
 `claudeguard_buildtags_test.go` pins, per platform (linux, cosmo, darwin),
 that exactly one file defining `inspectFD` is selected and the no-op stub is
-excluded; the smoke-linux guard step separately asserts the shipped APE
+excluded. The smoke-linux guard step separately asserts the shipped APE
 aborts. `isTerminal` for linux/cosmo is split: `claudeguard_tty_linux.go`
 (x/sys/unix TCGETS) / `claudeguard_tty_cosmo.go` (stdlib `syscall.Ioctl` + a
 local TCGETS const — x/sys/unix has no cosmo port; only reachable on linux
@@ -210,7 +210,7 @@ a one-line edit in the right place instead of a rewrite.
 
 Note the difference matters for a THIRD reason, and it is not hypothetical.
 `hostos.GOOS()` decides which branch is taken, and it used to be able to answer
-`"linux"` on a Mac: `syscall.Uname` is ENOSYS on darwin under the fork (the
+`"linux"` on a Mac. `syscall.Uname` is ENOSYS on darwin under the fork (the
 dispatcher has no SYS_UNAME case), and the two filesystem probes are reads a
 sandbox denies, leaving the `"linux"` default. That routed a Mac into the
 "looked and saw nothing" branch and lost even the banner. On NT it was not a
@@ -218,7 +218,7 @@ risk but the observed behavior, since neither probe can answer there at all.
 
 `hostos.GOOS()` no longer rests on those probes. `runtime.CosmoHostOS()` reads
 the runtime's own `__hostos`, which rt0 sets from the APE boot path and every
-syscall dispatches on, so it cannot be sandboxed away and cannot ENOSYS; it
+syscall dispatches on. So it cannot be sandboxed away and cannot ENOSYS; it
 lands through the `hostSignalFunc` seam ahead of everything else. The probes
 stay behind it for a host the fork has no port for. Each smoke job asserts
 `version host` inside dats' sandbox and outside, so an unwired seam is red.
@@ -228,7 +228,7 @@ is the point, and it was got wrong once:
 
 1. ~~**`wow-look-at-my/is-this-an-agent`.**~~ **MERGED.** Its `proc.go` was
    `linux || cosmo` and its sysctl-backed `proc_darwin.go` was `darwin`, so a
-   cosmo APE on a mac had no process lookup; `agent.CommPPID` could not answer,
+   cosmo APE on a mac had no process lookup. `agent.CommPPID` could not answer,
    and the SOCKET case could not tell "the agent is reading me" (allow) from
    "something else is capturing" (refuse). It now dispatches on the host and
    shells out to `ps -o ppid=,ucomm=` there, the sysctl path being uncompilable
@@ -259,7 +259,7 @@ temporary ref pin (forbidden) or code that cannot be run, and a guessed
 syscall layer aimed at the owner's own machine is the worst place to find out.
 
 `smoke-macos` is the gate that found this and is the gate that will prove the
-fix: it runs the full pipeline under the real published APE on macos-latest.
+fix. It runs the full pipeline under the real published APE on macos-latest.
 
 The guard is unconditional: there is deliberately no environment variable or
 flag to disable it.
@@ -276,7 +276,7 @@ flag to disable it.
   `TestScriptWrapperCannotFakeATerminal` reproduces the reported `script(1)`
   bypass for real, through the actual binary, via `runScriptWrapperHelper`.
 - `src/cmd/claudeguard_ptywrap_test.go` — `ptyWrapperAncestor`'s walk against
-  a fake process chain: finds a wrapper a few hops up, every roster name
+  a fake process chain. Finds a wrapper a few hops up, every roster name
   matches, a fully-resolvable wrapper-free chain answers not-found, an
   unresolvable ancestor ends the walk rather than guessing, `script` does not
   match a `scripts-runner` prefix, `tmux`/`screen` are not treated as
@@ -291,15 +291,15 @@ flag to disable it.
   socket and pipe) proving a recognized reader is let through while
   `| cat` and an unrecognized pid still refuse. Only runs when built and
   executed ON darwin — this repo's own CI never builds+tests ITSELF on
-  darwin (`build`/`host-build` are linux-only), so this file needs a real
+  darwin (`build`/`host-build` are linux-only). So this file needs a real
   Mac (or darwin CI runner) to execute, not just cross-compile; it's a
   local-developer check, not a CI gate.
 - `dats/cli.dats` — the dev build refusing a captured run under each agent's
   marker, the `version` exemption, and the build-output deletion. The suite
   does not assert WHICH agent the message names: ancestry outranks the env
-  marker, so running the suite from inside another agent's session would
+  marker. So running the suite from inside another agent's session would
   legitimately name that agent. It runs on every host `build-everywhere`
-  covers, and each guard test pairs its answer with `uname -s`, so the NT
+  covers, and each guard test pairs its answer with `uname -s`. So the NT
   arm demands the INOPERATIVE banner where the other two demand a refusal.
 - `.github/dats-fixtures/agent-output-guard.dats`, one file copied by every
   leg of the smoke job
@@ -330,7 +330,7 @@ flag to disable it.
   An APE never rewrites itself, so it stays a polyglot and the fallback is
   what reaches it. A direct exec succeeds only where binfmt_misc carries an
   `APE` entry, whose registration needs root and which macOS has no equivalent
-  of, so the fallback must never be removed. Without it the harness dies with
+  of. So the fallback must never be removed. Without it the harness dies with
   `exec format error` before the guard reports anything, which reads as a
   guard failure and is not one.
 
@@ -341,7 +341,7 @@ flag to disable it.
   guard that allowed and a run that never reached the guard produce.
 - **A run reaches the guard only under a module.** With no `go.mod` anywhere
   above the cwd, main.go's bootstrap cannot tell which Go to use and exits
-  first, so nothing the guard would have said is ever printed. Any harness for
+  first. So nothing the guard would have said is ever printed. Any harness for
   these tests must therefore run inside a module; the dats fixtures get it for
   free, since `{outputs.X}` is nested inside the module go-toolchain is
   building, which is why the same empty scratch directory behaves differently

@@ -9,7 +9,7 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
 - Suites are non-hidden `*.dats` files under `dats/` at the module root.
   When the directory has none, the phase is a silent no-op.
 - **Indent with tabs.** dats parses with `wow-look-at-my/yaml-fixed`, which
-  inverts stock YAML: a space in the leading indentation is a parse error
+  inverts stock YAML. A space in the leading indentation is a parse error
   (`spaces cannot be used for indentation`), and spaces may only align after a
   tab. So a sequence item's sibling keys line up under the content after its
   `- ` marker — one tab of depth plus two spaces of alignment:
@@ -41,7 +41,7 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   binaries through it — never out of `build/` directly, because matrix cosmo
   slot artifacts are APEs that self-assimilate on first exec.
 - That directory is `build/.dats-stage/` **inside the module root**, and it is
-  there for a reason: dats sandboxes every command, and of the host a
+  there for a reason. Dats sandboxes every command, and of the host a
   sandboxed command reaches only the working directory (docker mounts it and
   nothing else; bwrap binds the OS tool tree plus the cwd, with a private
   `/tmp` over it). A staging dir under `$TMPDIR` is invisible to both, and
@@ -49,8 +49,8 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   go-toolchain builds, so staging there never dirties the tree.
 - Suites are **sandboxed** — the phase does not pass `--no-sandbox`, and it is
   not the toolchain's call to make. The handoff dir is READ-ONLY there, like
-  the rest of the working directory, and there is no way to declare otherwise:
-  a test whose binary must write (an APE rewrites its own file on first exec)
+  the rest of the working directory, and there is no way to declare otherwise.
+  A test whose binary must write (an APE rewrites its own file on first exec)
   copies it into the private `/tmp` first and execs the copy — see
   `cli.dats`. A suite whose commands genuinely need the host says so per file
   (`sandbox: false`); one that needs something specific of the docker backend
@@ -81,7 +81,7 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   duration a network measurement.
 - The agent-output-guard tests in `cli.dats` name **no host**. `build-everywhere`
   runs this repo's whole pipeline on linux, darwin and NT, so the suite runs on
-  all three; each guard test prints its answer next to `uname -s` and the
+  all three. Each guard test prints its answer next to `uname -s` and the
   pattern accepts only the pairs that agree. That is what keeps one file
   covering a guard whose correct answer differs by host — it refuses a captured
   run where it can classify a descriptor, and says INOPERATIVE on an NT host
@@ -92,11 +92,11 @@ pipeline's dats phase after every build (root pipeline and `matrix`).
   `actions/checkout` just to copy into a throwaway module and run against the
   actual published binary.
 - CI provisions **bubblewrap** before running the pipeline (`.github/workflows/ci.yml`,
-  `host-build` and `build`), so suites run under the native Linux sandbox rather than
+  `host-build` and `build`). So suites run under the native Linux sandbox rather than
   the docker fallback, and an unusable bwrap fails the job instead of silently
   degrading to it.
 - The suite pins `sandbox: image: golang:1.25`. Every go-toolchain invocation
-  past `version` bootstraps a Go toolchain, so under the docker backend (what
+  past `version` bootstraps a Go toolchain. So under the docker backend (what
   CI falls back to when bwrap is unavailable) an image without Go would make
   each command download one. bwrap and seatbelt ignore `image` and use the
   host's Go.

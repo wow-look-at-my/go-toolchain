@@ -3,7 +3,7 @@
 go-toolchain ships no cache server of its own. The gosmopolitan fork's
 `cmd/go` links `github.com/wow-look-at-my/go-s3-server/cacheclient` in
 process and consults it directly, ahead of `GOCACHEPROG` — see that repo's
-CLAUDE.md, "Shared build cache: the client is linked into `cmd/go`", and
+CLAUDE.md, "Shared build cache. The client is linked into `cmd/go`", and
 `cmd/go/internal/cache/shared.go` and `default.go`'s `chooseCache` in the
 gosmopolitan repo.
 
@@ -21,7 +21,7 @@ gosmopolitan's `cmd/go` through plain environment inheritance, since every
 ## History
 
 Until 2026-08, this repo ran its own `GOCACHEPROG` protocol server
-(`src/cache/`, `src/cmd/cacheprog.go`): a local disk/FUSE-pack tier, a
+(`src/cache/`, `src/cmd/cacheprog.go`). A local disk/FUSE-pack tier, a
 `go-s3-server/cacheclient`-backed remote tier, a shared daemon so sibling `go`
 invocations skipped reloading the web index, and a stats socket the build
 profile (`src/profile/`) read hit/miss/put counts from.
@@ -36,7 +36,7 @@ because nothing reported into them — the CI symptom that triggered this
 removal was a "Cache validation (second build)" step reading `0%
 cache-satisfied` and blowing its time budget.
 
-The functionality is not gone, only the duplicate copy of it: local disk
+The functionality is not gone, only the duplicate copy of it. Local disk
 caching, the remote tier, and its integrity guards (checksum, build-id,
 module-index) all still run, inside gosmopolitan's `cmd/go`, backed by the
 same `cacheclient` package this repo's server used to wrap. What is genuinely

@@ -27,15 +27,15 @@ finished — a half-written binary cannot exist there to be mistaken for a
 result.
 
 The point is that a hidden failure cannot be laundered into a success by
-running a leftover binary: with the output discarded and the exit code ignored,
+running a leftover binary. With the output discarded and the exit code ignored,
 a stale `build/<target>` is the last thing that can pass for a build that never
-happened, so it does not survive. There is deliberately no flag or environment
+happened. So it does not survive. There is deliberately no flag or environment
 variable to disable this. `⇒ Up to date, nothing to do` is unaffected — that
 fast exit means the last run succeeded and its outputs are intact.
 
 ## Mechanics (`src/cmd/staleoutputs.go`)
 
-A binary at `build/<target>` is otherwise indistinguishable from one the current run produced, so an invocation that discards stdout+stderr and
+A binary at `build/<target>` is otherwise indistinguishable from one the current run produced. So an invocation that discards stdout+stderr and
 ignores the exit code can execute a previous run's binary and report a build that never happened. The artifacts of the module's build targets are
 therefore deleted:
 
@@ -52,12 +52,12 @@ spelling of all of those — the compiler's -o under its temp name, which `runBu
 so the sweeps only ever meet crash orphans (`build.TmpPrefix`) — minus the `nonBinaryOutputs` set (`checksums.txt`, `wasm_exec.js`, `profile.json`,
 `trace.json` — a project whose binary is named `wasm` must not lose `wasm_exec.js`).
 
-Discovery is a directory scan keyed on target NAME rather than a re-derivation of the platform matrix, so artifacts of a previous run's platform set
+Discovery is a directory scan keyed on target NAME rather than a re-derivation of the platform matrix. So artifacts of a previous run's platform set
 go too. `clearBuildOutputs` records `{dir, names}` per module (`trackedOutputs`, absolute) so the failure path works from any cwd in a multi-module
 run. Removal failure is FATAL on the clear path (an undeletable binary is exactly the stale binary this prevents) and best-effort on the
 failure/abort paths (never mask the real error). The "Up to date, nothing to do" fast exit is unaffected — it fires in `PersistentPreRunE` before
 `run()`, and it means the last run succeeded with its outputs intact. No flag or env var disables any of this.
 
-NOTE for dats suites: dats runs commands in the module root, so a suite test that execs a pipeline command must `cd "$(mktemp -d)"` first or it
+NOTE for dats suites: dats runs commands in the module root. So a suite test that execs a pipeline command must `cd "$(mktemp -d)"` first or it
 deletes the binaries the pipeline just built (this bit `dats/cli.dats`'s guard test — see `dats/README.md`).
 
