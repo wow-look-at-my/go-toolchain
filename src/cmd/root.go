@@ -158,8 +158,7 @@ func init() {
 	rootCmd.Flags().StringVar(&benchCPU, "cpu", "", "GOMAXPROCS values to test with (comma-separated, e.g. 1,2,4)")
 
 	fingerprintFlags = rootCmd.Flags()
-	// Kept apart: Flags() merges these in only at parse time; flagFingerprint
-	// visits both sets directly and dedupes by name.
+	// Kept apart: Flags() merges these in only at parse time, so flagFingerprint visits both sets and dedupes by name.
 	fingerprintPersistentFlags = rootCmd.PersistentFlags()
 
 	Register(rootCmd)
