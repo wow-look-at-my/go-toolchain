@@ -79,4 +79,3 @@ func TestFormatBenchBytes(t *testing.T) {
 		assert.Equal(t, tc.want, formatBenchBytes(tc.b), "b=%v", tc.b)
 	}
 }
-
