@@ -98,7 +98,8 @@ func TestLoadModeFromSource(t *testing.T) {
 
 func TestSourceLocationShortLoc(t *testing.T) {
 	t.Serial()
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
 	absPath := "/some/path/file.go"
 	loc := SourceLocation{File: absPath, Line: 42, Column: 10}
 	short := loc.ShortLoc()
@@ -139,7 +140,8 @@ func main() {
 
 func TestSourceLocationShortLocRelative(t *testing.T) {
 	t.Serial()
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
 	loc := SourceLocation{File: filepath.Join(cwd, "subdir", "file.go"), Line: 10, Column: 5}
 	short := loc.ShortLoc()
 	assert.Equal(t, filepath.Join("subdir", "file.go")+":10", short)
@@ -320,7 +322,8 @@ func foo() {
 
 func TestSourceLocationShortLocAbsolute(t *testing.T) {
 	t.Serial()
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
 	absPath := "/nonexistent/path/file.go"
 	loc := SourceLocation{File: absPath, Line: 10}
 	short := loc.ShortLoc()
