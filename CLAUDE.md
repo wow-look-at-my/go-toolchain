@@ -271,10 +271,10 @@ coverage.
   `go-toolchain version host` shows both; each smoke job asserts its own host, inside dats' sandbox and outside. Consumers: cosmobootstrap (the
   buildhost slot and the fork's `bin/go` suffix), cgoenv (brew pkgconfig), codeql (platform dirs), matrix host symlinks, and the agent output guard's
   classifier dispatch. `runtime.GOARCH` needs no wrapper — a fat APE always runs the payload matching the host arch
-- `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@master`), including the org all-builds shadow guard, the
-  comment-wall guard, and the tests-in-YAML guard (`no-tests-in-yaml`: an assertion or a written test file inside a `run:` script fails the job, so
-  every consumer of this action gets the rule). Depth:
-  `docs/ACTION.md`
+- `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@master`): the org all-builds shadow guard, the comment-wall
+  guard, the tests-in-YAML guard (`no-tests-in-yaml`: an assertion or a written test file inside a `run:` script fails the job, so every consumer of
+  this action gets the rule), and the APE binfmt registration — one `binfmt_misc` entry handing the header to `/bin/sh`, so a bare exec of an APE
+  works where the runner allows it and warns where it does not. Depth: `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. The smoke legs run ONE host's
   APE everywhere, so every host builds this repo's APE — `build` on linux, `build-everywhere` on darwin and windows — and `identical` fails unless
   the three agree byte for byte; a missing hand-off fails too, since comparing the hosts that answered proves nothing. `identical` compares the very

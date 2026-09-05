@@ -69,6 +69,8 @@ The action fetches secrets, configures the Go proxy and private repo access, wir
 
 **CodeQL** needs `security-events: write`, and the repo must have GitHub's *default* CodeQL setup disabled (*Settings → Code security → Code scanning → CodeQL → Default setup*). Opt out with `codeql: 'false'`.
 
+**APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry so the kernel starts a fat APE through `/bin/sh`, which is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
+
 ### Inputs
 
 | Input               | Type     | Default    | Description                                              |
