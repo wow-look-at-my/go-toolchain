@@ -7,13 +7,13 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Coverage enforcement** — the build fails below 80% coverage, and the failure is annotated in the GitHub Actions run UI.
 - **Coverage watermarking** — optionally locks in a coverage floor (with a 2.5% grace period) so it can only go up.
 - **Warnings budget** — more than 15 distinct warnings in a run fails the build, with a numbered recap. A repeated warning counts once. See [docs/WARNINGS-GATE.md](docs/WARNINGS-GATE.md).
-- **One binary, every platform** — `matrix` builds a single fat APE that runs natively on Linux x64, macOS ARM64 and Windows x64; it's the org's only native output. See [docs/MATRIX.md](docs/MATRIX.md).
+- **One binary, every platform** — `matrix` builds a single fat APE that runs natively on Linux x64, macOS ARM64 and Windows x64. It is the org's only native output. See [docs/MATRIX.md](docs/MATRIX.md).
 - **WebAssembly targets** — `wasm/js` and `wasm/wasip1`, opted into alongside (or instead of) the APE. See [docs/WASM.md](docs/WASM.md).
 - **Benchmarks** — run automatically after builds, compared against previous results stored in git notes.
 - **CLI test suites** — `*.dats` suites under `dats/` run against the freshly built binaries; a failure fails the build. See [docs/DATS-PHASE.md](docs/DATS-PHASE.md).
 - **Near-duplicate detection** — finds structurally similar functions by comparing ASTs.
 - **File length checks** — warns at 500 lines, fails at 750. Generated files are exempt unless `--count-generated` is passed.
-- **Auto-fix, or CI check** — locally the linter fixes violations in place; on CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.
+- **Auto-fix, or CI check** — locally the linter fixes violations in place. On CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.
 - **testify migration** — rewrites fork and `gotest.tools` imports to upstream `stretchr/testify`, adding the type conversions upstream's strict comparisons need. See [docs/VET.md](docs/VET.md).
 - **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`),
   `writeruns` (a document written one string at a time), `jsoninterp` (JSON built by formatting, concatenation or a template),
@@ -65,11 +65,11 @@ jobs:
       - uses: wow-look-at-my/go-toolchain@master
 ```
 
-The action fetches secrets, configures the Go proxy and private repo access, wires up the web build cache, runs `go-toolchain matrix`, and runs a CodeQL `security-and-quality` analysis around the build. Every permission above is required, and the build fails without it — [docs/ACTION.md](docs/ACTION.md) says what each one is for.
+The action fetches secrets, configures the Go proxy and private repo access, and wires up the web build cache. It then runs `go-toolchain matrix`, with a CodeQL `security-and-quality` analysis around the build. Every permission above is required, and the build fails without it — [docs/ACTION.md](docs/ACTION.md) says what each one is for.
 
 **CodeQL** needs `security-events: write`, and the repo must have GitHub's *default* CodeQL setup disabled (*Settings → Code security → Code scanning → CodeQL → Default setup*). Opt out with `codeql: 'false'`.
 
-**APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry so the kernel starts a fat APE through `/bin/sh`, which is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
+**APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry, so the kernel starts a fat APE through `/bin/sh`. That is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
 
 ### Inputs
 
