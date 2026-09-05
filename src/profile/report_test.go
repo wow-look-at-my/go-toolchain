@@ -30,6 +30,7 @@ func testActions() []Action {
 }
 
 func TestBuildReport_Totals(t *testing.T) {
+	t.Serial()
 	r := BuildReport(testActions())
 
 	assert.Equal(t, ReportSchema, r.Schema)
@@ -47,6 +48,7 @@ func TestBuildReport_Totals(t *testing.T) {
 }
 
 func TestPrintConsole(t *testing.T) {
+	t.Serial()
 	r := BuildReport(testActions())
 	var b strings.Builder
 	r.PrintConsole(&b)
@@ -60,6 +62,7 @@ func TestPrintConsole(t *testing.T) {
 }
 
 func TestFmtMS(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "0.4ms", fmtMS(0.42))
 	assert.Equal(t, "42ms", fmtMS(42.4))
 	assert.Equal(t, "1.82s", fmtMS(1820))
@@ -67,6 +70,7 @@ func TestFmtMS(t *testing.T) {
 }
 
 func TestWriteJSON_RoundTripAndSchema(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	p1 := filepath.Join(dir, "build", "profile.json")
 	p2 := filepath.Join(dir, "tmpdir", "profile.json")
@@ -87,6 +91,7 @@ func TestWriteJSON_RoundTripAndSchema(t *testing.T) {
 }
 
 func TestWriteJSON_ErrorReturned(t *testing.T) {
+	t.Serial()
 	r := BuildReport(nil)
 	err := r.WriteJSON(filepath.Join(t.TempDir(), "no-such-dir-parent-is-file", "x", "profile.json"))
 	// Parent creation succeeds here; instead point at a path whose parent is a file.
@@ -98,6 +103,7 @@ func TestWriteJSON_ErrorReturned(t *testing.T) {
 }
 
 func TestAppendStepSummary(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	sum := filepath.Join(dir, "summary.md")
 	t.Setenv("GITHUB_STEP_SUMMARY", sum)
@@ -115,6 +121,7 @@ func TestAppendStepSummary(t *testing.T) {
 }
 
 func TestAppendStepSummary_NoEnvIsNoop(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
 	r := BuildReport(nil)
 	assert.NoError(t, r.AppendStepSummary())

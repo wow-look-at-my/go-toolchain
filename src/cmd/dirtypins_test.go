@@ -17,7 +17,7 @@ require (
 `
 
 func TestTrackedPinMovementForgivesTheVersionItOwns(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	work := `module example.com/consumer
 
 go 1.25.0
@@ -33,7 +33,7 @@ require (
 }
 
 func TestTrackedPinMovementReportsAnUntrackedVersionChange(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	work := `module example.com/consumer
 
 go 1.25.0
@@ -51,7 +51,7 @@ require (
 // added alongside a moved pin is new content, and a new content line is a
 // commit somebody makes.
 func TestTrackedPinMovementReportsAnAddedRequire(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	work := `module example.com/consumer
 
 go 1.25.0
@@ -67,7 +67,7 @@ require (
 }
 
 func TestTrackedPinMovementReportsAMarkerThatAppeared(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	work := `module example.com/consumer
 
 go 1.25.0
@@ -82,19 +82,19 @@ require (
 }
 
 func TestTrackedPinMovementIsFalseWithNothingMoved(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	_, ok := trackedPinMovement([]byte(headGoMod), []byte(headGoMod))
 	assert.False(t, ok)
 }
 
 func TestTrackedPinMovementIsFalseOnUnparseableInput(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	_, ok := trackedPinMovement([]byte(headGoMod), []byte("not a go.mod {{{"))
 	assert.False(t, ok)
 }
 
 func TestTrackedPinMovementFollowsAMarkerOnAReplace(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	head := `module example.com/consumer
 
 go 1.25.0
@@ -117,7 +117,7 @@ replace charm.land/bubbletea/v2 => github.com/wow-look-at-my/bubbletea/v2 v2.0.0
 }
 
 func TestSumDiffOnlyTouchesMovedModules(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	const mod = "github.com/wow-look-at-my/common-ai-api/go/client"
 	head := mod + " v0.0.0-20260101000000-000000000000 h1:old=\n" +
 		mod + " v0.0.0-20260101000000-000000000000/go.mod h1:oldmod=\n" +
@@ -131,7 +131,7 @@ func TestSumDiffOnlyTouchesMovedModules(t *testing.T) {
 }
 
 func TestSumDiffOnlyTouchesReportsAnUnrelatedHash(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	const mod = "github.com/wow-look-at-my/common-ai-api/go/client"
 	head := mod + " v0.0.0-20260101000000-000000000000 h1:old=\n"
 	work := mod + " v0.0.0-20260812203640-d8426ef8d505 h1:new=\n" +
@@ -141,7 +141,7 @@ func TestSumDiffOnlyTouchesReportsAnUnrelatedHash(t *testing.T) {
 }
 
 func TestStatusLinePath(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "go.mod", statusLinePath(" M go.mod"))
 	assert.Equal(t, "go/go.sum", statusLinePath("?? go/go.sum"))
 	assert.Equal(t, "new.go", statusLinePath("R  old.go -> new.go"))

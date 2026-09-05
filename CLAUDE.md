@@ -64,6 +64,13 @@ coverage.
   `checkPortableJob` enforces the rule in `runBuild`, the one place anything compiles, and every compiler- or target-selecting variable is
   assigned rather than inherited. The default build phase emits the same APE `matrix` publishes, so `build/<name>` is the APE everywhere. Depth:
   `docs/MATRIX.md`
+- `src/cmd/vcsstamp.go`, `src/cmd/callerldflags.go` — the `-ldflags` a build passes is `<revision stamp> <caller's GOFLAGS -ldflags> -buildid=`. The go
+  command applies GOFLAGS BEFORE parsing argv, so this pipeline's own `-ldflags` used to REPLACE a caller's `GOFLAGS=-ldflags=-X=main.gitHash=…` with
+  nothing said; it is folded in now, and trails the stamp so an explicit `-X` still wins (the linker keeps the last value per name). The stamp itself
+  covers what Go's automatic `vcs.revision` cannot: a container build whose context excluded `.git` has no history to read, so every binary reported an
+  unknown commit. `stampVarNames` is `-X`'d onto the string variables the main package actually DECLARES (`gomod.PackageStringVars`) — `-X` fails the
+  link for a var of another type, so the source has to prove the type. Revision order: `GO_TOOLCHAIN_VCS_REVISION`, `git rev-parse HEAD`,
+  `GITHUB_SHA`; a declared variable with no revision to fill it warns instead of shipping its placeholder in silence. Depth: `docs/VCS-STAMP.md`
 - `src/cmd/apemanifest.go` — `build/buildhost-artifacts.json`: names the APE, its platform SET and the plain filename the download is served
   under, so buildhost publishes it as ONE artifact row with one download link instead of one row per platform. Depth: `docs/BUILDHOST-MANIFEST.md`
 - `src/cmd/exportdataretry.go` — export data the type-check cannot read surfaces as a cascade of undefined symbols in an untouched package, which
@@ -317,7 +324,7 @@ coverage.
   in a feature bullet belongs in a doc, not in the README.
 - **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
   wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
-  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`,
+  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`, `docs/VCS-STAMP.md`,
   `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means
   updating it in place, never appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an
   edit shows up as a reviewable diff. A literal

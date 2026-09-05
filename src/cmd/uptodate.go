@@ -50,6 +50,9 @@ func fingerprintEnv() []string {
 // fingerprintFlags is the root command's flag set, wired up in root.go's init.
 var fingerprintFlags *pflag.FlagSet
 
+// fingerprintPersistentFlags holds what Flags() merges in at parse time.
+var fingerprintPersistentFlags *pflag.FlagSet
+
 // volatileEnv holds shell-rewritten vars excluded from the fingerprint.
 var volatileEnv = set.Of("_", "OLDPWD", "SHLVL")
 
@@ -60,10 +63,19 @@ func flagFingerprint() string {
 	if fingerprintFlags == nil {
 		return ""
 	}
-	var lines []string
-	fingerprintFlags.VisitAll(func(f *pflag.Flag) {
-		lines = append(lines, f.Name+"="+f.Value.String())
-	})
+	seen := map[string]string{}
+	visit := func(fs *pflag.FlagSet) {
+		if fs == nil {
+			return
+		}
+		fs.VisitAll(func(f *pflag.Flag) { seen[f.Name] = f.Value.String() })
+	}
+	visit(fingerprintFlags)
+	visit(fingerprintPersistentFlags)
+	lines := make([]string, 0, len(seen))
+	for name, value := range seen {
+		lines = append(lines, name+"="+value)
+	}
 	sort.Strings(lines)
 	return strings.Join(lines, "\n")
 }

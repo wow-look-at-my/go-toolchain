@@ -12,6 +12,7 @@ import (
 )
 
 func TestEnabled(t *testing.T) {
+	t.Serial()
 	t.Setenv("CODEQL_DIST", "")
 	assert.False(t, Enabled(), "Enabled() with CODEQL_DIST unset")
 
@@ -20,6 +21,7 @@ func TestEnabled(t *testing.T) {
 }
 
 func TestExtractInvokesGoExtractor(t *testing.T) {
+	t.Serial()
 	t.Setenv("CODEQL_EXTRACTOR_GO_ROOT", "/opt/codeql/go")
 	mock := runner.NewMock()
 	require.NoError(t, Extract(mock))
@@ -33,12 +35,14 @@ func TestExtractInvokesGoExtractor(t *testing.T) {
 }
 
 func TestExtractMissingEnv(t *testing.T) {
+	t.Serial()
 	t.Setenv("CODEQL_EXTRACTOR_GO_ROOT", "")
 	require.Error(t, Extract(runner.NewMock()),
 		"Extract should fail when CODEQL_EXTRACTOR_GO_ROOT unset")
 }
 
 func TestExtractPropagatesStderrOnFailure(t *testing.T) {
+	t.Serial()
 	t.Setenv("CODEQL_EXTRACTOR_GO_ROOT", "/opt/codeql/go")
 	mock := runner.NewMock()
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
@@ -51,6 +55,7 @@ func TestExtractPropagatesStderrOnFailure(t *testing.T) {
 }
 
 func TestAnalyzeRunsFinalizeAndAnalyze(t *testing.T) {
+	t.Serial()
 	t.Setenv("CODEQL_DIST", "/opt/codeql")
 	t.Setenv("CODEQL_EXTRACTOR_GO_WIP_DATABASE", "/tmp/db")
 	mock := runner.NewMock()
@@ -66,12 +71,14 @@ func TestAnalyzeRunsFinalizeAndAnalyze(t *testing.T) {
 }
 
 func TestAnalyzeMissingDatabase(t *testing.T) {
+	t.Serial()
 	t.Setenv("CODEQL_EXTRACTOR_GO_WIP_DATABASE", "")
 	_, err := Analyze(runner.NewMock())
 	require.Error(t, err, "Analyze should fail when CODEQL_EXTRACTOR_GO_WIP_DATABASE unset")
 }
 
 func TestUploadSARIFRequiresEnv(t *testing.T) {
+	t.Serial()
 	cases := []struct {
 		name                  string
 		token, sha, ref, repo string
@@ -95,6 +102,7 @@ func TestUploadSARIFRequiresEnv(t *testing.T) {
 }
 
 func TestUploadSARIFPassesAllArgs(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_TOKEN", "tok")
 	t.Setenv("GITHUB_SHA", "deadbeef")
 	t.Setenv("GITHUB_REF", "refs/heads/main")
@@ -116,6 +124,7 @@ func TestUploadSARIFPassesAllArgs(t *testing.T) {
 }
 
 func TestPlatformFor(t *testing.T) {
+	t.Serial()
 	cases := []struct {
 		goos, plat, ext string
 		wantErr         bool
@@ -142,6 +151,7 @@ func TestPlatformFor(t *testing.T) {
 // Both take the target GOOS as an argument, but they join with filepath, whose
 // separator is the HOST's. The slash form reads the same on every host.
 func TestExtractorPathFor(t *testing.T) {
+	t.Serial()
 	p, err := extractorPathFor("/opt/codeql/go", "windows")
 	require.NoError(t, err)
 	assert.Equal(t, "/opt/codeql/go/tools/win64/go-extractor.exe", filepath.ToSlash(p))
@@ -155,12 +165,14 @@ func TestExtractorPathFor(t *testing.T) {
 }
 
 func TestCodeqlBinFor(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "/opt/codeql/codeql", filepath.ToSlash(codeqlBinFor("/opt/codeql", "linux")))
 	assert.Equal(t, "/opt/codeql/codeql", filepath.ToSlash(codeqlBinFor("/opt/codeql", "darwin")))
 	assert.Equal(t, "/opt/codeql/codeql.exe", filepath.ToSlash(codeqlBinFor("/opt/codeql", "windows")))
 }
 
 func TestUploadSARIFFallsBackToGHToken(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "ghtok")
 	t.Setenv("GITHUB_SHA", "deadbeef")

@@ -43,6 +43,7 @@ func chdirWithGoMod(t *testing.T) {
 }
 
 func TestRunModTidyCorruptIndexRetriesWithIndexDisabled(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	chdirWithGoMod(t)
 
@@ -53,6 +54,7 @@ func TestRunModTidyCorruptIndexRetriesWithIndexDisabled(t *testing.T) {
 }
 
 func TestRunModTidyCorruptIndexRetryStillFailing(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	chdirWithGoMod(t)
 
@@ -63,6 +65,7 @@ func TestRunModTidyCorruptIndexRetryStillFailing(t *testing.T) {
 }
 
 func TestRunModTidyOtherFailureDoesNotRetry(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	chdirWithGoMod(t)
 
@@ -74,6 +77,7 @@ func TestRunModTidyOtherFailureDoesNotRetry(t *testing.T) {
 }
 
 func TestRunModTidySuccessTouchesNothing(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	chdirWithGoMod(t)
 
@@ -84,6 +88,7 @@ func TestRunModTidySuccessTouchesNothing(t *testing.T) {
 }
 
 func TestRunModTidyMissingGoModMessage(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "")
 	t.Chdir(t.TempDir()) // no go.mod here
 
@@ -93,6 +98,7 @@ func TestRunModTidyMissingGoModMessage(t *testing.T) {
 }
 
 func TestDisableGoModuleIndexMergesExistingGODEBUG(t *testing.T) {
+	t.Serial()
 	t.Setenv("GODEBUG", "http2client=0")
 	disableGoModuleIndex()
 	require.Equal(t, "http2client=0,goindex=0", os.Getenv("GODEBUG"))
@@ -103,7 +109,7 @@ func TestDisableGoModuleIndexMergesExistingGODEBUG(t *testing.T) {
 }
 
 func TestTailBufferKeepsBoundedTail(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	var tb tailBuffer
 	chunk := strings.Repeat("x", 40<<10)
 	_, err := tb.Write([]byte(chunk))

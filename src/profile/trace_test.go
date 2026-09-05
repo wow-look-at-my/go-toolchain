@@ -10,6 +10,7 @@ import (
 )
 
 func TestAddTraceEvents_LanesAndArgs(t *testing.T) {
+	t.Serial()
 	t0 := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
 	actions := []Action{
 		// Overlapping compiles each take a lane; a later compile reuses a freed lane.
@@ -42,6 +43,7 @@ func TestAddTraceEvents_LanesAndArgs(t *testing.T) {
 }
 
 func TestAddTraceEvents_NilTraceAndLaneSpill(t *testing.T) {
+	t.Serial()
 	AddTraceEvents(nil, testActions()) // must not panic
 
 	// More concurrent actions than lanes: all recorded, spilling onto the earliest-free lane.
@@ -66,6 +68,7 @@ func TestAddTraceEvents_NilTraceAndLaneSpill(t *testing.T) {
 }
 
 func TestTraceName(t *testing.T) {
+	t.Serial()
 	assert.Equal(t, "pkga", traceName(Action{Mode: "build", Package: "example.com/m/pkga"}))
 	assert.Equal(t, "m (link)", traceName(Action{Mode: "link", Package: "example.com/m"}))
 	assert.Equal(t, "go build", traceName(Action{Mode: "go build"}))

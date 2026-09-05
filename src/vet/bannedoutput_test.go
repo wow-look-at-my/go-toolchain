@@ -15,7 +15,7 @@ import (
 // TestBannedOutputAnalyzer checks the fixture: direct fmt/log stdio writes
 // report, Sprintf-style calls and non-stdio Fprint* writers must not.
 func TestBannedOutputAnalyzer(t *testing.T) {
-	t.Parallel() // analysistest loads real packages; each analyzer's dedup state is its own.
+	t.Serial()
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, BannedOutputAnalyzer, "bannedoutput")
@@ -28,7 +28,7 @@ func TestBannedOutputAnalyzer(t *testing.T) {
 // without module info, e.g. analysistest GOPATH fixtures) keeps the ban
 // active.
 func TestBannedOutputModuleScoping(t *testing.T) {
-	t.Parallel() // Builds its own analysis.Pass in memory; no shared warned-map, no process-wide state.
+	t.Serial()
 	const src = `package main
 
 import "fmt"
