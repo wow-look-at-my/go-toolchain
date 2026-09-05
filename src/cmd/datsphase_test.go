@@ -29,6 +29,7 @@ func forceDatsProbe(t *testing.T, err error) {
 // must still run them. A host merely missing bubblewrap must not: an install
 // fixes that, and dropping isolation there is how it stays missing.
 func TestDatsSandbox(t *testing.T) {
+	t.Serial()
 	t.Run("a host with a backend runs sandboxed", func(t *testing.T) {
 		forceDatsProbe(t, nil)
 		assert.Equal(t, dats.Sandbox{}, datsSandbox(), "the zero Sandbox is auto")
@@ -46,7 +47,7 @@ func TestDatsSandbox(t *testing.T) {
 }
 
 func TestHasDatsSuites(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	write := func(t *testing.T, dir, rel string) {
 		t.Helper()
 		path := filepath.Join(dir, rel)
@@ -111,14 +112,14 @@ func TestHasDatsSuites(t *testing.T) {
 }
 
 func TestDatsArtifactName(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "mytool", datsArtifactName("mytool", "linux"))
 	assert.Equal(t, "mytool", datsArtifactName("mytool", "darwin"))
 	assert.Equal(t, "mytool.exe", datsArtifactName("mytool", "windows"))
 }
 
 func TestStageDatsArtifacts(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	src := t.TempDir()
 	real := filepath.Join(src, "mytool_linux_amd64")
 	require.NoError(t, os.WriteFile(real, []byte("binary bytes"), 0o644))
@@ -177,6 +178,7 @@ func chdirWithSuite(t *testing.T) (dir string) {
 }
 
 func TestRunDatsPhaseNoSuitesIsNoOp(t *testing.T) {
+	t.Serial()
 	t.Chdir(t.TempDir())
 	calls := swapDatsRun(t, okResult(0), nil)
 
@@ -185,6 +187,7 @@ func TestRunDatsPhaseNoSuitesIsNoOp(t *testing.T) {
 }
 
 func TestRunDatsPhaseRunsSuites(t *testing.T) {
+	t.Serial()
 	dir := chdirWithSuite(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "build"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "build", "mytool"), []byte("bin"), 0o755))
@@ -208,6 +211,7 @@ func TestRunDatsPhaseRunsSuites(t *testing.T) {
 }
 
 func TestRunDatsPhaseOptions(t *testing.T) {
+	t.Serial()
 	dir := chdirWithSuite(t)
 	calls := swapDatsRun(t, okResult(1), nil)
 	forceDatsProbe(t, nil) // an NT host has none, and would hand dats SandboxNone
@@ -247,6 +251,7 @@ func datsEnvValue(t *testing.T, env []string, key string) string {
 }
 
 func TestRunDatsPhaseFailingTestsFailBuild(t *testing.T) {
+	t.Serial()
 	chdirWithSuite(t)
 	// A red suite is a Result, not an error, from the library -- the phase is
 	// what turns it into a failed build.
@@ -263,6 +268,7 @@ func TestRunDatsPhaseFailingTestsFailBuild(t *testing.T) {
 }
 
 func TestRunDatsPhaseTeardownFailureFailsBuild(t *testing.T) {
+	t.Serial()
 	chdirWithSuite(t)
 	// Ok() is not an empty Failed count: a file whose teardown failed fails the run even
 	// with every test green.
@@ -278,6 +284,7 @@ func TestRunDatsPhaseTeardownFailureFailsBuild(t *testing.T) {
 }
 
 func TestRunDatsPhaseHardErrorFailsBuild(t *testing.T) {
+	t.Serial()
 	chdirWithSuite(t)
 	swapDatsRun(t, nil, fmt.Errorf("no usable sandbox backend"))
 
@@ -288,6 +295,7 @@ func TestRunDatsPhaseHardErrorFailsBuild(t *testing.T) {
 }
 
 func TestRunDatsPhaseQuietRoutesReportToStderr(t *testing.T) {
+	t.Serial()
 	chdirWithSuite(t)
 	calls := swapDatsRun(t, okResult(1), nil)
 
@@ -298,6 +306,7 @@ func TestRunDatsPhaseQuietRoutesReportToStderr(t *testing.T) {
 }
 
 func TestRunDatsPhaseOutputTerminatesTheStepLine(t *testing.T) {
+	t.Serial()
 	chdirWithSuite(t)
 	var noted int
 	w := &noteFirstWrite{w: &bytes.Buffer{}, note: func() { noted++ }}
@@ -314,6 +323,7 @@ func TestRunDatsPhaseOutputTerminatesTheStepLine(t *testing.T) {
 // step -- duplicating what this binary already links in, at a version free to
 // drift from it.
 func TestRunDatsOnlyRunsSuitesWithoutAModule(t *testing.T) {
+	t.Serial()
 	dir := chdirWithSuite(t)
 	calls := swapDatsRun(t, okResult(2), nil)
 
@@ -327,6 +337,7 @@ func TestRunDatsOnlyRunsSuitesWithoutAModule(t *testing.T) {
 // Staging has to live under the working directory for the sandbox to see it,
 // but a non-Go repo does not gitignore build/ and never asked for that directory.
 func TestRunDatsOnlyLeavesNoStrayBuildDir(t *testing.T) {
+	t.Serial()
 	dir := chdirWithSuite(t)
 	swapDatsRun(t, okResult(1), nil)
 
@@ -337,6 +348,7 @@ func TestRunDatsOnlyLeavesNoStrayBuildDir(t *testing.T) {
 
 // ...but a build/ that was already there is the repo's, not ours to delete.
 func TestRunDatsOnlyKeepsAPreexistingBuildDir(t *testing.T) {
+	t.Serial()
 	dir := chdirWithSuite(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, outputDir), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, outputDir, "keep.txt"), []byte("mine"), 0o644))
@@ -348,6 +360,7 @@ func TestRunDatsOnlyKeepsAPreexistingBuildDir(t *testing.T) {
 
 // A failing suite still fails the run -- the point of running them at all.
 func TestRunDatsOnlyPropagatesFailure(t *testing.T) {
+	t.Serial()
 	chdirWithSuite(t)
 	swapDatsRun(t, &dats.Result{Passed: 1, Failed: 1,
 		Files: []*datsrunner.FileResult{{Passed: 1, Failed: 1}}}, nil)

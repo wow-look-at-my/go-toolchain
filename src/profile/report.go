@@ -27,10 +27,9 @@ type Row struct {
 	CmdSysMS  float64 `json:"cmd_sys_ms,omitempty"`
 }
 
-// Report is the build profile written to build/profile.json. WallMSTotal
-// sums per-action wall time without folding out parallelism. Actions sorts
-// by wall time descending. Gosmopolitan's cmd/go handles caching in
-// process, so no field here carries a hit or a miss.
+// Report is the build profile written to build/profile.json. WallMSTotal sums
+// per-action wall time without folding out parallelism, and Actions sorts by
+// wall time descending. No field carries a cache hit or miss.
 type Report struct {
 	Schema          int       `json:"schema"`
 	Created         time.Time `json:"created"`

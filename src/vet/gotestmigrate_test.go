@@ -9,7 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// These tests scan the working directory, so each takes it with t.Chdir. The
+// hand-rolled pair here dropped os.Chdir's error, and a chdir that quietly did
+// not happen leaves the scan on the previous test's fixture -- which is how the
+// clean case found a gotest.tools import it never wrote.
 func TestMigrateGotestTools_Basic(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -21,6 +26,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 }
 `
@@ -28,9 +34,7 @@ func TestFoo(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	assert.Nil(t, err)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	fixed, err := migrateFileGotestTools(NewEditor(true), filePath)
 	assert.Nil(t, err)
@@ -50,6 +54,7 @@ func TestFoo(t *testing.T) {
 // (fix=false, the CI path) a file importing gotest.tools/v3/assert is reported
 // as a hard error and is NOT rewritten.
 func TestMigrateGotestTools_CheckModeRejects(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -60,15 +65,14 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 }
 `
 	filePath := filepath.Join(dir, "example_test.go")
 	assert.Nil(t, os.WriteFile(filePath, []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := MigrateGotestTools(ed)
@@ -87,6 +91,7 @@ func TestFoo(t *testing.T) {
 // TestMigrateGotestTools_CheckModeClean verifies check mode is a no-op when no
 // file imports gotest.tools.
 func TestMigrateGotestTools_CheckModeClean(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	content := `package example
 
@@ -96,9 +101,7 @@ func TestFoo(t *testing.T) {}
 `
 	assert.Nil(t, os.WriteFile(filepath.Join(dir, "example_test.go"), []byte(content), 0644))
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	t.Chdir(dir)
 
 	ed := NewEditor(false)
 	wrote, err := MigrateGotestTools(ed)
@@ -108,6 +111,7 @@ func TestFoo(t *testing.T) {}
 }
 
 func TestMigrateGotestTools_FuncRenames(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -119,6 +123,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.Error(t, err, "expected msg")
 	assert.DeepEqual(t, a, b)
 	assert.Equal(t, a, b)
@@ -148,6 +153,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestMigrateGotestTools_Assert(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := "package example\n\nimport (\n\t\"testing\"\n\n\t\"gotest.tools/v3/assert\"\n)\n\nfunc TestFoo(t *testing.T) {\n\tassert.Assert(t, len(items) > 0)\n}\n"
@@ -168,6 +174,7 @@ func TestMigrateGotestTools_Assert(t *testing.T) {
 }
 
 func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// File that already has testify/require AND gotest.tools/assert
@@ -190,6 +197,7 @@ func TestMigrateGotestTools_NoDuplicateImport(t *testing.T) {
 }
 
 func TestMigrateGotestTools_NoChanges(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -201,6 +209,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	require.NoError(t, nil)
 }
 `
@@ -214,6 +223,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestMigrateGotestTools_Check(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -225,6 +235,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 	assert.Check(t, someExpr)
 }
@@ -252,6 +263,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestMigrateGotestTools_CmpUnwrap(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	content := `package example
@@ -264,6 +276,7 @@ import (
 )
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	assert.NilError(t, nil)
 	assert.Check(t, cmp.Equal(a, b))
 	assert.Assert(t, cmp.Nil(x))

@@ -8,6 +8,7 @@ import (
 )
 
 func TestShortPkg(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		input string
 		want  string
@@ -24,6 +25,7 @@ func TestShortPkg(t *testing.T) {
 }
 
 func TestStripCPUSuffix(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		input string
 		want  string
@@ -41,6 +43,7 @@ func TestStripCPUSuffix(t *testing.T) {
 }
 
 func TestFormatBenchTime(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		ns   float64
 		want string
@@ -61,6 +64,7 @@ func TestFormatBenchTime(t *testing.T) {
 }
 
 func TestFormatBenchBytes(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		b    int64
 		want string
@@ -78,10 +82,9 @@ func TestFormatBenchBytes(t *testing.T) {
 }
 
 func TestReadModulePath(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// No go.mod
 	assert.Equal(t, "", readModulePath())
@@ -92,20 +95,18 @@ func TestReadModulePath(t *testing.T) {
 }
 
 func TestReadModulePathEmptyFile(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	os.WriteFile("go.mod", []byte(""), 0644)
 	assert.Equal(t, "", readModulePath())
 }
 
 func TestReadModulePathExtraWhitespace(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	os.WriteFile("go.mod", []byte("module   github.com/user/pkg  \n"), 0644)
 	assert.Equal(t, "github.com/user/pkg", readModulePath())

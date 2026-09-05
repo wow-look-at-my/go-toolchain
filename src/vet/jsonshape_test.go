@@ -10,6 +10,7 @@ import (
 // TestIsJSONDocument pins the classifier the whole check rests on: what counts
 // as a JSON document, and what is ordinary text that happens to hold a brace.
 func TestIsJSONDocument(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		text string
@@ -38,6 +39,7 @@ func TestIsJSONDocument(t *testing.T) {
 // TestNormalizeVerbs pins what counts as a value entering a format string. A
 // doubled percent sign prints a literal sign and interpolates nothing.
 func TestNormalizeVerbs(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name  string
 		text  string
@@ -63,6 +65,7 @@ func TestNormalizeVerbs(t *testing.T) {
 // TestNormalizeActions pins that a template's actions are the values, and an
 // action the text never closes ends it.
 func TestNormalizeActions(t *testing.T) {
+	t.Serial()
 	text, actions := normalizeActions("{\"a\":\"{{.A}}\",\"b\":\"{{.B}}\"}")
 	assert.Equal(t, "{\"a\":\"\x00\",\"b\":\"\x00\"}", text)
 	require.Equal(t, 2, actions)

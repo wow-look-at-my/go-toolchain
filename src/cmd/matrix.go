@@ -65,7 +65,8 @@ type buildJob struct {
 	goarch     string
 	srcPath    string
 	outputPath string
-	ldflags    string
+	// ldflags is the revision stamp plus whatever the caller put in GOFLAGS; runBuild appends its own.
+	ldflags string
 	// forkGoroot is the gosmopolitan GOROOT for fat-APE/wasm jobs; empty for normal jobs (go on PATH).
 	forkGoroot string
 	// cacheNamespace scopes cache keys per fork toolchain; required with forkGoroot or builds share keys and poison the cache.
