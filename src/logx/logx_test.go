@@ -16,8 +16,8 @@ import (
 // destination files with a temp file so we can inspect timestamped output.
 // It swaps the orig* package-level fields before/after Install.
 //
-// We can't share global state across parallel tests, so these tests run
-// serially (t.Parallel is NOT called).
+// Every test here calls t.Serial: this swaps os.Stdout, os.Stderr and the
+// install state, and the fork runs tests in parallel unless told otherwise.
 func captureInstalled(t *testing.T, fn func()) string {
 	t.Helper()
 	// Reset install state; a leftover drainedWG wedges every later Flush.

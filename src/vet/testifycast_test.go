@@ -23,6 +23,7 @@ import (
 // sets themselves (for asserting on recorded imports).
 func applyCastFixtures(t *testing.T) (output, stderrText string, all []*CastEdits) {
 	t.Helper()
+	t.Serial() // analysistest chdirs into the fixture
 	// Self-contained module with a stub testify replace; load it module-mode like assertnorm.
 	dir, err := filepath.Abs(filepath.Join("testdata", "src", "testifycast"))
 	require.NoError(t, err)

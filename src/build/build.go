@@ -19,7 +19,7 @@ type Target struct {
 
 // findMainPackages walks the filesystem to discover all main packages in the module.
 func findMainPackages() ([]string, error) {
-	return gomod.FindMainPackages()
+	return gomod.FindMainPackages(".")
 }
 
 // binaryNameFromImportPath derives a binary name from a package's import path
@@ -51,7 +51,7 @@ func binaryNameFromImportPath(pkg, moduleName string) string {
 // Binary names are always auto-derived from the package/directory name.
 func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 	// Get module name for smart binary naming
-	moduleName := gomod.ReadModulePath()
+	moduleName := gomod.ReadModulePath(".")
 
 	// Find all main packages in the module
 	pkgs, err := findMainPackages()
@@ -79,8 +79,8 @@ func ResolveBuildTargets(r runner.CommandRunner) ([]Target, error) {
 // GOOS/GOARCH context, regardless of host. Unlike ResolveBuildTargets, empty
 // means no main packages for this target (no library-only fallback).
 func ResolveBuildTargetsForTarget(goos, goarch string) ([]Target, error) {
-	moduleName := gomod.ReadModulePath()
-	pkgs, err := gomod.FindMainPackagesForTarget(goos, goarch)
+	moduleName := gomod.ReadModulePath(".")
+	pkgs, err := gomod.FindMainPackagesForTarget(".", goos, goarch)
 	if err != nil {
 		return nil, err
 	}
