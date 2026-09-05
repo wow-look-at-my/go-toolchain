@@ -244,7 +244,7 @@ func TestGuessPackage(t *testing.T) {
 }
 
 func TestRunGenerateWithHash(t *testing.T) {
-	// Create temp directory with a generate directive
+	t.Serial() // t.Chdir forks, and two children racing the run's shared gocoverdir fail on windows.
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -274,7 +274,7 @@ func TestRunGenerateWithHash(t *testing.T) {
 }
 
 func TestRunGenerateWrongHash(t *testing.T) {
-	// Create temp directory with a generate directive
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -293,7 +293,7 @@ func TestRunGenerateWrongHash(t *testing.T) {
 }
 
 func TestRunGenerateSkip(t *testing.T) {
-	// Create temp directory with a generate directive
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -312,7 +312,7 @@ func TestRunGenerateSkip(t *testing.T) {
 }
 
 func TestRunGenerateNoDirectives(t *testing.T) {
-	// Create temp directory with no generate directives
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 

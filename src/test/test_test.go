@@ -256,6 +256,7 @@ func TestListTestPackagesNoGoMod(t *testing.T) {
 }
 
 func TestRunTestsUsesExplicitPackages(t *testing.T) {
+	t.Serial()
 	// RunTests reads the working directory.
 	t.Chdir(setupTestModule(t, "example.com/proj", []string{"pkg1"}))
 
@@ -291,6 +292,7 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 }
 
 func TestRunTestsFallsBackToEllipsis(t *testing.T) {
+	t.Serial()
 	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
 	t.Chdir(t.TempDir())
 

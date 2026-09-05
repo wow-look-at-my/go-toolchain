@@ -11,18 +11,21 @@ import (
 )
 
 func TestAddPkgConfigPath_Empty(t *testing.T) {
+	t.Serial()
 	t.Setenv("PKG_CONFIG_PATH", "")
 	addPkgConfigPath("/usr/lib/pkgconfig")
 	assert.Equal(t, "/usr/lib/pkgconfig", os.Getenv("PKG_CONFIG_PATH"))
 }
 
 func TestAddPkgConfigPath_Existing(t *testing.T) {
+	t.Serial()
 	t.Setenv("PKG_CONFIG_PATH", "/existing/path")
 	addPkgConfigPath("/new/path")
 	assert.Equal(t, "/new/path:/existing/path", os.Getenv("PKG_CONFIG_PATH"))
 }
 
 func TestAddPkgConfigPath_AlreadyPresent(t *testing.T) {
+	t.Serial()
 	t.Setenv("PKG_CONFIG_PATH", "/some/path:/other/path")
 	addPkgConfigPath("/some/path")
 	// Should not duplicate
