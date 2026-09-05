@@ -15,6 +15,7 @@ import (
 )
 
 func TestRunReleaseWithRunnerWasmTargets(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
 	// The fork toolchain ships the js exec harness; a js/wasm build copies it next to the artifact.
@@ -194,6 +195,7 @@ func writeConstrainedMain(t *testing.T, dir, constraint string) {
 }
 
 func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
 	// Alongside the unconstrained root main ("mytool"): a js&&wasm-only main and a wasip1&&wasm-only main.
@@ -234,6 +236,7 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 }
 
 func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"js/wasm", "wasip1/wasm"})
 	t.Setenv("CI", "")
 	// A wasip1-only root main leaves js/wasm with no main packages, skipped with a warning; wasip1/wasm still builds.

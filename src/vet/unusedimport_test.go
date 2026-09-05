@@ -11,7 +11,7 @@ import (
 )
 
 func TestImportNameAliased(t *testing.T) {
-	t.Parallel() // Pure in-memory AST node, no process-wide state.
+	t.Serial()
 	imp := &ast.ImportSpec{
 		Name: &ast.Ident{Name: "myfmt"},
 		Path: &ast.BasicLit{Value: `"fmt"`},
@@ -20,7 +20,7 @@ func TestImportNameAliased(t *testing.T) {
 }
 
 func TestImportNameStdlib(t *testing.T) {
-	t.Parallel() // See TestImportNameAliased.
+	t.Serial()
 	imp := &ast.ImportSpec{
 		Path: &ast.BasicLit{Value: `"fmt"`},
 	}
@@ -28,7 +28,7 @@ func TestImportNameStdlib(t *testing.T) {
 }
 
 func TestImportNameFallback(t *testing.T) {
-	t.Parallel() // See TestImportNameAliased.
+	t.Serial()
 	// Non-existent package falls back to filepath.Base
 	imp := &ast.ImportSpec{
 		Path: &ast.BasicLit{Value: `"example.invalid/nonexistent/mypkg"`},
@@ -37,7 +37,7 @@ func TestImportNameFallback(t *testing.T) {
 }
 
 func TestImportNameDotImport(t *testing.T) {
-	t.Parallel() // See TestImportNameAliased.
+	t.Serial()
 	imp := &ast.ImportSpec{
 		Name: &ast.Ident{Name: "."},
 		Path: &ast.BasicLit{Value: `"fmt"`},
@@ -46,7 +46,7 @@ func TestImportNameDotImport(t *testing.T) {
 }
 
 func TestImportNameBlankImport(t *testing.T) {
-	t.Parallel() // See TestImportNameAliased.
+	t.Serial()
 	imp := &ast.ImportSpec{
 		Name: &ast.Ident{Name: "_"},
 		Path: &ast.BasicLit{Value: `"fmt"`},
@@ -155,7 +155,7 @@ func Foo() {
 }
 
 func TestRemoveImportFromAST(t *testing.T) {
-	t.Parallel() // Pure in-memory AST mutation, no process-wide state.
+	t.Serial()
 	f := &ast.File{
 		Decls: []ast.Decl{
 			&ast.GenDecl{

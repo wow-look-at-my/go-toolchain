@@ -175,6 +175,7 @@ func TestComputeUpdateWarning_AheadOfPublished(t *testing.T) {
 }
 
 func TestComputeUpdateWarning_DevBuild(t *testing.T) {
+	t.Serial()
 	defer setVCS(t, "", "")() // no revision/time -> resolvedCommit() == "unknown"
 	// No server needed: it must return before any network call.
 	assert.Equal(t, "", computeUpdateWarning(context.Background()))
@@ -210,7 +211,7 @@ func TestComputeUpdateWarning_CreatedAtFallback(t *testing.T) {
 }
 
 func TestCommitsMatch(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	cases := []struct {
 		a, b string
 		want bool

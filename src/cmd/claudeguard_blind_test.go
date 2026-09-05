@@ -36,6 +36,7 @@ func captureGuardOut(t *testing.T, f func()) string {
 // Driven through blindClassifierSink, not unclassifiableSink, so the banner's content is
 // asserted on every platform, not via linux-only host dispatch.
 func TestBlindClassifierSinkAnnouncesItself(t *testing.T) {
+	t.Serial()
 	var got outputSink
 	out := captureGuardOut(t, func() { got = blindClassifierSink("darwin") })
 
@@ -48,6 +49,7 @@ func TestBlindClassifierSinkAnnouncesItself(t *testing.T) {
 // the /proc classifier works there, so this must stay silent or it cries wolf
 // on every run.
 func TestUnclassifiableSinkIsSilentOnALinuxHost(t *testing.T) {
+	t.Serial()
 	if hostos.GOOS() != "linux" {
 		t.Skip("this asserts the linux-host branch")
 	}
@@ -61,6 +63,7 @@ func TestUnclassifiableSinkIsSilentOnALinuxHost(t *testing.T) {
 // inspects stdout on every invocation and a repeated banner would train the
 // reader to skip it.
 func TestBlindGuardAnnouncementIsOncePerRun(t *testing.T) {
+	t.Serial()
 	out := captureGuardOut(t, func() {
 		blindClassifierSink("darwin")
 		blindClassifierSink("darwin")

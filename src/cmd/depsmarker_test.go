@@ -11,7 +11,7 @@ import (
 )
 
 func TestParseMarker(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	gomod := `module test
 go 1.25.0
 
@@ -41,13 +41,13 @@ require (
 // What a bare marker resolves to depends on the dependency, so the comment's
 // own meaning has to state both halves rather than promise the default branch.
 func TestMarkerMeaning(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "a branch of this repository's name, or the default branch", marker{tracks: true}.meaning())
 	assert.Equal(t, "branch v1", marker{tracks: true, branch: "v1"}.meaning())
 }
 
 func TestMarkerComment(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "go-toolchain:auto-branch", marker{tracks: true}.comment())
 	assert.Equal(t, "go-toolchain:auto-branch=v1", marker{tracks: true, branch: "v1"}.comment())
 }
@@ -55,6 +55,7 @@ func TestMarkerComment(t *testing.T) {
 // A line already carrying the canonical marker is left exactly as it is --
 // including asking the remote nothing.
 func TestEnforceOrgBranchTrackingLeavesAnAutoBranchLineAlone(t *testing.T) {
+	t.Serial()
 	for _, comment := range []string{"go-toolchain:auto-branch", "go-toolchain:auto-branch=v1"} {
 		t.Run(comment, func(t *testing.T) {
 			t.Chdir(t.TempDir())
@@ -70,7 +71,7 @@ func TestEnforceOrgBranchTrackingLeavesAnAutoBranchLineAlone(t *testing.T) {
 }
 
 func TestGitHubOwnerRepo(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	owner, repo, ok := gitHubOwnerRepo("github.com/wow-look-at-my/common-ai-api/go/client")
 	assert.True(t, ok)
 	assert.Equal(t, "wow-look-at-my", owner)
@@ -83,6 +84,7 @@ func TestGitHubOwnerRepo(t *testing.T) {
 // The guard is the answer to a specific accident: point a pin at the branch
 // you are about to merge, watch CI go green, merge, and the branch is gone.
 func TestReportTemporaryBranchesFailsInCIAndWarnsOutsideIt(t *testing.T) {
+	t.Serial()
 	found := []temporaryBranch{{module: "github.com/org/repo", branch: "claude/wip", pr: "https://github.com/org/repo/pull/7"}}
 
 	t.Setenv("CI", "")
@@ -120,7 +122,7 @@ func TestReportUncheckedBranchesSaysItOnce(t *testing.T) {
 // separate comment: modfile renders an extra Suffix comment underneath, and a marker on its
 // own line above the next require is what corrupts the block.
 func TestSetMarkerJoinsAnExistingComment(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	for _, tc := range []struct {
 		name string
 		line string

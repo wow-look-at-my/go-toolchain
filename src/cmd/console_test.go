@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 )
 
 func TestColorPct(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		pct      float32
 		contains string
@@ -30,20 +31,20 @@ func TestColorPct(t *testing.T) {
 }
 
 func TestColorPctCustomFormat(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	result := colorPct(ColorPct{Pct: 50, Format: "%.0f%%"})
 	assert.Contains(t, result, "50%")
 }
 
 func TestColorPctBoundaries(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// A percentage outside the range must not crash
 	_ = colorPct(ColorPct{Pct: -10})
 	_ = colorPct(ColorPct{Pct: 150})
 }
 
 func TestWarn(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	result := warn("test message")
 	assert.Contains(t, result, "WARNING:")
 	assert.Contains(t, result, "test message")
@@ -52,7 +53,7 @@ func TestWarn(t *testing.T) {
 }
 
 func TestColorConstants(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	// Verify color constants have correct RGB values
 	assert.Equal(t, "\033[38;2;0;255;0m", colorGreen)
 	assert.Equal(t, "\033[38;2;255;0;0m", colorRed)
@@ -73,8 +74,13 @@ func drainPipe(r io.Reader) <-chan string {
 	return done
 }
 
+// captureMu serializes the helpers: concurrent captures of the package-wide os.Stdout put back each other's pipes.
+var captureMu sync.Mutex
+
 // captureStdout runs f with stdout captured and returns the output.
 func captureStdout(f func()) string {
+	captureMu.Lock()
+	defer captureMu.Unlock()
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -90,6 +96,8 @@ func captureStdout(f func()) string {
 // captureCombinedOutput runs f with stdout and stderr merged. logger.Warn
 // routes to stderr locally and to a ::warning on stdout in CI.
 func captureCombinedOutput(f func()) string {
+	captureMu.Lock()
+	defer captureMu.Unlock()
 	oldOut, oldErr := os.Stdout, os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -167,8 +175,10 @@ func withTimedLineMinDuration(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { timedLineMinDuration = old })
 }
 
+// The default timedLineMinDuration is what this asserts against, and
+// withTimedLineMinDuration below rewrites it, so this cannot run in parallel.
 func TestTimedLineWriterFastLinesOmitDuration(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
 
@@ -189,6 +199,7 @@ func TestTimedLineWriterFastLinesOmitDuration(t *testing.T) {
 }
 
 func TestTimedLineWriterSlowLinesGetDuration(t *testing.T) {
+	t.Serial()
 	withTimedLineMinDuration(t, 0)
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
@@ -215,6 +226,7 @@ func TestTimedLineWriterSlowLinesGetDuration(t *testing.T) {
 }
 
 func TestTimedLineWriterPartialWrites(t *testing.T) {
+	t.Serial()
 	withTimedLineMinDuration(t, 0)
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
@@ -233,7 +245,7 @@ func TestTimedLineWriterPartialWrites(t *testing.T) {
 }
 
 func TestTimedLineWriterFlushPartial(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)
 
@@ -246,6 +258,7 @@ func TestTimedLineWriterFlushPartial(t *testing.T) {
 }
 
 func TestTimedLineWriterClosesOnPartialContent(t *testing.T) {
+	t.Serial()
 	withTimedLineMinDuration(t, 0)
 	var buf bytes.Buffer
 	w := newTimedLineWriter(&buf)

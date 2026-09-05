@@ -72,6 +72,7 @@ func makeCosmoTarballNamed(t *testing.T, binName string) []byte {
 }
 
 func TestEnsureCosmoToolchainEnvGoroot(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 
 	root := t.TempDir()
@@ -85,6 +86,7 @@ func TestEnsureCosmoToolchainEnvGoroot(t *testing.T) {
 }
 
 func TestEnsureCosmoToolchainEnvGorootMissingBinGo(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 
 	root := t.TempDir() // no bin/go inside
@@ -278,6 +280,7 @@ func TestEnsureCosmoToolchainWindowsHostRejectsArchiveWithoutExe(t *testing.T) {
 }
 
 func TestEnsureCosmoToolchainBranchEnvSelectsBranch(t *testing.T) {
+	t.Serial()
 	setupCosmoTest(t)
 	t.Setenv(cosmoBranchEnv, "claude/some-branch")
 	tarball := makeCosmoTarball(t)
@@ -365,7 +368,7 @@ func TestEnsureCosmoToolchainRejectsArchiveWithoutGo(t *testing.T) {
 }
 
 func TestSanitizeCacheKey(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "claude-some-branch", sanitizeCacheKey("claude/some-branch"))
 	assert.Equal(t, "v1.2.3", sanitizeCacheKey("v1.2.3"))
 	assert.Equal(t, "a-b-c", sanitizeCacheKey("a b:c"))

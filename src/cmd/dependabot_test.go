@@ -13,6 +13,7 @@ import (
 )
 
 func TestBuildDepSnapshot_MissingSHA(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_SHA", "")
 	_, err := buildDepSnapshot()
 	assert.NotNil(t, err)
@@ -20,6 +21,7 @@ func TestBuildDepSnapshot_MissingSHA(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_NoGoMod(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -31,6 +33,7 @@ func TestBuildDepSnapshot_NoGoMod(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_Success(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_SHA", "abc123def456")
 	t.Setenv("GITHUB_REF", "refs/heads/main")
 	t.Setenv("GITHUB_RUN_ID", "99999")
@@ -61,6 +64,7 @@ func TestBuildDepSnapshot_Success(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_DefaultRef(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_REF", "")
 
@@ -70,6 +74,7 @@ func TestBuildDepSnapshot_DefaultRef(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_IndirectDeps(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -88,6 +93,7 @@ func TestBuildDepSnapshot_IndirectDeps(t *testing.T) {
 }
 
 func TestBuildDepSnapshot_WorkspaceRelativePath(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_WORKSPACE", "/")
 
@@ -101,6 +107,7 @@ func TestBuildDepSnapshot_WorkspaceRelativePath(t *testing.T) {
 }
 
 func TestPostDepSnapshot_MissingToken(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	err := postDepSnapshot(&depSnapshot{})
@@ -111,6 +118,7 @@ func TestPostDepSnapshot_MissingToken(t *testing.T) {
 }
 
 func TestPostDepSnapshot_MissingRepo(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_TOKEN", "test-token")
 	t.Setenv("GITHUB_REPOSITORY", "")
 	err := postDepSnapshot(&depSnapshot{})
@@ -232,17 +240,20 @@ func TestPostDepSnapshot_APIErrorNon403(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_NotCI(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "")
 	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoRepo(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "")
 	assert.Nil(t, maybeSubmitDeps())
 }
 
 func TestMaybeSubmitDeps_NoSHA(t *testing.T) {
+	t.Serial()
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_SHA", "")
@@ -298,6 +309,7 @@ func TestMaybeSubmitDeps_SubmissionFailureFatal(t *testing.T) {
 }
 
 func TestMaybeSubmitDeps_SnapshotFailureFatal(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 

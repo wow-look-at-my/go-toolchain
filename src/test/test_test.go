@@ -17,6 +17,7 @@ import (
 var parallelArg = strconv.Itoa(runtime.NumCPU())
 
 func TestRunTestsWithMock(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Create a coverage file for ParseProfile: mostly covered statements
@@ -43,6 +44,7 @@ example.com/pkg/main.go:14.20,16.2 3 0
 }
 
 func TestRunTestsFailure(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	mock := runner.NewMock()
@@ -53,6 +55,7 @@ func TestRunTestsFailure(t *testing.T) {
 }
 
 func TestRunTestsVerbose(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Create coverage file for ParseProfile
@@ -76,6 +79,7 @@ example.com/pkg/main.go:10.20,12.2 1 1
 }
 
 func TestRunTestsNoCoverageFile(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 	// Don't create coverage.out - no profile means no statement-level data
 
@@ -100,6 +104,7 @@ func TestRunTestsNoCoverageFile(t *testing.T) {
 }
 
 func TestRunTestsNoStatementsMarkedCorrectly(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Profile only has pkg1 and pkg2 data; pkg3 has no statements. pkg1 is
@@ -142,6 +147,7 @@ example.com/pkg2/main.go:10.20,12.2 2 1
 }
 
 func TestRunTestsNoStatementsWithProfile(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Create coverage file that only has data for pkg1 (pkg2 has no statements)
@@ -175,6 +181,7 @@ example.com/pkg1/main.go:14.20,16.2 1 0
 }
 
 func TestRunTestsPackagesContainFiles(t *testing.T) {
+	t.Serial()
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")
 
 	// Coverage profile with a pair of files in pkg1 and a single file in pkg2
@@ -284,6 +291,7 @@ example.com/proj/pkg1/main.go:14.20,16.2 3 0
 }
 
 func TestRunTestsFallsBackToEllipsis(t *testing.T) {
+	// Run in an empty temp dir with no go.mod — listTestPackages returns nil
 	t.Chdir(t.TempDir())
 
 	coverFile := filepath.Join(t.TempDir(), "coverage.out")

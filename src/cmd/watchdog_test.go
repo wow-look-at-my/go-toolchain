@@ -19,6 +19,7 @@ import (
 // startWatchdog must decline to touch stdout/stderr and return nil (the build then
 // runs on its real stdio). Only the exact value the test sets disables it.
 func TestWatchdogDisabledByEnv(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_TOOLCHAIN_NO_WATCHDOG", "1")
 	require.True(t, watchdogDisabled())
 	require.Nil(t, startWatchdog(time.Second))

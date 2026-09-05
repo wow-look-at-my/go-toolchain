@@ -96,6 +96,7 @@ func setupCosmoMatrixTest(t *testing.T, targets []string) (fakeGoroot, outDir st
 // the build directory itself -- rather than from any flag: a copy of the APE
 // under a per-platform name is a thing this repo cannot express.
 func TestRunReleaseWithRunnerCosmoTarget(t *testing.T) {
+	t.Serial()
 	fakeGoroot, outDir := setupCosmoMatrixTest(t, []string{"cosmo"})
 
 	mock := newTestPassMock(0)
@@ -216,7 +217,7 @@ func TestRunReleaseWithRunnerInvalidTargets(t *testing.T) {
 // fat APE and wasm) — so the spawned cacheprog scopes every cache key to the
 // toolchain build.
 func TestRunBuildForkEnvSetsCacheNamespace(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	for _, tc := range []struct {
 		name   string
 		goos   string
@@ -256,7 +257,7 @@ func TestRunBuildForkEnvSetsCacheNamespace(t *testing.T) {
 // site that forgot to fingerprint the toolchain fails loudly instead of
 // silently sharing the un-namespaced cache across toolchain builds.
 func TestRunBuildForkWithoutNamespaceRefuses(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	job := buildJob{
 		goos:       cosmoOS,
@@ -276,7 +277,7 @@ func TestRunBuildForkWithoutNamespaceRefuses(t *testing.T) {
 // so a job naming a native platform, or naming no toolchain, dies here — no
 // call site can reintroduce a per-platform binary or another compiler.
 func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	forkGoroot := filepath.Join(t.TempDir(), "fork-goroot")
 	for _, tc := range []struct {
 		name    string
@@ -325,7 +326,7 @@ func TestRunBuildRefusesAnythingButThePortableTargets(t *testing.T) {
 
 // The targets that DO build, through the same chokepoint.
 func TestRunBuildAcceptsTheAPEAndWasm(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	for _, p := range []buildPlatform{
 		{OS: cosmoOS, Arch: cosmoFatArch},
 		{OS: "js", Arch: wasmArch},

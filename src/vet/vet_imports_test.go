@@ -14,6 +14,7 @@ import (
 )
 
 func TestImportName(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		name     string
 		imp      *ast.ImportSpec
@@ -51,6 +52,7 @@ func TestImportName(t *testing.T) {
 }
 
 func TestIsRedundantCast(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		typeName string
 		litKind  token.Token
@@ -76,6 +78,7 @@ func TestIsRedundantCast(t *testing.T) {
 }
 
 func TestNodeText(t *testing.T) {
+	t.Serial()
 	fset := token.NewFileSet()
 	f, _ := parser.ParseFile(fset, "test.go", `package main; var x = 42`, 0)
 
@@ -92,6 +95,7 @@ func TestNodeText(t *testing.T) {
 }
 
 func TestVetSemanticLoadError(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 
 	// Create invalid Go code (syntax error)
@@ -112,7 +116,7 @@ func main() {
 }
 
 func TestLoadErrorMessages(t *testing.T) {
-	t.Parallel() // In-memory packages.Error table, no process-wide state.
+	t.Serial()
 	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
 	embed := perr("oci.go:26:12", "pattern x: no matching files found")
 
@@ -143,7 +147,7 @@ func TestLoadErrorMessages(t *testing.T) {
 // `undefined:` cascade. Reading roots alone dropped the only line that named
 // the broken package. A dependency reached by several paths reports a single time.
 func TestLoadErrorMessagesReportsDependencyErrors(t *testing.T) {
-	t.Parallel() // In-memory packages.Error table, no process-wide state.
+	t.Serial()
 	perr := func(pos, msg string) packages.Error { return packages.Error{Pos: pos, Msg: msg} }
 
 	broken := &packages.Package{
@@ -172,6 +176,7 @@ func TestLoadErrorMessagesReportsDependencyErrors(t *testing.T) {
 }
 
 func TestGenerateBinaryReplacementCompound(t *testing.T) {
+	t.Serial()
 	// Test for && and || operators
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "main_test.go")
@@ -181,6 +186,7 @@ func TestGenerateBinaryReplacementCompound(t *testing.T) {
 import "testing"
 
 func TestFoo(t *testing.T) {
+	t.Serial()
 	x := true
 	y := false
 	if x && y {
@@ -200,6 +206,7 @@ func TestFoo(t *testing.T) {
 }
 
 func TestGenerateImportEdit(t *testing.T) {
+	t.Serial()
 	fset := token.NewFileSet()
 
 	// Test with existing imports
@@ -222,6 +229,7 @@ func main() {}
 }
 
 func TestSourceLocationShortLocWithError(t *testing.T) {
+	t.Serial()
 	// Test when filepath.Rel fails (shouldn't happen in practice, but for coverage)
 	loc := SourceLocation{File: "/some/path/file.go", Line: 1}
 	short := loc.ShortLoc()

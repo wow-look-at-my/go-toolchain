@@ -20,9 +20,10 @@ import (
 // install state, and the fork runs tests in parallel unless told otherwise.
 func captureInstalled(t *testing.T, fn func()) string {
 	t.Helper()
-	// Reset installation state so we can call Install again inside this test.
+	// Reset install state; a leftover drainedWG wedges every later Flush.
 	installOnce = sync.Once{}
 	installed = false
+	drainedWG = sync.WaitGroup{}
 
 	tmpOut, err := os.CreateTemp(t.TempDir(), "stdout-*")
 	require.Nil(t, err)
@@ -34,7 +35,10 @@ func captureInstalled(t *testing.T, fn func()) string {
 	origOut, origErr := os.Stdout, os.Stderr
 	os.Stdout = tmpOut
 	os.Stderr = tmpErr
+	// Flush releases drainedWG: a panic inside fn would otherwise
+	// leave the drainers blocked and wedge every later Flush.
 	defer func() {
+		Flush()
 		os.Stdout = origOut
 		os.Stderr = origErr
 	}()

@@ -95,6 +95,7 @@ func fixCanonicalizeFixture(t *testing.T) (string, map[string]string) {
 // go/printer, which tab-aligns, applies gofmt's doc-comment smart-quote
 // substitution, and hoists an if's init statement out of the if.
 func TestVetSemanticFixCanonicalizes(t *testing.T) {
+	t.Serial()
 	dir, files := fixCanonicalizeFixture(t)
 
 	// The canonicalize step must restore gofmt's "tabs to indent, spaces to

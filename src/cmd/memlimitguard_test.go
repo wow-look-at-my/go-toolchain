@@ -27,6 +27,7 @@ func setupGuardModule(t *testing.T) string {
 }
 
 func TestInjectThenCleanupLeavesTreeClean(t *testing.T) {
+	t.Serial()
 	mod := setupGuardModule(t)
 	guard := filepath.Join(mod, memlimit.GuardFileName)
 
@@ -48,6 +49,7 @@ func TestInjectThenCleanupLeavesTreeClean(t *testing.T) {
 // still get the guard rather than silently shipping unguarded binaries. The
 // run-time GOMEMLIMIT=off escape hatch is the supported way to opt out.
 func TestInjectGuardIgnoresRemovedKillSwitch(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_TOOLCHAIN_AUTO_MEMLIMIT", "off")
 	mod := setupGuardModule(t)
 
@@ -95,6 +97,7 @@ func readExclude(t *testing.T, mod string) string {
 // must not see it — that is what Go's VCS stamping reads, and an untracked
 // guard is what stamped every built binary "+dirty" on clean checkouts.
 func TestInjectedGuardInvisibleToGitStatus(t *testing.T) {
+	t.Serial()
 	mod := setupRealGitModule(t)
 
 	require.NoError(t, injectMemLimitGuard(true))
@@ -110,6 +113,7 @@ func TestInjectedGuardInvisibleToGitStatus(t *testing.T) {
 }
 
 func TestEnsureGuardExcludedIsIdempotent(t *testing.T) {
+	t.Serial()
 	mod := setupRealGitModule(t)
 
 	// Pre-existing operator content must be preserved, not clobbered.
@@ -127,6 +131,7 @@ func TestEnsureGuardExcludedIsIdempotent(t *testing.T) {
 }
 
 func TestEnsureGuardExcludedHandlesMissingTrailingNewline(t *testing.T) {
+	t.Serial()
 	mod := setupRealGitModule(t)
 	excl := filepath.Join(mod, ".git", "info", "exclude")
 	require.NoError(t, os.MkdirAll(filepath.Dir(excl), 0o755))
@@ -142,6 +147,7 @@ func TestEnsureGuardExcludedHandlesMissingTrailingNewline(t *testing.T) {
 // Outside any repository the exclude step is a silent no-op — and so is the
 // whole inject path, which must not fail the build over it.
 func TestEnsureGuardExcludedNoRepoIsNoOp(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 	// GIT_CEILING keeps discovery from escaping the temp dir if an outer repo surrounds it.

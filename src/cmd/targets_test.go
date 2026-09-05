@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseTargetList(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		name    string
 		entries []string
@@ -147,7 +147,7 @@ func TestParseTargetList(t *testing.T) {
 }
 
 func TestParseTargetListErrorNamesValidValues(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	_, err := parseTargetList([]string{"beos/amd64"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "linux")
@@ -174,7 +174,7 @@ func TestResolveMatrixPlatformsUsesTargetsWhenSet(t *testing.T) {
 }
 
 func TestBuildPlatformPredicates(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	cosmo := buildPlatform{OS: "cosmo", Arch: "fat"}
 	js := buildPlatform{OS: "js", Arch: "wasm"}
 	wasip1 := buildPlatform{OS: "wasip1", Arch: "wasm"}

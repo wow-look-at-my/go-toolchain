@@ -13,7 +13,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
-// chdirTemp enters a fresh temp directory for the test.
+// chdirTemp enters a fresh temp directory. An NT host will not delete a
+// directory that is a process's cwd, so the restore has to happen.
 func chdirTemp(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -22,6 +23,7 @@ func chdirTemp(t *testing.T) string {
 }
 
 func TestComputeFingerprint(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -44,6 +46,7 @@ func TestComputeFingerprint(t *testing.T) {
 }
 
 func TestComputeFingerprintIncludesGoSum(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -94,6 +97,7 @@ func TestComputeFingerprintCountsASourceDirNamedBuild(t *testing.T) {
 // bust the fingerprint -- otherwise the run fast-exits "Up to date" and those
 // assertions never re-run locally.
 func TestComputeFingerprintIncludesActionYML(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -113,6 +117,7 @@ func TestComputeFingerprintIncludesActionYML(t *testing.T) {
 // pipeline the stored fingerprint never described — so the skip must not fire
 // across a changed variable.
 func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -140,6 +145,7 @@ func TestComputeFingerprintIncludesTheEnvironment(t *testing.T) {
 // does not describe that run, and skipping it reports success for generators
 // that never executed.
 func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -161,6 +167,7 @@ func TestComputeFingerprintIncludesTheFlags(t *testing.T) {
 // A testdata fixture is read at run time by the test that would now fail, and
 // no //go:embed covers it.
 func TestComputeFingerprintIncludesTestdata(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -180,6 +187,7 @@ func TestComputeFingerprintIncludesTestdata(t *testing.T) {
 }
 
 func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -197,6 +205,7 @@ func TestComputeFingerprintSkipsBuildDir(t *testing.T) {
 }
 
 func TestFingerprintFile(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	fp := fingerprintFile()
@@ -205,6 +214,7 @@ func TestFingerprintFile(t *testing.T) {
 }
 
 func TestIsUpToDateNoFingerprint(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -215,6 +225,7 @@ func TestIsUpToDateNoFingerprint(t *testing.T) {
 }
 
 func TestIsUpToDateWithMatchingFingerprint(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -233,6 +244,7 @@ func TestIsUpToDateWithMatchingFingerprint(t *testing.T) {
 }
 
 func TestIsUpToDateStaleAfterChange(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -251,6 +263,7 @@ func TestIsUpToDateStaleAfterChange(t *testing.T) {
 }
 
 func TestSaveFingerprint(t *testing.T) {
+	t.Serial()
 	chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -288,7 +301,7 @@ func mockGoListRunner(pkgs ...listPkg) *runner.Mock {
 }
 
 func TestEmbeddedFilesParsesAllThreeFields(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := mockGoListRunner(
 		listPkg{Dir: "/m", EmbedFiles: []string{"a.txt", "static/app.js"}},
 		listPkg{Dir: "/m/sub", TestEmbedFiles: []string{"t.txt"}, XTestEmbedFiles: []string{"x.txt"}},
@@ -309,7 +322,7 @@ func TestEmbeddedFilesParsesAllThreeFields(t *testing.T) {
 }
 
 func TestEmbeddedFilesGoListError(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	mock := runner.NewMock()
 	mock.SetResponse("go", []string{"list", "-test", "-json", "./..."}, nil, fmt.Errorf("build broken"))
 
@@ -318,6 +331,7 @@ func TestEmbeddedFilesGoListError(t *testing.T) {
 }
 
 func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
+	t.Serial()
 	dir := chdirTemp(t)
 
 	os.WriteFile("go.mod", []byte("module example.com\n\ngo 1.21\n"), 0644)
@@ -352,6 +366,7 @@ func TestComputeFingerprintFoldsEmbeds(t *testing.T) {
 // and asserts that editing any embedded file busts the "up to date" skip,
 // while an unchanged tree still reports up to date.
 func TestUpToDateTracksEmbeddedFiles(t *testing.T) {
+	t.Serial()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}

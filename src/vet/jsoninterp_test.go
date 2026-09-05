@@ -60,6 +60,7 @@ func main() { _ = fmt.Sprintf("{\"sha\":%q}", "abc") }
 // TestJSONInterpReportsEachDocumentOnce pins that a chain of concatenations is
 // a single document, not a finding per operand.
 func TestJSONInterpReportsEachDocumentOnce(t *testing.T) {
+	t.Serial()
 	const src = `package main
 
 func body(a, b string) string { return "{\"a\":\"" + a + "\",\"b\":\"" + b + "\"}" }
@@ -75,6 +76,7 @@ func main() { _ = body("x", "y") }
 // Each shape either carries no value or is not a JSON document, and a check
 // that cries wolf on ordinary formatting is a check nobody reads.
 func TestJSONInterpLeavesOtherTextAlone(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		body string
@@ -100,6 +102,7 @@ func TestJSONInterpLeavesOtherTextAlone(t *testing.T) {
 // TestJSONInterpReadsTemplates pins that a template is judged on the document
 // it renders: an action makes it interpolation, and no action makes it static.
 func TestJSONInterpReadsTemplates(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		body string

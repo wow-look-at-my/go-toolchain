@@ -7,6 +7,7 @@ import (
 )
 
 func TestShortPkg(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		input string
 		want  string
@@ -23,6 +24,7 @@ func TestShortPkg(t *testing.T) {
 }
 
 func TestStripCPUSuffix(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		input string
 		want  string
@@ -40,6 +42,7 @@ func TestStripCPUSuffix(t *testing.T) {
 }
 
 func TestFormatBenchTime(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		ns   float64
 		want string
@@ -60,6 +63,7 @@ func TestFormatBenchTime(t *testing.T) {
 }
 
 func TestFormatBenchBytes(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		b    int64
 		want string
@@ -75,3 +79,4 @@ func TestFormatBenchBytes(t *testing.T) {
 		assert.Equal(t, tc.want, formatBenchBytes(tc.b), "b=%v", tc.b)
 	}
 }
+

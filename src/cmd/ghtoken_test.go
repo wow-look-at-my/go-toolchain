@@ -23,6 +23,7 @@ func enableTokenSearch(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_DisabledByDefault(t *testing.T) {
+	t.Serial()
 	for _, val := range []string{"", "0", "false", "False", "no", "off", "OFF"} {
 		t.Run("val="+val, func(t *testing.T) {
 			t.Setenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH", val)
@@ -34,6 +35,7 @@ func TestDiscoverGitHubToken_DisabledByDefault(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_WellKnownVars(t *testing.T) {
+	t.Serial()
 	enableTokenSearch(t)
 	withEmptyEnviron(t)
 	for _, name := range wellKnownTokenVars {
@@ -51,6 +53,7 @@ func TestDiscoverGitHubToken_WellKnownVars(t *testing.T) {
 }
 
 func TestDiscoverGitHubToken_Priority(t *testing.T) {
+	t.Serial()
 	enableTokenSearch(t)
 	withEmptyEnviron(t)
 	// GITHUB_TOKEN should take priority over GH_TOKEN.
@@ -109,6 +112,7 @@ func TestDiscoverGitHubToken_NoToken(t *testing.T) {
 }
 
 func TestNewGitHubRequest_NoToken(t *testing.T) {
+	t.Serial()
 	t.Setenv("GO_TOOLCHAIN_AGGRESSIVE_TOKEN_SEARCH", "")
 	for _, n := range wellKnownTokenVars {
 		t.Setenv(n, "")
@@ -123,6 +127,7 @@ func TestNewGitHubRequest_NoToken(t *testing.T) {
 }
 
 func TestNewGitHubRequest_WithToken(t *testing.T) {
+	t.Serial()
 	enableTokenSearch(t)
 	withEmptyEnviron(t)
 	t.Setenv("GITHUB_TOKEN", "ghp_testtoken123")

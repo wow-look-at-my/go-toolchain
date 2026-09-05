@@ -179,7 +179,7 @@ func TestWarningsGateRecapAnnotatesInGHA(t *testing.T) {
 // TestWarningsRecapReportsUnrecorded verifies that warnings past the
 // retention cap are reported as a count rather than silently dropped.
 func TestWarningsRecapReportsUnrecorded(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	recorded := make([]logger.Warning, logger.MaxRecordedWarnings)
 	for i := range recorded {
 		recorded[i] = logger.Warning{Message: fmt.Sprintf("recorded %d", i), Count: 1}

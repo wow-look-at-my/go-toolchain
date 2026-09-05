@@ -21,7 +21,7 @@ func TestResolveMatrixPlatformsDefaultsToOneAPE(t *testing.T) {
 }
 
 func TestParseCosmoPlatforms(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		name    string
 		entries []string
@@ -102,7 +102,7 @@ func TestParseCosmoPlatforms(t *testing.T) {
 // "all" publishes the platforms the APE is PROVEN to run on, never the extra
 // ones the fork can also emit — the published set is a promise.
 func TestApeCoverageForAll(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, []buildPlatform{
 		{OS: "darwin", Arch: "arm64"},
 		{OS: "linux", Arch: "amd64"},
@@ -115,7 +115,7 @@ func TestApeCoverageForAll(t *testing.T) {
 }
 
 func TestPlatformList(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "linux/amd64,darwin/arm64", platformList([]buildPlatform{
 		{OS: "linux", Arch: "amd64"},
 		{OS: "darwin", Arch: "arm64"},

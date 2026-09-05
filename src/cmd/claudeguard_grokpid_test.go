@@ -10,6 +10,7 @@ import (
 )
 
 func TestGrokNamedPID(t *testing.T) {
+	t.Serial()
 	t.Setenv("GROK_AGENT", "")
 	t.Setenv(grokPIDEnv, strconv.Itoa(1234))
 	assert.False(t, grokNamedPID(1234), "a pid var without GROK_AGENT is not grok")
@@ -28,6 +29,7 @@ func TestGrokNamedPID(t *testing.T) {
 }
 
 func TestHarnessIsPipeReaderRequiresAncestor(t *testing.T) {
+	t.Serial()
 	t.Setenv("GROK_AGENT", "1")
 	t.Setenv(grokPIDEnv, strconv.Itoa(os.Getpid()))
 	assert.False(t, harnessIsPipeReader("not-an-agent", os.Getpid()),
@@ -47,7 +49,7 @@ func TestHarnessIsPipeReaderRequiresAncestor(t *testing.T) {
 }
 
 func TestParseLsofPipeHandles(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	const out = "p367\n" +
 		"f94\n" +
 		"tPIPE\n" +
@@ -70,13 +72,13 @@ func TestParseLsofPipeHandles(t *testing.T) {
 }
 
 func TestJoinPids(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	assert.Equal(t, "1,2,3", joinPids([]int{1, 2, 3}))
 	assert.Empty(t, joinPids(nil))
 }
 
 func TestParseHexHandle(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	v, ok := parseHexHandle("0xebc7464f361551ca")
 	assert.True(t, ok)
 	assert.Equal(t, uint64(0xebc7464f361551ca), v)

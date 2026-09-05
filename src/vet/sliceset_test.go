@@ -63,6 +63,7 @@ func main() { _ = slices.Contains(known, "a") }
 // silent. Each shape reads position or repetition, or puts the slice somewhere
 // this walk cannot follow, so a set is not provably what the author meant.
 func TestSliceSetLeavesUncertainSlicesAlone(t *testing.T) {
+	t.Serial()
 	for _, c := range []struct {
 		name string
 		body string

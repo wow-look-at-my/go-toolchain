@@ -11,6 +11,7 @@ import (
 )
 
 func TestClearNodePositionsIdent(t *testing.T) {
+	t.Serial()
 	ident := &ast.Ident{NamePos: 42, Name: "foo"}
 	clearNodePositions(ident)
 	assert.Equal(t, token.NoPos, ident.NamePos)
@@ -18,6 +19,7 @@ func TestClearNodePositionsIdent(t *testing.T) {
 }
 
 func TestClearNodePositionsBasicLit(t *testing.T) {
+	t.Serial()
 	lit := &ast.BasicLit{ValuePos: 99, Kind: token.INT, Value: "42"}
 	clearNodePositions(lit)
 	assert.Equal(t, token.NoPos, lit.ValuePos)
@@ -25,6 +27,7 @@ func TestClearNodePositionsBasicLit(t *testing.T) {
 }
 
 func TestClearNodePositionsBinaryExpr(t *testing.T) {
+	t.Serial()
 	expr := &ast.BinaryExpr{
 		X:     &ast.Ident{NamePos: 10, Name: "a"},
 		OpPos: 20,
@@ -38,6 +41,7 @@ func TestClearNodePositionsBinaryExpr(t *testing.T) {
 }
 
 func TestClearNodePositionsCallExpr(t *testing.T) {
+	t.Serial()
 	call := &ast.CallExpr{
 		Fun:      &ast.Ident{NamePos: 5, Name: "foo"},
 		Lparen:   10,
@@ -51,6 +55,7 @@ func TestClearNodePositionsCallExpr(t *testing.T) {
 }
 
 func TestClearNodePositionsParenExpr(t *testing.T) {
+	t.Serial()
 	paren := &ast.ParenExpr{
 		Lparen: 1,
 		Rparen: 5,
@@ -62,12 +67,14 @@ func TestClearNodePositionsParenExpr(t *testing.T) {
 }
 
 func TestClearNodePositionsUnaryExpr(t *testing.T) {
+	t.Serial()
 	unary := &ast.UnaryExpr{OpPos: 1, Op: token.NOT, X: &ast.Ident{Name: "x"}}
 	clearNodePositions(unary)
 	assert.Equal(t, token.NoPos, unary.OpPos)
 }
 
 func TestClearNodePositionsIndexExpr(t *testing.T) {
+	t.Serial()
 	idx := &ast.IndexExpr{Lbrack: 5, Rbrack: 10}
 	clearNodePositions(idx)
 	assert.Equal(t, token.NoPos, idx.Lbrack)
@@ -75,12 +82,14 @@ func TestClearNodePositionsIndexExpr(t *testing.T) {
 }
 
 func TestClearNodePositionsStarExpr(t *testing.T) {
+	t.Serial()
 	star := &ast.StarExpr{Star: 5, X: &ast.Ident{Name: "Foo"}}
 	clearNodePositions(star)
 	assert.Equal(t, token.NoPos, star.Star)
 }
 
 func TestClearNodePositionsCompositeLit(t *testing.T) {
+	t.Serial()
 	cl := &ast.CompositeLit{Lbrace: 1, Rbrace: 10}
 	clearNodePositions(cl)
 	assert.Equal(t, token.NoPos, cl.Lbrace)
@@ -88,6 +97,7 @@ func TestClearNodePositionsCompositeLit(t *testing.T) {
 }
 
 func TestClearNodePositionsKeyValueExpr(t *testing.T) {
+	t.Serial()
 	kv := &ast.KeyValueExpr{
 		Key:   &ast.Ident{Name: "k"},
 		Colon: 5,
@@ -98,6 +108,7 @@ func TestClearNodePositionsKeyValueExpr(t *testing.T) {
 }
 
 func TestClearNodePositionsSliceExpr(t *testing.T) {
+	t.Serial()
 	sl := &ast.SliceExpr{Lbrack: 3, Rbrack: 8}
 	clearNodePositions(sl)
 	assert.Equal(t, token.NoPos, sl.Lbrack)
@@ -105,6 +116,7 @@ func TestClearNodePositionsSliceExpr(t *testing.T) {
 }
 
 func TestClearNodePositionsTypeAssertExpr(t *testing.T) {
+	t.Serial()
 	ta := &ast.TypeAssertExpr{Lparen: 1, Rparen: 5}
 	clearNodePositions(ta)
 	assert.Equal(t, token.NoPos, ta.Lparen)
@@ -112,12 +124,14 @@ func TestClearNodePositionsTypeAssertExpr(t *testing.T) {
 }
 
 func TestClearNodePositionsAssignStmt(t *testing.T) {
+	t.Serial()
 	as := &ast.AssignStmt{TokPos: 10, Tok: token.ASSIGN}
 	clearNodePositions(as)
 	assert.Equal(t, token.NoPos, as.TokPos)
 }
 
 func TestClearNodePositionsComplex(t *testing.T) {
+	t.Serial()
 	// Parse a real expression to get a complex AST
 	fset := token.NewFileSet()
 	expr, err := parser.ParseExpr("a + b*c")
@@ -143,6 +157,7 @@ func TestClearNodePositionsComplex(t *testing.T) {
 }
 
 func TestPrepareFixNodes(t *testing.T) {
+	t.Serial()
 	nodes := []ast.Node{
 		&ast.Ident{NamePos: 100, Name: "a"},
 		&ast.BasicLit{ValuePos: 200, Value: "42"},
@@ -156,6 +171,7 @@ func TestPrepareFixNodes(t *testing.T) {
 }
 
 func TestPrepareFixNodesEmpty(t *testing.T) {
+	t.Serial()
 	// Should not panic
 	prepareFixNodes(nil, 50)
 	prepareFixNodes([]ast.Node{}, 50)

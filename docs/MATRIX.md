@@ -104,6 +104,12 @@ the final link is affected: a cached package archive keeps the stamp the cache
 poison guards read, so [CACHE.md](CACHE.md) is untouched. Action IDs still
 differ per host, so this buys identical bytes and never a cross-host cache hit.
 
+`-buildid=` is the tail of a longer `-ldflags` value: the revision stamp and
+whatever the caller put in `GOFLAGS` come ahead of it, and
+[VCS-STAMP.md](VCS-STAMP.md) covers why the order is what it is. Neither part
+varies by host — the stamp is the commit, which every runner in a CI run shares
+— so the `identical` job still holds.
+
 **Cache isolation.** Fork-toolchain builds (cosmo and wasm) run with their
 cache keys namespaced by a content hash of the toolchain in use
 (`GO_TOOLCHAIN_CACHE_NAMESPACE`, set automatically). The fork stamps a constant

@@ -13,6 +13,7 @@ import (
 )
 
 func TestWriteChrome(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "trace.json")
 
@@ -57,6 +58,7 @@ func TestWriteChrome(t *testing.T) {
 }
 
 func TestWriteChromeNilTrace(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "trace.json")
 
@@ -77,6 +79,7 @@ func TestWriteChromeNilTrace(t *testing.T) {
 }
 
 func TestWriteChromeEmptyInput(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "trace.json")
 
@@ -94,6 +97,7 @@ func TestWriteChromeEmptyInput(t *testing.T) {
 }
 
 func TestWriteChromeOverlappingEvents(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "trace.json")
 

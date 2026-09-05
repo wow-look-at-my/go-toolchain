@@ -12,6 +12,7 @@ import (
 )
 
 func TestBuildBenchArgsDefaults(t *testing.T) {
+	t.Serial()
 	opts := Options{}
 	args := buildBenchArgs(opts)
 
@@ -23,6 +24,7 @@ func TestBuildBenchArgsDefaults(t *testing.T) {
 }
 
 func TestBuildBenchArgsAllOptions(t *testing.T) {
+	t.Serial()
 	opts := Options{
 		Time:    "5s",
 		Count:   3,
@@ -41,6 +43,7 @@ func TestBuildBenchArgsAllOptions(t *testing.T) {
 }
 
 func TestBuildBenchArgsBenchmemAlwaysPresent(t *testing.T) {
+	t.Serial()
 	opts := Options{}
 	args := buildBenchArgs(opts)
 
@@ -54,6 +57,7 @@ func TestBuildBenchArgsBenchmemAlwaysPresent(t *testing.T) {
 }
 
 func TestRunBenchmarksSuccess(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
@@ -66,6 +70,7 @@ func TestRunBenchmarksSuccess(t *testing.T) {
 }
 
 func TestRunBenchmarksFails(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
@@ -77,6 +82,7 @@ func TestRunBenchmarksFails(t *testing.T) {
 }
 
 func TestRunBenchmarksFailsWithPartialResults(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
@@ -90,6 +96,7 @@ func TestRunBenchmarksFailsWithPartialResults(t *testing.T) {
 }
 
 func TestRunBenchmarksStreamsResults(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
@@ -113,6 +120,7 @@ func TestRunBenchmarksStreamsResults(t *testing.T) {
 }
 
 func TestRunBenchmarksNoStreamWhenNil(t *testing.T) {
+	t.Serial()
 	mock := runner.NewMock()
 	baseArgs := buildBenchArgs(Options{})
 	jsonArgs := append([]string{baseArgs[0], "-json"}, baseArgs[1:]...)
@@ -125,6 +133,7 @@ func TestRunBenchmarksNoStreamWhenNil(t *testing.T) {
 }
 
 func TestHasBenchmarksFindsNone(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(dir+"/main_test.go", []byte("package main\nfunc TestFoo(t *testing.T) {}\n"), 0644))
 
@@ -132,6 +141,7 @@ func TestHasBenchmarksFindsNone(t *testing.T) {
 }
 
 func TestHasBenchmarksFindsOne(t *testing.T) {
+	t.Serial()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(dir+"/bench_test.go", []byte("package main\n\nimport \"testing\"\n\nfunc BenchmarkFoo(b *testing.B) {}\n"), 0644))
 

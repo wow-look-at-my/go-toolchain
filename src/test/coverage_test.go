@@ -14,6 +14,7 @@ import (
 )
 
 func TestParseProfile(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
@@ -55,11 +56,13 @@ func TestParseProfile(t *testing.T) {
 }
 
 func TestParseProfileMissingFile(t *testing.T) {
+	t.Serial()
 	_, _, err := ParseProfile("/nonexistent/coverage.out")
 	assert.NotNil(t, err)
 }
 
 func TestParseProfileEmpty(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
@@ -76,6 +79,7 @@ func TestParseProfileEmpty(t *testing.T) {
 }
 
 func TestParseProfileMalformedLines(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
@@ -97,6 +101,7 @@ example.com/pkg/file.go:10.20,12.2 1 1
 }
 
 func TestParseProfileMergesDuplicates(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
@@ -124,6 +129,7 @@ example.com/pkg/file1.go:14.20,16.2 1 0
 }
 
 func TestFilterBlocksByReachable(t *testing.T) {
+	t.Serial()
 	blocks := []coverageBlock{
 		{file: "example.com/pkg1/file.go", statements: 2, count: 1},
 		{file: "example.com/pkg2/file.go", statements: 3, count: 0},
@@ -139,6 +145,7 @@ func TestFilterBlocksByReachable(t *testing.T) {
 }
 
 func TestFilterBlocksByReachableNil(t *testing.T) {
+	t.Serial()
 	blocks := []coverageBlock{
 		{file: "example.com/pkg1/file.go", statements: 2, count: 1},
 		{file: "example.com/pkg2/file.go", statements: 3, count: 0},
@@ -154,6 +161,7 @@ func TestFilterBlocksByReachableNil(t *testing.T) {
 }
 
 func TestParseProfileFiltered(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
 	coverFile := filepath.Join(tmpDir, "coverage.out")
 
@@ -182,7 +190,9 @@ example.com/pkg3/file.go:10.20,12.2 1 1
 }
 
 func TestReachablePackages(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
 
 	// Set up filesystem: go.mod + a main package in cmd/app
 	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
@@ -202,7 +212,9 @@ func TestReachablePackages(t *testing.T) {
 }
 
 func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
 
 	// Main package imports pkg1; pkg2 is behind a build tag and unreachable from the entry point.
 	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
@@ -221,7 +233,9 @@ func TestReachablePackagesExcludesBuildTagPkgs(t *testing.T) {
 }
 
 func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
 
 	// No main packages found — falls back to ./...
 	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module example.com/mymod\n\ngo 1.21\n"), 0644)
@@ -239,7 +253,9 @@ func TestReachablePackagesFallsBackForLibrary(t *testing.T) {
 }
 
 func TestReachablePackagesModuleFailure(t *testing.T) {
+	t.Serial()
 	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
 
 	// No go.mod — ReadModulePath returns ""
 	mock := newMockRunnerForReachable("")

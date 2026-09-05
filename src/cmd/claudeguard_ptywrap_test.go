@@ -27,6 +27,7 @@ func withFakeAncestry(t *testing.T, start int, chain fakeAncestry) {
 }
 
 func TestPtyWrapperAncestor(t *testing.T) {
+	t.Serial()
 	t.Run("finds a known wrapper a few hops up", func(t *testing.T) {
 		withFakeAncestry(t, 100, fakeAncestry{
 			100: {"sh", 50},

@@ -14,7 +14,7 @@ import (
 )
 
 func TestFormatDuration(t *testing.T) {
-	t.Parallel()
+	t.Serial()
 	tests := []struct {
 		d    time.Duration
 		want string
@@ -52,6 +52,7 @@ func TestResolvedVersionNoVCS(t *testing.T) {
 }
 
 func TestEnvOr(t *testing.T) {
+	t.Serial()
 	t.Setenv("TEST_ENVOR_SET", "from-env")
 	got := envOr("TEST_ENVOR_SET", "fallback")
 	assert.Equal(t, "from-env", got)
@@ -61,6 +62,7 @@ func TestEnvOr(t *testing.T) {
 }
 
 func TestGithubRepoFromEnv(t *testing.T) {
+	t.Serial()
 	t.Setenv("GITHUB_REPOSITORY", "other-org/other-repo")
 	// Re-initialize to pick up env var
 	old := githubRepo
@@ -222,6 +224,7 @@ func withMockGitHub(t *testing.T, server *httptest.Server) func() {
 }
 
 func TestFetchLatestCommitFromGitHub(t *testing.T) {
+	t.Serial()
 	commitTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 	server := newGitHubMock(t, commitTime, "abc123def456", 0)
 	defer server.Close()
@@ -234,6 +237,7 @@ func TestFetchLatestCommitFromGitHub(t *testing.T) {
 }
 
 func TestFetchLatestCommitFromGitHubHTTPError(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -246,6 +250,7 @@ func TestFetchLatestCommitFromGitHubHTTPError(t *testing.T) {
 }
 
 func TestFetchLatestCommitFromGitHubEmptyResponse(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]githubCommitResponse{})
 	}))
@@ -257,6 +262,7 @@ func TestFetchLatestCommitFromGitHubEmptyResponse(t *testing.T) {
 }
 
 func TestFetchCommitsBehind(t *testing.T) {
+	t.Serial()
 	server := newGitHubMock(t, time.Now(), "head123", 7)
 	defer server.Close()
 	defer withMockGitHub(t, server)()
@@ -267,6 +273,7 @@ func TestFetchCommitsBehind(t *testing.T) {
 }
 
 func TestFetchCommitsBehindHTTPError(t *testing.T) {
+	t.Serial()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}))

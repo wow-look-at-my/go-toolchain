@@ -10,11 +10,13 @@ import (
 )
 
 func TestCompareNilReports(t *testing.T) {
+	t.Serial()
 	comp := Compare(nil, nil)
 	assert.Equal(t, 0, len(comp.Packages))
 }
 
 func TestCompareNoPrevious(t *testing.T) {
+	t.Serial()
 	current := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {{Name: "BenchmarkFoo-8", NsPerOp: 1000}},
@@ -32,6 +34,7 @@ func TestCompareNoPrevious(t *testing.T) {
 }
 
 func TestCompareWithPrevious(t *testing.T) {
+	t.Serial()
 	current := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {{Name: "BenchmarkFoo-8", NsPerOp: 900, BytesPerOp: 200, AllocsPerOp: 4}},
@@ -56,6 +59,7 @@ func TestCompareWithPrevious(t *testing.T) {
 }
 
 func TestCompareRegression(t *testing.T) {
+	t.Serial()
 	current := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {{Name: "BenchmarkFoo-8", NsPerOp: 1100}},
@@ -74,6 +78,7 @@ func TestCompareRegression(t *testing.T) {
 }
 
 func TestCompareNewBenchmark(t *testing.T) {
+	t.Serial()
 	current := &BenchmarkReport{
 		Packages: map[string][]BenchmarkResult{
 			"pkg": {
@@ -106,6 +111,7 @@ func TestCompareNewBenchmark(t *testing.T) {
 }
 
 func TestHasDeltas(t *testing.T) {
+	t.Serial()
 	// No previous data
 	comp := &Comparison{
 		Packages: map[string][]Delta{
@@ -121,6 +127,7 @@ func TestHasDeltas(t *testing.T) {
 }
 
 func TestStripCPUSuffix(t *testing.T) {
+	t.Serial()
 	tests := []struct {
 		input    string
 		expected string
@@ -191,6 +198,7 @@ func TestComparisonPrintEmpty(t *testing.T) {
 }
 
 func TestFormatDelta(t *testing.T) {
+	t.Serial()
 	// No previous - should show dash
 	result := formatDelta(0, false)
 	assert.Contains(t, result, "-")

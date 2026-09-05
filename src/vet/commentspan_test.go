@@ -58,6 +58,7 @@ func runCommentSpanOn(t *testing.T, src string) []logger.Warning {
 }
 
 func TestCommentSpanMeasureIgnoresWhitespace(t *testing.T) {
+	t.Serial()
 	lines, chars := commentSpanMeasure("  // a b \n\n   \n// c")
 	assert.Equal(t, 2, lines, "the whitespace-only line is not a line")
 	assert.Equal(t, 7, chars, "spaces inside a line and around // do not count")
@@ -66,6 +67,7 @@ func TestCommentSpanMeasureIgnoresWhitespace(t *testing.T) {
 // TestCommentSpanFailsOnMoreLines runs the shape the analyzer exists for: a
 // multi-line doc over a single-line const. Only the line clamp is broken.
 func TestCommentSpanFailsOnMoreLines(t *testing.T) {
+	t.Serial()
 	const src = `package p
 
 // line one
@@ -82,6 +84,7 @@ const x = 1
 // TestCommentSpanFailsOnMoreCharsOnly is a single-line doc long enough to
 // break the char clamp while its single line still fits the line clamp.
 func TestCommentSpanFailsOnMoreCharsOnly(t *testing.T) {
+	t.Serial()
 	src := "package p\n\n" + fixtureComment(t, 1, 160) + "\nconst x = 1\n"
 	warnings := runCommentSpanOn(t, src)
 	require.Len(t, warnings, 1)
@@ -93,6 +96,7 @@ func TestCommentSpanFailsOnMoreCharsOnly(t *testing.T) {
 // TestCommentSpanPassesAtTheCharFloor verifies a comment gets the full
 // char floor even over a const with far fewer chars of its own.
 func TestCommentSpanPassesAtTheCharFloor(t *testing.T) {
+	t.Serial()
 	src := "package p\n\n" + fixtureComment(t, 1, 120) + "\nconst x = 1\n"
 	assert.Empty(t, runCommentSpanOn(t, src))
 }
@@ -100,6 +104,7 @@ func TestCommentSpanPassesAtTheCharFloor(t *testing.T) {
 // TestCommentSpanFailsOneCharPastTheFloor verifies the floor is exact, not
 // approximate.
 func TestCommentSpanFailsOneCharPastTheFloor(t *testing.T) {
+	t.Serial()
 	src := "package p\n\n" + fixtureComment(t, 1, 121) + "\nconst x = 1\n"
 	warnings := runCommentSpanOn(t, src)
 	require.Len(t, warnings, 1)
@@ -110,6 +115,7 @@ func TestCommentSpanFailsOneCharPastTheFloor(t *testing.T) {
 // it documents, on both dimensions. The clamp is not-more-than, so equal
 // passes.
 func TestCommentSpanPassesAtTheBoundary(t *testing.T) {
+	t.Serial()
 	const fn = "func f() {\n\treturn\n}"
 	tLines, tChars := commentSpanMeasure(fn)
 	src := "package p\n\n" + fixtureComment(t, tLines, tChars) + "\n" + fn + "\n"
@@ -119,6 +125,7 @@ func TestCommentSpanPassesAtTheBoundary(t *testing.T) {
 // TestCommentSpanExemptsDirectivesAndPackageDoc verifies a //go:build line, a
 // //go:generate line, and the package doc are never measured, however big.
 func TestCommentSpanExemptsDirectivesAndPackageDoc(t *testing.T) {
+	t.Serial()
 	cases := []struct {
 		name string
 		src  string
@@ -138,6 +145,7 @@ func TestCommentSpanExemptsDirectivesAndPackageDoc(t *testing.T) {
 // field's doc, and a comment inside a case clause each attach to the small
 // node beside them, not to something so big the check never fires.
 func TestCommentSpanAttachesToTheRightNode(t *testing.T) {
+	t.Serial()
 	filler := strings.Repeat("x", 130)
 	cases := []struct {
 		name string
