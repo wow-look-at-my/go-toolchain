@@ -21,7 +21,12 @@ func unidentifiedPeerSink(kind sinkKind) outputSink {
 	if piped {
 		return outputSink{kind: kind, cmdline: cmd}
 	}
-	return outputSink{kind: sinkVisible}
+	// Nothing named the reader and nothing showed a capture. The run is
+	// allowed, and this records that the guard answered without knowing.
+	if cmd == "" {
+		return outputSink{kind: sinkVisible, blind: "the reader could not be named and no ancestor's command line could be read"}
+	}
+	return outputSink{kind: sinkVisible, blind: "the reader could not be named, and the spawning command line does not capture stdout: " + cmd}
 }
 
 // spawningPipeline reports the shell text of the nearest ancestor handed a

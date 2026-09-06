@@ -63,14 +63,14 @@ tests:
 		"!stdout":
 			- "GUESSED"
 
-	# The guard must CLASSIFY here, not fall back to announcing that it cannot
-	# see. Both halves fail independently: losing the refusal means the guard
-	# stopped working, and gaining the INOPERATIVE banner means it went blind
-	# and said so. A blind guard ALLOWS, so a classifier regression shows up as
-	# both at once. This descriptor is a captured stdout, which fstat alone
-	# classifies, so it stays decidable whatever the fork gains later.
-	- desc: the guard classifies on this host rather than going blind
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env OPENCODE=1 {outputs.gt.exe} 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
+	# The guard must ANSWER here rather than go quiet. Linux names the pipe's
+	# reader from /proc and refuses. Darwin needs an lsof and a ps on other
+	# pids, which seatbelt denies, so it cannot name the reader and by design
+	# allows -- but it must say the BLIND line, which is the answer standing in
+	# for the refusal. Windows has no classifier at all and says INOPERATIVE.
+	# A silent allow, on any host, is the regression this catches.
+	- desc: the guard answers on this host rather than going quiet
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env OPENCODE=1 {outputs.gt.exe} 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$out" | grep -q "guard is BLIND" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -78,10 +78,10 @@ tests:
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|operative\\|refused|(MINGW|MSYS|CYGWIN).*\\|blind\\|allowed)$"
+			0: "^(Linux\\|operative\\|refused|Darwin\\|(operative\\|refused|blind\\|allowed)|(MINGW|MSYS|CYGWIN).*\\|inoperative\\|allowed)$"
 
-	- desc: agent output guard refuses a captured pipeline run under {matrix.marker}
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env {matrix.marker}=1 {outputs.gt.exe} 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; b=nobuild; printf "%s" "$out" | grep -q "Build successful" && b=built; printf "%s|%s|%s|%s\n" "$(uname -s)" "$g" "$r" "$b"'
+	- desc: agent output guard answers a captured pipeline run under {matrix.marker}
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env {matrix.marker}=1 {outputs.gt.exe} 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$out" | grep -q "guard is BLIND" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; b=nobuild; printf "%s" "$out" | grep -q "Build successful" && b=built; printf "%s|%s|%s|%s\n" "$(uname -s)" "$g" "$r" "$b"'
 	  timeout: 60s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -91,7 +91,7 @@ tests:
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|operative\\|refused\\|nobuild|(MINGW|MSYS|CYGWIN).*\\|blind\\|allowed\\|nobuild)$"
+			0: "^(Linux\\|operative\\|refused\\|nobuild|Darwin\\|(operative\\|refused|blind\\|allowed)\\|nobuild|(MINGW|MSYS|CYGWIN).*\\|inoperative\\|allowed\\|nobuild)$"
 
 	# version prints build metadata and no build result, so it is exempt from
 	# the guard along with cacheprog: a captured run under an agent answers.
@@ -111,8 +111,12 @@ tests:
 	# dats/cli.dats gives: ancestry outranks the env marker, so a run started
 	# from inside another agent's session legitimately names that one. That the
 	# message names AN agent is the part that must hold.
+	# A host that does not refuse never reaches the deletion, so the verdict is
+	# probed from an EMPTY directory first and only a refusal earns the planted
+	# -binary arm. Otherwise the guard's allowance would let a whole pipeline
+	# run here, and ITS outcome, not the guard's, would decide the binary.
 	- desc: agent output guard names the agent and deletes the module's build outputs
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({outputs.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=blind; n=unnamed; printf "%s" "$out" | grep -q "You are running under" && n=named; d=nodelete; printf "%s" "$out" | grep -q "have been DELETED" && d=announced; printf "%s|%s|%s|%s|%s|%s\n" "$(uname -s)" "$g" "$bin" "$sums" "$n" "$d"'
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache} {outputs.probe}; cd {outputs.probe}; probe=$({outputs.gt.exe} 2>&1); cd {outputs.rundir}; if ! printf "%s" "$probe" | grep -q "refused to run"; then g=quiet; printf "%s" "$probe" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$probe" | grep -q "guard is BLIND" && g=blind; printf "%s|%s|kept|kept|unnamed|nodelete\n" "$(uname -s)" "$g"; exit 0; fi; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({outputs.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; n=unnamed; printf "%s" "$out" | grep -q "You are running under" && n=named; d=nodelete; printf "%s" "$out" | grep -q "have been DELETED" && d=announced; printf "%s|operative|%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$n" "$d"'
 	  timeout: 5m
 	  inputs:
 		env:
@@ -121,7 +125,7 @@ tests:
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|operative\\|deleted\\|kept\\|named\\|announced|(MINGW|MSYS|CYGWIN).*\\|blind\\|kept\\|kept\\|unnamed\\|nodelete)$"
+			0: "^(.*\\|operative\\|deleted\\|kept\\|named\\|announced|.*\\|(blind|inoperative)\\|kept\\|kept\\|unnamed\\|nodelete)$"
 
 	# The other guard tests all hit the pipe allowance; CLAUDECODE discarding to
 	# /dev/null exercises the DIFFERENT sinkDiscard path -- a char device, which

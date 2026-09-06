@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,8 +38,48 @@ func TestUnidentifiedPeerRunsWhenTheCommandLineIsUnreadable(t *testing.T) {
 	cmd, piped := spawningPipeline()
 	require.False(t, piped)
 	require.Empty(t, cmd)
-	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind,
+	sink := unidentifiedPeerSink(sinkPipe)
+	assert.Equal(t, sinkVisible, sink.kind,
 		"an unreadable ancestry must not abort an ordinary run")
+	assert.NotEmpty(t, sink.blind,
+		"allowing without knowing is the one thing the guard must never do quietly")
+}
+
+// The banner is the whole point of the blind field: an allow the guard could
+// not justify has to reach stderr, or it reads as an allow it checked.
+func TestABlindAllowSaysSoOnStderr(t *testing.T) {
+	t.Serial()
+	var out strings.Builder
+	oldOut, oldAgent, oldInspect := agentGuardOut, runningUnderAgentFn, inspectStdoutFn
+	agentGuardOut = &out
+	runningUnderAgentFn = func() (string, bool) { return "claude", true }
+	inspectStdoutFn = func() outputSink {
+		return outputSink{kind: sinkVisible, blind: "the reader could not be named"}
+	}
+	t.Cleanup(func() {
+		agentGuardOut, runningUnderAgentFn, inspectStdoutFn = oldOut, oldAgent, oldInspect
+	})
+
+	guardAgainstAgentOutputCapture()
+	assert.Contains(t, out.String(), "guard is BLIND")
+	assert.Contains(t, out.String(), "the reader could not be named")
+}
+
+// A classification the guard actually made says nothing extra: the banner
+// must mark the gap, never every run.
+func TestAClassifiedVisibleSinkSaysNothing(t *testing.T) {
+	t.Serial()
+	var out strings.Builder
+	oldOut, oldAgent, oldInspect := agentGuardOut, runningUnderAgentFn, inspectStdoutFn
+	agentGuardOut = &out
+	runningUnderAgentFn = func() (string, bool) { return "claude", true }
+	inspectStdoutFn = func() outputSink { return outputSink{kind: sinkVisible} }
+	t.Cleanup(func() {
+		agentGuardOut, runningUnderAgentFn, inspectStdoutFn = oldOut, oldAgent, oldInspect
+	})
+
+	guardAgainstAgentOutputCapture()
+	assert.Empty(t, out.String())
 }
 
 // The acquittal is what a READ shell with no capture buys, which is the bare
