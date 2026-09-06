@@ -132,7 +132,7 @@ tests:
 	# the classifier reaches through isTerminal, and on a darwin host through the
 	# device path when the cosmo dispatcher cannot ask TCGETS.
 	- desc: a discarded run under CLAUDECODE is refused
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; {outputs.gt.exe} > /dev/null 2>err.txt; g=operative; grep -q "INOPERATIVE" err.txt && g=blind; r=allowed; grep -q "refused to run" err.txt && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; {outputs.gt.exe} > /dev/null 2>err.txt; g=operative; grep -q "INOPERATIVE" err.txt && g=inoperative; grep -q "guard is BLIND" err.txt && g=blind; r=allowed; grep -q "refused to run" err.txt && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -141,7 +141,7 @@ tests:
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|operative\\|refused|(MINGW|MSYS|CYGWIN).*\\|blind\\|allowed)$"
+			0: "^((Linux|Darwin)\\|operative\\|refused|(MINGW|MSYS|CYGWIN).*\\|inoperative\\|allowed)$"
 
 	# dats/cli.dats proves --help against the DEV build; this proves the APE's
 	# polyglot format loads and dispatches wherever this fixture runs. --help
