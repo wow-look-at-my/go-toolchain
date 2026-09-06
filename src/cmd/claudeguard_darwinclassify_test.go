@@ -53,15 +53,14 @@ func TestClassifyDarwinFD(t *testing.T) {
 	})
 
 	// An unnameable FIFO reader leaves the command line as the only evidence,
-	// and the test process was handed no shell. Nothing could have shown the
-	// pipe, so it fails closed: read as an acquittal, a real captured run
-	// walked through on darwin, where that reader is a sibling the probe
-	// cannot reach.
-	t.Run("fifo with an unnameable reader and no shell fails closed", func(t *testing.T) {
+	// and the test process was handed no shell. Nothing shows a capture, so
+	// the run proceeds. Convicting instead was tried and reverted: it aborts
+	// a plain `go-toolchain` on any host that will not show an ancestor's
+	// argv, which is every run rather than the captured ones.
+	t.Run("fifo with an unnameable reader and no shell still runs", func(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(sIFIFO))
 		assert.True(t, ok)
-		assert.Equal(t, sinkPipe, sink.kind)
-		assert.NotEmpty(t, sink.detail, "a conviction says what it convicted on")
+		assert.Equal(t, sinkVisible, sink.kind)
 	})
 
 	t.Run("fifo", func(t *testing.T) {
@@ -157,10 +156,10 @@ func TestClassifyDarwinFD(t *testing.T) {
 			assert.Equal(t, "tee", sink.detail)
 		})
 
-		t.Run("no peer at all and no shell fails closed", func(t *testing.T) {
+		t.Run("no peer at all and no shell still runs", func(t *testing.T) {
 			sink, ok := classifyDarwinFD(okProbes(sIFSOCK))
 			assert.True(t, ok)
-			assert.Equal(t, sinkHidden, sink.kind)
+			assert.Equal(t, sinkVisible, sink.kind)
 		})
 	})
 
@@ -269,6 +268,6 @@ func TestClassifyDarwinFD(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(sIFIFO | 0o644))
 		assert.True(t, ok)
 		// Same answer as the bare sIFIFO case above, which is the point.
-		assert.Equal(t, sinkPipe, sink.kind)
+		assert.Equal(t, sinkVisible, sink.kind)
 	})
 }

@@ -23,21 +23,21 @@ func requireCmdlineReader(t *testing.T) {
 }
 
 // A host that will not show an ancestor's argv leaves the fallback with no
-// evidence at all, and no evidence is not evidence of no pipe. Read that way
-// the guard turns itself OFF wherever the read is refused, which is what let a
-// real `| cat` through on darwin while every unit test still passed.
-func TestUnidentifiedPeerFailsClosedWhenTheCommandLineIsUnreadable(t *testing.T) {
+// evidence, and no evidence is not evidence of a pipe. Convicting here was
+// tried and reverted: it aborts a plain `go-toolchain` wherever the read is
+// refused, so the tool cannot be run at all.
+func TestUnidentifiedPeerRunsWhenTheCommandLineIsUnreadable(t *testing.T) {
 	t.Serial()
 	requireWalkableAncestry(t)
 	old := readCmdlineFunc
 	readCmdlineFunc = func(int) ([]string, bool) { return nil, false }
 	t.Cleanup(func() { readCmdlineFunc = old })
 
-	_, piped, known := spawningPipeline()
-	require.False(t, known, "a refused read must not report as a readable ancestry")
+	cmd, piped := spawningPipeline()
 	require.False(t, piped)
-	assert.Equal(t, sinkPipe, unidentifiedPeerSink(sinkPipe).kind,
-		"blind is not acquitted: the guard convicts rather than switching itself off")
+	require.Empty(t, cmd)
+	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind,
+		"an unreadable ancestry must not abort an ordinary run")
 }
 
 // The acquittal is what a READ shell with no capture buys, which is the bare
@@ -49,28 +49,26 @@ func TestUnidentifiedPeerAcquitsOnAShellThatTypedNoPipe(t *testing.T) {
 	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/bin/sh", "-c", "go-toolchain"}, true }
 	t.Cleanup(func() { readCmdlineFunc = old })
 
-	cmd, piped, known := spawningPipeline()
-	require.True(t, known)
+	cmd, piped := spawningPipeline()
 	require.False(t, piped)
 	require.NotEmpty(t, cmd, "the shell was read, so its text is the evidence")
 	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
 }
 
-// An ancestry holding no shell shows nothing either way, and on darwin that
-// is every `| cat`: the reader is a sibling, and the FIFO probe there walks
-// ancestors, so neither signal can see the pipe that is really present.
-func TestUnidentifiedPeerFailsClosedWithNoShellToConsult(t *testing.T) {
+// An ancestry holding no shell shows nothing either way. Nothing typed a
+// pipe that anything here can see, so the run proceeds -- an exec with no
+// shell above it is the ordinary case, not a suspicious one.
+func TestUnidentifiedPeerRunsWithNoShellToConsult(t *testing.T) {
 	t.Serial()
 	requireWalkableAncestry(t)
 	old := readCmdlineFunc
 	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/usr/bin/some-harness"}, true }
 	t.Cleanup(func() { readCmdlineFunc = old })
 
-	cmd, piped, known := spawningPipeline()
-	require.True(t, known)
+	cmd, piped := spawningPipeline()
 	require.False(t, piped)
 	require.Empty(t, cmd)
-	assert.Equal(t, sinkPipe, unidentifiedPeerSink(sinkPipe).kind)
+	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
 }
 
 // requireWalkableAncestry skips a test that stubs the argv read, on a host
@@ -162,7 +160,7 @@ func TestReadCmdlineReadsThisProcess(t *testing.T) {
 // to read and every classification falls back to the guess this replaced.
 func TestAncestorCmdlinesReachesRealProcesses(t *testing.T) {
 	requireCmdlineReader(t)
-	got, _ := ancestorCmdlines()
+	got := ancestorCmdlines()
 	require.NotEmpty(t, got, "no ancestor argv readable on this host")
 	for _, argv := range got {
 		assert.NotEmpty(t, argv[0])
@@ -173,7 +171,7 @@ func TestAncestorCmdlinesReachesRealProcesses(t *testing.T) {
 // Both have an unnameable FIFO reader, so the command line is the only thing
 // that separates them.
 func TestSpawningPipelineAnswersFromTheCommandLine(t *testing.T) {
-	cmd, piped, _ := spawningPipeline()
+	cmd, piped := spawningPipeline()
 	if piped {
 		assert.NotEmpty(t, cmd, "a conviction must carry the text it convicted on")
 		assert.True(t, capturesStdout(cmd))
@@ -193,16 +191,27 @@ func TestParentLookupsAgree(t *testing.T) {
 	assert.Equal(t, ppid, again)
 }
 
-// An unidentified reader on a READ command line with no capture lets the run
-// proceed: the acquittal the reported bug was missing. A conviction always
-// says what it convicted on -- the captured command line, or the reason there
-// was none to read.
+// An unidentified reader lets the run proceed unless a command line was READ
+// and shows a capture. A conviction therefore always carries that text, which
+// is what the abort message quotes: nothing else may reach that slot.
 func TestUnidentifiedPeerFallsBackToTheCommandLine(t *testing.T) {
 	sink := unidentifiedPeerSink(sinkPipe)
 	if sink.kind == sinkPipe {
-		assert.True(t, sink.cmdline != "" || sink.detail != "",
-			"a conviction must name the command line it read, or say why it read none")
+		assert.NotEmpty(t, sink.cmdline, "a conviction must name the command line it read")
+		assert.True(t, capturesStdout(sink.cmdline), "and that text must really capture stdout")
 		return
 	}
 	assert.Equal(t, sinkVisible, sink.kind)
+}
+
+// The abort quotes `detail` as the thing stdout is piped INTO, so it has to
+// be a command name. A sentence there renders as "piped into `the reader
+// could not be named ...`", which is what shipped and what a reader then has
+// to decode.
+func TestPipeDetailIsACommandNameRatherThanAnExplanation(t *testing.T) {
+	msg := agentOutputMessage("grok build", outputSink{kind: sinkPipe, detail: "cat"}, nil)
+	assert.Contains(t, msg, "piped into `cat`")
+
+	sink := unidentifiedPeerSink(sinkPipe)
+	assert.Empty(t, sink.detail, "the fallback never puts prose where a command name is quoted")
 }

@@ -17,51 +17,47 @@ var readCmdlineFunc = readCmdline
 // unidentifiedPeerSink answers for a pipe or socket whose reader this process
 // cannot name. Convicting there aborts a bare `go-toolchain`.
 func unidentifiedPeerSink(kind sinkKind) outputSink {
-	cmd, piped, known := spawningPipeline()
+	cmd, piped := spawningPipeline()
 	if piped {
 		return outputSink{kind: kind, cmdline: cmd}
 	}
-	// An acquittal needs a shell that was READ and held no capture. An
-	// unreadable argv, or an ancestry with no shell at all, shows nothing
-	// either way -- and on darwin that is every `| cat`, whose reader is a
-	// sibling the FIFO probe cannot reach.
-	if !known {
-		return outputSink{kind: kind, detail: "the reader could not be named and no ancestor's command line could be read"}
-	}
-	if cmd == "" {
-		return outputSink{kind: kind, detail: "the reader could not be named and no shell ancestor was found to ask"}
-	}
+	// Nothing that could be read showed a capture, so the run proceeds.
+	//
+	// Convicting here instead was tried and reverted. It reads an unreadable
+	// ancestry as evidence of a pipe, and a host that will not show argv is
+	// ordinary: the abort then lands on a plain `go-toolchain` and the tool
+	// cannot be run at all. That is the exact failure the command-line
+	// fallback exists to prevent, arriving from the other side.
+	//
+	// What it costs is a capture nothing can see: on darwin a `| cat` reader
+	// is a sibling the FIFO probe cannot reach, and with no shell to read
+	// there is nothing left to catch it with. A missed capture wastes one
+	// run. A refusal wastes every run.
 	return outputSink{kind: sinkVisible}
 }
 
 // spawningPipeline reports the shell text of the nearest ancestor handed a
-// command string, and whether it captures stdout. known is false when this
-// host refused an argv, which is not an ancestry that holds no shell.
-func spawningPipeline() (cmdline string, piped, known bool) {
-	lines, known := ancestorCmdlines()
-	for _, argv := range lines {
+// command string, and whether it captures stdout.
+func spawningPipeline() (cmdline string, piped bool) {
+	for _, argv := range ancestorCmdlines() {
 		script, ok := shellScript(argv)
 		if !ok {
 			continue
 		}
-		return script, capturesStdout(script), known
+		return script, capturesStdout(script)
 	}
-	return "", false, known
+	return "", false
 }
 
-// ancestorCmdlines lists each ancestor's argv, starting at the parent. known
-// is false when a pid resolved and its argv did not. A harness in another PID
-// namespace leaves nothing to ask, which is an answer; a refused read is not.
-func ancestorCmdlines() (lines [][]string, known bool) {
-	known = true
+// ancestorCmdlines lists each ancestor's argv, starting at the parent. A pid
+// this host will not show is skipped: the walk carries on past it, because a
+// shell further up is still worth reading.
+func ancestorCmdlines() [][]string {
+	var lines [][]string
 	pid := parentPID()
 	for i := 0; i < ancestryLimit && pid > 1; i++ {
-		argv, ok := readCmdlineFunc(pid)
-		switch {
-		case ok && len(argv) > 0:
+		if argv, ok := readCmdlineFunc(pid); ok && len(argv) > 0 {
 			lines = append(lines, argv)
-		case !ok:
-			known = false
 		}
 		next, ok := parentOf(pid)
 		if !ok || next == pid {
@@ -69,7 +65,7 @@ func ancestorCmdlines() (lines [][]string, known bool) {
 		}
 		pid = next
 	}
-	return lines, known
+	return lines
 }
 
 // shellScript reports the command string a shell was handed with -c.
