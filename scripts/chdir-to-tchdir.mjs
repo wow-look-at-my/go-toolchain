@@ -7,10 +7,10 @@
 // directory. t.Chdir also restores on its own, which is what lets the manual
 // save and the deferred restore go.
 //
-// The three lines need not be adjacent and need not be in order, so this works
-// per function: one getwd, one chdir and one restore of that saved name become
-// a single call, and a function holding more than one of any of them is left
-// for a human.
+// The lines need not be adjacent and need not be in order, so this works per
+// function: a getwd, a chdir and a restore of that saved name collapse into a
+// single call. A function holding a duplicate of any of them is left for a
+// human.
 //
 // Prefer a root argument where the code under test merely reads a directory
 // (see docs/GOMOD.md). Use this where the entry point takes its input from the
@@ -32,7 +32,7 @@ const ENTER = /^(?<indent>[\t ]*)(?:require\.(?:NoError|Nil)\([A-Za-z_][A-Za-z0-
 const restoreOf = (name) =>
 	new RegExp(`^[\\t ]*(?:defer (?:_ = )?os\\.Chdir\\(${name}\\)|(?<recv>[A-Za-z_][A-Za-z0-9_]*)\\.Cleanup\\(func\\(\\) \\{ (?:_ = )?os\\.Chdir\\(${name}\\) \\}\\))$`);
 
-// convert rewrites one function body, or returns null when its shape is not the idiom.
+// convert rewrites a single function body, or returns null when its shape is not the idiom.
 function convert(lines) {
 	const saves = [];
 	for (const [i, line] of lines.entries()) if (SAVE.test(line)) saves.push(i);
@@ -69,7 +69,7 @@ function convert(lines) {
 let touched = 0;
 for (const file of files) {
 	const before = readFileSync(file, 'utf8');
-	// A top-level func opens at column zero and the next one closes the last.
+	// A top-level func opens at the left margin, and the next such line closes it.
 	// A fixture's own func does too, inside a raw string, so the literal is
 	// skipped rather than cut in half.
 	const lines = before.split('\n');
