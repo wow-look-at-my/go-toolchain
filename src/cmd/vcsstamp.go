@@ -47,7 +47,7 @@ func usableRevision(rev string) string {
 // stampLDFlags is the -X list filling importPath's revision variables, empty
 // when the package declares none. Depth: docs/VCS-STAMP.md.
 func stampLDFlags(importPath string) string {
-	dir := packageDir(gomod.ReadModulePath(), importPath)
+	dir := packageDir(gomod.ReadModulePath("."), importPath)
 	if dir == "" {
 		return ""
 	}

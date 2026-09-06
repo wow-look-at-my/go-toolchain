@@ -20,6 +20,7 @@ import (
 // warning the check emitted, in emission order.
 func runWriteRunsOn(t *testing.T, src string) []int {
 	t.Helper()
+	t.Serial() // See runCommentSpanOn.
 	resetWriteRunWarnings()
 	logger.ResetWarnCount()
 	t.Cleanup(logger.ResetWarnCount)

@@ -18,7 +18,7 @@ import (
 // TestJSONInterpAnalyzer runs the fixture: every shape the check reports, and
 // every neighbouring shape it must leave alone.
 func TestJSONInterpAnalyzer(t *testing.T) {
-	t.Serial()
+	t.Serial() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.NoError(t, err)
 	analysistest.Run(t, testdata, JSONInterpAnalyzer, "jsoninterp")
@@ -126,6 +126,7 @@ func TestJSONInterpReadsTemplates(t *testing.T) {
 // checker could not resolve it.
 func runJSONInterpOnSource(t *testing.T, src string, module *analysis.Module) []analysis.Diagnostic {
 	t.Helper()
+	t.Serial() // See runCommentSpanOn.
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "/consumer/main.go", src, parser.ParseComments)
 	require.NoError(t, err)

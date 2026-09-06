@@ -84,6 +84,14 @@ runs:
       shell: bash
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
+    # Lets the kernel start an APE, so a bare exec of one works. see docs/ACTION.md
+    - name: Register the APE binfmt handler
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
+
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash

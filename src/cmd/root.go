@@ -159,7 +159,8 @@ func init() {
 
 	// Fingerprint covers the invoked flags -- LocalFlags folds the persistent flags in. See flagFingerprint.
 	fingerprintFlags = rootCmd.LocalFlags()
-	// Kept apart: Flags() merges these in only at parse time.
+	// Kept apart: Flags() merges these in only at parse time, so flagFingerprint visits both sets and dedupes by name.
+	fingerprintPersistentFlags = rootCmd.PersistentFlags()
 	fingerprintPersistentFlags = rootCmd.PersistentFlags()
 
 	Register(rootCmd)
