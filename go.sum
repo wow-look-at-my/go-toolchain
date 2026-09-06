@@ -94,8 +94,8 @@ github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 h1:mi
 github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41/go.mod h1:7j8wbDwrqh+uJnlENqD5iwsgYkF4y3kIgremn/ctvVE=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260902050952-1bff413522ad h1:YF3XXSlbVrsQpGNF5JImSLbGxI9eJdz+N/SrUTxKgME=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260902050952-1bff413522ad/go.mod h1:43iJMeh6WeRn6eA3koj6Voqnjt0dcQDDjkVnrBnJpa4=
-github.com/wow-look-at-my/slopfmt v0.0.0-20260906215936-063bb43486c8 h1:ZkgFE53swVgp7ahIRjyGtlmlh3nYejms134HxsAbGB8=
-github.com/wow-look-at-my/slopfmt v0.0.0-20260906215936-063bb43486c8/go.mod h1:EzFiVV44IhMaYaD9jtxeQWgFK/plxmEqiA4bAjfrxoQ=
+github.com/wow-look-at-my/slopfmt v0.0.0-20260906221556-2da857240d94 h1:UcUDFXoV0XMpe5GmhT6+CKF8JzWyXXeg3nkENhL54Jc=
+github.com/wow-look-at-my/slopfmt v0.0.0-20260906221556-2da857240d94/go.mod h1:EzFiVV44IhMaYaD9jtxeQWgFK/plxmEqiA4bAjfrxoQ=
 github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 h1:XQ7cCH5Ow4ZinZ20jBJCXvp91C9H6G74oeDFd9BBrnc=
 github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1/go.mod h1:2bR7Z7TOq+iM32ZCpIgJcoJ0iqZQcEAu/h0nzPBh7mk=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
