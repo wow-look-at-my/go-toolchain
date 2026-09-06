@@ -193,12 +193,15 @@ func TestParentLookupsAgree(t *testing.T) {
 	assert.Equal(t, ppid, again)
 }
 
-// An unidentified reader on a command line with no capture must let the run
-// proceed. That is the acquittal the reported bug was missing.
+// An unidentified reader on a READ command line with no capture lets the run
+// proceed: the acquittal the reported bug was missing. A conviction always
+// says what it convicted on -- the captured command line, or the reason there
+// was none to read.
 func TestUnidentifiedPeerFallsBackToTheCommandLine(t *testing.T) {
 	sink := unidentifiedPeerSink(sinkPipe)
 	if sink.kind == sinkPipe {
-		assert.NotEmpty(t, sink.cmdline, "a conviction must name the command line it read")
+		assert.True(t, sink.cmdline != "" || sink.detail != "",
+			"a conviction must name the command line it read, or say why it read none")
 		return
 	}
 	assert.Equal(t, sinkVisible, sink.kind)

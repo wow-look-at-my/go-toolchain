@@ -25,8 +25,11 @@ func unidentifiedPeerSink(kind sinkKind) outputSink {
 	// unreadable argv, or an ancestry with no shell at all, shows nothing
 	// either way -- and on darwin that is every `| cat`, whose reader is a
 	// sibling the FIFO probe cannot reach.
-	if !known || cmd == "" {
-		return outputSink{kind: kind}
+	if !known {
+		return outputSink{kind: kind, detail: "the reader could not be named and no ancestor's command line could be read"}
+	}
+	if cmd == "" {
+		return outputSink{kind: kind, detail: "the reader could not be named and no shell ancestor was found to ask"}
 	}
 	return outputSink{kind: sinkVisible}
 }
