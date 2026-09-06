@@ -30,6 +30,9 @@ const (
 	defaultCosmoBranch   = "master"
 	cosmoProbeTimeout    = 30 * time.Second
 	cosmoDownloadTimeout = 10 * time.Minute
+	// A timeout is a bad moment rather than an answer, so a strict caller asks again.
+	cosmoProbeAttempts   = 3
+	cosmoProbeRetryDelay = 2 * time.Second
 )
 
 // Test seams — overridden in tests to avoid real downloads and version probes.
@@ -38,6 +41,8 @@ var (
 	cosmoDownloadBase        = "https://dl.pazer.build/gosmopolitan"
 	cosmoHostPlatformFunc    = cosmoHostPlatform
 	cosmoGoVersionFunc       = cosmoGoVersion
+	// The retry wait, so a test drives every attempt without sleeping.
+	cosmoProbeSleep = time.Sleep
 )
 
 // cosmoHostPlatform returns the runnable platform: hostos.GOOS() (a fat APE reports "cosmo" via runtime.GOOS) plus runtime.GOARCH.
@@ -191,6 +196,14 @@ func cosmoCacheKey(dlURL, branch string) string {
 // Used for every buildhost dl endpoint, not just gosmopolitan — the dats
 // bootstrap probes through it too (via cosmoCacheKey).
 func probeCosmoVersion(dlURL string) string {
+	v, _ := probeCosmoRelease(dlURL)
+	return v
+}
+
+// probeCosmoRelease is the same probe, with the reason it came back empty. A
+// slot naming no release is the other repository's publishing; an unreachable
+// buildhost is a retry. Reported alike, a timeout sends the reader there.
+func probeCosmoRelease(dlURL string) (string, error) {
 	client := &http.Client{
 		Timeout: cosmoProbeTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -199,21 +212,58 @@ func probeCosmoVersion(dlURL string) string {
 	}
 	resp, err := client.Head(dlURL)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("asking %s: %w", dlURL, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 300 || resp.StatusCode >= 400 {
-		return ""
+		// A 5xx is buildhost failing to answer. Every other status is an
+		// answer, and the answer is that this slot names no release.
+		if resp.StatusCode >= 500 {
+			return "", fmt.Errorf("asking %s: HTTP %d", dlURL, resp.StatusCode)
+		}
+		return "", nil
 	}
 	loc, err := url.Parse(resp.Header.Get("Location"))
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("parsing the redirect from %s: %w", dlURL, err)
 	}
 	v := loc.Query().Get("v")
 	if v == "" {
-		return ""
+		return "", nil
 	}
-	return sanitizeCacheKey(v)
+	return sanitizeCacheKey(v), nil
+}
+
+// resolveCosmoReleaseStrict answers which gosmopolitan release this host
+// builds against, for a caller that must not accept a branch key. It retries
+// an unreachable buildhost rather than turning a bad moment into a claim
+// about what buildhost published.
+func resolveCosmoReleaseStrict() (string, error) {
+	if pin := os.Getenv(cosmoVersionEnv); pin != "" {
+		return "v" + sanitizeCacheKey(trimCosmoVersion(pin)), nil
+	}
+	hostOS, hostArch := cosmoHostPlatformFunc()
+	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)
+	dlURL := cosmoDownloadURL(branch, "", hostOS, hostArch)
+
+	var lastErr error
+	for attempt := range cosmoProbeAttempts {
+		if attempt > 0 {
+			cosmoProbeSleep(cosmoProbeRetryDelay)
+		}
+		v, err := probeCosmoRelease(dlURL)
+		if err != nil {
+			lastErr = err
+			logger.Warn("cosmo: buildhost did not answer (attempt %d): %v", attempt+1, err)
+			continue
+		}
+		if v == "" {
+			// An answer, so retrying cannot change it: this slot has no release.
+			return "branch-" + sanitizeCacheKey(branch), nil
+		}
+		return "v" + v, nil
+	}
+	return "", lastErr
 }
 
 // sanitizeCacheKey replaces every character outside the ASCII letters, digits, dot, underscore and hyphen with '-'
