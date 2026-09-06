@@ -24,8 +24,9 @@ const (
 
 // outputSink describes go-toolchain's stdout after inspection.
 type outputSink struct {
-	kind   sinkKind
-	detail string // peer command name (pipe) or path (file/discard)
+	kind    sinkKind
+	detail  string // peer command name (pipe) or path (file/discard)
+	cmdline string // the shell text that spawned this run, quoted verbatim in the abort
 }
 
 // The agent roster lives in is-this-an-agent; this file classifies where
@@ -109,6 +110,13 @@ func guardAgainstAgentOutputCapture() {
 // listing the build outputs the abort deleted (if any).
 func agentOutputMessage(agent string, s outputSink, removed []string) string {
 	var what string
+	switch {
+	case s.cmdline != "":
+		what = fmt.Sprintf("captured by this command line:\n    %s\n\nwhich sends stdout somewhere other than the terminal", s.cmdline)
+	}
+	if what != "" {
+		return renderAgentOutput(agent, what, removed)
+	}
 	switch s.kind {
 	case sinkPipe:
 		if s.detail != "" {
@@ -130,6 +138,12 @@ func agentOutputMessage(agent string, s outputSink, removed []string) string {
 		what = "captured instead of printed to the terminal"
 	}
 
+	return renderAgentOutput(agent, what, removed)
+}
+
+// renderAgentOutput fills the abort template. Split out so the command-line
+// case and the sink cases share the same renderer.
+func renderAgentOutput(agent, what string, removed []string) string {
 	var b strings.Builder
 	err := agentOutputTemplate.Execute(&b, struct {
 		Red, Reset, What, Agent string

@@ -413,6 +413,64 @@ func TestRunVersionCosmo_RequireReleaseFailsOnBranchFallback(t *testing.T) {
 	assert.Contains(t, rawBuf.String(), "did not name a gosmopolitan release")
 }
 
+// A buildhost that cannot answer must not be reported as a buildhost that
+// answered "no release". They need opposite repairs, and conflating them
+// pointed a reader at the other repository's publishing over a timeout.
+func TestRunVersionCosmo_UnreachableBuildhostIsNotAMissingRelease(t *testing.T) {
+	t.Serial()
+	setupCosmoTest(t)
+	var asked int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		w.WriteHeader(http.StatusBadGateway)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cosmoDownloadBase = srv.URL + "/gosmopolitan"
+
+	oldSleep := cosmoProbeSleep
+	cosmoProbeSleep = func(time.Duration) {}
+	t.Cleanup(func() { cosmoProbeSleep = oldSleep })
+
+	oldRaw := rawStderr
+	var rawBuf strings.Builder
+	rawStderr = &rawBuf
+	t.Cleanup(func() { rawStderr = oldRaw })
+
+	var err error
+	stdout, _ := captureStdoutStderr(t, func() { err = runVersionCosmo(true) })
+	require.Error(t, err)
+	assert.Equal(t, cosmoProbeAttempts, asked, "an unreachable buildhost is retried, not believed once")
+	assert.Contains(t, rawBuf.String(), "could not reach buildhost")
+	assert.NotContains(t, rawBuf.String(), "did not name a gosmopolitan release",
+		"a probe that never completed says nothing about what buildhost published")
+	assert.NotContains(t, stdout, "branch-master", "no version is printed when none was resolved")
+}
+
+// The retry does not turn a real answer into a wait: a slot that names a
+// release is not asked again.
+func TestRunVersionCosmo_ReleaseIsResolvedWithoutRetrying(t *testing.T) {
+	t.Serial()
+	setupCosmoTest(t)
+	var asked int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		w.Header().Set("Location", "https://static.example/file?project=gosmopolitan&v=417")
+		w.WriteHeader(http.StatusFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cosmoDownloadBase = srv.URL + "/gosmopolitan"
+
+	var err error
+	stdout, _ := captureStdoutStderr(t, func() { err = runVersionCosmo(true) })
+	require.NoError(t, err)
+	assert.Equal(t, 1, asked)
+	assert.Contains(t, stdout, "v417")
+}
+
 func TestRunVersionCosmo_WithoutRequireReleaseNeverFails(t *testing.T) {
 	t.Serial()
 	setupCosmoTest(t)
