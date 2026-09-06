@@ -30,10 +30,7 @@ const (
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
 
-	// Bounds the run, and must clear the SLOWEST host. src/cmd spends most of it on process starts: the fork's
-	// t.Chdir and t.Setenv each run their test in a child, and those children take the serial barrier in turn
-	// because children racing the run's shared gocoverdir fail on windows. So the binary pays a serialized
-	// process start per such test, and windows charges the most for each one. Depth: docs/CI.md.
+	// Per BINARY, and it must clear the slowest host. Depth: docs/CI.md.
 	testTimeout = 5 * time.Minute
 )
 
