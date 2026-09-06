@@ -84,7 +84,7 @@ runs:
       shell: bash
       run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
 
-    # Lets the kernel start an APE, so a bare exec of one works. see docs/ACTION.md
+    # Lets the kernel start an APE, so a bare exec works. see docs/ACTION.md
     - name: Register the APE binfmt handler
       if: runner.os == 'Linux'
       shell: bash
@@ -101,13 +101,13 @@ runs:
         # The `if` keeps `set -e` from skipping the probe and source-build fallback.
         if curl -fL --compressed --connect-timeout 20 --max-time 120 -o /tmp/go-toolchain "${URL}"; then
           chmod +x /tmp/go-toolchain
-          # Run it once while still writable in /tmp. see docs/ACTION.md
+          # Run it while still writable in /tmp. see docs/ACTION.md
           /tmp/go-toolchain version || true
           sudo cp /tmp/go-toolchain /usr/local/bin/go-toolchain
         else
           echo "::warning::Download from buildhost failed (curl exit $?): ${URL}"
         fi
-        # Capture the probe output: it names a 404, a missing PATH entry, or a crash.
+        # Capture the probe output: it names an HTTP 404, a missing PATH entry, or a crash.
         if ! probe=$(go-toolchain version 2>&1); then
           echo "buildhost go-toolchain (${URL}) not usable; probe output:"
           echo "${probe}"
@@ -125,7 +125,7 @@ runs:
       if: inputs.binary != ''
       shell: bash
       run: |
-        # Stage through /tmp and pre-run once. see docs/ACTION.md
+        # Stage through /tmp and pre-run it. see docs/ACTION.md
         cp "${{ inputs.binary }}" /tmp/go-toolchain-provided
         chmod +x /tmp/go-toolchain-provided
         /tmp/go-toolchain-provided version || true
@@ -185,7 +185,7 @@ runs:
         if [ -n "${{ inputs.generate }}" ]; then
           ARGS="$ARGS --generate ${{ inputs.generate }}"
         fi
-        # The default builds ONE fat APE. see docs/ACTION.md
+        # The default builds a single fat APE. see docs/ACTION.md
         if [ -n "${{ inputs.targets }}" ]; then
           ARGS="$ARGS --targets ${{ inputs.targets }}"
         fi

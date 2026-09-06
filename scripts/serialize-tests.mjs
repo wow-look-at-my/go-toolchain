@@ -1,7 +1,7 @@
 // Inserts t.Serial() into every top-level Test function whose body contains a
 // marker string.
 //
-// The fork runs tests in parallel unless one takes the serial barrier. Some
+// The fork runs tests in parallel unless a test takes the serial barrier. Some
 // tests cannot share a process at all, and each kind announces itself in the
 // source:
 //
@@ -17,8 +17,8 @@
 //                    every test reading it sees the write
 //
 // A test already holding the barrier is skipped. t.Chdir and t.Setenv take it
-// themselves, so a test spelling either one is already serial and needs no
-// second take.
+// themselves, so a test spelling either is already serial and needs no
+// further take.
 //
 // Usage: node scripts/serialize-tests.mjs <marker> <dir>...
 //
@@ -47,8 +47,8 @@ function* testFiles(dir) {
 }
 
 // A test, and a helper the test hands its own T to: both run as the test, so
-// either one can take the barrier on its behalf. Taking it in the helper covers
-// every caller, which is what a marker naming callers one at a time cannot do.
+// either can take the barrier on its behalf. Taking it in the helper covers
+// every caller, which is what a marker naming callers separately cannot do.
 const testFunc = /^func ([A-Za-z0-9_]*)\(([a-zA-Z_][A-Za-z0-9_]*) \*testing\.T[,)]/;
 
 let changed = 0;
@@ -56,7 +56,7 @@ let serialized = 0;
 for (const root of roots) {
 	for (const path of testFiles(root)) {
 		const lines = readFileSync(path, "utf8").split("\n");
-		// A fixture holds Go source, and its own func starts at column zero
+		// A fixture holds Go source, and its own func starts at the left margin
 		// inside the raw string. Editing that corrupts the fixture and leaves
 		// the test around it parallel, so the literal is skipped entirely.
 		const starts = [];
@@ -75,13 +75,13 @@ for (const root of roots) {
 			if (!body.some((l) => l.includes(marker))) continue;
 			// Only a hold taken at the top covers the whole test. t.Chdir and
 			// t.Setenv take the barrier where they are called, so a test that
-			// reads shared state before one of them still raced up to there.
+			// reads shared state before either of them still raced up to there.
 			const holds = new RegExp(`\\b${m[2]}\\.(Serial\\(\\)|Chdir\\(|Setenv\\()`);
 			if (body.slice(0, 2).some((l) => holds.test(l))) continue;
 			// A test cannot be both. The barrier is the stronger claim, so an
 			// opt-in to parallelism gives way to it, comment and all.
 			const parallel = new RegExp(`^\\s*${m[2]}\\.Parallel\\(\\)`).test(body[0] ?? "") ? 1 : 0;
-			// A helper marks itself first, so the barrier goes under that line.
+			// A helper marks itself up front, so the barrier goes under that line.
 			const after = new RegExp(`^\\s*${m[2]}\\.Helper\\(\\)$`).test(body[0] ?? "") ? 1 : 0;
 			insertAt.push([from + 1 + after, parallel, `\t${m[2]}.Serial()`]);
 		}
