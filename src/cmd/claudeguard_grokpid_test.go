@@ -71,6 +71,50 @@ func TestParseLsofPipeHandles(t *testing.T) {
 	assert.False(t, ok, "a char device must not be recorded as a pipe")
 }
 
+// lsof orders a file's fields itself, and it puts `d` and `n` AHEAD of `t`.
+// A parser that lets the type gate a field therefore reads every record as
+// untyped and reports no pipe at all, which is how the peer went unnamed on
+// every darwin host while the fixture above passed.
+func TestLsofFieldsAreReadInLsofsOwnOrder(t *testing.T) {
+	t.Serial()
+	out := "p367\n" +
+		"f1\n" +
+		"d0xebc7464f361551ca\n" +
+		"n->0xda597fc854207746\n" +
+		"tPIPE\n" +
+		"p34023\n" +
+		"f1\n" +
+		"d0xda597fc854207746\n" +
+		"n->0xebc7464f361551ca\n" +
+		"tPIPE\n"
+
+	got := parseLsofPipeHandles(out)
+
+	assert.Equal(t, uint64(0xda597fc854207746), got[367][0xebc7464f361551ca])
+	assert.Equal(t, uint64(0xebc7464f361551ca), got[34023][0xda597fc854207746])
+}
+
+// A record closed by the end of the input still counts. A record that is not a
+// pipe never does, whichever order its fields arrived in.
+func TestLsofLastRecordAndNonPipesInEitherOrder(t *testing.T) {
+	t.Serial()
+	out := "p367\n" +
+		"f1\n" +
+		"d0x123\n" +
+		"n/dev/ttys000\n" +
+		"tCHR\n" +
+		"f2\n" +
+		"d0xaaaa\n" +
+		"n->0xbbbb\n" +
+		"tPIPE\n"
+
+	got := parseLsofPipeHandles(out)
+
+	assert.Equal(t, uint64(0xbbbb), got[367][0xaaaa], "the final record is flushed at end of input")
+	_, ok := got[367][0x123]
+	assert.False(t, ok, "a char device must not be recorded as a pipe")
+}
+
 func TestJoinPids(t *testing.T) {
 	t.Serial()
 	assert.Equal(t, "1,2,3", joinPids([]int{1, 2, 3}))
