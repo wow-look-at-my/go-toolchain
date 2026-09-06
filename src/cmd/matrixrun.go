@@ -61,13 +61,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 		return err
 	}
 
-	// Caps cross-compiled binaries' heap too via the GOMEMLIMIT guard; removed after the build.
-	if err := injectMemLimitGuard(false); err != nil {
-		return err
-	}
-	defer cleanupMemLimitGuards()
-
-	// Drives the cosmo APE, the manifest and the symlinks; safe post-guard-injection since discovery skips the guard file by name.
+	// Drives the cosmo APE, the manifest and the symlinks.
 	hostTargets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return err

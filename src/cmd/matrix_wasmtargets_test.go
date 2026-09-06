@@ -229,10 +229,6 @@ func TestRunReleaseWithRunnerPerTargetMainDiscovery(t *testing.T) {
 	} {
 		assert.NoFileExists(t, filepath.Join(outDir, name), "artifact %s must not be built", name)
 	}
-
-	// The memlimit guard (injected into host-context mains) must not linger in the wasm-only main dirs.
-	assert.NoFileExists(t, filepath.Join("cmd", "wasmonly", "gomemlimit_gen.go"))
-	assert.NoFileExists(t, filepath.Join("cmd", "wasip1only", "gomemlimit_gen.go"))
 }
 
 func TestRunReleaseWithRunnerTargetWithoutMainsSkipped(t *testing.T) {
