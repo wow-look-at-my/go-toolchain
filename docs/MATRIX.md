@@ -61,11 +61,5 @@ The cost is that `go tool buildid` on a shipped artifact returns empty. Only the
 
 **An APE keeps its bytes when it runs.** The kernel cannot exec the file as it stands, so the bootstrap stages a copy under `$TMPDIR` and writes the host's native header into THAT. The artifact keeps its checksum, which is what makes comparing one host's APE against another's meaningful at all. Measured: running a built APE twice leaves its sha256 unchanged. Depth: gosmopolitan's `docs/APE-STAGING.md`.
 
-That staging needs a SHELL to read the header, and `execve` alone cannot. A
-direct exec works only where binfmt_misc carries an `APE` entry, which
-registering needs root; macOS has no such mechanism. `action.yml` registers that
-entry on a Linux runner and warns where it cannot (see
-[ACTION.md](ACTION.md#1b3-the-ape-binfmt-handler)), so the entry is a capability
-a host may or may not have. Every caller still reaches an APE through a shell,
-and nothing may assume a bare `exec` of one succeeds.
+That staging needs a SHELL to read the header, and `execve` alone cannot. A direct exec works only where binfmt_misc carries an `APE` entry, and registering one needs root. macOS has no such mechanism. `action.yml` registers that entry on a Linux runner and warns where it cannot (see [ACTION.md](ACTION.md#1b3-the-ape-binfmt-handler)). The entry is therefore a capability a host may or may not have. Every caller still reaches an APE through a shell, and nothing may assume a bare `exec` of one succeeds.
 

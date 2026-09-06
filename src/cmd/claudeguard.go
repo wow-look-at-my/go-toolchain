@@ -27,6 +27,7 @@ type outputSink struct {
 	kind    sinkKind
 	detail  string // peer command name (pipe) or path (file/discard)
 	cmdline string // the shell text that spawned this run, quoted verbatim in the abort
+	blind   string // why the classifier gave up; giving up must never look like checking
 }
 
 // The agent roster lives in is-this-an-agent; this file classifies where
@@ -99,11 +100,16 @@ func agentOutputViolation() (string, outputSink, bool) {
 var agentGuardOut io.Writer = os.Stderr
 
 func guardAgainstAgentOutputCapture() {
-	if agent, s, bad := agentOutputViolation(); bad {
-		// Delete stale build outputs too: a caller that hides output often ignores the exit code (see staleoutputs.go).
-		fmt.Fprint(agentGuardOut, agentOutputMessage(agent, s, discardBuildOutputsFromCWD()))
-		os.Exit(1)
+	agent, s, bad := agentOutputViolation()
+	if !bad {
+		if agent != "" && s.blind != "" {
+			fmt.Fprintf(agentGuardOut, "go-toolchain: the output guard is BLIND on this host: %s. The run continues unguarded.\n", s.blind)
+		}
+		return
 	}
+	// Delete stale build outputs too: a caller that hides output often ignores the exit code (see staleoutputs.go).
+	fmt.Fprint(agentGuardOut, agentOutputMessage(agent, s, discardBuildOutputsFromCWD()))
+	os.Exit(1)
 }
 
 // agentOutputMessage renders the abort message for the given agent and sink,

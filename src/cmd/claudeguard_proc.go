@@ -60,14 +60,11 @@ func inspectFD(fd uintptr) outputSink {
 		}
 		return unnamedPeerSink()
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
-		// A socketpair looks like a pipe here -- give it the same peer-ID
-		// chance rather than assuming hidden. detail always shows something:
-		// the peer's name, else the fd target.
-		//
-		// A socketpair's ends are separate sockets with different inodes, so
-		// an fd-target match can't find the other end. SO_PEERCRED gives the
-		// kernel's peer record, fixed at connect time, so it resolves even
-		// after the parent closes its copy of the child's fd.
+		// A socketpair looks like a pipe here, so it gets the same peer-ID
+		// chance rather than an assumption of hidden. Its ends are separate
+		// sockets with different inodes, so an fd-target match cannot find
+		// the other end. SO_PEERCRED is fixed at connect time and resolves
+		// even after the parent closes its copy of the child's fd.
 		if pid, ok := socketPeerPID(fd); ok {
 			name, _, _ := agent.CommPPID(pid)
 			if harnessIsPipeReader(name, pid) {

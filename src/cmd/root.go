@@ -198,6 +198,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		}()
 	}
 
+	// Leads the phases: it reads bytes, not a type-checked package.
+	runSlopfmtPhase(".")
+
 	modules := findGoModules()
 	if len(modules) == 0 {
 		// A repo can own dats suites with no go.mod (the tested CLI need not

@@ -138,8 +138,7 @@ func runVersionCosmo(requireRelease bool) error {
 		return nil
 	}
 
-	// The strict path, so an unreachable buildhost is retried and then
-	// reported as itself rather than as a release nobody published.
+	// Strict: an unreachable buildhost is not a missing release.
 	v, err := resolveCosmoReleaseStrict()
 	if err != nil {
 		// rawStderr, not logger.Error: the caller captures stdout as the version value.
