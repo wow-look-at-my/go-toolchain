@@ -48,7 +48,7 @@ Otherwise the default workflow is:
 13. Runs `go test` across non-generated packages with coverage profiling
 14. Filters generated files from coverage profile, then displays per-item impact and compares against the minimum threshold (80%, or watermark - 2.5%). A module with no coverable statements at all (e.g. one that only embeds assets or declares constants/types) passes this check vacuously with a note.
 15. Reports cache size breakdown (Go build cache, toolchain downloads, module cache) when running in GitHub Actions
-16. If coverage meets the threshold, injects the cgroup→`GOMEMLIMIT` startup guard into each `main` package (no opt-out) — first listing it in the clone-local `.git/info/exclude`.
+16. If coverage meets the threshold, builds each binary as a fat APE into `build/<name>` (the same artifact `matrix` publishes, see [MATRIX.md](MATRIX.md)). Nothing is injected into the sources. The fork's runtime takes the cgroup memory limit as the default `GOMEMLIMIT` on its own
 17. Automatically adds `build/` to `.gitignore` (if in a git repo)
 18. Runs benchmarks and compares against previously stored results
 19. Runs the module's dats CLI test suites (non-hidden `*.dats` files under `dats/`) against throwaway copies of the just-built binaries, exported to suites. Skipped silently when the module has no suites
