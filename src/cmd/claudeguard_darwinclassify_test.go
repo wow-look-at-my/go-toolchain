@@ -52,12 +52,13 @@ func TestClassifyDarwinFD(t *testing.T) {
 		}
 	})
 
-	// An unidentified FIFO still fails CLOSED -- `| cat` is indistinguishable
-	// from grok-build's capture until the reader is named.
-	t.Run("fifo fails closed", func(t *testing.T) {
+	// An unidentified FIFO reader is not evidence of a capture: the command
+	// line decides. Under the test process, no ancestor handed a shell a
+	// pipeline that captures stdout, so the bare-run case is visible.
+	t.Run("fifo with an unnameable reader is visible absent a capture", func(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(sIFIFO))
 		assert.True(t, ok)
-		assert.Equal(t, sinkPipe, sink.kind)
+		assert.Equal(t, sinkVisible, sink.kind)
 	})
 
 	t.Run("fifo", func(t *testing.T) {
@@ -153,10 +154,10 @@ func TestClassifyDarwinFD(t *testing.T) {
 			assert.Equal(t, "tee", sink.detail)
 		})
 
-		t.Run("no peer at all is hidden", func(t *testing.T) {
+		t.Run("no peer at all is visible absent a capture", func(t *testing.T) {
 			sink, ok := classifyDarwinFD(okProbes(sIFSOCK))
 			assert.True(t, ok)
-			assert.Equal(t, sinkHidden, sink.kind)
+			assert.Equal(t, sinkVisible, sink.kind)
 		})
 	})
 
@@ -264,6 +265,6 @@ func TestClassifyDarwinFD(t *testing.T) {
 	t.Run("permission bits are masked off", func(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(sIFIFO | 0o644))
 		assert.True(t, ok)
-		assert.Equal(t, sinkPipe, sink.kind)
+		assert.Equal(t, sinkVisible, sink.kind)
 	})
 }
