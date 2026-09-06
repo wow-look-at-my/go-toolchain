@@ -58,7 +58,7 @@ func inspectFD(fd uintptr) outputSink {
 			}
 			return outputSink{kind: sinkPipe, detail: name}
 		}
-		return outputSink{kind: sinkPipe}
+		return unnamedPeerSink()
 	case strings.HasPrefix(target, "socket:"), strings.HasPrefix(target, "anon_inode:"):
 		// A socketpair looks like a pipe here -- give it the same peer-ID
 		// chance rather than assuming hidden. detail always shows something:
@@ -80,7 +80,7 @@ func inspectFD(fd uintptr) outputSink {
 			if harnessIsPID(pid) {
 				return outputSink{kind: sinkVisible}
 			}
-			return outputSink{kind: sinkHidden, detail: target}
+			return unnamedPeerSink()
 		}
 		if name, pid, ok := pipePeerName(target); ok {
 			if harnessIsPipeReader(name, pid) {
@@ -90,7 +90,7 @@ func inspectFD(fd uintptr) outputSink {
 				return outputSink{kind: sinkHidden, detail: name}
 			}
 		}
-		return outputSink{kind: sinkHidden, detail: target}
+		return unnamedPeerSink()
 	}
 
 	// A path: classify by file type.
@@ -138,6 +138,8 @@ func unclassifiableSink() outputSink {
 func unreadableDescriptorSink() outputSink {
 	return outputSink{kind: sinkVisible}
 }
+
+func unnamedPeerSink() outputSink { return unidentifiedPeerSink(sinkPipe) }
 
 // blindClassifierSink answers on a host where this build has no classifier at
 // all, and announces that the guard is not running.

@@ -67,14 +67,14 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 
 	switch mode & sIFMT {
 	case sIFIFO:
-		// grok-build's stdout is a FIFO, not a socketpair. An unidentified
-		// reader is indistinguishable from `| cat`, so it fails closed too.
+		// grok-build's stdout is a FIFO. An unidentified reader is not
+		// evidence of `| cat`, so the command line decides.
 		if p.fifoPeer == nil {
-			return outputSink{kind: sinkPipe}, true
+			return unidentifiedPeerSink(sinkPipe), true
 		}
 		pid, identified, supported := p.fifoPeer()
 		if !supported || !identified {
-			return outputSink{kind: sinkPipe}, true
+			return unidentifiedPeerSink(sinkPipe), true
 		}
 		return peerSink(p, pid, sinkPipe), true
 
@@ -85,7 +85,7 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 			return outputSink{}, false
 		}
 		if !identified {
-			return outputSink{kind: sinkHidden}, true
+			return unidentifiedPeerSink(sinkHidden), true
 		}
 		return peerSink(p, pid, sinkHidden), true
 

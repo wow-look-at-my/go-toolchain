@@ -40,8 +40,12 @@ func TestMain(m *testing.M) {
 // sink decisions, reached through fstat + F_GETPATH instead of /proc.
 func TestInspectFDClassificationDarwin(t *testing.T) {
 	t.Serial()
-	t.Run("pipe_is_blocked", func(t *testing.T) {
-		// Both ends belong to this process, which is not its own ancestor: fail closed.
+	t.Run("pipe_with_no_nameable_reader_and_no_shell_fails_closed", func(t *testing.T) {
+		// Both ends belong to this process, so no ancestor is the reader, and
+		// the command line is then the only evidence left. The test process
+		// was handed no shell, so nothing could have shown a capture -- which
+		// is exactly the shape of a real `| cat` here, whose reader is a
+		// sibling this host's FIFO probe cannot reach. It convicts.
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		defer r.Close()
