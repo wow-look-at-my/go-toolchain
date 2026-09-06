@@ -88,12 +88,14 @@ github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWD
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 h1:nS/IJCKxUo5/Y9KiSKHqBBj14XFRa1OGU/GbpW8zarw=
 github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174/go.mod h1:ZCjJ1b6VfXIov0GZbfRE4QtIFQrPqkD3NK5qlkf6Ow8=
-github.com/wow-look-at-my/dats v0.0.0-20260906064907-73106e323f34 h1:ZB5MKbBMLmfBJQrjxBO0bQ4kSMffZifg3cnOGr0Yo+Q=
-github.com/wow-look-at-my/dats v0.0.0-20260906064907-73106e323f34/go.mod h1:yx0UKP/ag42eLaQKhRw3AKBTrCliutyrMKkN+25yVWs=
+github.com/wow-look-at-my/dats v0.0.0-20260906182217-61aad3d075f5 h1:a6I3AmKAtcYEAE8N5x+Ils84tMkDy+sOtEuydCFjyG4=
+github.com/wow-look-at-my/dats v0.0.0-20260906182217-61aad3d075f5/go.mod h1:yx0UKP/ag42eLaQKhRw3AKBTrCliutyrMKkN+25yVWs=
 github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 h1:mi/frNfEWPA/O57Qxsxyz6QEmOlQM8I0loFcRrmU9do=
 github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41/go.mod h1:7j8wbDwrqh+uJnlENqD5iwsgYkF4y3kIgremn/ctvVE=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260902050952-1bff413522ad h1:YF3XXSlbVrsQpGNF5JImSLbGxI9eJdz+N/SrUTxKgME=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260902050952-1bff413522ad/go.mod h1:43iJMeh6WeRn6eA3koj6Voqnjt0dcQDDjkVnrBnJpa4=
+github.com/wow-look-at-my/slopfmt v0.0.0-20260906221556-2da857240d94 h1:UcUDFXoV0XMpe5GmhT6+CKF8JzWyXXeg3nkENhL54Jc=
+github.com/wow-look-at-my/slopfmt v0.0.0-20260906221556-2da857240d94/go.mod h1:EzFiVV44IhMaYaD9jtxeQWgFK/plxmEqiA4bAjfrxoQ=
 github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 h1:XQ7cCH5Ow4ZinZ20jBJCXvp91C9H6G74oeDFd9BBrnc=
 github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1/go.mod h1:2bR7Z7TOq+iM32ZCpIgJcoJ0iqZQcEAu/h0nzPBh7mk=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=

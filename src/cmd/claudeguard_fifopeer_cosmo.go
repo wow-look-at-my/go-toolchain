@@ -18,12 +18,21 @@ import (
 )
 
 const (
-	lsofBin         = "/usr/sbin/lsof"
+	lsofFallbackBin = "/usr/sbin/lsof"
 	maxAncestorHops = 64
 
 	// peerProbeBudget caps the whole walk: expiry reports "not identified", which classifyDarwinFD refuses on.
 	peerProbeBudget = 5 * time.Second
 )
+
+// lsofPath answers where lsof is. A tool that moved fails like a parse error,
+// so it reads as a peer nobody can name and acquits a capture.
+func lsofPath() string {
+	if p, err := exec.LookPath("lsof"); err == nil {
+		return p
+	}
+	return lsofFallbackBin
+}
 
 // fifoPeerOnDarwinHost returns the ancestor pid holding the other end of the
 // FIFO at fd, by matching lsof pipe handles. supported is always true.
@@ -65,7 +74,7 @@ func fifoPeerOnDarwinHost(fd uintptr) (pid int, identified, supported bool) {
 // lsofCommand bounds an lsof invocation by ctx. Killing the child still leaves
 // Wait blocked, which is what WaitDelay covers.
 func lsofCommand(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, lsofBin, args...)
+	cmd := exec.CommandContext(ctx, lsofPath(), args...)
 	cmd.WaitDelay = time.Second
 	return cmd
 }

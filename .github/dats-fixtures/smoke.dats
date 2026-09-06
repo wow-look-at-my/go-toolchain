@@ -140,11 +140,14 @@ tests:
 		stdout:
 			- "Build successful"
 
-	# The guard on the HOST, where the answer differs by host and both answers
-	# are correct: a host whose descriptors it can classify refuses a captured
+	# The guard on the HOST, where the answer differs by host and each answer
+	# is correct: a host whose descriptors it can classify refuses a captured
 	# run, and a host it cannot see on says so instead of allowing silently.
-	# Pairing with uname is what keeps that one test rather than three: an
-	# INOPERATIVE banner on Linux, or a refusal that never comes on NT, fails.
+	# Darwin is the second kind under dats: naming a pipe's reader there costs
+	# an lsof and a ps on other pids, which seatbelt denies, so the BLIND
+	# banner is the answer that stands in for the refusal. Pairing with uname
+	# is what keeps this a single test: an INOPERATIVE banner on Linux, or a
+	# silent allow anywhere, fails.
 	- desc: the agent output guard answers for the host it detects
 	  cmd: 'mkdir -p {outputs.rundir}; cd {outputs.rundir}; out=$(env CLAUDECODE=1 {shared.gt-ape.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 5m
@@ -153,4 +156,4 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|.*refused to run|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
+			0: "^(Linux\\|.*refused to run|Darwin\\|.*(refused to run|guard is BLIND)|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"

@@ -32,17 +32,30 @@ tests:
 		stdout:
 			- "OUTCOME "
 
+	# The OUTCOME repeats, never the sentence. A host that registers on the
+	# first run says "is registered" and then "is already registered", which
+	# is the same outcome reached twice.
 	- desc: a second run reaches the same outcome
 	  cmd: |
 		set -eu
-		first="$(bash .github/scripts/register-ape-binfmt.sh 2>&1)"
-		second="$(bash .github/scripts/register-ape-binfmt.sh 2>&1)"
-		if [ "$first" != "$second" ]; then
+		outcome() {
+			case "$1" in
+				"APE binfmt handler is registered" | "APE binfmt handler is already registered")
+					echo registered ;;
+				"::warning::APE binfmt handler not registered: "*)
+					echo stood-down ;;
+				*)
+					echo unreadable ;;
+			esac
+		}
+		first="$(outcome "$(bash .github/scripts/register-ape-binfmt.sh 2>&1)")"
+		second="$(outcome "$(bash .github/scripts/register-ape-binfmt.sh 2>&1)")"
+		if [ "$first" != "$second" ] || [ "$first" = unreadable ]; then
 			echo "first: $first" >&2
 			echo "second: $second" >&2
 			exit 1
 		fi
-		echo "STABLE $(uname -s)"
+		echo "STABLE $first $(uname -s)"
 	  outputs:
 		stdout:
 			- "STABLE "
