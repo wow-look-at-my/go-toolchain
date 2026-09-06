@@ -4,7 +4,7 @@ Before the pipeline begins, go-toolchain runs a pre-flight check: if it is runni
 
 Before any of that runs a `go` command, it resolves the [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan) toolchain and puts it on `PATH`/`GOROOT` with `GOTOOLCHAIN=local`. That fork is the only compiler every step below uses, and the fat APE and the wasm targets are the only things. `version` and `verify-identical` skip the resolution, as does any invocation cobra rejects first — `--help`, or a mistyped flag — so neither costs a toolchain download.
 
-Ahead of every step below, and of the toolchain resolution itself, the **comment scan** reports a number written in any comment, anywhere in the tree. It reads bytes rather than a type-checked package. So it answers on a tree no compiler accepts, and covers every language its extractor knows. It only ever warns, and the warnings budget is what turns a repo full of findings red. See [COMMENT-SCAN.md](COMMENT-SCAN.md).
+Ahead of every step below, the **comment scan** reports a number written in any comment, anywhere in the tree. It reads bytes rather than a type-checked package. So it answers on a tree no compiler accepts, and covers every language its extractor knows. It runs after the toolchain resolution and after the up-to-date fast exit, both of which sit in the root command's pre-run. So an up-to-date tree skips it, along with everything else. It only ever warns, and the warnings budget is what turns a repo full of findings red. See [COMMENT-SCAN.md](COMMENT-SCAN.md).
 
 Otherwise the default workflow is:
 
