@@ -15,7 +15,8 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **File length checks** — warns at 500 lines, fails at 750. Generated files are exempt unless `--count-generated` is passed.
 - **Auto-fix, or CI check** — locally the linter fixes violations in place. On CI the same checks run read-only, and a non-canonical tree fails the build with a diff of the fix.
 - **testify migration** — rewrites fork and `gotest.tools` imports to upstream `stretchr/testify`, adding the type conversions upstream's strict comparisons need. See [docs/VET.md](docs/VET.md).
-- **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`), `writeruns` (a document written one string at a time), `jsoninterp` (JSON built by formatting, concatenation or a template), and `commentnumbers` (a number in a comment, in digits or in words — a warning, so the warnings budget is what fails the build). See [docs/VET.md](docs/VET.md).
+- **Custom vet analyzers** — `mapset` and `sliceset` (a `map[K]bool` or a slice used as a set, rewritten in place to `go-containers/set`), `writeruns` (a document written one string at a time), `jsoninterp` (JSON built by formatting, concatenation or a template). See [docs/VET.md](docs/VET.md).
+- **Comment scan** — the first phase reports a number written in any comment, in any language, before a compiler starts. A warning, so the warnings budget is what fails the build. See [docs/COMMENT-SCAN.md](docs/COMMENT-SCAN.md).
 - **Go generate** — detects and runs `//go:generate` directives with hash-based approval.
 - **Dependency handling** — auto-updates same-org deps. Every `github.com/wow-look-at-my/` dependency tracks a branch via a `// go-toolchain:auto-branch` marker. See [docs/DEPS.md](docs/DEPS.md).
 - **Dependency graph submission** — submits a dependency snapshot to GitHub in CI, feeding the repo's dependency graph. No opt-out. A failed submission fails the build.
@@ -77,8 +78,6 @@ The action fetches secrets, configures the Go proxy and private repo access, and
 To opt out, pass `codeql: 'false'`.
 
 **APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry, so the kernel starts a fat APE through `/bin/sh`. That is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
-
-**APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry so the kernel starts a fat APE through `/bin/sh`, which is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
 
 ### Inputs
 

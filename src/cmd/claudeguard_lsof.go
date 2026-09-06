@@ -6,45 +6,74 @@ import (
 )
 
 // parseLsofPipeHandles reads `lsof -F pftnd` output into pid -> (handle -> peer).
-// A PIPE line set is `p<pid>` then `f<fd>` `tPIPE` `d0xHANDLE` `n->0xPEER`.
+// A file set opens with `f<fd>` and carries `tPIPE`, `d0xHANDLE` and `n->0xPEER`.
+//
+// The field ORDER is lsof's own, never the order the -F flags name, and lsof
+// emits `d` and `n` ahead of `t`. So the type cannot gate a field as it
+// arrives. Every field is collected instead, and the record is judged when the
+// next `f` or `p` closes it.
 func parseLsofPipeHandles(out string) map[int]map[uint64]uint64 {
 	byPID := make(map[int]map[uint64]uint64)
 	pid := 0
-	isPipe := false
-	var handle uint64
+	var rec lsofFile
+
+	flush := func() {
+		handle, peer, ok := rec.pipeEnds()
+		if !ok || pid == 0 {
+			return
+		}
+		if byPID[pid] == nil {
+			byPID[pid] = make(map[uint64]uint64)
+		}
+		byPID[pid][handle] = peer
+	}
+
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
 		}
 		switch line[0] {
 		case 'p':
+			flush()
+			rec = lsofFile{}
 			pid, _ = strconv.Atoi(line[1:])
-			isPipe = false
-			handle = 0
 		case 'f':
-			isPipe = false
-			handle = 0
+			flush()
+			rec = lsofFile{}
 		case 't':
-			isPipe = line[1:] == "PIPE"
+			rec.fileType = line[1:]
 		case 'd':
-			if isPipe {
-				handle, _ = parseHexHandle(line[1:])
-			}
+			rec.dev = line[1:]
 		case 'n':
-			if !isPipe || handle == 0 || pid == 0 {
-				continue
-			}
-			peer, ok := parseHexHandle(strings.TrimPrefix(line[1:], "->"))
-			if !ok {
-				continue
-			}
-			if byPID[pid] == nil {
-				byPID[pid] = make(map[uint64]uint64)
-			}
-			byPID[pid][handle] = peer
+			rec.name = line[1:]
 		}
 	}
+	flush()
 	return byPID
+}
+
+// lsofFile is an `-F` file record, collected field by field.
+type lsofFile struct {
+	fileType string
+	dev      string
+	name     string
+}
+
+// pipeEnds reports this record's own handle and the handle it points at, when
+// the record is a pipe carrying both.
+func (r lsofFile) pipeEnds() (handle, peer uint64, ok bool) {
+	if r.fileType != "PIPE" {
+		return 0, 0, false
+	}
+	handle, ok = parseHexHandle(r.dev)
+	if !ok || handle == 0 {
+		return 0, 0, false
+	}
+	peer, ok = parseHexHandle(strings.TrimPrefix(r.name, "->"))
+	if !ok {
+		return 0, 0, false
+	}
+	return handle, peer, true
 }
 
 func parseHexHandle(s string) (uint64, bool) {

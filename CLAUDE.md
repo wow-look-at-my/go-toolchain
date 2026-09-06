@@ -226,17 +226,7 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
   `json.Marshal` escaper is reachable only inside a `<script>` — so a JSON template is reported too, which is the one place this and `writeruns`
   point in opposite directions. The shape test (`jsonshape.go`) is deliberately narrow, so prose quoting an example is silent. Org modules FAIL,
   everyone else WARNS, no opt-out marker. Depth: `docs/VET.md`
-- `src/vet/commentnumbers.go` — the `commentnumbers` analyzer: a number in a comment, in digits or in words, is a count of what exists
-  today, and the edit that adds an item leaves it wrong — so it is banned, and the message names the remedy (describe what the code does and
-  let the reader count; cite a section of a spec by its unique slug or heading, never by its position). A digit run touching a letter is a
-  name (`sha256`, `amd64`, `10ms`), as is a qualified name (`net/http`,
-  `example.com/mod/v2`) and anything inside a URL, which is how a reference carrying a number survives. A section sign (`§7.3`, `§ 4`) exempts
-  the number it introduces — the citation form for a document that publishes no slug — and `HTTP` immediately before a status-code-width digit
-  run exempts that code, so a bare `403` is still a count. A currency sign against the digits exempts the amount (`$1.43`), which states a cost
-  rather than counting anything below it; `costs $ 5` is a count again. A whole word naming a number is
-  reported, so `once` and `One` go and `someone` stays. Directives and generated files are skipped. A WARNING in every module — stale prose must
-  not fail a build by itself, and the warnings budget is what turns a repo full of them red. A warning is spent per file:line, so a sentence
-  naming several numbers costs one. No opt-out marker. Depth: `docs/VET.md`
+- `src/cmd/slopfmtphase.go` — the **comment scan**, the pipeline's FIRST phase: a number in a comment, in digits or in words, is a count of what exists today. The edit that adds an item leaves it wrong. The rule itself is [`slopfmt/gocomments`](https://github.com/wow-look-at-my/slopfmt/tree/master/gocomments), which reads a comment by its DELIMITERS rather than by a grammar. Two things follow, and both are why it left vet. It answers on a tree no compiler accepts, ahead of the dependency check and `go mod tidy`, instead of behind a type-check of every package. And it reads every language the extractor knows, so the stale prose in a `run:` script is a finding now. The walk starts at the repository root, skipping a hidden directory, `vendor`, `node_modules`, `testdata`, the output directory and a nested module. A root that is not itself a module keeps its submodules, or the scan covers nothing. A WARNING in every module. Stale prose must not fail a build by itself. And the warnings budget is what turns a repo full of them red. A warning is spent per file:line: the repair is a rewrite of the line, whatever it counts. No opt-out marker. Depth: `docs/COMMENT-SCAN.md`
 - `src/hostos/` — `hostos.GOOS()`, the host OS as opposed to `runtime.GOOS` (what the binary was compiled for). A fat APE reports
   `runtime.GOOS == "cosmo"` on **every** host, Windows included — there is no native windows payload to fall back on, which is how NT silently took
   the `"linux"` default. The answer comes from `runtime.CosmoHostOS()`, the runtime's own `__hostos`: the APE entry stub records it before any Go
@@ -263,7 +253,6 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
   (`go-toolchain version cosmo`) and passes it down as `GO_TOOLCHAIN_COSMO_VERSION`, so a run spanning a publish cannot straddle two forks.
   `publish` needs it. Depth: `docs/CI.md`
 
-
 ## Code Conventions
 
 - Go module: `github.com/wow-look-at-my/go-toolchain`
@@ -284,7 +273,7 @@ Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered G
 - When changing action.yml inputs, update the Action Usage section accordingly.
 - When changing the build pipeline steps (e.g. adding a new check or phase), update `docs/PIPELINE.md`.
 - **The README is for a skimming human**: keep each bullet to about two rendered lines and point at `docs/` for the depth. A paragraph of internals in a feature bullet belongs in a doc, not in the README.
-- **This file is an index. The depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`, `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`, `docs/VCS-STAMP.md`, `docs/WASM.md`, `docs/PROFILE.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means updating it in place, never appending a second "generation" alongside the old one. A paragraph, a list item and a blockquote each stay on ONE line. The org's ste-lint gate fails a manually wrapped one. A literal double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's Liquid engine. Wrap it with raw/endraw tags, or `pages build and deployment` hard-fails parsing it as a template tag on unbalanced braces.
+- **This file is an index. The depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/COMMENT-SCAN.md`, `docs/DATS-PHASE.md`, `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`, `docs/VCS-STAMP.md`, `docs/WASM.md`, `docs/PROFILE.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means updating it in place, never appending a second "generation" alongside the old one. A paragraph, a list item and a blockquote each stay on ONE line. The org's ste-lint gate fails a manually wrapped one. A literal double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's Liquid engine. Wrap it with raw/endraw tags, or `pages build and deployment` hard-fails parsing it as a template tag on unbalanced braces.
 
 ## Known Issues
 

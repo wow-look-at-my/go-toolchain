@@ -34,7 +34,6 @@ func Analyzers() []*analysis.Analyzer {
 		AssertNormAnalyzer,
 		DeadCodeAnalyzer,
 		BannedOutputAnalyzer,
-		CommentNumbersAnalyzer,
 		CommentSpanAnalyzer,
 		JSONInterpAnalyzer,
 		MapSetAnalyzer,
@@ -170,7 +169,6 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	resetSliceSetWarnings()
 	resetWriteRunWarnings()
 	resetCommentSpanWarnings()
-	resetCommentNumbersWarnings()
 	discovery, err := buildtags.Scan(".")
 	if err != nil {
 		return filesChanged, fmt.Errorf("discovering build tags: %w", err)

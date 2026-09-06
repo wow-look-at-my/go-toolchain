@@ -8,9 +8,10 @@ import (
 	"strings"
 )
 
-// readCmdline reads a process's argv from /proc, which stores it NUL
-// separated with a trailing NUL.
-func readCmdline(pid int) ([]string, bool) {
+// procCmdline reads a process's argv from /proc, which stores it NUL
+// separated with a trailing NUL. A darwin host has no /proc, so a cosmo APE
+// running there reaches psCmdline instead.
+func procCmdline(pid int) ([]string, bool) {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
 	if err != nil || len(b) == 0 {
 		return nil, false
