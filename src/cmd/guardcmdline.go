@@ -6,24 +6,13 @@ import (
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
 
-// The pipe peer answers "who reads this", and a reader outside our PID
-// namespace has no answer at all. The command line answers "what was typed",
-// which is the question the guard is really asking, and it can be QUOTED back
-// instead of described. This file is that source.
+// A reader outside our PID namespace cannot be named. The command line can.
 
-// ancestryLimit bounds the walk. A shell that ran us sits within a few hops,
-// and a cycle in a synthetic ppid chain must not spin.
+// ancestryLimit bounds the walk against a cyclic ppid chain.
 const ancestryLimit = 8
 
-// unidentifiedPeerSink answers for a pipe or socket whose READER this process
-// cannot name. It asks the command line instead, which is the only source
-// that can state what the capture IS rather than assume a capture exists.
-//
-// A `| head` reader is a child of the same shell, so it is usually nameable
-// and convicted before this. What is NOT nameable is a harness reading our
-// stdout from outside our view -- another PID namespace, or a sandbox. Both
-// classifiers used to convict there, which aborted a bare `go-toolchain` and
-// told the caller to remove a pipe the command never had.
+// unidentifiedPeerSink answers for a pipe or socket whose reader this process
+// cannot name. Convicting there aborts a bare `go-toolchain`.
 func unidentifiedPeerSink(kind sinkKind) outputSink {
 	if cmd, piped := spawningPipeline(); piped {
 		return outputSink{kind: kind, cmdline: cmd}
@@ -31,13 +20,9 @@ func unidentifiedPeerSink(kind sinkKind) outputSink {
 	return outputSink{kind: sinkVisible}
 }
 
-// spawningPipeline reports the command line of the nearest ancestor that was
-// handed a command STRING, and whether that string captures stdout. The
-// string is the literal shell text, so a caller can print the pipeline the
-// user actually typed.
-//
-// No shell ancestor means nothing typed a pipe on our behalf: a bare exec
-// cannot introduce a pipe, so the answer is a confident "not piped".
+// spawningPipeline reports the literal shell text of the nearest ancestor
+// handed a command string, and whether it captures stdout. No shell ancestor
+// means nothing typed a pipe on our behalf.
 func spawningPipeline() (string, bool) {
 	for _, cmdline := range ancestorCmdlines() {
 		script, ok := shellScript(cmdline)
@@ -138,7 +123,7 @@ func capturesStdout(script string) bool {
 				return true
 			}
 		case '>':
-			// A digit in front names a descriptor, and only 1 is stdout.
+			// A digit in front names a descriptor other than stdout.
 			if i > 0 && script[i-1] >= '0' && script[i-1] <= '9' && script[i-1] != '1' {
 				continue
 			}

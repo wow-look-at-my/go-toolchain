@@ -24,12 +24,9 @@ const (
 
 // outputSink describes go-toolchain's stdout after inspection.
 type outputSink struct {
-	kind   sinkKind
-	detail string // peer command name (pipe) or path (file/discard)
-	// cmdline is the shell text that spawned this run, when the guard read it
-	// rather than inferring from the pipe's reader. It is the pipeline the
-	// user actually typed, so the message quotes it instead of describing it.
-	cmdline string
+	kind    sinkKind
+	detail  string // peer command name (pipe) or path (file/discard)
+	cmdline string // the shell text that spawned this run, quoted verbatim in the abort
 }
 
 // The agent roster lives in is-this-an-agent; this file classifies where

@@ -67,9 +67,8 @@ func classifyDarwinFD(p darwinFDProbes) (outputSink, bool) {
 
 	switch mode & sIFMT {
 	case sIFIFO:
-		// grok-build's stdout is a FIFO, not a socketpair. An unidentified
-		// reader is not evidence of `| cat`, so the command line decides:
-		// it names the pipeline, or proves there is none.
+		// grok-build's stdout is a FIFO. An unidentified reader is not
+		// evidence of `| cat`, so the command line decides.
 		if p.fifoPeer == nil {
 			return unidentifiedPeerSink(sinkPipe), true
 		}
