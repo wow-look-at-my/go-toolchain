@@ -8,10 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// requireCmdlineReader skips a test on a host that cannot read a process's
-// command line. The classifier's fallback reads argv to separate a bare run
-// from a captured one; on a platform with no such read there is nothing to
-// assert. Windows is the no-op-classifier host (claudeguard_other.go).
+// requireCmdlineReader skips a host that cannot read a process's command
+// line, which leaves the argv fallback nothing to assert.
 func requireCmdlineReader(t *testing.T) {
 	t.Helper()
 	switch runtime.GOOS {
@@ -57,7 +55,7 @@ func TestUnidentifiedPeerAcquitsOnAShellThatTypedNoPipe(t *testing.T) {
 
 // An ancestry holding no shell shows nothing either way. Nothing typed a
 // pipe that anything here can see, so the run proceeds -- an exec with no
-// shell above it is the ordinary case, not a suspicious one.
+// shell above it is ordinary rather than suspicious.
 func TestUnidentifiedPeerRunsWithNoShellToConsult(t *testing.T) {
 	t.Serial()
 	requireWalkableAncestry(t)
@@ -71,9 +69,8 @@ func TestUnidentifiedPeerRunsWithNoShellToConsult(t *testing.T) {
 	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
 }
 
-// requireWalkableAncestry skips a test that stubs the argv read, on a host
-// where the walk has no parent to reach. Without a step the stub never runs,
-// and the assertion passes on nothing: windows reported exactly that.
+// requireWalkableAncestry skips a host with no parent to walk to, where the
+// stub never runs and the assertion proves nothing.
 func requireWalkableAncestry(t *testing.T) {
 	t.Helper()
 	requireCmdlineReader(t)

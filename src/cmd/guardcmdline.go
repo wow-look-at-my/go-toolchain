@@ -14,25 +14,13 @@ const ancestryLimit = 8
 // A seam, so a test can drive the refused read that switched the guard off.
 var readCmdlineFunc = readCmdline
 
-// unidentifiedPeerSink answers for a pipe or socket whose reader this process
-// cannot name. Convicting there aborts a bare `go-toolchain`.
+// unidentifiedPeerSink answers a pipe with an unnameable reader. Only a READ
+// command line showing a capture convicts: else every bare run aborts.
 func unidentifiedPeerSink(kind sinkKind) outputSink {
 	cmd, piped := spawningPipeline()
 	if piped {
 		return outputSink{kind: kind, cmdline: cmd}
 	}
-	// Nothing that could be read showed a capture, so the run proceeds.
-	//
-	// Convicting here instead was tried and reverted. It reads an unreadable
-	// ancestry as evidence of a pipe, and a host that will not show argv is
-	// ordinary: the abort then lands on a plain `go-toolchain` and the tool
-	// cannot be run at all. That is the exact failure the command-line
-	// fallback exists to prevent, arriving from the other side.
-	//
-	// What it costs is a capture nothing can see: on darwin a `| cat` reader
-	// is a sibling the FIFO probe cannot reach, and with no shell to read
-	// there is nothing left to catch it with. A missed capture wastes one
-	// run. A refusal wastes every run.
 	return outputSink{kind: sinkVisible}
 }
 

@@ -41,12 +41,12 @@ func TestMain(m *testing.M) {
 func TestInspectFDClassificationDarwin(t *testing.T) {
 	t.Serial()
 	t.Run("pipe_with_no_nameable_reader_and_no_shell_still_runs", func(t *testing.T) {
-		// Both ends belong to this process, so no ancestor is the reader, and
-		// the command line is then the only evidence left. The test process
-		// was handed no shell, so nothing shows a capture and the run
-		// proceeds. Convicting here was tried and reverted: it aborted a
-		// plain `go-toolchain` on any host that would not show an ancestor's
-		// argv, and the abort could not even name the process it read.
+		// Both ends belong to this process, so no ancestor is the reader and
+		// the command line is the only evidence left. Pin what it reads, or
+		// the harness running this suite decides the answer.
+		oldCmdline := readCmdlineFunc
+		readCmdlineFunc = func(int) ([]string, bool) { return []string{"/usr/bin/harness"}, true }
+		t.Cleanup(func() { readCmdlineFunc = oldCmdline })
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		defer r.Close()

@@ -23,6 +23,10 @@ func okProbes(mode uint32) darwinFDProbes {
 
 func TestClassifyDarwinFD(t *testing.T) {
 	t.Serial()
+	// Pin the ancestry an unnameable peer reads, or the harness decides.
+	oldCmdline := readCmdlineFunc
+	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/usr/bin/harness"}, true }
+	t.Cleanup(func() { readCmdlineFunc = oldCmdline })
 	// The behavior the whole design turns on: a probe this build cannot
 	// make is NOT a negative answer. Answering "hidden" would refuse every
 	// legitimate agent run on a Mac; answering "visible" would leave the guard
@@ -53,10 +57,7 @@ func TestClassifyDarwinFD(t *testing.T) {
 	})
 
 	// An unnameable FIFO reader leaves the command line as the only evidence,
-	// and the test process was handed no shell. Nothing shows a capture, so
-	// the run proceeds. Convicting instead was tried and reverted: it aborts
-	// a plain `go-toolchain` on any host that will not show an ancestor's
-	// argv, which is every run rather than the captured ones.
+	// and this process was handed no shell. Nothing shows a capture.
 	t.Run("fifo with an unnameable reader and no shell still runs", func(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(sIFIFO))
 		assert.True(t, ok)
