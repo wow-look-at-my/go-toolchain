@@ -229,7 +229,7 @@ type benchResult struct {
 // runBenchmarkInBuild runs benchmarks as part of the default build
 // and shows comparison against previous stored results.
 func runBenchmarkInBuild(r runner.CommandRunner) (*benchResult, error) {
-	if !bench.HasBenchmarks() {
+	if !bench.HasBenchmarks(".") {
 		return nil, nil
 	}
 

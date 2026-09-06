@@ -2,12 +2,9 @@
 
 ## Build & Test
 
-**Important:** `go build`, `go test`, etc. are often blocked in this environment because the Go toolchain version in go.mod may be newer than what's
-locally installed. The go-toolchain binary handles bootstrapping the correct Go version automatically.
+**Important:** `go build`, `go test`, etc. are often blocked in this environment because the Go toolchain version in go.mod may be newer than what is locally installed. The go-toolchain binary handles bootstrapping the correct Go version automatically.
 
-**Always use the released `go-toolchain` binary** to build and test. If it's not already installed, download it from buildhost. Do NOT use GitHub
-Releases: that path is deprecated and frozen (CI no longer publishes there), so it serves stale binaries. CI and `action.yml` both install from
-buildhost, which always has the current build:
+**Always use the released `go-toolchain` binary** to build and test. If it is not already installed, download it from buildhost. Do NOT use GitHub Releases: that path is deprecated and frozen (CI no longer publishes there), so it serves stale binaries. CI and `action.yml` both install from buildhost, which always has the current build:
 
 ```bash
 # Download and install go-toolchain (do this first if not installed).
@@ -30,27 +27,22 @@ go-toolchain matrix
 # To add new CLI tests, add them to dats/cli.dats
 ```
 
-Do NOT use `go run ./src`, `go build`, `go test`, `go vet`, or any bare `go` commands directly — they will fail if the local Go version doesn't match
-go.mod.
+Do NOT use `go run ./src`, `go build`, `go test`, `go vet`, or any bare `go` commands directly — they will fail if the local Go version does not match go.mod.
 
 ## Coverage Analysis
 
-After running `go-toolchain`, the output includes a "Coverage targets" section showing the top functions to test, ranked by potential gain (how much
-total coverage would increase if the function were fully covered). Functions are split into two groups:
+After running `go-toolchain`, the output includes a "Coverage targets" section showing the top functions to test, ranked by potential gain (how much total coverage will increase if the function were fully covered). Functions are split into two groups:
 
 - **UNTESTED** (0% covered) — likely just needs one test that calls the function
 - **PARTIAL** (some coverage) — needs specific inputs to hit uncovered branches
 
-Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered Go statements). Always start from the top of the list when improving
-coverage.
+Each line shows: `+gain%  N stmts  file:line  FunctionName` (stmts = uncovered Go statements). Always start from the top of the list when improving coverage.
 
 ## Project Structure
 
 - `src/main.go` — entry point
 - `src/integration/` — dats integration test runner
-- `src/cmd/staleoutputs.go` — **build outputs only survive a green run**: a leftover `build/<target>` is the last thing that can pass for a build
-  that never happened, so every exit that is not a green pipeline deletes the module's own artifacts. No flag or env var disables it. Depth:
-  `docs/BUILD-OUTPUTS.md` (which paths count, the three sweep sites, and the dats-suite footgun)
+- `src/cmd/staleoutputs.go` — **build outputs only survive a green run**: a leftover `build/<target>` is the last thing that can pass for a build that never happened. So every exit that is not a green pipeline deletes the module's own artifacts. No flag or env var disables it. Depth: `docs/BUILD-OUTPUTS.md` (which paths count, the three sweep sites, and the dats-suite footgun)
 - `src/cmd/` — CLI commands (root, matrix, bench, lint, install, version, release, verify-identical, ignore/unignore) and every phase they drive. Depth: `docs/CMD.md`
 - `src/cmd/targets.go`, `src/cmd/cosmotargets.go`, `src/cmd/cosmoplatforms.go` — **`matrix` builds ONE fat APE**, the org's only native
   output: no target flags means one `<name>` covering `--cosmo-platforms` (`linux/amd64,darwin/arm64,windows/amd64`, exported to the
@@ -164,7 +156,8 @@ coverage.
   `dats/cli.dats` against the built binary
 - `src/gomod/` — shared Go module utilities. `FindMainPackages` honors build constraints, so a `//go:build ignore` generator is never mistaken for a
   directory's main package. `IsNestedModule` is the shared predicate every filesystem walker skips nested modules by — their files belong to their
-  own module. Depth: `docs/GOMOD.md`
+  own module. Every walk takes its ROOT as an argument (production passes `"."`), so a test names a directory instead of calling `os.Chdir` and
+  moving the working directory under the tests running beside it. Depth: `docs/GOMOD.md`
 - `src/memlimit/` — injects a stdlib-only cgroup→GOMEMLIMIT startup guard into every main package built (discovered via `gomod.FindMainPackages`,
   which honors build constraints so a `//go:build ignore` `package main` generator is NOT mistaken for a directory's main package)
   (`gomemlimit_gen.go`, embedded verbatim from `testdata/guard.go`), so each binary caps the Go heap at the container's cgroup memory limit instead of
@@ -278,8 +271,9 @@ coverage.
   README.md
 - `action.yml` — the composite GitHub Action consumers use (`wow-look-at-my/go-toolchain@master`), including the org all-builds shadow guard, the
   comment-wall guard, the tests-in-YAML guard (`no-tests-in-yaml`: an assertion or a written test file inside a `run:` script fails the job, so
-  every consumer of this action gets the rule), and the Linux dats sandbox prelude (install/probe bwrap, docker fallback, fail closed; never sysctl).
-  Depth: `docs/ACTION.md`
+  every consumer of this action gets the rule), the Linux dats sandbox prelude (install/probe bwrap, docker fallback, fail closed; never sysctl),
+  and the APE binfmt registration. The binfmt registration is one `binfmt_misc` entry handing the APE header to `/bin/sh`: a bare exec of an APE
+  then works where the runner allows it, and warns where it does not. Depth: `docs/ACTION.md`
 - `.github/workflows/ci.yml` — this repo's own CI: host-build, the smoke legs, the guard gate and the release path. The smoke legs run ONE host's
   APE everywhere, so every host builds this repo's APE — `build` on linux, `build-everywhere` on darwin and windows — and `identical` fails unless
   the three agree byte for byte; a missing hand-off fails too, since comparing the hosts that answered proves nothing. `identical` compares the very
@@ -290,51 +284,24 @@ coverage.
 ## Code Conventions
 
 - Go module: `github.com/wow-look-at-my/go-toolchain`
-- Go version: 1.27 (module). It is a FLOOR set by the fork, not a preference: the pipeline type-checks code the gosmopolitan fork compiles, and
-  `go/types` links in from whatever toolchain built this binary. Built with go1.26 it cannot read the fork's export data (`math/rand/v2`'s generic
-  method) or its source (`file requires newer Go version go1.27`), so the go directive is what makes CI's `actions/setup-go` install a Go that can.
-  Depth: `docs/CI.md`
+- Go version: 1.27 (module). It is a FLOOR set by the fork, not a preference. The pipeline type-checks code the gosmopolitan fork compiles, and `go/types` links in from whatever toolchain built this binary. Built with go1.26 it cannot read the fork's export data (`math/rand/v2`'s generic method) or its source (`file requires newer Go version go1.27`). So the go directive is what makes CI's `actions/setup-go` install a Go that can. Depth: `docs/CI.md`
 - CLI framework: `github.com/spf13/cobra`
 - Test parsing: `gotest.tools/gotestsum/testjson`
-- Test assertions: upstream `github.com/stretchr/testify` (`assert`/`require`) — the in-house `wow-look-at-my/testify` fork has been removed; the
-  `testifycast` analyzer supplies the fork's loose cross-type numeric equality via explicit conversions
+- Test assertions: upstream `github.com/stretchr/testify` (`assert`/`require`) — the in-house `wow-look-at-my/testify` fork has been removed. The `testifycast` analyzer supplies the fork's loose cross-type numeric equality via explicit conversions
 - No Makefile — use `go run ./src` as the build entry point
 - Binaries are output to `build/` directory
-- Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go`, `_cosmo.go` suffixes (see `src/test/xattr_*.go`). GOOS=cosmo (gosmopolitan fat
-  APE) matches the `unix` build tag, and — since gosmopolitan's matchTag aliases GOOS=cosmo into `linux` — also matches `linux`, both by explicit
-  `//go:build` tag and by the `_linux.go`/`_linux_ARCH.go` filename convention. `golang.org/x/sys/unix` therefore now builds for cosmo like any other
-  linux target: reach for a plain `_linux.go` file first. **Every build is a cosmo build now, so a `!cosmo` split turns a feature OFF in every
-  binary that ships** — before keeping one, compile the dependency for cosmo and confirm it still fails (`go-git` builds now; the split excluding
-  it was disabling vet's auto-fix check). **Compiling is not the test, though: RUN each payload.** `modernc.org/sqlite` compiles for cosmo and its
-  `modernc.org/libc` init still panics on the windows payload, killing every Windows invocation before `main` — which is why the deps cache is
-  dependency-free (`depscache_file.go`). A `_cosmo.go` file is for a genuine gap only —
-  `src/test/xattr_cosmo.go` is the surviving one, since the fork's syscall package has no xattr wrappers. Either a dedicated implementation already exists
-  (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for
-  (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
-- **`_cosmo` in a filename is a real GOOS filter now, so a file that must build everywhere cannot carry it.** Stock Go knows no GOOS called cosmo
-  and ignored the suffix, which is how `matrix_cosmo_test.go` shipped shared test helpers under a name that promised the opposite. The fork does
-  know it, and the test binaries build for the host (`WithHostTarget`), so the file vanished and every caller failed `undefined`. Name a
-  cosmo-flavored file that is NOT platform-specific with the word up front — `cosmomatrix_test.go`. `GOOS=linux go vet ./...` under the fork is
-  what catches this; the pipeline's own vet reads the cosmo variant, where such a file is present
+- Platform-specific files use `_linux.go`, `_darwin.go`, `_windows.go`, `_cosmo.go` suffixes (see `src/test/xattr_*.go`). GOOS=cosmo (gosmopolitan fat APE) matches the `unix` build tag. It also matches `linux`, both by explicit `//go:build` tag and by the `_linux.go`/`_linux_ARCH.go` filename convention, since gosmopolitan's matchTag aliases GOOS=cosmo into `linux`. `golang.org/x/sys/unix` therefore now builds for cosmo like any other linux target: reach for a plain `_linux.go` file first. **Every build is a cosmo build now. So a `!cosmo` split turns a feature OFF in every binary that ships**. Before keeping one, compile the dependency for cosmo and confirm it still fails. `go-git` builds now, and the split excluding it was disabling vet's auto-fix check. **Compiling is not the test, though: RUN each payload.** `modernc.org/sqlite` compiles for cosmo and its `modernc.org/libc` init still panics on the windows payload, killing every Windows invocation before `main`. That is why the deps cache is dependency-free (`depscache_file.go`). A `_cosmo.go` file is for a genuine gap only — `src/test/xattr_cosmo.go` is the surviving one, since the fork's syscall package has no xattr wrappers. Either a dedicated implementation already exists (exclude it from the linux side with `linux && !cosmo`), or the linux side depends on a mechanism cosmo's translation layer has no equivalent for (vDSO syscalls, cgroup files, AF_PACKET, netlink, `SCM_CREDENTIALS`)
+- **`_cosmo` in a filename is a real GOOS filter now. So a file that must build everywhere cannot carry it.** Stock Go knows no GOOS called cosmo and ignored the suffix. That is how `matrix_cosmo_test.go` shipped shared test helpers under a name that promised the opposite. The fork does know it, and the test binaries build for the host (`WithHostTarget`), so the file vanished and every caller failed `undefined`. Name a cosmo-flavored file that is NOT platform-specific with the word up front — `cosmomatrix_test.go`. `GOOS=linux go vet ./...` under the fork is what catches this. The pipeline's own vet reads the cosmo variant, where such a file is present
 
 ## Documentation
 
-- **Always keep `README.md` up to date** when adding new features, flags, subcommands, or changing existing behavior. The README is the primary
-  user-facing documentation and must accurately reflect the current state of the CLI and GitHub Action.
+- **Always keep `README.md` up to date** when adding new features, flags, subcommands, or changing existing behavior. The README is the primary user-facing documentation and must accurately reflect the current state of the CLI and GitHub Action.
 - When adding a new subcommand, add it to the Subcommands section and include a CLI usage example.
 - When adding a new flag, add it to the appropriate flags table (persistent or command-specific).
 - When changing action.yml inputs, update the Action Usage section accordingly.
 - When changing the build pipeline steps (e.g. adding a new check or phase), update `docs/PIPELINE.md`.
-- **The README is for a skimming human**: keep each bullet to about two rendered lines and point at `docs/` for the depth. A paragraph of internals
-  in a feature bullet belongs in a doc, not in the README.
-- **This file is an index; the depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines
-  wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`,
-  `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`, `docs/VCS-STAMP.md`,
-  `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means
-  updating it in place, never appending a second "generation" alongside the old one. Lines are hard-wrapped at 150 columns so an
-  edit shows up as a reviewable diff. A literal
-  double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's
-  Liquid engine (wrap it with raw/endraw tags) or `pages build and deployment` hard-fails parsing it as a template tag on unbalanced braces.
+- **The README is for a skimming human**: keep each bullet to about two rendered lines and point at `docs/` for the depth. A paragraph of internals in a feature bullet belongs in a doc, not in the README.
+- **This file is an index. The depth lives in `docs/`.** Add depth to the doc, never to the bullet: an entry needing more than two or three lines wants a `docs/` file (see `docs/CMD.md`, `docs/CACHE.md`, `docs/CI.md`, `docs/ACTION.md`, `docs/VET.md`, `docs/DATS-PHASE.md`, `docs/AGENT-OUTPUT-GUARD.md`, `docs/WARNINGS-GATE.md`, `docs/DEPS.md`, `docs/BUILDHOST-MANIFEST.md`, `docs/PIPELINE.md`, `docs/MATRIX.md`, `docs/VCS-STAMP.md`, `docs/WASM.md`, `docs/MEMLIMIT.md`, `docs/PROFILE.md`, `docs/BUILD-OUTPUTS.md`, `docs/GOMOD.md`). Each entry appears exactly once — editing a bullet means updating it in place, never appending a second "generation" alongside the old one. A paragraph, a list item and a blockquote each stay on ONE line. The org's ste-lint gate fails a manually wrapped one. A literal double-curly-brace GitHub Actions expression (e.g. quoting `action.yml` or a workflow), in this file or under `docs/`, must be escaped for Jekyll's Liquid engine. Wrap it with raw/endraw tags, or `pages build and deployment` hard-fails parsing it as a template tag on unbalanced braces.
 
 ## Known Issues
 

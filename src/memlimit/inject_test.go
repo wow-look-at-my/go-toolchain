@@ -57,9 +57,7 @@ func TestInjectAllDiscoversMainPackages(t *testing.T) {
 	writeFile(t, mod, "cmd/tool/main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, mod, "internal/lib/lib.go", "package lib\n")
 
-	t.Chdir(mod)
-
-	changed, err := InjectAll()
+	changed, err := InjectAll(mod)
 	require.NoError(t, err)
 
 	sort.Strings(changed)
@@ -74,7 +72,7 @@ func TestInjectAllDiscoversMainPackages(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "guard should not be injected into a non-main package")
 
 	// The repeat pass is a clean no-op.
-	changed, err = InjectAll()
+	changed, err = InjectAll(mod)
 	require.NoError(t, err)
 	require.Empty(t, changed)
 }
@@ -87,12 +85,10 @@ func TestCleanupAllRemovesInjectedGuards(t *testing.T) {
 	writeFile(t, mod, "cmd/tool/main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, mod, "internal/lib/lib.go", "package lib\n")
 
-	t.Chdir(mod)
-
-	_, err := InjectAll()
+	_, err := InjectAll(mod)
 	require.NoError(t, err)
 
-	removed, err := CleanupAll()
+	removed, err := CleanupAll(mod)
 	require.NoError(t, err)
 	sort.Strings(removed)
 	require.Equal(t, []string{".", "cmd/tool"}, removed)
@@ -115,20 +111,14 @@ func TestCleanupAllIdempotentWhenAbsent(t *testing.T) {
 	writeFile(t, mod, "go.mod", "module example.com/thing\n\ngo 1.19\n")
 	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
 
-	t.Chdir(mod)
-
 	// No guards were ever injected: cleanup is a clean no-op, not an error.
-	removed, err := CleanupAll()
+	removed, err := CleanupAll(mod)
 	require.NoError(t, err)
 	require.Empty(t, removed)
 }
 
 func TestCleanupAllNoModule(t *testing.T) {
-	t.Serial()
-	dir := t.TempDir()
-	t.Chdir(dir)
-
-	removed, err := CleanupAll()
+	removed, err := CleanupAll(t.TempDir())
 	require.NoError(t, err)
 	require.Empty(t, removed)
 }
@@ -140,13 +130,11 @@ func TestInjectAllThenCleanupAllRoundTrip(t *testing.T) {
 	writeFile(t, mod, "main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, mod, "cmd/tool/main.go", "package main\n\nfunc main() {}\n")
 
-	t.Chdir(mod)
-
-	injected, err := InjectAll()
+	injected, err := InjectAll(mod)
 	require.NoError(t, err)
 	sort.Strings(injected)
 
-	removed, err := CleanupAll()
+	removed, err := CleanupAll(mod)
 	require.NoError(t, err)
 	sort.Strings(removed)
 
