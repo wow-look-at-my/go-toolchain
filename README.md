@@ -78,6 +78,8 @@ To opt out, pass `codeql: 'false'`.
 
 **APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry, so the kernel starts a fat APE through `/bin/sh`. That is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
 
+**APE binfmt.** On a Linux runner the action registers a `binfmt_misc` entry so the kernel starts a fat APE through `/bin/sh`, which is what makes a bare exec of one work. A runner that will not allow it gets a warning and builds as before — see [docs/ACTION.md](docs/ACTION.md).
+
 ### Inputs
 
 | Input               | Type     | Default    | Description                                              |

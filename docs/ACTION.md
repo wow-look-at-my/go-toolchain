@@ -40,6 +40,38 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 `dats/binfmt.dats` covers the contract: the script names its outcome, reaches the same outcome twice, and never fails the job. It registers nothing itself — the sandbox grants no root — and where an entry does exist it asserts the magic and the interpreter.
 
+## 1b3. The APE binfmt handler
+
+`.github/scripts/register-ape-binfmt.sh` writes one `binfmt_misc` entry on a
+Linux runner:
+
+```
+:APE:M::\x4d\x5a\x71\x46\x70\x44\x3d\x27::/bin/sh:
+```
+
+The magic is the header a fat APE opens with, `MZqFpD='`, and the interpreter is
+`/bin/sh`. There is no APE loader to install: the header IS a shell script, so
+the kernel handing the file to `sh` is the whole mechanism. What it buys is a
+bare `execve` of an APE. Without the entry only a shell can start one, and `go
+run`, `go test` and any exec from a program answer `exec format error` — this
+repo's own CI has shipped that message for `trace.test` (see [CI.md](CI.md)).
+
+The step needs root and a mounted `/proc/sys/fs/binfmt_misc`. A host that has
+neither keeps working: it warns, names what is missing, and exits 0, because
+every caller in this org already reaches an APE through a shell. So the entry is
+a capability, never a requirement, and nothing downstream may assume it — see
+[MATRIX.md](MATRIX.md). The step is skipped outright on macOS and Windows, which
+have no such mechanism.
+
+Registering is idempotent. An entry that is already present and enabled is left
+alone; one that is present and disabled is reported rather than silently
+counted as working, since a disabled entry execs nothing.
+
+`dats/binfmt.dats` covers the contract: the script names its outcome, reaches
+the same outcome twice, and never fails the job. It registers nothing itself —
+the sandbox grants no root — and where an entry does exist it asserts the magic
+and the interpreter, so a mistyped byte cannot pass.
+
 ## 1c. Installing the binary
 
 The download goes straight to buildhost's `dl` endpoint with curl, and no npm is involved. `--compressed` advertises `Accept-Encoding`, zstd included where curl was built with it, so buildhost streams the stored zstd blob as-is and curl decompresses client-side. The server never pays the decompression cost. Where curl lacks zstd it just gets the plain binary. buildhost normalizes platform aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so those values pass through verbatim. It serves the branch tip `no-store`, so no cache-buster is needed. Download, the one pre-install run, and the copy into `/usr/local/bin` are one step. Nothing in the org's action set can write there (the runner is not root), and dats' sandbox mounts only the standard paths. So a split will only move the `sudo cp` into a second step.
