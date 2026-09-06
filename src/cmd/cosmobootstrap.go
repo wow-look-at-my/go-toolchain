@@ -200,9 +200,9 @@ func probeCosmoVersion(dlURL string) string {
 	return v
 }
 
-// probeCosmoRelease is the same probe, with the reason it came back empty. A
-// slot naming no release is the other repository's publishing; an unreachable
-// buildhost is a retry. Reported alike, a timeout sends the reader there.
+// probeCosmoRelease is the same probe, with the reason it came back empty: a
+// slot naming no release is the other repository's publishing, and an
+// unreachable buildhost is a retry.
 func probeCosmoRelease(dlURL string) (string, error) {
 	client := &http.Client{
 		Timeout: cosmoProbeTimeout,

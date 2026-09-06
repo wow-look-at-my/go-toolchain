@@ -11,38 +11,52 @@ import (
 // ancestryLimit bounds the walk against a cyclic ppid chain.
 const ancestryLimit = 8
 
+// A seam, so a test can drive the refused read that switched the guard off.
+var readCmdlineFunc = readCmdline
+
 // unidentifiedPeerSink answers for a pipe or socket whose reader this process
 // cannot name. Convicting there aborts a bare `go-toolchain`.
 func unidentifiedPeerSink(kind sinkKind) outputSink {
-	if cmd, piped := spawningPipeline(); piped {
+	cmd, piped, known := spawningPipeline()
+	if piped {
 		return outputSink{kind: kind, cmdline: cmd}
+	}
+	// Blind is not acquitted: read as "nobody typed a pipe", an unreadable
+	// argv turns the guard off and a real `| cat` walks through.
+	if !known {
+		return outputSink{kind: kind}
 	}
 	return outputSink{kind: sinkVisible}
 }
 
-// spawningPipeline reports the literal shell text of the nearest ancestor
-// handed a command string, and whether it captures stdout. No shell ancestor
-// means nothing typed a pipe on our behalf.
-func spawningPipeline() (string, bool) {
-	for _, cmdline := range ancestorCmdlines() {
-		script, ok := shellScript(cmdline)
+// spawningPipeline reports the shell text of the nearest ancestor handed a
+// command string, and whether it captures stdout. known is false when this
+// host refused an argv, which is not an ancestry that holds no shell.
+func spawningPipeline() (cmdline string, piped, known bool) {
+	lines, known := ancestorCmdlines()
+	for _, argv := range lines {
+		script, ok := shellScript(argv)
 		if !ok {
 			continue
 		}
-		return script, capturesStdout(script)
+		return script, capturesStdout(script), known
 	}
-	return "", false
+	return "", false, known
 }
 
-// ancestorCmdlines lists each ancestor's argv, in ancestry order, starting at
-// the parent.
-func ancestorCmdlines() [][]string {
-	var out [][]string
+// ancestorCmdlines lists each ancestor's argv, starting at the parent. known
+// is false when a pid resolved and its argv did not. A harness in another PID
+// namespace leaves nothing to ask, which is an answer; a refused read is not.
+func ancestorCmdlines() (lines [][]string, known bool) {
+	known = true
 	pid := parentPID()
 	for i := 0; i < ancestryLimit && pid > 1; i++ {
-		argv, ok := readCmdline(pid)
-		if ok && len(argv) > 0 {
-			out = append(out, argv)
+		argv, ok := readCmdlineFunc(pid)
+		switch {
+		case ok && len(argv) > 0:
+			lines = append(lines, argv)
+		case !ok:
+			known = false
 		}
 		next, ok := parentOf(pid)
 		if !ok || next == pid {
@@ -50,7 +64,7 @@ func ancestorCmdlines() [][]string {
 		}
 		pid = next
 	}
-	return out
+	return lines, known
 }
 
 // shellScript reports the command string a shell was handed with -c.

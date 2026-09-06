@@ -22,6 +22,37 @@ func requireCmdlineReader(t *testing.T) {
 	}
 }
 
+// A host that will not show an ancestor's argv leaves the fallback with no
+// evidence at all, and no evidence is not evidence of no pipe. Read that way
+// the guard turns itself OFF wherever the read is refused, which is what let a
+// real `| cat` through on darwin while every unit test still passed.
+func TestUnidentifiedPeerFailsClosedWhenTheCommandLineIsUnreadable(t *testing.T) {
+	t.Serial()
+	old := readCmdlineFunc
+	readCmdlineFunc = func(int) ([]string, bool) { return nil, false }
+	t.Cleanup(func() { readCmdlineFunc = old })
+
+	_, piped, known := spawningPipeline()
+	require.False(t, known, "a refused read must not report as a readable ancestry")
+	require.False(t, piped)
+	assert.Equal(t, sinkPipe, unidentifiedPeerSink(sinkPipe).kind,
+		"blind is not acquitted: the guard convicts rather than switching itself off")
+}
+
+// And the acquittal survives: an ancestry that really holds no shell is an
+// answer, so a bare run under a harness in another PID namespace still runs.
+func TestUnidentifiedPeerAcquitsWhenTheAncestryHoldsNoShell(t *testing.T) {
+	t.Serial()
+	old := readCmdlineFunc
+	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/usr/bin/some-harness"}, true }
+	t.Cleanup(func() { readCmdlineFunc = old })
+
+	_, piped, known := spawningPipeline()
+	require.True(t, known)
+	require.False(t, piped)
+	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
+}
+
 // The reported bug: a bare `go-toolchain` aborted saying its output was
 // "piped into another command". Nothing in that command line is a pipe, and
 // the guard had only guessed, because the reader sat outside its view.
@@ -100,7 +131,7 @@ func TestReadCmdlineReadsThisProcess(t *testing.T) {
 // to read and every classification falls back to the guess this replaced.
 func TestAncestorCmdlinesReachesRealProcesses(t *testing.T) {
 	requireCmdlineReader(t)
-	got := ancestorCmdlines()
+	got, _ := ancestorCmdlines()
 	require.NotEmpty(t, got, "no ancestor argv readable on this host")
 	for _, argv := range got {
 		assert.NotEmpty(t, argv[0])
@@ -111,7 +142,7 @@ func TestAncestorCmdlinesReachesRealProcesses(t *testing.T) {
 // Both have an unnameable FIFO reader, so the command line is the only thing
 // that separates them.
 func TestSpawningPipelineAnswersFromTheCommandLine(t *testing.T) {
-	cmd, piped := spawningPipeline()
+	cmd, piped, _ := spawningPipeline()
 	if piped {
 		assert.NotEmpty(t, cmd, "a conviction must carry the text it convicted on")
 		assert.True(t, capturesStdout(cmd))
