@@ -25,9 +25,7 @@ with:
 
 **wasm_exec.js.** A `wasm/js` build also copies the fork toolchain's `lib/wasm/wasm_exec.js` — the JS harness that loads the wasm in a browser or Node. That must byte-match the toolchain that built it — into `build/wasm_exec.js`. It is covered by `checksums.txt` and stays in `build/`, but sits outside the buildhost publish set (its name does not match the publish pipeline's `<binary>_{os}_{arch}` pattern, like `checksums.txt` itself). Missing harness in the fork GOROOT only warns.
 
-**GOMEMLIMIT.** The cgroup default lives in the fork's runtime and reads
-`/proc/self/cgroup`, so it is inert on both wasm ports. Nothing is injected
-into wasm sources, and nothing has to be.
+**GOMEMLIMIT.** The cgroup default lives in the fork's runtime and reads `/proc/self/cgroup`. It is inert on both wasm ports. Nothing is injected into wasm sources. Nothing has to be.
 
 **Running and testing wasm binaries.** The build pipeline never executes matrix artifacts, and the test phase always runs on the HOST platform — wasm builds do not change what `go test` tests. To run the artifacts or execute a package's tests under wasm, use the fork toolchain's exec wrappers in `<goroot>/lib/wasm` (`go_js_wasm_exec` needs Node.js 18+. `go_wasip1_wasm_exec` needs wasmtime, or wazero via `GOWASIRUNTIME=wazero`):
 
