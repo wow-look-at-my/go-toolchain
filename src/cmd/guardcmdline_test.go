@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 // requireCmdlineReader skips a host that cannot read a process's command
@@ -98,6 +99,11 @@ func TestParsePSCommandOnEmptyOutput(t *testing.T) {
 // because this suite's own host has /proc and would never reach it.
 func TestPSCmdlineReadsTheTool(t *testing.T) {
 	t.Serial()
+	// The stand-in is a `#!/bin/sh` script, which NT cannot start. The reader
+	// it covers never runs there either: NT dispatches to procCmdline.
+	if hostos.GOOS() == "windows" {
+		t.Skip("no shebang execution on this host")
+	}
 	fake := filepath.Join(t.TempDir(), "ps")
 	script := "#!/bin/sh\necho '/bin/sh -c go-toolchain > out.log'\n"
 	require.NoError(t, os.WriteFile(fake, []byte(script), 0o755))
