@@ -17,7 +17,7 @@ const ancestryLimit = 8
 
 // unidentifiedPeerSink answers for a pipe or socket whose READER this process
 // cannot name. It asks the command line instead, which is the only source
-// that can state what the capture IS rather than assume one exists.
+// that can state what the capture IS rather than assume a capture exists.
 //
 // A `| head` reader is a child of the same shell, so it is usually nameable
 // and convicted before this. What is NOT nameable is a harness reading our
@@ -37,7 +37,7 @@ func unidentifiedPeerSink(kind sinkKind) outputSink {
 // user actually typed.
 //
 // No shell ancestor means nothing typed a pipe on our behalf: a bare exec
-// cannot introduce one, so the answer is a confident "not piped".
+// cannot introduce a pipe, so the answer is a confident "not piped".
 func spawningPipeline() (string, bool) {
 	for _, cmdline := range ancestorCmdlines() {
 		script, ok := shellScript(cmdline)
@@ -49,7 +49,8 @@ func spawningPipeline() (string, bool) {
 	return "", false
 }
 
-// ancestorCmdlines lists each ancestor's argv, nearest first.
+// ancestorCmdlines lists each ancestor's argv, in ancestry order, starting at
+// the parent.
 func ancestorCmdlines() [][]string {
 	var out [][]string
 	pid := parentPID()
@@ -84,8 +85,8 @@ func shellScript(argv []string) (string, bool) {
 	return "", false
 }
 
-// isShell matches the interpreters that accept -c, by base name so a full
-// path and a login dash both resolve.
+// isShell matches the interpreters that accept -c, by base name. A full path
+// resolves, and so does a login dash.
 func isShell(arg0 string) bool {
 	base := arg0
 	if i := strings.LastIndexAny(base, "/\\"); i >= 0 {
@@ -102,7 +103,7 @@ func isShell(arg0 string) bool {
 
 // capturesStdout reports whether a shell script sends stdout somewhere other
 // than the terminal. Quoted text is skipped, so `echo "a|b"` is not a pipe,
-// and `2>` is not a stdout redirect.
+// and a redirect naming another descriptor is not a stdout redirect.
 func capturesStdout(script string) bool {
 	var quote byte
 	for i := 0; i < len(script); i++ {
@@ -123,8 +124,8 @@ func capturesStdout(script string) bool {
 		case '\\':
 			i++
 		case '|':
-			// `||` is control flow, and it separates commands rather than
-			// feeding one into the next.
+			// `||` is control flow. It separates commands rather than
+			// feeding the output of a command into the next.
 			if i+1 < len(script) && script[i+1] == '|' {
 				i++
 				continue

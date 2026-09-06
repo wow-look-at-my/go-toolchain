@@ -145,7 +145,7 @@ func agentOutputMessage(agent string, s outputSink, removed []string) string {
 }
 
 // renderAgentOutput fills the abort template. Split out so the command-line
-// case and the sink cases share one renderer.
+// case and the sink cases share the same renderer.
 func renderAgentOutput(agent, what string, removed []string) string {
 	var b strings.Builder
 	err := agentOutputTemplate.Execute(&b, struct {

@@ -43,7 +43,7 @@ func TestSpawningPipelineConvictsARealCapture(t *testing.T) {
 }
 
 // The whole point of reading the command line is that the message can QUOTE
-// it. A sink carrying one must never fall back to "another command".
+// it. A sink carrying a command line must never say "another command".
 func TestAbortMessageNamesTheActualCommandLine(t *testing.T) {
 	msg := agentOutputMessage("grok build", outputSink{kind: sinkPipe, cmdline: "go-toolchain | head -30"}, nil)
 	assert.Contains(t, msg, "go-toolchain | head -30")
@@ -90,7 +90,7 @@ func TestAncestorCmdlinesReachesRealProcesses(t *testing.T) {
 	}
 }
 
-// The two cases the peer cannot tell apart under grok-build: bare, and piped.
+// The cases the peer cannot tell apart under grok-build: bare, and piped.
 // Both have an unnameable FIFO reader, so the command line is the only thing
 // that separates them.
 func TestSpawningPipelineAnswersFromTheCommandLine(t *testing.T) {
