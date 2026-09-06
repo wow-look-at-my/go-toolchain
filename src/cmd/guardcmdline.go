@@ -21,9 +21,11 @@ func unidentifiedPeerSink(kind sinkKind) outputSink {
 	if piped {
 		return outputSink{kind: kind, cmdline: cmd}
 	}
-	// Blind is not acquitted: read as "nobody typed a pipe", an unreadable
-	// argv turns the guard off and a real `| cat` walks through.
-	if !known {
+	// An acquittal needs a shell that was READ and held no capture. An
+	// unreadable argv, or an ancestry with no shell at all, shows nothing
+	// either way -- and on darwin that is every `| cat`, whose reader is a
+	// sibling the FIFO probe cannot reach.
+	if !known || cmd == "" {
 		return outputSink{kind: kind}
 	}
 	return outputSink{kind: sinkVisible}

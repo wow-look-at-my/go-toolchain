@@ -31,7 +31,12 @@ const (
 
 // fifoPeerOnDarwinHost returns the ancestor pid holding the other end of the
 // FIFO at fd. supported is always true: a failed probe is "not identified",
-// which classifyDarwinFD fails closed, never a missing-capability blind.
+// never a missing-capability blind.
+//
+// It walks ANCESTORS, so a `| cat` reader is out of reach by construction --
+// that process is a sibling. Naming it is what the peer check does on linux
+// through /proc. Here the answer falls to unidentifiedPeerSink, which must
+// keep failing closed when nothing else can show the pipe.
 func fifoPeerOnDarwinHost(fd uintptr) (pid int, identified, supported bool) {
 	_, peer, ok := pipeHandles(os.Getpid(), int(fd))
 	if !ok {

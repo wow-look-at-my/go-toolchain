@@ -39,18 +39,35 @@ func TestUnidentifiedPeerFailsClosedWhenTheCommandLineIsUnreadable(t *testing.T)
 		"blind is not acquitted: the guard convicts rather than switching itself off")
 }
 
-// And the acquittal survives: an ancestry that really holds no shell is an
-// answer, so a bare run under a harness in another PID namespace still runs.
-func TestUnidentifiedPeerAcquitsWhenTheAncestryHoldsNoShell(t *testing.T) {
+// The acquittal is what a READ shell with no capture buys, which is the bare
+// run under a harness that 4a4979f exists to keep working.
+func TestUnidentifiedPeerAcquitsOnAShellThatTypedNoPipe(t *testing.T) {
+	t.Serial()
+	old := readCmdlineFunc
+	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/bin/sh", "-c", "go-toolchain"}, true }
+	t.Cleanup(func() { readCmdlineFunc = old })
+
+	cmd, piped, known := spawningPipeline()
+	require.True(t, known)
+	require.False(t, piped)
+	require.NotEmpty(t, cmd, "the shell was read, so its text is the evidence")
+	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
+}
+
+// An ancestry holding no shell shows nothing either way, and on darwin that
+// is every `| cat`: the reader is a sibling, and the FIFO probe there walks
+// ancestors, so neither signal can see the pipe that is really present.
+func TestUnidentifiedPeerFailsClosedWithNoShellToConsult(t *testing.T) {
 	t.Serial()
 	old := readCmdlineFunc
 	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/usr/bin/some-harness"}, true }
 	t.Cleanup(func() { readCmdlineFunc = old })
 
-	_, piped, known := spawningPipeline()
+	cmd, piped, known := spawningPipeline()
 	require.True(t, known)
 	require.False(t, piped)
-	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
+	require.Empty(t, cmd)
+	assert.Equal(t, sinkPipe, unidentifiedPeerSink(sinkPipe).kind)
 }
 
 // The reported bug: a bare `go-toolchain` aborted saying its output was
