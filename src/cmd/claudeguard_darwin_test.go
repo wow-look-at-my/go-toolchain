@@ -40,19 +40,10 @@ func TestMain(m *testing.M) {
 // sink decisions, reached through fstat + F_GETPATH instead of /proc.
 func TestInspectFDClassificationDarwin(t *testing.T) {
 	t.Serial()
-<<<<<<< HEAD
-	t.Run("pipe_with_no_capturing_ancestor_is_visible", func(t *testing.T) {
-		// Both ends belong to this process, so no other program is reading.
-		// An unnameable reader is not evidence of a capture, so the spawning
-		// command line decides, and `go test` handed no shell a pipeline. A
-		// real `| cat` is still refused, end to end, by
-		// TestAgentGuardRefusesPipedRunUnderOpencode below.
-=======
 	t.Run("pipe_is_not_blocked_when_no_reader_is_named", func(t *testing.T) {
 		// Both ends belong to this process, so no ancestor is the reader.
 		// An unnameable reader is not evidence of a capture: the command
 		// line decides, and this test process has no capturing pipeline.
->>>>>>> d79247b94d7e91362ca7c961b58f2977814647ed
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		defer r.Close()
