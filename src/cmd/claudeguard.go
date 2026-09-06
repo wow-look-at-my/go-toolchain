@@ -26,6 +26,10 @@ const (
 type outputSink struct {
 	kind   sinkKind
 	detail string // peer command name (pipe) or path (file/discard)
+	// cmdline is the shell text that spawned this run, when the guard read it
+	// rather than inferring from the pipe's reader. It is the pipeline the
+	// user actually typed, so the message quotes it instead of describing it.
+	cmdline string
 }
 
 // The agent roster lives in is-this-an-agent; this file classifies where
@@ -109,6 +113,13 @@ func guardAgainstAgentOutputCapture() {
 // listing the build outputs the abort deleted (if any).
 func agentOutputMessage(agent string, s outputSink, removed []string) string {
 	var what string
+	switch {
+	case s.cmdline != "":
+		what = fmt.Sprintf("captured by this command line:\n    %s\n\nwhich sends stdout somewhere other than the terminal", s.cmdline)
+	}
+	if what != "" {
+		return renderAgentOutput(agent, what, removed)
+	}
 	switch s.kind {
 	case sinkPipe:
 		if s.detail != "" {
@@ -130,6 +141,12 @@ func agentOutputMessage(agent string, s outputSink, removed []string) string {
 		what = "captured instead of printed to the terminal"
 	}
 
+	return renderAgentOutput(agent, what, removed)
+}
+
+// renderAgentOutput fills the abort template. Split out so the command-line
+// case and the sink cases share one renderer.
+func renderAgentOutput(agent, what string, removed []string) string {
 	var b strings.Builder
 	err := agentOutputTemplate.Execute(&b, struct {
 		Red, Reset, What, Agent string
