@@ -28,6 +28,7 @@ func requireCmdlineReader(t *testing.T) {
 // real `| cat` through on darwin while every unit test still passed.
 func TestUnidentifiedPeerFailsClosedWhenTheCommandLineIsUnreadable(t *testing.T) {
 	t.Serial()
+	requireWalkableAncestry(t)
 	old := readCmdlineFunc
 	readCmdlineFunc = func(int) ([]string, bool) { return nil, false }
 	t.Cleanup(func() { readCmdlineFunc = old })
@@ -43,6 +44,7 @@ func TestUnidentifiedPeerFailsClosedWhenTheCommandLineIsUnreadable(t *testing.T)
 // run under a harness that 4a4979f exists to keep working.
 func TestUnidentifiedPeerAcquitsOnAShellThatTypedNoPipe(t *testing.T) {
 	t.Serial()
+	requireWalkableAncestry(t)
 	old := readCmdlineFunc
 	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/bin/sh", "-c", "go-toolchain"}, true }
 	t.Cleanup(func() { readCmdlineFunc = old })
@@ -59,6 +61,7 @@ func TestUnidentifiedPeerAcquitsOnAShellThatTypedNoPipe(t *testing.T) {
 // ancestors, so neither signal can see the pipe that is really present.
 func TestUnidentifiedPeerFailsClosedWithNoShellToConsult(t *testing.T) {
 	t.Serial()
+	requireWalkableAncestry(t)
 	old := readCmdlineFunc
 	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/usr/bin/some-harness"}, true }
 	t.Cleanup(func() { readCmdlineFunc = old })
@@ -68,6 +71,17 @@ func TestUnidentifiedPeerFailsClosedWithNoShellToConsult(t *testing.T) {
 	require.False(t, piped)
 	require.Empty(t, cmd)
 	assert.Equal(t, sinkPipe, unidentifiedPeerSink(sinkPipe).kind)
+}
+
+// requireWalkableAncestry skips a test that stubs the argv read, on a host
+// where the walk has no parent to reach. Without a step the stub never runs,
+// and the assertion passes on nothing: windows reported exactly that.
+func requireWalkableAncestry(t *testing.T) {
+	t.Helper()
+	requireCmdlineReader(t)
+	if parentPID() <= 1 {
+		t.Skip("no ancestor to walk on this host")
+	}
 }
 
 // The reported bug: a bare `go-toolchain` aborted saying its output was
