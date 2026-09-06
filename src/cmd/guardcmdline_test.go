@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -67,6 +69,58 @@ func TestUnidentifiedPeerRunsWithNoShellToConsult(t *testing.T) {
 	require.False(t, piped)
 	require.Empty(t, cmd)
 	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
+}
+
+// ps prints a single string, so splitting it on spaces drops the pipe that
+// decides the classification. The script after -c has to survive whole.
+func TestParsePSCommandKeepsTheShellScriptWhole(t *testing.T) {
+	argv := parsePSCommand("/bin/sh -c go-toolchain | head -30\n")
+	require.Len(t, argv, 3)
+	assert.Equal(t, []string{"/bin/sh", "-c", "go-toolchain | head -30"}, argv)
+
+	script, ok := shellScript(argv)
+	require.True(t, ok)
+	assert.True(t, capturesStdout(script), "the pipe must survive the round trip")
+}
+
+func TestParsePSCommandOnAPlainExec(t *testing.T) {
+	argv := parsePSCommand("/usr/local/bin/go-toolchain matrix\n")
+	assert.Equal(t, []string{"/usr/local/bin/go-toolchain", "matrix"}, argv)
+	_, ok := shellScript(argv)
+	assert.False(t, ok, "no shell was handed a command string")
+}
+
+func TestParsePSCommandOnEmptyOutput(t *testing.T) {
+	assert.Empty(t, parsePSCommand("\n"))
+}
+
+// The darwin host path a fat APE takes. A fake ps stands in for the tool,
+// because this suite's own host has /proc and would never reach it.
+func TestPSCmdlineReadsTheTool(t *testing.T) {
+	t.Serial()
+	fake := filepath.Join(t.TempDir(), "ps")
+	script := "#!/bin/sh\necho '/bin/sh -c go-toolchain > out.log'\n"
+	require.NoError(t, os.WriteFile(fake, []byte(script), 0o755))
+
+	old := psBin
+	psBin = fake
+	t.Cleanup(func() { psBin = old })
+
+	argv, ok := psCmdline(4242)
+	require.True(t, ok)
+	assert.Equal(t, []string{"/bin/sh", "-c", "go-toolchain > out.log"}, argv)
+}
+
+// A sandbox that refuses ps answers nothing, which is no evidence rather than
+// evidence of a capture.
+func TestPSCmdlineReportsNothingWhenTheToolIsUnavailable(t *testing.T) {
+	t.Serial()
+	old := psBin
+	psBin = filepath.Join(t.TempDir(), "absent-ps")
+	t.Cleanup(func() { psBin = old })
+
+	_, ok := psCmdline(4242)
+	assert.False(t, ok)
 }
 
 // requireWalkableAncestry skips a host with no parent to walk to, where the
