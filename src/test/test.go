@@ -30,11 +30,7 @@ const (
 	clrFail   = "\033[38;2;255;128;128m"
 	clrYellow = "\033[38;2;255;255;0m"
 
-<<<<<<< HEAD
-	// Bounds the run, and must clear the SLOWEST host. Depth: docs/CI.md.
-=======
 	// Per BINARY, and it must clear the slowest host. Depth: docs/CI.md.
->>>>>>> cd46d50e101361781ee5dae52795628ddc354a66
 	testTimeout = 5 * time.Minute
 )
 

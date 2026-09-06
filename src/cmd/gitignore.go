@@ -8,12 +8,7 @@ import (
 	"strings"
 )
 
-<<<<<<< HEAD
-// ensureBuildDirInGitignore ignores the build output directory. Best-effort:
-// an error here never blocks the build.
-=======
 // ensureBuildDirInGitignore ignores the build output directory.
->>>>>>> cd46d50e101361781ee5dae52795628ddc354a66
 func ensureBuildDirInGitignore() {
 	ensureGitignored("/" + outputDir + "/")
 }
