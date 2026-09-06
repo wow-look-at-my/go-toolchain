@@ -190,11 +190,8 @@ func cosmoCacheKey(dlURL, branch string) string {
 	return "branch-" + sanitizeCacheKey(branch)
 }
 
-// probeCosmoVersion issues a redirect-stopping HEAD request against the dl
-// endpoint and extracts the release version from the Location's v query
-// parameter. Any failure returns "" (callers fall back to branch keying).
-// Used for every buildhost dl endpoint, not just gosmopolitan — the dats
-// bootstrap probes through it too (via cosmoCacheKey).
+// probeCosmoVersion answers the release a buildhost dl endpoint redirects to,
+// or "" for a caller that keys on the branch either way.
 func probeCosmoVersion(dlURL string) string {
 	v, _ := probeCosmoRelease(dlURL)
 	return v
