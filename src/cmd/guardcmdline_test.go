@@ -1,11 +1,26 @@
 package cmd
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// requireCmdlineReader skips a test on a host that cannot read a process's
+// command line. The classifier's fallback reads argv to separate a bare run
+// from a captured one; on a platform with no such read there is nothing to
+// assert. Windows is the no-op-classifier host (claudeguard_other.go).
+func requireCmdlineReader(t *testing.T) {
+	t.Helper()
+	switch runtime.GOOS {
+	case "linux", "cosmo", "darwin":
+		return
+	default:
+		t.Skip("no process-command-line read on this host")
+	}
+}
 
 // The reported bug: a bare `go-toolchain` aborted saying its output was
 // "piped into another command". Nothing in that command line is a pipe, and
@@ -74,6 +89,7 @@ func TestIsShellMatchesTheUsualSpellings(t *testing.T) {
 // readCmdline is the platform half. Whatever the host, this process's own
 // argv must come back, or the walk above has nothing to read.
 func TestReadCmdlineReadsThisProcess(t *testing.T) {
+	requireCmdlineReader(t)
 	argv, ok := readCmdline(selfPID())
 	require.True(t, ok, "the guard cannot classify anything without this")
 	require.NotEmpty(t, argv)
@@ -83,6 +99,7 @@ func TestReadCmdlineReadsThisProcess(t *testing.T) {
 // The walk must reach a real ancestor here, or spawningPipeline has nothing
 // to read and every classification falls back to the guess this replaced.
 func TestAncestorCmdlinesReachesRealProcesses(t *testing.T) {
+	requireCmdlineReader(t)
 	got := ancestorCmdlines()
 	require.NotEmpty(t, got, "no ancestor argv readable on this host")
 	for _, argv := range got {
@@ -106,6 +123,7 @@ func TestSpawningPipelineAnswersFromTheCommandLine(t *testing.T) {
 }
 
 func TestParentLookupsAgree(t *testing.T) {
+	requireCmdlineReader(t)
 	ppid := parentPID()
 	require.Positive(t, ppid)
 	again, ok := parentOf(selfPID())

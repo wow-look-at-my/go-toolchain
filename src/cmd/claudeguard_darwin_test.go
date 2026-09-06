@@ -40,14 +40,16 @@ func TestMain(m *testing.M) {
 // sink decisions, reached through fstat + F_GETPATH instead of /proc.
 func TestInspectFDClassificationDarwin(t *testing.T) {
 	t.Serial()
-	t.Run("pipe_is_blocked", func(t *testing.T) {
-		// Both ends belong to this process, which is not its own ancestor: fail closed.
+	t.Run("pipe_is_not_blocked_when_no_reader_is_named", func(t *testing.T) {
+		// Both ends belong to this process, so no ancestor is the reader.
+		// An unnameable reader is not evidence of a capture: the command
+		// line decides, and this test process has no capturing pipeline.
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		defer r.Close()
 		defer w.Close()
 		s := inspectFD(w.Fd())
-		assert.Equal(t, sinkPipe, s.kind)
+		assert.Equal(t, sinkVisible, s.kind)
 	})
 
 	t.Run("plain_file_is_blocked", func(t *testing.T) {
