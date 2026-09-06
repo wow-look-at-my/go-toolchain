@@ -125,16 +125,7 @@ modified, `git diff` normalized both sides and showed nothing, and
 repo-root `.gitattributes` pins the working tree to LF; every tracked text blob
 is already LF in the index, so nothing but a Windows checkout changes.
 
-**macOS is red on this repo's own test budget, not on anything cosmo.** The test
-phase runs `go test -timeout=30s` (`testTimeout`, src/test/test.go), which is a
-per-BINARY clock rather than a per-test one. On linux this repo already spends
-25-29s of it in `src/cmd` and 19-23s in `src/vet` — the two slowest packages by
-far. macOS is slower and crosses the line, and the panic then names whichever
-test happened to be running (`TestAssertNormAnalyzer (1s)`), which reads as a
-hung test and is not one. Confirming this took ruling out two other readings:
-the goroutine dump shows `Cmd.Wait` parked in `syscall.wait4`, so the child
-`go list` had not exited and both pipe copies were waiting correctly, and the
-last `go: downloading` line precedes the timeouts by minutes.
+**macOS is red on this repo's own test budget, not on anything cosmo.** The test phase runs `go test -timeout` at `testTimeout` (src/test/test.go), which is a per-BINARY clock rather than a per-test one. It must clear the slowest host. `src/cmd` spends most of it on process starts. The fork runs a `t.Chdir` or `t.Setenv` test in a child. Those children take the serial barrier in turn, because children racing the run's shared gocoverdir fail on windows. Windows charges the most per start. On linux this repo already spends 25-29s of it in `src/cmd` and 19-23s. Confirming this took ruling out two other readings: the goroutine dump shows `Cmd.Wait` parked in `syscall.wait4`. So the child `go list` had not exited and both pipe copies were waiting correctly, and the last `go: downloading` line precedes the timeouts by minutes.
 
 The 30s is deliberate and is not to be raised; the remedy is to make the two
 packages cheaper. What made `src/cmd` expensive was not the tests but the phase
@@ -511,6 +502,29 @@ file list `go list` reports, and that list is per-GOOS. Vet reads the cosmo
 variant while the tests read the host variant, so a file excluded from the one
 `go list` it runs does not bust the fingerprint. Picking a variant is not the
 fix — the fingerprint has to cover both.
+
+## The test-binary budget is spent on process starts
+
+`src/test/test.go` bounds every test binary at five minutes. The number is a
+property of one package. `src/cmd` holds around 300 tests that call `t.Chdir`
+or `t.Setenv`. Under the fork either call runs the rest of its test in a child
+process.
+
+Those children run one at a time, because each of those tests takes the serial
+barrier first. Two children racing the run's shared `GOCOVERDIR` break on
+windows. The child renames its counters onto the content-named `covmeta` file.
+NT answers `Access is denied` while another process holds it, and the child
+passes its test and then exits 2. So the binary pays around 300 serialized
+process starts, and windows charges the most for each one.
+
+At two minutes the windows leg died mid-suite. Four `TestRunDatsOnly*` tests
+were queued behind each other, and every other test in the package sat in
+`waitParallel`. Dropping the barrier is the not repair. That is what an earlier
+commit on this branch put back, after windows failed on the rename.
+
+The repair belongs to the fork. A forked child needs a coverage directory of
+its own, and then the children run beside each other and the barrier goes.
+Until that lands the clock has to fit the work.
 
 ## A native test binary asks the host for a directory the APE spells differently
 
