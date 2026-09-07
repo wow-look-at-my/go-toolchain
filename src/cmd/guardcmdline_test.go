@@ -168,6 +168,47 @@ func TestPSCmdlineReportsNothingWhenTheToolIsUnavailable(t *testing.T) {
 
 	_, ok := psCmdline(4242)
 	assert.False(t, ok)
+	assert.Contains(t, probeDetail(), "absent-ps",
+		"a missing ps must name itself: the banner otherwise reports only that no command line could be read, which sends the reader hunting a sandbox rule that does not exist")
+}
+
+// A refusal writes its reason on stderr, which is what separates a denied
+// probe from a missing tool.
+func TestPSCmdlineCarriesTheToolsOwnRefusal(t *testing.T) {
+	t.Serial()
+	if hostos.GOOS() == "windows" {
+		t.Skip("no shebang execution on this host")
+	}
+	fake := filepath.Join(t.TempDir(), "ps")
+	script := "#!/bin/sh\necho 'ps: Operation not permitted' >&2\nexit 1\n"
+	require.NoError(t, os.WriteFile(fake, []byte(script), 0o755))
+
+	old := psBin
+	psBin = fake
+	t.Cleanup(func() { psBin = old })
+
+	_, ok := psCmdline(4242)
+	assert.False(t, ok)
+	assert.Contains(t, probeDetail(), "Operation not permitted")
+}
+
+// A ps that exits clean for a pid it cannot describe never failed to exec,
+// so an exit-status message would name the wrong thing.
+func TestPSCmdlineSaysWhenThereWasNoOutput(t *testing.T) {
+	t.Serial()
+	if hostos.GOOS() == "windows" {
+		t.Skip("no shebang execution on this host")
+	}
+	fake := filepath.Join(t.TempDir(), "ps")
+	require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+
+	old := psBin
+	psBin = fake
+	t.Cleanup(func() { psBin = old })
+
+	_, ok := psCmdline(4242)
+	assert.False(t, ok)
+	assert.Contains(t, probeDetail(), "printed nothing")
 }
 
 // requireWalkableAncestry skips a host with no parent to walk to, where the
