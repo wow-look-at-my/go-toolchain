@@ -70,10 +70,11 @@ jobs:
 
       # A GitHub Actions artifact is banned org-wide, so the profile is published as a per-branch site instead.
       - name: Stage the build profile
+        # Staged outside the checkout: a directory in the tree makes the next build's dirty-tree gate fail.
         run: |
-          mkdir -p profile-site
-          cp build/profile.json profile-site/profile.json
-          if [ -f build/trace.json ]; then cp build/trace.json profile-site/trace.json; fi
+          mkdir -p "$RUNNER_TEMP/profile-site"
+          cp build/profile.json "$RUNNER_TEMP/profile-site/profile.json"
+          if [ -f build/trace.json ]; then cp build/trace.json "$RUNNER_TEMP/profile-site/trace.json"; fi
 
       - name: Publish the build profile
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@master
@@ -81,7 +82,7 @@ jobs:
           # A namespaced child of this repo's project. OIDC authorizes that name; a sibling name is a 404.
           project: go-toolchain/profile
           branch: ${{ github.ref_name }}
-          source_dir: profile-site
+          source_dir: ${{ runner.temp }}/profile-site
           comment: 'false'
 
       - name: Cache validation (second build)
