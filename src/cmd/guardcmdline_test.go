@@ -175,32 +175,35 @@ func TestPSCmdlineReportsNothingWhenTheToolIsUnavailable(t *testing.T) {
 // The walk ends before it starts when the parent lookup fails, and no ps ever
 // runs. Downstream that is identical to a host that refused every ps, so the
 // banner has to name this stage rather than leave both silent.
+// Both halves share one t.Serial(). A serial test stops every other test in
+// the package, so two of them cost two drains of the parallel pool for one
+// piece of package state.
 func TestAFailedParentLookupIsReported(t *testing.T) {
 	t.Serial()
 	old := commPPIDFunc
-	commPPIDFunc = func(int) (string, int, bool) { return "", 0, false }
 	t.Cleanup(func() { commPPIDFunc = old })
-	lastCmdlineProbeErr = ""
 
-	assert.Empty(t, ancestorCmdlines(), "a walk with no first pid reads nothing")
-	assert.Contains(t, probeDetail(), "refused the parent")
-}
+	t.Run("a refused lookup names the reader", func(t *testing.T) {
+		commPPIDFunc = func(int) (string, int, bool) { return "", 0, false }
+		lastCmdlineProbeErr = ""
 
-// A lookup that ANSWERED and named init is a different finding: there is
-// simply nothing above this process. Reporting it as a refused reader sends
-// the reader hunting a probe defect that is not there.
-func TestAParentOfInitIsNotAFailedLookup(t *testing.T) {
-	t.Serial()
-	old := commPPIDFunc
-	commPPIDFunc = func(int) (string, int, bool) { return "launchd", 1, true }
-	t.Cleanup(func() { commPPIDFunc = old })
-	lastCmdlineProbeErr = ""
+		assert.Empty(t, ancestorCmdlines(), "a walk with no first pid reads nothing")
+		assert.Contains(t, probeDetail(), "refused the parent")
+	})
 
-	assert.Empty(t, ancestorCmdlines(), "a parent of init leaves nothing to walk")
-	detail := probeDetail()
-	assert.Contains(t, detail, "no ancestor to probe")
-	assert.NotContains(t, detail, "refused",
-		"the lookup answered; calling that a refusal names the wrong repair")
+	// A lookup that ANSWERED and named init is a different finding: there is
+	// nothing above this process. Reporting it as a refused reader sends the
+	// reader hunting a probe defect that is not there.
+	t.Run("a parent of init is not a refusal", func(t *testing.T) {
+		commPPIDFunc = func(int) (string, int, bool) { return "launchd", 1, true }
+		lastCmdlineProbeErr = ""
+
+		assert.Empty(t, ancestorCmdlines(), "a parent of init leaves nothing to walk")
+		detail := probeDetail()
+		assert.Contains(t, detail, "no ancestor to probe")
+		assert.NotContains(t, detail, "refused",
+			"the lookup answered; calling that a refusal names the wrong repair")
+	})
 }
 
 // A refusal writes its reason on stderr, which is what separates a denied

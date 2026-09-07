@@ -13,7 +13,7 @@ require (
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/dats v0.0.0-20260906182217-61aad3d075f5 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907045857-1c6b476df14f // go-toolchain:auto-branch
+	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051628-0ff737c19def // go-toolchain:auto-branch
 	github.com/wow-look-at-my/slopfmt v0.0.0-20260906221556-2da857240d94 // go-toolchain:auto-branch
 	golang.org/x/mod v0.40.0
 	golang.org/x/sys v0.47.0

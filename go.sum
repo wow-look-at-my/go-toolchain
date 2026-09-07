@@ -92,8 +92,8 @@ github.com/wow-look-at-my/dats v0.0.0-20260906182217-61aad3d075f5 h1:a6I3AmKAtcY
 github.com/wow-look-at-my/dats v0.0.0-20260906182217-61aad3d075f5/go.mod h1:yx0UKP/ag42eLaQKhRw3AKBTrCliutyrMKkN+25yVWs=
 github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 h1:mi/frNfEWPA/O57Qxsxyz6QEmOlQM8I0loFcRrmU9do=
 github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41/go.mod h1:7j8wbDwrqh+uJnlENqD5iwsgYkF4y3kIgremn/ctvVE=
-github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907045857-1c6b476df14f h1:mfNV6jNAmRtZYG3mUdqBY4RDZISkqi76aEgdQB7c50M=
-github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907045857-1c6b476df14f/go.mod h1:43iJMeh6WeRn6eA3koj6Voqnjt0dcQDDjkVnrBnJpa4=
+github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051628-0ff737c19def h1:URsYpVld5C1hrTo1024R4wPCT/3cCfO8lKHes4poDWM=
+github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051628-0ff737c19def/go.mod h1:43iJMeh6WeRn6eA3koj6Voqnjt0dcQDDjkVnrBnJpa4=
 github.com/wow-look-at-my/slopfmt v0.0.0-20260906221556-2da857240d94 h1:UcUDFXoV0XMpe5GmhT6+CKF8JzWyXXeg3nkENhL54Jc=
 github.com/wow-look-at-my/slopfmt v0.0.0-20260906221556-2da857240d94/go.mod h1:EzFiVV44IhMaYaD9jtxeQWgFK/plxmEqiA4bAjfrxoQ=
 github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 h1:XQ7cCH5Ow4ZinZ20jBJCXvp91C9H6G74oeDFd9BBrnc=
