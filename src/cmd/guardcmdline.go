@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strconv"
 	"strings"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
@@ -141,10 +142,14 @@ func capturesStdout(script string) bool {
 	return false
 }
 
-// parentPID is agent's view of our own parent, so the walk starts from the
-// same ancestry the agent roster uses.
+// parentPID is agent's view of our own parent. A failure ends the walk before
+// it starts, which downstream cannot tell from a host that refused every ps.
 func parentPID() int {
-	_, ppid, _ := agent.CommPPID(selfPID())
+	_, ppid, ok := agent.CommPPID(selfPID())
+	if !ok || ppid <= 1 {
+		lastCmdlineProbeErr = "the parent of pid " + strconv.Itoa(selfPID()) + " could not be resolved, so no ancestor was probed"
+		return 0
+	}
 	return ppid
 }
 
