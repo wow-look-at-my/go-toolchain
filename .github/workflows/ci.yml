@@ -74,7 +74,9 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/profile-site"
           cp build/profile.json "$RUNNER_TEMP/profile-site/profile.json"
-          if [ -f build/trace.json ]; then cp build/trace.json "$RUNNER_TEMP/profile-site/trace.json"; fi
+          # The Chrome trace a profiler opens. It lands beside the actiongraph dumps, never in build/.
+          trace="${TMPDIR:-/tmp}/go-toolchain-profile/trace.json"
+          if [ -f "$trace" ]; then cp "$trace" "$RUNNER_TEMP/profile-site/trace.json"; fi
 
       - name: Publish the build profile
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@master
