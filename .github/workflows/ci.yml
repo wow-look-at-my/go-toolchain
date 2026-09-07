@@ -78,7 +78,8 @@ jobs:
       - name: Publish the build profile
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@master
         with:
-          project: go-toolchain-profile
+          # A namespaced child of this repo's project. OIDC authorizes that name; a sibling name is a 404.
+          project: go-toolchain/profile
           branch: ${{ github.ref_name }}
           source_dir: profile-site
           comment: 'false'
