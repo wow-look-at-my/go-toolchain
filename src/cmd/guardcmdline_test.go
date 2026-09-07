@@ -172,6 +172,20 @@ func TestPSCmdlineReportsNothingWhenTheToolIsUnavailable(t *testing.T) {
 		"a missing ps must name itself: the banner otherwise reports only that no command line could be read, which sends the reader hunting a sandbox rule that does not exist")
 }
 
+// The walk ends before it starts when the parent lookup fails, and no ps ever
+// runs. Downstream that is identical to a host that refused every ps, so the
+// banner has to name this stage rather than leave both silent.
+func TestAFailedParentLookupIsReported(t *testing.T) {
+	t.Serial()
+	old := commPPIDFunc
+	commPPIDFunc = func(int) (string, int, bool) { return "", 0, false }
+	t.Cleanup(func() { commPPIDFunc = old })
+	lastCmdlineProbeErr = ""
+
+	assert.Empty(t, ancestorCmdlines(), "a walk with no first pid reads nothing")
+	assert.Contains(t, probeDetail(), "could not be resolved")
+}
+
 // A refusal writes its reason on stderr, which is what separates a denied
 // probe from a missing tool.
 func TestPSCmdlineCarriesTheToolsOwnRefusal(t *testing.T) {
