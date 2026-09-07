@@ -176,7 +176,7 @@ func TestPSCmdlineReportsNothingWhenTheToolIsUnavailable(t *testing.T) {
 // runs. Downstream that is identical to a host that refused every ps, so the
 // banner has to name this stage rather than leave both silent.
 // Both halves share one t.Serial(). A serial test stops every other test in
-// the package, so two of them cost two drains of the parallel pool for one
+// the package, so a second one drains the parallel pool again for the same
 // piece of package state.
 func TestAFailedParentLookupIsReported(t *testing.T) {
 	t.Serial()
