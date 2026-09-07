@@ -11,6 +11,9 @@ permissions:
   security-events: write
   actions: read
   checks: read
+  # A buildhost publish registers a GitHub Deployment and records what it stored. Both are part of publishing and fail the job.
+  deployments: write
+  artifact-metadata: write
 
 jobs:
   host-build:
@@ -64,6 +67,21 @@ jobs:
         uses: wow-look-at-my/dats@master
         with:
           tests: .github/dats-fixtures/cache-profile.dats
+
+      # A GitHub Actions artifact is banned org-wide, so the profile is published as a per-branch site instead.
+      - name: Stage the build profile
+        run: |
+          mkdir -p profile-site
+          cp build/profile.json profile-site/profile.json
+          if [ -f build/trace.json ]; then cp build/trace.json profile-site/trace.json; fi
+
+      - name: Publish the build profile
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@master
+        with:
+          project: go-toolchain-profile
+          branch: ${{ github.ref_name }}
+          source_dir: profile-site
+          comment: 'false'
 
       - name: Cache validation (second build)
         # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
