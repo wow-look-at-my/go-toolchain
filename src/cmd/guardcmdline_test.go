@@ -183,7 +183,24 @@ func TestAFailedParentLookupIsReported(t *testing.T) {
 	lastCmdlineProbeErr = ""
 
 	assert.Empty(t, ancestorCmdlines(), "a walk with no first pid reads nothing")
-	assert.Contains(t, probeDetail(), "could not be resolved")
+	assert.Contains(t, probeDetail(), "refused the parent")
+}
+
+// A lookup that ANSWERED and named init is a different finding: there is
+// simply nothing above this process. Reporting it as a refused reader sends
+// the reader hunting a probe defect that is not there.
+func TestAParentOfInitIsNotAFailedLookup(t *testing.T) {
+	t.Serial()
+	old := commPPIDFunc
+	commPPIDFunc = func(int) (string, int, bool) { return "launchd", 1, true }
+	t.Cleanup(func() { commPPIDFunc = old })
+	lastCmdlineProbeErr = ""
+
+	assert.Empty(t, ancestorCmdlines(), "a parent of init leaves nothing to walk")
+	detail := probeDetail()
+	assert.Contains(t, detail, "no ancestor to probe")
+	assert.NotContains(t, detail, "refused",
+		"the lookup answered; calling that a refusal names the wrong repair")
 }
 
 // A refusal writes its reason on stderr, which is what separates a denied

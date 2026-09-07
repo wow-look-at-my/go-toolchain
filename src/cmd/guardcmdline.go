@@ -145,12 +145,23 @@ func capturesStdout(script string) bool {
 	return false
 }
 
-// parentPID is agent's view of our own parent. A failure ends the walk before
-// it starts, which downstream cannot tell from a host that refused every ps.
+// parentPID is agent's view of our own parent. Either outcome ends the walk
+// before it starts, and they want different repairs: a refused lookup is a
+// defect in the host's process reader, and a parent of init is a process with
+// nothing above it to read.
 func parentPID() int {
+	self := strconv.Itoa(selfPID())
 	_, ppid, ok := commPPIDFunc(selfPID())
-	if !ok || ppid <= 1 {
-		lastCmdlineProbeErr = "the parent of pid " + strconv.Itoa(selfPID()) + " could not be resolved, so no ancestor was probed"
+	if !ok {
+		lastCmdlineProbeErr = "the process lookup refused the parent of pid " + self + ", so no ancestor was probed"
+		// agent knows WHY its reader answered nothing.
+		if why := agent.LookupError(); why != "" {
+			lastCmdlineProbeErr += ": " + why
+		}
+		return 0
+	}
+	if ppid <= 1 {
+		lastCmdlineProbeErr = "pid " + self + " reports parent " + strconv.Itoa(ppid) + ", so there is no ancestor to probe"
 		return 0
 	}
 	return ppid
