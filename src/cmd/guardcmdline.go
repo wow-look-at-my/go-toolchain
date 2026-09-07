@@ -15,6 +15,9 @@ const ancestryLimit = 8
 // A seam, so a test can drive the refused read that switched the guard off.
 var readCmdlineFunc = readCmdline
 
+// The ancestry lookup, as a seam. A test cannot arrange a real failure.
+var commPPIDFunc = agent.CommPPID
+
 // unidentifiedPeerSink answers a pipe with an unnameable reader. Only a READ
 // command line showing a capture convicts: else every bare run aborts.
 func unidentifiedPeerSink(kind sinkKind) outputSink {
@@ -145,7 +148,7 @@ func capturesStdout(script string) bool {
 // parentPID is agent's view of our own parent. A failure ends the walk before
 // it starts, which downstream cannot tell from a host that refused every ps.
 func parentPID() int {
-	_, ppid, ok := agent.CommPPID(selfPID())
+	_, ppid, ok := commPPIDFunc(selfPID())
 	if !ok || ppid <= 1 {
 		lastCmdlineProbeErr = "the parent of pid " + strconv.Itoa(selfPID()) + " could not be resolved, so no ancestor was probed"
 		return 0
@@ -155,6 +158,6 @@ func parentPID() int {
 
 // parentOf is the same lookup for an arbitrary pid.
 func parentOf(pid int) (int, bool) {
-	_, ppid, ok := agent.CommPPID(pid)
+	_, ppid, ok := commPPIDFunc(pid)
 	return ppid, ok
 }
