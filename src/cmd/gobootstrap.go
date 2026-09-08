@@ -118,13 +118,11 @@ func goVersionCore(v string) string {
 }
 
 // verifyGoToolchain loads the "runtime" package via goPath to catch a half-extracted GOROOT that
-// runs and reports a version but cannot compile. It sets GOTOOLCHAIN=local in a directory with no
-// go.mod, so neither an auto-downloaded toolchain nor a module directive can skew the result.
+// runs and reports a version but cannot compile. GOTOOLCHAIN=local and an emptied GOFLAGS, in a
+// directory with no go.mod, keep a downloaded toolchain, a module directive and the caller's own
+// build flags out of the answer. GOFLAGS=-race is what made that matter: cosmo refuses it.
 func verifyGoToolchain(goPath string) error {
 	cmd := exec.Command(goPath, "list", "runtime")
-	// GOFLAGS is emptied, not inherited: the caller's build flags are for the
-	// target the phases select, and this probe runs at the fork's own default.
-	// GOFLAGS=-race is the case that bit, since cosmo refuses the detector.
 	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOFLAGS=")
 	cmd.Dir = os.TempDir()
 	if out, err := cmd.CombinedOutput(); err != nil {
