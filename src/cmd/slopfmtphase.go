@@ -9,7 +9,7 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/slopfmt/gocomments"
+	gocomments "github.com/wow-look-at-my/slopfix/commentnumbers"
 )
 
 // slopfmtSkipDirs hold text nobody here authored.
