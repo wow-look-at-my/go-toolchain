@@ -108,16 +108,16 @@ func streamBenchResult(line []byte, w io.Writer, once *sync.Once, onFirst func()
 	}
 }
 
-// HasBenchmarks scans _test.go files under the current directory for
-// func Benchmark signatures. Returns true if any are found.
-func HasBenchmarks() bool {
+// HasBenchmarks scans _test.go files under root for func Benchmark
+// signatures. Returns true if any are found.
+func HasBenchmarks(root string) bool {
 	found := false
-	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if name := d.Name(); name == "vendor" || name == "testdata" || (name != "." && strings.HasPrefix(name, ".")) {
+			if name := d.Name(); name == "vendor" || name == "testdata" || (path != root && strings.HasPrefix(name, ".")) {
 				return filepath.SkipDir
 			}
 			return nil

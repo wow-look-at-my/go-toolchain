@@ -97,6 +97,13 @@ tests:
 	# there, says so once, and allows -- so the answer is paired with `uname -s`
 	# rather than split into a second copy of this file. Losing the refusal
 	# where a classifier exists, or gaining the banner there, fails.
+	#
+	# A darwin host answers one of two ways, and BOTH are the guard working.
+	# Naming a pipe's reader there costs an lsof and a ps on other pids, which
+	# seatbelt denies. The guard is then blind, and the design allows the run
+	# rather than break every legitimate agent run on a Mac. What it must never
+	# do is go quiet about it, so the BLIND banner is the answer that stands in
+	# for the refusal. Losing both, on any host with a classifier, fails.
 	- desc: the agent output guard answers a captured pipeline run
 	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; out=$({shared.gt.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 60s
@@ -106,7 +113,7 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|.*refused to run|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
+			0: "^((Linux|Darwin)\\|.*(refused to run|guard is BLIND)|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
 		"!stdout":
 			- "Build successful"
 
@@ -116,10 +123,20 @@ tests:
 	# that never happened. The abort must delete it (src/cmd/staleoutputs.go)
 	# and say so, while leaving non-binary outputs alone. A throwaway module
 	# with a planted binary: the guard aborts long before anything is compiled.
-	# Deleting is what a REFUSAL does, so it is asserted where a refusal happens
-	# and paired with uname like the test above.
+	# Deleting is what a REFUSAL does, so the module is planted only where a
+	# refusal happens. A windows host has no classifier and allows, so there the
+	# same module would put a whole pipeline -- tidy, vet, test, build -- inside
+	# this budget, and its outcome, not the guard, would decide whether the
+	# planted binary survives. So that host reports the banner from an empty
+	# directory, the way the test above does, and records no verdict.
+	# A host where the guard does not refuse takes the same no-verdict path,
+	# whatever made it not refuse. Planting a binary and letting the run
+	# proceed would put a whole pipeline inside this budget, and its outcome
+	# would decide the binary's fate instead of the guard. So the verdict is
+	# probed from an EMPTY directory first, and only a refusal earns the
+	# planted-binary arm.
 	- desc: the agent output guard deletes the module's build outputs where it refuses
-	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({shared.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; printf "%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$(printf "%s" "$out" | tr "\n" " ")"'
+	  cmd: 'mkdir -p {outputs.mod} {outputs.probe}; cd {outputs.probe}; probe=$({shared.gt.exe} 2>&1); cd {outputs.mod}; if printf "%s" "$probe" | grep -q "refused to run"; then printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({shared.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; printf "%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$(printf "%s" "$out" | tr "\n" " ")"; else printf "%s|no-refusal|no-refusal|%s\n" "$(uname -s)" "$(printf "%s" "$probe" | tr "\n" " ")"; fi'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -127,7 +144,7 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|deleted\\|kept\\|.*refused to run.*have been DELETED|(MINGW|MSYS|CYGWIN).*\\|kept\\|kept\\|.*INOPERATIVE on this windows host)"
+			0: "^(.*\\|deleted\\|kept\\|.*refused to run.*have been DELETED|.*\\|no-refusal\\|no-refusal\\|.*(INOPERATIVE on this windows host|guard is BLIND))"
 
 	- desc: root help prints usage
 	  cmd: '{shared.gt.exe} --help'
@@ -268,7 +285,7 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|.*refused to run|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
+			0: "^((Linux|Darwin)\\|.*(refused to run|guard is BLIND)|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
 		"!stdout":
 			- "Build successful"
 

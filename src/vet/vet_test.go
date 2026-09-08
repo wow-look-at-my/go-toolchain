@@ -18,7 +18,7 @@ import (
 )
 
 func TestRedundantCastAnalyzer(t *testing.T) {
-	t.Serial()
+	t.Serial() // See TestBannedOutputAnalyzer.
 	testdata, err := filepath.Abs("testdata")
 	require.Nil(t, err)
 	analysistest.Run(t, testdata, RedundantCastAnalyzer, "redundantcast")

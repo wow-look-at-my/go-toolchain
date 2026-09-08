@@ -23,6 +23,10 @@ func okProbes(mode uint32) darwinFDProbes {
 
 func TestClassifyDarwinFD(t *testing.T) {
 	t.Serial()
+	// Pin the ancestry an unnameable peer reads, or the harness decides.
+	oldCmdline := readCmdlineFunc
+	readCmdlineFunc = func(int) ([]string, bool) { return []string{"/usr/bin/harness"}, true }
+	t.Cleanup(func() { readCmdlineFunc = oldCmdline })
 	// The behavior the whole design turns on: a probe this build cannot
 	// make is NOT a negative answer. Answering "hidden" would refuse every
 	// legitimate agent run on a Mac; answering "visible" would leave the guard
@@ -52,12 +56,12 @@ func TestClassifyDarwinFD(t *testing.T) {
 		}
 	})
 
-	// An unidentified FIFO still fails CLOSED -- `| cat` is indistinguishable
-	// from grok-build's capture until the reader is named.
-	t.Run("fifo fails closed", func(t *testing.T) {
+	// An unnameable FIFO reader leaves the command line as the only evidence,
+	// and this process was handed no shell. Nothing shows a capture.
+	t.Run("fifo with an unnameable reader and no shell still runs", func(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(sIFIFO))
 		assert.True(t, ok)
-		assert.Equal(t, sinkPipe, sink.kind)
+		assert.Equal(t, sinkVisible, sink.kind)
 	})
 
 	t.Run("fifo", func(t *testing.T) {
@@ -153,10 +157,10 @@ func TestClassifyDarwinFD(t *testing.T) {
 			assert.Equal(t, "tee", sink.detail)
 		})
 
-		t.Run("no peer at all is hidden", func(t *testing.T) {
+		t.Run("no peer at all and no shell still runs", func(t *testing.T) {
 			sink, ok := classifyDarwinFD(okProbes(sIFSOCK))
 			assert.True(t, ok)
-			assert.Equal(t, sinkHidden, sink.kind)
+			assert.Equal(t, sinkVisible, sink.kind)
 		})
 	})
 
@@ -264,6 +268,7 @@ func TestClassifyDarwinFD(t *testing.T) {
 	t.Run("permission bits are masked off", func(t *testing.T) {
 		sink, ok := classifyDarwinFD(okProbes(sIFIFO | 0o644))
 		assert.True(t, ok)
-		assert.Equal(t, sinkPipe, sink.kind)
+		// Same answer as the bare sIFIFO case above, which is the point.
+		assert.Equal(t, sinkVisible, sink.kind)
 	})
 }

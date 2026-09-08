@@ -133,10 +133,20 @@ func init() {
 // numbered release -- CI's guarantee that every host resolves the same
 // compiler (docs/CI.md).
 func runVersionCosmo(requireRelease bool) error {
-	v := ResolveCosmoVersion()
-	logger.Output("%s", v)
-	if requireRelease && !cosmoReleasePattern.MatchString(v) {
+	if !requireRelease {
+		logger.Output("%s", ResolveCosmoVersion())
+		return nil
+	}
+
+	// Strict: an unreachable buildhost is not a missing release.
+	v, err := resolveCosmoReleaseStrict()
+	if err != nil {
 		// rawStderr, not logger.Error: the caller captures stdout as the version value.
+		fmt.Fprintf(rawStderr, "::error::could not reach buildhost to resolve the gosmopolitan release: %v\n", err)
+		return fmt.Errorf("resolving the gosmopolitan release: %w", err)
+	}
+	logger.Output("%s", v)
+	if !cosmoReleasePattern.MatchString(v) {
 		fmt.Fprintf(rawStderr, "::error::buildhost did not name a gosmopolitan release (got %q), so each host would resolve its own\n", v)
 		return fmt.Errorf("resolved version %q is not a real gosmopolitan release", v)
 	}

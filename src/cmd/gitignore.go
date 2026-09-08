@@ -6,51 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/wow-look-at-my/go-toolchain/src/memlimit"
 )
 
-// ensureBuildDirInGitignore adds the build output directory to .gitignore
-// when inside a git repo and not already ignored. Best-effort: errors are
-// silently ignored so they never block the build.
+// ensureBuildDirInGitignore ignores the build output directory.
 func ensureBuildDirInGitignore() {
 	ensureGitignored("/" + outputDir + "/")
-	// Strip a stale GOMEMLIMIT guard entry an older version left behind (now excluded via checkDirtyInCI instead).
-	removeFromGitignore(memlimit.GuardFileName)
-}
-
-// removeFromGitignore deletes every line of the repository's .gitignore that
-// exactly equals entry (ignoring surrounding whitespace), rewriting the file
-// only when something was actually removed. It is the inverse of
-// ensureGitignored and exists to undo an entry an older go-toolchain wrote that
-// the current release must not keep — namely the transient GOMEMLIMIT guard
-// filename. Best-effort: any error is silently ignored so it never blocks the
-// build.
-func removeFromGitignore(entry string) {
-	gitRoot := findGitRoot()
-	if gitRoot == "" {
-		return
-	}
-	gitignorePath := filepath.Join(gitRoot, ".gitignore")
-	data, err := os.ReadFile(gitignorePath)
-	if err != nil {
-		return
-	}
-	lines := strings.Split(string(data), "\n")
-	kept := make([]string, 0, len(lines))
-	removed := false
-	for _, line := range lines {
-		if strings.TrimSpace(line) == entry {
-			removed = true
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if !removed {
-		return
-	}
-	// Split/Join round-trips a trailing newline as a final "" element, so it's preserved with no special handling.
-	_ = os.WriteFile(gitignorePath, []byte(strings.Join(kept, "\n")), 0644)
 }
 
 // ensureGitignored appends entry to the repository's .gitignore when the
