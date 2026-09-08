@@ -14,7 +14,7 @@ require (
 	github.com/wow-look-at-my/dats v0.0.0-20260906182217-61aad3d075f5 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-containers v0.0.0-20260908164146-f519b55aab33 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/slopfix v0.0.0-20260908215432-42feca60f9b4 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/slopfix v0.0.0-20260908224948-2976b026a88a // go-toolchain:auto-branch
 	golang.org/x/mod v0.40.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/tools v0.49.0
