@@ -336,12 +336,8 @@ func TestVerifyGoToolchainHealthy(t *testing.T) {
 	assert.NoError(t, verifyGoToolchain(goPath))
 }
 
-// The caller's build flags stay out of the probe.
-//
-// GOFLAGS=-race is the documented way to ask this pipeline for a race-checked
-// run. The test phase targets the host, where the detector works, but the probe
-// runs at the fork's own default. It refuses the flag there, and the pipeline
-// died before a test ran.
+// The caller's build flags stay out of the probe. GOFLAGS=-race asks this
+// pipeline for a race-checked run, and cosmo refuses the detector.
 func TestVerifyGoToolchainIgnoresTheCallersGOFLAGS(t *testing.T) {
 	t.Serial()
 	goPath, err := exec.LookPath("go")

@@ -122,11 +122,9 @@ func goVersionCore(v string) string {
 // go.mod, so neither an auto-downloaded toolchain nor a module directive can skew the result.
 func verifyGoToolchain(goPath string) error {
 	cmd := exec.Command(goPath, "list", "runtime")
-	// GOFLAGS is emptied, not inherited. The probe compiles nothing, and the
-	// caller's build flags are for the target the phases select rather than for
-	// the fork's own default. GOFLAGS=-race is the case that bit: the test run
-	// targets the host, where the race detector works, while the probe stayed on
-	// cosmo, which refuses it and failed the whole pipeline before a test ran.
+	// GOFLAGS is emptied, not inherited: the caller's build flags are for the
+	// target the phases select, and this probe runs at the fork's own default.
+	// GOFLAGS=-race is the case that bit, since cosmo refuses the detector.
 	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOFLAGS=")
 	cmd.Dir = os.TempDir()
 	if out, err := cmd.CombinedOutput(); err != nil {

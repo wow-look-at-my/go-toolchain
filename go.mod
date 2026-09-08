@@ -12,9 +12,9 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/dats v0.0.0-20260906182217-61aad3d075f5 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-containers v0.0.0-20260908152613-d11f80f31082 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-containers v0.0.0-20260908164146-f519b55aab33 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/slopfix v0.0.0-20260908160732-e17a817a560c // go-toolchain:auto-branch
+	github.com/wow-look-at-my/slopfix v0.0.0-20260908211619-04cb063eb42e // go-toolchain:auto-branch
 	golang.org/x/mod v0.40.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/tools v0.49.0
@@ -43,7 +43,7 @@ require (
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
-	github.com/wow-look-at-my/go-tree-sitter v0.0.0-20260908150808-16329b2b2da0 // indirect; go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-tree-sitter v0.0.0-20260908210855-2c4a6c8653bf // indirect; go-toolchain:auto-branch
 	github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 // indirect; go-toolchain:auto-branch
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
