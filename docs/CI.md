@@ -240,9 +240,13 @@ build/ in THIS job is the fat APE, because the fork is the only compiler and eve
 
 The second build re-invokes go-toolchain, which also submits the dependency snapshot. Give it the same token so it succeeds rather than warning. Same job + correlator as the first submission, so it replaces it (idempotent) rather than duplicating.
 
-### if [ "$elapsed" -gt 90 ]. Then
+### if [ "$elapsed" -gt 60 ]. Then
 
-Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. On the current build graph (~3300 actions -- roughly double the 1629 this budget was first derived against) an UNCHANGED second build measures 60-70s depending on the runner. 90s keeps real headroom over that without giving up on catching a genuinely broken cache. A cold first build in this same job is ~190-200s, so 90s still fails one by more than 2x. Before raising it again, confirm the second build is actually doing nothing new (no source changed between the two builds in this job) and re-measure a few runs.
+Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. The budget is a wall-clock stand-in for that.
+
+The number was 90s, against an assumption that an unchanged second build measures 60-70s. It did not. The step deletes `build/`, which made `isUpToDate` answer no, and the pipeline then re-ran vet and the whole test suite. Those tests are the step's own timing floor. The build cache cannot touch them, because a `-coverprofile` run carries `-count=1` to keep golang/go#74873 from serving a stale coverage fragment. So the measurement was 117-127s of mostly test execution, and it failed on master as readily as on a branch.
+
+`inputsUnchanged` and `outputsPresent` are separate questions now. Losing the outputs means build again. It does not mean ask vet and the tests again. Those answer about the INPUTS. The fingerprint says the inputs are the ones that already went green. So this step measures the build path, which is what it exists to measure, and 60s is a budget it meets with room. A cold first build in this same job is ~190-200s, so 60s still fails one by more than 3x. Before raising it, confirm the second build is doing nothing new (no source changed between the two builds in this job) and re-measure a few runs.
 
 The tripwires themselves are asserted by `.github/dats-fixtures/cache-profile.dats`, run by the dats action in `host-build` the same way `identical.dats` and `smoke.dats` are run by their jobs. They were a workflow step once, which meant a push was the only way to reproduce a red. The fixture runs against any local `build/profile.json`. The second-build time limit above is still a workflow step, because asserting it means driving `go-toolchain` twice and timing.
 
