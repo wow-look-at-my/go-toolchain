@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -180,7 +182,8 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		testStep = logStep("Running tests with coverage")
 	}
 
-	// A process-unique path avoids collisions with mock-runner tests that write and delete this file.
+	// Per-module, never per-process: `-coverprofile` is part of the cache key
+	// `go test` builds, so a PID in it missed on every package of every run.
 	coverDir := filepath.Join(argListTempDir(hostos.GOOS()), "go-toolchain-cov")
 	// Report the mkdir. Dropping it made the test phase fail later on the
 	// coverage file instead, which names a missing path and not the reason
@@ -191,7 +194,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		}
 		return false, nil, fmt.Errorf("coverage directory %s: %w", coverDir, err)
 	}
-	coverFile := filepath.Join(coverDir, fmt.Sprintf("coverage-%d.out", os.Getpid()))
+	coverFile := filepath.Join(coverDir, coverFileName())
 	defer os.Remove(coverFile)
 
 	var onTestOutput func()
@@ -308,6 +311,15 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 var errFound = fmt.Errorf("found")
 
 // needsGenerate returns true if any .go file contains a //go:generate directive.
+// coverFileName names the coverage profile after the module's own directory:
+// stable across runs, so a cached test result is reusable, and distinct per
+// directory, so the mock-runner tests keep their own.
+func coverFileName() string {
+	wd, _ := os.Getwd()
+	h := sha256.Sum256([]byte(wd))
+	return "coverage-" + hex.EncodeToString(h[:8]) + ".out"
+}
+
 func needsGenerate() bool {
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
