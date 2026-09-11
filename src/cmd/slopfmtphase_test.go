@@ -96,3 +96,17 @@ func TestAFileTooLargeToBeProseIsSkipped(t *testing.T) {
 
 	assert.Empty(t, slopfmtFiles(dir))
 }
+
+// A digit run against a letter is a name, and COMMENT-SCAN.md says so: sha256,
+// amd64 and p95 stay. The hardware words a driver or an analyzer is written in
+// take the same shape, and a stale dependency reported every one of them.
+func TestADigitAgainstALetterIsANameAndStays(t *testing.T) {
+	src := "// chapter-12 tables, 64-bit ops, a 32-bit multiply and amd64\npackage p\n"
+	assert.Empty(t, commentNumberFindings("p.go", src))
+}
+
+// The exemption is narrow. A digit standing alone is still a count.
+func TestADigitStandingAloneIsStillACount(t *testing.T) {
+	src := "// The tables run to 12 sections.\npackage p\n"
+	assert.NotEmpty(t, commentNumberFindings("p.go", src))
+}
