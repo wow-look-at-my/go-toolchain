@@ -100,8 +100,8 @@ github.com/wow-look-at-my/go-tree-sitter v0.0.0-20260910102112-5898d7d8e102 h1:H
 github.com/wow-look-at-my/go-tree-sitter v0.0.0-20260910102112-5898d7d8e102/go.mod h1:33euocPHXB9a9kIe3OJ5ZtT+Fe7MoRG1/sstBA8gukI=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6 h1:EjSZgmRayw51VECZZ6ySRTnHG5WUYWETKBIKEbyBUHo=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6/go.mod h1:43iJMeh6WeRn6eA3koj6Voqnjt0dcQDDjkVnrBnJpa4=
-github.com/wow-look-at-my/slopfix v0.0.0-20260911233240-f3391d01b959 h1:ozej99DO+oSIhrr5U89Jkh1z588dS8ffeuz+vGMmiMw=
-github.com/wow-look-at-my/slopfix v0.0.0-20260911233240-f3391d01b959/go.mod h1:aafizmudpg/hhwq3Bo+QP4I9OC13HZBUDx3ADPIaPFw=
+github.com/wow-look-at-my/slopfix v0.0.0-20260911233704-f993ae0ab386 h1:A8JhDySvFr/6YXymowZk+1buBAeLz7r77gnavws2lJc=
+github.com/wow-look-at-my/slopfix v0.0.0-20260911233704-f993ae0ab386/go.mod h1:aafizmudpg/hhwq3Bo+QP4I9OC13HZBUDx3ADPIaPFw=
 github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 h1:XQ7cCH5Ow4ZinZ20jBJCXvp91C9H6G74oeDFd9BBrnc=
 github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1/go.mod h1:2bR7Z7TOq+iM32ZCpIgJcoJ0iqZQcEAu/h0nzPBh7mk=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
