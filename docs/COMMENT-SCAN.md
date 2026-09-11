@@ -17,11 +17,11 @@ A number in a comment is a count of what exists on the day it was written. The e
 
 The rule was a vet analyzer, `src/vet/commentnumbers.go`. An analyzer runs on `*ast.File` values. `go/packages` produces those only after it resolves every import, reads every dependency's export data and type-checks the module. That is minutes of work before the first comment is read. None of it answers the question. A comment is bytes.
 
-The rule now lives in [`slopfmt/gocomments`](https://github.com/wow-look-at-my/slopfmt/tree/master/gocomments) and runs as the first phase of the pipeline, ahead of the dependency check, `go mod tidy` and vet. Two things follow.
+The rule now lives in [`slopfix/commentnumbers`](https://github.com/wow-look-at-my/slopfix/tree/master/commentnumbers) and runs as the first phase of the pipeline, ahead of the dependency check, `go mod tidy` and vet. Two things follow.
 
 It answers on a tree that does not build. A missing import, an unresolvable module, a syntax error in another package: none of them stop the report, because nothing here parses the language.
 
-It answers for every language. `gocomments` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
+It answers for every language. `commentnumbers` reads a comment by its delimiters rather than by a grammar. So a shell script, a workflow, a Dockerfile, a Rust file and a TypeScript file are all scanned. The analyzer only ever saw Go, and the stale prose in a `run:` script was never anybody's finding.
 
 ## What is scanned
 
@@ -29,7 +29,9 @@ The walk starts at the repository root, not at a module. It skips a hidden direc
 
 It skips a nested module too, whose text belongs to that module. The exception is a root that is not itself a module: skipping there scans nothing, because the repository's modules all sit below the root.
 
-A file whose extension `gocomments` has no comment syntax for is skipped rather than guessed at. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
+It skips a git submodule on the same ground. This one carries no exception. A submodule's working tree is another repository's checkout. That repository writes the prose and takes the fix. Nothing here can repair a finding inside it. Git marks such a tree by writing `.git` as a FILE. The file holds a gitdir pointer, where an ordinary checkout keeps a directory. The skip reads that marker rather than a name. The nested-module predicate cannot stand in for it, because that one reads `go.mod`. A submodule of C, C++ or Rust carries none. A vendored driver or compiler tree is also where the findings run away with the whole warnings budget.
+
+A file whose extension `commentnumbers` has no comment syntax for is skipped rather than guessed at. A wrong guess reports a string literal as prose, and a rule nobody trusts is a rule nobody keeps.
 
 ## What counts as a number
 

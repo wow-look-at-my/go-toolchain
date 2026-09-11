@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	runtimetrace "runtime/trace"
 	"sort"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
+	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
 
@@ -207,6 +209,12 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	return finishSemantic(pattern, ed, progress, filesChanged, diagnostics)
 }
 
+// hostTargetEnv targets this machine, as src/test does: the fork's
+// GOOS=cosmo default has no cgo. Depth: docs/VET.md
+func hostTargetEnv() []string {
+	return append(os.Environ(), "GOOS="+hostos.GOOS(), "GOARCH="+runtime.GOARCH)
+}
+
 // vetOneConfig loads and analyzes the module under a single build-tag
 // configuration, appending diagnostics and recording every file it actually
 // parsed into analyzedFiles (module-relative, slash separated) so Verify can
@@ -220,6 +228,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	cfg := &packages.Config{
 		Mode:  loadMode(),
 		Tests: true,
+		Env:   hostTargetEnv(),
 	}
 	if arg := tagCfg.Arg(); arg != "" {
 		cfg.BuildFlags = []string{"-tags", arg}

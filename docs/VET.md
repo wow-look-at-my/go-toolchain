@@ -13,6 +13,8 @@ Extracted verbatim from CLAUDE.md (1.85x over its 40,000-character budget).
 
 `packages.Config.Tests` then loads each package up to four ways. Plain, the same code recompiled with its internal `_test.go` files, the external `_test` package, and the generated test main. The plain variant holds none of the test files, so **`deadcode` is answered by the richest variant of each package path** (`richestVariants`, `src/vet/loadvariants.go`). Reading the plain one instead made every unexported helper that only a test calls a violation, and reported a genuinely dead one once per variant.
 
+The loader is given this machine's own target (`hostTargetEnv`, `src/vet/vet.go`), the target `src/test` builds under and for the same reason. The fork defaults to `GOOS=cosmo`, and cosmopolitan has no cgo. So a file importing `"C"` drops out of its package under that default. Every symbol the file declares then reads as `undefined` at each use, in packages nobody touched. That looks exactly like the export-data cascade `exportdataretry.go` cures, and no retry helps: the file was never in the build. A repo whose cgo package holds its whole public surface cannot be vetted at all. The `--cgo` flag does not fix this. It only extends `PKG_CONFIG_PATH`. It never sets `CGO_ENABLED`. On a native target with a C compiler present, cgo is on by default, which is what the host target restores.
+
 `ParseFile` runs on one goroutine per file, so the record of what was parsed is behind a mutex (`parseRecorder`). Unlocked, a module this size died with `fatal error: concurrent map writes`, and the output watchdog's pipes swallowed the trace — CI saw a bare `exit status 2` with nothing above it.
 
 

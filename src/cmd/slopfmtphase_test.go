@@ -97,9 +97,8 @@ func TestAFileTooLargeToBeProseIsSkipped(t *testing.T) {
 	assert.Empty(t, slopfmtFiles(dir))
 }
 
-// A digit run against a letter is a name, and COMMENT-SCAN.md says so: sha256,
-// amd64 and p95 stay. The hardware words a driver or an analyzer is written in
-// take the same shape, and a stale dependency reported every one of them.
+// A digit against a letter is a name, per COMMENT-SCAN.md. The hardware words
+// a driver is written in take that shape, and a stale dependency reported them.
 func TestADigitAgainstALetterIsANameAndStays(t *testing.T) {
 	src := "// chapter-12 tables, 64-bit ops, a 32-bit multiply and amd64\npackage p\n"
 	assert.Empty(t, commentNumberFindings("p.go", src))
@@ -109,4 +108,39 @@ func TestADigitAgainstALetterIsANameAndStays(t *testing.T) {
 func TestADigitStandingAloneIsStillACount(t *testing.T) {
 	src := "// The tables run to 12 sections.\npackage p\n"
 	assert.NotEmpty(t, commentNumberFindings("p.go", src))
+}
+
+// A git submodule is another repository's checkout, and its prose belongs to
+// that repository: it owns the wording and it takes the fix. The skip list
+// already holds text nobody here authored, so this extends the same principle
+// to the shape it missed -- and a submodule of C or Rust is invisible to
+// the nested-module predicate, which reads go.mod and nothing else.
+func TestASubmodulesProseBelongsToItsOwnRepository(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module x\n")
+	write(t, dir, "ours.go", "package p\n")
+	write(t, dir, filepath.Join("upstream", ".git"), "gitdir: ../.git/modules/upstream\n")
+	write(t, dir, filepath.Join("upstream", "theirs.c"), "/* Copyright 2023 */\n")
+
+	var names []string
+	for _, path := range slopfmtFiles(dir) {
+		names = append(names, filepath.Base(path))
+	}
+	assert.Contains(t, names, "ours.go")
+	assert.NotContains(t, names, "theirs.c")
+}
+
+// The skip reads the marker, not the name: a directory called .git inside an
+// ordinary checkout is that checkout's own, and its files are ours to fix.
+func TestAnOrdinaryCheckoutIsStillWalked(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module x\n")
+	write(t, dir, filepath.Join("inner", ".git", "HEAD"), "ref: refs/heads/master\n")
+	write(t, dir, filepath.Join("inner", "lib.go"), "package inner\n")
+
+	var names []string
+	for _, path := range slopfmtFiles(dir) {
+		names = append(names, filepath.Base(path))
+	}
+	assert.Contains(t, names, "lib.go")
 }
