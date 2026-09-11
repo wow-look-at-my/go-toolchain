@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
 
@@ -207,6 +209,35 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	return finishSemantic(pattern, ed, progress, filesChanged, diagnostics)
 }
 
+// moduleHasGoFiles reports whether the tree holds a Go file the loader owes an
+// answer for. It skips what every walk here skips: a hidden directory, vendor,
+// testdata and a nested module. This separates a dead loader from a module that
+// genuinely has nothing to check.
+func moduleHasGoFiles() bool {
+	found := false
+	filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
+				return filepath.SkipDir
+			}
+			if gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".go") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
 // vetOneConfig loads and analyzes the module under a single build-tag
 // configuration, appending diagnostics and recording every file it actually
 // parsed into analyzedFiles (module-relative, slash separated) so Verify can
@@ -254,6 +285,20 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 
 	if len(loadErrors) > 0 {
 		return false, fmt.Errorf("package load errors:\n%s", strings.Join(loadErrors, "\n"))
+	}
+
+	// An empty load analyzes nothing. Every check below it then passes for want
+	// of input, and the phase reports a green it never earned. packages.Load
+	// reports no error when the go list driver it shells out to dies or is
+	// killed, so an empty result is the only symptom there is. buildtags.Verify
+	// cannot see this. It compares against the GATED files, and a module with no
+	// build tag has none to miss.
+	if nPkgs == 0 && moduleHasGoFiles() {
+		return false, fmt.Errorf("vet loaded no packages under tags %s from %s, "+
+			"but this module has Go files: no file was type-checked and no analyzer ran.\n"+
+			"The go list driver returned an empty result. It usually died or was killed: "+
+			"look above for a timeout, and for a shared build cache that stopped answering",
+			tagCfg, strings.Join(patterns, " "))
 	}
 
 	// Run analyzers — wrap each Run function to record per-analyzer per-package timing.

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
 	"golang.org/x/tools/go/analysis/analysistest"
 	"golang.org/x/tools/go/packages"
 )
@@ -394,4 +395,59 @@ func TestFoo(t *testing.T) {
 	assert.NotContains(t, result, "NotEqual(t, // Hostname")
 	// The comment should be on its own line before the assertion
 	assert.Contains(t, result, "// Hostname should be non-empty\n\tassert.NotEqual")
+}
+
+// A load that comes back empty must never read as a clean vet: packages.Load
+// reports no error when its go list driver dies, so the empty result is the
+// only signal there is.
+func TestVetEmptyLoadIsNotACleanRun(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.WriteFile("go.mod", []byte("module testmod\n\ngo 1.21\n"), 0o644))
+	require.NoError(t, os.WriteFile("a.go", []byte("package a\n"), 0o644))
+
+	var diagnostics []Diagnostic
+	var nParsed int
+	_, err := vetOneConfig([]string{"./nosuchdirectory/..."}, buildtags.Config{},
+		NewEditor(false), func(string) {}, &diagnostics, set.New[string](), &nParsed)
+	require.Error(t, err, "an empty load must fail rather than report a green vet")
+}
+
+func TestModuleHasGoFiles(t *testing.T) {
+	t.Serial()
+
+	t.Run("a module with a Go file", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		require.NoError(t, os.WriteFile("a.go", []byte("package a\n"), 0o644))
+		assert.True(t, moduleHasGoFiles())
+	})
+
+	t.Run("a module with no Go file", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		require.NoError(t, os.WriteFile("README.md", []byte("hi\n"), 0o644))
+		assert.False(t, moduleHasGoFiles())
+	})
+
+	t.Run("the skipped directories do not count", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		for _, sub := range []string{"vendor", "testdata", ".hidden"} {
+			require.NoError(t, os.MkdirAll(sub, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(sub, "a.go"), []byte("package a\n"), 0o644))
+		}
+		assert.False(t, moduleHasGoFiles(), "a walk that counts these would mask a dead loader")
+	})
+
+	t.Run("a nested module does not count", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		require.NoError(t, os.MkdirAll("nested", 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join("nested", "go.mod"),
+			[]byte("module nested\n\ngo 1.21\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join("nested", "a.go"), []byte("package a\n"), 0o644))
+		assert.False(t, moduleHasGoFiles())
+	})
 }
