@@ -10,26 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Native paths: filepath.Dir splits nothing in a posix path on NT.
-var cacheRoot = filepath.Join(string(filepath.Separator) + "gomodcache")
+// Slash-spelled, as goModCache normalizes every path this code compares.
+const cacheRoot = "/gomodcache"
 
-// under joins slash-spelled parts onto cacheRoot, natively.
-func under(parts ...string) string {
-	var all []string
-	all = append(all, cacheRoot)
-	for _, p := range parts {
-		all = append(all, strings.Split(p, "/")...)
-	}
-	return filepath.Join(all...)
-}
+// under names a path inside the cache.
+func under(parts ...string) string { return cacheRoot + "/" + strings.Join(parts, "/") }
 
 // A cached directory names the module and the version together. The clone needs
 // them apart: a single is the repository to fetch, the other asks the go
 // command for the commit.
 func TestSplitVersionSeparatesTheModuleFromItsVersion(t *testing.T) {
 	path, version := splitVersion(under("github.com/wow/slopfix@v0.0.0-20260912-abc"))
-	// splitVersion answers a slashed path: it names a repository, not a file.
-	assert.Equal(t, filepath.ToSlash(under("github.com/wow/slopfix")), path)
+	assert.Equal(t, under("github.com/wow/slopfix"), path)
 	assert.Equal(t, "v0.0.0-20260912-abc", version)
 
 	path, version = splitVersion("/home/user/checkout")
@@ -116,8 +108,22 @@ func TestDirectivesGroupByTheirModule(t *testing.T) {
 // package sits under it.
 func TestModuleRootIsTheDirectoryCarryingTheVersion(t *testing.T) {
 	root := under("github.com/wow/dep@v1")
-	assert.Equal(t, root, moduleRootOf(cacheRoot, filepath.Join(root, "a", "b", "c", "gen.go")))
+	assert.Equal(t, root, moduleRootOf(cacheRoot, root+"/a/b/c/gen.go"))
 	assert.Empty(t, moduleRootOf(cacheRoot, "/home/user/checkout/a/gen.go"))
+}
+
+// The go command answers GOMODCACHE in the host's spelling and {{.Dir}} in
+// another, so an NT run compared two spellings of one directory and grouped
+// nothing. Everything the cache code compares is slash-spelled now.
+func TestAHostSpelledFileStillFindsItsModule(t *testing.T) {
+	root := under("github.com/wow/dep@v1")
+	// The host's own spelling, which is the one the go command hands back.
+	native := filepath.FromSlash(root + "/g/gen.go")
+
+	assert.Equal(t, root, moduleRootOf(cacheRoot, native), "the file's spelling is normalized")
+	mods := byModule(cacheRoot, []generateDirective{{File: native}})
+	require.Len(t, mods, 1, "and it groups rather than vanishing")
+	assert.Equal(t, "github.com/wow/dep", mods[0].Path)
 }
 
 // The table blob travels with the loader that embeds it: an embed of a missing

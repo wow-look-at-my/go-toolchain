@@ -38,7 +38,7 @@ func depGenerateDirectives() ([]generateDirective, error) {
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
 				continue
 			}
-			path := filepath.Join(dir, e.Name())
+			path := dir + "/" + e.Name()
 			found, err := parseDirectives(path)
 			if err != nil {
 				continue
@@ -111,7 +111,7 @@ func depModuleDirs(cache string) []string {
 	seen := set.New[string]()
 	var dirs []string
 	for _, line := range strings.Split(out, "\n") {
-		dir := strings.TrimSpace(line)
+		dir := filepath.ToSlash(strings.TrimSpace(line))
 		if dir == "" || !strings.HasPrefix(dir, cache) || seen.Contains(dir) {
 			continue
 		}
@@ -140,13 +140,13 @@ func cacheLabel(cache, path string) string {
 	return mod + "/" + inside
 }
 
-// goModCache asks the go command where the module cache is.
+// goModCache answers the cache directory, SLASH-SPELLED. Depth: docs/PIPELINE.md
 func goModCache() (string, error) {
 	out, err := goOutput("env", "GOMODCACHE")
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(out), nil
+	return filepath.ToSlash(strings.TrimSpace(out)), nil
 }
 
 // goOutput runs the go command for its stdout, under this host target: what it
@@ -187,7 +187,7 @@ func inModCache(dir string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.HasPrefix(abs, cache)
+	return strings.HasPrefix(filepath.ToSlash(abs), cache)
 }
 
 // generatedOutput names the file a directive writes, for the -out flag the

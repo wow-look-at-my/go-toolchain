@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -86,12 +87,10 @@ func generateInClone(src moduleSource, directives []generateDirective, quiet boo
 		}
 	}
 	for _, d := range directives {
-		rel, err := filepath.Rel(src.Root, filepath.Dir(d.File))
-		if err != nil {
-			return err
-		}
+		// Slash-spelled, so the relative part is a prefix trim. See goModCache.
+		rel := strings.TrimPrefix(path.Dir(filepath.ToSlash(d.File)), src.Root+"/")
 		local := generateDirective{
-			File:    filepath.Join(clone, rel, filepath.Base(d.File)),
+			File:    filepath.Join(clone, filepath.FromSlash(rel), path.Base(d.File)),
 			Line:    d.Line,
 			Command: d.Command,
 			Label:   d.Label,
@@ -103,7 +102,7 @@ func generateInClone(src moduleSource, directives []generateDirective, quiet boo
 		if out == "" {
 			continue
 		}
-		if err := copyGenerated(filepath.Join(clone, rel), filepath.Dir(d.File), out); err != nil {
+		if err := copyGenerated(filepath.Join(clone, filepath.FromSlash(rel)), path.Dir(filepath.ToSlash(d.File)), out); err != nil {
 			return err
 		}
 	}
@@ -172,11 +171,11 @@ func byModule(cache string, directives []generateDirective) []moduleSource {
 	}
 	var out []moduleSource
 	for _, root := range order {
-		path, version := splitVersion(root)
-		if path == "" {
+		modPath, version := splitVersion(root)
+		if modPath == "" {
 			continue
 		}
-		mod := strings.TrimPrefix(path, filepath.ToSlash(cache)+"/")
+		mod := strings.TrimPrefix(modPath, cache+"/")
 		out = append(out, moduleSource{
 			Path:   mod,
 			Commit: originHash(mod, version),
@@ -189,12 +188,13 @@ func byModule(cache string, directives []generateDirective) []moduleSource {
 // moduleRootOf finds the module directory a cached file sits under: the a
 // single whose name carries the version.
 func moduleRootOf(cache, file string) string {
-	dir := filepath.Dir(file)
+	// path, not filepath: every path here is slash-spelled. See goModCache.
+	dir := path.Dir(filepath.ToSlash(file))
 	for strings.HasPrefix(dir, cache) && dir != cache {
-		if strings.Contains(filepath.Base(dir), "@") {
+		if strings.Contains(path.Base(dir), "@") {
 			return dir
 		}
-		dir = filepath.Dir(dir)
+		dir = path.Dir(dir)
 	}
 	return ""
 }
