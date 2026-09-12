@@ -97,6 +97,9 @@ func TestRunSlopfmtPhaseFailsWhenTheToolCannotStart(t *testing.T) {
 // A finding is how the tool spends a non-zero exit, so the run still counts.
 func TestSlopfixFindingsKeepsTheOutputOfANonZeroExit(t *testing.T) {
 	t.Serial()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture is a shell script, which CreateProcess refuses")
+	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake.sh")
 	script := "#!/bin/sh\necho 'a.go:3:14: \"3\" is a number in a comment'\nexit 1\n"
