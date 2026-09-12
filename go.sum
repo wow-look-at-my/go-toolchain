@@ -99,8 +99,8 @@ github.com/wow-look-at-my/go-containers v0.0.0-20260908164146-f519b55aab33 h1:QL
 github.com/wow-look-at-my/go-containers v0.0.0-20260908164146-f519b55aab33/go.mod h1:7j8wbDwrqh+uJnlENqD5iwsgYkF4y3kIgremn/ctvVE=
 github.com/wow-look-at-my/go-tree-sitter v0.0.0-20260912015115-af0059e50d9a h1:x/UuKrny2NQNQdrIRByDnxSFuUtvHFYW/8ev+4TvwrA=
 github.com/wow-look-at-my/go-tree-sitter v0.0.0-20260912015115-af0059e50d9a/go.mod h1:33euocPHXB9a9kIe3OJ5ZtT+Fe7MoRG1/sstBA8gukI=
-github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260912021447-39937e993613 h1:sdL6mWpZADZJw2XTboRDFIFj6AWiGcUeBDpuL1Tms0E=
-github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260912021447-39937e993613/go.mod h1:7ulVMw3831Mwi5EZD6RomGyffr4VFjuNYXf2BbCEAV0=
+github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260912022122-81b372492522 h1:bc1b5CZh+GWWd8oWF8koGqnrNxTRpGm1jODuwarmhGs=
+github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260912022122-81b372492522/go.mod h1:7ulVMw3831Mwi5EZD6RomGyffr4VFjuNYXf2BbCEAV0=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6 h1:EjSZgmRayw51VECZZ6ySRTnHG5WUYWETKBIKEbyBUHo=
 github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6/go.mod h1:43iJMeh6WeRn6eA3koj6Voqnjt0dcQDDjkVnrBnJpa4=
 github.com/wow-look-at-my/slopfix v0.0.0-20260912015242-f7c4d7583cc1 h1:EBQeswg9q/Wh+uHVZVLnSumtg/ps/b1j9FFCvWNRUNQ=
