@@ -76,6 +76,9 @@ func TestTheGuardStopsASecondRebuild(t *testing.T) {
 func TestNoSourceToRebuildFromFailsTheRun(t *testing.T) {
 	t.Serial()
 	notForkBuilt(t)
+	// A run of this pipeline re-execs, so its own tests inherit the guard from
+	// the environment and would answer the guard's error instead.
+	t.Setenv(reexecGuardEnv, "")
 	t.Chdir(t.TempDir())
 
 	err := reexecUnderFork()
