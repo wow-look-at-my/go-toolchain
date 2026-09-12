@@ -4,36 +4,36 @@
 # $GO_TOOLCHAIN_DATS_BUILD_DIR holds throwaway copies of the binaries this
 # pipeline just built. It is READ-ONLY inside the sandbox (it lives under the
 # working directory), and the binary under test may be an APE, whose loader
-# rewrites its own file on first exec and exits 121 from a read-only path. So
-# setup copies it once to `{shared.gt.exe}` and every test execs that copy; a test
-# needing a directory to work in makes its own `{outputs.mod}`.
+# rewrites its own file on earliest exec and exits 121 from a read-only path. So
+# setup copies it a single time to `{shared.gt.exe}` and every test execs that
+# copy; a test needing a directory to work in makes its own `{outputs.mod}`.
 #
 # Scratch space is ALWAYS a dats placeholder, never `mktemp -d`. `{shared.X}`
 # is the only namespace that expands in a setup command, and it expands in test
-# commands too, so one copy serves both. Only dats' own directories are
-# writable under every backend. `mktemp -d` lands in the
-# ambient temp directory, which bwrap tolerates because it privatizes the whole
-# /tmp namespace -- and which seatbelt, macOS's backend, denies: `mkdtemp
-# failed ... Operation not permitted`, leaving $d empty so every command runs
-# against /gt. The sibling fixture under .github/dats-fixtures/ carries the
-# same rule; dats' own docs/file-format.md is where it is documented.
-# GO_TOOLCHAIN_BUILDHOST_URL points at an unreachable address on every test so
-# the background update check fails instantly and silently, keeping output
-# deterministic regardless of what buildhost has published.
+# commands too, so a single copy serves both. Only dats' own directories are
+# writable under every backend. `mktemp -d` lands in the ambient temp
+# directory, which bwrap tolerates because it privatizes the whole /tmp
+# namespace -- and which seatbelt, macOS's backend, denies: `mkdtemp failed ...
+# Operation not permitted`, leaving $d empty so every command runs against /gt.
+# The sibling fixture under .github/dats-fixtures/ carries the same rule; dats'
+# own docs/file-format.md is where it is documented. GO_TOOLCHAIN_BUILDHOST_URL
+# points at an unreachable address on every test so the background update check
+# fails instantly and silently, keeping output deterministic regardless of what
+# buildhost has published.
 #
-# NOTE: build-everywhere self-builds this repo on all three hosts, so every
+# NOTE: build-everywhere self-builds this repo on each of them hosts, so every
 # test here runs on linux, darwin and windows. Nothing below may name a host.
 # The SHIPPED artifact's guard is pinned by the sibling fixture
-# .github/dats-fixtures/agent-output-guard.dats, one file for every host, which
-# every smoke job copies into a throwaway module. That fixture cannot live under
-# this repo's own dats/: dats runs every suite it finds recursively there, so it
-# would also run against the dev build this file already covers.
+# .github/dats-fixtures/agent-output-guard.dats, a single file for every host,
+# which every smoke job copies into a throwaway module. That fixture cannot live
+# under this repo's own dats/: dats runs every suite it finds recursively there,
+# so it would also run against the dev build this file already covers.
 
-# Sandboxed like every other suite (dats' default). The one adjustment: under
-# the docker backend the commands run in the IMAGE's filesystem, and every
+# Sandboxed like every other suite (dats' default). The a single adjustment:
+# under the docker backend the commands run in the IMAGE's filesystem, and every
 # go-toolchain invocation past `version` bootstraps a Go toolchain — with no Go
-# in the image it would download one per command. A Go-bearing image gives the
-# bootstrap something to find. bwrap and seatbelt ignore `image` (they run on
+# in the image it would download a single per command. A Go-bearing image gives
+# the bootstrap something to find. bwrap and seatbelt ignore `image` (they run on
 # the host's own filesystem, where the pipeline's Go already is).
 sandbox:
 	image: golang:1.25
@@ -44,14 +44,14 @@ setup:
 	# check, no network. The staged name carries .exe on a windows host
 	# (datsArtifactName), so the source is resolved rather than spelled, and the
 	# copy always lands under .exe: NT needs the suffix to exec it and a posix
-	# host does not care, which keeps one name working everywhere.
+	# host does not care, which keeps a single name working everywhere.
 	- 'src="$GO_TOOLCHAIN_DATS_BUILD_DIR/go-toolchain"; [ -x "$src" ] || src="$src.exe"; test -x "$src"; cp "$src" {shared.gt.exe}; {shared.gt.exe} version raw'
 
 tests:
 	# The only test here that reaches the staleness footer, whose commit queries
-	# would otherwise ride api.github.com -- up to two round trips at a 10s
-	# client timeout each, spent inside the second-build wall-clock budget
-	# host-build enforces. Unreachable base = the offline footer, instantly.
+	# would otherwise ride api.github.com -- up to round trips at a 10s client
+	# timeout each, spent inside the next-build wall-clock budget host-build
+	# enforces. Unreachable base = the offline footer, instantly.
 	- desc: version reports the build stamp
 	  cmd: '{shared.gt.exe} version'
 	  timeout: 30s
@@ -67,10 +67,10 @@ tests:
 			- "panic"
 
 	# version prints build metadata and no build result, so it is exempt: a
-	# captured `version raw` under an agent still answers.
-	# The test above asks the same thing with no marker set, and the two have to
-	# agree -- an agent is exactly who runs this suite, and the guard firing on
-	# version made that pair unsatisfiable.
+	# captured `version raw` under an agent still answers. The test above asks
+	# the same thing with no marker set, and both have to agree -- an agent is
+	# exactly who runs this suite, and the guard firing on version made that
+	# pair unsatisfiable.
 	- desc: version is exempt from the agent output guard
 	  cmd: '{shared.gt.exe} version raw'
 	  timeout: 30s
@@ -94,12 +94,12 @@ tests:
 	# the deletion itself is asserted by the next test.
 	#
 	# The guard is INOPERATIVE on a windows host -- the APE gets no classifier
-	# there, says so once, and allows -- so the answer is paired with `uname -s`
-	# rather than split into a second copy of this file. Losing the refusal
-	# where a classifier exists, or gaining the banner there, fails.
+	# there, says so a single time, and allows -- so the answer is paired with
+	# `uname -s` rather than split into another copy of this file. Losing the
+	# refusal where a classifier exists, or gaining the banner there, fails.
 	#
-	# A darwin host answers one of two ways, and BOTH are the guard working.
-	# Naming a pipe's reader there costs an lsof and a ps on other pids, which
+	# A darwin host answers any of ways, and BOTH are the guard working. Naming
+	# a pipe's reader there costs an lsof and a ps on other pids, which
 	# seatbelt denies. The guard is then blind, and the design allows the run
 	# rather than break every legitimate agent run on a Mac. What it must never
 	# do is go quiet about it, so the BLIND banner is the answer that stands in
@@ -128,13 +128,12 @@ tests:
 	# same module would put a whole pipeline -- tidy, vet, test, build -- inside
 	# this budget, and its outcome, not the guard, would decide whether the
 	# planted binary survives. So that host reports the banner from an empty
-	# directory, the way the test above does, and records no verdict.
-	# A host where the guard does not refuse takes the same no-verdict path,
-	# whatever made it not refuse. Planting a binary and letting the run
-	# proceed would put a whole pipeline inside this budget, and its outcome
-	# would decide the binary's fate instead of the guard. So the verdict is
-	# probed from an EMPTY directory first, and only a refusal earns the
-	# planted-binary arm.
+	# directory, the way the test above does, and records no verdict. A host
+	# where the guard does not refuse takes the same no-verdict path, whatever
+	# made it not refuse. Planting a binary and letting the run proceed would
+	# put a whole pipeline inside this budget, and its outcome would decide the
+	# binary's fate instead of the guard. So the verdict is probed from an EMPTY
+	# directory and only a refusal earns the planted-binary arm.
 	- desc: the agent output guard deletes the module's build outputs where it refuses
 	  cmd: 'mkdir -p {outputs.mod} {outputs.probe}; cd {outputs.probe}; probe=$({shared.gt.exe} 2>&1); cd {outputs.mod}; if printf "%s" "$probe" | grep -q "refused to run"; then printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({shared.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; printf "%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$(printf "%s" "$out" | tr "\n" " ")"; else printf "%s|no-refusal|no-refusal|%s\n" "$(uname -s)" "$(printf "%s" "$probe" | tr "\n" " ")"; fi'
 	  timeout: 60s
@@ -198,7 +197,7 @@ tests:
 	# threshold: this error prints instantly during flag parsing (no I/O), well
 	# under the 1s floor, so logx never appends a timing suffix and the golden
 	# stays stable. If logx's threshold ever drops low enough for this line to
-	# get timed, this assertion is the first thing that goes red.
+	# get timed, this assertion is the earliest thing that goes red.
 	- desc: unknown flag is rejected
 	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt.exe} --definitely-not-a-flag'
 	  exit: 1
@@ -231,8 +230,8 @@ tests:
 	# sandbox that denies them yields the right answer here for the WRONG
 	# reason. So this asserts the METHOD: the APE answers from the runtime's
 	# own __hostos, ahead of every probe, and never from the guess. Which OS
-	# each host reports is pinned per host by the three smoke jobs, and this
-	# suite runs on all three -- naming one here would fail on the other two.
+	# each host reports is pinned per host by each smoke jobs, and this suite
+	# runs on each of them -- naming a single here would fail on the others.
 	- desc: host detection is a runtime measurement, never the fallback guess
 	  cmd: '{shared.gt.exe} version host'
 	  timeout: 60s
@@ -245,9 +244,9 @@ tests:
 		"!stdout":
 			- "GUESSED"
 
-	# The matrix builds ONE multi-platform APE, and --help promises it. Pin the
-	# promise: the platform-set flag exists with the documented default, and no
-	# --os/--arch flag exists to silently reintroduce a cartesian product.
+	# The matrix builds a single multi-platform APE, and --help promises it.
+	# Pin the promise: the platform-set flag exists with the documented
+	# default, and no --os/--arch flag exists to silently reintroduce a cartesian product.
 	- desc: matrix --help documents the single-APE default
 	  cmd: '{shared.gt.exe} matrix --help'
 	  timeout: 60s
@@ -258,8 +257,6 @@ tests:
 		stdout:
 			- "--cosmo-platforms"
 			- "linux/amd64,darwin/arm64,windows/amd64"
-		# The CLI cannot ask for a per-platform copy of the APE: there is no
-		# flag, because there is no copier behind one.
 		"!stdout":
 			- "--cosmo-slots"
 			- "--os "
@@ -302,10 +299,10 @@ tests:
 		"!stderr":
 			- "refused to run"
 
-	# A directory with neither a module nor suites is the one case that still
-	# refuses, and the message has to name both halves -- "no go.mod found" alone
-	# sent people off to `go mod init` a shell repo that only wanted its suites
-	# run.
+	# A directory with neither a module nor suites is the a single case that
+	# still refuses, and the message has to name both halves -- "no go.mod found"
+	# alone sent people off to `go mod init` a shell repo that only wanted its
+	# suites run.
 	#
 	# The POSITIVE case (suites present, no go.mod, they run) is a Go unit test,
 	# not a case here: asserting it from a suite means go-toolchain starting dats
@@ -319,12 +316,12 @@ tests:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 			# Every other full-pipeline test here SETS an agent marker, because it
-			# is asserting the guard. This is the first that needs the guard OFF,
-			# and the markers leak in from the host: inside a Claude Code session
-			# CLAUDE_CODE_SESSION_ID alone makes the guard refuse before the module
-			# check is ever reached, so the assertion would pass in CI and fail on
-			# a developer's machine. Empty reads as not-an-agent (the detector
-			# treats "" and "0" as unset).
+			# is asserting the guard. This is the earliest that needs the guard
+			# OFF, and the markers leak in from the host: inside a Claude Code
+			# session CLAUDE_CODE_SESSION_ID alone makes the guard refuse before
+			# the module check is ever reached, so the assertion would pass in CI
+			# and fail on a developer's machine. Empty reads as not-an-agent (the
+			# detector treats "" and "0" as unset).
 			CLAUDECODE: ""
 			CLAUDE_CODE_SESSION_ID: ""
 			GROK_AGENT: ""
@@ -337,10 +334,6 @@ tests:
 		stderr:
 			- "no go.mod and no dats/ suites found"
 
-	# The whole point of the APE, end to end: there is no spelling of --targets
-	# that asks for a per-platform native binary, and the refusal arrives before
-	# a toolchain is fetched to build one (the fork download would blow the
-	# timeout and mask what is being asserted).
 	- desc: --targets refuses a native platform
 	  cmd: '{shared.gt.exe} matrix --targets {matrix.target}'
 	  exit: 1
