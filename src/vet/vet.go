@@ -76,25 +76,16 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	return fmtChanged || semanticChanged, err
 }
 
-// RunFromSource type-checks every dependency from SOURCE. The default reads
-// export data, which is faster and can be rejected. Depth: docs/CI.md
-func RunFromSource(fix bool, progress ProgressFunc) (bool, error) {
-	loadDepsFromSource = true
-	defer func() { loadDepsFromSource = false }()
-	return RunWithProgress(fix, progress)
-}
-
-// loadDepsFromSource is set only for the duration of RunFromSource.
-var loadDepsFromSource bool
-
 // NeedModule populates pkg.Module, which bannedoutput scopes its ban by.
-// NeedDeps drops export data, so no importer is in the path.
+//
+// NeedDeps drops export data, so no importer is in the path. It is unconditional
+// because the export data here is never readable: the gosmopolitan fork is the
+// only compiler this pipeline runs under, and it writes a version newer than the
+// importer x/tools vendors. Every package failed and every run retried, which
+// cost a second full type-check and a warning against the budget. So source is
+// not the fallback. It is the only path that ever worked. Depth: docs/CI.md
 func loadMode() packages.LoadMode {
-	mode := packages.LoadSyntax | packages.NeedModule
-	if loadDepsFromSource {
-		mode |= packages.NeedDeps
-	}
-	return mode
+	return packages.LoadSyntax | packages.NeedModule | packages.NeedDeps
 }
 
 // RunOnPattern executes all analyzers on packages matching pattern.

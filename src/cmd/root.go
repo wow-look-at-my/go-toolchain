@@ -117,11 +117,9 @@ var rootCmd = &cobra.Command{
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
-		}
-		// The fork is on PATH now, which is what a rebuild of this pipeline
-		// needs. Ahead of the fast exit, so a run that does nothing else still
-		// leaves a fork-built binary behind. Depth: docs/CI.md
-		if !skipToolchain(cmd) {
+			// The fork is on PATH now, which is what a rebuild of this pipeline
+			// needs. Ahead of the fast exit, so a run that does nothing else
+			// still leaves a fork-built binary behind. Depth: docs/CI.md
 			if err := reexecUnderFork(); err != nil {
 				discardBuildOutputsFromCWD()
 				return err
@@ -170,7 +168,6 @@ func init() {
 	fingerprintFlags = rootCmd.LocalFlags()
 	// Kept apart: Flags() merges these in only at parse time, so flagFingerprint visits both sets and dedupes by name.
 	fingerprintPersistentFlags = rootCmd.PersistentFlags()
-	fingerprintPersistentFlags = rootCmd.PersistentFlags()
 
 	Register(rootCmd)
 }
@@ -209,7 +206,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	// The comment rule is imported, and its extractor reads a parse table that a generate step writes: a dependency ships
 	// the directive and not
-	if err := generateForDeps(generateHash); err != nil {
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
 		return err
 	}
 

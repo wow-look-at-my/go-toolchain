@@ -163,7 +163,7 @@ go-toolchain release --tag v1.0.0
 |------------------|-------------|------------------------------------------------------|
 | `--json`         | `false`     | Output coverage as JSON                              |
 | `-v`, `--verbose` | `false`    | Verbose output: debug log level, plus per-test output lines |
-| `--generate`     | `''`        | Run `go:generate` directives matching this hash      |
+| `--generate`     | `''`        | Run `go:generate` directives matching this hash, for one run. A repo records its own approval in `.go-toolchain-generate` instead |
 | `--threshold`    | `0.75`      | Similarity threshold for duplicate detection (0.0-1.0) |
 | `--min-nodes`    | varies      | Minimum AST node count for duplicate detection       |
 | `--cgo`          | `false`     | Enable CGO (disabled by default for static binaries) |

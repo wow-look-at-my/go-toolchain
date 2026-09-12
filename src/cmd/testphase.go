@@ -66,7 +66,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		if !quiet {
 			genStep = logStep("go generate ./...")
 		}
-		if err := runGenerate(quiet, generateHash); err != nil {
+		if err := runGenerate(quiet, approvedGenerateHash()); err != nil {
 			return false, nil, fmt.Errorf("go generate failed: %w", err)
 		}
 		if genStep != nil {
@@ -132,22 +132,11 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			filesChanged = false
 			err = nil
 		} else if isUnreadableExportData(err) {
-			// A dependency's compiled API did not decode, which says nothing about this source.
+			// There is nothing to retry: source is the only mode the type-check
+			// has, so no importer ran to read a compiled API at all. Reaching
+			// here means one was read anyway. Depth: docs/CI.md
 			disableSharedBuildCache()
-			logger.Warn("⇒ Warning: vet could not read the compiler's export data (%s) for %s -- that is a dependency's compiled API, not your source. Retrying with every dependency type-checked from source, and with the shared build cache (GOCACHEPROG) off for the rest of this run. A damaged cache entry and export data newer than this binary's importer both land here.",
-				exportDataSignature(err), strings.Join(unreadableExportPackages(err), ", "))
-			if vetPhaseStep != nil {
-				vetPhaseStep.done()
-				vetPhaseStep = nil
-			}
-			vetPhaseStep = logSubStep("vet: retry against dependency source", "main")
-			filesChanged, err = vet.RunFromSource(fix, vetProgress)
-			if err != nil {
-				if isUnreadableExportData(err) {
-					return false, nil, unreadableExportDataError(err)
-				}
-				return false, nil, fmt.Errorf("vet failed: %w", err)
-			}
+			return false, nil, unreadableExportDataError(err)
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}

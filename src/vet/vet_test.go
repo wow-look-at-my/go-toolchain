@@ -75,25 +75,14 @@ func TestRunNoGoMod(t *testing.T) {
 // The retry exists so no importer stands between the type-check and a
 // dependency, so NeedDeps is the whole point of it -- and the flag has to come
 // back off, or every later pass pays for a source-loaded stdlib.
-func TestLoadModeFromSource(t *testing.T) {
+// Every dependency type-checks from its own source, always. The fork is the only
+// compiler here and it writes export data newer than the importer x/tools
+// vendors, so reading a compiled API fails for every package on every run. There
+// is no faster mode to fall back from.
+func TestEveryDependencyTypeChecksFromSource(t *testing.T) {
 	t.Serial()
-	assert.Zero(t, loadMode()&packages.NeedDeps, "the default reads export data")
-
-	dir := t.TempDir()
-	t.Chdir(dir)
-
-	seen := packages.LoadMode(0)
-	// No go.mod here, so RunFromSource returns before loading; read the mode from inside it.
-	func() {
-		loadDepsFromSource = true
-		defer func() { loadDepsFromSource = false }()
-		seen = loadMode()
-	}()
-	assert.NotZero(t, seen&packages.NeedDeps)
-
-	_, err := RunFromSource(false, nil)
-	require.NoError(t, err)
-	assert.Zero(t, loadMode()&packages.NeedDeps, "RunFromSource must restore the default")
+	assert.NotZero(t, loadMode()&packages.NeedDeps, "source is the only mode")
+	assert.NotZero(t, loadMode()&packages.NeedModule, "bannedoutput scopes its ban by the module")
 }
 
 func TestSourceLocationShortLoc(t *testing.T) {

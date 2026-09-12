@@ -57,8 +57,8 @@ jobs:
         env:
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
-        # Approves the dependency generate directives: slopfix ships the parse-table directives and not their output. see docs/PIPELINE.md
-        run: go run ./src --generate fa5070b62ebc
+        # The generate approval is recorded in .go-toolchain-generate, so this needs no argument. see docs/PIPELINE.md
+        run: go run ./src
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile

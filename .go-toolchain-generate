@@ -1,0 +1,6 @@
+# The hash this repo approves for its //go:generate directives. A directive
+# change moves it, so the next approval lands in a diff somebody reviews.
+#
+# slopfix and go-tree-sitter ship the comment rule's parse-table directives and
+# not their output, because the output is derived data nothing commits.
+fa5070b62ebc

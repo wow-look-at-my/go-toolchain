@@ -75,9 +75,10 @@ func runGenerate(quiet bool, expectedHash string) error {
 			for _, d := range append(append([]generateDirective(nil), directives...), pending...) {
 				logger.Info("\t%s:%d: %s%s%s", d.File, d.Line, colorYellow, d.Command, colorReset)
 			}
-			logger.Info("\n%sTo run these commands, add: --generate %s%s", colorYellow, hash, colorReset)
+			logger.Info("\n%sTo run these commands, record the approval: echo %s > %s%s", colorYellow, hash, generateApprovalFile, colorReset)
+			logger.Info("%sOr for one run only: --generate %s%s", colorYellow, hash, colorReset)
 		}
-		return fmt.Errorf("generate commands require approval: --generate %s", hash)
+		return fmt.Errorf("generate commands require approval: record %s in %s", hash, generateApprovalFile)
 	}
 
 	// Hash matches, execute directives

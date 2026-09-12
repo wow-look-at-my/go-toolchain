@@ -269,8 +269,8 @@ func generateForDeps(expectedHash string) error {
 		for _, d := range pending {
 			logger.Info("\t%s:%d: %s%s%s", d.Label, d.Line, colorYellow, d.Command, colorReset)
 		}
-		logger.Info("\n%sTo run these commands, add: --generate %s%s", colorYellow, hash, colorReset)
-		return fmt.Errorf("a dependency's generate commands require approval: --generate %s", hash)
+		logger.Info("\n%sTo run these commands, record the approval: echo %s > %s%s", colorYellow, hash, generateApprovalFile, colorReset)
+		return fmt.Errorf("a dependency's generate commands require approval: record %s in %s", hash, generateApprovalFile)
 	}
 	return satisfyDepDirectives(pending)
 }
