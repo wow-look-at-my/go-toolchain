@@ -199,7 +199,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	// Leads the phases: it reads bytes, not a type-checked package.
-	runSlopfmtPhase(".")
+	if err := runSlopfmtPhase("."); err != nil {
+		return err
+	}
 
 	modules := findGoModules()
 	if len(modules) == 0 {

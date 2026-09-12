@@ -9,90 +9,82 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// write puts a file at path under dir, creating the directories above it.
-func write(t *testing.T, dir, path, body string) {
-	t.Helper()
-	full := filepath.Join(dir, path)
-	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-	require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
+func TestParseSlopfixLineReadsAFinding(t *testing.T) {
+	t.Serial()
+	hit, ok := parseSlopfixLine(`docs/CI.md:12:7: "three" is a number in a comment`)
+	require.True(t, ok)
+	assert.Equal(t, "docs/CI.md", hit.path)
+	assert.Equal(t, 12, hit.line)
+	assert.Equal(t, 7, hit.col)
+	assert.Equal(t, "three", hit.number)
 }
 
-// TestTheScanReadsEveryLanguageTheExtractorKnows is the reason the rule left
-// vet: a shell script and a workflow carry the same stale prose a Go comment
-// does, and no Go analyzer ever looked at either.
-func TestTheScanReadsEveryLanguageTheExtractorKnows(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, "a.go", "package p\n\n// the walk has 3 phases\n")
-	write(t, dir, "run.sh", "#!/bin/sh\n# the sweep runs twice\n")
-	write(t, dir, "ci.yml", "# holds 4 jobs\njobs: {}\n")
+// A windows path carries a colon of its own, so the position is read from the
+// right rather than from the first colon in the line.
+func TestParseSlopfixLineKeepsADriveLetterOnThePath(t *testing.T) {
+	t.Serial()
+	hit, ok := parseSlopfixLine(`C:\src\a.go:3:14: "3" is a number in a comment`)
+	require.True(t, ok)
+	assert.Equal(t, `C:\src\a.go`, hit.path)
+	assert.Equal(t, 3, hit.line)
+	assert.Equal(t, 14, hit.col)
+}
 
-	found := map[string]string{}
-	for _, path := range slopfmtFiles(dir) {
-		src, err := os.ReadFile(path)
-		require.NoError(t, err)
-		for _, hit := range commentNumberFindings(path, string(src)) {
-			found[filepath.Base(path)] = hit.Number
-		}
+func TestParseSlopfixLineRejectsWhatIsNotAFinding(t *testing.T) {
+	t.Serial()
+	for _, line := range []string{
+		"",
+		"a number in a comment is a count of what exists today",
+		`a.go:x:y: "3" is a number in a comment`,
+	} {
+		_, ok := parseSlopfixLine(line)
+		assert.False(t, ok, line)
 	}
-	assert.Equal(t, map[string]string{"a.go": "3", "run.sh": "twice", "ci.yml": "4"}, found)
 }
 
-// TestAFindingNamesItsLineAndColumn pins what a warning points at. A report
-// that names the file alone leaves the reader searching it.
-func TestAFindingNamesItsLineAndColumn(t *testing.T) {
-	hits := commentNumberFindings("x.go", "package p\n\n// fine\n// holds 5 entries\n")
-	require.Len(t, hits, 1)
-	assert.Equal(t, 4, hits[0].Line)
-	assert.Equal(t, 10, hits[0].Col)
-}
-
-// TestASentenceNamingSeveralNumbersCostsOneWarning pins the budget's unit: the
-// repair is a rewrite of the line, whatever it counts.
-func TestASentenceNamingSeveralNumbersCostsOneWarning(t *testing.T) {
-	hits := commentNumberFindings("x.go", "package p\n\n// holds 5 entries across 3 shards\n")
-	assert.Len(t, hits, 1)
-}
-
-// TestTheScanSkipsTextItsAuthorDoesNotOwn pins the exclusions. A nested module
-// keeps its own prose, and a build output is written rather than authored.
-func TestTheScanSkipsTextItsAuthorDoesNotOwn(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, "keep.go", "package p\n")
-	write(t, dir, "inner/go.mod", "module y\n")
-	write(t, dir, "inner/skip.go", "package q\n")
-	write(t, dir, "vendor/dep/skip.go", "package r\n")
-	write(t, dir, ".git/hooks/skip.sh", "# hook\n")
-	write(t, dir, filepath.Join(outputDir, "skip.go"), "package s\n")
-
-	var names []string
-	for _, path := range slopfmtFiles(dir) {
-		names = append(names, filepath.Base(path))
+func TestBatchedCoversEveryFileOnce(t *testing.T) {
+	t.Serial()
+	in := []string{"a", "b", "c", "d", "e"}
+	var seen []string
+	for _, batch := range batched(in, 2) {
+		assert.LessOrEqual(t, len(batch), 2)
+		seen = append(seen, batch...)
 	}
-	assert.Equal(t, []string{"keep.go"}, names)
+	assert.Equal(t, in, seen)
+	assert.Nil(t, batched(nil, 2))
 }
 
-// TestATreeWithNoModuleAtItsRootIsStillScanned pins the case the nested-module
-// skip would otherwise empty: a repo whose modules all sit below the root.
-func TestATreeWithNoModuleAtItsRootIsStillScanned(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "svc/go.mod", "module x\n")
-	write(t, dir, "svc/a.go", "package p\n\n// holds 3 entries\n")
-
-	var names []string
-	for _, path := range slopfmtFiles(dir) {
-		names = append(names, filepath.Base(path))
-	}
-	assert.Contains(t, names, "a.go")
+func TestSlopfixBinNameCarriesTheSuffixNTNeeds(t *testing.T) {
+	t.Serial()
+	assert.Equal(t, "slopfix.exe", slopfixBinName("windows"))
+	assert.Equal(t, "slopfix", slopfixBinName("linux"))
 }
 
-// TestAFileTooLargeToBeProseIsSkipped pins the bound. A committed blob costs
-// more to read than the prose it holds.
-func TestAFileTooLargeToBeProseIsSkipped(t *testing.T) {
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, "big.go", "package p\n// "+string(make([]byte, slopfmtMaxFileBytes))+"\n")
+func TestSlopfixDownloadURLPinsOneRelease(t *testing.T) {
+	t.Serial()
+	assert.Equal(t, "https://dl.pazer.build/slopfix?os=linux&arch=amd64",
+		slopfixDownloadURL("", "linux", "amd64"))
+	assert.Equal(t, "https://dl.pazer.build/slopfix?v=12&os=darwin&arch=arm64",
+		slopfixDownloadURL("12", "darwin", "arm64"))
+}
 
-	assert.Empty(t, slopfmtFiles(dir))
+// A named binary that is not there names itself, rather than reporting a clean
+// tree the scan never read.
+func TestEnsureSlopfixFailsOnAMissingLocalBuild(t *testing.T) {
+	t.Serial()
+	t.Setenv(slopfixBinEnv, "/nonexistent/slopfix")
+	_, err := ensureSlopfix()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), slopfixBinEnv)
+}
+
+func TestRunSlopfmtPhaseFailsWhenTheToolIsUnreachable(t *testing.T) {
+	t.Serial()
+	old := ensureSlopfixFunc
+	ensureSlopfixFunc = func() (string, error) { return "", assert.AnError }
+	defer func() { ensureSlopfixFunc = old }()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0644))
+	assert.Error(t, runSlopfmtPhase(dir))
 }
