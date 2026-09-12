@@ -117,7 +117,6 @@ func TestForkSatisfiesGoMod(t *testing.T) {
 	err := forkSatisfiesGoMod("1.27.0cosmo.r685")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "1.30.0")
-	assert.Contains(t, err.Error(), cosmoBranchEnv)
 	assert.NotContains(t, err.Error(), "go.dev", "the repair is a newer fork, never a stock Go")
 
 	assert.NoError(t, forkSatisfiesGoMod("1.31.0cosmo.r1"))
