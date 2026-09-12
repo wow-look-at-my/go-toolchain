@@ -11,6 +11,7 @@ import (
 	"runtime"
 
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -55,8 +56,62 @@ func depGenerateDirectives() ([]generateDirective, error) {
 
 // depPackageDirs lists the dependency package directories under the cache. A
 // package of this module is excluded: the tree walk already covers those.
+//
+// The unit is the MODULE, and every package directory under it is read whether
+// an import reaches it or not. Which packages an import reaches is what
+// generating changes: slopfix's generated parser.go is the file that imports
+// go-tree-sitter's scanner package, so those grammars are invisible until the
+// pass that needs them already ran. A set that grows as it is satisfied cannot
+// be approved, because the hash it produces depends on how far the run got.
 func depPackageDirs(cache string) []string {
-	out, err := goOutput("list", "-deps", "-f", "{{.Dir}}", "./...")
+	seen := set.New[string]()
+	var dirs []string
+	for _, root := range depModuleDirs(cache) {
+		filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil || !d.IsDir() {
+				return nil
+			}
+			if path != root && skipDepDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			if path != root && gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
+			if !seen.Contains(path) && hasGoFile(path) {
+				seen.Add(path)
+				dirs = append(dirs, path)
+			}
+			return nil
+		})
+	}
+	return dirs
+}
+
+// depDirSkips name directories holding no package of the module.
+var depDirSkips = set.Of("testdata", "vendor", "node_modules")
+
+// skipDepDir reports whether the walk stops at a directory of this name.
+func skipDepDir(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || depDirSkips.Contains(name)
+}
+
+// hasGoFile reports whether a directory holds Go source.
+func hasGoFile(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return true
+		}
+	}
+	return false
+}
+
+// depModuleDirs names the cached root of every module this one builds against.
+func depModuleDirs(cache string) []string {
+	out, err := goOutput("list", "-deps", "-f", "{{with .Module}}{{.Dir}}{{end}}", "./...")
 	if err != nil {
 		return nil
 	}

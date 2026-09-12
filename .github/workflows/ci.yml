@@ -60,7 +60,7 @@ jobs:
         # Approves the dependency generate directives: slopfix ships the comment
         # rule parse-table directives and not their output, so the build runs
         # them. see docs/PIPELINE.md
-        run: go run ./src --generate b11d806b3850
+        run: go run ./src --generate fa5070b62ebc
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile

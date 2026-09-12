@@ -118,6 +118,24 @@ func TestTheTableTravelsWithItsLoader(t *testing.T) {
 	assert.ElementsMatch(t, []string{"parser.go", "tables.zst"}, generatedSiblings(from, "parser.go"))
 }
 
+// A directory the module ships no package in holds no directive worth reading.
+func TestTheWalkStopsAtDirectoriesHoldingNoPackage(t *testing.T) {
+	for _, name := range []string{"testdata", "vendor", "node_modules", ".git", "_ignored"} {
+		assert.True(t, skipDepDir(name), name)
+	}
+	assert.False(t, skipDepDir("grammars"))
+}
+
+// Only a directory carrying Go source is a package directory.
+func TestOnlyADirectoryWithGoSourceIsRead(t *testing.T) {
+	dir := t.TempDir()
+	assert.False(t, hasGoFile(dir), "nothing in it")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o644))
+	assert.False(t, hasGoFile(dir), "and no Go in it")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644))
+	assert.True(t, hasGoFile(dir))
+}
+
 // Nothing to satisfy asks the go command nothing.
 func TestSatisfyingNothingIsAnImmediateNoOp(t *testing.T) {
 	assert.NoError(t, satisfyDepDirectives(nil))
