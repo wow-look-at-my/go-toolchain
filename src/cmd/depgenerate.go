@@ -216,6 +216,17 @@ func generateForDeps(expectedHash string) error {
 		logger.Info("\n%sTo run these commands, add: --generate %s%s", colorYellow, hash, colorReset)
 		return fmt.Errorf("a dependency's generate commands require approval: --generate %s", hash)
 	}
+	return satisfyDepDirectives(pending)
+}
+
+// satisfyDepDirectives writes what the pending dependency directives owe, by
+// generating in a clone of each module and copying the result into its cache
+// directory. It is where every caller ends up: the directive cannot run in the
+// cache, whichever pass noticed the gap.
+func satisfyDepDirectives(pending []generateDirective) error {
+	if len(pending) == 0 {
+		return nil
+	}
 	cache, err := goModCache()
 	if err != nil {
 		return err

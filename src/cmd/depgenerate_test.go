@@ -118,6 +118,38 @@ func TestTheTableTravelsWithItsLoader(t *testing.T) {
 	assert.ElementsMatch(t, []string{"parser.go", "tables.zst"}, generatedSiblings(from, "parser.go"))
 }
 
+// Nothing to satisfy asks the go command nothing.
+func TestSatisfyingNothingIsAnImmediateNoOp(t *testing.T) {
+	assert.NoError(t, satisfyDepDirectives(nil))
+}
+
+// go mod tidy can move a dependency's pin after the first pass generated for
+// the older version, which leaves the new version's cache directory owing its
+// output again. That gap is still the clone's to fill: the directive's input is
+// a git submodule, and the cached copy carries a gitlink instead of the files.
+// So the second pass must reach the clone rather than run the directive where it
+// sits.
+func TestASecondPassStillGeneratesInTheClone(t *testing.T) {
+	cache := t.TempDir()
+	pkg := filepath.Join(cache, "example.invalid", "dep@v1", "g")
+	require.NoError(t, os.MkdirAll(pkg, 0o755))
+	gen := filepath.Join(pkg, "gen.go")
+	require.NoError(t, os.WriteFile(gen, []byte("package g\n"), 0o644))
+	t.Setenv("GOMODCACHE", cache)
+
+	err := satisfyDepDirectives([]generateDirective{{
+		File:    gen,
+		Line:    1,
+		Command: "go run tool -out parser.go in.c",
+		Label:   cacheLabel(cache, gen),
+	}})
+
+	require.Error(t, err, "the clone of a module that does not exist fails")
+	assert.Contains(t, err.Error(), "example.invalid/dep", "and it names the module it cloned")
+	_, statErr := os.Stat(filepath.Join(pkg, "parser.go"))
+	assert.True(t, os.IsNotExist(statErr), "the directive never ran in the cache")
+}
+
 // The cache is read only by design, and a directive writes beside the file that
 // declares it. The mode goes back, so a later read sees what it expects.
 func TestWritableDirRestoresTheMode(t *testing.T) {

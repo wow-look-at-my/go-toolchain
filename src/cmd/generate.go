@@ -55,9 +55,14 @@ func runGenerate(quiet bool, expectedHash string) error {
 		return fmt.Errorf("failed to read dependency generate directives: %w", err)
 	}
 	hash := approvalHash(directives, deps)
-	directives = append(directives, pendingDepDirectives(deps)...)
+	// A dependency is owed again when go mod tidy moved its pin after the first
+	// pass: the new version's cache directory is a fresh copy with no output in
+	// it. It cannot run here, though. The directive's input arrives as a git
+	// submodule and a module zip carries a gitlink, so satisfying it means the
+	// clone.
+	pending := pendingDepDirectives(deps)
 
-	if len(directives) == 0 {
+	if len(directives) == 0 && len(pending) == 0 {
 		return nil
 	}
 
@@ -73,7 +78,7 @@ func runGenerate(quiet bool, expectedHash string) error {
 	if expectedHash == "" || expectedHash != hash {
 		if !quiet {
 			logger.Info("%s", colorYellow+"    Generate commands detected (not executed):"+colorReset)
-			for _, d := range directives {
+			for _, d := range append(append([]generateDirective(nil), directives...), pending...) {
 				logger.Info("\t%s:%d: %s%s%s", d.File, d.Line, colorYellow, d.Command, colorReset)
 			}
 			logger.Info("\n%sTo run these commands, add: --generate %s%s", colorYellow, hash, colorReset)
@@ -88,7 +93,7 @@ func runGenerate(quiet bool, expectedHash string) error {
 		}
 	}
 
-	return nil
+	return satisfyDepDirectives(pending)
 }
 
 // computeDirectivesHash computes a stable hash of all generate directives.
