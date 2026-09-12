@@ -12,9 +12,6 @@ import (
 // activeWatchdog is the current output watchdog, if any; the step system reads it to report step names.
 var activeWatchdog *outputWatchdog
 
-// watchdogDisabled reports the GO_TOOLCHAIN_NO_WATCHDOG off-switch: a fault in fd forwarding can trap all output.
-func watchdogDisabled() bool { return os.Getenv("GO_TOOLCHAIN_NO_WATCHDOG") == "1" }
-
 // outputWatchdog monitors all stdout/stderr output and warns when the build
 // goes silent for too long. It intercepts the stdout and stderr descriptors via dup2
 // so that nothing can bypass it.
@@ -29,23 +26,6 @@ type outputWatchdog struct {
 	cancel     context.CancelFunc
 	done       chan struct{}
 	fwdWG      sync.WaitGroup // tracks forward() goroutines so stop() can wait for full drain
-}
-
-// forward reads from src (pipe read-end) and writes to dst (original fd),
-// updating lastOutput on every successful read.
-func (w *outputWatchdog) forward(src, dst *os.File) {
-	defer w.fwdWG.Done()
-	buf := make([]byte, 4096)
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			w.lastOutput.Store(time.Now().UnixNano())
-			dst.Write(buf[:n])
-		}
-		if err != nil {
-			return
-		}
-	}
 }
 
 const colorBoldRed = "\033[1;38;2;255;0;0m"
