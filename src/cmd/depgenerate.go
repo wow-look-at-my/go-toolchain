@@ -111,7 +111,7 @@ func depModuleDirs(cache string) []string {
 	seen := set.New[string]()
 	var dirs []string
 	for _, line := range strings.Split(out, "\n") {
-		dir := filepath.ToSlash(strings.TrimSpace(line))
+		dir := slashPath(strings.TrimSpace(line))
 		if dir == "" || !strings.HasPrefix(dir, cache) || seen.Contains(dir) {
 			continue
 		}
@@ -128,7 +128,7 @@ func cacheLabel(cache, path string) string {
 	if err != nil {
 		return path
 	}
-	rel = filepath.ToSlash(rel)
+	rel = slashPath(rel)
 	mod, rest, found := strings.Cut(rel, "@")
 	if !found {
 		return rel
@@ -140,13 +140,24 @@ func cacheLabel(cache, path string) string {
 	return mod + "/" + inside
 }
 
+// slashPathFor reads the HOST, not the compile target. Depth: docs/PIPELINE.md
+func slashPathFor(hostGOOS, p string) string {
+	if hostGOOS == "windows" {
+		return strings.ReplaceAll(p, "\\", "/")
+	}
+	return filepath.ToSlash(p)
+}
+
+// slashPath spells p with forward slashes, for this host.
+func slashPath(p string) string { return slashPathFor(hostos.GOOS(), p) }
+
 // goModCache answers the cache directory, SLASH-SPELLED. Depth: docs/PIPELINE.md
 func goModCache() (string, error) {
 	out, err := goOutput("env", "GOMODCACHE")
 	if err != nil {
 		return "", err
 	}
-	return filepath.ToSlash(strings.TrimSpace(out)), nil
+	return slashPath(strings.TrimSpace(out)), nil
 }
 
 // goOutput runs the go command for its stdout, under this host target: what it
@@ -187,7 +198,7 @@ func inModCache(dir string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.HasPrefix(filepath.ToSlash(abs), cache)
+	return strings.HasPrefix(slashPath(abs), cache)
 }
 
 // generatedOutput names the file a directive writes, for the -out flag the

@@ -26,7 +26,7 @@ type moduleSource struct {
 // splitVersion separates a cache directory name into its module path and its
 // version.
 func splitVersion(dir string) (path, version string) {
-	base := filepath.ToSlash(dir)
+	base := slashPath(dir)
 	at := strings.LastIndex(base, "@")
 	if at < 0 {
 		return "", ""
@@ -88,7 +88,7 @@ func generateInClone(src moduleSource, directives []generateDirective, quiet boo
 	}
 	for _, d := range directives {
 		// Slash-spelled, so the relative part is a prefix trim. See goModCache.
-		rel := strings.TrimPrefix(path.Dir(filepath.ToSlash(d.File)), src.Root+"/")
+		rel := strings.TrimPrefix(path.Dir(slashPath(d.File)), src.Root+"/")
 		local := generateDirective{
 			File:    filepath.Join(clone, filepath.FromSlash(rel), path.Base(d.File)),
 			Line:    d.Line,
@@ -102,7 +102,7 @@ func generateInClone(src moduleSource, directives []generateDirective, quiet boo
 		if out == "" {
 			continue
 		}
-		if err := copyGenerated(filepath.Join(clone, filepath.FromSlash(rel)), path.Dir(filepath.ToSlash(d.File)), out); err != nil {
+		if err := copyGenerated(filepath.Join(clone, filepath.FromSlash(rel)), path.Dir(slashPath(d.File)), out); err != nil {
 			return err
 		}
 	}
@@ -189,7 +189,7 @@ func byModule(cache string, directives []generateDirective) []moduleSource {
 // single whose name carries the version.
 func moduleRootOf(cache, file string) string {
 	// path, not filepath: every path here is slash-spelled. See goModCache.
-	dir := path.Dir(filepath.ToSlash(file))
+	dir := path.Dir(slashPath(file))
 	for strings.HasPrefix(dir, cache) && dir != cache {
 		if strings.Contains(path.Base(dir), "@") {
 			return dir

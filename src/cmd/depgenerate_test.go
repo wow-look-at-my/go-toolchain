@@ -204,3 +204,13 @@ func TestWritableDirRestoresTheMode(t *testing.T) {
 	_, err = os.Stat(filepath.Join(dir, "written"))
 	assert.NoError(t, err, "and the write landed")
 }
+
+// filepath.ToSlash reads the COMPILE TARGET, and the published binary is a cosmo
+// build whose separator is already a slash. So it converts no NT path, while the
+// go command answers one. The host decides here.
+func TestASlashSpellingReadsTheHostNotTheTarget(t *testing.T) {
+	nt := `C:\Users\runneradmin\go\pkg\mod`
+	assert.Equal(t, "C:/Users/runneradmin/go/pkg/mod", slashPathFor("windows", nt))
+	assert.Equal(t, "/home/u/go/pkg/mod", slashPathFor("linux", "/home/u/go/pkg/mod"))
+	assert.Equal(t, nt, slashPathFor("linux", nt), "a backslash is a legal posix name")
+}
