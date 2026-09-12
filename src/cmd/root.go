@@ -118,6 +118,15 @@ var rootCmd = &cobra.Command{
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
 		}
+		// The fork is on PATH now, which is what a rebuild of this pipeline
+		// needs. Ahead of the fast exit, so a run that does nothing else still
+		// leaves a fork-built binary behind. Depth: docs/CI.md
+		if !skipToolchain(cmd) {
+			if err := reexecUnderFork(); err != nil {
+				discardBuildOutputsFromCWD()
+				return err
+			}
+		}
 		if skipUpToDateCheck(cmd) {
 			return nil
 		}
