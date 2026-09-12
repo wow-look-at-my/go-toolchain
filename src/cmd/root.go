@@ -284,26 +284,35 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 // findGoModules searches for go.mod files in the current directory and subdirectories.
 func findGoModules() []string {
-	// Check the current directory before walking subdirectories
+	// The root module, when there is one, leads the list: it is the one a
+	// caller means by "this repo", and its phases run first.
+	var found []string
 	if _, err := os.Stat("go.mod"); err == nil {
-		return []string{"."}
+		found = append(found, ".")
 	}
 
-	// Search subdirectories
-	var found []string
+	// Then every nested module. A root go.mod does NOT end the search: a
+	// repo that keeps a tool, an example or a second service in its own
+	// module still has to build and test it, and returning the root alone
+	// reported a whole module green without compiling a line of it.
 	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules") {
+			// testdata joins the skip list: go itself ignores it, so a
+			// go.mod there is a FIXTURE for some test and building it is
+			// never what the caller asked for.
+			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" || name == "testdata") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		if d.Name() == "go.mod" {
-			found = append(found, filepath.Dir(path))
+			if dir := filepath.Dir(path); dir != "." {
+				found = append(found, dir)
+			}
 		}
 		return nil
 	})
