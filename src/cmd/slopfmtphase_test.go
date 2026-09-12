@@ -78,6 +78,35 @@ func TestEnsureSlopfixFailsOnAMissingLocalBuild(t *testing.T) {
 	assert.Contains(t, err.Error(), slopfixBinEnv)
 }
 
+// The published binary is a fat APE, which execve cannot start. Swallowing
+// that reports a clean tree for a scan that read nothing.
+func TestRunSlopfmtPhaseFailsWhenTheToolCannotStart(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "slopfix")
+	require.NoError(t, os.WriteFile(bin, []byte{0x00, 0x01, 0x02}, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0644))
+
+	t.Setenv(slopfixBinEnv, bin)
+	err := runSlopfmtPhase(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not start")
+}
+
+// A finding is how the tool spends its non-zero exit, so the run still counts.
+func TestSlopfixFindingsKeepsTheOutputOfANonZeroExit(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake.sh")
+	script := "#!/bin/sh\necho 'a.go:3:14: \"3\" is a number in a comment'\nexit 1\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0755))
+
+	hits, err := slopfixFindings(bin, []string{"a.go"})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "3", hits[0].number)
+}
+
 func TestRunSlopfmtPhaseFailsWhenTheToolIsUnreachable(t *testing.T) {
 	t.Serial()
 	old := ensureSlopfixFunc

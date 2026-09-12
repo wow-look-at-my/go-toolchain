@@ -2,10 +2,14 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -45,7 +49,12 @@ func runSlopfmtPhase(root string) error {
 		return err
 	}
 	for _, batch := range batched(files, slopfmtArgBatch) {
-		for _, hit := range slopfixFindings(bin, batch) {
+		hits, err := slopfixFindings(bin, batch)
+		if err != nil {
+			st.done()
+			return err
+		}
+		for _, hit := range hits {
 			logger.WarnFile(hit.path, "%s:%d:%d: %q is a number in a comment: %s",
 				hit.path, hit.line, hit.col, hit.number, slopfixRemedy)
 		}
@@ -69,12 +78,14 @@ type slopfixHit struct {
 
 // slopfixFindings runs the rule over one batch. A finding per line rather than
 // per number, because the repair is a rewrite of the line whatever it counts.
-// A non-zero exit is how the tool reports findings, so only the parse decides.
-func slopfixFindings(bin string, files []string) []slopfixHit {
-	out, _ := exec.Command(bin, append([]string{"comments"}, files...)...).Output()
+func slopfixFindings(bin string, files []string) ([]slopfixHit, error) {
+	out, err := runSlopfix(bin, files)
+	if err != nil {
+		return nil, err
+	}
 	seen := set.New[string]()
 	var hits []slopfixHit
-	scan := bufio.NewScanner(strings.NewReader(string(out)))
+	scan := bufio.NewScanner(strings.NewReader(out))
 	scan.Buffer(make([]byte, 0, 64*1024), slopfmtMaxFileBytes)
 	for scan.Scan() {
 		hit, ok := parseSlopfixLine(scan.Text())
@@ -88,7 +99,45 @@ func slopfixFindings(bin string, files []string) []slopfixHit {
 		seen.Add(key)
 		hits = append(hits, hit)
 	}
-	return hits
+	return hits, nil
+}
+
+// runSlopfix reads the tool's stdout. A non-zero exit is how it reports a
+// finding, so only a failure to START is an error. Swallowing one reports a
+// clean tree for a scan that read nothing.
+func runSlopfix(bin string, files []string) (string, error) {
+	args := append([]string{"comments"}, files...)
+	cmd := exec.Command(bin, args...)
+	// The published binary is a fat APE, whose header a shell reads and execve
+	// does not. Passing the binary as $0 keeps a path holding a space unquoted.
+	if isAPE(bin) && runtime.GOOS != "windows" {
+		cmd = exec.Command("/bin/sh", append([]string{bin}, args...)...)
+	}
+	out, err := cmd.Output()
+	if err == nil || isExitError(err) {
+		return string(out), nil
+	}
+	return "", fmt.Errorf("slopfix at %s did not start: %w", bin, err)
+}
+
+// isAPE reports whether the file opens on the header a shell has to read.
+func isAPE(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var head [2]byte
+	if _, err := io.ReadFull(f, head[:]); err != nil {
+		return false
+	}
+	return head[0] == 'M' && head[1] == 'Z'
+}
+
+// isExitError reports whether the tool ran and chose its exit code.
+func isExitError(err error) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit)
 }
 
 // parseSlopfixLine reads one `path:line:col: "N" is a number in a comment`.
