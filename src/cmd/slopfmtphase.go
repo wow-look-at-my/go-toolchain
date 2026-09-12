@@ -9,7 +9,8 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/slopfmt/gocomments"
+	"github.com/wow-look-at-my/slopfix/commentnumbers"
+	"github.com/wow-look-at-my/slopfix/treecomments"
 )
 
 // slopfmtSkipDirs hold text nobody here authored.
@@ -24,6 +25,16 @@ const slopfmtMaxFileBytes = 1 << 20
 // what fails the build. Depth: docs/COMMENT-SCAN.md
 func runSlopfmtPhase(root string) {
 	st := logStep("comment scan")
+	// The rule reads a parse table a generate step writes, and a binary compiled
+	// before that step ran carries none: this run generated them for the NEXT
+	// build of this binary. Saying so beats reporting a clean tree nobody read.
+	if missing := treecomments.Missing(); len(missing) > 0 {
+		logger.Warn("⇒ Warning: no comment was read for %s: this binary was built "+
+			"before their parse tables existed, and the build that follows has them",
+			strings.Join(missing, ", "))
+		st.done()
+		return
+	}
 	for _, path := range slopfmtFiles(root) {
 		src, err := os.ReadFile(path)
 		if err != nil {
@@ -31,7 +42,7 @@ func runSlopfmtPhase(root string) {
 		}
 		for _, hit := range commentNumberFindings(path, string(src)) {
 			logger.WarnFile(path, "%s:%d:%d: %q is a number in a comment: %s",
-				path, hit.Line, hit.Col, hit.Number, gocomments.Remedy)
+				path, hit.Line, hit.Col, hit.Number, commentnumbers.Remedy)
 		}
 	}
 	st.done()
@@ -39,10 +50,10 @@ func runSlopfmtPhase(root string) {
 
 // commentNumberFindings keeps a finding per line rather than per number,
 // because the repair is a rewrite of the line whatever it counts.
-func commentNumberFindings(path, src string) []gocomments.Hit {
+func commentNumberFindings(path, src string) []commentnumbers.Hit {
 	seen := set.New[int]()
-	var out []gocomments.Hit
-	for _, hit := range gocomments.Check(path, src) {
+	var out []commentnumbers.Hit
+	for _, hit := range commentnumbers.Check(path, src) {
 		if seen.Contains(hit.Line) {
 			continue
 		}
@@ -68,7 +79,7 @@ func slopfmtFiles(root string) []string {
 			}
 			return nil
 		}
-		if !gocomments.Supported(path) {
+		if !commentnumbers.Supported(path) {
 			return nil
 		}
 		if info, err := d.Info(); err == nil && info.Size() > slopfmtMaxFileBytes {
@@ -86,6 +97,9 @@ func slopfmtSkipDir(root, path, name string, rootIsModule bool) bool {
 		return false
 	}
 	if strings.HasPrefix(name, ".") || name == outputDir || slopfmtSkipDirs.Contains(name) {
+		return true
+	}
+	if gomod.IsGitSubmodule(path) {
 		return true
 	}
 	return rootIsModule && gomod.IsNestedModule(path)

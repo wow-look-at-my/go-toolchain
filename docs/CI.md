@@ -158,6 +158,18 @@ It warns each time it fires, naming the packages **and which of the two. A retry
 
 Bounded by construction: the retry is a single call on the failure path. So it can happen at most once.
 
+## The pipeline is compiled by the fork, never by stock Go
+
+`go/parser` and `go/types` link in from whatever toolchain built the binary. The source the pipeline type-checks is the fork's. The fork's stdlib uses the fork's own language extensions. A default parameter value in `reflect`'s `funcLayout` is one. Stock Go has no parser for it. It reports `missing ',' in parameter list` against `reflect/type.go`. The go directive alone does not cover this. A stock Go new enough for the go.mod still cannot read syntax it does not have.
+
+Both paths into the type-check close at once. The export data is version 6 and the vendored importer reads up to 4. So the source retry above is what runs. Source is exactly what stock Go cannot parse.
+
+So the pipeline repairs this itself, in `src/cmd/forkreexec.go`. One command is the whole story, so nothing about it belongs in a caller's script. `reexecUnderFork` runs from the root pre-run, right after the fork reaches `PATH`. A binary the fork already built returns at once, which covers every published APE. Otherwise the pipeline compiles itself with the fork and hands the invocation to that binary, carrying its exit status back.
+
+The build target is explicit, because the fork builds an APE by default and `execve` does not read a shell header. The output lands under `argListTempDir`, since the path goes into the go command's own argument list. `GO_TOOLCHAIN_FORK_REEXEC` marks the child. A rebuild that comes back still not fork-built fails there, because rebuilding again produces the same binary.
+
+Only a run inside this module can rebuild, because only that run has the source. Anywhere else a stock-built pipeline FAILS and names the repair. There is no degraded mode to offer. The phases that follow read the fork's own source. A pipeline that cannot read it has nothing to fall back to.
+
 ## A test binary is built for the host, never for cosmo
 
 `runner.Config.WithHostTarget` assigns `GOOS`/`GOARCH` from `hostos.GOOS()` and `runtime.GOARCH` on every `go` invocation whose output has to RUN here. The test run, the benchmark run, the compile check, and the `go list` calls that choose what those cover.

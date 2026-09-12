@@ -66,7 +66,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		if !quiet {
 			genStep = logStep("go generate ./...")
 		}
-		if err := runGenerate(quiet, generateHash); err != nil {
+		if err := runGenerate(quiet, approvedGenerateHash()); err != nil {
 			return false, nil, fmt.Errorf("go generate failed: %w", err)
 		}
 		if genStep != nil {
@@ -132,22 +132,9 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			filesChanged = false
 			err = nil
 		} else if isUnreadableExportData(err) {
-			// A dependency's compiled API did not decode, which says nothing about this source.
+			// No importer ran, so there is nothing to retry. Depth: docs/CI.md
 			disableSharedBuildCache()
-			logger.Warn("⇒ Warning: vet could not read the compiler's export data (%s) for %s -- that is a dependency's compiled API, not your source. Retrying with every dependency type-checked from source, and with the shared build cache (GOCACHEPROG) off for the rest of this run. A damaged cache entry and export data newer than this binary's importer both land here.",
-				exportDataSignature(err), strings.Join(unreadableExportPackages(err), ", "))
-			if vetPhaseStep != nil {
-				vetPhaseStep.done()
-				vetPhaseStep = nil
-			}
-			vetPhaseStep = logSubStep("vet: retry against dependency source", "main")
-			filesChanged, err = vet.RunFromSource(fix, vetProgress)
-			if err != nil {
-				if isUnreadableExportData(err) {
-					return false, nil, unreadableExportDataError(err)
-				}
-				return false, nil, fmt.Errorf("vet failed: %w", err)
-			}
+			return false, nil, unreadableExportDataError(err)
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}
@@ -309,6 +296,11 @@ var errFound = fmt.Errorf("found")
 
 // needsGenerate returns true if any .go file contains a //go:generate directive.
 func needsGenerate() bool {
+	// A dependency that ships a directive and not its output needs the phase as
+	// much as this tree does. See depgenerate.go.
+	if deps, err := depGenerateDirectives(); err == nil && len(pendingDepDirectives(deps)) > 0 {
+		return true
+	}
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err

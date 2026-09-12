@@ -45,6 +45,15 @@ func IsNestedModule(dir string) bool {
 	return err == nil
 }
 
+// IsGitSubmodule reports whether dir is a git submodule's working tree.
+func IsGitSubmodule(dir string) bool {
+	if dir == "." {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil && info.Mode().IsRegular()
+}
+
 // FindMainPackages returns import paths of all main packages, found by walking the module
 // tree under root, under the host build context.
 func FindMainPackages(root string) ([]string, error) {

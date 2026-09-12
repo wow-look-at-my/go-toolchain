@@ -117,6 +117,11 @@ var rootCmd = &cobra.Command{
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
+			// Ahead of the fast exit, so a no-op run still leaves a fork-built binary.
+			if err := reexecUnderFork(); err != nil {
+				discardBuildOutputsFromCWD()
+				return err
+			}
 		}
 		if skipUpToDateCheck(cmd) {
 			return nil
@@ -161,7 +166,6 @@ func init() {
 	fingerprintFlags = rootCmd.LocalFlags()
 	// Kept apart: Flags() merges these in only at parse time, so flagFingerprint visits both sets and dedupes by name.
 	fingerprintPersistentFlags = rootCmd.PersistentFlags()
-	fingerprintPersistentFlags = rootCmd.PersistentFlags()
 
 	Register(rootCmd)
 }
@@ -196,6 +200,12 @@ func run(cmd *cobra.Command, args []string) (err error) {
 			activeWatchdog = nil
 			wd.stop()
 		}()
+	}
+
+	// The comment rule is imported, and its extractor reads a parse table that a generate step writes: a dependency ships
+	// the directive and not
+	if err := generateForDeps(approvedGenerateHash()); err != nil {
+		return err
 	}
 
 	// Leads the phases: it reads bytes, not a type-checked package.
