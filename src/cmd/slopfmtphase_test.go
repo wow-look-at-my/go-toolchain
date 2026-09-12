@@ -81,8 +81,8 @@ func TestEnsureSlopfixFailsOnAMissingLocalBuild(t *testing.T) {
 
 // A tool that never starts must not pass for a clean tree. The stand-in
 // carries no execute bit, which every kernel refuses alike. A malformed
-// executable does not: darwin hands one to a shell, and the shell's own
-// refusal arrives as the exit code a finding uses.
+// executable does not: darwin hands it to a shell, whose own refusal
+// arrives as the exit code a finding uses.
 func TestRunSlopfmtPhaseFailsWhenTheToolCannotStart(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
@@ -96,7 +96,7 @@ func TestRunSlopfmtPhaseFailsWhenTheToolCannotStart(t *testing.T) {
 	assert.Contains(t, err.Error(), "did not start")
 }
 
-// A finding is how the tool spends a non-zero exit, so the run still counts.
+// A finding is how the tool spends a failing exit, so the run still counts.
 func TestSlopfixFindingsKeepsTheOutputOfANonZeroExit(t *testing.T) {
 	t.Serial()
 	if runtime.GOOS == "windows" {

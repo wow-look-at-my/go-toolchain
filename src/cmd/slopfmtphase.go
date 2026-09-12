@@ -171,7 +171,7 @@ func parseSlopfixLine(line string) (slopfixHit, bool) {
 	return slopfixHit{path: path, line: at, col: col, number: number}, true
 }
 
-// cutLast splits around the last separator instead of the leading one.
+// cutLast splits around the final separator, never the leading separator.
 func cutLast(s, sep string) (before, after string, found bool) {
 	at := strings.LastIndex(s, sep)
 	if at < 0 {

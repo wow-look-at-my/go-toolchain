@@ -263,7 +263,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// No -count: the fork keys the coverprofile on the coverage metadata, so a cached run cannot replay a stale one.
+		// No -count: the fork keys the coverprofile on the coverage metadata, so a cached run cannot replay a stale profile.
 		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	switch {
