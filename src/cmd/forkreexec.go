@@ -35,7 +35,7 @@ func reexecUnderFork() error {
 		return nil
 	}
 	if os.Getenv(reexecGuardEnv) != "" {
-		return fmt.Errorf("the rebuilt pipeline still reports %s: the `go` that built it is not the fork, so check what %s resolved", runtime.Version(), cosmoGorootEnv)
+		return fmt.Errorf("the rebuilt pipeline still reports %s, so the `go` on PATH is not the fork", runtime.Version())
 	}
 	pkg, ok := ownMainPackage()
 	if !ok {

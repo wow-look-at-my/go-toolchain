@@ -42,10 +42,7 @@ go-toolchain matrix --targets wasm/js,wasm/wasip1
 
 **No per-platform copies.** A cosmo build writes the APE and nothing else. There is no flag that copies it onto `<name>_<os>_<arch>` names — the APE publishes under its own name through the manifest.
 
-**Toolchain resolution.** Building the cosmo target needs the gosmopolitan toolchain:
-
-1. `GO_TOOLCHAIN_COSMO_GOROOT` — path to a local gosmopolitan build's GOROOT. Used directly, nothing is downloaded.
-2. Otherwise it is downloaded from buildhost (`https://dl.pazer.build/gosmopolitan?branch=<GO_TOOLCHAIN_COSMO_BRANCH>`, default branch `master`) and cached under `~/.cache/go-toolchain/cosmo/v<N>/` keyed by the buildhost release version, so it downloads once per release. Every host asks for its own `os`/`arch`. Buildhost decides what exists, and a host it publishes nothing for fails with that answer plus the `GO_TOOLCHAIN_COSMO_GOROOT` escape. Nothing here keeps a list of supported hosts — one went stale and refused darwin/arm64 while buildhost was serving it.
+**Toolchain resolution.** Building the cosmo target needs the gosmopolitan toolchain. There is one source and no local override. It is downloaded from buildhost (`https://dl.pazer.build/gosmopolitan`, the `master` branch). The download is cached under `~/.cache/go-toolchain/cosmo/v<N>/`, keyed by the buildhost release version. One release therefore downloads once. Every host asks for its own `os`/`arch`. Buildhost decides what exists. A host it publishes nothing for fails with that answer. Nothing here keeps a list of supported hosts — one went stale and refused darwin/arm64 while buildhost was serving it.
 
 **Build semantics.** The cosmo build always runs with `CGO_ENABLED=0` (cosmopolitan has no cgo. `--cgo` warns and is ignored for this target) and without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
 
