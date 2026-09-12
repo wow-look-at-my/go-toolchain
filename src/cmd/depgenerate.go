@@ -10,6 +10,7 @@ import (
 
 	"runtime"
 
+	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -59,14 +60,14 @@ func depPackageDirs(cache string) []string {
 	if err != nil {
 		return nil
 	}
-	seen := map[string]bool{}
+	seen := set.New[string]()
 	var dirs []string
 	for _, line := range strings.Split(out, "\n") {
 		dir := strings.TrimSpace(line)
-		if dir == "" || !strings.HasPrefix(dir, cache) || seen[dir] {
+		if dir == "" || !strings.HasPrefix(dir, cache) || seen.Contains(dir) {
 			continue
 		}
-		seen[dir] = true
+		seen.Add(dir)
 		dirs = append(dirs, dir)
 	}
 	return dirs

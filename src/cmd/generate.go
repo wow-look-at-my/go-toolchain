@@ -25,9 +25,7 @@ type generateDirective struct {
 	File    string // path to the .go file containing the directive
 	Line    int    // line number of the directive
 	Command string // the command to execute (after "//go:generate ")
-	// Label is what the hash reads in place of File, for a directive whose path
-	// carries a version. A dependency bump that changed no directive must not
-	// demand a fresh approval.
+	// Label replaces File in the hash, so a version bump changing no directive needs no fresh approval.
 	Label string
 }
 
@@ -55,11 +53,7 @@ func runGenerate(quiet bool, expectedHash string) error {
 		return fmt.Errorf("failed to read dependency generate directives: %w", err)
 	}
 	hash := approvalHash(directives, deps)
-	// A dependency is owed again when go mod tidy moved its pin after the first
-	// pass: the new version's cache directory is a fresh copy with no output in
-	// it. It cannot run here, though. The directive's input arrives as a git
-	// submodule and a module zip carries a gitlink, so satisfying it means the
-	// clone.
+	// Owed again once tidy moved the pin. Still the clone's job: the cache holds a gitlink, not the submodule.
 	pending := pendingDepDirectives(deps)
 
 	if len(directives) == 0 && len(pending) == 0 {
