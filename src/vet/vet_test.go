@@ -72,13 +72,7 @@ func TestRunNoGoMod(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-// The retry exists so no importer stands between the type-check and a
-// dependency, so NeedDeps is the whole point of it -- and the flag has to come
-// back off, or every later pass pays for a source-loaded stdlib.
-// Every dependency type-checks from its own source, always. The fork is the only
-// compiler here and it writes export data newer than the importer x/tools
-// vendors, so reading a compiled API fails for every package on every run. There
-// is no faster mode to fall back from.
+// Source is the only mode: the fork's export data is never readable here.
 func TestEveryDependencyTypeChecksFromSource(t *testing.T) {
 	t.Serial()
 	assert.NotZero(t, loadMode()&packages.NeedDeps, "source is the only mode")

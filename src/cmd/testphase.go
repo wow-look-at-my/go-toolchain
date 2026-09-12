@@ -132,9 +132,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			filesChanged = false
 			err = nil
 		} else if isUnreadableExportData(err) {
-			// There is nothing to retry: source is the only mode the type-check
-			// has, so no importer ran to read a compiled API at all. Reaching
-			// here means one was read anyway. Depth: docs/CI.md
+			// No importer ran, so there is nothing to retry. Depth: docs/CI.md
 			disableSharedBuildCache()
 			return false, nil, unreadableExportDataError(err)
 		} else {

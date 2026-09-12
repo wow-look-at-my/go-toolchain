@@ -16,13 +16,10 @@ func callerLDFlags(goflags string) string {
 	return strings.Join(values, " ")
 }
 
-// splitGOFLAGS splits s the way the go command splits GOFLAGS: on whitespace,
-// with a single or double quote pair around a whole field and no unescaping
-// inside. A quote that
-// opens anywhere but at a field's start is ordinary text, which is why
-// -ldflags="-X a=b" does NOT survive as a field and the quoted spelling has to
-// wrap the flag as well. An unterminated quote yields nothing, matching the go
-// command's refusal of the whole value.
+// splitGOFLAGS splits s as the go command does: on whitespace, with a quote pair
+// around a WHOLE field and no unescaping inside. A quote opening anywhere else is
+// ordinary text, so -ldflags="-X a=b" is not a field and the quotes have to wrap
+// the flag too. An unterminated quote yields nothing, as the go command does.
 func splitGOFLAGS(s string) []string {
 	var fields []string
 	for {

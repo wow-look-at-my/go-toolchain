@@ -117,9 +117,7 @@ var rootCmd = &cobra.Command{
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
-			// The fork is on PATH now, which is what a rebuild of this pipeline
-			// needs. Ahead of the fast exit, so a run that does nothing else
-			// still leaves a fork-built binary behind. Depth: docs/CI.md
+			// Ahead of the fast exit, so a no-op run still leaves a fork-built binary.
 			if err := reexecUnderFork(); err != nil {
 				discardBuildOutputsFromCWD()
 				return err

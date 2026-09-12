@@ -53,15 +53,9 @@ func depGenerateDirectives() ([]generateDirective, error) {
 	return out, nil
 }
 
-// depPackageDirs lists the dependency package directories under the cache. A
-// package of this module is excluded: the tree walk already covers those.
-//
-// The unit is the MODULE, and every package directory under it is read whether
-// an import reaches it or not. Which packages an import reaches is what
-// generating changes: slopfix's generated parser.go is the file that imports
-// go-tree-sitter's scanner package, so those grammars are invisible until the
-// pass that needs them already ran. A set that grows as it is satisfied cannot
-// be approved, because the hash it produces depends on how far the run got.
+// depPackageDirs reads every package directory of every dependency MODULE, and
+// not just the ones an import reaches. Generating is what changes which ones an
+// import reaches, and a set that grows as it is satisfied cannot be approved.
 func depPackageDirs(cache string) []string {
 	seen := set.New[string]()
 	var dirs []string

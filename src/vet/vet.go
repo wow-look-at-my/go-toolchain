@@ -76,14 +76,8 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	return fmtChanged || semanticChanged, err
 }
 
-// NeedModule populates pkg.Module, which bannedoutput scopes its ban by.
-//
-// NeedDeps drops export data, so no importer is in the path. It is unconditional
-// because the export data here is never readable: the gosmopolitan fork is the
-// only compiler this pipeline runs under, and it writes a version newer than the
-// importer x/tools vendors. Every package failed and every run retried, which
-// cost a second full type-check and a warning against the budget. So source is
-// not the fallback. It is the only path that ever worked. Depth: docs/CI.md
+// NeedDeps is unconditional: the fork's export data never decodes, so source is
+// the only path, not a fallback. Depth: docs/CI.md
 func loadMode() packages.LoadMode {
 	return packages.LoadSyntax | packages.NeedModule | packages.NeedDeps
 }

@@ -9,10 +9,8 @@ import (
 	"strings"
 )
 
-// A directive in the module cache has no input: its grammar arrives as a git
-// submodule, and a module zip carries a gitlink rather than the files under it.
-// So the module is cloned at the commit its version resolved to, the directive
-// runs there, and what it wrote is copied into the cache the compiler reads.
+// A cached directive has no input: a module zip carries a gitlink, not the
+// submodule under it. So the clone is where it runs.
 
 // moduleSource is a dependency to generate from, and where its cache sits.
 type moduleSource struct {
