@@ -90,4 +90,4 @@ replace dario.cat/mergo v1.0.0 => github.com/imdario/mergo v1.0.0
 // The analyzers type-check the fork's stdlib. Stock x/tools reads a parameter
 // default as a syntax error and cannot decode the fork's export data, so both
 // the export-data path and the source fallback die on every package.
-replace golang.org/x/tools => github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260912022122-81b372492522 // go-toolchain:auto-branch
+replace golang.org/x/tools => github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260912193235-5a3c03065002 // go-toolchain:auto-branch
