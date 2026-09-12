@@ -12,9 +12,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
-// The fork spells itself into its own version, and the test binary was built by
-// whichever toolchain ran it. So this asserts the two answers agree rather than
-// pinning either one.
+// Asserts the two answers agree, rather than pinning either one.
 func TestBuiltByForkReadsTheRunningToolchain(t *testing.T) {
 	assert.Equal(t, strings.Contains(runtime.Version(), "cosmo"), builtByFork())
 }
@@ -76,8 +74,7 @@ func TestTheGuardStopsASecondRebuild(t *testing.T) {
 func TestNoSourceToRebuildFromFailsTheRun(t *testing.T) {
 	t.Serial()
 	notForkBuilt(t)
-	// A run of this pipeline re-execs, so its own tests inherit the guard from
-	// the environment and would answer the guard's error instead.
+	// A run re-execs, so its own tests inherit the guard from the environment.
 	t.Setenv(reexecGuardEnv, "")
 	t.Chdir(t.TempDir())
 
