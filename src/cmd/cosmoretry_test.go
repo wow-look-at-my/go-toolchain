@@ -29,14 +29,14 @@ func TestADroppedDownloadIsRetriedUntilItLands(t *testing.T) {
 			w.Write([]byte("not a tarball"))
 			return
 		}
-		w.Write(makeCosmoTarball(t))
+		w.Write(makeCosmoTarballNamed(t, filepath.Base(cosmoGoBinPath("x"))))
 	}))
 	defer srv.Close()
 
 	cache := t.TempDir()
 	require.NoError(t, downloadCosmoToolchain(srv.URL, cache, "v1"))
 	assert.Equal(t, 3, tries, "it kept trying rather than giving up")
-	assert.FileExists(t, filepath.Join(cache, "v1", "go", "bin", "go"), "and the tree landed under the key")
+	assert.FileExists(t, cosmoGoBinPath(filepath.Join(cache, "v1", "go")), "and the tree landed under the key")
 }
 
 // buildhost saying it publishes nothing is an answer, so retrying it would spin

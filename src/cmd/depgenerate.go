@@ -145,7 +145,8 @@ func slashPathFor(hostGOOS, p string) string {
 	if hostGOOS == "windows" {
 		return strings.ReplaceAll(p, "\\", "/")
 	}
-	return filepath.ToSlash(p)
+	// Not filepath.ToSlash: that reads the compile target too.
+	return p
 }
 
 // slashPath spells p with forward slashes, for this host.
