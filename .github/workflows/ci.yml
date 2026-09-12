@@ -58,12 +58,14 @@ jobs:
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
         run: go run ./src
+        run: go run ./src
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile
         uses: wow-look-at-my/dats@master
         with:
           tests: .github/dats-fixtures/cache-profile.dats
+
 
       - name: Cache validation (second build)
         # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
