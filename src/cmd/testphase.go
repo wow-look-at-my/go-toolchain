@@ -134,14 +134,25 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 		} else if isUnreadableExportData(err) {
 			// A dependency's compiled API did not decode, which says nothing about this source.
 			disableSharedBuildCache()
-			logger.Warn("⇒ Warning: vet could not read the compiler's export data (%s) for %s -- that is a dependency's compiled API, not your source. Retrying with every dependency type-checked from source, and with the shared build cache (GOCACHEPROG) off for the rest of this run. A damaged cache entry and export data newer than this binary's importer both land here.",
+			logger.Warn("⇒ Warning: vet could not read the compiler's export data (%s) for %s -- that is a dependency's compiled API, not your source. Recompiling it with the shared build cache off for the rest of this run, and type-checking from source only if that still will not decode. A damaged cache entry and export data newer than this binary's importer both land here.",
 				exportDataSignature(err), strings.Join(unreadableExportPackages(err), ", "))
 			if vetPhaseStep != nil {
 				vetPhaseStep.done()
 				vetPhaseStep = nil
 			}
-			vetPhaseStep = logSubStep("vet: retry against dependency source", "main")
-			filesChanged, err = vet.RunFromSource(fix, vetProgress)
+			// Recompile first. The API that did not decode came OUT of a cache,
+			// and a local build writes one this binary can read, so the ordinary
+			// path is the one to try again. Going straight to source is what
+			// broke: RunFromSource type-checks every dependency, the standard
+			// library included, and a toolchain whose own stdlib this binary's
+			// parser cannot read then reports a syntax error against the
+			// toolchain rather than a finding against the caller.
+			vetPhaseStep = logSubStep("vet: retry with the shared cache off", "main")
+			filesChanged, err = vetRunFunc(fix, vetProgress)
+			if err != nil && isUnreadableExportData(err) {
+				vetPhaseStep = logSubStep("vet: retry against dependency source", "main")
+				filesChanged, err = vet.RunFromSource(fix, vetProgress)
+			}
 			if err != nil {
 				if isUnreadableExportData(err) {
 					return false, nil, unreadableExportDataError(err)
