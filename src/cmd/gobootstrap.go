@@ -117,12 +117,12 @@ func goVersionCore(v string) string {
 	return v
 }
 
-// verifyGoToolchain loads the "runtime" package via goPath to catch a half-extracted GOROOT that
-// runs and reports a version but cannot compile. It sets GOTOOLCHAIN=local in a directory with no
-// go.mod, so neither an auto-downloaded toolchain nor a module directive can skew the result.
+// verifyGoToolchain loads "runtime" via goPath, catching a GOROOT that runs but cannot compile.
+// GOTOOLCHAIN=local, an emptied GOFLAGS and a go.mod-free directory keep a downloaded toolchain
+// and the caller's own -race out of the answer.
 func verifyGoToolchain(goPath string) error {
 	cmd := exec.Command(goPath, "list", "runtime")
-	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOFLAGS=")
 	cmd.Dir = os.TempDir()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%w: %s", err, bytes.TrimSpace(out))
@@ -144,7 +144,7 @@ func recordGoMinor(ver string) {
 	}
 	// Fallback when ver is unparseable: run "go version" with GOTOOLCHAIN=local for the real version.
 	fallback := exec.Command("go", "version")
-	fallback.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	fallback.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOFLAGS=")
 	out, err := fallback.Output()
 	if err != nil {
 		return

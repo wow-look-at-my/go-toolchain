@@ -36,6 +36,8 @@ var (
 	lintMinNodes   int
 	cgoEnabled     bool
 	countGenerated bool
+	// treeUnchanged is what inputsUnchanged answered at startup.
+	treeUnchanged bool
 )
 
 // skipUpToDateCheck reports whether cmd or an ancestor skips the
@@ -121,10 +123,15 @@ var rootCmd = &cobra.Command{
 		if skipUpToDateCheck(cmd) {
 			return nil
 		}
-		if cmd.Parent() == nil && isUpToDate(runner.New()) {
-			logger.Output("⇒ Up to date, nothing to do")
-			ReportUpdateCheck()
-			os.Exit(0)
+		if cmd.Parent() == nil {
+			r := runner.New()
+			// Read here, before clearBuildOutputs deletes what outputsPresent looks for.
+			treeUnchanged = inputsUnchanged(r)
+			if treeUnchanged && outputsPresent(r) {
+				logger.Output("⇒ Up to date, nothing to do")
+				ReportUpdateCheck()
+				os.Exit(0)
+			}
 		}
 		return nil
 	},
@@ -331,6 +338,29 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		if WaitForOutdatedDeps(depChecker) {
 			logger.Info("")
 		}
+	}
+
+	// Vet and the tests read the inputs, and the inputs are what they answer
+	// about. An unchanged tree that lost its outputs has to build again, and
+	// asking that question again only re-runs a suite whose answer is on file.
+	// It is also the path that reaches the build with no coverage to report.
+	if treeUnchanged && !isRetry {
+		logger.Output("⇒ Tests and vet skipped: the tree has not changed since the last green run")
+		br, builtArtifacts, err := runBuildPhase(r, quiet)
+		if err != nil {
+			return err
+		}
+		if err := integration.Run(context.Background(), "tests"); err != nil {
+			return err
+		}
+		if err := runDatsPhase(quiet, builtArtifacts); err != nil {
+			return err
+		}
+		if sd != nil && br != nil {
+			sd.Benchmarks = br.Report
+			sd.BenchComp = br.Comparison
+		}
+		return nil
 	}
 
 	filesChanged, testResult, err := RunTestsWithCoverage(r, quiet)
