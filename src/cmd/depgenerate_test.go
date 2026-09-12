@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cacheRoot and under build NATIVE paths. The production cache path comes from
-// the go command, so it carries the host's own separator, and filepath.Dir sees
-// nothing to split in a posix path on NT.
+// Native paths: filepath.Dir splits nothing in a posix path on NT.
 var cacheRoot = filepath.Join(string(filepath.Separator) + "gomodcache")
 
 // under joins slash-spelled parts onto cacheRoot, natively.

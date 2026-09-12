@@ -282,8 +282,7 @@ func satisfyDepDirectives(pending []generateDirective) error {
 	}
 	mods := byModule(cache, pending)
 	if len(mods) == 0 {
-		// Silence here would leave the output owed and the run green, and the
-		// gap only surfaces later as a package that reads an absent table.
+		// Silence leaves the output owed and the run green.
 		return fmt.Errorf("%d dependency directive(s) owe output and none resolved to a module under %s: first is %s", len(pending), cache, pending[0].File)
 	}
 	st := logStep("go generate (dependencies)")
