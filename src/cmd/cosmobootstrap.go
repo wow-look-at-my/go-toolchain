@@ -41,12 +41,10 @@ func cosmoHostPlatform() (goos, goarch string) {
 }
 
 // EnsureCosmoToolchain resolves a gosmopolitan Go toolchain (the Go fork that
-// builds GOOS=cosmo fat APEs) and returns its GOROOT. Resolution order:
-//
-//   - GO_TOOLCHAIN_COSMO_GOROOT — a local build's GOROOT, used directly.
-//   - Download from buildhost (dl.pazer.build/gosmopolitan, branch selected
-//     by GO_TOOLCHAIN_COSMO_BRANCH, default master) and cache it under the
-//     same cache root the Go bootstrap uses (~/.cache/go-toolchain/cosmo/).
+// builds GOOS=cosmo fat APEs) and returns its GOROOT. It downloads from
+// buildhost (dl.pazer.build/gosmopolitan, the master branch) and caches it
+// under the same cache root the Go bootstrap uses
+// (~/.cache/go-toolchain/cosmo/).
 //
 // The cache is keyed by the buildhost release version parsed from the dl
 // endpoint's redirect (v<N>), so a cached toolchain is never re-downloaded
@@ -56,8 +54,7 @@ func cosmoHostPlatform() (goos, goarch string) {
 func EnsureCosmoToolchain() (string, error) {
 	hostOS, hostArch := cosmoHostPlatformFunc()
 
-	branch := defaultCosmoBranch
-	dlURL := cosmoDownloadURL(branch, pin, hostOS, hostArch)
+	dlURL := cosmoDownloadURL(defaultCosmoBranch, hostOS, hostArch)
 
 	cacheDir, err := goCacheDirFunc()
 	if err != nil {
@@ -65,19 +62,19 @@ func EnsureCosmoToolchain() (string, error) {
 	}
 	cosmoCache := filepath.Join(cacheDir, "cosmo")
 
-	key := cosmoCacheKeyFor(dlURL, branch, "")
+	key := cosmoCacheKey(dlURL, defaultCosmoBranch)
 	goRoot := filepath.Join(cosmoCache, key, "go")
 	if _, statErr := os.Stat(cosmoGoBinPath(goRoot)); statErr == nil {
 		ver, verErr := cosmoGoVersionFunc(goRoot)
 		if verErr != nil {
-			return "", fmt.Errorf("cached gosmopolitan toolchain at %s is broken: %w (delete it to re-download, or set %s to a local build)", goRoot, verErr, cosmoGorootEnv)
+			return "", fmt.Errorf("cached gosmopolitan toolchain at %s is broken: %w (delete it to re-download)", goRoot, verErr)
 		}
 		logger.Info("cosmo-bootstrap: using cached %s from %s (%s)", key, goRoot, ver)
 		return goRoot, nil
 	}
 
 	if err := downloadCosmoToolchain(dlURL, cosmoCache, key); err != nil {
-		return "", fmt.Errorf("failed to download the gosmopolitan toolchain from %s: %w (set %s to use a local build, %s to pick a different buildhost branch, or %s to pin one release)", dlURL, err, cosmoGorootEnv, cosmoBranchEnv, cosmoVersionEnv)
+		return "", fmt.Errorf("failed to download the gosmopolitan toolchain from %s: %w", dlURL, err)
 	}
 
 	ver, err := cosmoGoVersionFunc(goRoot)
@@ -92,30 +89,11 @@ func EnsureCosmoToolchain() (string, error) {
 var cosmoReleasePattern = regexp.MustCompile(`^v[0-9]`)
 
 // ResolveCosmoVersion answers which buildhost release this host would build
-// against, without downloading it. CI resolves it up front and passes it on
-// through cosmoVersionEnv. It returns the branch key when the probe cannot
-// reach buildhost, because that is what the bootstrap would then use.
+// against, without downloading it. It returns the branch key when the probe
+// cannot reach buildhost, because that is what the bootstrap would then use.
 func ResolveCosmoVersion() string {
-	if pin := os.Getenv(cosmoVersionEnv); pin != "" {
-		return "v" + sanitizeCacheKey(trimCosmoVersion(pin))
-	}
 	hostOS, hostArch := cosmoHostPlatformFunc()
-	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)
-	return cosmoCacheKey(cosmoDownloadURL(branch, "", hostOS, hostArch), branch)
-}
-
-// useLocalCosmoGoroot validates and returns the GOROOT named by
-// GO_TOOLCHAIN_COSMO_GOROOT.
-func useLocalCosmoGoroot(root string) (string, error) {
-	if _, err := os.Stat(cosmoGoBinPath(root)); err != nil {
-		return "", fmt.Errorf("%s=%s does not look like a gosmopolitan GOROOT (no bin/go): %w", cosmoGorootEnv, root, err)
-	}
-	ver, err := cosmoGoVersionFunc(root)
-	if err != nil {
-		return "", fmt.Errorf("%s=%s: %w", cosmoGorootEnv, root, err)
-	}
-	logger.Info("cosmo-bootstrap: using %s=%s (%s)", cosmoGorootEnv, root, ver)
-	return root, nil
+	return cosmoCacheKey(cosmoDownloadURL(defaultCosmoBranch, hostOS, hostArch), defaultCosmoBranch)
 }
 
 // cosmoGoBinPath names the fork's go binary in a GOROOT, for the HOST
@@ -140,30 +118,9 @@ func cosmoGoVersion(root string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// cosmoDownloadURL names the buildhost slot. A pin selects the release
-// outright, and buildhost reads `v` and `branch` as alternatives, so a pinned
-// URL carries no branch at all.
-func cosmoDownloadURL(branch, pin, goos, goarch string) string {
-	selector := "branch=" + url.QueryEscape(branch)
-	if pin != "" {
-		selector = "v=" + url.QueryEscape(trimCosmoVersion(pin))
-	}
-	return fmt.Sprintf("%s?%s&os=%s&arch=%s", cosmoDownloadBase, selector, goos, goarch)
-}
-
-// cosmoCacheKeyFor keys the cache. A pin needs no probe, because it is
-// already the answer the probe would return.
-func cosmoCacheKeyFor(dlURL, branch, pin string) string {
-	if pin != "" {
-		return "v" + sanitizeCacheKey(trimCosmoVersion(pin))
-	}
-	return cosmoCacheKey(dlURL, branch)
-}
-
-// trimCosmoVersion accepts a pin in either spelling the logs use, so a value
-// copied from a "using cached v372" line works as written.
-func trimCosmoVersion(pin string) string {
-	return strings.TrimPrefix(strings.TrimSpace(pin), "v")
+// cosmoDownloadURL names the buildhost slot for a branch's latest release.
+func cosmoDownloadURL(branch, goos, goarch string) string {
+	return fmt.Sprintf("%s?branch=%s&os=%s&arch=%s", cosmoDownloadBase, url.QueryEscape(branch), goos, goarch)
 }
 
 // cosmoCacheKey derives the cache dir: redirect version (v<N>) if probeable, else the branch
@@ -221,11 +178,8 @@ func probeCosmoRelease(dlURL string) (string, error) {
 // an unreachable buildhost rather than turning a bad moment into a claim
 // about what buildhost published.
 func resolveCosmoReleaseStrict() (string, error) {
-	if pin := os.Getenv(cosmoVersionEnv); pin != "" {
-		return "v" + sanitizeCacheKey(trimCosmoVersion(pin)), nil
-	}
 	hostOS, hostArch := cosmoHostPlatformFunc()
-	dlURL := cosmoDownloadURL(defaultCosmoBranch, "", hostOS, hostArch)
+	dlURL := cosmoDownloadURL(defaultCosmoBranch, hostOS, hostArch)
 
 	var lastErr error
 	for attempt := range cosmoProbeAttempts {
