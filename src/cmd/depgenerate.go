@@ -227,6 +227,8 @@ func generateForDeps(expectedHash string) error {
 			return fmt.Errorf("dependency generate failed for %s: %w", mod.Path, err)
 		}
 	}
+	// A cached module is indexed as immutable: a later write stays invisible.
+	disableGoModuleIndex()
 	st.noteOutput()
 	st.done()
 	return nil
