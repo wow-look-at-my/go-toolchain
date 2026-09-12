@@ -24,7 +24,7 @@ var slopfmtSkipDirs = set.Of("vendor", "node_modules", "testdata")
 // slopfmtMaxFileBytes is where a file stops being prose and becomes a blob.
 const slopfmtMaxFileBytes = 1 << 20
 
-// slopfmtArgBatch keeps one command line inside what every host accepts.
+// slopfmtArgBatch keeps a command line inside what every host accepts.
 const slopfmtArgBatch = 256
 
 // slopfixReads mirrors the extensions slopfix parses. It reads a named file
@@ -68,7 +68,7 @@ const slopfixRemedy = "a number in a comment is a count of what exists today, " 
 	"and the edit that adds an item leaves it wrong: describe what the code " +
 	"does and let the reader count"
 
-// slopfixHit is one reported number and where it sits.
+// slopfixHit is a reported number and where it sits.
 type slopfixHit struct {
 	path   string
 	line   int
@@ -76,7 +76,7 @@ type slopfixHit struct {
 	number string
 }
 
-// slopfixFindings runs the rule over one batch. A finding per line rather than
+// slopfixFindings runs the rule over a batch. A finding per line rather than
 // per number, because the repair is a rewrite of the line whatever it counts.
 func slopfixFindings(bin string, files []string) ([]slopfixHit, error) {
 	out, err := runSlopfix(bin, files)
@@ -103,7 +103,7 @@ func slopfixFindings(bin string, files []string) ([]slopfixHit, error) {
 }
 
 // runSlopfix reads the tool's stdout. A non-zero exit is how it reports a
-// finding, so only a failure to START is an error. Swallowing one reports a
+// finding, so only a failure to START is an error. Swallowing it reports a
 // clean tree for a scan that read nothing.
 func runSlopfix(bin string, files []string) (string, error) {
 	args := append([]string{"comments"}, files...)
@@ -140,7 +140,7 @@ func isExitError(err error) bool {
 	return errors.As(err, &exit)
 }
 
-// parseSlopfixLine reads one `path:line:col: "N" is a number in a comment`.
+// parseSlopfixLine reads a `path:line:col: "N" is a number in a comment`.
 // A path holds a colon on NT, so the numbers are found from the right.
 func parseSlopfixLine(line string) (slopfixHit, bool) {
 	rest, quoted, found := strings.Cut(line, ` "`)
@@ -171,7 +171,7 @@ func parseSlopfixLine(line string) (slopfixHit, bool) {
 	return slopfixHit{path: path, line: at, col: col, number: number}, true
 }
 
-// cutLast splits around the last separator instead of the first.
+// cutLast splits around the last separator instead of the leading one.
 func cutLast(s, sep string) (before, after string, found bool) {
 	at := strings.LastIndex(s, sep)
 	if at < 0 {

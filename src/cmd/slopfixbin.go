@@ -36,7 +36,7 @@ func slopfixDownloadURL(pin, goos, goarch string) string {
 	return fmt.Sprintf("%s?v=%s&os=%s&arch=%s", slopfixDownloadBase, pin, goos, goarch)
 }
 
-// ensureSlopfix answers the path of a runnable slopfix, downloading one when
+// ensureSlopfix answers the path of a runnable slopfix, downloading it when
 // the cache holds none. A failure here fails the phase: a comment scan that
 // cannot read a comment must not report a clean tree.
 func ensureSlopfix() (string, error) {

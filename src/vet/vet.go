@@ -243,7 +243,7 @@ func moduleHasGoFiles(tagCfg buildtags.Config) bool {
 		}
 		// MatchFile reads the constraints, so an excluded file does not count.
 		// It reports an error for a file it cannot parse, and an unparsable file
-		// is one the loader owes an answer for.
+		// is a package the loader owes an answer for.
 		match, merr := ctx.MatchFile(filepath.Dir(path), filepath.Base(path))
 		if match || merr != nil {
 			found = true

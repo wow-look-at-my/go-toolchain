@@ -20,7 +20,7 @@ func TestParseSlopfixLineReadsAFinding(t *testing.T) {
 }
 
 // A windows path carries a colon of its own, so the position is read from the
-// right rather than from the first colon in the line.
+// right rather than from the leading colon in the line.
 func TestParseSlopfixLineKeepsADriveLetterOnThePath(t *testing.T) {
 	t.Serial()
 	hit, ok := parseSlopfixLine(`C:\src\a.go:3:14: "3" is a number in a comment`)
@@ -93,7 +93,7 @@ func TestRunSlopfmtPhaseFailsWhenTheToolCannotStart(t *testing.T) {
 	assert.Contains(t, err.Error(), "did not start")
 }
 
-// A finding is how the tool spends its non-zero exit, so the run still counts.
+// A finding is how the tool spends a non-zero exit, so the run still counts.
 func TestSlopfixFindingsKeepsTheOutputOfANonZeroExit(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
