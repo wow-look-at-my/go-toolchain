@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -210,10 +211,18 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 }
 
 // moduleHasGoFiles reports whether the tree holds a Go file the loader owes an
-// answer for. It skips what every walk here skips: a hidden directory, vendor,
-// testdata and a nested module. This separates a dead loader from a module that
-// genuinely has nothing to check.
-func moduleHasGoFiles() bool {
+// answer for UNDER tagCfg. It skips what every walk here skips: a hidden
+// directory, vendor, testdata and a nested module. This separates a dead loader
+// from a module that genuinely has nothing to check.
+//
+// A file counts only when the build constraints admit it. A module whose every
+// file is constrained out has nothing to load, and a loader that returns
+// nothing for it is correct. Counting the file on disk instead reports that
+// module as a dead loader -- which is how a wasm-only main, legal and building
+// nowhere else, read as a failure.
+func moduleHasGoFiles(tagCfg buildtags.Config) bool {
+	ctx := build.Default
+	ctx.BuildTags = append(ctx.BuildTags, tagCfg.Tags...)
 	found := false
 	filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -229,7 +238,14 @@ func moduleHasGoFiles() bool {
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".go") {
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		// MatchFile reads the constraints, so an excluded file does not count.
+		// It reports an error for a file it cannot parse, and an unparsable file
+		// is one the loader owes an answer for.
+		match, merr := ctx.MatchFile(filepath.Dir(path), filepath.Base(path))
+		if match || merr != nil {
 			found = true
 			return filepath.SkipAll
 		}
@@ -293,7 +309,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	// killed, so an empty result is the only symptom there is. buildtags.Verify
 	// cannot see this. It compares against the GATED files, and a module with no
 	// build tag has none to miss.
-	if nPkgs == 0 && moduleHasGoFiles() {
+	if nPkgs == 0 && moduleHasGoFiles(tagCfg) {
 		return false, fmt.Errorf("vet loaded no packages under tags %s from %s, "+
 			"but this module has Go files: no file was type-checked and no analyzer ran.\n"+
 			"The go list driver returned an empty result. It usually died or was killed: "+

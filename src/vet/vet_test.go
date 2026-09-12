@@ -421,14 +421,14 @@ func TestModuleHasGoFiles(t *testing.T) {
 		dir := t.TempDir()
 		t.Chdir(dir)
 		require.NoError(t, os.WriteFile("a.go", []byte("package a\n"), 0o644))
-		assert.True(t, moduleHasGoFiles())
+		assert.True(t, moduleHasGoFiles(buildtags.Config{}))
 	})
 
 	t.Run("a module with no Go file", func(t *testing.T) {
 		dir := t.TempDir()
 		t.Chdir(dir)
 		require.NoError(t, os.WriteFile("README.md", []byte("hi\n"), 0o644))
-		assert.False(t, moduleHasGoFiles())
+		assert.False(t, moduleHasGoFiles(buildtags.Config{}))
 	})
 
 	t.Run("the skipped directories do not count", func(t *testing.T) {
@@ -438,7 +438,7 @@ func TestModuleHasGoFiles(t *testing.T) {
 			require.NoError(t, os.MkdirAll(sub, 0o755))
 			require.NoError(t, os.WriteFile(filepath.Join(sub, "a.go"), []byte("package a\n"), 0o644))
 		}
-		assert.False(t, moduleHasGoFiles(), "a walk that counts these would mask a dead loader")
+		assert.False(t, moduleHasGoFiles(buildtags.Config{}), "a walk that counts these would mask a dead loader")
 	})
 
 	t.Run("a nested module does not count", func(t *testing.T) {
@@ -448,6 +448,32 @@ func TestModuleHasGoFiles(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join("nested", "go.mod"),
 			[]byte("module nested\n\ngo 1.21\n"), 0o644))
 		require.NoError(t, os.WriteFile(filepath.Join("nested", "a.go"), []byte("package a\n"), 0o644))
-		assert.False(t, moduleHasGoFiles())
+		assert.False(t, moduleHasGoFiles(buildtags.Config{}))
+	})
+}
+
+// A module whose every file is constrained out has nothing for the loader to
+// return, so an empty result there is correct rather than a dead loader. The
+// walk therefore has to read the constraints, not just the file extension.
+// A wasm-only main in a repository built for the host is the real shape of it.
+func TestModuleHasGoFilesHonorsBuildConstraints(t *testing.T) {
+	t.Serial()
+
+	t.Run("a file the constraints exclude does not count", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		require.NoError(t, os.WriteFile("main.go",
+			[]byte("//go:build wasip1 && wasm\n\npackage main\n\nfunc main() {}\n"), 0o644))
+		assert.False(t, moduleHasGoFiles(buildtags.Config{}),
+			"nothing builds here, so an empty load is the right answer")
+	})
+
+	t.Run("a tag the configuration supplies brings its file back", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		require.NoError(t, os.WriteFile("a.go",
+			[]byte("//go:build mytag\n\npackage a\n"), 0o644))
+		assert.False(t, moduleHasGoFiles(buildtags.Config{}))
+		assert.True(t, moduleHasGoFiles(buildtags.Config{Tags: []string{"mytag"}}))
 	})
 }
