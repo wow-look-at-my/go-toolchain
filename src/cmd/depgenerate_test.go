@@ -3,20 +3,35 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-const cacheRoot = "/root/go/pkg/mod"
+// cacheRoot and under build NATIVE paths. The production cache path comes from
+// the go command, so it carries the host's own separator, and filepath.Dir sees
+// nothing to split in a posix path on NT.
+var cacheRoot = filepath.Join(string(filepath.Separator) + "gomodcache")
+
+// under joins slash-spelled parts onto cacheRoot, natively.
+func under(parts ...string) string {
+	var all []string
+	all = append(all, cacheRoot)
+	for _, p := range parts {
+		all = append(all, strings.Split(p, "/")...)
+	}
+	return filepath.Join(all...)
+}
 
 // A cached directory names the module and the version together. The clone needs
 // them apart: a single is the repository to fetch, the other asks the go
 // command for the commit.
 func TestSplitVersionSeparatesTheModuleFromItsVersion(t *testing.T) {
-	path, version := splitVersion(cacheRoot + "/github.com/wow/slopfix@v0.0.0-20260912-abc")
-	assert.Equal(t, cacheRoot+"/github.com/wow/slopfix", path)
+	path, version := splitVersion(under("github.com/wow/slopfix@v0.0.0-20260912-abc"))
+	// splitVersion answers a slashed path: it names a repository, not a file.
+	assert.Equal(t, filepath.ToSlash(under("github.com/wow/slopfix")), path)
 	assert.Equal(t, "v0.0.0-20260912-abc", version)
 
 	path, version = splitVersion("/home/user/checkout")
@@ -27,7 +42,7 @@ func TestSplitVersionSeparatesTheModuleFromItsVersion(t *testing.T) {
 // The approval hash reads the label, and the label carries no version: a
 // dependency bump that changed no directive must not demand a fresh approval.
 func TestCacheLabelDropsTheVersion(t *testing.T) {
-	got := cacheLabel(cacheRoot, cacheRoot+"/github.com/wow/slopfix@v1.2.3/grammars/bash/gen.go")
+	got := cacheLabel(cacheRoot, under("github.com/wow/slopfix@v1.2.3/grammars/bash/gen.go"))
 	assert.Equal(t, "github.com/wow/slopfix/grammars/bash/gen.go", got)
 }
 
@@ -35,7 +50,7 @@ func TestCacheLabelDropsTheVersion(t *testing.T) {
 // differently as soon as a single changes.
 func TestTheApprovalHashIgnoresAVersionBump(t *testing.T) {
 	at := func(v string) []generateDirective {
-		file := cacheRoot + "/github.com/wow/dep@" + v + "/g/gen.go"
+		file := under("github.com/wow/dep@" + v + "/g/gen.go")
 		return []generateDirective{{
 			File:    file,
 			Line:    3,
@@ -86,9 +101,9 @@ func TestOnlyAMissingNamedOutputIsOwed(t *testing.T) {
 
 // A run is grouped per module, because the clone is per repository.
 func TestDirectivesGroupByTheirModule(t *testing.T) {
-	a := cacheRoot + "/github.com/wow/dep@v1/g/gen.go"
-	b := cacheRoot + "/github.com/wow/dep@v1/h/gen.go"
-	other := cacheRoot + "/github.com/wow/two@v1/g/gen.go"
+	a := under("github.com/wow/dep@v1/g/gen.go")
+	b := under("github.com/wow/dep@v1/h/gen.go")
+	other := under("github.com/wow/two@v1/g/gen.go")
 	all := []generateDirective{{File: a}, {File: other}, {File: b}}
 
 	mods := byModule(cacheRoot, all)
@@ -102,8 +117,8 @@ func TestDirectivesGroupByTheirModule(t *testing.T) {
 // The module root is the directory carrying the version, however deep the
 // package sits under it.
 func TestModuleRootIsTheDirectoryCarryingTheVersion(t *testing.T) {
-	root := cacheRoot + "/github.com/wow/dep@v1"
-	assert.Equal(t, root, moduleRootOf(cacheRoot, root+"/a/b/c/gen.go"))
+	root := under("github.com/wow/dep@v1")
+	assert.Equal(t, root, moduleRootOf(cacheRoot, filepath.Join(root, "a", "b", "c", "gen.go")))
 	assert.Empty(t, moduleRootOf(cacheRoot, "/home/user/checkout/a/gen.go"))
 }
 
