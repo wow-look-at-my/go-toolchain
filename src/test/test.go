@@ -263,11 +263,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 		}
 	}
 	if coverFile != "" {
-		// No -count here. It disabled result caching to dodge go.dev/issue/74873,
-		// where a cached run replayed a stale coverprofile. The fork keys that
-		// profile on the coverage metadata's own dependencies, so editing a
-		// covered package invalidates it. Forcing every test to re-run instead
-		// is what the second build spends most of its time on.
+		// No -count: the fork keys the coverprofile on the coverage metadata, so a cached run cannot replay a stale one.
 		args = append(args, "-coverprofile="+coverFile, "-coverpkg=./...")
 	}
 	switch {

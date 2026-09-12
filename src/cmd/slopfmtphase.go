@@ -108,8 +108,7 @@ func slopfixFindings(bin string, files []string) ([]slopfixHit, error) {
 func runSlopfix(bin string, files []string) (string, error) {
 	args := append([]string{"comments"}, files...)
 	cmd := exec.Command(bin, args...)
-	// The published binary is a fat APE, whose header a shell reads and execve
-	// does not. Passing the binary as $0 keeps a path holding a space unquoted.
+	// A fat APE starts through a shell header execve never reads.
 	if isAPE(bin) && runtime.GOOS != "windows" {
 		cmd = exec.Command("/bin/sh", append([]string{bin}, args...)...)
 	}
@@ -134,9 +133,8 @@ func isAPE(path string) bool {
 	return head[0] == 'M' && head[1] == 'Z'
 }
 
-// isExitError reports whether the tool ran and chose its own exit code. A
-// death by signal is not that. Go reports it as the same error type, and the
-// tool never read a file, so it must not pass for a clean tree.
+// isExitError reports whether the tool chose its own exit code. Go reports a
+// signal death as the same type, and that tool read nothing.
 func isExitError(err error) bool {
 	var exit *exec.ExitError
 	return errors.As(err, &exit) && exit.ProcessState.Exited()
