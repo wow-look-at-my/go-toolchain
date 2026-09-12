@@ -284,15 +284,15 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 // findGoModules searches for go.mod files in the current directory and subdirectories.
 func findGoModules() []string {
-	// The root module, when there is one, leads the list: it is the one a
-	// caller means by "this repo", and its phases run first.
+	// A root module leads the list: it is what a caller means by "this
+	// repo", so its phases run ahead of the rest.
 	var found []string
 	if _, err := os.Stat("go.mod"); err == nil {
 		found = append(found, ".")
 	}
 
 	// Then every nested module. A root go.mod does NOT end the search: a
-	// repo that keeps a tool, an example or a second service in its own
+	// repo that keeps a tool, an example or another service in its own
 	// module still has to build and test it, and returning the root alone
 	// reported a whole module green without compiling a line of it.
 	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
