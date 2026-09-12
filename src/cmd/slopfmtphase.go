@@ -134,10 +134,12 @@ func isAPE(path string) bool {
 	return head[0] == 'M' && head[1] == 'Z'
 }
 
-// isExitError reports whether the tool ran and chose its exit code.
+// isExitError reports whether the tool ran and chose its own exit code. A
+// death by signal is not that. Go reports it as the same error type, and the
+// tool never read a file, so it must not pass for a clean tree.
 func isExitError(err error) bool {
 	var exit *exec.ExitError
-	return errors.As(err, &exit)
+	return errors.As(err, &exit) && exit.ProcessState.Exited()
 }
 
 // parseSlopfixLine reads a `path:line:col: "N" is a number in a comment`.

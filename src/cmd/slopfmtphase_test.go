@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -105,6 +106,25 @@ func TestSlopfixFindingsKeepsTheOutputOfANonZeroExit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, hits, 1)
 	assert.Equal(t, "3", hits[0].number)
+}
+
+// The kernel killing the tool arrives as the same error type a finding does.
+// Reading it as a finding reports a clean tree for a scan that read nothing,
+// which is how a malformed binary passed on darwin.
+func TestRunSlopfmtPhaseFailsWhenTheToolDiesBySignal(t *testing.T) {
+	t.Serial()
+	if runtime.GOOS == "windows" {
+		t.Skip("no shell script and no POSIX signal here")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake.sh")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nkill -9 $$\n"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0644))
+
+	t.Setenv(slopfixBinEnv, bin)
+	err := runSlopfmtPhase(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not start")
 }
 
 func TestRunSlopfmtPhaseFailsWhenTheToolIsUnreachable(t *testing.T) {
