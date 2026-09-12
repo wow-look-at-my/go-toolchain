@@ -101,7 +101,7 @@ func forkSatisfiesGoMod(installed string) error {
 		return nil
 	}
 	if installedVer.LessThan(requiredVer) {
-		return fmt.Errorf("go.mod requires Go %s but the gosmopolitan toolchain is %s: update the fork (%s selects its branch) or lower the go directive", required, installed, cosmoBranchEnv)
+		return fmt.Errorf("go.mod requires Go %s but the gosmopolitan toolchain is %s: update the fork or lower the go directive", required, installed)
 	}
 	return nil
 }
