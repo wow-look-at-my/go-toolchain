@@ -14,8 +14,8 @@ require (
 	github.com/wow-look-at-my/dats v0.0.0-20260910122754-5dfcc0b24b09 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/go-containers v0.0.0-20260826161058-40a3d1ef3d41 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6 // go-toolchain:auto-branch
-	golang.org/x/mod v0.40.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/mod v0.41.0
+	golang.org/x/sys v0.48.0
 	golang.org/x/tools v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
@@ -44,13 +44,19 @@ require (
 	github.com/wow-look-at-my/yaml-fixed v0.0.0-20260806231905-d99b869b77a1 // indirect; go-toolchain:auto-branch
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
+
+// The compiler writes a parameter default and a variable's readonly bit into
+// its export data. Upstream's reader stops short of both, so every import
+// fails and vet falls back to the fork's own stdlib source, which upstream
+// cannot parse either. This fork of x/tools reads what the compiler writes.
+replace golang.org/x/tools => github.com/wow-look-at-my/gosmopolitan_tools v0.0.0-20260912193235-5a3c03065002 // go-toolchain:auto-branch
 
 replace gonum.org/v1/gonum v0.17.0 => github.com/gonum/gonum v0.17.0
 
