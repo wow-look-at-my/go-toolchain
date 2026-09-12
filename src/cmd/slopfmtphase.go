@@ -23,9 +23,8 @@ const slopfmtMaxFileBytes = 1 << 20
 // slopfmtArgBatch keeps one command line inside what every host accepts.
 const slopfmtArgBatch = 256
 
-// slopfixReads mirrors the extensions slopfix parses. The walk here decides
-// what to hand it, and slopfix reads a named file whatever its extension, so
-// an image under the size cap would come back as findings without this.
+// slopfixReads mirrors the extensions slopfix parses. It reads a named file
+// whatever the extension, so the walk is what keeps an image out.
 var slopfixReads = set.Of(".go", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh",
 	".rs", ".sh", ".bash", ".zsh", ".js", ".jsx", ".mjs", ".cjs",
 	".ts", ".mts", ".cts", ".tsx", ".yml", ".yaml", ".toml", ".conf")

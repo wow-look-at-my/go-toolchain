@@ -11,11 +11,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// slopfix ships as a published binary, not as a library. Its comment reader
-// parses with tree-sitter, and the parse tables are generated at build time
-// and committed nowhere. So every grammar package is empty on a fresh
-// checkout and no other module can import the rule. The binary is what the
-// slopfix README hands a consumer, and this is that consumer.
+// slopfix commits none of its generated parse tables, so no module can
+// import the rule. The published binary is what its README hands a consumer.
 const (
 	// slopfixBinEnv points the phase at a local build instead of buildhost.
 	slopfixBinEnv = "GO_TOOLCHAIN_SLOPFIX_BIN"
