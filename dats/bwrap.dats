@@ -1,7 +1,7 @@
 # Tests for .github/scripts/provision-bwrap.sh, the step action.yml runs so
 # the dats phase has its sandbox backend. The script's contract: a module
-# with no dats/ directory costs nothing, and a module with one gets either a
-# usable bwrap or an error a caller can act on. Nothing here installs
+# with no dats/ directory costs nothing, and a module that has suites gets
+# either a usable bwrap or an error a caller can act on. Nothing here installs
 # anything; the sandbox grants no root and no apt.
 
 sandbox:

@@ -32,9 +32,8 @@ tests:
 		stdout:
 			- "OUTCOME "
 
-	# The OUTCOME repeats, never the sentence. A host that registers on the
-	# first run says "is registered" and then "is already registered", which
-	# is the same outcome reached twice.
+	# The OUTCOME repeats, never the sentence. A host that registers says
+	# "is registered", then "is already registered" on a later run.
 	- desc: a second run reaches the same outcome
 	  cmd: |
 		set -eu

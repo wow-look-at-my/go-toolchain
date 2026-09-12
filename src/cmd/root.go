@@ -199,7 +199,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	// Leads the phases: it reads bytes, not a type-checked package.
-	runSlopfmtPhase(".")
+	runCommentScanPhase(".")
 
 	modules := findGoModules()
 	if len(modules) == 0 {
@@ -284,8 +284,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 // findGoModules searches for go.mod files in the current directory and subdirectories.
 func findGoModules() []string {
-	// A root module leads the list: it is what a caller means by "this
-	// repo", so its phases run ahead of the rest.
+	// A root module leads the list: it is what a caller means by "this repo".
 	var found []string
 	if _, err := os.Stat("go.mod"); err == nil {
 		found = append(found, ".")
@@ -301,9 +300,7 @@ func findGoModules() []string {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			// testdata joins the skip list: go itself ignores it, so a
-			// go.mod there is a FIXTURE for some test and building it is
-			// never what the caller asked for.
+			// go itself ignores testdata, so a go.mod there is a fixture.
 			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" || name == "testdata") {
 				return filepath.SkipDir
 			}

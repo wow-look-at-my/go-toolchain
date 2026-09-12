@@ -140,13 +140,11 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 				vetPhaseStep.done()
 				vetPhaseStep = nil
 			}
-			// Recompile first. The API that did not decode came OUT of a cache,
-			// and a local build writes one this binary can read, so the ordinary
-			// path is the one to try again. Going straight to source is what
-			// broke: RunFromSource type-checks every dependency, the standard
-			// library included, and a toolchain whose own stdlib this binary's
-			// parser cannot read then reports a syntax error against the
-			// toolchain rather than a finding against the caller.
+			// Recompile before reaching for source. The API that did not
+			// decode came out of a cache, and a local build writes one this
+			// binary can read. RunFromSource instead type-checks the standard
+			// library too, so a toolchain this parser cannot read reports a
+			// syntax error against the toolchain, not a finding.
 			vetPhaseStep = logSubStep("vet: retry with the shared cache off", "main")
 			filesChanged, err = vetRunFunc(fix, vetProgress)
 			if err != nil && isUnreadableExportData(err) {

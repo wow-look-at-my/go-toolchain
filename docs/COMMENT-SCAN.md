@@ -1,6 +1,6 @@
 # The comment scan: a number in a comment
 
-`src/cmd/slopfmtphase.go` reports any number written in a comment, in digits or in words. The remedy it names is always the same: describe what the code does and let the reader count.
+`src/cmd/commentscanphase.go` reports any number written in a comment, in digits or in words. The remedy it names is always the same: describe what the code does and let the reader count.
 
 A number in a comment is a count of what exists on the day it was written. The edit that adds an item does not update it. So the comment quietly goes false, and the alternative. Naming the thing instead survives both.
 
@@ -17,7 +17,7 @@ A number in a comment is a count of what exists on the day it was written. The e
 
 The rule was a vet analyzer, `src/vet/commentnumbers.go`. An analyzer runs on `*ast.File` values. `go/packages` produces those only after it resolves every import, reads every dependency's export data and type-checks the module. That is minutes of work before the first comment is read. None of it answers the question. A comment is bytes.
 
-The rule now lives in [`slopfmt/gocomments`](https://github.com/wow-look-at-my/slopfmt/tree/master/gocomments) and runs as the first phase of the pipeline, ahead of the dependency check, `go mod tidy` and vet. Two things follow.
+The rule now lives in [`slopfix/commentnumbers`](https://github.com/wow-look-at-my/slopfix/tree/master/commentnumbers) and runs as the first phase of the pipeline, ahead of the dependency check, `go mod tidy` and vet. Two things follow.
 
 It answers on a tree that does not build. A missing import, an unresolvable module, a syntax error in another package: none of them stop the report, because nothing here parses the language.
 
