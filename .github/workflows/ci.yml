@@ -23,10 +23,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: 'go.mod'
-          cache: false
+      # gosmopolitan is upstream of this repo: the compiler that builds it has to exist before it does.
+      - name: Install the gosmopolitan toolchain
+        run: |
+          mkdir -p "$RUNNER_TEMP/cosmo"
+          curl -fL --compressed \
+            "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" \
+            | tar -xz -C "$RUNNER_TEMP/cosmo"
+          echo "$RUNNER_TEMP/cosmo/go/bin" >> "$GITHUB_PATH"
+          echo "GOROOT=$RUNNER_TEMP/cosmo/go" >> "$GITHUB_ENV"
+          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -120,11 +126,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: 'go.mod'
-          cache: false
-
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
         run: |
@@ -168,10 +169,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: 'go.mod'
-          cache: false
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
