@@ -23,10 +23,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: 'go.mod'
-          cache: false
+      # Stock Go cannot compile this module: the x/tools fork calls go/types APIs only this toolchain has. see docs/CI.md
+      - name: Install the gosmopolitan toolchain
+        run: |
+          set -euo pipefail
+          curl -fL --compressed "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+          echo "GOROOT=$RUNNER_TEMP/go" >> "$GITHUB_ENV"
+          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -57,7 +61,11 @@ jobs:
         env:
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
-        run: go run ./src
+        # The fork targets cosmo by default and `go run` execs what it builds, which no kernel starts. So pin the host target for the bootstrap compile alone.
+        run: |
+          set -euo pipefail
+          GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/go-toolchain-bootstrap" ./src
+          "$RUNNER_TEMP/go-toolchain-bootstrap"
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile
