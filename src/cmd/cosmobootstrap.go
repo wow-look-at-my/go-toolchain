@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -289,21 +290,6 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	// Mid-line progress fragment, completed below; bypasses the logger via rawStderr (see logging.go).
 	fmt.Fprintf(rawStderr, "cosmo-bootstrap: downloading %s", dlURL)
 	dlStart := time.Now()
-	client := &http.Client{Timeout: cosmoDownloadTimeout}
-	resp, err := client.Get(dlURL)
-	if err != nil {
-		fmt.Fprintf(rawStderr, "\n")
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(rawStderr, "\n")
-		// A not-found reply is buildhost saying it publishes nothing for this host, which reads nothing like a network failure.
-		if resp.StatusCode == http.StatusNotFound {
-			return fmt.Errorf("HTTP 404: buildhost publishes no gosmopolitan toolchain for this host yet")
-		}
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
 
 	tmpDir, err := os.MkdirTemp(cosmoCache, ".extract-")
 	if err != nil {
@@ -311,8 +297,25 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := extractTarGz(resp.Body, tmpDir); err != nil {
-		return fmt.Errorf("extraction failed: %w", err)
+	// A reset mid-stream is the network, not an answer, so it is retried on a
+	// fixed cadence rather than failing the build. Depth: docs/CI.md
+	for attempt := 1; ; attempt++ {
+		err := fetchCosmoInto(dlURL, tmpDir)
+		if err == nil {
+			break
+		}
+		var terminal terminalDownloadError
+		if errors.As(err, &terminal) {
+			fmt.Fprintf(rawStderr, "\n")
+			return err
+		}
+		fmt.Fprintf(rawStderr, "\n")
+		logger.Warn("⇒ Warning: the gosmopolitan download failed (attempt %d): %v -- retrying in %s", attempt, err, cosmoRetryInterval)
+		if err := clearDir(tmpDir); err != nil {
+			return err
+		}
+		time.Sleep(cosmoRetryInterval)
+		fmt.Fprintf(rawStderr, "cosmo-bootstrap: downloading %s", dlURL)
 	}
 	fmt.Fprintf(rawStderr, " %s\n", fmtDuration(time.Since(dlStart)))
 
@@ -331,4 +334,41 @@ func downloadCosmoToolchain(dlURL, cosmoCache, key string) error {
 		return fmt.Errorf("rename failed: %w", err)
 	}
 	return nil
+}
+
+// Fixed, uncapped: a give-up leaves the build with no compiler.
+var cosmoRetryInterval = 3 * time.Second
+
+// An answer rather than a network fault, so the retry stops.
+type terminalDownloadError struct{ error }
+
+// fetchCosmoInto downloads the tarball once and extracts it into dir.
+func fetchCosmoInto(dlURL, dir string) error {
+	client := &http.Client{Timeout: cosmoDownloadTimeout}
+	resp, err := client.Get(dlURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return terminalDownloadError{fmt.Errorf("HTTP 404: buildhost publishes no gosmopolitan toolchain for this host yet")}
+	}
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		return terminalDownloadError{fmt.Errorf("HTTP %d", resp.StatusCode)}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	if err := extractTarGz(resp.Body, dir); err != nil {
+		return fmt.Errorf("extraction failed: %w", err)
+	}
+	return nil
+}
+
+// clearDir empties dir, so a retry extracts into a clean directory.
+func clearDir(dir string) error {
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o755)
 }
