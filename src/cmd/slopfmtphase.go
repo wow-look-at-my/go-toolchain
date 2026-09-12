@@ -10,6 +10,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/slopfix/commentnumbers"
+	"github.com/wow-look-at-my/slopfix/treecomments"
 )
 
 // slopfmtSkipDirs hold text nobody here authored.
@@ -24,6 +25,16 @@ const slopfmtMaxFileBytes = 1 << 20
 // what fails the build. Depth: docs/COMMENT-SCAN.md
 func runSlopfmtPhase(root string) {
 	st := logStep("comment scan")
+	// The rule reads a parse table a generate step writes, and a binary compiled
+	// before that step ran carries none: this run generated them for the NEXT
+	// build of this binary. Saying so beats reporting a clean tree nobody read.
+	if missing := treecomments.Missing(); len(missing) > 0 {
+		logger.Warn("⇒ Warning: no comment was read for %s: this binary was built "+
+			"before their parse tables existed, and the build that follows has them",
+			strings.Join(missing, ", "))
+		st.done()
+		return
+	}
 	for _, path := range slopfmtFiles(root) {
 		src, err := os.ReadFile(path)
 		if err != nil {

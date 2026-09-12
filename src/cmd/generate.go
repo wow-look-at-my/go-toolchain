@@ -25,6 +25,18 @@ type generateDirective struct {
 	File    string // path to the .go file containing the directive
 	Line    int    // line number of the directive
 	Command string // the command to execute (after "//go:generate ")
+	// Label is what the hash reads in place of File, for a directive whose path
+	// carries a version. A dependency bump that changed no directive must not
+	// demand a fresh approval.
+	Label string
+}
+
+// hashKey names the directive for the approval hash.
+func (d generateDirective) hashKey() string {
+	if d.Label != "" {
+		return d.Label
+	}
+	return d.File
 }
 
 // runGenerate executes all //go:generate directives with clean output handling.
@@ -37,13 +49,17 @@ func runGenerate(quiet bool, expectedHash string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find generate directives: %w", err)
 	}
+	// A dependency ships its directive and not its output, so the build runs it too. Only the ones still owed anything are
+	deps, err := depGenerateDirectives()
+	if err != nil {
+		return fmt.Errorf("failed to read dependency generate directives: %w", err)
+	}
+	hash := approvalHash(directives, deps)
+	directives = append(directives, pendingDepDirectives(deps)...)
 
 	if len(directives) == 0 {
 		return nil
 	}
-
-	// Compute hash of all directives
-	hash := computeDirectivesHash(directives)
 
 	// Allow explicit skip
 	if expectedHash == "skip" {
@@ -82,15 +98,15 @@ func computeDirectivesHash(directives []generateDirective) string {
 	sorted := make([]generateDirective, len(directives))
 	copy(sorted, directives)
 	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].File != sorted[j].File {
-			return sorted[i].File < sorted[j].File
+		if sorted[i].hashKey() != sorted[j].hashKey() {
+			return sorted[i].hashKey() < sorted[j].hashKey()
 		}
 		return sorted[i].Line < sorted[j].Line
 	})
 
 	h := sha256.New()
 	for _, d := range sorted {
-		fmt.Fprintf(h, "%s:%d:%s\n", d.File, d.Line, d.Command)
+		fmt.Fprintf(h, "%s:%d:%s\n", d.hashKey(), d.Line, d.Command)
 	}
 
 	// Return the hex prefix below - enough to be unique, short enough to type
@@ -219,6 +235,16 @@ func isShellCommand(command string) bool {
 // executeDirective runs a single generate directive
 func executeDirective(d generateDirective, quiet bool) error {
 	dir := filepath.Dir(d.File)
+	// A directive in the module cache writes beside a file the cache keeps read
+	// only, so the write is what needs the mode, not the read.
+	if inModCache(dir) {
+		return withWritableDir(dir, func() error { return runDirective(d, dir, quiet) })
+	}
+	return runDirective(d, dir, quiet)
+}
+
+// runDirective is executeDirective a single time the directory is ready to be written.
+func runDirective(d generateDirective, dir string, quiet bool) error {
 
 	if !quiet {
 		logger.Info("\t%s", d.Command)

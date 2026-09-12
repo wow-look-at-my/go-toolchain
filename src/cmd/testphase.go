@@ -309,6 +309,11 @@ var errFound = fmt.Errorf("found")
 
 // needsGenerate returns true if any .go file contains a //go:generate directive.
 func needsGenerate() bool {
+	// A dependency that ships a directive and not its output needs the phase as
+	// much as this tree does. See depgenerate.go.
+	if deps, err := depGenerateDirectives(); err == nil && len(pendingDepDirectives(deps)) > 0 {
+		return true
+	}
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err

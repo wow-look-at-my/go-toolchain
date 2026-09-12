@@ -198,6 +198,12 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		}()
 	}
 
+	// The comment rule is imported, and its extractor reads a parse table that a generate step writes: a dependency ships
+	// the directive and not
+	if err := generateForDeps(generateHash); err != nil {
+		return err
+	}
+
 	// Leads the phases: it reads bytes, not a type-checked package.
 	runSlopfmtPhase(".")
 

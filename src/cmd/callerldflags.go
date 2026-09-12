@@ -17,7 +17,7 @@ func callerLDFlags(goflags string) string {
 }
 
 // splitGOFLAGS splits s the way the go command splits GOFLAGS: on whitespace,
-// with '' or "" around a whole field and no unescaping inside. A quote that
+// with ” or "" around a whole field and no unescaping inside. A quote that
 // opens anywhere but at a field's start is ordinary text, which is why
 // -ldflags="-X a=b" does NOT survive as a field and the quoted spelling has to
 // wrap the flag as well. An unterminated quote yields nothing, matching the go
