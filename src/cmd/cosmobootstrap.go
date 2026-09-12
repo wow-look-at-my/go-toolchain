@@ -16,6 +16,9 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
+// cosmoVersionEnv pins the buildhost release, so a run that spans a publish keeps the same compiler.
+const cosmoVersionEnv = "GO_TOOLCHAIN_COSMO_VERSION"
+
 const (
 	defaultCosmoBranch   = "master"
 	cosmoProbeTimeout    = 30 * time.Second
@@ -41,12 +44,12 @@ func cosmoHostPlatform() (goos, goarch string) {
 }
 
 // EnsureCosmoToolchain resolves a gosmopolitan Go toolchain (the Go fork that
-// builds GOOS=cosmo fat APEs) and returns its GOROOT. Resolution order:
-//
-//   - GO_TOOLCHAIN_COSMO_GOROOT — a local build's GOROOT, used directly.
-//   - Download from buildhost (dl.pazer.build/gosmopolitan, branch selected
-//     by GO_TOOLCHAIN_COSMO_BRANCH, default master) and cache it under the
-//     same cache root the Go bootstrap uses (~/.cache/go-toolchain/cosmo/).
+// builds GOOS=cosmo fat APEs) and returns its GOROOT. It downloads from
+// buildhost (dl.pazer.build/gosmopolitan, the master branch) and caches it
+// under the same cache root the Go bootstrap uses
+// (~/.cache/go-toolchain/cosmo/). GO_TOOLCHAIN_COSMO_VERSION pins one
+// release, so a run spanning a gosmopolitan publish never switches compilers
+// mid-run.
 //
 // The cache is keyed by the buildhost release version parsed from the dl
 // endpoint's redirect (v<N>), so a cached toolchain is never re-downloaded
@@ -56,8 +59,8 @@ func cosmoHostPlatform() (goos, goarch string) {
 func EnsureCosmoToolchain() (string, error) {
 	hostOS, hostArch := cosmoHostPlatformFunc()
 
-	branch := defaultCosmoBranch
-	dlURL := cosmoDownloadURL(branch, pin, hostOS, hostArch)
+	pin := os.Getenv(cosmoVersionEnv)
+	dlURL := cosmoDownloadURL(defaultCosmoBranch, pin, hostOS, hostArch)
 
 	cacheDir, err := goCacheDirFunc()
 	if err != nil {
@@ -65,19 +68,19 @@ func EnsureCosmoToolchain() (string, error) {
 	}
 	cosmoCache := filepath.Join(cacheDir, "cosmo")
 
-	key := cosmoCacheKeyFor(dlURL, branch, "")
+	key := cosmoCacheKeyFor(dlURL, defaultCosmoBranch, pin)
 	goRoot := filepath.Join(cosmoCache, key, "go")
 	if _, statErr := os.Stat(cosmoGoBinPath(goRoot)); statErr == nil {
 		ver, verErr := cosmoGoVersionFunc(goRoot)
 		if verErr != nil {
-			return "", fmt.Errorf("cached gosmopolitan toolchain at %s is broken: %w (delete it to re-download, or set %s to a local build)", goRoot, verErr, cosmoGorootEnv)
+			return "", fmt.Errorf("cached gosmopolitan toolchain at %s is broken: %w (delete it to re-download)", goRoot, verErr)
 		}
 		logger.Info("cosmo-bootstrap: using cached %s from %s (%s)", key, goRoot, ver)
 		return goRoot, nil
 	}
 
 	if err := downloadCosmoToolchain(dlURL, cosmoCache, key); err != nil {
-		return "", fmt.Errorf("failed to download the gosmopolitan toolchain from %s: %w (set %s to use a local build, %s to pick a different buildhost branch, or %s to pin one release)", dlURL, err, cosmoGorootEnv, cosmoBranchEnv, cosmoVersionEnv)
+		return "", fmt.Errorf("failed to download the gosmopolitan toolchain from %s: %w (set %s to pin one release)", dlURL, err, cosmoVersionEnv)
 	}
 
 	ver, err := cosmoGoVersionFunc(goRoot)
@@ -100,22 +103,7 @@ func ResolveCosmoVersion() string {
 		return "v" + sanitizeCacheKey(trimCosmoVersion(pin))
 	}
 	hostOS, hostArch := cosmoHostPlatformFunc()
-	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)
-	return cosmoCacheKey(cosmoDownloadURL(branch, "", hostOS, hostArch), branch)
-}
-
-// useLocalCosmoGoroot validates and returns the GOROOT named by
-// GO_TOOLCHAIN_COSMO_GOROOT.
-func useLocalCosmoGoroot(root string) (string, error) {
-	if _, err := os.Stat(cosmoGoBinPath(root)); err != nil {
-		return "", fmt.Errorf("%s=%s does not look like a gosmopolitan GOROOT (no bin/go): %w", cosmoGorootEnv, root, err)
-	}
-	ver, err := cosmoGoVersionFunc(root)
-	if err != nil {
-		return "", fmt.Errorf("%s=%s: %w", cosmoGorootEnv, root, err)
-	}
-	logger.Info("cosmo-bootstrap: using %s=%s (%s)", cosmoGorootEnv, root, ver)
-	return root, nil
+	return cosmoCacheKey(cosmoDownloadURL(defaultCosmoBranch, "", hostOS, hostArch), defaultCosmoBranch)
 }
 
 // cosmoGoBinPath names the fork's go binary in a GOROOT, for the HOST
