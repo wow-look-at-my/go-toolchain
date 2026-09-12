@@ -79,13 +79,15 @@ func TestEnsureSlopfixFailsOnAMissingLocalBuild(t *testing.T) {
 	assert.Contains(t, err.Error(), slopfixBinEnv)
 }
 
-// The published binary is a fat APE, which execve cannot start. Swallowing
-// that reports a clean tree for a scan that read nothing.
+// A tool that never starts must not pass for a clean tree. The stand-in
+// carries no execute bit, which every kernel refuses alike. A malformed
+// executable does not: darwin hands one to a shell, and the shell's own
+// refusal arrives as the exit code a finding uses.
 func TestRunSlopfmtPhaseFailsWhenTheToolCannotStart(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "slopfix")
-	require.NoError(t, os.WriteFile(bin, []byte{0x00, 0x01, 0x02}, 0755))
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0644))
 
 	t.Setenv(slopfixBinEnv, bin)
