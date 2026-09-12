@@ -16,16 +16,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// Environment variables controlling gosmopolitan toolchain resolution.
-const (
-	// cosmoGorootEnv points at a local gosmopolitan build's GOROOT (dir with bin/go); when set, no download happens.
-	cosmoGorootEnv = "GO_TOOLCHAIN_COSMO_GOROOT"
-	// cosmoBranchEnv selects the buildhost branch the gosmopolitan tarball downloads from; default master.
-	cosmoBranchEnv = "GO_TOOLCHAIN_COSMO_BRANCH"
-	// cosmoVersionEnv pins the buildhost release, so a run that spans a publish keeps the same compiler.
-	cosmoVersionEnv = "GO_TOOLCHAIN_COSMO_VERSION"
-)
-
 const (
 	defaultCosmoBranch   = "master"
 	cosmoProbeTimeout    = 30 * time.Second
@@ -64,14 +54,9 @@ func cosmoHostPlatform() (goos, goarch string) {
 // cannot be parsed, the cache falls back to a branch-keyed directory that is
 // downloaded a single time and then reused as long as it exists.
 func EnsureCosmoToolchain() (string, error) {
-	if root := os.Getenv(cosmoGorootEnv); root != "" {
-		return useLocalCosmoGoroot(root)
-	}
-
 	hostOS, hostArch := cosmoHostPlatformFunc()
 
-	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)
-	pin := os.Getenv(cosmoVersionEnv)
+	branch := defaultCosmoBranch
 	dlURL := cosmoDownloadURL(branch, pin, hostOS, hostArch)
 
 	cacheDir, err := goCacheDirFunc()
@@ -80,7 +65,7 @@ func EnsureCosmoToolchain() (string, error) {
 	}
 	cosmoCache := filepath.Join(cacheDir, "cosmo")
 
-	key := cosmoCacheKeyFor(dlURL, branch, pin)
+	key := cosmoCacheKeyFor(dlURL, branch, "")
 	goRoot := filepath.Join(cosmoCache, key, "go")
 	if _, statErr := os.Stat(cosmoGoBinPath(goRoot)); statErr == nil {
 		ver, verErr := cosmoGoVersionFunc(goRoot)
@@ -240,8 +225,7 @@ func resolveCosmoReleaseStrict() (string, error) {
 		return "v" + sanitizeCacheKey(trimCosmoVersion(pin)), nil
 	}
 	hostOS, hostArch := cosmoHostPlatformFunc()
-	branch := envOr(cosmoBranchEnv, defaultCosmoBranch)
-	dlURL := cosmoDownloadURL(branch, "", hostOS, hostArch)
+	dlURL := cosmoDownloadURL(defaultCosmoBranch, "", hostOS, hostArch)
 
 	var lastErr error
 	for attempt := range cosmoProbeAttempts {
@@ -256,7 +240,7 @@ func resolveCosmoReleaseStrict() (string, error) {
 		}
 		if v == "" {
 			// An answer, so retrying cannot change it: this slot has no release.
-			return "branch-" + sanitizeCacheKey(branch), nil
+			return "branch-" + sanitizeCacheKey(defaultCosmoBranch), nil
 		}
 		return "v" + v, nil
 	}
