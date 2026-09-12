@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strconv"
 	"strings"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
@@ -14,6 +15,9 @@ const ancestryLimit = 8
 // A seam, so a test can drive the refused read that switched the guard off.
 var readCmdlineFunc = readCmdline
 
+// The ancestry lookup, as a seam. A test cannot arrange a real failure.
+var commPPIDFunc = agent.CommPPID
+
 // unidentifiedPeerSink answers a pipe with an unnameable reader. Only a READ
 // command line showing a capture convicts: else every bare run aborts.
 func unidentifiedPeerSink(kind sinkKind) outputSink {
@@ -24,7 +28,7 @@ func unidentifiedPeerSink(kind sinkKind) outputSink {
 	// Nothing named the reader and nothing showed a capture. The run is
 	// allowed, and this records that the guard answered without knowing.
 	if cmd == "" {
-		return outputSink{kind: sinkVisible, blind: "the reader could not be named and no ancestor's command line could be read"}
+		return outputSink{kind: sinkVisible, blind: "the reader could not be named and no ancestor's command line could be read" + probeDetail()}
 	}
 	return outputSink{kind: sinkVisible, blind: "the reader could not be named, and the spawning command line does not capture stdout: " + cmd}
 }
@@ -141,15 +145,30 @@ func capturesStdout(script string) bool {
 	return false
 }
 
-// parentPID is agent's view of our own parent, so the walk starts from the
-// same ancestry the agent roster uses.
+// parentPID is agent's view of our own parent. Either outcome ends the walk
+// before it starts, and they want different repairs: a refused lookup is a
+// defect in the host's process reader, and a parent of init is a process with
+// nothing above it to read.
 func parentPID() int {
-	_, ppid, _ := agent.CommPPID(selfPID())
+	self := strconv.Itoa(selfPID())
+	_, ppid, ok := commPPIDFunc(selfPID())
+	if !ok {
+		lastCmdlineProbeErr = "the process lookup refused the parent of pid " + self + ", so no ancestor was probed"
+		// agent knows WHY its reader answered nothing.
+		if why := agent.LookupError(); why != "" {
+			lastCmdlineProbeErr += ": " + why
+		}
+		return 0
+	}
+	if ppid <= 1 {
+		lastCmdlineProbeErr = "pid " + self + " reports parent " + strconv.Itoa(ppid) + ", so there is no ancestor to probe"
+		return 0
+	}
 	return ppid
 }
 
 // parentOf is the same lookup for an arbitrary pid.
 func parentOf(pid int) (int, bool) {
-	_, ppid, ok := agent.CommPPID(pid)
+	_, ppid, ok := commPPIDFunc(pid)
 	return ppid, ok
 }

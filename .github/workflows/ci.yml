@@ -11,6 +11,9 @@ permissions:
   security-events: write
   actions: read
   checks: read
+  # A buildhost publish registers a GitHub Deployment and records what it stored. Both are part of publishing and fail the job.
+  deployments: write
+  artifact-metadata: write
 
 jobs:
   host-build:
@@ -65,6 +68,25 @@ jobs:
         with:
           tests: .github/dats-fixtures/cache-profile.dats
 
+      # A GitHub Actions artifact is banned org-wide, so the profile is published as a per-branch site instead.
+      - name: Stage the build profile
+        # Staged outside the checkout: a directory in the tree makes the next build's dirty-tree gate fail.
+        run: |
+          mkdir -p "$RUNNER_TEMP/profile-site"
+          cp build/profile.json "$RUNNER_TEMP/profile-site/profile.json"
+          # The Chrome trace a profiler opens. It lands beside the actiongraph dumps, never in build/.
+          trace="${TMPDIR:-/tmp}/go-toolchain-profile/trace.json"
+          if [ -f "$trace" ]; then cp "$trace" "$RUNNER_TEMP/profile-site/trace.json"; fi
+
+      - name: Publish the build profile
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-publish-site@master
+        with:
+          # A namespaced child of this repo's project. OIDC authorizes that name; a sibling name is a 404.
+          project: go-toolchain/profile
+          branch: ${{ github.ref_name }}
+          source_dir: ${{ runner.temp }}/profile-site
+          comment: 'false'
+
       - name: Cache validation (second build)
         # build/ in THIS job is the fat APE. A shell starts it, which is the only way an APE starts --... see docs/CI.md
         env:
@@ -77,9 +99,9 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          # 90s is derived, not guessed. see docs/CI.md
-          if [ "$elapsed" -gt 90 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 90s)"
+          # 60s is derived, not guessed. see docs/CI.md
+          if [ "$elapsed" -gt 60 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 60s)"
             exit 1
           fi
 
