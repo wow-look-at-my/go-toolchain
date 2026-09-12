@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cosmo-version: ${{ steps.cosmo.outputs.version }}
+    env:
+      # TEMPORARY: drop this once a go-toolchain built by gosmopolitan v500 or newer is published.
+      GO_TOOLCHAIN_COSMO_VERSION: "476"
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another one is asked as the wrong identity.
       - uses: actions/checkout@v7
