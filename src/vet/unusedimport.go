@@ -168,7 +168,7 @@ func fixFileUnusedRangeVars(filename string) (bool, error) {
 	modified := false
 	for _, rv := range rangeVars {
 		used := false
-		ast.Inspect(rv.scope.Body, func(n ast.Node) bool {
+		InspectNode(rv.scope.Body, func(n ast.Node) bool {
 			if ident, ok := n.(*ast.Ident); ok && ident != rv.ident && ident.Name == rv.ident.Name {
 				used = true
 				return false

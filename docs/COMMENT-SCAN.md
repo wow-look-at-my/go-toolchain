@@ -1,6 +1,6 @@
 # The comment scan: a number in a comment
 
-`src/cmd/slopfmtphase.go` reports any number written in a comment, in digits or in words. The remedy it names is always the same: describe what the code does and let the reader count.
+`src/cmd/commentscanphase.go` reports any number written in a comment, in digits or in words. The remedy it names is always the same: describe what the code does and let the reader count.
 
 A number in a comment is a count of what exists on the day it was written. The edit that adds an item does not update it. So the comment quietly goes false, and the alternative. Naming the thing instead survives both.
 
