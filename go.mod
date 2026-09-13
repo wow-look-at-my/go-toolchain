@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/wow-look-at-my/ansi-writer v0.0.0-20260811021111-443bcdc98174 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/dats v0.0.0-20260910122754-5dfcc0b24b09 // go-toolchain:auto-branch
-	github.com/wow-look-at-my/go-containers v0.0.0-20260908164146-f519b55aab33 // go-toolchain:auto-branch
+	github.com/wow-look-at-my/go-containers v0.0.0-20260913115023-d3bbbdd0286d // go-toolchain:auto-branch
 	github.com/wow-look-at-my/is-this-an-agent v0.0.0-20260907051835-c793c37219b6 // go-toolchain:auto-branch
 	github.com/wow-look-at-my/slopfix v0.0.0-20260913050306-dd1816cdc91c // go-toolchain:auto-branch
 	golang.org/x/mod v0.41.0
