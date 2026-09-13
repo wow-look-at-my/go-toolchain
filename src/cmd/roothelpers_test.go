@@ -57,6 +57,43 @@ func TestFindGoModules_Subdirectories(t *testing.T) {
 	assert.Equal(t, 2, len(modules))
 }
 
+// A root go.mod used to END the search, so a nested module never built and
+// never ran a test while the run reported green. The root still leads.
+func TestFindGoModules_RootDoesNotHideNested(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
+	os.MkdirAll(filepath.Join(dir, "tool"), 0755)
+	os.WriteFile(filepath.Join(dir, "tool", "go.mod"), []byte("module test/tool\ngo 1.21\n"), 0644)
+	os.MkdirAll(filepath.Join(dir, "examples", "demo"), 0755)
+	os.WriteFile(filepath.Join(dir, "examples", "demo", "go.mod"), []byte("module demo\ngo 1.21\n"), 0644)
+
+	t.Chdir(dir)
+
+	modules := findGoModules()
+	require.Equal(t, 3, len(modules), "the root and both nested modules")
+	assert.Equal(t, ".", modules[0], "the root module leads")
+	assert.Contains(t, modules, filepath.Join("examples", "demo"))
+	assert.Contains(t, modules, "tool")
+}
+
+// A go.mod under testdata is a fixture for somebody's test. go ignores
+// testdata and so does this walk, or every table-driven module fixture in
+// the tree becomes a build target.
+func TestFindGoModules_SkipsTestdata(t *testing.T) {
+	t.Serial()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
+	os.MkdirAll(filepath.Join(dir, "testdata", "broken"), 0755)
+	os.WriteFile(filepath.Join(dir, "testdata", "broken", "go.mod"), []byte("module broken\n"), 0644)
+
+	t.Chdir(dir)
+
+	modules := findGoModules()
+	require.Equal(t, 1, len(modules))
+	assert.Equal(t, ".", modules[0])
+}
+
 func TestFindGoModules_SkipsHiddenAndVendor(t *testing.T) {
 	t.Serial()
 	dir := t.TempDir()

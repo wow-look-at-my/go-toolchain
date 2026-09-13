@@ -57,6 +57,14 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 `dats/binfmt.dats` covers the contract. The script names its outcome, reaches the same outcome twice, and never fails the job. It registers nothing itself, because the sandbox grants no root. Where an entry does exist it asserts the magic and the interpreter, so a mistyped byte cannot pass.
 
+## 1b4. The sandbox backend for the dats phase
+
+`.github/scripts/provision-bwrap.sh` runs on a Linux runner before the build. The dats phase sandboxes every suite command, and the backend it picks decides what those commands can reach. Without bubblewrap it falls back to docker, which runs the suites in a container with no host Go for the bootstrap.
+
+The script reads the working directory. A module with no `dats/` directory pays nothing. A host where `bwrap` already builds a sandbox pays one probe. Otherwise the script installs bubblewrap with apt, turns off Ubuntu 24.04's `apparmor_restrict_unprivileged_userns`, and probes again. A host where the probe still fails fails the job here, with its own error. It never degrades to the docker fallback unnoticed. The step is skipped on macOS and Windows, which have other backends or none.
+
+A consumer therefore drops its own bubblewrap step. `dats/bwrap.dats` covers the contract. A module with no suites is left alone. A module with suites gets a usable backend or an error a caller can act on.
+
 ## 1c. Installing the binary
 
 The download goes straight to buildhost's `dl` endpoint with curl, and no npm is involved. `--compressed` advertises `Accept-Encoding`, zstd included where curl was built with it, so buildhost streams the stored zstd blob as-is and curl decompresses client-side. The server never pays the decompression cost. Where curl lacks zstd it just gets the plain binary. buildhost normalizes platform aliases natively (`RUNNER_OS` Linux/macOS/Windows, `RUNNER_ARCH` X64/ARM64), so those values pass through verbatim. It serves the branch tip `no-store`, so no cache-buster is needed. Download, the one pre-install run, and the copy into `/usr/local/bin` are one step. Nothing in the org's action set can write there (the runner is not root), and dats' sandbox mounts only the standard paths. So a split will only move the `sudo cp` into a second step.
