@@ -4,10 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -17,13 +15,10 @@ import (
 )
 
 // setupCosmoTest neutralizes every external dependency of
-// EnsureCosmoToolchain: env vars, the version probe, the host platform, and
-// the cache directory. Individual tests override the pieces they exercise.
+// EnsureCosmoToolchain: the version probe, the host platform, and the cache
+// directory. Individual tests override the pieces they exercise.
 func setupCosmoTest(t *testing.T) (cacheDir string) {
 	t.Helper()
-	t.Setenv(cosmoGorootEnv, "")
-	t.Setenv(cosmoBranchEnv, "")
-	t.Setenv(cosmoVersionEnv, "")
 
 	cacheDir = t.TempDir()
 	oldCacheDir := goCacheDirFunc
@@ -69,48 +64,6 @@ func makeCosmoTarballNamed(t *testing.T, binName string) []byte {
 	require.NoError(t, tw.Close())
 	require.NoError(t, gz.Close())
 	return buf.Bytes()
-}
-
-func TestEnsureCosmoToolchainEnvGoroot(t *testing.T) {
-	t.Serial()
-	setupCosmoTest(t)
-
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "bin"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "bin", "go"), []byte("fake"), 0755))
-	t.Setenv(cosmoGorootEnv, root)
-
-	got, err := EnsureCosmoToolchain()
-	require.NoError(t, err)
-	assert.Equal(t, root, got)
-}
-
-func TestEnsureCosmoToolchainEnvGorootMissingBinGo(t *testing.T) {
-	t.Serial()
-	setupCosmoTest(t)
-
-	root := t.TempDir() // no bin/go inside
-	t.Setenv(cosmoGorootEnv, root)
-
-	_, err := EnsureCosmoToolchain()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), cosmoGorootEnv)
-	assert.Contains(t, err.Error(), "bin/go")
-}
-
-func TestEnsureCosmoToolchainEnvGorootBrokenVersionProbe(t *testing.T) {
-	t.Serial()
-	setupCosmoTest(t)
-
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "bin"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "bin", "go"), []byte("fake"), 0755))
-	t.Setenv(cosmoGorootEnv, root)
-	cosmoGoVersionFunc = func(string) (string, error) { return "", fmt.Errorf("go version failed: boom") }
-
-	_, err := EnsureCosmoToolchain()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "go version failed")
 }
 
 // Every host asks buildhost for its own os/arch. No host list lives here: a
@@ -159,7 +112,7 @@ func TestEnsureCosmoToolchainDownloadsForEveryHost(t *testing.T) {
 }
 
 // A host buildhost has no toolchain for gets buildhost's own answer, named as
-// such, plus the local-GOROOT escape -- never a refusal from a list here.
+// such -- never a refusal from a list here.
 func TestEnsureCosmoToolchainUnpublishedHostNamesTheEscape(t *testing.T) {
 	t.Serial()
 	setupCosmoTest(t)
@@ -177,7 +130,6 @@ func TestEnsureCosmoToolchainUnpublishedHostNamesTheEscape(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "os=plan9")
 	assert.Contains(t, err.Error(), "publishes no gosmopolitan toolchain for this host")
-	assert.Contains(t, err.Error(), cosmoGorootEnv)
 }
 
 func TestEnsureCosmoToolchainDownloadsAndCaches(t *testing.T) {
@@ -279,33 +231,6 @@ func TestEnsureCosmoToolchainWindowsHostRejectsArchiveWithoutExe(t *testing.T) {
 	assert.Contains(t, err.Error(), "go/bin/go.exe")
 }
 
-func TestEnsureCosmoToolchainBranchEnvSelectsBranch(t *testing.T) {
-	t.Serial()
-	setupCosmoTest(t)
-	t.Setenv(cosmoBranchEnv, "claude/some-branch")
-	tarball := makeCosmoTarball(t)
-
-	var gotQuery atomic.Value
-	mux := http.NewServeMux()
-	mux.HandleFunc("/gosmopolitan", func(w http.ResponseWriter, r *http.Request) {
-		gotQuery.Store(r.URL.RawQuery)
-		if r.Method == http.MethodHead {
-			w.Header().Set("Location", "/static?v=7")
-			w.WriteHeader(http.StatusMovedPermanently)
-			return
-		}
-		w.Write(tarball)
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	cosmoDownloadBase = srv.URL + "/gosmopolitan"
-
-	got, err := EnsureCosmoToolchain()
-	require.NoError(t, err)
-	assert.Contains(t, got, filepath.Join("cosmo", "v7", "go"))
-	assert.Contains(t, gotQuery.Load().(string), "branch=claude%2Fsome-branch")
-}
-
 func TestEnsureCosmoToolchainFallsBackToBranchKey(t *testing.T) {
 	t.Serial()
 	cacheDir := setupCosmoTest(t)
@@ -339,9 +264,6 @@ func TestEnsureCosmoToolchainDownloadHTTPError(t *testing.T) {
 	_, err := EnsureCosmoToolchain()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP 404")
-	// The error must name the env overrides that unblock the user.
-	assert.Contains(t, err.Error(), cosmoGorootEnv)
-	assert.Contains(t, err.Error(), cosmoBranchEnv)
 }
 
 func TestEnsureCosmoToolchainRejectsArchiveWithoutGo(t *testing.T) {

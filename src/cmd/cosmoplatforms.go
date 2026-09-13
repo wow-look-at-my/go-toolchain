@@ -44,8 +44,8 @@ func cosmoPlatformsEnvValue(forkGoroot string, platforms []buildPlatform) string
 		return ""
 	}
 	if !cosmoPlatformsSupportedFunc(forkGoroot) {
-		logger.Warn("⇒ Warning: the gosmopolitan toolchain at %s does not report %s through `go env`, so it predates platform-set support: the fat APE covers every platform the fork emits instead of just %s. The artifact still runs on all of %s — it is only larger than asked. Update the toolchain (%s, or delete the cached copy) to get the slimmed build.",
-			forkGoroot, cosmoPlatformsEnv, platformList(platforms), platformList(platforms), cosmoBranchEnv)
+		logger.Warn("⇒ Warning: the gosmopolitan toolchain at %s does not report %s through `go env`, so it predates platform-set support: the fat APE covers every platform the fork emits instead of just %s. The artifact still runs on all of %s — it is only larger than asked. Delete the cached copy to force a re-download of a newer toolchain and get the slimmed build.",
+			forkGoroot, cosmoPlatformsEnv, platformList(platforms), platformList(platforms))
 		return ""
 	}
 	return platformList(platforms)
