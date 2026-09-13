@@ -123,7 +123,7 @@ func TestASubmodulesProseBelongsToItsOwnRepository(t *testing.T) {
 	write(t, dir, filepath.Join("upstream", "theirs.c"), "/* Copyright 2023 */\n")
 
 	var names []string
-	for _, path := range slopfmtFiles(dir) {
+	for _, path := range commentScanFiles(dir) {
 		names = append(names, filepath.Base(path))
 	}
 	assert.Contains(t, names, "ours.go")
@@ -139,7 +139,7 @@ func TestAnOrdinaryCheckoutIsStillWalked(t *testing.T) {
 	write(t, dir, filepath.Join("inner", "lib.go"), "package inner\n")
 
 	var names []string
-	for _, path := range slopfmtFiles(dir) {
+	for _, path := range commentScanFiles(dir) {
 		names = append(names, filepath.Base(path))
 	}
 	assert.Contains(t, names, "lib.go")
