@@ -161,7 +161,13 @@ func setMarker(line *modfile.Line, m marker) {
 // stripMarkers removes any go-toolchain tracking marker from a comment token,
 // returning "" when nothing but the marker was there.
 func stripMarkers(token string) string {
-	for _, mark := range []string{autoBranchMarker, legacyBranchMarker} {
+	return stripMarks(token, autoBranchMarker, legacyBranchMarker)
+}
+
+// stripMarks removes each named marker and its value from a comment token,
+// returning "" when nothing but markers was there.
+func stripMarks(token string, marks ...string) string {
+	for _, mark := range marks {
 		i := strings.Index(token, mark)
 		if i == -1 {
 			continue
