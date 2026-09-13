@@ -88,10 +88,14 @@ func buildSelfWithFork(pkg string) (string, error) {
 }
 
 // runSelf hands this invocation to bin and answers its exit status.
-func runSelf(bin string) int {
+func runSelf(bin string) int { return runSelfWith(bin, reexecGuardEnv) }
+
+// runSelfWith hands this invocation to bin under the named guard, so a second
+// reason to rebuild cannot read the first one's guard as its own.
+func runSelfWith(bin, guard string) int {
 	cmd := exec.Command(bin, os.Args[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), reexecGuardEnv+"=1")
+	cmd.Env = append(os.Environ(), guard+"=1")
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {

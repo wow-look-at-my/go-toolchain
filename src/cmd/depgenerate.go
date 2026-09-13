@@ -277,7 +277,12 @@ func generateForDeps(expectedHash string) error {
 		logger.Info("\n%sTo run these commands, record the approval: echo %s > %s%s", colorYellow, hash, generateApprovalFile, colorReset)
 		return fmt.Errorf("a dependency's generate commands require approval: record %s in %s", hash, generateApprovalFile)
 	}
-	return satisfyDepDirectives(pending)
+	if err := satisfyDepDirectives(pending); err != nil {
+		return err
+	}
+	// The output landed after this process linked those packages, so the phases
+	// that read them need a build that has them.
+	return reexecAfterDepGenerate()
 }
 
 // satisfyDepDirectives writes what the pending dependency directives owe, by
