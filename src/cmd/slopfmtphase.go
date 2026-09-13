@@ -9,7 +9,6 @@ import (
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
-	"github.com/wow-look-at-my/slopfmt/gocomments"
 )
 
 // slopfmtSkipDirs hold text nobody here authored.
@@ -31,7 +30,7 @@ func runSlopfmtPhase(root string) {
 		}
 		for _, hit := range commentNumberFindings(path, string(src)) {
 			logger.WarnFile(path, "%s:%d:%d: %q is a number in a comment: %s",
-				path, hit.Line, hit.Col, hit.Number, gocomments.Remedy)
+				path, hit.Line, hit.Col, hit.Number, commentscanRemedy)
 		}
 	}
 	st.done()
@@ -39,10 +38,10 @@ func runSlopfmtPhase(root string) {
 
 // commentNumberFindings keeps a finding per line rather than per number,
 // because the repair is a rewrite of the line whatever it counts.
-func commentNumberFindings(path, src string) []gocomments.Hit {
+func commentNumberFindings(path, src string) []commentscanHit {
 	seen := set.New[int]()
-	var out []gocomments.Hit
-	for _, hit := range gocomments.Check(path, src) {
+	var out []commentscanHit
+	for _, hit := range commentscanCheck(path, src) {
 		if seen.Contains(hit.Line) {
 			continue
 		}
@@ -68,7 +67,7 @@ func slopfmtFiles(root string) []string {
 			}
 			return nil
 		}
-		if !gocomments.Supported(path) {
+		if !commentscanSupported(path) {
 			return nil
 		}
 		if info, err := d.Info(); err == nil && info.Size() > slopfmtMaxFileBytes {
