@@ -28,7 +28,7 @@ func TestTheScanReadsEveryLanguageTheExtractorKnows(t *testing.T) {
 	write(t, dir, "ci.yml", "# holds 4 jobs\njobs: {}\n")
 
 	found := map[string]string{}
-	for _, path := range slopfmtFiles(dir) {
+	for _, path := range commentScanFiles(dir) {
 		src, err := os.ReadFile(path)
 		require.NoError(t, err)
 		for _, hit := range commentNumberFindings(path, string(src)) {
@@ -67,7 +67,7 @@ func TestTheScanSkipsTextItsAuthorDoesNotOwn(t *testing.T) {
 	write(t, dir, filepath.Join(outputDir, "skip.go"), "package s\n")
 
 	var names []string
-	for _, path := range slopfmtFiles(dir) {
+	for _, path := range commentScanFiles(dir) {
 		names = append(names, filepath.Base(path))
 	}
 	assert.Equal(t, []string{"keep.go"}, names)
@@ -81,7 +81,7 @@ func TestATreeWithNoModuleAtItsRootIsStillScanned(t *testing.T) {
 	write(t, dir, "svc/a.go", "package p\n\n// holds 3 entries\n")
 
 	var names []string
-	for _, path := range slopfmtFiles(dir) {
+	for _, path := range commentScanFiles(dir) {
 		names = append(names, filepath.Base(path))
 	}
 	assert.Contains(t, names, "a.go")
@@ -92,7 +92,7 @@ func TestATreeWithNoModuleAtItsRootIsStillScanned(t *testing.T) {
 func TestAFileTooLargeToBeProseIsSkipped(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "go.mod", "module x\n")
-	write(t, dir, "big.go", "package p\n// "+string(make([]byte, slopfmtMaxFileBytes))+"\n")
+	write(t, dir, "big.go", "package p\n// "+string(make([]byte, commentScanMaxFileBytes))+"\n")
 
-	assert.Empty(t, slopfmtFiles(dir))
+	assert.Empty(t, commentScanFiles(dir))
 }
