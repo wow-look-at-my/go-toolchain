@@ -12,7 +12,7 @@ import (
 // extractor with no language in it. Rebuilding is the only cure, because the
 // tables enter through the compiler rather than at run time.
 
-// Set on the child, so the rebuild is attempted at most once per run.
+// Set on the child, so the rebuild is attempted at most a single time per run.
 const depGenerateReexecEnv = "GO_TOOLCHAIN_DEPGEN_REEXEC"
 
 // reexecAfterDepGenerate hands the run to a build that links what the generate

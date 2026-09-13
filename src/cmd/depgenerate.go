@@ -102,7 +102,7 @@ func hasGoFile(dir string) bool {
 	return false
 }
 
-// depModuleDirs names the cached root of every module this one builds against.
+// depModuleDirs names the cached root of every module this a single builds against.
 func depModuleDirs(cache string) []string {
 	out, err := goOutput("list", "-deps", "-f", "{{with .Module}}{{.Dir}}{{end}}", "./...")
 	if err != nil {
@@ -255,6 +255,14 @@ func generateForDeps(expectedHash string) error {
 	deps, err := depGenerateDirectives()
 	if err != nil {
 		return nil
+	}
+	if len(deps) > 0 {
+		// A directive writes into the cache AFTER the go command indexed that
+		// module as immutable, so the index answers with the file list from
+		// before the write and the package compiles without what it generated.
+		// The gap outlives the run that wrote it: the index stays stale for
+		// every later run, where nothing is pending and no generate happens.
+		disableGoModuleIndex()
 	}
 	pending := pendingDepDirectives(deps)
 	if len(pending) == 0 {

@@ -280,7 +280,7 @@ var cosmoRetryInterval = 3 * time.Second
 // An answer rather than a network fault, so the retry stops.
 type terminalDownloadError struct{ error }
 
-// fetchCosmoInto downloads the tarball once and extracts it into dir.
+// fetchCosmoInto downloads the tarball a single time and extracts it into dir.
 func fetchCosmoInto(dlURL, dir string) error {
 	client := &http.Client{Timeout: cosmoDownloadTimeout}
 	resp, err := client.Get(dlURL)

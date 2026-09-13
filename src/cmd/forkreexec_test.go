@@ -12,7 +12,6 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
-// Asserts the two answers agree, rather than pinning either one.
 func TestBuiltByForkReadsTheRunningToolchain(t *testing.T) {
 	assert.Equal(t, strings.Contains(runtime.Version(), "cosmo"), builtByFork())
 }

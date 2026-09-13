@@ -113,11 +113,11 @@ func TestModuleRootIsTheDirectoryCarryingTheVersion(t *testing.T) {
 }
 
 // The go command answers GOMODCACHE in the host's spelling and {{.Dir}} in
-// another, so an NT run compared two spellings of one directory and grouped
-// nothing. Everything the cache code compares is slash-spelled now.
+// another, so an NT run compared spellings of a single directory and
+// grouped nothing. Everything the cache code compares is slash-spelled now.
 func TestAHostSpelledFileStillFindsItsModule(t *testing.T) {
 	root := under("github.com/wow/dep@v1")
-	// The host's own spelling, which is the one the go command hands back.
+	// The host's own spelling, which is the a single the go command hands back.
 	native := filepath.FromSlash(root + "/g/gen.go")
 
 	assert.Equal(t, root, moduleRootOf(cacheRoot, native), "the file's spelling is normalized")
@@ -160,11 +160,11 @@ func TestSatisfyingNothingIsAnImmediateNoOp(t *testing.T) {
 	assert.NoError(t, satisfyDepDirectives(nil))
 }
 
-// go mod tidy can move a dependency's pin after the first pass generated for
+// go mod tidy can move a dependency's pin after the earliest pass generated for
 // the older version, which leaves the new version's cache directory owing its
 // output again. That gap is still the clone's to fill: the directive's input is
 // a git submodule, and the cached copy carries a gitlink instead of the files.
-// So the second pass must reach the clone rather than run the directive where it
+// So the next pass must reach the clone rather than run the directive where it
 // sits.
 func TestASecondPassStillGeneratesInTheClone(t *testing.T) {
 	cache := t.TempDir()
@@ -206,8 +206,7 @@ func TestWritableDirRestoresTheMode(t *testing.T) {
 }
 
 // filepath.ToSlash reads the COMPILE TARGET, and the published binary is a cosmo
-// build whose separator is already a slash. So it converts no NT path, while the
-// go command answers one. The host decides here.
+// build whose separator is already a slash. The host decides here.
 func TestASlashSpellingReadsTheHostNotTheTarget(t *testing.T) {
 	nt := `C:\Users\runneradmin\go\pkg\mod`
 	assert.Equal(t, "C:/Users/runneradmin/go/pkg/mod", slashPathFor("windows", nt))

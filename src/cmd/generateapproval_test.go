@@ -46,7 +46,6 @@ func TestAFileOfOnlyNotesApprovesNothing(t *testing.T) {
 	assert.Empty(t, readGenerateApproval(withApproval(t, "# nothing approved yet\n")))
 }
 
-// The flag is for a one-off run, so it wins over what the tree records.
 func TestTheFlagWinsOverTheRecordedHash(t *testing.T) {
 	t.Serial()
 	prev := generateHash

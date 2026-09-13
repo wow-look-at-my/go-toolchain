@@ -53,7 +53,7 @@ func runGenerate(quiet bool, expectedHash string) error {
 		return fmt.Errorf("failed to read dependency generate directives: %w", err)
 	}
 	hash := approvalHash(directives, deps)
-	// Owed again once tidy moved the pin. Still the clone's job: the cache holds a gitlink, not the submodule.
+	// Owed again a single time tidy moved the pin. Still the clone's job: the cache holds a gitlink, not the submodule.
 	pending := pendingDepDirectives(deps)
 
 	if len(directives) == 0 && len(pending) == 0 {

@@ -8,7 +8,6 @@ import (
 // Where a repo records the hash it approved. Depth: docs/PIPELINE.md
 const generateApprovalFile = ".go-toolchain-generate"
 
-// approvedGenerateHash prefers the flag, for a one-off run that needs no commit.
 func approvedGenerateHash() string {
 	if generateHash != "" {
 		return generateHash
