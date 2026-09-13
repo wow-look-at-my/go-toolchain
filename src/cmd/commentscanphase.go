@@ -10,34 +10,23 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/slopfix/commentnumbers"
-	"github.com/wow-look-at-my/slopfix/treecomments"
 )
 
-// slopfmtSkipDirs hold text nobody here authored.
-var slopfmtSkipDirs = set.Of("vendor", "node_modules", "testdata")
+// commentScanSkipDirs hold text nobody here authored.
+var commentScanSkipDirs = set.Of("vendor", "node_modules", "testdata")
 
-// slopfmtMaxFileBytes is where a file stops being prose and becomes a blob.
-const slopfmtMaxFileBytes = 1 << 20
+// commentScanMaxFileBytes is where a file stops being prose and becomes a blob.
+const commentScanMaxFileBytes = 1 << 20
 
-// runSlopfmtPhase REPAIRS every number stated in a comment, anywhere in the
+// runCommentScanPhase REPAIRS every number stated in a comment, anywhere in the
 // tree. Nothing resolves an import or starts a compiler, so it must stay ahead
 // of every other phase: that is what it buys. A finding the repair could not
 // swap is reported, because the repair cut that sentence rather than guess at
 // it. Depth: docs/COMMENT-SCAN.md
-func runSlopfmtPhase(root string) {
+func runCommentScanPhase(root string) {
 	st := logStep("comment scan")
-	// The rule reads a parse table a generate step writes, and a binary compiled
-	// before that step ran carries none: this run generated them for the NEXT
-	// build of this binary. Saying so beats reporting a clean tree nobody read.
-	if missing := treecomments.Missing(); len(missing) > 0 {
-		logger.Warn("⇒ Warning: no comment was read for %s: this binary was built "+
-			"before their parse tables existed, and the build that follows has them",
-			strings.Join(missing, ", "))
-		st.done()
-		return
-	}
 	repaired := 0
-	for _, path := range slopfmtFiles(root) {
+	for _, path := range commentScanFiles(root) {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -95,8 +84,8 @@ func commentNumberFindings(path, src string) []commentnumbers.Hit {
 	return out
 }
 
-// slopfmtFiles returns every file under root the rule reads.
-func slopfmtFiles(root string) []string {
+// commentScanFiles returns every file under root the rule reads.
+func commentScanFiles(root string) []string {
 	// Where the root is not a module, the modules below it are the whole tree.
 	_, err := os.Stat(filepath.Join(root, "go.mod"))
 	rootIsModule := err == nil
@@ -106,7 +95,7 @@ func slopfmtFiles(root string) []string {
 			return nil
 		}
 		if d.IsDir() {
-			if slopfmtSkipDir(root, path, d.Name(), rootIsModule) {
+			if commentScanSkipDir(root, path, d.Name(), rootIsModule) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -114,7 +103,7 @@ func slopfmtFiles(root string) []string {
 		if !commentnumbers.Supported(path) {
 			return nil
 		}
-		if info, err := d.Info(); err == nil && info.Size() > slopfmtMaxFileBytes {
+		if info, err := d.Info(); err == nil && info.Size() > commentScanMaxFileBytes {
 			return nil
 		}
 		out = append(out, path)
@@ -123,12 +112,12 @@ func slopfmtFiles(root string) []string {
 	return out
 }
 
-// slopfmtSkipDir reports whether the walk stops at this directory.
-func slopfmtSkipDir(root, path, name string, rootIsModule bool) bool {
+// commentScanSkipDir reports whether the walk stops at this directory.
+func commentScanSkipDir(root, path, name string, rootIsModule bool) bool {
 	if path == root {
 		return false
 	}
-	if strings.HasPrefix(name, ".") || name == outputDir || slopfmtSkipDirs.Contains(name) {
+	if strings.HasPrefix(name, ".") || name == outputDir || commentScanSkipDirs.Contains(name) {
 		return true
 	}
 	if gomod.IsGitSubmodule(path) {
