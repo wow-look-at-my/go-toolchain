@@ -140,11 +140,7 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 				vetPhaseStep.done()
 				vetPhaseStep = nil
 			}
-			// Recompile rather than reach for a source-only load. The API that
-			// did not decode came out of a cache, and a local build writes one
-			// this binary can read. There is no source-only entry point to fall
-			// back to: loadMode carries NeedDeps on every load, so the retry
-			// already type-checks each dependency from its own source.
+			// The unreadable API came out of a cache; a local build writes it readable.
 			vetPhaseStep = logSubStep("vet: retry with the shared cache off", "main")
 			filesChanged, err = vetRunFunc(fix, vetProgress)
 			if err != nil {

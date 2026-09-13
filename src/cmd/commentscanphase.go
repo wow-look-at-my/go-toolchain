@@ -19,10 +19,8 @@ var commentScanSkipDirs = set.Of("vendor", "node_modules", "testdata")
 const commentScanMaxFileBytes = 1 << 20
 
 // runCommentScanPhase REPAIRS every number stated in a comment, anywhere in the
-// tree. Nothing resolves an import or starts a compiler, so it must stay ahead
-// of every other phase: that is what it buys. A finding the repair could not
-// swap is reported, because the repair cut that sentence rather than guess at
-// it. Depth: docs/COMMENT-SCAN.md
+// tree, ahead of any compiler, and reports a sentence the repair had to cut.
+// Depth: docs/COMMENT-SCAN.md
 func runCommentScanPhase(root string) {
 	st := logStep("comment scan")
 	repaired := 0

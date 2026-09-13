@@ -257,11 +257,7 @@ func generateForDeps(expectedHash string) error {
 		return nil
 	}
 	if len(deps) > 0 {
-		// A directive writes into the cache AFTER the go command indexed that
-		// module as immutable, so the index answers with the file list from
-		// before the write and the package compiles without what it generated.
-		// The gap outlives the run that wrote it: the index stays stale for
-		// every later run, where nothing is pending and no generate happens.
+		// The module index predates any file a directive wrote, in this run and every later run.
 		disableGoModuleIndex()
 	}
 	pending := pendingDepDirectives(deps)
@@ -278,8 +274,7 @@ func generateForDeps(expectedHash string) error {
 	if err := satisfyDepDirectives(pending); err != nil {
 		return err
 	}
-	// The output landed after this process linked those packages, so the phases
-	// that read them need a build that has them.
+	// This process linked those packages before their output existed.
 	return reexecAfterDepGenerate()
 }
 
@@ -368,10 +363,7 @@ func directivesOfRoot(cache, root string, all []generateDirective) []generateDir
 	return out
 }
 
-// depApprovalHash is the hash a dependency's go.mod line records: every
-// directive of that module naming an output, by file and command. The version
-// and the line number are left out, so a bump that moved no command needs no
-// fresh approval.
+// depApprovalHash hashes a module's output-naming directives by file and command, without version or line.
 func depApprovalHash(directives []generateDirective) string {
 	return hashDirectives(declaresOutput(directives), false)
 }

@@ -8,12 +8,7 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-// Approvals live in go.mod, as a generateMarker comment. The module line carries
-// the hash of this tree's own directives, and each dependency's require line the
-// hash of that dependency's. Depth: docs/PIPELINE.md
-
-// approvedGenerateHash is the hash this tree's own directives may run under:
-// --generate for a single run, else the module line's record.
+// approvedGenerateHash is --generate, else the module line's marker. Depth: docs/PIPELINE.md
 func approvedGenerateHash() string {
 	if generateHash != "" {
 		return generateHash
@@ -36,7 +31,7 @@ func readGoModFile(root string) (*modfile.File, error) {
 }
 
 // moduleLine is the go.mod line that speaks for a dependency: its require line,
-// or the replace line of a fork whose replacement path is the one cached.
+// or the replace line of a fork whose replacement path is the path cached.
 func moduleLine(f *modfile.File, path string) *modfile.Line {
 	for _, r := range f.Require {
 		if r.Mod.Path == path {

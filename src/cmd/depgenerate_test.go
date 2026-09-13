@@ -63,7 +63,7 @@ func TestTheApprovalHashIgnoresALineMove(t *testing.T) {
 		depApprovalHash([]generateDirective{dirAt("v2.0.0", 12, cmd)}))
 }
 
-// Reordering the directives of a file changes what runs first, so it moves the hash.
+// Reordering the directives of a file changes the order they run in, so it moves the hash.
 func TestTheApprovalHashReadsTheOrderOfAFile(t *testing.T) {
 	a, b := "go run a -out a.go in.c", "go run b -out b.go in.c"
 	assert.NotEqual(t,

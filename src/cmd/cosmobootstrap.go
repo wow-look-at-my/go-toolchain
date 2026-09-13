@@ -89,9 +89,8 @@ func EnsureCosmoToolchain() (string, error) {
 // cosmoReleasePattern matches ResolveCosmoVersion's real-release shape, not its branch-key fallback.
 var cosmoReleasePattern = regexp.MustCompile(`^v[0-9]`)
 
-// ResolveCosmoVersion answers which buildhost release this host would build
-// against, without downloading it. It returns the branch key when the probe
-// cannot reach buildhost, because that is what the bootstrap would then use.
+// ResolveCosmoVersion names the buildhost release this host would build against,
+// without downloading it, or the branch key when buildhost is unreachable.
 func ResolveCosmoVersion() string {
 	hostOS, hostArch := cosmoHostPlatformFunc()
 	return cosmoCacheKey(cosmoDownloadURL(defaultCosmoBranch, hostOS, hostArch), defaultCosmoBranch)

@@ -105,8 +105,7 @@ func runOwnDirectives(directives []generateDirective, quiet bool, expectedHash s
 	return nil
 }
 
-// computeDirectivesHash computes a stable hash of all generate directives.
-// The hash includes file paths, line numbers, and commands to detect any changes.
+// computeDirectivesHash hashes directives by file path, line number and command.
 func computeDirectivesHash(directives []generateDirective) string {
 	return hashDirectives(directives, true)
 }
