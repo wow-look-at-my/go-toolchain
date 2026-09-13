@@ -152,7 +152,7 @@ There are **two** reports, and which one appears depends on how far the decode g
 
 Both are recognized. Matching only the first left the second surfacing as a genuine compile error against untouched code (`could not import math/rand/v2`). That is not something a reader can act on.
 
-`RunTestsWithCoverage` detects either report and retries the vet phase ONCE through `vet.RunFromSource`, which adds `packages.NeedDeps` so every dependency type-checks from its own source. That takes no export data as input. So an importer cannot be asked to read anything, and it covers both causes at once. `GOCACHEPROG` is unset for the rest of the run alongside it, which rules the shared tier out for the phases that follow. The retry costs one source type-check of the dependency graph and only runs after the fast path has already failed.
+`vet.loadMode()` carries `packages.NeedDeps` on every load. Every dependency therefore type-checks from its own source, and no load reads export data at all. There is no separate source-only entry point to fall back to. `RunTestsWithCoverage` detects either report, unsets `GOCACHEPROG` for the rest of the run, and retries the vet phase ONCE. That rules the shared cache tier out for the phases that follow.
 
 It warns each time it fires, naming the packages **and which of the two. A retry that hits the same report stops the run with a message saying so. Since that path read no export data, neither `go clean -cache` nor a stale importer explains it.
 
