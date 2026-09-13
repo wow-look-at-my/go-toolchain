@@ -286,12 +286,46 @@ func TestRunDatsPhaseTeardownFailureFailsBuild(t *testing.T) {
 func TestRunDatsPhaseHardErrorFailsBuild(t *testing.T) {
 	t.Serial()
 	chdirWithSuite(t)
-	swapDatsRun(t, nil, fmt.Errorf("no usable sandbox backend"))
+	swapDatsRun(t, nil, fmt.Errorf("parse error: spaces cannot be used for indentation"))
 
 	err := runDatsPhase(false, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dats suites failed")
-	assert.Contains(t, err.Error(), "no usable sandbox backend")
+	assert.Contains(t, err.Error(), "parse error")
+	assert.NotContains(t, err.Error(), "CI_RUNNER_DIND",
+		"a non-sandbox hard error must not grow the dind-pool hint")
+}
+
+func TestRunDatsPhaseUnusableSandboxNamesDindPool(t *testing.T) {
+	chdirWithSuite(t)
+	swapDatsRun(t, nil, fmt.Errorf("no usable sandbox backend: bwrap: EPERM; docker: not found in $PATH"))
+
+	err := runDatsPhase(false, nil)
+	require.Error(t, err)
+	got := err.Error()
+	assert.Contains(t, got, "dats suites failed")
+	assert.Contains(t, got, "no usable sandbox backend")
+	assert.Contains(t, got, "CI_RUNNER_DIND")
+	assert.Contains(t, got, "does not sysctl")
+	assert.Contains(t, got, "dats/action.yml")
+}
+
+func TestLoudSandboxErr(t *testing.T) {
+	t.Run("nil", func(t *testing.T) {
+		assert.NoError(t, loudSandboxErr(nil))
+	})
+	t.Run("passthrough", func(t *testing.T) {
+		err := fmt.Errorf("bad path: dats/nope.dats")
+		assert.Equal(t, err, loudSandboxErr(err))
+	})
+	t.Run("sandbox", func(t *testing.T) {
+		err := loudSandboxErr(fmt.Errorf("no usable sandbox backend: bwrap: not found in $PATH"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no usable sandbox backend")
+		assert.Contains(t, err.Error(), datsSandboxHint)
+		assert.NotContains(t, err.Error(), "sysctl -w",
+			"the hint must not tell anyone to weaken kernel userns policy")
+	})
 }
 
 func TestRunDatsPhaseQuietRoutesReportToStderr(t *testing.T) {
