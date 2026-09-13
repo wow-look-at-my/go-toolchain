@@ -44,7 +44,7 @@ func depGenerateDirectives() ([]generateDirective, error) {
 				continue
 			}
 			for _, d := range found {
-				// The label is what the hash reads, and it carries no version: a dependency bump whose directives did not change
+				// The hash reads the label, which carries no version.
 				d.Label = cacheLabel(cache, path)
 				out = append(out, d)
 			}
@@ -102,7 +102,7 @@ func hasGoFile(dir string) bool {
 	return false
 }
 
-// depModuleDirs names the cached root of every module this a single builds against.
+// depModuleDirs names the cached root of every module this module builds against.
 func depModuleDirs(cache string) []string {
 	out, err := goOutput("list", "-deps", "-f", "{{with .Module}}{{.Dir}}{{end}}", "./...")
 	if err != nil {
@@ -268,22 +268,12 @@ func generateForDeps(expectedHash string) error {
 	if len(pending) == 0 {
 		return nil
 	}
-	own, err := findGenerateDirectives(".")
-	if err != nil {
-		return nil
-	}
-	hash := approvalHash(own, deps)
 	if expectedHash == "skip" {
 		logger.Warn("⇒ Warning: a dependency still owes its generated output, and generate is skipped")
 		return nil
 	}
-	if expectedHash == "" || expectedHash != hash {
-		logger.Info("%s", colorYellow+"    A dependency owes its generated output (not executed):"+colorReset)
-		for _, d := range pending {
-			logger.Info("\t%s:%d: %s%s%s", d.Label, d.Line, colorYellow, d.Command, colorReset)
-		}
-		logger.Info("\n%sTo run these commands, record the approval: echo %s > %s%s", colorYellow, hash, generateApprovalFile, colorReset)
-		return fmt.Errorf("a dependency's generate commands require approval: record %s in %s", hash, generateApprovalFile)
+	if err := checkDepApprovals(deps, pending); err != nil {
+		return err
 	}
 	if err := satisfyDepDirectives(pending); err != nil {
 		return err
@@ -335,10 +325,87 @@ func directivesUnder(root string, all []generateDirective) []generateDirective {
 	return out
 }
 
-// approvalHash is the value --generate takes, over this tree's directives and
-// every dependency directive that names an output.
-func approvalHash(own, deps []generateDirective) string {
-	return computeDirectivesHash(append(append([]generateDirective(nil), own...), declaresOutput(deps)...))
+// depApproval is the hash a dependency's directives need, and the module whose
+// go.mod line records it.
+type depApproval struct {
+	Path    string
+	Version string
+	Hash    string
+}
+
+// depApprovalsOwed answers an approval for every module that still owes output,
+// in the order its directives were found.
+func depApprovalsOwed(cache string, deps, pending []generateDirective) []depApproval {
+	owing := set.New[string]()
+	for _, d := range pending {
+		owing.Add(moduleRootOf(cache, d.File))
+	}
+	answered := set.New[string]()
+	var out []depApproval
+	for _, d := range deps {
+		root := moduleRootOf(cache, d.File)
+		if root == "" || !owing.Contains(root) || answered.Contains(root) {
+			continue
+		}
+		answered.Add(root)
+		path, version := modulePathVersion(cache, root)
+		if path == "" {
+			continue
+		}
+		out = append(out, depApproval{Path: path, Version: version, Hash: depApprovalHash(directivesOfRoot(cache, root, deps))})
+	}
+	return out
+}
+
+// directivesOfRoot keeps the directives whose file sits in the cached module at root.
+func directivesOfRoot(cache, root string, all []generateDirective) []generateDirective {
+	var out []generateDirective
+	for _, d := range all {
+		if moduleRootOf(cache, d.File) == root {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// depApprovalHash is the hash a dependency's go.mod line records: every
+// directive of that module naming an output, by file and command. The version
+// and the line number are left out, so a bump that moved no command needs no
+// fresh approval.
+func depApprovalHash(directives []generateDirective) string {
+	return hashDirectives(declaresOutput(directives), false)
+}
+
+// checkDepApprovals fails unless go.mod approves every dependency that owes
+// output, naming the exact line to write for every dependency it does not.
+func checkDepApprovals(deps, pending []generateDirective) error {
+	cache, err := goModCache()
+	if err != nil {
+		return err
+	}
+	f, err := readGoModFile(".")
+	if err != nil {
+		return fmt.Errorf("reading go.mod for the generate approvals: %w", err)
+	}
+	var lines []string
+	for _, a := range depApprovalsOwed(cache, deps, pending) {
+		if dependencyApproval(f, a.Path) == a.Hash {
+			continue
+		}
+		lines = append(lines, approvedLine(f, a.Path, a.Version, a.Hash))
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	logger.Info("%s", colorYellow+"    A dependency owes its generated output (not executed):"+colorReset)
+	for _, d := range pending {
+		logger.Info("\t%s:%d: %s%s%s", d.Label, d.Line, colorYellow, d.Command, colorReset)
+	}
+	logger.Info("\n%sTo run these commands, record the approval in go.mod:%s", colorYellow, colorReset)
+	for _, l := range lines {
+		logger.Info("\t%s%s%s", colorYellow, l, colorReset)
+	}
+	return fmt.Errorf("a dependency's generate commands require approval: in go.mod, write %s", strings.Join(lines, " and "))
 }
 
 // declaresOutput keeps the directives that name a file they write.

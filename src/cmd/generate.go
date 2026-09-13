@@ -47,13 +47,11 @@ func runGenerate(quiet bool, expectedHash string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find generate directives: %w", err)
 	}
-	// A dependency ships its directive and not its output, so the build runs it too. Only the ones still owed anything are
+	// A dependency ships its directive and not its output, so the build runs the directives it still owes.
 	deps, err := depGenerateDirectives()
 	if err != nil {
 		return fmt.Errorf("failed to read dependency generate directives: %w", err)
 	}
-	hash := approvalHash(directives, deps)
-	// Owed again a single time tidy moved the pin. Still the clone's job: the cache holds a gitlink, not the submodule.
 	pending := pendingDepDirectives(deps)
 
 	if len(directives) == 0 && len(pending) == 0 {
@@ -68,32 +66,54 @@ func runGenerate(quiet bool, expectedHash string) error {
 		return nil
 	}
 
-	// If no hash provided or hash mismatch, show commands and stop
-	if expectedHash == "" || expectedHash != hash {
-		if !quiet {
-			logger.Info("%s", colorYellow+"    Generate commands detected (not executed):"+colorReset)
-			for _, d := range append(append([]generateDirective(nil), directives...), pending...) {
-				logger.Info("\t%s:%d: %s%s%s", d.File, d.Line, colorYellow, d.Command, colorReset)
-			}
-			logger.Info("\n%sTo run these commands, record the approval: echo %s > %s%s", colorYellow, hash, generateApprovalFile, colorReset)
-			logger.Info("%sOr for one run only: --generate %s%s", colorYellow, hash, colorReset)
+	if len(directives) > 0 {
+		if err := runOwnDirectives(directives, quiet, expectedHash); err != nil {
+			return err
 		}
-		return fmt.Errorf("generate commands require approval: record %s in %s", hash, generateApprovalFile)
 	}
 
-	// Hash matches, execute directives
+	if len(pending) == 0 {
+		return nil
+	}
+	if err := checkDepApprovals(deps, pending); err != nil {
+		return err
+	}
+	return satisfyDepDirectives(pending)
+}
+
+// runOwnDirectives runs this tree's directives when expectedHash approves them,
+// and otherwise shows them and names the go.mod line that would.
+func runOwnDirectives(directives []generateDirective, quiet bool, expectedHash string) error {
+	hash := computeDirectivesHash(directives)
+	if expectedHash != hash {
+		line := approvedModuleLine(".", hash)
+		if !quiet {
+			logger.Info("%s", colorYellow+"    Generate commands detected (not executed):"+colorReset)
+			for _, d := range directives {
+				logger.Info("\t%s:%d: %s%s%s", d.File, d.Line, colorYellow, d.Command, colorReset)
+			}
+			logger.Info("\n%sTo run these commands, record the approval on the module line in go.mod: %s%s", colorYellow, line, colorReset)
+			logger.Info("%sOr for a single run: --generate %s%s", colorYellow, hash, colorReset)
+		}
+		return fmt.Errorf("generate commands require approval: in go.mod, write %s", line)
+	}
 	for _, d := range directives {
 		if err := executeDirective(d, quiet); err != nil {
 			return err
 		}
 	}
-
-	return satisfyDepDirectives(pending)
+	return nil
 }
 
 // computeDirectivesHash computes a stable hash of all generate directives.
 // The hash includes file paths, line numbers, and commands to detect any changes.
 func computeDirectivesHash(directives []generateDirective) string {
+	return hashDirectives(directives, true)
+}
+
+// hashDirectives hashes directives by file and command, in file order, and by
+// line number too when withLine is set.
+func hashDirectives(directives []generateDirective, withLine bool) string {
 	// Sort directives for stable ordering
 	sorted := make([]generateDirective, len(directives))
 	copy(sorted, directives)
@@ -106,7 +126,11 @@ func computeDirectivesHash(directives []generateDirective) string {
 
 	h := sha256.New()
 	for _, d := range sorted {
-		fmt.Fprintf(h, "%s:%d:%s\n", d.hashKey(), d.Line, d.Command)
+		if withLine {
+			fmt.Fprintf(h, "%s:%d:%s\n", d.hashKey(), d.Line, d.Command)
+			continue
+		}
+		fmt.Fprintf(h, "%s:%s\n", d.hashKey(), d.Command)
 	}
 
 	// Return the hex prefix below - enough to be unique, short enough to type

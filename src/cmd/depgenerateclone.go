@@ -171,11 +171,10 @@ func byModule(cache string, directives []generateDirective) []moduleSource {
 	}
 	var out []moduleSource
 	for _, root := range order {
-		modPath, version := splitVersion(root)
-		if modPath == "" {
+		mod, version := modulePathVersion(cache, root)
+		if mod == "" {
 			continue
 		}
-		mod := strings.TrimPrefix(modPath, cache+"/")
 		out = append(out, moduleSource{
 			Path:   mod,
 			Commit: originHash(mod, version),
@@ -185,8 +184,17 @@ func byModule(cache string, directives []generateDirective) []moduleSource {
 	return out
 }
 
-// moduleRootOf finds the module directory a cached file sits under: the a
-// single whose name carries the version.
+// modulePathVersion names the module and version a cached module root holds.
+func modulePathVersion(cache, root string) (path, version string) {
+	modPath, version := splitVersion(root)
+	if modPath == "" {
+		return "", ""
+	}
+	return strings.TrimPrefix(modPath, cache+"/"), version
+}
+
+// moduleRootOf finds the module directory a cached file sits under: the
+// directory whose name carries the version.
 func moduleRootOf(cache, file string) string {
 	// path, not filepath: every path here is slash-spelled. See goModCache.
 	dir := path.Dir(slashPath(file))

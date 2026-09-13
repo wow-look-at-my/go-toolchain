@@ -17,7 +17,7 @@ const cacheRoot = "/gomodcache"
 func under(parts ...string) string { return cacheRoot + "/" + strings.Join(parts, "/") }
 
 // A cached directory names the module and the version together. The clone needs
-// them apart: a single is the repository to fetch, the other asks the go
+// them apart: the path is the repository to fetch, and the version asks the go
 // command for the commit.
 func TestSplitVersionSeparatesTheModuleFromItsVersion(t *testing.T) {
 	path, version := splitVersion(under("github.com/wow/slopfix@v0.0.0-20260912-abc"))
@@ -36,25 +36,48 @@ func TestCacheLabelDropsTheVersion(t *testing.T) {
 	assert.Equal(t, "github.com/wow/slopfix/grammars/bash/gen.go", got)
 }
 
-// Versions of the same dependency hash alike while their directives agree, and
-// differently as soon as a single changes.
+// dirAt is a dependency directive in the cached copy of dep at version v.
+func dirAt(v string, line int, command string) generateDirective {
+	file := under("github.com/wow/dep@" + v + "/g/gen.go")
+	return generateDirective{File: file, Line: line, Command: command, Label: cacheLabel(cacheRoot, file)}
+}
+
+// Versions of the same dependency hash alike while their commands agree, and
+// differently as soon as a command changes.
 func TestTheApprovalHashIgnoresAVersionBump(t *testing.T) {
-	at := func(v string) []generateDirective {
-		file := under("github.com/wow/dep@" + v + "/g/gen.go")
-		return []generateDirective{{
-			File:    file,
-			Line:    3,
-			Command: "go run tool -out parser.go in.c",
-			Label:   cacheLabel(cacheRoot, file),
-		}}
-	}
-	own := []generateDirective{{File: "src/a.go", Line: 1, Command: "go run own"}}
+	const cmd = "go run tool -out parser.go in.c"
+	v1 := depApprovalHash([]generateDirective{dirAt("v1.0.0", 3, cmd)})
 
-	assert.Equal(t, approvalHash(own, at("v1.0.0")), approvalHash(own, at("v2.0.0")))
+	assert.Equal(t, v1, depApprovalHash([]generateDirective{dirAt("v2.0.0", 3, cmd)}))
 
-	changed := at("v2.0.0")
-	changed[0].Command = "go run tool -out parser.go other.c"
-	assert.NotEqual(t, approvalHash(own, at("v1.0.0")), approvalHash(own, changed))
+	changed := dirAt("v2.0.0", 3, "go run tool -out parser.go other.c")
+	assert.NotEqual(t, v1, depApprovalHash([]generateDirective{changed}))
+}
+
+// A bump that adds a comment above a directive moves its line and not its
+// command, so the recorded approval still holds.
+func TestTheApprovalHashIgnoresALineMove(t *testing.T) {
+	const cmd = "go run tool -out parser.go in.c"
+	assert.Equal(t,
+		depApprovalHash([]generateDirective{dirAt("v1.0.0", 6, cmd)}),
+		depApprovalHash([]generateDirective{dirAt("v2.0.0", 12, cmd)}))
+}
+
+// Reordering the directives of a file changes what runs first, so it moves the hash.
+func TestTheApprovalHashReadsTheOrderOfAFile(t *testing.T) {
+	a, b := "go run a -out a.go in.c", "go run b -out b.go in.c"
+	assert.NotEqual(t,
+		depApprovalHash([]generateDirective{dirAt("v1", 1, a), dirAt("v1", 2, b)}),
+		depApprovalHash([]generateDirective{dirAt("v1", 1, b), dirAt("v1", 2, a)}))
+}
+
+// A directive naming no output never runs here, so it is no part of the consent.
+func TestADirectiveNamingNoOutputIsNotHashed(t *testing.T) {
+	translate := dirAt("v1", 8, "go run tool -out parser.go in.c")
+	fetch := dirAt("v1", 7, "go run fetch -dir testdata/src")
+	assert.Equal(t,
+		depApprovalHash([]generateDirective{translate}),
+		depApprovalHash([]generateDirective{fetch, translate}))
 }
 
 // The hash reads which directives exist rather than which still owe output, so
@@ -65,9 +88,28 @@ func TestTheApprovalHashIsTheSameWarmAndCold(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, []byte("package g\n"), 0o644))
 	deps := []generateDirective{{File: file, Line: 1, Command: "go run tool -out parser.go in.c"}}
 
-	cold := approvalHash(nil, deps)
+	cold := depApprovalHash(deps)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "parser.go"), []byte("package g\n"), 0o644))
-	assert.Equal(t, cold, approvalHash(nil, deps), "generating changed nothing about what exists")
+	assert.Equal(t, cold, depApprovalHash(deps), "generating changed nothing about what exists")
+}
+
+// Every module still owing output gets its own approval, over all of that
+// module's directives, and a module owing nothing asks for none.
+func TestAnApprovalIsOwedPerOwingModule(t *testing.T) {
+	first := under("github.com/wow/dep@v1.2.3/g/gen.go")
+	second := under("github.com/wow/dep@v1.2.3/h/gen.go")
+	settled := under("github.com/wow/two@v4.5.6/g/gen.go")
+	deps := []generateDirective{
+		{File: first, Line: 1, Command: "go run t -out a.go x.c", Label: cacheLabel(cacheRoot, first)},
+		{File: settled, Line: 1, Command: "go run t -out b.go y.c", Label: cacheLabel(cacheRoot, settled)},
+		{File: second, Line: 1, Command: "go run t -out c.go z.c", Label: cacheLabel(cacheRoot, second)},
+	}
+
+	owed := depApprovalsOwed(cacheRoot, deps, deps[:1])
+	require.Len(t, owed, 1)
+	assert.Equal(t, "github.com/wow/dep", owed[0].Path)
+	assert.Equal(t, "v1.2.3", owed[0].Version)
+	assert.Equal(t, depApprovalHash([]generateDirective{deps[0], deps[2]}), owed[0].Hash)
 }
 
 // Only a dependency that shipped a directive and withheld its file is owed
@@ -117,7 +159,7 @@ func TestModuleRootIsTheDirectoryCarryingTheVersion(t *testing.T) {
 // grouped nothing. Everything the cache code compares is slash-spelled now.
 func TestAHostSpelledFileStillFindsItsModule(t *testing.T) {
 	root := under("github.com/wow/dep@v1")
-	// The host's own spelling, which is the a single the go command hands back.
+	// The host's own spelling, which is what the go command hands back.
 	native := filepath.FromSlash(root + "/g/gen.go")
 
 	assert.Equal(t, root, moduleRootOf(cacheRoot, native), "the file's spelling is normalized")
