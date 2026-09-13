@@ -35,8 +35,8 @@ type testEvent struct {
 	Output  string `json:"Output"`
 }
 
-// benchPattern matches benchmark output lines:
-// BenchmarkFoo-<cpus>  <iters>  <ns> ns/op  <bytes> B/op  <allocs> allocs/op
+// benchPattern matches benchmark output lines: BenchmarkFoo-<cpus> <iters>
+// <ns> ns/op <bytes> B/op <allocs> allocs/op
 var benchPattern = regexp.MustCompile(
 	`^(Benchmark\S+)\s+(\d+)\s+([\d.]+)\s+ns/op(?:\s+(\d+)\s+B/op)?(?:\s+(\d+)\s+allocs/op)?`,
 )
@@ -190,7 +190,7 @@ func (r *BenchmarkReport) ToBenchstat() string {
 		})
 
 		for _, b := range results {
-			// Format: BenchmarkName-N    iterations    ns/op    B/op    allocs/op
+			// Format: BenchmarkName-N iterations ns/op B/op allocs/op
 			sb.WriteString(fmt.Sprintf("%s\t%d\t%.2f ns/op", b.Name, b.Iterations, b.NsPerOp))
 			if b.BytesPerOp > 0 || b.AllocsPerOp > 0 {
 				sb.WriteString(fmt.Sprintf("\t%d B/op\t%d allocs/op", b.BytesPerOp, b.AllocsPerOp))

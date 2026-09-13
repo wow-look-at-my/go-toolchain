@@ -99,7 +99,7 @@ tests:
 	# rather than split into a per-host copy of this file. Losing the refusal
 	# where a classifier exists, or gaining the banner there, fails.
 	#
-	# A darwin host has two legitimate answers, and BOTH are the guard working.
+	# A darwin host has more than a single legitimate answer, and each is the guard working.
 	# Naming a pipe's reader there costs an lsof and a ps on other pids, which
 	# seatbelt denies. The guard is then blind, and the design allows the run
 	# rather than break every legitimate agent run on a Mac. What it must never

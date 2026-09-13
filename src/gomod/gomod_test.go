@@ -204,6 +204,21 @@ func TestIsNestedModule(t *testing.T) {
 	assert.False(t, IsNestedModule(filepath.Join(root, "does-not-exist")))
 }
 
+// A submodule's working tree carries .git as a file. An ordinary checkout keeps
+// a directory there, and that repository is the tree being walked.
+func TestIsGitSubmodule(t *testing.T) {
+	root := newModule(t, "example.com/outer")
+	writeFile(t, filepath.Join(root, "plain"), "lib.go", "package lib\n")
+	writeFile(t, filepath.Join(root, "sub"), ".git", "gitdir: ../.git/modules/sub\n")
+	writeFile(t, filepath.Join(root, "clone", ".git"), "HEAD", "ref: refs/heads/master\n")
+
+	assert.True(t, IsGitSubmodule(filepath.Join(root, "sub")))
+	assert.False(t, IsGitSubmodule("."), "the walk root is the repository being read")
+	assert.False(t, IsGitSubmodule(filepath.Join(root, "plain")))
+	assert.False(t, IsGitSubmodule(filepath.Join(root, "clone")), "a .git directory is a checkout")
+	assert.False(t, IsGitSubmodule(filepath.Join(root, "does-not-exist")))
+}
+
 func TestFindMainPackages_SkipsNestedModule(t *testing.T) {
 	t.Serial()
 	modPath := "example.com/outer"

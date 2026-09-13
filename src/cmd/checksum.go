@@ -30,7 +30,7 @@ func fileHash(path string) (string, error) {
 // generateChecksums creates a checksums.txt file in dir containing sha256
 // digests of the given files. The format matches sha256sum output:
 //
-//	<hex-digest>  <filename>
+//	<hex-digest> <filename>
 //
 // Lines are sorted lexicographically by filename. Returns the path to
 // the generated checksums file.
