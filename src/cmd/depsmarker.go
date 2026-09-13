@@ -15,7 +15,55 @@ const (
 
 	// legacyBranchMarker is the old spelling; still read, and EnforceOrgBranchTracking migrates it to the form above.
 	legacyBranchMarker = "go-toolchain:branch="
+
+	// generateMarker records the approved hash of a module's go:generate directives, on its require line or its module line.
+	generateMarker = "go-toolchain:generate="
 )
+
+// parseGenerateMarker reads the approved generate hash off a go.mod line, or ""
+// when the line records none. Matched by substring, like parseMarker, so it is
+// found beside an indirect comment or a tracking marker.
+func parseGenerateMarker(line *modfile.Line) string {
+	if line == nil {
+		return ""
+	}
+	for _, c := range line.Suffix {
+		if i := strings.Index(c.Token, generateMarker); i != -1 {
+			return strings.TrimRight(markerValue(c.Token[i+len(generateMarker):]), ";")
+		}
+	}
+	return ""
+}
+
+// setGenerateMarker replaces any generate approval on a line with hash, joined
+// to an existing comment the way setMarker joins a tracking marker.
+func setGenerateMarker(line *modfile.Line, hash string) {
+	kept := line.Suffix[:0]
+	for _, c := range line.Suffix {
+		token := stripMarks(c.Token, generateMarker)
+		if token == "" {
+			continue
+		}
+		c.Token = token
+		kept = append(kept, c)
+	}
+	line.Suffix = kept
+	mark := generateMarker + hash
+	if len(line.Suffix) == 0 {
+		line.Suffix = []modfile.Comment{{Token: "// " + mark, Suffix: true}}
+		return
+	}
+	line.Suffix[0].Token += "; " + mark
+}
+
+// lineText spells a go.mod line as it reads inside its block, comment included.
+func lineText(line *modfile.Line) string {
+	parts := append([]string(nil), line.Token...)
+	for _, c := range line.Suffix {
+		parts = append(parts, c.Token)
+	}
+	return strings.Join(parts, " ")
+}
 
 // marker is what a go.mod line's go-toolchain comment asks for.
 type marker struct {
