@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"reflect"
 	"strings"
 )
 
@@ -68,6 +69,11 @@ var nodeSymbols = map[string]byte{
 // sequence of abstract tokens, stripping all concrete identifiers,
 // literals, and type names while preserving structural shape.
 func Linearize(node ast.Node) []Token {
+	// A nilable AST field wraps into an interface that is not nil, so the
+	// callback's own guard below never runs and ast.Walk dereferences first.
+	if held := reflect.ValueOf(node); node == nil || (held.Kind() == reflect.Pointer && held.IsNil()) {
+		return nil
+	}
 	var tokens []Token
 	ast.Inspect(node, func(n ast.Node) bool {
 		if n == nil {
