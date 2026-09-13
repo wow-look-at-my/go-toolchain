@@ -63,15 +63,11 @@ jobs:
         env:
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
-<<<<<<< HEAD
         # The generate approval is recorded in .go-toolchain-generate, so this needs no argument. see docs/PIPELINE.md
-        run: go run ./src
-=======
         # The fork defaults to GOOS=cosmo and `go run` execs what it builds. An APE
         # boots through a shell header execve never reads, so this bootstrap asks
         # for a host binary. go-toolchain assigns its own target on every compile.
         run: GOOS=linux GOARCH=amd64 go run ./src
->>>>>>> origin/master
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile
