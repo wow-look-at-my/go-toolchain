@@ -241,7 +241,7 @@ func buildBinaryAssert(pass *analysis.Pass, bin *ast.BinaryExpr, tVar, assertPkg
 // on stale position information when AST nodes are reused in a different context
 // (e.g., extracting condition operands from an if statement into assert call arguments).
 func clearNodePositions(node ast.Node) {
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if n == nil {
 			return false
 		}
@@ -299,7 +299,7 @@ func prepareFixNodes(nodes []ast.Node, pos token.Pos) {
 // positioned token (Ident or BasicLit) to pos.
 func setFirstTokenPos(node ast.Node, pos token.Pos) {
 	done := false
-	ast.Inspect(node, func(n ast.Node) bool {
+	InspectNode(node, func(n ast.Node) bool {
 		if done || n == nil {
 			return false
 		}
