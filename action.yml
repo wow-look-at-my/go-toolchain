@@ -92,6 +92,14 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/.github/scripts/register-ape-binfmt.sh"
 
+    # The dats phase needs a sandbox backend; a module with no dats/ pays nothing. see docs/ACTION.md
+    - name: Provision the sandbox backend (bubblewrap)
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/.github/scripts/provision-bwrap.sh" "${{ inputs.working-directory }}"
+
     - name: Install go-toolchain
       if: inputs.binary == '' && github.repository != 'wow-look-at-my/go-toolchain'
       shell: bash
