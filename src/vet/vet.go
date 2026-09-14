@@ -219,6 +219,12 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		return f, err
 	}
 
+	// Which go command answers the loader, and what it reads as GOROOT.
+	if goPath, lookErr := exec.LookPath("go"); lookErr == nil {
+		goroot, _ := exec.Command(goPath, "env", "GOROOT").Output()
+		logger.Info("vet: go command %s, GOROOT %s", goPath, strings.TrimSpace(string(goroot)))
+	}
+
 	loadStart := time.Now()
 	pkgs, err := packages.Load(cfg, patterns...)
 	loadDur := time.Since(loadStart)
