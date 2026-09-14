@@ -367,6 +367,23 @@ tests:
 		"!stderr":
 			- "cosmo-bootstrap"
 
+	# The pipeline is all or nothing: the go command and the build tools it
+	# links answer only a process a pipeline run started. From a shell they
+	# are not commands.
+	- desc: the linked go command is not a command outside a pipeline run
+	  cmd: '{shared.gt.exe} {matrix.args}'
+	  exit: 1
+	  timeout: 30s
+	  matrix:
+		args: ["go version", "go build ./...", "go test ./...", "tool compile -V=full", "build", "test"]
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			GO_TOOLCHAIN_LINKED_GO: ""
+	  outputs:
+		stderr:
+			- "unknown command"
+
 	# The pipeline that built this binary put the fork checkout at its branch
 	# head and stamped that commit in; version has to name the same commit.
 	- desc: version names the gosmopolitan commit the build linked

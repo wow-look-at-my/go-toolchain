@@ -108,6 +108,7 @@ func useSelfAsPipelineToolchain(exe, linkDir, goroot string) {
 	os.Setenv("PATH", pathWithFirst(linkDir, os.Getenv("PATH"), hostos.GOOS()))
 	os.Setenv("GOROOT", goroot)
 	os.Setenv("GOTOOLCHAIN", "local")
+	os.Setenv(linkedGoEnv, "1")
 }
 
 // pathWithFirst puts dir ahead of rest, with the list separator of hostGOOS

@@ -143,12 +143,6 @@ go-toolchain version raw
 # Print version info as JSON
 go-toolchain version json
 
-# The go command this binary links, with the fork's standard library built in
-go-toolchain go build ./...
-go-toolchain go version
-
-# A linked build tool, as the go command starts it
-go-toolchain tool compile -V=full
 
 # Fail unless every named file is byte-identical to the first (CI's cross-host APE identity check)
 go-toolchain verify-identical linux=ape/linux/go-toolchain darwin=ape/darwin/go-toolchain
@@ -197,8 +191,6 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - **`version`** — show build version, the gosmopolitan commit this binary links, and staleness information
   - `raw` — print just the version number
   - `json` — print version info as JSON (version, commit, gosmopolitan commit, dates, staleness)
-- **`go`** — the gosmopolitan go command, linked in with its standard library; `go-toolchain go <args>`
-- **`tool`** — a linked build tool by name, the way the go command starts one; `go-toolchain tool <name> <args>`
 - **`verify-identical`** — fail unless every `<name>=<path>` argument names a byte-identical file
 
 ## Documentation

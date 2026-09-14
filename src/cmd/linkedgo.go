@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 // ..." is the go command, and "go-toolchain tool <name> ..." is a linked
 // build tool. Anything else is the pipeline.
 func LinkedGoArgs(argv []string) ([]string, bool) {
-	if len(argv) == 0 {
+	if len(argv) == 0 || os.Getenv(linkedGoEnv) == "" {
 		return nil, false
 	}
 	if name := strings.TrimSuffix(filepath.Base(argv[0]), ".exe"); name == "go" {
@@ -26,6 +27,11 @@ func LinkedGoArgs(argv []string) ([]string, bool) {
 	}
 	return nil, false
 }
+
+// linkedGoEnv marks a process the pipeline started. Only such a process
+// reaches the linked go command; anywhere else "go" and "tool" are not
+// commands of this binary at all.
+const linkedGoEnv = "GO_TOOLCHAIN_LINKED_GO"
 
 // RunLinkedGo runs the go command or tool argv asks for and answers its
 // exit status, or reports that argv asks for the pipeline instead.
