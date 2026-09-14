@@ -119,8 +119,8 @@ var rootCmd = &cobra.Command{
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
-			// Ahead of the fast exit, so a no-op run still leaves a fork-built binary.
-			if err := reexecUnderFork(); err != nil {
+			// Ahead of the fast exit, so every phase parses with the active toolchain's own front end.
+			if err := reexecUnderActiveToolchain(activeGoVersion); err != nil {
 				discardBuildOutputsFromCWD()
 				return err
 			}

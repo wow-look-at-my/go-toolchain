@@ -68,23 +68,13 @@ func generateInClone(src moduleSource, directives []generateDirective, quiet boo
 	if err := os.MkdirAll(clone, 0o755); err != nil {
 		return err
 	}
-	// A single commit and a single level of submodule, fetched by SHA.
 	url := "https://" + strings.TrimSuffix(src.Path, "/")
 	ref := src.Commit
 	if ref == "" {
 		ref = "HEAD"
 	}
-	steps := [][]string{
-		{"init", "--quiet"},
-		{"remote", "add", "origin", url},
-		{"fetch", "--quiet", "--depth", "1", "origin", ref},
-		{"checkout", "--quiet", "FETCH_HEAD"},
-		{"submodule", "update", "--init", "--recursive", "--depth", "1", "--quiet"},
-	}
-	for _, step := range steps {
-		if err := runGit(clone, step...); err != nil {
-			return fmt.Errorf("%s at %s: %w", src.Path, ref, err)
-		}
+	if err := cloneAt(clone, url, ref); err != nil {
+		return fmt.Errorf("%s at %s: %w", src.Path, ref, err)
 	}
 	for _, d := range directives {
 		// Slash-spelled, so the relative part is a prefix trim. See goModCache.
@@ -141,6 +131,24 @@ func generatedSiblings(dir, out string) []string {
 		}
 	}
 	return names
+}
+
+// cloneAt checks out the commit ref of url into the empty directory dir: a
+// single commit and a single level of submodule, fetched by SHA.
+func cloneAt(dir, url, ref string) error {
+	steps := [][]string{
+		{"init", "--quiet"},
+		{"remote", "add", "origin", url},
+		{"fetch", "--quiet", "--depth", "1", "origin", ref},
+		{"checkout", "--quiet", "FETCH_HEAD"},
+		{"submodule", "update", "--init", "--recursive", "--depth", "1", "--quiet"},
+	}
+	for _, step := range steps {
+		if err := runGit(dir, step...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // runGit runs git in dir, quietly.
