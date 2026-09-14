@@ -4,9 +4,93 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/mod/modfile"
 )
+
+// generateMarker records the approved hash of a module's go:generate
+// directives, on its require line or its module line.
+const generateMarker = "go-toolchain:generate="
+
+// parseGenerateMarker reads the approved generate hash off a go.mod line, or ""
+// when the line records none. Matched by substring so it is found beside an
+// indirect comment.
+func parseGenerateMarker(line *modfile.Line) string {
+	if line == nil {
+		return ""
+	}
+	for _, c := range line.Suffix {
+		if i := strings.Index(c.Token, generateMarker); i != -1 {
+			return strings.TrimRight(markerValue(c.Token[i+len(generateMarker):]), ";")
+		}
+	}
+	return ""
+}
+
+// setGenerateMarker replaces any generate approval on a line with hash, joined
+// to an existing comment the same way x/mod's setIndirect joins "// indirect".
+// A further Suffix comment would render on its own line below, which corrupts
+// the block.
+func setGenerateMarker(line *modfile.Line, hash string) {
+	kept := line.Suffix[:0]
+	for _, c := range line.Suffix {
+		token := stripMarks(c.Token, generateMarker)
+		if token == "" {
+			continue
+		}
+		c.Token = token
+		kept = append(kept, c)
+	}
+	line.Suffix = kept
+	mark := generateMarker + hash
+	if len(line.Suffix) == 0 {
+		line.Suffix = []modfile.Comment{{Token: "// " + mark, Suffix: true}}
+		return
+	}
+	line.Suffix[0].Token += "; " + mark
+}
+
+// lineText spells a go.mod line as it reads inside its block, comment included.
+func lineText(line *modfile.Line) string {
+	parts := append([]string(nil), line.Token...)
+	for _, c := range line.Suffix {
+		parts = append(parts, c.Token)
+	}
+	return strings.Join(parts, " ")
+}
+
+// markerValue takes a marker's value off the front of the rest of a comment:
+// up to the leading space, so a trailing note stays readable.
+func markerValue(rest string) string {
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+// stripMarks removes each named marker and its value from a comment token,
+// returning "" when nothing but markers was there.
+func stripMarks(token string, marks ...string) string {
+	for _, mark := range marks {
+		i := strings.Index(token, mark)
+		if i == -1 {
+			continue
+		}
+		rest := token[i+len(mark):]
+		if _, after, found := strings.Cut(rest, " "); found {
+			token = token[:i] + after // a trailing note after the marker stays
+		} else {
+			token = token[:i]
+		}
+	}
+	token = strings.TrimRight(strings.TrimSpace(token), ";")
+	if token == "//" {
+		return ""
+	}
+	return strings.TrimSpace(token)
+}
 
 // approvedGenerateHash is --generate, else the module line's marker. Depth: docs/PIPELINE.md
 func approvedGenerateHash() string {

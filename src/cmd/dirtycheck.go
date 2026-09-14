@@ -5,17 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
 // checkDirtyInCI returns an error if running in CI with a dirty working
 // tree, so binaries are never shipped built from uncommitted changes.
-//
-// Excluded: a branch-tracked pin's version token moving to its branch's
-// current commit (a cache of the last resolution, not something a human
-// commits). Anything else in go.mod, and any go.sum line for a module that
-// did not move, still counts as dirty.
 func checkDirtyInCI() error {
 	if os.Getenv("CI") == "" {
 		return nil
@@ -25,7 +19,7 @@ func checkDirtyInCI() error {
 	if err != nil {
 		return nil
 	}
-	files := dirtyFilesExcludingToolchainWrites(string(out))
+	files := strings.TrimSpace(string(out))
 	if files == "" {
 		return nil
 	}
@@ -115,55 +109,4 @@ func dirtyDiffPaths(files string) []string {
 		}
 	}
 	return paths
-}
-
-// dirtyFilesExcludingToolchainWrites returns the trimmed `git status --short`
-// lines that represent real uncommitted changes, dropping a branch-tracked pin
-// following its branch. An empty result means the tree is clean apart from
-// those.
-func dirtyFilesExcludingToolchainWrites(statusOut string) string {
-	pins := trackedPinMoves(statusOut)
-	var kept []string
-	for _, line := range strings.Split(statusOut, "\n") {
-		if strings.TrimSpace(line) == "" || statusLineIsToolchainWrite(line, pins) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.Join(kept, "\n")
-}
-
-// statusLineIsToolchainWrite reports whether a `git status --short` porcelain
-// line refers to a file this run rewrote on its own authority. The format is
-// "XY <path>" (or "XY <old> -> <new>" for renames); the go.mod and go.sum
-// cases are decided per module directory from pins.
-func statusLineIsToolchainWrite(line string, pins map[string][]string) bool {
-	path := statusLinePath(line)
-	if path == "" {
-		return false
-	}
-	// A tracked pin's new commit, and the go.sum hashes that follow it. pins
-	// holds a directory only when its go.mod changed in no other way.
-	if moved, ok := pins[filepath.Dir(path)]; ok {
-		switch filepath.Base(path) {
-		case "go.mod":
-			return true
-		case "go.sum":
-			return goSumFollowsPins(path, moved)
-		}
-	}
-	return false
-}
-
-// statusLinePath extracts the path from a `git status --short` line ("XY
-// <path>", or a rename's new name). Returns "" for a line too short to carry a path.
-func statusLinePath(line string) string {
-	if len(line) < 4 {
-		return ""
-	}
-	path := strings.TrimSpace(line[3:])
-	if i := strings.Index(path, " -> "); i != -1 {
-		path = path[i+len(" -> "):]
-	}
-	return strings.Trim(path, "\"")
 }

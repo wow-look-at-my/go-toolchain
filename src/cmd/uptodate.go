@@ -267,16 +267,6 @@ func isUpToDate(r runner.CommandRunner) bool {
 		return false
 	}
 
-	// A branch-tracked dep's HEAD lives on a remote; an unchanged tree can still be stale if that branch moved.
-	if trackedBranchDepsMoved(r) {
-		return false
-	}
-
-	// An unchanged tree can predate branch-tracking; skipping here would skip the run that adds the markers.
-	if len(untrackedOrgDeps()) > 0 {
-		return false
-	}
-
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return false
