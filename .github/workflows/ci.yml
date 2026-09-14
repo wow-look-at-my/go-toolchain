@@ -120,14 +120,13 @@ jobs:
           path: build/go-toolchain
 
       # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
-      - name: Cross-compile socketharness
+      - name: Build socketharness
         # A fixture of this workflow, not a shipped output, so the workflow itself reaches the linked go command the way a pipeline run does. see docs/CI.md
         env:
           GO_TOOLCHAIN_LINKED_GO: "1"
         run: |
           mkdir -p harness
-          GOOS=linux GOARCH=amd64 go-toolchain go build -o harness/socketharness-linux-amd64 .github/dats-fixtures/socketharness.go
-          GOOS=darwin GOARCH=arm64 go-toolchain go build -o harness/socketharness-darwin-arm64 .github/dats-fixtures/socketharness.go
+          go-toolchain go build -o harness/socketharness .github/dats-fixtures/socketharness.go
 
       - name: Upload socketharness binaries
         uses: wow-look-at-my/actions@cache-upload#latest

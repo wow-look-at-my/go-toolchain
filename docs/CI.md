@@ -228,9 +228,9 @@ Fix both of those and re-measure before changing the number. A cold first build 
 
 The tripwires themselves are asserted by `.github/dats-fixtures/cache-profile.dats`, run by the dats action in `host-build` the same way `identical.dats` and `smoke.dats` are run by their jobs. They were a workflow step once, which meant a push was the only way to reproduce a red. The fixture runs against any local `build/profile.json`. The second-build time limit above is still a workflow step, because asserting it means driving `go-toolchain` twice and timing.
 
-### Cross-compile socketharness
+### Build socketharness
 
-socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md) so smoke-linux/smoke-macos can prove the actual reported bug against the real shipped binaries. Cross-compiled here (this job already has Go set up) rather than via `setup-go` on smoke-macos. That will put Go on that runner's PATH before the "Full pipeline" step and quietly defeat the whole point of that job. Proving go-toolchain's OWN bootstrap works on a genuinely Go-less mac.
+socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md) so smoke-linux/smoke-macos can prove the actual reported bug against the real shipped binaries. Built here as one APE by the linked go command (the embedded standard library is cosmo-only, so there is no native cross-compile), which both smoke hosts run, rather than via `setup-go` on smoke-macos. That will put Go on that runner's PATH before the "Full pipeline" step and quietly defeat the whole point of that job. Proving go-toolchain's OWN bootstrap works on a genuinely Go-less mac.
 
 ### build
 
