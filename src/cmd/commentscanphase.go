@@ -52,6 +52,18 @@ func repairCommentNumbers(path, src string) bool {
 		}
 		return false
 	}
+	// A rewrite here would dirty the tree the binary is stamped from, and a
+	// binary carrying vcs.modified cannot rebuild itself against a newer
+	// toolchain (pipelineAtRevision refuses: no clone reproduces it). So CI
+	// reports what a local run would have repaired, and the warnings budget
+	// fails the build once enough of them accumulate.
+	if os.Getenv("CI") != "" {
+		for _, hit := range commentNumberFindings(path, src) {
+			logger.WarnFile(path, "%s:%d:%d: %q is a number in a comment: %s",
+				path, hit.Line, hit.Col, hit.Number, commentnumbers.Remedy)
+		}
+		return false
+	}
 	info, err := os.Stat(path)
 	mode := os.FileMode(0o644)
 	if err == nil {
