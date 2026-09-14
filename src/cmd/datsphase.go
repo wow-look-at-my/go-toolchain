@@ -83,10 +83,6 @@ const datsStageDir = ".dats-stage"
 // The dir must sit INSIDE the module root, as an absolute path: dats
 // sandboxes every command, reaching only the working directory (read-only)
 // plus declared paths.
-//
-// Staged binaries are READ-ONLY. A self-rewriting binary (the cosmo APE)
-// must be copied to the sandbox's own writable temp space by the suite that
-// runs it (`cp` into `$(mktemp -d)`, per dats/README.md).
 func stageDatsArtifacts(artifacts []datsArtifact) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {

@@ -17,9 +17,7 @@ import (
 // span, which is how a go binary carries its standard library.
 const apeAppendEnv = "GOCOSMOAPPEND"
 
-// selfBuildPasses is how many times the pipeline builds itself. The go
-// command that starts the run builds the tree a single time. That binary
-// builds it again with its own compiler.
+// selfBuildPasses is how many times the pipeline builds itself.
 const selfBuildPasses = 3
 
 // buildSelf builds this pipeline's own binary: the fork checkout is the

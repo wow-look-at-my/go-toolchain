@@ -200,11 +200,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 
 	// Consumers of a js/wasm artifact need the EXACT wasm_exec.js of the
-	// toolchain that built it. Ship the fork's copy next to the artifact:
-	// covered by checksums.txt and the CI artifact, but outside the buildhost
-	// publish set — "wasm_exec.js" cannot match the publish action's
-	// <binary>_{os}_{arch} filename pattern (pinned by
-	// TestWasmArtifactNamesInBuildhostPublishSet).
+	// toolchain that built it.
 	if slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
 		dst, err := writeWasmExecJS(outputDir)
 		if err != nil {

@@ -36,8 +36,7 @@ func skipDir(name string) bool {
 }
 
 // IsNestedModule reports whether dir holds its own go.mod or is another
-// repository's working tree. Walkers must skip these dirs: their files are
-// not part of this module's build.
+// repository's working tree.
 func IsNestedModule(dir string) bool {
 	if dir == "." {
 		return false

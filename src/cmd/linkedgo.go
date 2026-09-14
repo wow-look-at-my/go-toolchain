@@ -28,9 +28,7 @@ func LinkedGoArgs(argv []string) ([]string, bool) {
 	return nil, false
 }
 
-// linkedGoEnv marks a process the pipeline started. Only such a process
-// reaches the linked go command; anywhere else "go" and "tool" are not
-// commands of this binary at all.
+// linkedGoEnv marks a process the pipeline started.
 const linkedGoEnv = "GO_TOOLCHAIN_LINKED_GO"
 
 // RunLinkedGo runs the go command or tool argv asks for and answers its

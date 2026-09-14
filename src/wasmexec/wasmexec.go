@@ -5,7 +5,5 @@ package wasmexec
 
 import _ "embed"
 
-// Script is the harness, the fork's bytes under a generated-file header.
-//
 //go:embed wasm_exec.js
 var Script []byte
