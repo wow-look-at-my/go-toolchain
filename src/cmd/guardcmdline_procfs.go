@@ -8,8 +8,8 @@ import (
 
 // procCmdline reads a process's argv from /proc, which stores it NUL
 // separated with a trailing NUL. It carries no build constraint: the cosmo
-// APE picks between this and the ps reader at run time, so each has to be
-// linked into the binary that boots on either host.
+// APE picks between this and the ps reader at run time, so both are linked
+// into it.
 func procCmdline(pid int) ([]string, bool) {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
 	if err != nil || len(b) == 0 {

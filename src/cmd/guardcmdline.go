@@ -10,16 +10,13 @@ import (
 
 // A reader outside our PID namespace cannot be named. The command line can.
 
-// selfPID is where the ancestry walk starts. Every platform reader answers
-// for a pid, and this pid is the same however argv gets read, so it sits
-// outside the platform split.
+// selfPID is where the ancestry walk starts, whichever reader reads argv.
 func selfPID() int { return os.Getpid() }
 
 // ancestryLimit bounds the walk against a cyclic ppid chain.
 const ancestryLimit = 8
 
-// Why the last command-line probe answered nothing. Each cause wants a
-// different repair, and the banner is where the reader learns which.
+// Why the last command-line probe answered nothing, for the banner to quote.
 var lastCmdlineProbeErr string
 
 // probeDetail renders that reason for the banner. The /proc reader sets none.
@@ -96,10 +93,9 @@ func shellScript(argv []string) (string, bool) {
 	return "", false
 }
 
-// takesCommandString reports whether a shell flag is the flag followed by the
-// command string. A bundled form such as -lc still ends in the c that takes
-// it. The ps reader asks the same question of a row it has not split yet, so
-// both agree on where the script starts.
+// takesCommandString reports whether a shell flag is followed by the command
+// string. A bundled form such as -lc still ends in the c that takes it. The
+// ps reader asks this too, so it splits a row where shellScript would.
 func takesCommandString(arg string) bool {
 	if arg == "-c" {
 		return true

@@ -101,9 +101,9 @@ tests:
 	#
 	# A host with a classifier must REFUSE. The blind banner used to be accepted
 	# here as an equal answer, which left this check unable to tell a working
-	# guard from one that sees nothing: dats prints a passing test's output
-	# nowhere, so every darwin run was green without anyone learning which of
-	# the two it got. Measured once the banner stopped counting: darwin is
+	# guard from a guard that sees nothing: dats prints a passing test's output
+	# nowhere, so every darwin run was green without anyone learning which
+	# answer it got. Measured after the banner stopped counting: darwin is
 	# blind, and it reports the reason now (guardcmdline_ps.go).
 	#
 	# The sandbox was never the reason to expect that. dats' seatbelt profile

@@ -113,9 +113,9 @@ func TestUnidentifiedPeerRunsWithNoShellToConsult(t *testing.T) {
 // The walk ends before it starts when the parent lookup fails, and no ps ever
 // runs. Downstream that is identical to a host that refused every ps, so the
 // banner has to name this stage rather than leave both silent.
-// Both halves share one t.Serial(). A serial test stops every other test in
-// the package, so a second one drains the parallel pool again for the same
-// piece of package state.
+// Both halves share a single t.Serial(). A serial test stops every other test
+// in the package, so splitting them drains the parallel pool again for the
+// same piece of package state.
 func TestAFailedParentLookupIsReported(t *testing.T) {
 	t.Serial()
 	old := commPPIDFunc

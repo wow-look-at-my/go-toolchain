@@ -1,10 +1,10 @@
 package cmd
 
-// The bug this pins: readCmdline lived in a `_darwin.go` file next to a
-// `!darwin` /proc reader. GOOS=cosmo excludes the first and selects the
-// second, so the published APE asked a Mac for /proc, read nothing, and
-// acquitted every captured run the guard exists to refuse -- while the
-// GOOS=darwin unit tests, which do select the sysctl reader, stayed green.
+// The bug this pins: readCmdline lived in a `_darwin.go` file beside a
+// `!darwin` /proc reader, and GOOS=cosmo selects the /proc side. So the
+// published APE asked a Mac for /proc and acquitted every captured run,
+// while the GOOS=darwin tests kept selecting the sysctl reader and stayed
+// green.
 
 import (
 	"os"
@@ -46,7 +46,7 @@ func guardCmdlineDefiners(t *testing.T, decl string) []string {
 	return out
 }
 
-// Exactly one definition per platform: none and the guard has no argv to read,
+// A single definition per platform: none and the guard has no argv to read,
 // several and the build is ambiguous.
 func TestGuardCmdlineReaderBuildsForEachPlatform(t *testing.T) {
 	t.Serial()

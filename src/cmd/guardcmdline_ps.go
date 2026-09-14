@@ -1,10 +1,10 @@
 //go:build darwin || cosmo
 
-// The ps(1)-backed argv read: what a cosmo APE has on a darwin host. There is
-// no /proc there, and the KERN_PROCARGS2 sysctl the native darwin build uses
-// answers ENOSYS from a cosmo binary, so the host's own tool reads argv
-// instead. Compiled on darwin as well as cosmo, which is how the reader no CI
-// runner exercises in its real configuration still gets tested.
+// There is no /proc on a darwin host, and the KERN_PROCARGS2 sysctl the
+// native darwin build uses answers ENOSYS from a cosmo binary, so the host's
+// own tool reads argv instead. Compiled on darwin as well as cosmo, which is
+// how the reader no CI runner exercises in its real configuration still gets
+// tested.
 
 package cmd
 
@@ -94,9 +94,9 @@ func parsePSCommand(out string) []string {
 	return fields
 }
 
-// afterFields returns what follows the first n whitespace-separated fields of
-// line, with no leading space. The fields themselves come from Fields, so the
-// walk here counts the same boundaries it did.
+// afterFields returns what follows the leading n whitespace-separated fields
+// of line, with no leading space. The fields themselves come from Fields, so
+// the walk here counts the same boundaries it did.
 func afterFields(line string, n int) (string, bool) {
 	rest := line
 	for i := 0; i < n; i++ {
