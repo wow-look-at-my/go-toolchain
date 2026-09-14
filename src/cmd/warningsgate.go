@@ -3,13 +3,27 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// maxWarnings is the pipeline's DISTINCT-warning budget; a constant on purpose. see docs/WARNINGS-GATE.md
-// Uncapped while CI reports comment repairs instead of applying them, which surfaces a backlog no run has paid down yet. waiver-expires: 2026-09-21
-const maxWarnings = 1 << 30
+// maxWarnings is the pipeline's DISTINCT-warning budget. see docs/WARNINGS-GATE.md
+const maxWarnings = 15
+
+// warningsUncappedUntil lifts the budget while CI reports comment repairs
+// instead of applying them, which surfaces a backlog no run has paid down. The
+// date is the mechanism, not a comment: past it the budget is maxWarnings
+// again with no edit and no way to forget.
+var warningsUncappedUntil = time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+
+// warningsBudget answers the budget in force now.
+func warningsBudget() int64 {
+	if time.Now().UTC().Before(warningsUncappedUntil) {
+		return 1 << 30
+	}
+	return maxWarnings
+}
 
 // checkWarningsGate fails the build when the run emitted more than
 // maxWarnings distinct warnings. It runs at the END of the pipeline commands,
@@ -19,7 +33,7 @@ const maxWarnings = 1 << 30
 // hunting back through the log for which output was to blame.
 func checkWarningsGate() error {
 	n := logger.WarnCount()
-	if n <= maxWarnings {
+	if n <= warningsBudget() {
 		return nil
 	}
 	recap := warningsRecap(n, logger.TotalWarnCount(), logger.EmittedWarnings())
