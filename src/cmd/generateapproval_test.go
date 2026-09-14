@@ -15,8 +15,8 @@ const approvalGoMod = `module example.com/m // go-toolchain:generate=own123
 go 1.27
 
 require (
-	github.com/wow/plain v1.0.0 // go-toolchain:auto-branch; go-toolchain:generate=abc123
-	github.com/wow/deep v0.0.0-20260913013131-12eca33b8f79 // indirect; go-toolchain:auto-branch; go-toolchain:generate=def456
+	github.com/wow/plain v1.0.0 // go-toolchain:generate=abc123
+	github.com/wow/deep v0.0.0-20260913013131-12eca33b8f79 // indirect; go-toolchain:generate=def456
 	github.com/wow/bare v1.0.0
 	github.com/up/fork v1.0.0
 )
@@ -98,7 +98,7 @@ func TestTheApprovedLineKeepsTheExistingComment(t *testing.T) {
 		"github.com/wow/bare v1.0.0 // go-toolchain:generate=new789",
 		approvedLine(f, "github.com/wow/bare", "v1.0.0", "new789"))
 	assert.Equal(t,
-		"github.com/wow/deep v0.0.0-20260913013131-12eca33b8f79 // indirect; go-toolchain:auto-branch; go-toolchain:generate=new789",
+		"github.com/wow/deep v0.0.0-20260913013131-12eca33b8f79 // indirect; go-toolchain:generate=new789",
 		approvedLine(f, "github.com/wow/deep", "v0.0.0-20260913013131-12eca33b8f79", "new789"),
 		"a stale hash is replaced, not repeated")
 	assert.Equal(t, "def456", dependencyApproval(f, "github.com/wow/deep"), "the file itself is untouched")
