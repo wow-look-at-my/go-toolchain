@@ -9,9 +9,9 @@ import (
 )
 
 // requireCmdlineReader skips a test on a host that cannot read a process's
-// command line. The classifier's fallback reads argv to separate a bare run
-// from a captured one; on a platform with no such read there is nothing to
-// assert. Windows is the no-op-classifier host (claudeguard_other.go).
+// argv. The classifier's fallback separates a bare run from a captured run
+// by reading the spawning command line; where no such read exists there is
+// nothing to assert. Windows is the no-op-classifier host.
 func requireCmdlineReader(t *testing.T) {
 	t.Helper()
 	switch runtime.GOOS {

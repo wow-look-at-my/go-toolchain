@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"os"
 	"strings"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
 )
+
+// selfPID is where the ancestry walk starts.
+func selfPID() int { return os.Getpid() }
 
 // A reader outside our PID namespace cannot be named. The command line can.
 
@@ -59,15 +63,21 @@ func shellScript(argv []string) (string, bool) {
 		return "", false
 	}
 	for i, a := range argv[1:] {
-		if a == "-c" && i+2 < len(argv) {
-			return argv[i+2], true
-		}
-		// A bundled form such as -lc still ends in the c that takes the string.
-		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.HasSuffix(a, "c") && i+2 < len(argv) {
+		if takesCommandString(a) && i+2 < len(argv) {
 			return argv[i+2], true
 		}
 	}
 	return "", false
+}
+
+// takesCommandString reports whether a shell flag is the flag followed by the
+// command string. A bundled form such as -lc still ends in the c that takes
+// it.
+func takesCommandString(arg string) bool {
+	if arg == "-c" {
+		return true
+	}
+	return strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.HasSuffix(arg, "c")
 }
 
 // isShell matches the interpreters that accept -c, by base name. A full path
