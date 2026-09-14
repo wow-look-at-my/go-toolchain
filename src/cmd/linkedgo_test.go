@@ -17,7 +17,7 @@ func TestSelfGoCommand(t *testing.T) {
 }
 
 // Outside a pipeline run this binary is never the go command, whatever argv
-// says. Inside one, the go name and the go and tool words each reach it.
+// says.
 func TestLinkedGoArgs(t *testing.T) {
 	t.Setenv(linkedGoEnv, "")
 	_, linked := LinkedGoArgs([]string{"go", "build"})
