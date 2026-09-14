@@ -167,7 +167,6 @@ jobs:
   build-everywhere:
     needs: host-build
     strategy:
-      fail-fast: false
       matrix:
         include:
           - origin: darwin
@@ -270,7 +269,6 @@ jobs:
   smoke:
     needs: [host-build, build]
     strategy:
-      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
