@@ -31,22 +31,6 @@ var vetRunFunc = vet.RunWithProgress
 // and the matrix command.
 // Returns (filesChanged, testResult, error) where filesChanged indicates if vet applied any fixes.
 func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.TestResult, error) {
-	// Fix any placeholder-version dependencies before go mod tidy
-	if err := FixBogusDepsVersions(r); err != nil {
-		return false, nil, err
-	}
-
-	// An org dependency carrying a plain version pin gets the branch marker
-	// added up front, so the re-resolution below owns it from this run on.
-	if _, err := EnforceOrgBranchTracking(r); err != nil {
-		return false, nil, err
-	}
-
-	// Re-resolve any dependency pinned to follow a branch (see depsbranch.go)
-	if _, err := UpdateTrackedBranchDeps(r); err != nil {
-		return false, nil, err
-	}
-
 	// Handle vanity-URL modules: inject replace directives for unreachable hosts
 	vanity, vanityErr := injectVanityReplaces()
 	if vanityErr != nil {
