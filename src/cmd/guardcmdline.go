@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"strconv"
 	"strings"
 
 	agent "github.com/wow-look-at-my/is-this-an-agent"
@@ -8,11 +10,28 @@ import (
 
 // A reader outside our PID namespace cannot be named. The command line can.
 
+// selfPID is where the ancestry walk starts, whichever reader reads argv.
+func selfPID() int { return os.Getpid() }
+
 // ancestryLimit bounds the walk against a cyclic ppid chain.
 const ancestryLimit = 8
 
+// Why the last command-line probe answered nothing, for the banner to quote.
+var lastCmdlineProbeErr string
+
+// probeDetail renders that reason for the banner. The /proc reader sets none.
+func probeDetail() string {
+	if lastCmdlineProbeErr == "" {
+		return ""
+	}
+	return " (" + lastCmdlineProbeErr + ")"
+}
+
 // A seam, so a test can drive the refused read that switched the guard off.
 var readCmdlineFunc = readCmdline
+
+// The ancestry lookup, as a seam. A test cannot arrange a real failure.
+var commPPIDFunc = agent.CommPPID
 
 // unidentifiedPeerSink answers a pipe with an unnameable reader. Only a READ
 // command line showing a capture convicts: else every bare run aborts.
@@ -24,7 +43,7 @@ func unidentifiedPeerSink(kind sinkKind) outputSink {
 	// Nothing named the reader and nothing showed a capture. The run is
 	// allowed, and this records that the guard answered without knowing.
 	if cmd == "" {
-		return outputSink{kind: sinkVisible, blind: "the reader could not be named and no ancestor's command line could be read"}
+		return outputSink{kind: sinkVisible, blind: "the reader could not be named and no ancestor's command line could be read" + probeDetail()}
 	}
 	return outputSink{kind: sinkVisible, blind: "the reader could not be named, and the spawning command line does not capture stdout: " + cmd}
 }
@@ -67,15 +86,20 @@ func shellScript(argv []string) (string, bool) {
 		return "", false
 	}
 	for i, a := range argv[1:] {
-		if a == "-c" && i+2 < len(argv) {
-			return argv[i+2], true
-		}
-		// A bundled form such as -lc still ends in the c that takes the string.
-		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.HasSuffix(a, "c") && i+2 < len(argv) {
+		if takesCommandString(a) && i+2 < len(argv) {
 			return argv[i+2], true
 		}
 	}
 	return "", false
+}
+
+// takesCommandString reports whether a shell flag is followed by the command
+// string. A bundled form such as -lc still ends in the c that takes it.
+func takesCommandString(arg string) bool {
+	if arg == "-c" {
+		return true
+	}
+	return strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.HasSuffix(arg, "c")
 }
 
 // isShell matches the interpreters that accept -c, by base name. A full path
@@ -141,15 +165,30 @@ func capturesStdout(script string) bool {
 	return false
 }
 
-// parentPID is agent's view of our own parent, so the walk starts from the
-// same ancestry the agent roster uses.
+// parentPID is agent's view of our own parent. Either outcome ends the walk
+// before it starts, and they want different repairs: a refused lookup is a
+// defect in the host's process reader, and a parent of init is a process with
+// nothing above it to read.
 func parentPID() int {
-	_, ppid, _ := agent.CommPPID(selfPID())
+	self := strconv.Itoa(selfPID())
+	_, ppid, ok := commPPIDFunc(selfPID())
+	if !ok {
+		lastCmdlineProbeErr = "the process lookup refused the parent of pid " + self + ", so no ancestor was probed"
+		// agent knows WHY its reader answered nothing.
+		if why := agent.LookupError(); why != "" {
+			lastCmdlineProbeErr += ": " + why
+		}
+		return 0
+	}
+	if ppid <= 1 {
+		lastCmdlineProbeErr = "pid " + self + " reports parent " + strconv.Itoa(ppid) + ", so there is no ancestor to probe"
+		return 0
+	}
 	return ppid
 }
 
 // parentOf is the same lookup for an arbitrary pid.
 func parentOf(pid int) (int, bool) {
-	_, ppid, ok := agent.CommPPID(pid)
+	_, ppid, ok := commPPIDFunc(pid)
 	return ppid, ok
 }

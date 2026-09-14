@@ -1,15 +1,12 @@
 package cmd
 
 import (
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 // requireCmdlineReader skips a host that cannot read a process's command
@@ -113,61 +110,38 @@ func TestUnidentifiedPeerRunsWithNoShellToConsult(t *testing.T) {
 	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
 }
 
-// ps prints a single string, so splitting it on spaces drops the pipe that
-// decides the classification. The script after -c has to survive whole.
-func TestParsePSCommandKeepsTheShellScriptWhole(t *testing.T) {
-	argv := parsePSCommand("/bin/sh -c go-toolchain | head -30\n")
-	require.Len(t, argv, 3)
-	assert.Equal(t, []string{"/bin/sh", "-c", "go-toolchain | head -30"}, argv)
-
-	script, ok := shellScript(argv)
-	require.True(t, ok)
-	assert.True(t, capturesStdout(script), "the pipe must survive the round trip")
-}
-
-func TestParsePSCommandOnAPlainExec(t *testing.T) {
-	argv := parsePSCommand("/usr/local/bin/go-toolchain matrix\n")
-	assert.Equal(t, []string{"/usr/local/bin/go-toolchain", "matrix"}, argv)
-	_, ok := shellScript(argv)
-	assert.False(t, ok, "no shell was handed a command string")
-}
-
-func TestParsePSCommandOnEmptyOutput(t *testing.T) {
-	assert.Empty(t, parsePSCommand("\n"))
-}
-
-// The darwin host path a fat APE takes. A fake ps stands in for the tool,
-// because this suite's own host has /proc and would never reach it.
-func TestPSCmdlineReadsTheTool(t *testing.T) {
+// The walk ends before it starts when the parent lookup fails, and no ps ever
+// runs. Downstream that is identical to a host that refused every ps, so the
+// banner has to name this stage rather than leave both silent.
+// Both halves share a single t.Serial(). A serial test stops every other test
+// in the package, so splitting them drains the parallel pool again for the
+// same piece of package state.
+func TestAFailedParentLookupIsReported(t *testing.T) {
 	t.Serial()
-	// The stand-in is a `#!/bin/sh` script, which NT cannot start. The reader
-	// it covers never runs there either: NT dispatches to procCmdline.
-	if hostos.GOOS() == "windows" {
-		t.Skip("no shebang execution on this host")
-	}
-	fake := filepath.Join(t.TempDir(), "ps")
-	script := "#!/bin/sh\necho '/bin/sh -c go-toolchain > out.log'\n"
-	require.NoError(t, os.WriteFile(fake, []byte(script), 0o755))
+	old := commPPIDFunc
+	t.Cleanup(func() { commPPIDFunc = old })
 
-	old := psBin
-	psBin = fake
-	t.Cleanup(func() { psBin = old })
+	t.Run("a refused lookup names the reader", func(t *testing.T) {
+		commPPIDFunc = func(int) (string, int, bool) { return "", 0, false }
+		lastCmdlineProbeErr = ""
 
-	argv, ok := psCmdline(4242)
-	require.True(t, ok)
-	assert.Equal(t, []string{"/bin/sh", "-c", "go-toolchain > out.log"}, argv)
-}
+		assert.Empty(t, ancestorCmdlines(), "a walk with no first pid reads nothing")
+		assert.Contains(t, probeDetail(), "refused the parent")
+	})
 
-// A sandbox that refuses ps answers nothing, which is no evidence rather than
-// evidence of a capture.
-func TestPSCmdlineReportsNothingWhenTheToolIsUnavailable(t *testing.T) {
-	t.Serial()
-	old := psBin
-	psBin = filepath.Join(t.TempDir(), "absent-ps")
-	t.Cleanup(func() { psBin = old })
+	// A lookup that ANSWERED and named init is a different finding: there is
+	// nothing above this process. Reporting it as a refused reader sends the
+	// reader hunting a probe defect that is not there.
+	t.Run("a parent of init is not a refusal", func(t *testing.T) {
+		commPPIDFunc = func(int) (string, int, bool) { return "launchd", 1, true }
+		lastCmdlineProbeErr = ""
 
-	_, ok := psCmdline(4242)
-	assert.False(t, ok)
+		assert.Empty(t, ancestorCmdlines(), "a parent of init leaves nothing to walk")
+		detail := probeDetail()
+		assert.Contains(t, detail, "no ancestor to probe")
+		assert.NotContains(t, detail, "refused",
+			"the lookup answered; calling that a refusal names the wrong repair")
+	})
 }
 
 // requireWalkableAncestry skips a host with no parent to walk to, where the
