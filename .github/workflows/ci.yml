@@ -55,7 +55,7 @@ jobs:
           if [ -n "$GO_PROXY_CONFIG" ]; then
             proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
             if [ -n "$proxy" ]; then
-              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+              echo "GOPROXY=${proxy},direct" >> "$GITHUB_ENV"
             fi
           fi
 
@@ -188,7 +188,7 @@ jobs:
           if [ -n "$GO_PROXY_CONFIG" ]; then
             proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
             if [ -n "$proxy" ]; then
-              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+              echo "GOPROXY=${proxy},direct" >> "$GITHUB_ENV"
             fi
           fi
 
