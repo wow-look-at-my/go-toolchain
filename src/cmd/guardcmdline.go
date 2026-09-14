@@ -94,8 +94,7 @@ func shellScript(argv []string) (string, bool) {
 }
 
 // takesCommandString reports whether a shell flag is followed by the command
-// string. A bundled form such as -lc still ends in the c that takes it. The
-// ps reader asks this too, so it splits a row where shellScript would.
+// string. A bundled form such as -lc still ends in the c that takes it.
 func takesCommandString(arg string) bool {
 	if arg == "-c" {
 		return true

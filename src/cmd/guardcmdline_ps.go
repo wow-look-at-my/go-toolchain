@@ -17,8 +17,7 @@ import (
 	"time"
 )
 
-// Where a cosmo APE gets argv on a darwin host. Absolute, so the read does
-// not depend on PATH. A var, for a fake in a test.
+// Absolute, so the read never depends on PATH. A var, for a fake in a test.
 var psBin = "/bin/ps"
 
 // Bounds the whole invocation. A sandbox that refuses ps answers nothing.
@@ -34,8 +33,7 @@ func psCmdline(pid int) ([]string, bool) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, psBin, "-ww", "-o", "command=", "-p", strconv.Itoa(pid))
-	// Killing ps at the deadline leaves Wait blocked while the stdout pipe
-	// stays open, which is what WaitDelay closes.
+	// Killing ps leaves Wait blocked on an open stdout pipe without this.
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {

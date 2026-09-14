@@ -1,10 +1,7 @@
 package cmd
 
-// The bug this pins: readCmdline lived in a `_darwin.go` file beside a
-// `!darwin` /proc reader, and GOOS=cosmo selects the /proc side. So the
-// published APE asked a Mac for /proc and acquitted every captured run,
-// while the GOOS=darwin tests kept selecting the sysctl reader and stayed
-// green.
+// The bug this pins: a `_darwin.go` readCmdline beside a `!darwin` /proc
+// reader, which GOOS=cosmo resolves to the /proc side.
 
 import (
 	"os"
@@ -73,15 +70,18 @@ func TestGuardCmdlinePSReaderSharedWithCosmo(t *testing.T) {
 }
 
 // The /proc reader is linked into the APE for its linux host, alongside the ps
-// reader it picks between at run time.
-func TestGuardCmdlineProcReaderBuildsEverywhere(t *testing.T) {
+// reader it picks between at run time. A native darwin build reaches neither
+// /proc nor this function, and vet fails an unused one.
+func TestGuardCmdlineProcReaderSharedWithCosmo(t *testing.T) {
 	t.Serial()
 	files := guardCmdlineDefiners(t, "func procCmdline(")
-	for goos, tags := range claudeGuardTagSets {
-		selected := claudeGuardSelected(t, files, goos, tags)
+	for _, goos := range []string{"linux", "cosmo"} {
+		selected := claudeGuardSelected(t, files, goos, claudeGuardTagSets[goos])
 		assert.Len(t, selected, 1,
 			"GOOS=%s must select exactly one procCmdline, got %v", goos, selected)
 	}
+	assert.Empty(t, claudeGuardSelected(t, files, "darwin", claudeGuardTagSets["darwin"]),
+		"procCmdline must not be selected for GOOS=darwin, which has no /proc and would carry it unused")
 }
 
 // The ancestry walk starts at this process, so the pid it starts from has to
