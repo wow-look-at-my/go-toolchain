@@ -21,11 +21,10 @@
 # the background update check fails instantly and silently, keeping output
 # deterministic regardless of what buildhost has published.
 #
-# NOTE: build-everywhere self-builds this repo on every host, so every
-# test here runs on linux, darwin and windows. Nothing below may name a host.
+# NOTE: build-everywhere self-builds this repo on every host, so every test
+# here runs on linux, darwin and windows. Nothing below may name a host.
 # The SHIPPED artifact's guard is pinned by the sibling fixture
-# .github/dats-fixtures/agent-output-guard.dats, host-agnostic like this file,
-# which
+# .github/dats-fixtures/agent-output-guard.dats, the same file for every host,
 # every smoke job copies into a throwaway module. That fixture cannot live under
 # this repo's own dats/: dats runs every suite it finds recursively there, so it
 # would also run against the dev build this file already covers.
@@ -33,7 +32,7 @@
 # Sandboxed like every other suite (dats' default). The adjustment: under
 # the docker backend the commands run in the IMAGE's filesystem, and every
 # go-toolchain invocation past `version` bootstraps a Go toolchain — with no Go
-# in the image every command would download its own. A Go-bearing image gives the
+# in the image it would download a toolchain per command. A Go-bearing image gives the
 # bootstrap something to find. bwrap and seatbelt ignore `image` (they run on
 # the host's own filesystem, where the pipeline's Go already is).
 sandbox:
@@ -50,7 +49,7 @@ setup:
 
 tests:
 	# The only test here that reaches the staleness footer, whose commit queries
-	# would otherwise ride api.github.com -- a handful of round trips at a 10s
+	# would otherwise ride api.github.com -- a round trip per commit at a 10s
 	# client timeout each, spent inside the rebuild wall-clock budget
 	# host-build enforces. Unreachable base = the offline footer, instantly.
 	- desc: version reports the build stamp
@@ -69,7 +68,7 @@ tests:
 
 	# version prints build metadata and no build result, so it is exempt: a
 	# captured `version raw` under an agent still answers.
-	# The test above asks the same thing with no marker set, and both have to
+	# The test above asks the same thing with no marker set, and they have to
 	# agree -- an agent is exactly who runs this suite, and the guard firing on
 	# version made that pair unsatisfiable.
 	- desc: version is exempt from the agent output guard
@@ -95,11 +94,11 @@ tests:
 	# the deletion itself is asserted by the next test.
 	#
 	# The guard is INOPERATIVE on a windows host -- the APE gets no classifier
-	# there, says so, and allows -- so the answer is paired with `uname -s`
-	# rather than split into a per-host copy of this file. Losing the refusal
-	# where a classifier exists, or gaining the banner there, fails.
+	# there, says so a single time, and allows -- so the answer is paired with
+	# `uname -s` rather than split into another copy of this file. Losing the
+	# refusal where a classifier exists, or gaining the banner there, fails.
 	#
-	# A darwin host has more than a single legitimate answer, and each is the guard working.
+	# A darwin host has more than a single legitimate answer, and EACH is the guard working.
 	# Naming a pipe's reader there costs an lsof and a ps on other pids, which
 	# seatbelt denies. The guard is then blind, and the design allows the run
 	# rather than break every legitimate agent run on a Mac. What it must never
@@ -134,8 +133,8 @@ tests:
 	# whatever made it not refuse. Planting a binary and letting the run
 	# proceed would put a whole pipeline inside this budget, and its outcome
 	# would decide the binary's fate instead of the guard. So the verdict is
-	# probed from an EMPTY directory ahead of anything else, and only a refusal
-	# earns the planted-binary arm.
+	# probed from an EMPTY directory ahead of that, and only a refusal earns
+	# the planted-binary arm.
 	- desc: the agent output guard deletes the module's build outputs where it refuses
 	  cmd: 'mkdir -p {outputs.mod} {outputs.probe}; cd {outputs.probe}; probe=$({shared.gt.exe} 2>&1); cd {outputs.mod}; if printf "%s" "$probe" | grep -q "refused to run"; then printf "module example.com/stalebin\n\ngo 1.21\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({shared.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; printf "%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$(printf "%s" "$out" | tr "\n" " ")"; else printf "%s|no-refusal|no-refusal|%s\n" "$(uname -s)" "$(printf "%s" "$probe" | tr "\n" " ")"; fi'
 	  timeout: 60s
@@ -199,7 +198,7 @@ tests:
 	# threshold: this error prints instantly during flag parsing (no I/O), well
 	# under the 1s floor, so logx never appends a timing suffix and the golden
 	# stays stable. If logx's threshold ever drops low enough for this line to
-	# get timed, this assertion is what goes red.
+	# get timed, this assertion is what goes red soonest.
 	- desc: unknown flag is rejected
 	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; {shared.gt.exe} --definitely-not-a-flag'
 	  exit: 1
@@ -232,8 +231,8 @@ tests:
 	# sandbox that denies them yields the right answer here for the WRONG
 	# reason. So this asserts the METHOD: the APE answers from the runtime's
 	# own __hostos, ahead of every probe, and never from the guess. Which OS
-	# each host reports is pinned per host by the smoke jobs, and this
-	# suite runs on every host -- naming an OS here would fail on the rest.
+	# each host reports is pinned per host by the smoke jobs, and this suite
+	# runs on every host -- naming any of them here would fail on the others.
 	- desc: host detection is a runtime measurement, never the fallback guess
 	  cmd: '{shared.gt.exe} version host'
 	  timeout: 60s
@@ -246,7 +245,7 @@ tests:
 		"!stdout":
 			- "GUESSED"
 
-	# The matrix builds a single multi-platform APE, and --help promises it. Pin the
+	# The matrix builds a SINGLE multi-platform APE, and --help promises it. Pin the
 	# promise: the platform-set flag exists with the documented default, and no
 	# --os/--arch flag exists to silently reintroduce a cartesian product.
 	- desc: matrix --help documents the single-APE default
@@ -260,7 +259,7 @@ tests:
 			- "--cosmo-platforms"
 			- "linux/amd64,darwin/arm64,windows/amd64"
 		# The CLI cannot ask for a per-platform copy of the APE: there is no
-		# flag, because no copier stands behind such a flag.
+		# flag, because there is no copier behind such a flag.
 		"!stdout":
 			- "--cosmo-slots"
 			- "--os "
@@ -303,7 +302,7 @@ tests:
 		"!stderr":
 			- "refused to run"
 
-	# A directory with neither a module nor suites is what still
+	# A directory with neither a module nor suites is the case that still
 	# refuses, and the message has to name both halves -- "no go.mod found" alone
 	# sent people off to `go mod init` a shell repo that only wanted its suites
 	# run.
@@ -320,7 +319,7 @@ tests:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 			# Every other full-pipeline test here SETS an agent marker, because it
-			# is asserting the guard. This test needs the guard OFF instead,
+			# is asserting the guard. This is the case that needs the guard OFF,
 			# and the markers leak in from the host: inside a Claude Code session
 			# CLAUDE_CODE_SESSION_ID alone makes the guard refuse before the module
 			# check is ever reached, so the assertion would pass in CI and fail on
