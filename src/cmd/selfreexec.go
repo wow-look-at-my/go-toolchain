@@ -29,9 +29,6 @@ func ownMainPackage() (string, bool) {
 	return mains[0], true
 }
 
-// buildSelfForHost compiles the pipeline for the HOST into a fresh temporary
-// directory, so this process can start it: the fork defaults to an APE, and
-// a host that is not cosmo cannot exec one.
 func buildSelfForHost(pkg string) (string, error) {
 	// The path enters an argument list, which cosmo does not translate.
 	dir, err := os.MkdirTemp(argListTempDir(hostos.GOOS()), "go-toolchain-self-")

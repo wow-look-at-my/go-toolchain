@@ -18,9 +18,8 @@ import (
 const apeAppendEnv = "GOCOSMOAPPEND"
 
 // selfBuildPasses is how many times the pipeline builds itself. The go
-// command that starts the run builds the tree once. That binary builds it
-// again with its own compiler. A third build by the second binary must land
-// on the same bytes, which is the fixed point make.bash reaches the same way.
+// command that starts the run builds the tree a single time. That binary
+// builds it again with its own compiler.
 const selfBuildPasses = 3
 
 // buildSelf builds this pipeline's own binary: the fork checkout is the
@@ -108,7 +107,7 @@ func writeStdBlob(r runner.CommandRunner, goCmd []string, goroot, blob string) e
 	return nil
 }
 
-// sameBytes fails when two files differ, naming both digests.
+// sameBytes fails when files differ, naming both digests.
 func sameBytes(first, second string) error {
 	sumFirst, err := fileHash(first)
 	if err != nil {

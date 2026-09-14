@@ -8,9 +8,9 @@ import (
 )
 
 // LinkedGoArgs answers the go command line argv asks for, and whether it asks
-// for one at all: a program named go is the go command, "go-toolchain go ..."
-// is the go command, and "go-toolchain tool <name> ..." is a linked build
-// tool. Anything else is the pipeline.
+// for a single at all: a program named go is the go command, "go-toolchain go
+// ..." is the go command, and "go-toolchain tool <name> ..." is a linked
+// build tool. Anything else is the pipeline.
 func LinkedGoArgs(argv []string) ([]string, bool) {
 	if len(argv) == 0 {
 		return nil, false

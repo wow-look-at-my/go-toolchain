@@ -28,10 +28,10 @@ var goLinkDir string
 var selfExecutableFunc = os.Executable
 
 // EnsureGoVersion makes this executable the go command of the run: it goes
-// first on PATH under the name go, GOROOT names the standard library it
+// earliest on PATH under the name go, GOROOT names the standard library it
 // builds against, and GOTOOLCHAIN is local so the go command fetches nothing.
 // Inside this module the fork checkout is the GOROOT and is put at its
-// branch's head first.
+// branch's head earliest.
 func EnsureGoVersion() error {
 	exe, err := selfExecutableFunc()
 	if err != nil {

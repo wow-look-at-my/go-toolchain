@@ -29,6 +29,7 @@ A GitHub Action and CLI that builds Go projects with test coverage enforcement. 
 - **Colorized output** — coverage percentages on a red-to-green gradient.
 - **CI summary** — writes a GitHub Step Summary with test results, source links, coverage, benchmark deltas and a Gantt chart of the pipeline.
 - **One toolchain, one output shape** — every phase compiles with the gosmopolitan fork, and the only outputs are the fat APE and wasm. See [docs/MATRIX.md](docs/MATRIX.md).
+- **The toolchain is built in** — the binary links the fork's go command, compiler, linker and standard library at one commit. Nothing is downloaded or extracted. See [docs/CI.md](docs/CI.md).
 - **Web-backed build cache** — the gosmopolitan fork's `cmd/go` shares a build cache across CI runs on its own. See [docs/CACHE.md](docs/CACHE.md).
 - **Build profile** — per-action timings: what the build spent its time on. See [docs/PROFILE.md](docs/PROFILE.md).
 - **Vanity URL resolution** — resolves vanity-URL module dependencies via the Go proxy or go-import meta tags.
@@ -142,11 +143,12 @@ go-toolchain version raw
 # Print version info as JSON
 go-toolchain version json
 
-# Print the gosmopolitan release this host would build against
-go-toolchain version cosmo
+# The go command this binary links, with the fork's standard library built in
+go-toolchain go build ./...
+go-toolchain go version
 
-# Same, but fail if buildhost couldn't name a real release (CI's guarantee that every host uses the same compiler)
-go-toolchain version cosmo --require-release
+# A linked build tool, as the go command starts it
+go-toolchain tool compile -V=full
 
 # Fail unless every named file is byte-identical to the first (CI's cross-host APE identity check)
 go-toolchain verify-identical linux=ape/linux/go-toolchain darwin=ape/darwin/go-toolchain
@@ -192,10 +194,11 @@ Debug output goes to stderr and info to stdout. Warnings and errors become `::wa
 - **`lint`** — detect near-duplicate code blocks using AST comparison
 - **`install`** — install the binary to `~/.local/bin`
 - **`release`** — create a GitHub release with checksums and structured release notes (`--tag`, `--from`, `--build`)
-- **`version`** — show build version and staleness information
+- **`version`** — show build version, the gosmopolitan commit this binary links, and staleness information
   - `raw` — print just the version number
-  - `json` — print version info as JSON (version, commit, dates, staleness)
-  - `cosmo` — print the gosmopolitan release this host will build against (`--require-release` fails if it is not a real release)
+  - `json` — print version info as JSON (version, commit, gosmopolitan commit, dates, staleness)
+- **`go`** — the gosmopolitan go command, linked in with its standard library; `go-toolchain go <args>`
+- **`tool`** — a linked build tool by name, the way the go command starts one; `go-toolchain tool <name> <args>`
 - **`verify-identical`** — fail unless every `<name>=<path>` argument names a byte-identical file
 
 ## Documentation

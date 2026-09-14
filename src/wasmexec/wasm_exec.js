@@ -1,6 +1,6 @@
-// Copyright 2018 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// All rights reserved. Use of this source code is
+// governed by a BSD-style license that can be found
+// in the LICENSE file.
 
 "use strict";
 
@@ -17,7 +17,7 @@
 	let flushConsole = () => {};
 
 	if (!globalThis.fs) {
-		const outputBufs = new Map(); // per-fd buffers for incomplete lines (1: stdout, 2: stderr)
+		const outputBufs = new Map();
 		const outputDecoders = new Map(); // per-fd streaming UTF-8 decoders, so runes split across writes survive
 		const writeLine = (fd, line) => {
 			(fd === 2 ? console.error : console.log)(line);
@@ -541,7 +541,7 @@
 					// func valueLength(v ref) int
 					"syscall/js.valueLength": (sp) => {
 						sp >>>= 0;
-						const len = parseInt(loadValue(sp + 8).length) || 0; // no length property gives 0, not NaN
+						const len = parseInt(loadValue(sp + 8).length) || 0;
 						sp = this._inst.exports.getsp() >>> 0; // see comment above
 						setInt64(sp + 16, len);
 					},
@@ -695,7 +695,7 @@
 				let b;
 				do {
 					b = byte();
-					result += (b & 0x7f) * 2 ** shift; // no shift operators: values can exceed 2^31
+					result += (b & 0x7f) * 2 ** shift;
 					shift += 7;
 				} while (b & 0x80);
 				return result;
@@ -914,8 +914,8 @@
 				// GOWASM=threads: while the runtime could not accept an
 				// event (its main M had no free P), later events were
 				// queued instead of overwriting _pendingEvent (see
-				// _makeFuncWrapper). Deliver the next one as soon as the
-				// slot frees.
+				// _makeFuncWrapper). Deliver the next a single as soon
+				// as the slot frees.
 				if (this._pendingEvent !== null || this._eventQueue === undefined || this._eventQueue.length === 0) {
 					return;
 				}
@@ -932,7 +932,7 @@
 					// accepted by the runtime yet (the main M could not
 					// take a P before the host regained control).
 					// Overwriting _pendingEvent would silently drop that
-					// event's Go handler invocation; queue this one
+					// event's Go handler invocation; queue this a single
 					// instead - its handler runs as soon as the slot
 					// frees, and its synchronous JS result is undefined,
 					// as for any handler that has not finished when Go

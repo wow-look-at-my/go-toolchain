@@ -73,7 +73,7 @@ func TestRunNoGoMod(t *testing.T) {
 }
 
 // A dependency arrives as the export data the compiler in this binary
-// wrote, so no load type-checks one from source.
+// wrote, so no load type-checks a single from source.
 func TestDependenciesArriveAsExportData(t *testing.T) {
 	t.Serial()
 	assert.Zero(t, loadMode()&packages.NeedDeps, "the compiler and the importer are one commit")

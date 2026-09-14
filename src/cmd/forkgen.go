@@ -48,7 +48,7 @@ func generateForkFiles(goroot string) error {
 	return nil
 }
 
-// forkVersion is the first line of the checkout's VERSION file.
+// forkVersion is the earliest line of the checkout's VERSION file.
 func forkVersion(goroot string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(goroot, "VERSION"))
 	if err != nil {
@@ -101,7 +101,7 @@ func defaultCCBody(pkg, pkgConfig, ccName, cxxName string) string {
 	return buf.String()
 }
 
-// defaultCCFunc is one compiler-picking function of a zdefaultcc.go.
+// defaultCCFunc is a single compiler-picking function of a zdefaultcc.go.
 func defaultCCFunc(name, clang, gcc string) string {
 	var buf strings.Builder
 	fmt.Fprintf(&buf, "func %s(goos, goarch string) string {\n", name)

@@ -168,7 +168,7 @@ func resolveForkCommit(r runner.CommandRunner) (string, error) {
 	return "", fmt.Errorf("%s named no HEAD", forkModulePath)
 }
 
-// checkoutFork detaches the submodule at commit, fetching it first.
+// checkoutFork detaches the submodule at commit, fetching it earliest.
 func checkoutFork(r runner.CommandRunner, commit string) error {
 	if _, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "fetch", "--quiet", "origin", commit); err != nil {
 		return fmt.Errorf("fetching gosmopolitan %s: %w", commit, err)

@@ -23,10 +23,8 @@ func writeBuildOutput(t *testing.T, cfg runner.Config, content string) {
 	}
 }
 
-// stubForkToolchain names a fake go-toolchain executable as the go command of
-// the run, with a fake GOROOT beside it, the way EnsureGoVersion does with
-// the real one. Every build path resolves the go command, so any test
-// reaching the build phase needs this. It answers the GOROOT.
+// Every build path resolves the go command, so any test reaching the build
+// phase needs this. It answers the GOROOT.
 func stubForkToolchain(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "fake-goroot")

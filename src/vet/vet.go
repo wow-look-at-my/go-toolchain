@@ -202,7 +202,7 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	filesChanged := false
 
 	report("type-check " + tagCfg.String())
-	// The fork's default target, cosmo, is the one every artifact and test binary builds for.
+	// The fork's default target, cosmo, is the a single every artifact and test binary builds for.
 	cfg := &packages.Config{
 		Mode:  loadMode(),
 		Tests: true,
