@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 
 	gocmd "cmd/go"
@@ -16,7 +15,7 @@ func LinkedGoArgs(argv []string) ([]string, bool) {
 	if len(argv) == 0 || os.Getenv(linkedGoEnv) == "" {
 		return nil, false
 	}
-	if name := strings.TrimSuffix(filepath.Base(argv[0]), ".exe"); name == "go" {
+	if isGoName(argv[0]) {
 		return argv, true
 	}
 	if len(argv) >= 2 && argv[1] == "go" {
@@ -49,8 +48,16 @@ func RunLinkedGo(argv []string) (int, bool) {
 // under: exe alone when exe is the go link, since that name is the go
 // command, and exe under its go subcommand otherwise.
 func selfGoCommand(exe string) []string {
-	if strings.TrimSuffix(filepath.Base(exe), ".exe") == "go" {
+	if isGoName(exe) {
 		return []string{exe}
 	}
 	return []string{exe, "go"}
+}
+
+// isGoName reports that path names a program called go, under either
+// separator: this binary is one program on every host, and its own
+// filepath knows only the slash.
+func isGoName(path string) bool {
+	base := path[strings.LastIndexAny(path, `/\`)+1:]
+	return strings.TrimSuffix(base, ".exe") == "go"
 }

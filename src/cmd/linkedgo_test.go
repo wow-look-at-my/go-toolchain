@@ -28,6 +28,10 @@ func TestLinkedGoArgs(t *testing.T) {
 	assert.True(t, linked)
 	assert.Equal(t, []string{"/tmp/link/go", "build", "."}, args)
 
+	args, linked = LinkedGoArgs([]string{`C:\link\go.exe`, "build", "."})
+	assert.True(t, linked)
+	assert.Equal(t, []string{`C:\link\go.exe`, "build", "."}, args)
+
 	args, linked = LinkedGoArgs([]string{"go-toolchain", "go", "build", "."})
 	assert.True(t, linked)
 	assert.Equal(t, []string{"go", "build", "."}, args)
