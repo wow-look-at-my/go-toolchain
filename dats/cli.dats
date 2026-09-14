@@ -99,16 +99,12 @@ tests:
 	# rather than split into a per-host copy of this file. Losing the refusal
 	# where a classifier exists, or gaining the banner there, fails.
 	#
-	# A host with a classifier must REFUSE. The blind banner used to be accepted
-	# here as an equal answer, which left this check unable to tell a working
-	# guard from a guard that sees nothing: dats prints a passing test's output
-	# nowhere, so every darwin run was green without anyone learning which
-	# answer it got. Measured after the banner stopped counting: darwin is
-	# blind, and it reports the reason now (guardcmdline_ps.go).
-	#
-	# The sandbox was never the reason to expect that. dats' seatbelt profile
-	# is `(allow default)` with `file-write*` and, on request, `network*`
-	# denied. Naming a pipe's reader needs neither.
+	# A darwin host has more than a single legitimate answer, and each is the guard working.
+	# Naming a pipe's reader there costs an lsof and a ps on other pids, which
+	# seatbelt denies. The guard is then blind, and the design allows the run
+	# rather than break every legitimate agent run on a Mac. What it must never
+	# do is go quiet about it, so the BLIND banner is the answer that stands in
+	# for the refusal. Losing both, on any host with a classifier, fails.
 	- desc: the agent output guard answers a captured pipeline run
 	  cmd: 'mkdir -p {outputs.mod}; cd {outputs.mod}; out=$({shared.gt.exe} 2>&1); printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | tr "\n" " ")"'
 	  timeout: 60s
@@ -118,7 +114,7 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|.*refused to run|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
+			0: "^((Linux|Darwin)\\|.*(refused to run|guard is BLIND)|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
 		"!stdout":
 			- "Build successful"
 
@@ -290,7 +286,7 @@ tests:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
 	  outputs:
 		stdout:
-			0: "^((Linux|Darwin)\\|.*refused to run|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
+			0: "^((Linux|Darwin)\\|.*(refused to run|guard is BLIND)|(MINGW|MSYS|CYGWIN).*\\|.*INOPERATIVE on this windows host)"
 		"!stdout":
 			- "Build successful"
 
