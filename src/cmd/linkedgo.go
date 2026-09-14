@@ -55,8 +55,8 @@ func selfGoCommand(exe string) []string {
 }
 
 // isGoName reports that path names a program called go, under either
-// separator: this binary is one program on every host, and its own
-// filepath knows only the slash.
+// separator: this binary is a single program on every host, and its
+// own filepath knows only the slash.
 func isGoName(path string) bool {
 	base := path[strings.LastIndexAny(path, `/\`)+1:]
 	return strings.TrimSuffix(base, ".exe") == "go"
