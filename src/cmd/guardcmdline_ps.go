@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -14,6 +15,17 @@ var psBin = "/bin/ps"
 // Bounds the whole invocation. A sandbox that refuses ps answers nothing.
 const cmdlineProbeBudget = 2 * time.Second
 
+// Why the last ps answered nothing. Each cause wants a different repair.
+var lastCmdlineProbeErr string
+
+// probeDetail renders that reason for the banner. The /proc reader sets none.
+func probeDetail() string {
+	if lastCmdlineProbeErr == "" {
+		return ""
+	}
+	return " (" + lastCmdlineProbeErr + ")"
+}
+
 // psCmdline reads a process's command line with ps.
 func psCmdline(pid int) ([]string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdlineProbeBudget)
@@ -23,10 +35,32 @@ func psCmdline(pid int) ([]string, bool) {
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
+		lastCmdlineProbeErr = probeFailure(psBin, ctx.Err(), err)
 		return nil, false
 	}
 	argv := parsePSCommand(string(out))
-	return argv, len(argv) > 0
+	if len(argv) == 0 {
+		lastCmdlineProbeErr = psBin + " printed nothing for that pid"
+		return nil, false
+	}
+	// A skipped pid must not leave its failure standing as the run's reason.
+	lastCmdlineProbeErr = ""
+	return argv, true
+}
+
+// probeFailure describes a failed probe. A cancelled context reports the
+// budget: the "signal: killed" the kill produces names the symptom and hides
+// the cause. stderr carries a refusal's own words, so it is kept.
+func probeFailure(bin string, ctxErr, err error) string {
+	if errors.Is(ctxErr, context.DeadlineExceeded) {
+		return bin + " did not answer within " + cmdlineProbeBudget.String()
+	}
+	msg := bin + ": " + err.Error()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+		msg += ": " + strings.TrimSpace(string(exit.Stderr))
+	}
+	return msg
 }
 
 // parsePSCommand turns a ps command line into the argv shellScript reads. ps

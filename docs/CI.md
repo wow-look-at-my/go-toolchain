@@ -251,19 +251,9 @@ build/ in THIS job is the fat APE, because the fork is the only compiler and eve
 
 The second build re-invokes go-toolchain, which also submits the dependency snapshot. Give it the same token so it succeeds rather than warning. Same job + correlator as the first submission, so it replaces it (idempotent) rather than duplicating.
 
-#Then
+### if [ "$elapsed" -gt 60 ]. Then
 
-Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. The budget is a wall-clock stand-in for that.
-
-The number assumes an unchanged second build measures 60-70s. It does not. It measures 117-127s. It fails on master as readily as on a branch. The cause sits below rather than in any one branch.
-
-The step deletes `build/`, which makes `isUpToDate` answer no. The pipeline then re-runs vet and the whole test suite. `inputsUnchanged` and `outputsPresent` are separate questions for that reason. Losing the outputs means build again. It does not mean ask vet and the tests again, since those answer about the INPUTS. That split does not fire yet, because the fingerprint does not match across runs of an unchanged tree.
-
-The suite also re-executes rather than reading a cached result. Every `go test` invocation carries an argument that differs per run. `-coverprofile` naming itself after the PID was among them. A stable name there restored no cache hit at all, so something else varies as well. The action-graph dump the build profile asks for is the next candidate. `-count=1` is NOT the cause: the fork treats it as a no-op.
-
-Fix both of those and re-measure before changing the number. A cold first build in this same job is ~190-200s.
-
-**The ceiling is temporarily 240s. The value it must return to is 30s.** The incremental build regressed past the derived 90s. The raise exists only to let the release path run while that is repaired. Nothing else about the gate changed. Bring it back down as soon as an unchanged second build measures under the target again.
+Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. The budget lives in `ci.yml`, which is where to read it. The repository owner sets it. It sits at the bottom of the range an unchanged second build measures rather than above it. A slow runner can therefore fail this step with a healthy cache. Before raising it, confirm the second build is doing nothing new. No source may change between the two builds in this job. Re-measure over several runs. The step times wall clock, and a run's own `build/profile.json` says where that time went. The heaviest actions there are the test runs for `src/cmd` and `src/vet`. Each one dwarfs every compile and link in the same run. A build cache does not shorten a test run. A suite that grows therefore pushes this step up whatever the cache does.
 
 The tripwires themselves are asserted by `.github/dats-fixtures/cache-profile.dats`, run by the dats action in `host-build` the same way `identical.dats` and `smoke.dats` are run by their jobs. They were a workflow step once, which meant a push was the only way to reproduce a red. The fixture runs against any local `build/profile.json`. The second-build time limit above is still a workflow step, because asserting it means driving `go-toolchain` twice and timing.
 
