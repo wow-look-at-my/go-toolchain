@@ -335,6 +335,17 @@ func TestVerifyGoToolchainHealthy(t *testing.T) {
 	assert.NoError(t, verifyGoToolchain(goPath))
 }
 
+// The caller's build flags stay out of the probe. GOFLAGS=-race asks this
+// pipeline for a race-checked run, and cosmo refuses the detector.
+func TestVerifyGoToolchainIgnoresTheCallersGOFLAGS(t *testing.T) {
+	t.Serial()
+	goPath, err := exec.LookPath("go")
+	require.NoError(t, err)
+
+	t.Setenv("GOFLAGS", "-race")
+	assert.NoError(t, verifyGoToolchain(goPath))
+}
+
 func TestVerifyGoToolchainBrokenGOROOT(t *testing.T) {
 	t.Serial()
 	goPath, err := exec.LookPath("go")
