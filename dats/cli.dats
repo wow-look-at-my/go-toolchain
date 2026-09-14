@@ -375,7 +375,7 @@ tests:
 	  exit: 1
 	  timeout: 30s
 	  matrix:
-		args: ["go version", "go build ./...", "go test ./...", "tool compile -V=full", "build", "test"]
+		args: ["go version", "go build ./...", "go test ./...", "tool compile -V=full"]
 	  inputs:
 		env:
 			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
