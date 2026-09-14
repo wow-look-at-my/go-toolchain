@@ -28,6 +28,9 @@ var (
 // resolvedGoMinor caches the resolved Go minor version so goSupportsFeature avoids re-running "go version".
 var resolvedGoMinor int
 
+// activeGoVersion is the full version the fork on PATH reports, spelled as runtime.Version spells it.
+var activeGoVersion string
+
 // EnsureGoVersion puts the gosmopolitan toolchain on PATH and GOROOT, so every
 // phase after it -- tidy, vet, test, bench, build -- compiles with the fork and
 // nothing else. Whatever Go the host happens to carry is ignored: it lacks the
@@ -60,6 +63,7 @@ func EnsureGoVersion() error {
 	if err := forkSatisfiesGoMod(installed); err != nil {
 		return err
 	}
+	activeGoVersion = "go" + installed
 	recordGoMinor(goVersionCore(installed))
 	logger.Info("go-bootstrap: using the gosmopolitan toolchain %s from %s", installed, goRoot)
 	return nil
