@@ -42,6 +42,15 @@ func RunLinkedGo(argv []string) (int, bool) {
 	if err != nil {
 		return gocmd.Run(goArgs), true
 	}
-	// The go command starts itself again the way this binary reaches it.
-	return gocmd.RunAs(goArgs, []string{exe, "go"}), true
+	return gocmd.RunAs(goArgs, selfGoCommand(exe)), true
+}
+
+// selfGoCommand is the command line the go command starts itself again
+// under: exe alone when exe is the go link, since that name is the go
+// command, and exe under its go subcommand otherwise.
+func selfGoCommand(exe string) []string {
+	if strings.TrimSuffix(filepath.Base(exe), ".exe") == "go" {
+		return []string{exe}
+	}
+	return []string{exe, "go"}
 }
