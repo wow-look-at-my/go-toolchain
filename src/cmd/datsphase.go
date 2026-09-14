@@ -26,6 +26,10 @@ var datsRunFunc = dats.Run
 // datsBuildDirEnv names the env var pointing suite commands at the staged binaries dir.
 const datsBuildDirEnv = "GO_TOOLCHAIN_DATS_BUILD_DIR"
 
+// datsForkCommitEnv names the env var carrying the gosmopolitan commit the
+// run's build linked, empty outside this module.
+const datsForkCommitEnv = "GO_TOOLCHAIN_DATS_GOSMOPOLITAN"
+
 // datsArtifact names a built binary to hand to dats suites.
 type datsArtifact struct {
 	sourcePath string // the built artifact (build/<name>, build/<name>_<os>_<arch>, ...)
@@ -214,6 +218,8 @@ func runDatsPhase(quiet bool, artifacts []datsArtifact) error {
 		Sandbox: datsSandbox(),
 		Env: []string{
 			datsBuildDirEnv + "=" + buildDir,
+			// The commit the build stamped, for a suite to hold `version` to.
+			datsForkCommitEnv + "=" + resolvedForkCommit,
 		},
 	})
 	if err != nil {

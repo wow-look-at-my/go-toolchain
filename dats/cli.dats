@@ -366,3 +366,18 @@ tests:
 			- "invalid target"
 		"!stderr":
 			- "cosmo-bootstrap"
+
+	# The pipeline that built this binary put the fork checkout at its branch
+	# head and stamped that commit in; version has to name the same commit.
+	- desc: version names the gosmopolitan commit the build linked
+	  cmd: 'test -n "$GO_TOOLCHAIN_DATS_GOSMOPOLITAN"; {shared.gt.exe} version | grep -F "Gosmopolitan: $GO_TOOLCHAIN_DATS_GOSMOPOLITAN"'
+	  timeout: 30s
+	  inputs:
+		env:
+			GO_TOOLCHAIN_BUILDHOST_URL: "http://127.0.0.1:1"
+			GO_TOOLCHAIN_GITHUB_API_URL: "http://127.0.0.1:1"
+	  outputs:
+		stdout:
+			- "Gosmopolitan: "
+		"!stdout":
+			- "Gosmopolitan: unknown"

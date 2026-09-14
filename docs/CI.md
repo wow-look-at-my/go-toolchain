@@ -30,9 +30,9 @@ A missing hand-off fails rather than passing on the survivors. Comparing the hos
 
 Both assertions live in `.github/dats-fixtures/`, not in the workflow. `identical.dats` asserts every host handed off an APE and that the bytes match. The jobs stage the files and invoke the suite. A workflow step schedules work and is not a test harness.
 
-One compiler builds all three. gosmopolitan publishes on every green push. So a run that spans a publish resolved a different fork on each leg and `identical` read that as a host difference. `host-build` resolves the release once with `go-toolchain version cosmo --require-release` and exports it to each leg. See [CMD.md](CMD.md) for how the pin reaches the download URL and the cache key.
+One compiler builds all three. The compiler is the linux-built APE itself, which links the fork's go command and carries its standard library. Nothing is downloaded on any leg. See [CMD.md](CMD.md).
 
-**Windows is red until the fork publishes for it.** The APE cannot complete an HTTPS request on an NT host. So it cannot download the toolchain, and buildhost serves no `gosmopolitan` windows/amd64 at master. Both are fixed by gosmopolitan's crypt32 root-store work and its windows publish leg. This job goes green when that merges. It is the same blocker smoke-windows already reports, not a new one.
+`host-build` bootstraps first: a stock Go runs the submodule's `make.bash`, that go command builds the pipeline once, and the pipeline then builds itself in passes (`selfbuild.go`). Each pass compiles the fork's standard library from the submodule with `go tool embedstd`, links the tree, and appends the blob with `GOCOSMOAPPEND`. The last two passes must be byte-identical.
 
 Windows also failed the dirty-tree check on a line-ending difference rather than an edit. GitHub's windows image sets `core.autocrlf=true`, so the checkout wrote `go.mod` with CRLF and the Go tooling rewrote it with LF. `git status` called it modified, `git diff` normalized both sides and showed nothing, and `git update-index --refresh` settled it with `go.mod: needs update`. The repo-root `.gitattributes` pins the working tree to LF. Every tracked text blob is already LF in the index, so nothing but a Windows checkout changes.
 
@@ -127,56 +127,17 @@ permissions:
 
 Job hand-offs ride `wow-look-at-my/actions@cache-upload#latest` / `@cache-download#latest` — run-keyed GitHub cache entries whose exact key includes. A single-file upload (the `host-build`→`build` `host-go-toolchain` hand-off of `build/go-toolchain`) is stored raw and restored basename+exec-bit into the destination directory, where the action's `binary` input consumes it. The old debug-only `build-profiles` artifact is gone. The profile's home is the Step Summary table.
 
-## Vet self-heals against export data it cannot read
+## Vet reads the compiler's own export data
 
-`src/cmd/exportdataretry.go`. The type-check reads each dependency's export data — its compiled API — instead of its source. When go/types rejects that data, the report is a cascade of "redeclared in this block" and undefined symbols in a package the change never touched. It reads exactly like a source error, which is why several runs were re-run as flakes before the signature was recognized.
+The type-check reads each dependency's export data, its compiled API, instead of its source. The importer is `golang.org/x/tools`, compiled into this binary against the `go/types` of the toolchain that built it. That toolchain is the fork commit this binary links, and so is the compiler that wrote the export data. The reader and the writer are one commit, so the data always decodes. `vet.loadMode()` therefore carries no `packages.NeedDeps`, and there is no retry path.
 
-Two different things put it there, and neither is the source in front of you:
+## The pipeline links the toolchain it builds with
 
-- A **damaged cache entry**, served by the shared GOCACHEPROG tier or by cmd/go's own on-disk cache.
-- **Export data the importer cannot represent.** The importer is `golang.org/x/tools`, compiled into this binary against the `go/types` of whatever toolchain built it. The gosmopolitan fork is ahead of that toolchain, and its stdlib uses language features the older `go/types` refuses. No cache is involved: the data is correct and the reader is old.
+`go/parser`, `go/types`, `cmd/compile`, `cmd/link` and the standard library are one fork commit, built in one pass. The `gosmopolitan` submodule is that commit. `go-toolchain version` names it. A newer fork ships by a push to this repository that moves the submodule, never by a download.
 
-`go.mod`'s `go 1.27` is the fix for the second one. And it is a floor rather than a preference. CI's `actions/setup-go` reads `go-version-file: go.mod`. So the directive is what decides which `go/types` gets linked into the binary that does the type-checking. Built against go1.26 it fails both ways. The import panics as above, and reading the same package's source instead only trades the panic for `method must have no type parameters` plus. Keep this directive at or above the fork's Go version.
+## A test binary is an APE, like everything else
 
-There are **two** reports, and which one appears depends on how far the decode got before it hit the damage:
-
-- `could not import <pkg> (invalid package name: "")` — the entry's header is unreadable. So the package has no name to report.
-- `could not import <pkg> (reading <cachefile>: internal error in importing "<pkg>" (function with type parameters cannot have a receiver); please report an issue)` — the header decoded. The "please report an issue" wording makes this one read like a toolchain bug rather than a cache problem.
-
-Both are recognized. Matching only the first left the second surfacing as a genuine compile error against untouched code (`could not import math/rand/v2`). That is not something a reader can act on.
-
-`vet.loadMode()` carries `packages.NeedDeps` on every load. Every dependency therefore type-checks from its own source, and no load reads export data at all. There is no separate source-only entry point to fall back to. `RunTestsWithCoverage` detects either report, unsets `GOCACHEPROG` for the rest of the run, and retries the vet phase ONCE. That rules the shared cache tier out for the phases that follow.
-
-It warns each time it fires, naming the packages **and which of the two. A retry that hits the same report stops the run with a message saying so. Since that path read no export data, neither `go clean -cache` nor a stale importer explains it.
-
-Bounded by construction: the retry is a single call on the failure path. So it can happen at most once.
-
-## The pipeline is compiled by the active toolchain, never by another
-
-`go/parser` and `go/types` link in from whatever toolchain built the binary. The source the pipeline type-checks is the fork's. The fork's stdlib uses the fork's own language extensions. A default parameter value in `reflect`'s `funcLayout` is one. Stock Go has no parser for it. It reports `missing ',' in parameter list` against `reflect/type.go`. The go directive alone does not cover this. A stock Go new enough for the go.mod still cannot read syntax it does not have.
-
-Both paths into the type-check close at once. The export data is version 6 and the vendored importer reads up to 4. So the source retry above is what runs. Source is exactly what stock Go cannot parse.
-
-An older release of the fork fails the same way. Fork r1293 added `readonly var`, and its `runtime/goos_cosmo.go` declares `GOOS` with it. The published v852 pipeline was built by an older fork. Under r1293 its vet stopped at `runtime/goos_cosmo.go:23:1: expected declaration, found readonly`. The load reported that as unreadable export data. The front end was the fault, since vet reads no export data.
-
-So the pipeline repairs this itself, in `src/cmd/forkreexec.go`. One command is the whole story, so nothing about it belongs in a caller's script. `reexecUnderActiveToolchain` runs from the root pre-run, right after the fork reaches `PATH`. It compares the version this binary links with the version `go version` reports. A match returns at once. A mismatch hands the invocation to a build by the active toolchain and carries its exit status back.
-
-Inside this module the pipeline compiles its own working tree. Elsewhere it fetches its own commit, read from the `vcs.revision` stamp, from the public repository. The fetched checkout satisfies its dependencies' generate directives first, exactly as a run in this module does. The build is cached under the go-toolchain cache directory. The key is the active version plus the commit, so a host builds it a single time per fork release. A binary with no commit stamp, or one built from a modified tree, FAILS and names the repair. No clone reproduces it.
-
-The build target is explicit, because the fork builds an APE by default and `execve` does not read a shell header. The fetched checkout lands under `argListTempDir`, since its paths go into the go command's own argument list. `GO_TOOLCHAIN_FORK_REEXEC` marks the child. A child that still links another version fails there, because rebuilding again produces the same binary.
-
-## A test binary is built for the host, never for cosmo
-
-`runner.Config.WithHostTarget` assigns `GOOS`/`GOARCH` from `hostos.GOOS()` and `runtime.GOARCH` on every `go` invocation whose output has to RUN here. The test run, the benchmark run, the compile check, and the `go list` calls that choose what those cover.
-
-The fork's default `GOOS` is cosmo, and `go test` fork/execs the binary it just built. A fat APE bootstraps through a shell header, which `execve` never reads, so the kernel rejects it and every package fails identically:
-
-```
-fork/exec /tmp/go-buildNNN/b586/trace.test: exec format error
-FAIL	github.com/wow-look-at-my/go-toolchain/src/trace	0.000s
-```
-
-This is not a hole in the APE-only rule. That rule governs what the pipeline SHIPS (`docs/MATRIX.md`). A test binary is a throwaway that must execute on the machine that built it. The compiler is still the fork either way.
+Test binaries build for the fork's default target, cosmo, and run directly. The fork's `os/exec` starts a pristine APE through `/bin/sh` when the kernel answers `ENOEXEC`. So `go test`, the benchmark run and the compile check need no host target and no wrapper. No consumer uses `-race`, which cosmo does not have.
 
 Known gap: the up-to-date fast exit (`src/cmd/uptodate.go`) fingerprints the file list `go list` reports. And that list is per-GOOS. Vet reads the cosmo variant while the tests read the host variant. So a file excluded from the one `go list` it runs does not bust the fingerprint. Picking a variant is not the fix — the fingerprint has to cover both.
 

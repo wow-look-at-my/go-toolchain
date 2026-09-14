@@ -28,12 +28,12 @@ jobs:
           go-version: stable
           cache: false
 
-      # The pipeline links the fork's go command, so the fork's own build is what first compiles it. see docs/CI.md
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      # The pipeline links the fork's go command, so the fork's own build is what first compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
         working-directory: gosmopolitan/src
         run: ./make.bash
-
-      - uses: wow-look-at-my/actions@secret-server#latest
 
       # This job builds from source, so it needs the org read token action.yml gives every consumer.
       - name: Configure git for private repos
