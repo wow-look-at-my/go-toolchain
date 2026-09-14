@@ -42,8 +42,7 @@ Registering is idempotent. An entry that is already present and enabled is left 
 
 ## 1b3. The APE binfmt handler
 
-`.github/scripts/register-ape-binfmt.sh` writes one `binfmt_misc` entry on a
-Linux runner:
+`.github/scripts/register-ape-binfmt.sh` writes one `binfmt_misc` entry on a Linux runner:
 
 ```
 :APE:M::\x4d\x5a\x71\x46\x70\x44\x3d\x27::/bin/sh:
