@@ -12,8 +12,14 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
-func TestBuiltByForkReadsTheRunningToolchain(t *testing.T) {
-	assert.Equal(t, strings.Contains(runtime.Version(), "cosmo"), builtByFork())
+func TestTheLinkedVersionIsTheRunningToolchain(t *testing.T) {
+	assert.Equal(t, strings.Fields(runtime.Version())[0], linkedGoVersion())
+}
+
+// An experiment list follows the version after a space, and names no other toolchain.
+func TestAnExperimentListIsNotPartOfTheVersion(t *testing.T) {
+	assert.Equal(t, "go1.27.0-cosmo.r1293", goVersionName("go1.27.0-cosmo.r1293 X:nocoverageredesign"))
+	assert.Equal(t, "go1.27.0-cosmo.r1293", goVersionName("go1.27.0-cosmo.r1293"))
 }
 
 // A run inside another module has no pipeline source to rebuild from, whatever
@@ -35,51 +41,103 @@ func TestNoModuleOffersNoSourceToRebuildFrom(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// notForkBuilt makes the gates below the fork check reachable. Every test binary
-// here is fork-built, so without this the whole path is dead in the test run.
-func notForkBuilt(t *testing.T) {
+// The published v852 pipeline links the front end of r1200-era fork source.
+// Under r1293 it read runtime/goos_cosmo.go and stopped at `readonly var`.
+const (
+	olderFork  = "go1.27.0-cosmo.r1200"
+	activeFork = "go1.27.0-cosmo.r1293"
+)
+
+// linkedTo makes this binary report the toolchain named. go test builds with the
+// active toolchain, so without this every gate below it is dead in the test run.
+func linkedTo(t *testing.T, version string) {
 	t.Helper()
-	prev := builtByForkFunc
-	builtByForkFunc = func() bool { return false }
-	t.Cleanup(func() { builtByForkFunc = prev })
+	prev := linkedGoVersionFunc
+	linkedGoVersionFunc = func() string { return version }
+	t.Cleanup(func() { linkedGoVersionFunc = prev })
 }
 
-// A fork-built pipeline is already the binary a rebuild would produce.
-func TestAForkBuiltPipelineRebuildsNothing(t *testing.T) {
+// A pipeline the active toolchain built already parses what that toolchain accepts.
+func TestAPipelineTheActiveToolchainBuiltRebuildsNothing(t *testing.T) {
 	t.Serial()
-	prev := builtByForkFunc
-	builtByForkFunc = func() bool { return true }
-	t.Cleanup(func() { builtByForkFunc = prev })
+	linkedTo(t, activeFork)
 
-	assert.NoError(t, reexecUnderFork())
+	assert.NoError(t, reexecUnderActiveToolchain(activeFork))
 }
 
-// A rebuild that comes back still not fork-built must report that and carry on:
-// rebuilding again produces the same binary.
-func TestTheGuardStopsASecondRebuild(t *testing.T) {
+// Another release of the fork is another front end. Its go/parser and go/types
+// do not know the syntax the active release added, so the pipeline is rebuilt
+// even though a fork built it. Outside this module the rebuild fetches the
+// binary's own commit, and a binary stamped with none stops there, which shows
+// the rebuild was attempted.
+func TestAPipelineLinkingAnotherForkReleaseIsRebuilt(t *testing.T) {
 	t.Serial()
-	notForkBuilt(t)
-	t.Setenv(reexecGuardEnv, "1")
-	t.Chdir(t.TempDir())
-
-	err := reexecUnderFork()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "still reports", "it names what came back, not just that something failed")
-}
-
-// Outside this module there is no source to rebuild from. The fork is the only
-// compiler these phases run under, so there is no degraded mode to fall into:
-// the run stops and names the repair.
-func TestNoSourceToRebuildFromFailsTheRun(t *testing.T) {
-	t.Serial()
-	notForkBuilt(t)
+	linkedTo(t, olderFork)
 	// A run re-execs, so its own tests inherit the guard from the environment.
 	t.Setenv(reexecGuardEnv, "")
 	t.Chdir(t.TempDir())
+	prev := cachedVCS
+	cachedVCS = &vcsInfo{}
+	t.Cleanup(func() { cachedVCS = prev })
 
-	err := reexecUnderFork()
+	err := reexecUnderActiveToolchain(activeFork)
+	require.Error(t, err, "a fork-built pipeline of another release must not vet with its own front end")
+	assert.Contains(t, err.Error(), "no commit to rebuild from")
+	assert.Contains(t, err.Error(), olderFork)
+	assert.Contains(t, err.Error(), activeFork)
+}
+
+// The rebuild's own child still linking another front end is a toolchain on
+// PATH that did not build it. Rebuilding again produces the same binary.
+func TestTheGuardStopsASecondRebuild(t *testing.T) {
+	t.Serial()
+	linkedTo(t, olderFork)
+	t.Setenv(reexecGuardEnv, "1")
+	t.Chdir(t.TempDir())
+
+	err := reexecUnderActiveToolchain(activeFork)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "the only compiler")
+	assert.Contains(t, err.Error(), "did not build it", "it names what came back, not just that something failed")
+}
+
+// A binary with no commit stamped on it cannot be fetched again, so the run
+// stops and names the repair.
+func TestAPipelineWithNoCommitFailsTheRun(t *testing.T) {
+	_, err := pipelineAtRevision(olderFork, activeFork, vcsInfo{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no commit")
+	assert.Contains(t, err.Error(), activeFork)
+}
+
+// A modified tree is a commit plus changes no clone carries.
+func TestAPipelineFromAModifiedTreeFailsTheRun(t *testing.T) {
+	_, err := pipelineAtRevision(olderFork, activeFork, vcsInfo{Revision: "0123456789abcdef", Modified: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "modified tree")
+	assert.Contains(t, err.Error(), "0123456789abcdef")
+}
+
+// A build already cached for this toolchain and commit is used as it stands.
+func TestACachedRebuildIsReused(t *testing.T) {
+	t.Serial()
+	root := t.TempDir()
+	prev := goCacheDirFunc
+	goCacheDirFunc = func() (string, error) { return root, nil }
+	t.Cleanup(func() { goCacheDirFunc = prev })
+	rev := "0123456789abcdef"
+	want := filepath.Join(root, "pipeline", pipelineCacheKey(activeFork, rev), "go-toolchain"+hostExeSuffix())
+	require.NoError(t, os.MkdirAll(filepath.Dir(want), 0o755))
+	require.NoError(t, os.WriteFile(want, []byte("cached"), 0o755))
+
+	got, err := pipelineAtRevision(olderFork, activeFork, vcsInfo{Revision: rev})
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+// The key keeps every character a path accepts on every host, and names the toolchain and the commit.
+func TestTheCacheKeyNamesTheToolchainAndTheCommit(t *testing.T) {
+	assert.Equal(t, "go1.27.0-cosmo.r1293-abc123", pipelineCacheKey(activeFork, "abc123"))
+	assert.Equal(t, "go1.27_devel_x-abc123", pipelineCacheKey("go1.27 devel:x", "abc123"))
 }
 
 // The name the host needs on an executable. NT needs the suffix and a posix host
