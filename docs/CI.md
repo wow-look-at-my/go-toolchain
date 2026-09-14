@@ -228,6 +228,10 @@ The APE reports `GOOS=cosmo` and answers cosmo's POSIX view of the filesystem. O
 
 `src/cmd/modindexretry.go`'s `runModTidy` detects cmd/go's `corrupt index` failure — a damaged or mis-keyed module-index cache entry passes every content gate the cacheprog can apply.
 
+## The shared cache tier writes its notices to a log
+
+host-build sets `GOCACHEDEBUG=1` and `GOCACHELOG` on its two build steps. Every go process then appends the shared cache tier's notices to that file. Each line carries a timestamp and a pid. The notices cover the key-index loads and each batch the tier sends. The file keeps them off stderr, where a test that reads a go command's output would see them. The last step of the job prints the file, on success and on failure. A go process that stalls on the shared tier then shows which request it waited on.
+
 ---
 
 *Provenance: merged from three near-duplicate `ci.yml` bullets that had accumulated in CLAUDE.md — three generations of one bullet, not three topics. Where they disagreed, the source decided. The newest carried the `.m<job-index>` matrix suffix (kept) but had DROPPED the publish job's `deployments: write` /. The oldest predated the owner-ruled Windows smoke contract entirely.*
