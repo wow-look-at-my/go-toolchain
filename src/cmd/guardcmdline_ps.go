@@ -1,11 +1,5 @@
 //go:build darwin || cosmo
 
-// There is no /proc on a darwin host, and the KERN_PROCARGS2 sysctl the
-// native darwin build uses answers ENOSYS from a cosmo binary, so the host's
-// own tool reads argv instead. Compiled on darwin as well as cosmo, which is
-// how the reader no CI runner exercises in its real configuration still gets
-// tested.
-
 package cmd
 
 import (

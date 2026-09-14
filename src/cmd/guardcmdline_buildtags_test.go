@@ -70,8 +70,7 @@ func TestGuardCmdlinePSReaderSharedWithCosmo(t *testing.T) {
 }
 
 // The /proc reader is linked into the APE for its linux host, alongside the ps
-// reader it picks between at run time. A native darwin build reaches neither
-// /proc nor this function, and vet fails an unused one.
+// reader it picks between at run time.
 func TestGuardCmdlineProcReaderSharedWithCosmo(t *testing.T) {
 	t.Serial()
 	files := guardCmdlineDefiners(t, "func procCmdline(")
