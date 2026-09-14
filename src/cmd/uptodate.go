@@ -249,11 +249,14 @@ func embeddedFiles(r runner.CommandRunner) ([]string, error) {
 	return embeds, nil
 }
 
-// isUpToDate returns true if the project fingerprint matches the last successful run
-// and all build outputs still exist.
-func isUpToDate(r runner.CommandRunner) bool {
-	fp := fingerprintFile()
-	stored, err := os.ReadFile(fp)
+// inputsUnchanged reports whether every input the pipeline reads still matches
+// the last run that went green. It says nothing about the outputs.
+//
+// Vet and the tests answer a question about the INPUTS, so their verdict still
+// stands whenever this holds. A caller that has lost its outputs has to build
+// again, and does not have to ask that question again.
+func inputsUnchanged(r runner.CommandRunner) bool {
+	stored, err := os.ReadFile(fingerprintFile())
 	if err != nil {
 		return false
 	}
@@ -273,10 +276,11 @@ func isUpToDate(r runner.CommandRunner) bool {
 	}
 
 	// An unchanged tree can predate branch-tracking; skipping here would skip the run that adds the markers.
-	if len(untrackedOrgDeps()) > 0 {
-		return false
-	}
+	return len(untrackedOrgDeps()) == 0
+}
 
+// outputsPresent reports whether every target this module builds is on disk.
+func outputsPresent(r runner.CommandRunner) bool {
 	targets, err := build.ResolveBuildTargets(r)
 	if err != nil {
 		return false
@@ -291,6 +295,12 @@ func isUpToDate(r runner.CommandRunner) bool {
 	}
 
 	return true
+}
+
+// isUpToDate returns true if the project fingerprint matches the last successful run
+// and all build outputs still exist.
+func isUpToDate(r runner.CommandRunner) bool {
+	return inputsUnchanged(r) && outputsPresent(r)
 }
 
 // saveFingerprint writes the current fingerprint to disk.
