@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/runner"
 )
 
@@ -117,7 +118,7 @@ func HasBenchmarks(root string) bool {
 			return nil
 		}
 		if d.IsDir() {
-			if name := d.Name(); name == "vendor" || name == "testdata" || (path != root && strings.HasPrefix(name, ".")) {
+			if name := d.Name(); name == "vendor" || name == "testdata" || (path != root && strings.HasPrefix(name, ".")) || (path != root && gomod.IsNestedModule(path)) {
 				return filepath.SkipDir
 			}
 			return nil

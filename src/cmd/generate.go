@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
@@ -145,8 +146,8 @@ func findGenerateDirectives(root string) ([]generateDirective, error) {
 			return err
 		}
 		if d.IsDir() {
-			// Skip vendor directories
-			if d.Name() == "vendor" {
+			// Vendored code and another module's tree carry their own directives.
+			if d.Name() == "vendor" || gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}
 			return nil

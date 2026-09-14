@@ -22,8 +22,12 @@ type distFile struct {
 var distFiles = []distFile{
 	{"src/internal/runtime/sys/zversion.go", func(string) (string, error) { return "package sys\n", nil }},
 	{"src/internal/buildcfg/zbootstrap.go", buildcfgBody},
-	{"src/cmd/go/internal/cfg/zdefaultcc.go", func(string) (string, error) { return defaultCCBody("cfg", "DefaultPkgConfig", "DefaultCC", "DefaultCXX"), nil }},
-	{"src/cmd/cgo/zdefaultcc.go", func(string) (string, error) { return defaultCCBody("cgo", "defaultPkgConfig", "defaultCC", "defaultCXX"), nil }},
+	{"src/cmd/go/internal/cfg/zdefaultcc.go", func(string) (string, error) {
+		return defaultCCBody("cfg", "DefaultPkgConfig", "DefaultCC", "DefaultCXX"), nil
+	}},
+	{"src/cmd/cgo/zdefaultcc.go", func(string) (string, error) {
+		return defaultCCBody("cgo", "defaultPkgConfig", "defaultCC", "defaultCXX"), nil
+	}},
 	{"src/time/tzdata/zzipdata.go", tzdataBody},
 }
 

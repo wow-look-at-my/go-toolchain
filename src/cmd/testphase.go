@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/lint"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
@@ -301,7 +302,14 @@ func needsGenerate() bool {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+		if d.IsDir() {
+			// Another module's directives are its own pipeline's.
+			if d.Name() == "vendor" || gomod.IsNestedModule(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		f, err := os.Open(path)

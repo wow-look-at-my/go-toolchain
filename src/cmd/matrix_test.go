@@ -35,7 +35,7 @@ func TestRunReleaseWithRunnerSuccess(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-		mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
+	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
 		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "WASM")
 			return runner.MockProcess(nil, nil), nil

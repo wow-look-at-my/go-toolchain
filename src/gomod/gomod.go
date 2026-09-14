@@ -35,11 +35,15 @@ func skipDir(name string) bool {
 	return strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" || name == "node_modules"
 }
 
-// IsNestedModule reports whether dir holds its own go.mod. Walkers must skip these dirs:
-// their files are not part of this module's build.
+// IsNestedModule reports whether dir holds its own go.mod or is another
+// repository's working tree. Walkers must skip these dirs: their files are
+// not part of this module's build.
 func IsNestedModule(dir string) bool {
 	if dir == "." {
 		return false
+	}
+	if IsGitSubmodule(dir) {
+		return true
 	}
 	_, err := os.Stat(filepath.Join(dir, "go.mod"))
 	return err == nil
