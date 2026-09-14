@@ -14,8 +14,7 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
-// go/parser and go/types link in from whatever built this binary, so the
-// pipeline runs only as a build of the active toolchain. Depth: docs/CI.md
+// The pipeline runs only as a build of the active toolchain's front end. Depth: docs/CI.md
 const ownModulePath = "github.com/wow-look-at-my/go-toolchain"
 
 // ownRepoURL is where a consumer fetches this binary's own commit to rebuild it.
@@ -116,8 +115,8 @@ func pipelineCacheKey(active, revision string) string {
 	return safe + "-" + revision
 }
 
-// buildCheckout builds the checkout at src into bin. The checkout's own
-// dependencies owe their generated output first, as they do in this module.
+// buildCheckout writes what the checkout's dependencies owe, as a run in this
+// module does, and then builds the checkout at src into bin.
 func buildCheckout(src, bin string) error {
 	back, err := os.Getwd()
 	if err != nil {

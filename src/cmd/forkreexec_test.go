@@ -41,8 +41,7 @@ func TestNoModuleOffersNoSourceToRebuildFrom(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// The published v852 pipeline links the front end of r1200-era fork source.
-// Under r1293 it read runtime/goos_cosmo.go and stopped at `readonly var`.
+// An older fork release, and the release that added `readonly var`.
 const (
 	olderFork  = "go1.27.0-cosmo.r1200"
 	activeFork = "go1.27.0-cosmo.r1293"

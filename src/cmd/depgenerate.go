@@ -242,15 +242,8 @@ func pendingDepDirectives(all []generateDirective) []generateDirective {
 	return out
 }
 
-// generateForDeps runs the directives the dependencies still owe, ahead of every
-// phase that reads what they produce.
-//
-// The comment scan leads the pipeline on purpose: it reads bytes, so it answers
-// on a tree no compiler accepts. Its rule is an imported package whose extractor
-// decodes a parse table, though, and a dependency ships the directive that
-// writes that table rather than the table. So this runs and it runs before go
-// mod tidy: `go list` resolves an import without type-checking it, which is what
-// lets a package that does not compile yet name its own directory.
+// generateForDeps runs the directives the dependencies still owe, ahead of go
+// mod tidy and every phase that reads what they produce. Depth: docs/PIPELINE.md
 func generateForDeps(expectedHash string) error {
 	wrote, err := satisfyDepGenerate(expectedHash)
 	if err != nil || !wrote {
@@ -261,7 +254,7 @@ func generateForDeps(expectedHash string) error {
 }
 
 // satisfyDepGenerate writes what the dependencies of the module in the working
-// directory still owe, once go.mod approves it. It answers whether it wrote.
+// directory still owe, when go.mod approves it. It answers whether it wrote.
 func satisfyDepGenerate(expectedHash string) (bool, error) {
 	deps, err := depGenerateDirectives()
 	if err != nil {
