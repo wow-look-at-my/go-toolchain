@@ -99,26 +99,6 @@ jobs:
         if: always()
         run: cat "$RUNNER_TEMP/gocache.log"
 
-      # Span files are the only record of where time inside a go command went. see docs/CI.md
-      - name: Collect the go command's spans
-        if: always()
-        run: |
-          set -euo pipefail
-          src="${TMPDIR:-/tmp}/go-toolchain-profile"
-          dest="$RUNNER_TEMP/go-spans"
-          mkdir -p "$dest"
-          if [ -d "$src" ]; then
-            find "$src" -maxdepth 1 -name 'gotrace-*.json' -exec cp {} "$dest/" \;
-          fi
-          ls -l "$dest"
-
-      - name: Hand off the go command's spans
-        if: always()
-        uses: wow-look-at-my/actions@cache-upload#latest
-        with:
-          name: go-command-spans
-          path: ${{ runner.temp }}/go-spans
-
       - name: Upload host binary
         uses: wow-look-at-my/actions@cache-upload#latest
         with:

@@ -288,11 +288,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	// A step, because it shells out to go list: the log carries a name for
-	// that duration and the watchdog names it in a stall banner.
-	fpStep := logStep("Recording the input fingerprint")
 	saveFingerprint(r)
-	fpStep.done()
 	return nil
 }
 

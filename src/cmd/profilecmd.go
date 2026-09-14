@@ -38,7 +38,6 @@ func initBuildProfile() {
 	profile.SetActive(profileCollector)
 	// src/test can't import src/profile (import cycle), so hand it the hook directly.
 	gotest.GraphArgFunc = profile.GraphArg
-	gotest.TraceArgFunc = profile.TraceArg
 }
 
 // captureProfileTrace parses the collected actiongraph dumps and records

@@ -266,12 +266,6 @@ Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job can no l
 
 The tripwires themselves are asserted by `.github/dats-fixtures/cache-profile.dats`, run by the dats action in `host-build` the same way `identical.dats` and `smoke.dats` are run by their jobs. They were a workflow step once, which meant a push was the only way to reproduce a red. The fixture runs against any local `build/profile.json`. The second-build time limit above is still a workflow step, because asserting it means driving `go-toolchain` twice and timing.
 
-### Collect the go command's spans
-
-go-toolchain knows only that it ran the go command and how long that took. Everything inside a go invocation is the go command's own business, so a slow one leaves a duration with no phase attached to it. `-debug-trace=<file>` is cmd/go's answer: it writes a Chrome-trace document of the spans the go command opened for itself, and the fork merges a fat build's sibling process back into the parent's file (`cmd/go/internal/work/cosmofat.go`). `src/profile`'s collector hands a fresh span file to each build and test invocation, beside that invocation's actiongraph dump, under `$TMPDIR/go-toolchain-profile`.
-
-The workflow copies the `gotrace-*.json` files out to `$RUNNER_TEMP/go-spans` and hands them off, so a slow build is diagnosable from the run rather than from a fresh investigation. Both steps run under `if: always()`, because the interesting run is the one that failed. The files are never printed into the log: a trace of a whole build is far past what a reader can use, and the hand-off keeps it addressable.
-
 ### Cross-compile socketharness
 
 socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md) so smoke-linux/smoke-macos can prove the actual reported bug against the real shipped binaries. Cross-compiled here (this job already has Go set up) rather than via `setup-go` on smoke-macos. That will put Go on that runner's PATH before the "Full pipeline" step and quietly defeat the whole point of that job. Proving go-toolchain's OWN bootstrap works on a genuinely Go-less mac.

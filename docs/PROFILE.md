@@ -24,7 +24,5 @@ The result is emitted four ways at the end of the run:
 
 - **GitHub Step Summary**: a profile table (cache totals + top slowest actions) next to the existing pipeline Gantt.
 
-- **`$TMPDIR/go-toolchain-profile/gotrace-<pid>-<seq>.json`**: the go command's OWN spans, from `-debug-trace`, one file per build and test invocation (`Collector.TraceArg`, listed by `Collector.Spans`). The actiongraph says which actions ran and for how long; these say what the go command was doing between them, which is the only view of time this binary spends waiting on a go invocation rather than working. A fat build's sibling process writes its own file and cmd/go merges it back. Nothing here parses them: `host-build` hands the directory off as `go-command-spans` (see docs/CI.md) for a reader to open in a trace viewer.
-
 Actiongraph collection and the report are skipped with `--no-profile`, and skip cleanly on paths that never reach `go build`/`go test`. Parsing is defensive: a missing or malformed dump is skipped (with a warning) and can never fail the build.
 

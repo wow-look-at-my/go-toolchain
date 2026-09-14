@@ -81,64 +81,6 @@ func TestCollector_UncreatableDirDisables(t *testing.T) {
 	assert.Empty(t, c.Files())
 }
 
-func TestCollector_TraceArgUniqueAndRecorded(t *testing.T) {
-	t.Serial()
-	dir := filepath.Join(t.TempDir(), "profile")
-	c := NewCollector(dir)
-
-	a1 := c.TraceArg()
-	a2 := c.TraceArg()
-	require.True(t, strings.HasPrefix(a1, "-debug-trace="))
-	require.True(t, strings.HasPrefix(a2, "-debug-trace="))
-	assert.NotEqual(t, a1, a2, "each invocation gets its own span file")
-
-	spans := c.Spans()
-	require.Len(t, spans, 2)
-	assert.Equal(t, a1, "-debug-trace="+spans[0])
-	assert.Equal(t, a2, "-debug-trace="+spans[1])
-
-	// Span files are named apart from the actiongraph dumps sharing the directory.
-	assert.Empty(t, c.Files())
-	info, err := os.Stat(dir)
-	require.NoError(t, err)
-	assert.True(t, info.IsDir())
-}
-
-func TestCollector_RemovesStaleSpanFile(t *testing.T) {
-	t.Serial()
-	dir := t.TempDir()
-	c := NewCollector(dir)
-	path := strings.TrimPrefix(c.TraceArg(), "-debug-trace=")
-	require.NoError(t, os.WriteFile(path, []byte("stale"), 0o644))
-
-	c2 := NewCollector(dir)
-	require.Equal(t, "-debug-trace="+path, c2.TraceArg())
-	_, err := os.Stat(path)
-	assert.True(t, os.IsNotExist(err), "a new run never appends to the last run's spans")
-}
-
-func TestCollector_UncreatableDirDisablesTrace(t *testing.T) {
-	t.Serial()
-	dir := t.TempDir()
-	f := filepath.Join(dir, "afile")
-	require.NoError(t, os.WriteFile(f, []byte("x"), 0o644))
-	c := NewCollector(filepath.Join(f, "sub")) // parent is a file
-	assert.Equal(t, "", c.TraceArg())
-	assert.Empty(t, c.Spans())
-}
-
-func TestPackageLevelTraceArg(t *testing.T) {
-	t.Serial()
-	SetActive(nil)
-	assert.Equal(t, "", TraceArg(), "no active collector: no injection")
-
-	c := NewCollector(t.TempDir())
-	SetActive(c)
-	t.Cleanup(func() { SetActive(nil) })
-	assert.True(t, strings.HasPrefix(TraceArg(), "-debug-trace="))
-	assert.Len(t, c.Spans(), 1)
-}
-
 func TestPackageLevelGraphArg(t *testing.T) {
 	t.Serial()
 	SetActive(nil)
