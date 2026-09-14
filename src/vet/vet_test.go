@@ -72,10 +72,11 @@ func TestRunNoGoMod(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-// Source is the only mode: the fork's export data is never readable here.
-func TestEveryDependencyTypeChecksFromSource(t *testing.T) {
+// A dependency arrives as the export data the compiler in this binary
+// wrote, so no load type-checks one from source.
+func TestDependenciesArriveAsExportData(t *testing.T) {
 	t.Serial()
-	assert.NotZero(t, loadMode()&packages.NeedDeps, "source is the only mode")
+	assert.Zero(t, loadMode()&packages.NeedDeps, "the compiler and the importer are one commit")
 	assert.NotZero(t, loadMode()&packages.NeedModule, "bannedoutput scopes its ban by the module")
 }
 

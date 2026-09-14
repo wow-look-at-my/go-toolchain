@@ -15,24 +15,23 @@ permissions:
 jobs:
   host-build:
     runs-on: ubuntu-latest
-    outputs:
-      cosmo-version: ${{ steps.cosmo.outputs.version }}
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another one is asked as the wrong identity.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
-      # gosmopolitan is upstream of this repo: the compiler that builds it has to exist before it does.
-      - name: Install the gosmopolitan toolchain
-        run: |
-          mkdir -p "$RUNNER_TEMP/cosmo"
-          curl -fL --compressed \
-            "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" \
-            | tar -xz -C "$RUNNER_TEMP/cosmo"
-          echo "$RUNNER_TEMP/cosmo/go/bin" >> "$GITHUB_PATH"
-          echo "GOROOT=$RUNNER_TEMP/cosmo/go" >> "$GITHUB_ENV"
-          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+      # A stock Go is the bootstrap compiler for the fork's make.bash and nothing else. see docs/CI.md
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      # The pipeline links the fork's go command, so the fork's own build is what first compiles it. see docs/CI.md
+      - name: Build the bootstrap go command from the fork checkout
+        working-directory: gosmopolitan/src
+        run: ./make.bash
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -59,6 +58,17 @@ jobs:
             fi
           fi
 
+      # The bootstrap pipeline is an APE the fork's own go command built from this tree. see docs/CI.md
+      - name: Build the bootstrap pipeline
+        run: |
+          set -euo pipefail
+          export GOROOT="$PWD/gosmopolitan" GOTOOLCHAIN=local
+          "$GOROOT/bin/go" build -o "$RUNNER_TEMP/gt-bootstrap" ./src
+
+      # Lets the kernel start an APE, so the pipeline and the test binaries it builds exec bare. see docs/ACTION.md
+      - name: Register the APE binfmt handler
+        run: bash .github/scripts/register-ape-binfmt.sh
+
       - name: Build and test
         env:
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
@@ -66,8 +76,8 @@ jobs:
           # Every go process logs what the shared cache tier did, timestamped, to a file instead of stderr. see docs/CI.md
           GOCACHEDEBUG: "1"
           GOCACHELOG: ${{ runner.temp }}/gocache.log
-        # Asks for a host binary, since `go run` execs what it builds and an APE boots through a shell header; generate approvals live in go.mod. see docs/PIPELINE.md
-        run: GOOS=linux GOARCH=amd64 go run ./src
+        # A shell starts the APE, since execve alone reads no shell header; generate approvals live in go.mod. see docs/PIPELINE.md
+        run: sh "$RUNNER_TEMP/gt-bootstrap"
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile
@@ -105,21 +115,12 @@ jobs:
           name: host-go-toolchain
           path: build/go-toolchain
 
-      # Comparing three hosts' APEs says something only if one compiler built them. see docs/CI.md
-      - name: Pin the gosmopolitan release for this run
-        id: cosmo
-        run: |
-          set -euo pipefail
-          v="$(go-toolchain version cosmo --require-release)"
-          echo "resolved gosmopolitan $v"
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-
       # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
       - name: Cross-compile socketharness
         run: |
           mkdir -p harness
-          GOOS=linux GOARCH=amd64 go build -o harness/socketharness-linux-amd64 .github/dats-fixtures/socketharness.go
-          GOOS=darwin GOARCH=arm64 go build -o harness/socketharness-darwin-arm64 .github/dats-fixtures/socketharness.go
+          GOOS=linux GOARCH=amd64 go-toolchain go build -o harness/socketharness-linux-amd64 .github/dats-fixtures/socketharness.go
+          GOOS=darwin GOARCH=arm64 go-toolchain go build -o harness/socketharness-darwin-arm64 .github/dats-fixtures/socketharness.go
 
       - name: Upload socketharness binaries
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -136,6 +137,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
         run: |
@@ -157,8 +159,8 @@ jobs:
         with:
           binary: build/go-toolchain
           autorelease: 'false'
-          # The cosmo target additionally downloads + extracts the gosmopolitan toolchain and... see docs/CI.md
-          timeout: '15'
+          # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
+          timeout: '30'
 
 
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
@@ -176,9 +178,11 @@ jobs:
             runner: windows-latest
             gt: gt-ape.exe
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -217,8 +221,6 @@ jobs:
       - name: Build this repo's APE here
         shell: bash
         env:
-          # One compiler for all three hosts; host-build resolved it. see docs/CI.md
-          GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -298,11 +300,10 @@ jobs:
       # The smoke's nested pipeline is a CI run, and the fork refuses one with no build cache to write to. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
 
-      # Sandboxed like every other suite, on the fork host-build resolved -- unpinned it downloads master and straddles two compilers. see docs/CI.md
+      # Sandboxed like every other suite; the APE carries its compiler and standard library, so nothing is downloaded. see docs/CI.md
       - name: Smoke suite
         uses: wow-look-at-my/dats@master
         env:
-          GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
           # The org proxy wants auth to look up a module it has never seen, and this job's throwaway module always is one. see docs/CI.md
           GO_PROXY_CONFIG: ""
         with:

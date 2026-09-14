@@ -1,0 +1,4 @@
+[submodule "gosmopolitan"]
+	path = gosmopolitan
+	url = https://github.com/wow-look-at-my/gosmopolitan.git
+	branch = .

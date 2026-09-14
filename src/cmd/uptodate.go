@@ -104,6 +104,8 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 
 	fmt.Fprintf(h, "go:%s\n", runtime.Version())
 	fmt.Fprintf(h, "toolchain:%s\n", buildVersion)
+	// The fork checkout is the standard library a build of this module compiles.
+	fmt.Fprintf(h, "gosmopolitan:%s\n", resolvedForkCommit)
 	fmt.Fprintf(h, "output:%s\n", outputDir)
 	fmt.Fprintf(h, "flags:%s\n", flagFingerprint())
 
@@ -127,7 +129,7 @@ func computeFingerprint(r runner.CommandRunner) (string, error) {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if isOutputDir(path) || name == "vendor" || name == "node_modules" {
+			if isOutputDir(path) || name == "vendor" || name == "node_modules" || isForkSubmodulePath(path) {
 				return filepath.SkipDir
 			}
 			if name != "." && strings.HasPrefix(name, ".") {

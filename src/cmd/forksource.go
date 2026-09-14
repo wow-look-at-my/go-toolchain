@@ -1,0 +1,195 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
+	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/runner"
+)
+
+// forkSubmoduleDir is the gosmopolitan checkout inside this repository, the
+// standard library and toolchain source a build of this module compiles in.
+const forkSubmoduleDir = "gosmopolitan"
+
+// forkModulePath names the fork's repository for the branch lookup.
+const forkModulePath = "github.com/wow-look-at-my/gosmopolitan"
+
+// forkCommit is the gosmopolitan commit whose toolchain and standard library
+// this binary links, stamped by the link that built it.
+var forkCommit string
+
+// forkCommitVar is the linker's name for forkCommit.
+const forkCommitVar = ownModulePath + "/src/cmd.forkCommit"
+
+// resolvedForkCommit is the commit the submodule stands at for this run.
+var resolvedForkCommit string
+
+// linkedForkCommit answers the stamped commit, or "unknown" for a build that
+// carries none.
+func linkedForkCommit() string {
+	if forkCommit == "" {
+		return "unknown"
+	}
+	return forkCommit
+}
+
+// ownModule reports whether the working directory is this pipeline's own module.
+func ownModule() bool {
+	return gomod.ReadModulePath(".") == ownModulePath
+}
+
+// forkGorootDir is the submodule's absolute path.
+func forkGorootDir() (string, error) {
+	return filepath.Abs(forkSubmoduleDir)
+}
+
+// syncForkSource puts the submodule at the head of the fork's branch named
+// like this checkout's branch, or at its default branch, and answers that
+// commit. A remote that cannot answer leaves the checkout where it stands.
+func syncForkSource(r runner.CommandRunner) (string, error) {
+	if err := initForkSubmodule(r); err != nil {
+		return "", err
+	}
+	head, err := forkHead(r)
+	if err != nil {
+		return "", err
+	}
+	want, err := resolveForkCommit(r)
+	if err != nil {
+		logger.Warn("gosmopolitan: %v; building against the commit checked out, %s", err, head)
+		return head, updateForkSubmodules(r)
+	}
+	if want != head {
+		if err := checkoutFork(r, want); err != nil {
+			return "", err
+		}
+	}
+	if err := updateForkSubmodules(r); err != nil {
+		return "", err
+	}
+	if err := installForkHeaders(); err != nil {
+		return "", err
+	}
+	if err := generateForkFiles(forkSubmoduleDir); err != nil {
+		return "", err
+	}
+	return want, refreshWasmExec()
+}
+
+// forkHeaders are the assembly headers cmd/dist puts under pkg/include, which
+// the assembler reads through -I and a pristine checkout does not have.
+var forkHeaders = []string{"textflag.h", "funcdata.h", "asm_ppc64x.h", "asm_amd64.h", "asm_riscv64.h"}
+
+// installForkHeaders copies the runtime's headers into the checkout's
+// pkg/include, as cmd/dist does when it builds package runtime.
+func installForkHeaders() error {
+	include := filepath.Join(forkSubmoduleDir, "pkg", "include")
+	if err := os.MkdirAll(include, 0o755); err != nil {
+		return err
+	}
+	for _, name := range forkHeaders {
+		data, err := os.ReadFile(filepath.Join(forkSubmoduleDir, "src", "runtime", name))
+		if err != nil {
+			return fmt.Errorf("reading the fork's %s: %w", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(include, name), data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// wasmExecCopy is where this module keeps the fork's wasm_exec.js, for the
+// binary to carry.
+const wasmExecCopy = "src/wasmexec/wasm_exec.js"
+
+// refreshWasmExec writes the fork checkout's wasm_exec.js over this module's
+// copy when they differ, so the tree is dirty until the copy is committed.
+func refreshWasmExec() error {
+	want, err := os.ReadFile(filepath.Join(forkSubmoduleDir, "lib", "wasm", "wasm_exec.js"))
+	if err != nil {
+		return fmt.Errorf("reading the fork's wasm_exec.js: %w", err)
+	}
+	have, err := os.ReadFile(filepath.FromSlash(wasmExecCopy))
+	if err == nil && string(have) == string(want) {
+		return nil
+	}
+	logger.Info("gosmopolitan: %s follows the fork checkout; commit it", wasmExecCopy)
+	return os.WriteFile(filepath.FromSlash(wasmExecCopy), want, 0o644)
+}
+
+// initForkSubmodule clones the submodule at its recorded commit when the
+// checkout left it empty.
+func initForkSubmodule(r runner.CommandRunner) error {
+	if _, err := os.Stat(filepath.Join(forkSubmoduleDir, ".git")); err == nil {
+		return nil
+	}
+	if _, err := gitOutput(r, "git", "submodule", "update", "--init", "--", forkSubmoduleDir); err != nil {
+		return fmt.Errorf("checking out the %s submodule: %w", forkSubmoduleDir, err)
+	}
+	return nil
+}
+
+// forkHead is the commit the submodule stands at.
+func forkHead(r runner.CommandRunner) (string, error) {
+	out, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("reading the %s submodule's commit: %w", forkSubmoduleDir, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// resolveForkCommit asks the fork's remote for the head of this checkout's
+// branch, or of the default branch, in a single ls-remote.
+func resolveForkCommit(r runner.CommandRunner) (string, error) {
+	branch := currentBranch(r)
+	refs := []string{"HEAD"}
+	if branch != "" {
+		refs = append(refs, "refs/heads/"+branch)
+	}
+	_, out, err := resolveGitURLAndRef(r, forkModulePath, refs...)
+	if err != nil {
+		return "", fmt.Errorf("asking %s for its branches: %w", forkModulePath, err)
+	}
+	found, _ := parseLsRemoteRefs(out)
+	if branch != "" {
+		if commit := found["refs/heads/"+branch]; commit != "" {
+			logger.Info("gosmopolitan: following the branch named like this checkout, %s, at %s", branch, commit)
+			return commit, nil
+		}
+	}
+	if commit := found["HEAD"]; commit != "" {
+		return commit, nil
+	}
+	return "", fmt.Errorf("%s named no HEAD", forkModulePath)
+}
+
+// checkoutFork detaches the submodule at commit, fetching it first.
+func checkoutFork(r runner.CommandRunner, commit string) error {
+	if _, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "fetch", "--quiet", "origin", commit); err != nil {
+		return fmt.Errorf("fetching gosmopolitan %s: %w", commit, err)
+	}
+	if _, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "checkout", "--quiet", "--detach", commit); err != nil {
+		return fmt.Errorf("checking out gosmopolitan %s: %w", commit, err)
+	}
+	return nil
+}
+
+// updateForkSubmodules checks out the fork's own submodules, which cmd/go
+// builds in vendor mode from.
+func updateForkSubmodules(r runner.CommandRunner) error {
+	if _, err := gitOutput(r, "git", "-C", forkSubmoduleDir, "submodule", "update", "--init", "--recursive"); err != nil {
+		return fmt.Errorf("checking out gosmopolitan's submodules: %w", err)
+	}
+	return nil
+}
+
+// isForkSubmodulePath reports whether a walk from the module root reached the
+// fork checkout, whose files belong to the fork.
+func isForkSubmodulePath(path string) bool {
+	return filepath.Clean(path) == forkSubmoduleDir
+}

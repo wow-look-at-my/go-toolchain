@@ -131,24 +131,6 @@ func RunTestsWithCoverage(r runner.CommandRunner, quiet bool) (bool, *gotest.Tes
 			}
 			filesChanged = false
 			err = nil
-		} else if isUnreadableExportData(err) {
-			// No importer ran, so there is nothing to retry. Depth: docs/CI.md
-			disableSharedBuildCache()
-			logger.Warn("⇒ Warning: vet could not read the compiler's export data (%s) for %s -- that is a dependency's compiled API, not your source. Recompiling it with the shared build cache off for the rest of this run. A damaged cache entry and export data newer than this binary's importer both land here.",
-				exportDataSignature(err), strings.Join(unreadableExportPackages(err), ", "))
-			if vetPhaseStep != nil {
-				vetPhaseStep.done()
-				vetPhaseStep = nil
-			}
-			// The unreadable API came out of a cache; a local build writes it readable.
-			vetPhaseStep = logSubStep("vet: retry with the shared cache off", "main")
-			filesChanged, err = vetRunFunc(fix, vetProgress)
-			if err != nil {
-				if isUnreadableExportData(err) {
-					return false, nil, unreadableExportDataError(err)
-				}
-				return false, nil, fmt.Errorf("vet failed: %w", err)
-			}
 		} else {
 			return false, nil, fmt.Errorf("vet failed: %w", err)
 		}

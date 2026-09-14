@@ -15,13 +15,8 @@ import (
 	"github.com/wow-look-at-my/go-toolchain/src/vet"
 )
 
-// The real bootstrap downloads a toolchain, which spends a test binary's
-// whole budget on a cold host cache. The message names the repair.
-func init() {
-	ensureCosmoToolchainFunc = func() (string, error) {
-		return "", fmt.Errorf("test reached the real toolchain bootstrap: call stubForkToolchain(t)")
-	}
-}
+// A pipeline test that reaches the build phase names its go command through
+// stubForkToolchain, so the refusal in resolveForkBuildEnv names the repair.
 
 // mockTestEvents renders the `go test -json` stream a passing package
 // reports: the run line, the coverage output line, and the pass line. The
@@ -144,16 +139,46 @@ func writeMockBuildOutput(cfg runner.Config, content string) {
 	}
 }
 
+// goCommandArgs answers the go command's own arguments: the pipeline starts
+// go by name, or starts itself under its go subcommand.
+func goCommandArgs(cfg runner.Config) ([]string, bool) {
+	if name := strings.TrimSuffix(filepath.Base(cfg.Name), ".exe"); name == "go" {
+		return cfg.Args, true
+	}
+	if len(cfg.Args) > 0 && cfg.Args[0] == "go" {
+		return cfg.Args[1:], true
+	}
+	return nil, false
+}
+
 // isGoBuild recognizes a `go build`.
 func isGoBuild(cfg runner.Config) bool {
-	// The fork's binary runs by absolute path, so the name is not the bare "go" IsCmd wants.
-	name := strings.TrimSuffix(filepath.Base(cfg.Name), ".exe")
-	return name == "go" && len(cfg.Args) > 0 && cfg.Args[0] == "build"
+	args, ok := goCommandArgs(cfg)
+	return ok && len(args) > 0 && args[0] == "build"
+}
+
+// isEmbedStd recognizes the standard library embedding a self-hosted build runs.
+func isEmbedStd(cfg runner.Config) bool {
+	args, ok := goCommandArgs(cfg)
+	return ok && len(args) > 1 && args[0] == "tool" && args[1] == "embedstd"
+}
+
+// writeMockBlob writes the -o file embedstd was asked for.
+func writeMockBlob(cfg runner.Config) {
+	for i, arg := range cfg.Args {
+		if arg == "-o" && i+1 < len(cfg.Args) {
+			os.WriteFile(cfg.Args[i+1], []byte("std"), 0o644)
+		}
+	}
 }
 
 // handleGoBuild leaves the -o target behind, as a compiler does on success;
 // every mock reaching the build phase needs it. newBuildFailMock takes precedence.
 func handleGoBuild(cfg runner.Config) (runner.IProcess, bool) {
+	if isEmbedStd(cfg) {
+		writeMockBlob(cfg)
+		return runner.MockProcess(nil, nil), true
+	}
 	if !isGoBuild(cfg) {
 		return nil, false
 	}
