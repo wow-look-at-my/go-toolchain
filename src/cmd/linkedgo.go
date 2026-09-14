@@ -40,5 +40,10 @@ func RunLinkedGo(argv []string) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	return gocmd.Run(goArgs), true
+	exe, err := os.Executable()
+	if err != nil {
+		return gocmd.Run(goArgs), true
+	}
+	// The go command starts itself again the way this binary reaches it.
+	return gocmd.RunAs(goArgs, []string{exe, "go"}), true
 }
