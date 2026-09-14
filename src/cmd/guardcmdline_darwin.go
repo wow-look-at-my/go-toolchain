@@ -3,12 +3,12 @@ package cmd
 import (
 	"bytes"
 	"encoding/binary"
-	"os"
 
 	"golang.org/x/sys/unix"
 )
 
-// darwin has no /proc, so argv comes from the kernel's own copy.
+// A native darwin build has no /proc, so argv comes from the kernel's own
+// copy. The cosmo APE cannot reach this sysctl and asks ps instead.
 // KERN_PROCARGS2 lays it out as: a 4-byte argc, the executable path, NUL
 // padding, then argc NUL-terminated arguments.
 func readCmdline(pid int) ([]string, bool) {
@@ -44,5 +44,3 @@ func readCmdline(pid int) ([]string, bool) {
 	}
 	return argv, len(argv) > 0
 }
-
-func selfPID() int { return os.Getpid() }

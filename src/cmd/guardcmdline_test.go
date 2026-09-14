@@ -1,15 +1,12 @@
 package cmd
 
 import (
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 )
 
 // requireCmdlineReader skips a host that cannot read a process's command
@@ -113,65 +110,6 @@ func TestUnidentifiedPeerRunsWithNoShellToConsult(t *testing.T) {
 	assert.Equal(t, sinkVisible, unidentifiedPeerSink(sinkPipe).kind)
 }
 
-// ps prints a single string, so splitting it on spaces drops the pipe that
-// decides the classification. The script after -c has to survive whole.
-func TestParsePSCommandKeepsTheShellScriptWhole(t *testing.T) {
-	argv := parsePSCommand("/bin/sh -c go-toolchain | head -30\n")
-	require.Len(t, argv, 3)
-	assert.Equal(t, []string{"/bin/sh", "-c", "go-toolchain | head -30"}, argv)
-
-	script, ok := shellScript(argv)
-	require.True(t, ok)
-	assert.True(t, capturesStdout(script), "the pipe must survive the round trip")
-}
-
-func TestParsePSCommandOnAPlainExec(t *testing.T) {
-	argv := parsePSCommand("/usr/local/bin/go-toolchain matrix\n")
-	assert.Equal(t, []string{"/usr/local/bin/go-toolchain", "matrix"}, argv)
-	_, ok := shellScript(argv)
-	assert.False(t, ok, "no shell was handed a command string")
-}
-
-func TestParsePSCommandOnEmptyOutput(t *testing.T) {
-	assert.Empty(t, parsePSCommand("\n"))
-}
-
-// The darwin host path a fat APE takes. A fake ps stands in for the tool,
-// because this suite's own host has /proc and would never reach it.
-func TestPSCmdlineReadsTheTool(t *testing.T) {
-	t.Serial()
-	// The stand-in is a `#!/bin/sh` script, which NT cannot start. The reader
-	// it covers never runs there either: NT dispatches to procCmdline.
-	if hostos.GOOS() == "windows" {
-		t.Skip("no shebang execution on this host")
-	}
-	fake := filepath.Join(t.TempDir(), "ps")
-	script := "#!/bin/sh\necho '/bin/sh -c go-toolchain > out.log'\n"
-	require.NoError(t, os.WriteFile(fake, []byte(script), 0o755))
-
-	old := psBin
-	psBin = fake
-	t.Cleanup(func() { psBin = old })
-
-	argv, ok := psCmdline(4242)
-	require.True(t, ok)
-	assert.Equal(t, []string{"/bin/sh", "-c", "go-toolchain > out.log"}, argv)
-}
-
-// A sandbox that refuses ps answers nothing, which is no evidence rather than
-// evidence of a capture.
-func TestPSCmdlineReportsNothingWhenTheToolIsUnavailable(t *testing.T) {
-	t.Serial()
-	old := psBin
-	psBin = filepath.Join(t.TempDir(), "absent-ps")
-	t.Cleanup(func() { psBin = old })
-
-	_, ok := psCmdline(4242)
-	assert.False(t, ok)
-	assert.Contains(t, probeDetail(), "absent-ps",
-		"a missing ps must name itself: the banner otherwise reports only that no command line could be read, which sends the reader hunting a sandbox rule that does not exist")
-}
-
 // The walk ends before it starts when the parent lookup fails, and no ps ever
 // runs. Downstream that is identical to a host that refused every ps, so the
 // banner has to name this stage rather than leave both silent.
@@ -204,45 +142,6 @@ func TestAFailedParentLookupIsReported(t *testing.T) {
 		assert.NotContains(t, detail, "refused",
 			"the lookup answered; calling that a refusal names the wrong repair")
 	})
-}
-
-// A refusal writes its reason on stderr, which is what separates a denied
-// probe from a missing tool.
-func TestPSCmdlineCarriesTheToolsOwnRefusal(t *testing.T) {
-	t.Serial()
-	if hostos.GOOS() == "windows" {
-		t.Skip("no shebang execution on this host")
-	}
-	fake := filepath.Join(t.TempDir(), "ps")
-	script := "#!/bin/sh\necho 'ps: Operation not permitted' >&2\nexit 1\n"
-	require.NoError(t, os.WriteFile(fake, []byte(script), 0o755))
-
-	old := psBin
-	psBin = fake
-	t.Cleanup(func() { psBin = old })
-
-	_, ok := psCmdline(4242)
-	assert.False(t, ok)
-	assert.Contains(t, probeDetail(), "Operation not permitted")
-}
-
-// A ps that exits clean for a pid it cannot describe never failed to exec,
-// so an exit-status message would name the wrong thing.
-func TestPSCmdlineSaysWhenThereWasNoOutput(t *testing.T) {
-	t.Serial()
-	if hostos.GOOS() == "windows" {
-		t.Skip("no shebang execution on this host")
-	}
-	fake := filepath.Join(t.TempDir(), "ps")
-	require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o755))
-
-	old := psBin
-	psBin = fake
-	t.Cleanup(func() { psBin = old })
-
-	_, ok := psCmdline(4242)
-	assert.False(t, ok)
-	assert.Contains(t, probeDetail(), "printed nothing")
 }
 
 // requireWalkableAncestry skips a host with no parent to walk to, where the

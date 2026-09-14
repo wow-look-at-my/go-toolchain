@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"strconv"
 	"strings"
 
@@ -9,8 +10,25 @@ import (
 
 // A reader outside our PID namespace cannot be named. The command line can.
 
+// selfPID is where the ancestry walk starts. Every platform reader answers
+// for a pid, and this pid is the same however argv gets read, so it sits
+// outside the platform split.
+func selfPID() int { return os.Getpid() }
+
 // ancestryLimit bounds the walk against a cyclic ppid chain.
 const ancestryLimit = 8
+
+// Why the last command-line probe answered nothing. Each cause wants a
+// different repair, and the banner is where the reader learns which.
+var lastCmdlineProbeErr string
+
+// probeDetail renders that reason for the banner. The /proc reader sets none.
+func probeDetail() string {
+	if lastCmdlineProbeErr == "" {
+		return ""
+	}
+	return " (" + lastCmdlineProbeErr + ")"
+}
 
 // A seam, so a test can drive the refused read that switched the guard off.
 var readCmdlineFunc = readCmdline
@@ -71,15 +89,22 @@ func shellScript(argv []string) (string, bool) {
 		return "", false
 	}
 	for i, a := range argv[1:] {
-		if a == "-c" && i+2 < len(argv) {
-			return argv[i+2], true
-		}
-		// A bundled form such as -lc still ends in the c that takes the string.
-		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.HasSuffix(a, "c") && i+2 < len(argv) {
+		if takesCommandString(a) && i+2 < len(argv) {
 			return argv[i+2], true
 		}
 	}
 	return "", false
+}
+
+// takesCommandString reports whether a shell flag is the flag followed by the
+// command string. A bundled form such as -lc still ends in the c that takes
+// it. The ps reader asks the same question of a row it has not split yet, so
+// both agree on where the script starts.
+func takesCommandString(arg string) bool {
+	if arg == "-c" {
+		return true
+	}
+	return strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.HasSuffix(arg, "c")
 }
 
 // isShell matches the interpreters that accept -c, by base name. A full path
