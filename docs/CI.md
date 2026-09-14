@@ -8,7 +8,7 @@ Builds go-toolchain from source into a host-native binary. Its cache-validation 
 
 **Build-log duration regression guard.** The "Build and test" step (`go run ./src`) tees its output to `$RUNNER_TEMP/build-log.txt` (`set -euo pipefail` — GHA's default `bash -e {0}` has no `pipefail`. So a plain `cmd | tee file` will let a real build/test failure hide behind `tee`'s own exit code). This job's `cache: false` setup-go guarantees a cold module cache. So `go mod tidy -v`'s verbose `go: downloading X` / `go: found X` lines always fire — exactly the output where a real bug shipped once. A wrapper stamped even sub-second lines with a duration (`go: downloading X 0.00s`), because it forgot to gate on a minimum elapsed time (see `src/logx/logx.go`'s `minDurationToShow` and `src/cmd/console.go`'s `timedLineWriter` / `timedLineMinDuration`, both fixed to require >= 1s before stamping).
 
-Two follow-up steps check the capture. First, `ansifilter` (not this repo's own `ansiRE`, so a bug in that regex cannot also blind the test verifying it) strips ANSI color codes — but only after a sanity check that raw ANSI codes were actually present. Then a TypeScript step asserts no `go: `-prefixed line (cmd/go's own messages, which never carry a duration themselves — any stamp there was added by us) carries a duration under 1s. So the check cannot silently pass by verifying nothing. It is deliberately scoped to `go: ` lines rather than "any duration under 1s anywhere in the log": go-toolchain's own named step/test timers (e.g. `vet: gofmt 0.17s`) are intentionally unconditional — a named operation's own time is always worth reporting — and must not be flagged.
+Two follow-up steps check the capture. First, `ansifilter` (not this repo's own `ansiRE`. A bug in that regex cannot also blind the test verifying it) strips ANSI color codes — but only after a sanity check that raw ANSI codes were actually present. Then a TypeScript step asserts no `go: `-prefixed line (cmd/go's own messages, which never carry a duration themselves — any stamp there was added by us) carries a duration under 1s. So the check cannot silently pass by verifying nothing. It is deliberately scoped to `go: ` lines rather than "any duration under 1s anywhere in the log": go-toolchain's own named step/test timers (e.g. `vet: gofmt 0.17s`) are intentionally unconditional — a named operation's own time is always worth reporting — and must not be flagged.
 
 ## build
 
@@ -44,14 +44,14 @@ The 30s is deliberate and is not to be raised. The remedy is to make the two pac
 
 `src/vet` cannot take the same repair — loading real packages IS what it tests. Two cheaper remedies applied instead, taking it 19.0s → 16.8s. `initGitRepo` wrote its repo-local settings straight into `.git/config` rather than spending a `git config` process per key. That is six processes per fixture repo and ten such repos. And the analyzer tests that neither chdir nor swap `os.Stderr` — `bannedoutput`, `jsoninterp`, `mapset`, `sliceset` — now call `t.Parallel`. Each analyzer's dedup state is its own package-level set. So they do not share it. `testifycast` stays serial because `applyCastFixtures` swaps `os.Stderr`.
 
-What still blocks parallelising the REST of `src/vet` is two things. The visible one is the working directory. `os.Chdir`/`t.Chdir` appears in 9 of its test files, and a test that calls `t.Chdir` may not call `t.Parallel`. Threading a root through `vetSemantic` is what unblocks that half — `FixTestifyImports` and `MigrateGotestTools` both hardcode `WalkDir(".")`, and `packages.Load` needs. The harder one is process-wide state: the six `reset*Warnings` sets `vetSemantic` clears, and `loadDepsFromSource`. In `src/cmd` the equivalent is the `TestRunWithRunner*` family assigning the package globals `jsonOutput` and `outputDir`.
+What still blocks parallelising the REST of `src/vet` is two things. The visible one is the working directory. `os.Chdir`/`t.Chdir` appears in 9 of its test files. And a test that calls `t.Chdir` may not call `t.Parallel`. Threading a root through `vetSemantic` is what unblocks that half — `FixTestifyImports` and `MigrateGotestTools` both hardcode `WalkDir(".")`, and `packages.Load` needs. The harder one is process-wide state: the six `reset*Warnings` sets `vetSemantic` clears, and `loadDepsFromSource`. In `src/cmd` the equivalent is the `TestRunWithRunner*` family assigning the package globals `jsonOutput` and `outputDir`.
 
 Windows is the harder case, and its numbers are measured rather than inferred. On run 33310462278 `src/vet` reported 30.166s and `src/cache` 30.353s against that 30s clock, while the same binaries take 17-20s and 9-13s on linux. The whole test phase spent 395.99s there against roughly 30s locally, at `0% cache-satisfied`. Reading that log takes care. A duration the progress printer prints against a test in a timed-out binary is an artifact whenever it reads 30.00s. Every paused `t.Parallel` test is charged the whole budget. What IS honest is a printed duration below the budget, from a test that finished, and the panic's own `running tests:` list. Take the hogs from the former and the tail from the latter. A `running tests:` list naming a single test one second in says only that the binary was past its hogs. Both hogs found so far — `src/cache`'s pack pair and `src/vet`'s canonicalize pair — came from the finished-test durations. Two attempts at intra-package parallelism failed and were reverted:
 
 - Marking every `src/cache` test that neither chdirs nor calls `t.Setenv` broke because `setTempDir` and `setHome` mutate the process environment through a helper the sweep did. A serial test's `t.Setenv` is visible to whatever parallel tests run beside it, so the whole binary went red and then hung.
 - Teaching the sweep those helpers still broke, on state that is not the environment: `TestWebBackend_PutRefusesBuildIDMismatch` goes red at once and the binary hangs after it.
 
-A third attempt did land, on the isolated two-thirds of `src/cache`, once the classifier followed the call graph instead of the test body. It took `test run src/cache` from 11.4s to 6.51s on linux and left Windows where it was: 28.822s before, 30.337s after. That is the result to remember. The runner has four cores and `go test` already runs four package binaries side by side. So there are no spare cores for a package to parallelise INTO. The linux win came from cores Windows does not have. Concurrency is therefore not the lever here, and neither refactor below will move Windows either. What moves it is less work per binary, or a budget that knows what host it is on.
+A third attempt did land, on the isolated two-thirds of `src/cache`, once the classifier followed the call graph instead of the test body. It took `test run src/cache` from 11.4s to 6.51s on linux and left Windows where it was: 28.822s before, 30.337s after. That is the result to remember. The runner has cores and `go test` already runs four package binaries side by side. So there are no spare cores for a package to parallelise INTO. The linux win came from cores Windows does not have. Concurrency is therefore not the lever here, and neither refactor below will move Windows either. What moves it is less work per binary, or a budget that knows what host it is on.
 
 Less work per binary is what `src/cache` got. The panic on run 33312237814 named `TestPackStore_ConcurrentSameActionPutRescanConsistency` and `TestPackStore_PutAlwaysBeatsPutIfAbsent`, each eight seconds in and neither finished, against half a second apiece on linux. Both drove their racing pairs through a fresh `t.TempDir` and a fresh `OpenPackStore` per pair. So the run was mostly directory churn — cheap on tmpfs, and the thing NTFS charges most for. Every pair now races into the same store and the rescan happens at the end. That is what a real store looks like anyway. The pair count, and so the sensitivity, is unchanged. On linux each dropped to 0.10s and `test run src/cache` went 8.2s → 6.8s. Run 33313766810 confirmed it: `src/cache` passed at 23.7s, and its pack pair had spent 7.66s and 7.29s of that.
 
@@ -69,7 +69,7 @@ Must someone pick up the isolation work anyway, for its own sake: `src/cache` ne
 
 It is one matrix job over ubuntu, macOS and Windows, and every leg runs the SAME file: `.github/dats-fixtures/smoke.dats`. One APE is what every host downloads. So the question is the same everywhere, and a per-host copy of the suite is how one host's coverage quietly falls behind another's.
 
-An answer that differs by host is asserted by PAIRING it with `uname -s` on one line — `host: windows ...|MINGW64_NT-10.0` — and matching only the combinations that agree. That keeps the assertion strong (a Linux answer on a mac still fails) without the file branching on where it runs. The same idiom carries the guard's two correct answers. A refusal on a host it can classify, the INOPERATIVE banner on one it cannot see into. The APE is copied under an `.exe` name on every host: NT needs the suffix and a posix host does not care.
+An answer that differs by host is asserted by PAIRING it with `uname -s` on one line — `host: windows ...|MINGW64_NT-10.0` — and matching only the combinations that agree. That keeps the assertion strong (a Linux answer on a mac still fails) without the file branching on where it runs. The same idiom carries the guard's correct answers. A refusal on a host it can classify, the INOPERATIVE banner on one it cannot see into. The APE is copied under an `.exe` name on every host: NT needs the suffix and a posix host does not care.
 
 The guard regression staged into the pipeline test's module is one file too. It runs INSIDE the sandbox, so its host is Linux under a docker backend and Darwin under seatbelt, and the same uname pairing covers both.
 
@@ -85,33 +85,26 @@ It used to be: darwin/arm64 shipped as a native carve-out and the mac gate ran t
 
 Note which guard implementation the mac fixture now exercises. The APE reports `runtime.GOOS == "cosmo"`, so it compiles the `_cosmo` sockpeer/tty classifiers, NOT `claudeguard_darwin.go`. That file still builds for a native `go build` on a mac, but it no longer ships in any published artifact.
 
-### smoke-macos: 5 of 10, and what the failing five are waiting on
 
 The job is 5/10 (run 31827754447). Not worked around, and not a reason to weaken it — the gate was deliberately strengthened to run the full pipeline under the real published APE.
 
-**The five reds are the agent output guard.** `inspectFD` classifies stdout through `/proc/self/fd`, which a darwin host does not have, so it returns at its first statement and the guard never refuses. Closing that needs gosmopolitan's `F_GETPATH`/`SO_PEERCRED` on master, and then the darwin branch of `inspectFD` written here — in that order. `docs/AGENT-OUTPUT-GUARD.md` has the chain and why the ordering is not negotiable.
+**The five reds are the agent output guard.** `inspectFD` classifies stdout through `/proc/self/fd`, which a darwin host does not have. So it returns at its first statement and the guard never refuses. Closing that needs gosmopolitan's `F_GETPATH`/`SO_PEERCRED` on master, and then the darwin branch of `inspectFD` written here — in that order. `docs/AGENT-OUTPUT-GUARD.md` has the chain and why the ordering is not negotiable.
 
 Merging `is-this-an-agent`'s host dispatch moved NONE of the five, and can not have. `agent.CommPPID` is called inside the socket branch, downstream of the readlink that already failed. It was a real prerequisite for the socket cases, just not a sufficient one for any of them.
 
 **The five greens are load-bearing, not incidental:**
 
-- `version host` answers `host: darwin (via runtime)` inside dats' seatbelt sandbox and outside it. `runtime.CosmoHostOS()` reads the runtime's own `__hostos`, which the APE entry stub records before any Go code runs and every syscall dispatches on. So no sandbox can deny it. It landed in the fork and `hostSignalFunc` now carries it, ahead of uname and the filesystem probes. Those remain for a host the fork has no port for. Both assertions stay as regression cover, so an unwired seam fails CI instead of silently answering "linux" on a Mac.
+- `version host` answers `host: darwin (via runtime)` inside dats' seatbelt sandbox and outside it. `runtime.CosmoHostOS()` reads the runtime's own `__hostos`, which the APE entry stub records before any Go code runs and every syscall dispatches on. So no sandbox can deny it. It landed in the fork and `hostSignalFunc` now carries it, ahead of uname and the filesystem probes. Those remain for a host the fork has no port for. Both assertions stay as regression cover. So an unwired seam fails CI instead of silently answering "linux" on a Mac.
 - The INOPERATIVE banner fires. It is the only signal a human on that host gets while the guard is blind.
 - `--help` and the two `version` exemptions prove the APE loads and dispatches on macOS at all.
 
 **Windows** — magic, `version`, `--help`, host detection, a positive assertion that the agent output guard is blind here and SAYS. One dimension it still cannot match, a fork gap rather than a choice: the guard cannot fire, because the classifier reads /proc.
 
-The pipeline used to stop at the cosmo bootstrap, and the step tolerated exactly two named blockers so a third failure can not hide behind. Buildhost carried no gosmopolitan windows/amd64 toolchain, and an APE can not resolve DNS on NT. Both have lifted — the download now succeeds — and the step that pinned them went red on the third mode. That was ours: the extraction check spelled `go/bin/go`, while a windows archive holds `go/bin/go.exe`. `cosmoGoBinPath` had always honored the host suffix, and only that one check bypassed it.
+The pipeline used to stop at the cosmo bootstrap, and the step tolerated exactly two named blockers so a third failure can not hide behind. Buildhost carried no gosmopolitan windows/amd64 toolchain. And an APE can not resolve DNS on NT. Both have lifted — the download now succeeds — and the step that pinned them went red on the third mode. That was ours: the extraction check spelled `go/bin/go`, while a windows archive holds `go/bin/go.exe`. `cosmoGoBinPath` had always honored the host suffix, and only that one check bypassed it.
 
 It used to stop at `--help`, on the grounds that gobootstrap downloaded `go<version>.<os>-<arch>.tar.gz` and go.dev serves windows archives as `.zip`. That reason is gone — the fork is the only toolchain now — but the platform whose payload had been dying in package init was still.
 
-> **Owner-ruled smoke contract (Windows).** NO workflow-side Go provisioning —
-> no `setup-go`, that bypasses the bootstrap requirement — and no help-flag
-> `needsGo` carve-outs. `--help`'s bootstrap must resolve the runner image's
-> EXISTING Go through the APE's OWN NT-side `exec.LookPath`. Broken
-> pre-gosmopolitan#63 (unix-style `:` PATH walk with no `.exe` suffixing on NT
-> hosts), fixed in fork v237+. If the image ever drops Go, the red is honest —
-> escalate to the owner.
+> **Owner-ruled smoke contract (Windows).** NO workflow-side Go provisioning — > no `setup-go`, that bypasses the bootstrap requirement — and no help-flag > `needsGo` carve-outs. `--help`'s bootstrap must resolve the runner image's > EXISTING Go through the APE's OWN NT-side `exec.LookPath`. Broken > pre-gosmopolitan#63 (unix-style `:` PATH walk with no `.exe` suffixing on NT > hosts), fixed in fork v237+. If the image ever drops Go, the red is honest — > escalate to the owner.
 
 ## publish
 
@@ -189,9 +182,9 @@ Known gap: the up-to-date fast exit (`src/cmd/uptodate.go`) fingerprints the fil
 
 ## The test-binary budget is spent on process starts
 
-`src/test/test.go` bounds every test binary at five minutes. The number is a property of one package. `src/cmd` holds around 300 tests that call `t.Chdir` or `t.Setenv`. Under the fork either call runs the rest of its test in a child process.
+`src/test/test.go` bounds every test binary at five minutes. The number is a property of one package. `src/cmd` holds around tests that call `t.Chdir` or `t.Setenv`. Under the fork either call runs the rest of its test in a child process.
 
-Those children run one at a time, because each of those tests takes the serial barrier first. Two children racing the run's shared `GOCOVERDIR` break on windows. The child renames its counters onto the content-named `covmeta` file. NT answers `Access is denied` while another process holds it, and the child passes its test and then exits 2. So the binary pays around 300 serialized process starts, and windows charges the most for each one.
+Those children run one at a time, because each of those tests takes the serial barrier first. Two children racing the run's shared `GOCOVERDIR` break on windows. The child renames its counters onto the content-named `covmeta` file. NT answers `Access is denied` while another process holds it. And the child passes its test and then exits 2. So the binary pays around 300 serialized process starts, and windows charges the most for each one.
 
 At two minutes the windows leg died mid-suite. Four `TestRunDatsOnly*` tests were queued behind each other, and every other test in the package sat in `waitParallel`. Dropping the barrier is not the repair. That is what an earlier commit on this branch put back, after windows failed on the rename.
 
@@ -210,7 +203,7 @@ Both are the argument-list boundary below, read from the other side. There a pat
 
 The APE reports `GOOS=cosmo` and answers cosmo's POSIX view of the filesystem. On an NT host the tools it drives — `go.exe`, `git` — are native binaries that know nothing of that view. Which spelling is right depends on who resolves the path:
 
-- **cosmo resolves it.** `cmd.Dir`, and the APE's own `os` calls. Cosmo translates on the way to the OS, so the POSIX spelling is correct and needs no help.
+- **cosmo resolves it.** `cmd.Dir`, and the APE's own `os` calls. Cosmo translates on the way to the OS. So the POSIX spelling is correct and needs no help.
 - **The other program resolves it.** Anything inside its argument list is a string that program parses, and nothing translates it. The POSIX spelling reaches NT unchanged and fails.
 
 `src/cmd/hostscratch.go` holds the base for the second case: `scratchBase` for a caller handing it to `os.MkdirTemp`, `argListTempDir` for one joining onto it. On NT both answer the go cache directory, which is already NT-spelled. Every other host keeps `os.TempDir()`. The four crossings found so far:
@@ -232,7 +225,7 @@ The APE reports `GOOS=cosmo` and answers cosmo's POSIX view of the filesystem. O
 
 ## The shared cache tier writes its notices to a log
 
-host-build sets `GOCACHEDEBUG=1` and `GOCACHELOG` on its two build steps. Every go process then appends the shared cache tier's notices to that file. Each line carries a timestamp and a pid. The notices cover the key-index loads and each batch the tier sends. The file keeps them off stderr, where a test that reads a go command's output would see them. The last step of the job prints the file, on success and on failure. A go process that stalls on the shared tier then shows which request it waited on.
+host-build sets `GOCACHEDEBUG=1` and `GOCACHELOG` on its two build steps. Every go process then appends the shared cache tier's notices to that file. Each line carries a timestamp and a pid. The notices cover the key-index loads and each batch the tier sends. The file keeps them off stderr, where a test that reads a go command's output will see them. The last step of the job prints the file, on success and on failure. A go process that stalls on the shared tier then shows which request it waited on.
 
 ---
 
@@ -258,11 +251,11 @@ build/ in THIS job is the fat APE, because the fork is the only compiler and eve
 
 The second build re-invokes go-toolchain, which also submits the dependency snapshot. Give it the same token so it succeeds rather than warning. Same job + correlator as the first submission, so it replaces it (idempotent) rather than duplicating.
 
-### if [ "$elapsed" -gt 240 ]. Then
+#Then
 
-Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md), so this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. On the current build graph (~3300 actions -- roughly double the 1629 this budget was first derived against) an UNCHANGED second build measures 60-70s depending on the runner. A cold first build in this same job is ~190-200s. The derived ceiling is therefore 90s, which keeps headroom over an unchanged build and still fails a cold one. Before raising it, confirm the second build is actually doing nothing new (no source changed between the two builds in this job) and re-measure a few runs.
+Caching moved into gosmopolitan's `cmd/go` (docs/CACHE.md). So this job can no longer read a cache-satisfied percentage or the poison tripwires to tell a slow runner. On the current build graph (~3300 actions -- roughly double the 1629 this budget was first derived against) an UNCHANGED second build measures 60-70s depending on the runner. A cold first build in this same job is ~190-200s. The derived ceiling is therefore 90s, which keeps headroom over an unchanged build and still fails a cold one. Before raising it, confirm the second build is actually doing nothing new (no source changed between the two builds in this job) and re-measure a few runs.
 
-**The ceiling is temporarily 240s. The value it must return to is 30s.** The incremental build regressed past the derived 90s and the raise exists only to let the release path run while that is repaired. Nothing else about the gate changed. Bring it back down as soon as an unchanged second build measures under the target again.
+**The ceiling is temporarily 240s. The value it must return to is 30s.** The incremental build regressed past the derived 90s. The raise exists only to let the release path run while that is repaired. Nothing else about the gate changed. Bring it back down as soon as an unchanged second build measures under the target again.
 
 The tripwires themselves are asserted by `.github/dats-fixtures/cache-profile.dats`, run by the dats action in `host-build` the same way `identical.dats` and `smoke.dats` are run by their jobs. They were a workflow step once, which meant a push was the only way to reproduce a red. The fixture runs against any local `build/profile.json`. The second-build time limit above is still a workflow step, because asserting it means driving `go-toolchain` twice and timing.
 
@@ -306,13 +299,13 @@ Explicit name on purpose: by this point the run holds SEVERAL hand-offs (host-go
 
 ### Download socketharness hand-off
 
-socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md) so the guard fixture below can prove the actual reported bug against the real shipped APE. Cross-compiled in host-build (which already has Go set up) rather than via setup-go here -- see smoke-macos, where installing Go on that runner will defeat the point of that job.
+socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a child's stdio, not a bare pipe -- see docs/AGENT-OUTPUT-GUARD.md). The guard fixture below can prove the actual reported bug against the real shipped APE. Cross-compiled in host-build (which already has Go set up) rather than via setup-go here -- see smoke-macos, where installing Go on that runner will defeat the point of that job.
 
 ### Linux smoke suite
 
-Every assertion this job makes lives in .github/dats-fixtures/smoke-linux.dats: which host the artifact detects, and the whole pipeline over a synthetic consumer. A workflow step schedules work. The harness holds the assertions. So an engineer can run them without pushing a commit.
+Every assertion this job makes lives in .github/dats-fixtures/smoke-linux.dats: which host the artifact detects. The whole pipeline over a synthetic consumer. A workflow step schedules work. The harness holds the assertions. So an engineer can run them without pushing a commit.
 
-The run is SANDBOXED, like every other suite. The pipeline test drives go-toolchain, whose OWN dats phase sandboxes the agent-output-guard fixture it stages, so a backend is resolved inside this run's backend. That nesting is the cost of keeping the isolation, and keeping it is the point. The suites exist to prove the shipped artifact behaves under what a consumer gets. The dats action exposes no way to turn it off, and nothing here must ask for one.
+The run is SANDBOXED, like every other suite. The pipeline test drives go-toolchain, whose OWN dats phase sandboxes the agent-output-guard fixture it stages. So a backend is resolved inside this run's backend. That nesting is the cost of keeping the isolation, and keeping it is the point. The suites exist to prove the shipped artifact behaves under what a consumer gets. The dats action exposes no way to turn it off. And nothing here must ask for one.
 
 ### the APE detects a linux host by measurement
 
@@ -335,7 +328,7 @@ The fork's `validateCIShared` (`cmd/go/internal/cache/shared.go`) refuses any bu
 
 macos-latest is arm64, and darwin/arm64 is in the APE's platform set. So the APE is what ARM64 macs download. This job therefore runs the FULL default pipeline under it -- the consumer-critical gate for mac users.
 
-This gate is deliberately not reduced. It previously ran the full pipeline against a native darwin/arm64 carve-out because the pipeline wedged AT EXIT under the APE on macOS (issue #276). The gosmopolitan runtime ran unix-socket fds blocking with no netpoller on darwin hosts. So the cache daemon's Listener.Close deadlocked against its own Accept, blocked in raw accept4(2), which a close never wakes on XNU. The fork's darwin netpoller is a kqueue port now. So the deadlock must be gone. A red here is the honest answer that it is not, and the job's timeout bounds the hang.
+This gate is deliberately not reduced. It previously ran the full pipeline against a native darwin/arm64 carve-out. The pipeline wedged AT EXIT under the APE on macOS (issue #The gosmopolitan runtime ran unix-socket fds blocking with no netpoller on darwin hosts. The fork's darwin netpoller is a kqueue port now. So the deadlock must be gone. A red here is the honest answer that it is not, and the job's timeout bounds the hang.
 
 ### uses: actions/checkout@v7
 
@@ -347,7 +340,7 @@ See smoke-linux for why this is a download, not a local build: no setup-go here,
 
 ### macOS smoke suite
 
-Every assertion this job makes lives in .github/dats-fixtures/smoke-macos.dats: host detection, the whole pipeline over a synthetic consumer, and the two unsandboxed socket cases. A workflow step schedules work. The harness holds the assertions.
+Every assertion this job makes lives in .github/dats-fixtures/smoke-macos.dats: host detection, the whole pipeline over a synthetic consumer. The two unsandboxed socket cases. A workflow step schedules work. The harness holds the assertions.
 
 The run is sandboxed. A file may narrow its own sandbox and never turn it off, and the action offers no opt-out either. So every assertion here holds under the isolation a consumer gets -- including the guard fixture go-toolchain's own dats phase runs from inside the pipeline test.
 
@@ -357,7 +350,7 @@ One APE runs on several hosts, so everything host-specific it does -- toolchain 
 
 ### the full pipeline runs in a tiny module on a darwin host
 
-Full default pipeline: macos-latest has no Go on PATH. So this is the job's first real bootstrap, then tidy/vet/test/coverage/build, then the dats phase over the guard fixture staged beside the module.
+Full default pipeline: macos-latest has no Go on PATH. So this is the job's first real bootstrap, then tidy/vet/test/coverage/build. The dats phase over the guard fixture staged beside the module.
 
 That guard regression is a committed dats fixture (.github/dats-fixtures/agent-output-guard.dats), not hand-rolled bash. Go-toolchain links dats in and runs any dats/ suite found (recursively) in the module it is building -- there is no separate suite-running step. That is exactly why this fixture is copied in rather than checked in under this repo's OWN dats/. A suite asserting darwin-host behavior will also run (and fail) during this repo's own linux build/host-build jobs, which discover every dats/ suite recursively with no filtering. That inner phase sandboxes every command to the module root, so the binary under test must live INSIDE.
 
@@ -395,7 +388,7 @@ This step was red the moment it was added, which is what it is for. `runtime.GOO
 
 The same whole-pipeline assertion smoke-linux and smoke-macos make: the shipped APE tidies, vets, tests and builds a synthetic consumer module, and prints "Build successful". The module is three `inputs.files` entries. So the fixture carries it instead of a heredoc in a shell step.
 
-This consumer has no org cache credentials on purpose. Gosmopolitan's own `cmd/go` treats an unconfigured shared tier as an ordinary, silent developer-machine build rather than a warning, so nothing here needs to say so.
+This consumer has no org cache credentials on purpose. Gosmopolitan's own `cmd/go` treats an unconfigured shared tier as an ordinary, silent developer-machine build rather than a warning. So nothing here needs to say so.
 
 For a while this assertion can not be made at all, and the job asserted the reachable half instead. Both have since closed: the publish job now covers the `windows/amd64` slot, and DNS resolves from NT. So a run reaches the test phase and the guard fires as designed.
 
@@ -405,7 +398,7 @@ An earlier revision asserted the full pipeline on the belief that buildhost serv
 
 ### the agent output guard reports itself inoperative on an NT host
 
-The one dimension Windows cannot match. The APE is a cosmo build everywhere, so claudeguard_proc.go is the classifier on NT too -- and it reads /proc, which NT does not have. The readlink fails, `unclassifiableSink` sees a host that is not linux, and `blindClassifierSink` allows the run. That is a documented decision, not an accident, and this step asserts both halves of it. A bare pipeline run with captured stdout under CLAUDECODE=1 must NOT print "refused to run". When someone teaches `inspectStdout` to classify a Windows handle, this step goes red and asks to be turned into the refusal assertion the other two.
+The one dimension Windows cannot match. The APE is a cosmo build everywhere, so claudeguard_proc.go is the classifier on NT too --. It reads /proc, which NT does not have. The readlink fails, `unclassifiableSink` sees a host that is not linux, and `blindClassifierSink` allows the run. That is a documented decision, not an accident, and this step asserts both halves of it. A bare pipeline run with captured stdout under CLAUDECODE=1 must NOT print "refused to run". When someone teaches `inspectStdout` to classify a Windows handle, this step goes red and asks to be turned into the refusal assertion the other two.
 
 It must also print the INOPERATIVE banner naming `windows`. That banner is the only thing a human on this host gets while the guard is blind. It doubles as a second reading of host detection from inside the guard. The banner named `linux` here until `runtime.CosmoHostOS()` was wired, which is the same defect the Host detection step above caught.
 
