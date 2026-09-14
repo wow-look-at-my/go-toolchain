@@ -25,6 +25,9 @@ import (
 // GraphArgFunc returns an extra go test flag when profiling is on; a hook avoids an import cycle through src/profile.
 var GraphArgFunc func() string
 
+// TraceArgFunc returns the go test span-file flag when profiling is on; a hook for the same reason as GraphArgFunc.
+var TraceArgFunc func() string
+
 const (
 	clrGreen  = "\033[38;2;0;255;0m"
 	clrFail   = "\033[38;2;255;128;128m"
@@ -260,6 +263,12 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	if GraphArgFunc != nil {
 		if garg := GraphArgFunc(); garg != "" {
 			args = append(args, garg)
+		}
+	}
+	// Spans for what the go command did inside this invocation, which nothing outside it can see.
+	if TraceArgFunc != nil {
+		if targ := TraceArgFunc(); targ != "" {
+			args = append(args, targ)
 		}
 	}
 	if coverFile != "" {

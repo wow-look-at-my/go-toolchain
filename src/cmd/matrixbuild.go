@@ -98,6 +98,10 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if garg := profile.GraphArg(); garg != "" {
 		args = append(args, garg)
 	}
+	// Spans for what the go command did inside this invocation, which nothing outside it can see.
+	if targ := profile.TraceArg(); targ != "" {
+		args = append(args, targ)
+	}
 	if onFirstOutput != nil {
 		args = append(args, "-v") // print packages as they are compiled
 	}
