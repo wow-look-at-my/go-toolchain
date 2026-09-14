@@ -32,7 +32,7 @@ jobs:
 
       # The pipeline links the fork's go command, so the fork's own build is what first compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
-        working-directory: gosmopolitan/src
+        working-directory: _gosmopolitan/src
         run: ./make.bash
 
       # This job builds from source, so it needs the org read token action.yml gives every consumer.
@@ -62,7 +62,7 @@ jobs:
       - name: Build the bootstrap pipeline
         run: |
           set -euo pipefail
-          export GOROOT="$PWD/gosmopolitan" GOTOOLCHAIN=local
+          export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local
           "$GOROOT/bin/go" build -o "$RUNNER_TEMP/gt-bootstrap" ./src
 
       # Lets the kernel start an APE, so the pipeline and the test binaries it builds exec bare. see docs/ACTION.md

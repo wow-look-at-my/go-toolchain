@@ -13,7 +13,9 @@ import (
 
 // forkSubmoduleDir is the gosmopolitan checkout inside this repository, the
 // standard library and toolchain source a build of this module compiles in.
-const forkSubmoduleDir = "gosmopolitan"
+// The underscore keeps the go tool's "./..." out of the fork's own trees,
+// whose test corpus has Go files under no go.mod of their own.
+const forkSubmoduleDir = "_gosmopolitan"
 
 // forkModulePath names the fork's repository for the branch lookup.
 const forkModulePath = "github.com/wow-look-at-my/gosmopolitan"
