@@ -147,7 +147,7 @@ tests:
 	# polyglot format loads and dispatches wherever this fixture runs. --help
 	# exits before the pipeline phase, so it carries no agent marker.
 	- desc: the shipped APE prints usage under --help
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.gocache}; out=$({outputs.gt.exe} --help 2>&1); rc=$?; if printf "%s" "$out" | grep -q "Usage:"; then echo usage; else printf "%s|exit=%s|mem=%s|disk=%s|%s\n" "$(uname -s)" "$rc" "$(free -m | sed -n 2p | tr -s " " | cut -d " " -f 2,7)" "$(df -m . | sed -n 2p | tr -s " " | cut -d " " -f 4)" "$(printf "%s" "$out" | head -c 300 | tr "\n" " ")"; fi'
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.gocache}; out=$({outputs.gt.exe} --help 2>&1); rc=$?; if printf "%s" "$out" | grep -q "Usage:"; then echo usage; else printf "%s|exit=%s|src=%s:%s|copy=%s:%s|%s\n" "$(uname -s)" "$rc" "$(wc -c < ./gt-under-test.exe)" "$(head -c 6 ./gt-under-test.exe | tr -c "[:alnum:]" .)" "$(wc -c < {outputs.gt.exe})" "$(head -c 6 {outputs.gt.exe} | tr -c "[:alnum:]" .)" "$(printf "%s" "$out" | head -c 300 | tr "\n" " ")"; fi'
 	  timeout: 30s
 	  inputs:
 		env:
