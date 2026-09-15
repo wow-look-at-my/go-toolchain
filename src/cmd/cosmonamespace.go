@@ -66,24 +66,40 @@ func forkToolchainCacheNamespace(goroot string) (string, error) {
 // slash-relative path (prefixed by rel, the GOROOT-relative name of root) and
 // size. Returns the number of files hashed. WalkDir visits entries in lexical
 // order, so the digest is deterministic for a given tree.
+//
+// A symlink hashes as its target path. The fork ships pkg/tool as symlinks into
+// the single multi-call bin/go, so reading through them counts the same binary
+// a single time per tool, and skipping them leaves pkg/tool with no files at all.
 func hashTreeInto(h io.Writer, root, rel string) (int, error) {
 	files := 0
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if !d.Type().IsRegular() {
+		link := d.Type()&fs.ModeSymlink != 0
+		if !link && !d.Type().IsRegular() {
 			return nil
 		}
 		sub, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
+		name := filepath.ToSlash(filepath.Join(rel, sub))
+		if link {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			// The kind joins the name, so no file can alias a link.
+			hashFrame(h, name+"\x00symlink", []byte(filepath.ToSlash(target)))
+			files++
+			return nil
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		hashFrame(h, filepath.ToSlash(filepath.Join(rel, sub)), data)
+		hashFrame(h, name, data)
 		files++
 		return nil
 	})
