@@ -147,7 +147,7 @@ tests:
 	# polyglot format loads and dispatches wherever this fixture runs. --help
 	# exits before the pipeline phase, so it carries no agent marker.
 	- desc: the shipped APE prints usage under --help
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.gocache}; {outputs.gt.exe} --help'
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.gocache}; out=$({outputs.gt.exe} --help 2>&1); rc=$?; if printf "%s" "$out" | grep -q "Usage:"; then echo usage; else printf "%s|exit=%s|src=%s:%s|copy=%s:%s|%s\n" "$(uname -s)" "$rc" "$(wc -c < ./gt-under-test.exe)" "$(head -c 6 ./gt-under-test.exe | tr -c "[:alnum:]" .)" "$(wc -c < {outputs.gt.exe})" "$(head -c 6 {outputs.gt.exe} | tr -c "[:alnum:]" .)" "$(printf "%s" "$out" | head -c 300 | tr "\n" " ")"; fi'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -155,7 +155,7 @@ tests:
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
 		stdout:
-			- "Usage:"
+			0: "^usage$"
 
 	# Naming a socket's peer on darwin means running ps(1): macOS has no /proc,
 	# and the sysctl(KERN_PROC) a native darwin build would use answers ENOSYS
@@ -179,16 +179,16 @@ tests:
 	# naming itself as the reader -- the shape of the bug report this fixture
 	# exists to catch (docs/AGENT-OUTPUT-GUARD.md): an unpiped, unredirected run
 	# was refused as captured because a socket never got the peer-identification
-	# chance a pipe gets. The line picks this host's harness, so the file stays
-	# the same everywhere. An NT host ships none -- a socketpair is what the
-	# harness is built on, and NT has none -- so it reports that instead, which
-	# turns a silently absent case into a stated one.
+	# chance a pipe gets. The harness is an APE, so one copy runs on linux and
+	# darwin. An NT host runs none -- a socketpair is what the harness is built
+	# on, and NT has none -- so it reports that instead, which turns a silently
+	# absent case into a stated one.
 	#
 	# The harness writes to a FILE, never into a pipe or a `$( )` capture. Both
 	# of those wait for end of file, and the harness holds a socketpair open
 	# past its own exit, so the allowed case hangs until the timeout kills it.
 	- desc: agent output guard allows a plain run when the socket reader is the agent itself
-	  cmd: 'u=$(uname -s); case "$u" in Darwin) cp ./socketharness-darwin {outputs.harness.exe};; Linux) cp ./socketharness-linux {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness.exe} {outputs.gt.exe} > h.txt 2>&1; v=missing; grep -q "HARNESS_GUARD_REFUSED=false" h.txt && v=allowed; printf "%s|%s\n" "$u" "$v"'
+	  cmd: 'u=$(uname -s); case "$u" in Darwin|Linux) cp ./socketharness {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness.exe} {outputs.gt.exe} > h.txt 2>&1; v=missing; grep -q "HARNESS_GUARD_REFUSED=false" h.txt && v=allowed; printf "%s|%s\n" "$u" "$v"'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -198,7 +198,7 @@ tests:
 			0: "^((Linux|Darwin)\\|allowed|(MINGW|MSYS|CYGWIN).*\\|no-harness)$"
 
 	- desc: agent output guard still refuses a socket whose reader is not the agent
-	  cmd: 'u=$(uname -s); case "$u" in Darwin) cp ./socketharness-darwin {outputs.harness.exe};; Linux) cp ./socketharness-linux {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness.exe} --wrong-reader {outputs.gt.exe} > h.txt 2>&1; v=missing; grep -q "HARNESS_GUARD_REFUSED=true" h.txt && v=refused; printf "%s|%s\n" "$u" "$v"'
+	  cmd: 'u=$(uname -s); case "$u" in Darwin|Linux) cp ./socketharness {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness.exe} --wrong-reader {outputs.gt.exe} > h.txt 2>&1; v=missing; grep -q "HARNESS_GUARD_REFUSED=true" h.txt && v=refused; printf "%s|%s\n" "$u" "$v"'
 	  timeout: 60s
 	  inputs:
 		env:

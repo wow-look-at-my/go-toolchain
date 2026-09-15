@@ -24,7 +24,7 @@ func reexecAfterDepGenerate() error {
 		return nil
 	}
 	st := logStep("rebuilding the pipeline against the generated output")
-	bin, err := buildSelfWithFork(pkg)
+	bin, err := buildSelfForHost(pkg)
 	if err != nil {
 		st.done()
 		return err
