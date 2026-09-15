@@ -70,6 +70,56 @@ func TestForkToolchainCacheNamespace(t *testing.T) {
 	assert.NotEqual(t, base, fingerprintGoroot(t, changed))
 }
 
+// symlinkedToolGoroot writes the real fork layout: pkg/tool entries are
+// symlinks into the one multi-call bin/go, not copies of it.
+func symlinkedToolGoroot(t *testing.T, goContent string, tools map[string]string) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "goroot")
+	writeFakeForkGoroot(t, root, map[string]string{
+		"VERSION":   "go1.27.0cosmo",
+		"bin/go":    goContent,
+		"bin/gofmt": "gofmt binary content",
+	})
+	dir := filepath.Join(root, "pkg", "tool", "linux_amd64")
+	require.NoError(t, os.MkdirAll(dir, 0755))
+	for name, target := range tools {
+		require.NoError(t, os.Symlink(target, filepath.Join(dir, name)))
+	}
+	return root
+}
+
+// TestForkToolchainCacheNamespaceSymlinkedTools: the fork ships pkg/tool as
+// symlinks into bin/go, and such a GOROOT must fingerprint. Skipping links
+// left pkg/tool empty and failed every build with "no tool binaries found".
+func TestForkToolchainCacheNamespaceSymlinkedTools(t *testing.T) {
+	t.Serial()
+	tools := map[string]string{
+		"compile": "../../../bin/go",
+		"link":    "../../../bin/go",
+		"asm":     "../../../bin/go",
+	}
+
+	base, err := forkToolchainCacheNamespace(symlinkedToolGoroot(t, "go binary content", tools))
+	require.NoError(t, err, "a GOROOT whose tools are symlinks must fingerprint")
+	assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{16}$`), base)
+
+	again, err := forkToolchainCacheNamespace(symlinkedToolGoroot(t, "go binary content", tools))
+	require.NoError(t, err)
+	assert.Equal(t, base, again, "identical content must produce the identical namespace")
+
+	// The links carry no bytes of their own, so the namespace still has to
+	// track the binary they point at.
+	changed, err := forkToolchainCacheNamespace(symlinkedToolGoroot(t, "different go binary", tools))
+	require.NoError(t, err)
+	assert.NotEqual(t, base, changed,
+		"a different multi-call binary must never share a namespace")
+
+	retargeted := map[string]string{"compile": "../../../bin/gofmt", "link": "../../../bin/go", "asm": "../../../bin/go"}
+	moved, err := forkToolchainCacheNamespace(symlinkedToolGoroot(t, "go binary content", retargeted))
+	require.NoError(t, err)
+	assert.NotEqual(t, base, moved, "a retargeted tool link must change the namespace")
+}
+
 // TestForkToolchainCacheNamespaceFailsClosed: a GOROOT without tool binaries
 // cannot be fingerprinted — that is an error, never a silent empty namespace
 // (an un-namespaced fork build would reopen cross-toolchain poisoning).
