@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/wow-look-at-my/go-toolchain/src/gomod"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -274,8 +273,8 @@ func runDirective(d generateDirective, dir string, quiet bool) error {
 		logger.Info("\t%s", d.Command)
 	}
 
-	// A directive's tool must RUN here, so it targets the host. Depth: docs/PIPELINE.md
-	env := append(os.Environ(), "GOOS="+hostos.GOOS(), "GOARCH="+runtime.GOARCH)
+	// A directive's tool must RUN here, so it is an APE: the one target the linked go command has, and one that runs on every host.
+	env := append(os.Environ(), "GOOS=cosmo", "GOARCH="+runtime.GOARCH)
 	env = append(env,
 		"GOFILE="+filepath.Base(d.File),
 		fmt.Sprintf("GOLINE=%d", d.Line),

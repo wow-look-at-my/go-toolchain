@@ -22,7 +22,7 @@ func ownMainPackage() (string, bool) {
 	if gomod.ReadModulePath(".") != ownModulePath {
 		return "", false
 	}
-	mains, err := gomod.FindMainPackagesForTarget(".", hostos.GOOS(), runtime.GOARCH)
+	mains, err := gomod.FindMainPackagesForTarget(".", "cosmo", runtime.GOARCH)
 	if err != nil || len(mains) != 1 {
 		return "", false
 	}
@@ -43,7 +43,8 @@ func buildSelfForHost(pkg string) (string, error) {
 	return bin, nil
 }
 
-// goBuildHost compiles pkg for the HOST with the go command this binary is.
+// goBuildHost compiles pkg as an APE, which runs on this host, with the go
+// command this binary is.
 func goBuildHost(pkg, bin string) error {
 	if len(activeGoCmd) == 0 {
 		return fmt.Errorf("no go command is set up for this run: EnsureGoVersion has to run first")
@@ -53,7 +54,7 @@ func goBuildHost(pkg, bin string) error {
 	cmd.Env = append(os.Environ(),
 		"GOTOOLCHAIN=local",
 		"GOROOT="+activeGoroot,
-		"GOOS="+hostos.GOOS(),
+		"GOOS=cosmo",
 		"GOARCH="+runtime.GOARCH,
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
