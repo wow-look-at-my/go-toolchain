@@ -26,16 +26,32 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      # The last release a green master run published is the bootstrap, as it is for every consumer; a release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
+      - name: Install the previous release as the bootstrap pipeline
+        id: release
+        run: |
+          set -euo pipefail
+          curl -fL --compressed "https://dl.pazer.build/go-toolchain?os=linux&arch=amd64" -o "$RUNNER_TEMP/gt-bootstrap"
+          chmod +x "$RUNNER_TEMP/gt-bootstrap"
+          if GO_TOOLCHAIN_LINKED_GO=1 sh "$RUNNER_TEMP/gt-bootstrap" go version; then
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "the previous release links no go command; bootstrapping from the fork checkout"
+            echo "linked=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # A stock Go is the bootstrap compiler for the fork's make.bash and nothing else. see docs/CI.md
       - uses: actions/setup-go@v5
+        if: steps.release.outputs.linked != 'true'
         with:
           go-version: stable
           cache: false
 
-      - uses: wow-look-at-my/actions@secret-server#latest
-
       # The pipeline links the fork's go command, so the fork's own build is what first compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
       - name: Build the bootstrap go command from the fork checkout
+        if: steps.release.outputs.linked != 'true'
         working-directory: _gosmopolitan/src
         run: ./make.bash
 
@@ -62,12 +78,13 @@ jobs:
             fi
           fi
 
-      # The bootstrap pipeline is an APE the fork's own go command built from this tree. see docs/CI.md
-      - name: Build the bootstrap pipeline
+      # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
+      - name: Build the bootstrap pipeline from the fork checkout
+        if: steps.release.outputs.linked != 'true'
         run: |
           set -euo pipefail
-          export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local
-          "$GOROOT/bin/go" build -o "$RUNNER_TEMP/gt-bootstrap" ./src
+          export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local CGO_ENABLED=0
+          "$GOROOT/bin/go" build -trimpath -o "$RUNNER_TEMP/gt-bootstrap" ./src
 
       # Lets the kernel start an APE, so the pipeline and the test binaries it builds exec bare. see docs/ACTION.md
       - name: Register the APE binfmt handler
@@ -133,6 +150,65 @@ jobs:
         with:
           name: socketharness-build
           path: harness
+
+  # The same build with no release involved: a stock Go runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
+  bootstrap-scratch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Build the bootstrap go command from the fork checkout
+        working-directory: _gosmopolitan/src
+        run: ./make.bash
+
+      - name: Configure git for private repos
+        if: env.PRIVATE_ORG_REPO_READ != ''
+        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
+      - name: Provision the sandbox backend (bubblewrap)
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Configure Go proxy
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
+      - name: Build the bootstrap pipeline from the fork checkout
+        run: |
+          set -euo pipefail
+          export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local CGO_ENABLED=0
+          "$GOROOT/bin/go" build -trimpath -o "$RUNNER_TEMP/gt-bootstrap" ./src
+
+      - name: Register the APE binfmt handler
+        run: bash .github/scripts/register-ape-binfmt.sh
+
+      - name: Build and test
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: sh "$RUNNER_TEMP/gt-bootstrap"
+
+      - name: Hand off the from-scratch APE
+        uses: wow-look-at-my/actions@cache-upload#latest
+        with:
+          name: ape-scratch
+          path: build/go-toolchain
 
   # Build + test via the composite action with NO target inputs, which is exactly what a... see docs/CI.md
   build:
@@ -240,7 +316,7 @@ jobs:
 
   # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
   identical:
-    needs: [build, build-everywhere]
+    needs: [build, build-everywhere, bootstrap-scratch]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -261,6 +337,11 @@ jobs:
         with:
           name: ape-windows
           path: ape/windows
+      # The APE a from-scratch bootstrap reached, with no release in its ancestry.
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-scratch
+          path: ape/scratch
 
       - name: What each host handed off
         run: sha256sum ape/*/go-toolchain
