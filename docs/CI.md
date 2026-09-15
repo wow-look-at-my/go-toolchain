@@ -32,7 +32,7 @@ Both assertions live in `.github/dats-fixtures/`, not in the workflow. `identica
 
 One compiler builds all three. The compiler is the linux-built APE itself, which links the fork's go command and carries its standard library. Nothing is downloaded on any leg. See [CMD.md](CMD.md).
 
-`host-build` bootstraps first: a stock Go runs the submodule's `make.bash`, that go command builds the pipeline once, and the pipeline then builds itself in passes (`selfbuild.go`). Each pass compiles the fork's standard library from the submodule with `go tool embedstd`, links the tree, and appends the blob with `GOCOSMOAPPEND`. The last two passes must be byte-identical.
+The pipeline builds itself in passes (`selfbuild.go`). Each pass compiles the fork's standard library from the submodule with `go tool embedstd`, links the tree, and appends the blob with `GOCOSMOAPPEND`. The last two passes must be byte-identical.
 
 Windows also failed the dirty-tree check on a line-ending difference rather than an edit. GitHub's windows image sets `core.autocrlf=true`, so the checkout wrote `go.mod` with CRLF and the Go tooling rewrote it with LF. `git status` called it modified, `git diff` normalized both sides and showed nothing, and `git update-index --refresh` settled it with `go.mod: needs update`. The repo-root `.gitattributes` pins the working tree to LF. Every tracked text blob is already LF in the index, so nothing but a Windows checkout changes.
 
