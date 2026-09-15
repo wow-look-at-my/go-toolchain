@@ -71,7 +71,7 @@ func TestForkToolchainCacheNamespace(t *testing.T) {
 }
 
 // symlinkedToolGoroot writes the real fork layout: pkg/tool entries are
-// symlinks into the one multi-call bin/go, not copies of it.
+// symlinks into the multi-call bin/go, not copies of it.
 func symlinkedToolGoroot(t *testing.T, goContent string, tools map[string]string) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "goroot")
@@ -89,8 +89,8 @@ func symlinkedToolGoroot(t *testing.T, goContent string, tools map[string]string
 }
 
 // TestForkToolchainCacheNamespaceSymlinkedTools: the fork ships pkg/tool as
-// symlinks into bin/go, and such a GOROOT must fingerprint. Skipping links
-// left pkg/tool empty and failed every build with "no tool binaries found".
+// symlinks into bin/go, and such a GOROOT must fingerprint. A walk that skips
+// links reads pkg/tool as empty and fails with "no tool binaries found".
 func TestForkToolchainCacheNamespaceSymlinkedTools(t *testing.T) {
 	t.Serial()
 	tools := map[string]string{
