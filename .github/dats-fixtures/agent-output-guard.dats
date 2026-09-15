@@ -147,7 +147,7 @@ tests:
 	# polyglot format loads and dispatches wherever this fixture runs. --help
 	# exits before the pipeline phase, so it carries no agent marker.
 	- desc: the shipped APE prints usage under --help
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.gocache}; {outputs.gt.exe} --help'
+	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.gocache}; out=$({outputs.gt.exe} --help 2>&1); if printf "%s" "$out" | grep -q "Usage:"; then echo usage; else printf "%s|%s\n" "$(uname -s)" "$(printf "%s" "$out" | head -c 300 | tr "\n" " ")"; fi'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -155,7 +155,7 @@ tests:
 			GOCACHE: "{outputs.gocache}"
 	  outputs:
 		stdout:
-			- "Usage:"
+			0: "^usage$"
 
 	# Naming a socket's peer on darwin means running ps(1): macOS has no /proc,
 	# and the sysctl(KERN_PROC) a native darwin build would use answers ENOSYS
