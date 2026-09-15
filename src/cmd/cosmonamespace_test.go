@@ -107,8 +107,7 @@ func TestForkToolchainCacheNamespaceSymlinkedTools(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, base, again, "identical content must produce the identical namespace")
 
-	// The links carry no bytes of their own, so the namespace still has to
-	// track the binary they point at.
+	// The links carry no bytes, so the namespace tracks what they point at.
 	changed, err := forkToolchainCacheNamespace(symlinkedToolGoroot(t, "different go binary", tools))
 	require.NoError(t, err)
 	assert.NotEqual(t, base, changed,
