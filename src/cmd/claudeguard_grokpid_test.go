@@ -34,8 +34,7 @@ func TestHarnessIsPipeReaderRequiresAncestor(t *testing.T) {
 	assert.False(t, harnessIsPipeReader("not-an-agent", os.Getpid()),
 		"self is not an ancestor of the walk that starts at ppid")
 
-	// The APE reads the process tree on every host, NT included, through
-	// cosmo's getppid.
+	// The APE reads the process tree on every host, NT included.
 	parent := os.Getppid()
 	t.Setenv(grokPIDEnv, strconv.Itoa(parent))
 	assert.True(t, harnessIsPipeReader("not-an-agent", parent),
