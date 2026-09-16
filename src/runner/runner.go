@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-containers/sortedmap"
@@ -115,9 +114,7 @@ func New() CommandRunner {
 	return &realRunner{}
 }
 
-type realRunner struct {
-	grace time.Duration
-}
+type realRunner struct{}
 
 func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	cmd := exec.Command(cfg.Name, cfg.Args...)
@@ -140,63 +137,34 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		}
 	}
 
-	// Ours, not StdoutPipe's: exec closes those at Wait, and reap outlives it.
-	stdoutR, stdoutW, err := os.Pipe()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
 	}
-	stderrR, stderrW, err := os.Pipe()
+
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		stdoutR.Close()
-		stdoutW.Close()
 		return nil, err
 	}
-	cmd.Stdout = stdoutW
-	cmd.Stderr = stderrW
 
 	if err := cmd.Start(); err != nil {
-		for _, f := range []*os.File{stdoutR, stdoutW, stderrR, stderrW} {
-			f.Close()
-		}
 		return nil, err
 	}
-	// The child holds the only write ends now. A reader gets no EOF until we drop ours.
-	stdoutW.Close()
-	stderrW.Close()
 
-	grace := r.grace
-	if grace == 0 {
-		grace = defaultDrainGrace
+	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: stderr, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
+
+	// A caller that sets StderrWriter reads stdout itself and leaves stderr to
+	// us, so drain it from here rather than from Wait. Waiting would deadlock:
+	// the child blocks on a full stderr pipe, so it never exits, so stdout
+	// never reaches EOF, so the caller never reaches the Wait that drains.
+	if cfg.StderrWriter != nil {
+		p.stderrDrained = make(chan struct{})
+		go func() {
+			defer close(p.stderrDrained)
+			io.Copy(&firstOutputWriter{target: cfg.StderrWriter, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}, stderr)
+		}()
 	}
-	outR, outW := io.Pipe()
-	errR, errW := io.Pipe()
-	p := &process{cmd: cmd, stdoutPipe: outR, stderrPipe: errR, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter, exited: make(chan struct{}), grace: grace}
-	go relay(stdoutR, outW)
-	go relay(stderrR, errW)
-	go p.reap(outW, errW)
 	return p, nil
-}
-
-// relay carries the OS pipe into the io.Pipe a caller reads, and ends it on EOF.
-func relay(src *os.File, dst *io.PipeWriter) {
-	_, err := io.Copy(dst, src)
-	dst.CloseWithError(err)
-}
-
-// defaultDrainGrace is how long a relay runs on after the command exits.
-const defaultDrainGrace = 5 * time.Second
-
-// reap ends any read still waiting on EOF after the command is gone.
-// A grandchild holding the child's stdout keeps the OS pipe open, and that
-// read blocks inside a syscall no deadline or close can interrupt. So the
-// bound goes on the io.Pipe above it, and the relay stays parked.
-func (p *process) reap(writers ...*io.PipeWriter) {
-	p.waitErr = p.cmd.Wait()
-	close(p.exited)
-	time.Sleep(p.grace)
-	for _, w := range writers {
-		w.Close()
-	}
 }
 
 // firstOutputWriter wraps a writer and calls a callback before any write.
@@ -219,8 +187,8 @@ func (w *firstOutputWriter) Write(p []byte) (int, error) {
 
 type process struct {
 	cmd          *exec.Cmd
-	stdoutPipe   *io.PipeReader
-	stderrPipe   *io.PipeReader
+	stdoutPipe   io.Reader
+	stderrPipe   io.Reader
 	quiet        bool
 	done         bool
 	err          error
@@ -228,9 +196,8 @@ type process struct {
 	onFirst      func()
 	stdoutWriter io.Writer
 	stderrWriter io.Writer
-	exited       chan struct{} // closed when reap has the exit status
-	waitErr      error         // read only after exited is closed
-	grace        time.Duration
+	// Non-nil when Run drains stderr; closed when that drain reaches EOF.
+	stderrDrained chan struct{}
 }
 
 func (p *process) Wait() error {
@@ -258,22 +225,25 @@ func (p *process) Wait() error {
 			callback:  p.onFirst,
 		}
 		var wg sync.WaitGroup
-		wg.Add(2)
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			io.Copy(w, p.stdoutPipe)
 		}()
-		go func() {
-			defer wg.Done()
-			io.Copy(wErr, p.stderrPipe)
-		}()
+		if p.stderrDrained == nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				io.Copy(wErr, p.stderrPipe)
+			}()
+		}
 		wg.Wait()
 	}
-	<-p.exited
-	p.err = p.waitErr
+	if p.stderrDrained != nil {
+		<-p.stderrDrained
+	}
+	p.err = p.cmd.Wait()
 	p.done = true
-	p.stdoutPipe.Close()
-	p.stderrPipe.Close()
 	return p.err
 }
 
