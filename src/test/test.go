@@ -216,7 +216,7 @@ func verifyTagCoverage(r runner.CommandRunner, d *buildtags.Discovery) error {
 			args = append(args, "-tags", arg)
 		}
 		args = append(args, "./...")
-		proc, err := runner.Cmd("go", args...).WithHostTarget().WithQuiet().Run(r)
+		proc, err := runner.Cmd("go", args...).WithQuiet().Run(r)
 		if err != nil {
 			return fmt.Errorf("listing files for tags %s: %w", tagCfg, err)
 		}
@@ -280,7 +280,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 	// Tee stderr to console and a buffer, for progress and error reporting.
 	var stderrBuf bytes.Buffer
 	stderrTee := io.MultiWriter(&stderrBuf, os.Stderr)
-	proc, err := runner.Cmd("go", args...).WithHostTarget().WithStderrWriter(stderrTee).Run(r)
+	proc, err := runner.Cmd("go", args...).WithStderrWriter(stderrTee).Run(r)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +359,7 @@ func runTestsOnce(r runner.CommandRunner, verbose bool, coverFile string, onOutp
 					}
 				}
 				// -o discards the binary; without it, `go build src` would write an executable colliding with the src/ directory.
-				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithHostTarget().WithQuiet().Run(r)
+				buildProc, buildErr := runner.Cmd("go", "build", "-o", os.DevNull, pkg).WithQuiet().Run(r)
 				if buildErr != nil {
 					break
 				}

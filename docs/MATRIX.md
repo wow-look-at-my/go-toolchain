@@ -42,7 +42,7 @@ go-toolchain matrix --targets wasm/js,wasm/wasip1
 
 **No per-platform copies.** A cosmo build writes the APE and nothing else. There is no flag that copies it onto `<name>_<os>_<arch>` names — the APE publishes under its own name through the manifest.
 
-**Toolchain resolution.** Building the cosmo target needs the gosmopolitan toolchain. There is one source and no local override. It is downloaded from buildhost (`https://dl.pazer.build/gosmopolitan`, the `master` branch). The download is cached under `~/.cache/go-toolchain/cosmo/v<N>/`, keyed by the buildhost release version. One release therefore downloads once. Every host asks for its own `os`/`arch`. Buildhost decides what exists. A host it publishes nothing for fails with that answer. Nothing here keeps a list of supported hosts — one went stale and refused darwin/arm64 while buildhost was serving it.
+**Toolchain resolution.** The gosmopolitan toolchain is this binary. It links the fork's go command, compiler and linker, and carries the fork's standard library for cosmo amd64 and arm64. Nothing is downloaded and there is no local override. `go-toolchain version` names the fork commit. Inside this repository the `gosmopolitan` submodule is the standard library instead, and the build repeats until a binary reproduces itself (see [CI.md](CI.md)).
 
 **Build semantics.** The cosmo build always runs with `CGO_ENABLED=0` (cosmopolitan has no cgo. `--cgo` warns and is ignored for this target) and without `GOARCH` (fat, covering amd64+arm64, is the fork's default output).
 
@@ -53,8 +53,6 @@ Measured on the fork, same source. Two checkout paths differ by 200 bytes withou
 The cost is that `go tool buildid` on a shipped artifact returns empty. Only the final link is affected: a cached package archive keeps the stamp the cache poison guards read, so [CACHE.md](CACHE.md) is untouched. Action IDs still differ per host, so this buys identical bytes and never a cross-host cache hit.
 
 `-buildid=` is the tail of a longer `-ldflags` value. The revision stamp and whatever the caller put in `GOFLAGS` come ahead of it, and [VCS-STAMP.md](VCS-STAMP.md) covers why the order is what it is. Neither part varies by host — the stamp is the commit, which every runner in a CI run shares — so the `identical` job still holds.
-
-**Cache isolation.** Fork-toolchain builds (cosmo and wasm) run with their cache keys namespaced by a content hash of the toolchain in use (`GO_TOOLCHAIN_CACHE_NAMESPACE`, set automatically). The fork stamps a constant version, so different fork builds will otherwise collide on cache keys and serve each other stale objects (SIGSEGV binaries). Namespaced builds skip the shared cache daemon and cache per-toolchain. Every build is a fork build, so every build is namespaced. See [CACHE.md](CACHE.md#fork-toolchain-key-namespacing).
 
 **An APE keeps its bytes when it runs.** The kernel cannot exec the file as it stands, so the bootstrap stages a copy under `$TMPDIR` and writes the host's native header into THAT. The artifact keeps its checksum, which is what makes comparing one host's APE against another's meaningful at all. Measured: running a built APE twice leaves its sha256 unchanged. Depth: gosmopolitan's `docs/APE-STAGING.md`.
 
