@@ -2,11 +2,13 @@ name: NT probe
 
 on:
   push:
+    branches:
+      - '**'
   workflow_dispatch:
 
 # A push runs it only on a probe branch; the inputs below are fixed until dispatch works from a non-default branch.
 env:
-  PROBE_BINARY: previous
+  PROBE_HANDOFF_RUN: '35051764141'
   PROBE_COMMAND: measure
   PROBE_MINUTES: '10'
 
@@ -41,15 +43,20 @@ jobs:
             fi
           fi
 
-      - name: Fetch the binary
+      # buildhost has published nothing since the linked toolchain landed, so the binary is a master host-build's hand-off, which cache-upload keyed by run.
+      - name: Restore a master host-build's hand-off
+        uses: actions/cache/restore@v4
+        with:
+          path: build/go-toolchain
+          key: cache-xfer-${{ env.PROBE_HANDOFF_RUN }}-host-go-toolchain-1
+          fail-on-cache-miss: true
+
+      - name: Stage the binary
         shell: bash
         run: |
           set -euo pipefail
-          url="$PROBE_BINARY"
-          if [ "$url" = previous ]; then
-            url="https://dl.pazer.build/go-toolchain?os=windows&arch=amd64"
-          fi
-          curl -fL --compressed "$url" -o "$RUNNER_TEMP/gt-probe.exe"
+          find . -name go-toolchain -type f -not -path './_gosmopolitan/*'
+          cp "$(find . -name go-toolchain -type f -not -path './_gosmopolitan/*' | head -1)" "$RUNNER_TEMP/gt-probe.exe"
           chmod +x "$RUNNER_TEMP/gt-probe.exe"
           "$RUNNER_TEMP/gt-probe.exe" version
 
