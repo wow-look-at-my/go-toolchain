@@ -5,6 +5,10 @@ on:
     branches:
       - '**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   id-token: write
@@ -15,26 +19,41 @@ permissions:
 jobs:
   host-build:
     runs-on: ubuntu-latest
-    outputs:
-      cosmo-version: ${{ steps.cosmo.outputs.version }}
     steps:
       # No persisted credentials: the header checkout leaves in the workspace names THIS repository, so every git question about another one is asked as the wrong identity.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-
-      # gosmopolitan is upstream of this repo: the compiler that builds it has to exist before it does.
-      - name: Install the gosmopolitan toolchain
-        run: |
-          mkdir -p "$RUNNER_TEMP/cosmo"
-          curl -fL --compressed \
-            "https://dl.pazer.build/gosmopolitan?branch=master&os=linux&arch=amd64" \
-            | tar -xz -C "$RUNNER_TEMP/cosmo"
-          echo "$RUNNER_TEMP/cosmo/go/bin" >> "$GITHUB_PATH"
-          echo "GOROOT=$RUNNER_TEMP/cosmo/go" >> "$GITHUB_ENV"
-          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+          submodules: recursive
 
       - uses: wow-look-at-my/actions@secret-server#latest
+
+      # The last release a green master run published is the bootstrap, as it is for every consumer; a release without the linked go command hands the job to the from-scratch steps below. see docs/CI.md
+      - name: Install the previous release as the bootstrap pipeline
+        id: release
+        run: |
+          set -euo pipefail
+          curl -fL --compressed "https://dl.pazer.build/go-toolchain?os=linux&arch=amd64" -o "$RUNNER_TEMP/gt-bootstrap"
+          chmod +x "$RUNNER_TEMP/gt-bootstrap"
+          if GO_TOOLCHAIN_LINKED_GO=1 sh "$RUNNER_TEMP/gt-bootstrap" go version; then
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "the previous release links no go command; bootstrapping from the fork checkout"
+            echo "linked=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A stock Go is the bootstrap compiler for the fork's make.bash and nothing else. see docs/CI.md
+      - uses: actions/setup-go@v5
+        if: steps.release.outputs.linked != 'true'
+        with:
+          go-version: stable
+          cache: false
+
+      # The pipeline links the fork's go command, so the fork's own build is what first compiles it; it runs after the secrets because a CI run of the fork's go command refuses to build with no shared cache configured. see docs/CI.md
+      - name: Build the bootstrap go command from the fork checkout
+        if: steps.release.outputs.linked != 'true'
+        working-directory: _gosmopolitan/src
+        run: ./make.bash
 
       # This job builds from source, so it needs the org read token action.yml gives every consumer.
       - name: Configure git for private repos
@@ -59,12 +78,27 @@ jobs:
             fi
           fi
 
+      # The bootstrap pipeline is an APE the fork's own go command built from this tree, with the flags the pipeline builds itself with, so its compiler shares the passes' tool ID. see docs/CI.md
+      - name: Build the bootstrap pipeline from the fork checkout
+        if: steps.release.outputs.linked != 'true'
+        run: |
+          set -euo pipefail
+          export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local CGO_ENABLED=0
+          "$GOROOT/bin/go" build -trimpath -o "$RUNNER_TEMP/gt-bootstrap" ./src
+
+      # Lets the kernel start an APE, so the pipeline and the test binaries it builds exec bare. see docs/ACTION.md
+      - name: Register the APE binfmt handler
+        run: bash .github/scripts/register-ape-binfmt.sh
+
       - name: Build and test
         env:
           # Dependency-graph submission needs a token with contents: write (granted at the workflow... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
-        # Asks for a host binary, since `go run` execs what it builds and an APE boots through a shell header; generate approvals live in go.mod. see docs/PIPELINE.md
-        run: GOOS=linux GOARCH=amd64 go run ./src
+          # Every go process logs what the shared cache tier did, timestamped, to a file instead of stderr. see docs/CI.md
+          GOCACHEDEBUG: "1"
+          GOCACHELOG: ${{ runner.temp }}/gocache.log
+        # A shell starts the APE, since execve alone reads no shell header; generate approvals live in go.mod. see docs/PIPELINE.md
+        run: sh "$RUNNER_TEMP/gt-bootstrap"
 
       # The assertions live in the fixture, where an engineer can re-run them without pushing. see docs/CI.md
       - name: Check build profile
@@ -77,6 +111,8 @@ jobs:
         env:
           # The second build re-invokes go-toolchain, which also submits the dependency snapshot; give... see docs/CI.md
           GITHUB_TOKEN: ${{ github.token }}
+          GOCACHEDEBUG: "1"
+          GOCACHELOG: ${{ runner.temp }}/gocache.log
         run: |
           cp build/go-toolchain /usr/local/bin/go-toolchain
           rm -rf build/
@@ -84,11 +120,15 @@ jobs:
           go-toolchain
           elapsed=$(( SECONDS - start ))
           echo "Second build took ${elapsed}s"
-          # 90s is derived, not guessed. see docs/CI.md
-          if [ "$elapsed" -gt 90 ]; then
-            echo "::error::Second build took ${elapsed}s (limit: 90s)"
+          # A warm build of this module still links its APE with the standard library three times, once per self-build pass. see docs/CI.md
+          if [ "$elapsed" -gt 600 ]; then
+            echo "::error::Second build took ${elapsed}s (limit: 600s)"
             exit 1
           fi
+
+      - name: Print the shared cache log
+        if: always()
+        run: cat "$RUNNER_TEMP/gocache.log"
 
       - name: Upload host binary
         uses: wow-look-at-my/actions@cache-upload#latest
@@ -96,27 +136,79 @@ jobs:
           name: host-go-toolchain
           path: build/go-toolchain
 
-      # Comparing three hosts' APEs says something only if one compiler built them. see docs/CI.md
-      - name: Pin the gosmopolitan release for this run
-        id: cosmo
-        run: |
-          set -euo pipefail
-          v="$(go-toolchain version cosmo --require-release)"
-          echo "resolved gosmopolitan $v"
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-
       # socketharness reproduces a coding agent's own tool-execution plumbing (a socketpair for a... see docs/CI.md
-      - name: Cross-compile socketharness
+      - name: Build socketharness
+        # A fixture of this workflow, not a shipped output, so the workflow itself reaches the linked go command the way a pipeline run does. see docs/CI.md
+        env:
+          GO_TOOLCHAIN_LINKED_GO: "1"
         run: |
           mkdir -p harness
-          GOOS=linux GOARCH=amd64 go build -o harness/socketharness-linux-amd64 .github/dats-fixtures/socketharness.go
-          GOOS=darwin GOARCH=arm64 go build -o harness/socketharness-darwin-arm64 .github/dats-fixtures/socketharness.go
+          go-toolchain go build -o harness/socketharness .github/dats-fixtures/socketharness.go
 
       - name: Upload socketharness binaries
         uses: wow-look-at-my/actions@cache-upload#latest
         with:
           name: socketharness-build
           path: harness
+
+  # The same build with no release involved: a stock Go runs the fork's make.bash, that go command builds the pipeline, and the pipeline builds itself; identical holds its APE to host-build's bytes. see docs/CI.md
+  bootstrap-scratch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Build the bootstrap go command from the fork checkout
+        working-directory: _gosmopolitan/src
+        run: ./make.bash
+
+      - name: Configure git for private repos
+        if: env.PRIVATE_ORG_REPO_READ != ''
+        run: git config --global url."https://${PRIVATE_ORG_REPO_READ}@github.com/wow-look-at-my/".insteadOf "https://github.com/wow-look-at-my/"
+
+      - name: Provision the sandbox backend (bubblewrap)
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Configure Go proxy
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
+      - name: Build the bootstrap pipeline from the fork checkout
+        run: |
+          set -euo pipefail
+          export GOROOT="$PWD/_gosmopolitan" GOTOOLCHAIN=local CGO_ENABLED=0
+          "$GOROOT/bin/go" build -trimpath -o "$RUNNER_TEMP/gt-bootstrap" ./src
+
+      - name: Register the APE binfmt handler
+        run: bash .github/scripts/register-ape-binfmt.sh
+
+      - name: Build and test
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: sh "$RUNNER_TEMP/gt-bootstrap"
+
+      - name: Hand off the from-scratch APE
+        uses: wow-look-at-my/actions@cache-upload#latest
+        with:
+          name: ape-scratch
+          path: build/go-toolchain
 
   # Build + test via the composite action with NO target inputs, which is exactly what a... see docs/CI.md
   build:
@@ -127,6 +219,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
       # The dats phase sandboxes every suite command (dats' default), and the backend it picks... see docs/CI.md
       - name: Provision the sandbox backend (bubblewrap)
         run: |
@@ -148,15 +241,14 @@ jobs:
         with:
           binary: build/go-toolchain
           autorelease: 'false'
-          # The cosmo target additionally downloads + extracts the gosmopolitan toolchain and... see docs/CI.md
-          timeout: '15'
+          # A build of this module compiles the fork's standard library from its checkout, in passes. see docs/CI.md
+          timeout: '30'
 
 
   # Each non-linux host builds this repo's APE with the linux-built binary, so a difference in the output is the host and nothing else. see docs/CI.md
   build-everywhere:
     needs: host-build
     strategy:
-      fail-fast: false
       matrix:
         include:
           - origin: darwin
@@ -167,9 +259,11 @@ jobs:
             runner: windows-latest
             gt: gt-ape.exe
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - uses: wow-look-at-my/actions@secret-server#latest
 
@@ -208,8 +302,6 @@ jobs:
       - name: Build this repo's APE here
         shell: bash
         env:
-          # One compiler for all three hosts; host-build resolved it. see docs/CI.md
-          GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
           # A build inside the checkout submits a dependency snapshot, and a missing token fails it.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -224,7 +316,7 @@ jobs:
 
   # The smoke jobs run ONE host's APE on all three. That says what every host ships only if every... see docs/CI.md
   identical:
-    needs: [build, build-everywhere]
+    needs: [build, build-everywhere, bootstrap-scratch]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -245,6 +337,11 @@ jobs:
         with:
           name: ape-windows
           path: ape/windows
+      # The APE a from-scratch bootstrap reached, with no release in its ancestry.
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: ape-scratch
+          path: ape/scratch
 
       - name: What each host handed off
         run: sha256sum ape/*/go-toolchain
@@ -259,7 +356,6 @@ jobs:
   smoke:
     needs: [host-build, build]
     strategy:
-      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -289,11 +385,10 @@ jobs:
       # The smoke's nested pipeline is a CI run, and the fork refuses one with no build cache to write to. see docs/CI.md
       - uses: wow-look-at-my/actions@secret-server#latest
 
-      # Sandboxed like every other suite, on the fork host-build resolved -- unpinned it downloads master and straddles two compilers. see docs/CI.md
+      # Sandboxed like every other suite; the APE carries its compiler and standard library, so nothing is downloaded. see docs/CI.md
       - name: Smoke suite
         uses: wow-look-at-my/dats@master
         env:
-          GO_TOOLCHAIN_COSMO_VERSION: ${{ needs.host-build.outputs.cosmo-version }}
           # The org proxy wants auth to look up a module it has never seen, and this job's throwaway module always is one. see docs/CI.md
           GO_PROXY_CONFIG: ""
         with:

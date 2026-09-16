@@ -36,6 +36,8 @@ var (
 	lintMinNodes   int
 	cgoEnabled     bool
 	countGenerated bool
+	// treeUnchanged is what inputsUnchanged answered at startup.
+	treeUnchanged bool
 )
 
 // skipUpToDateCheck reports whether cmd or an ancestor skips the
@@ -53,7 +55,7 @@ func skipUpToDateCheck(cmd *cobra.Command) bool {
 // unguardedCmds print no build result, so a capture hides nothing. Depth: docs/AGENT-OUTPUT-GUARD.md.
 var unguardedCmds = set.Of("version")
 
-// toolchainlessCmds run no go command; resolving the fork would download a compiler to answer a question about this binary.
+// toolchainlessCmds run no go command, so they set none up.
 var toolchainlessCmds = set.Of("version", "verify-identical")
 
 // checkTargetFlags validates --targets and --cosmo-platforms, for the commands
@@ -110,26 +112,26 @@ var rootCmd = &cobra.Command{
 		if err := checkTargetFlags(cmd); err != nil {
 			return err
 		}
-		// After cobra parses, so --help and a mistyped flag cost no compiler.
+		// After cobra parses, so --help and a mistyped flag set up no toolchain.
 		if !skipToolchain(cmd) {
 			if err := EnsureGoVersion(); err != nil {
 				// Drop the previous run's binaries so a failed run cannot pass for a good run (see staleoutputs.go).
 				discardBuildOutputsFromCWD()
 				return fmt.Errorf("go bootstrap: %w", err)
 			}
-			// Ahead of the fast exit, so a no-op run still leaves a fork-built binary.
-			if err := reexecUnderFork(); err != nil {
-				discardBuildOutputsFromCWD()
-				return err
-			}
 		}
 		if skipUpToDateCheck(cmd) {
 			return nil
 		}
-		if cmd.Parent() == nil && isUpToDate(runner.New()) {
-			logger.Output("⇒ Up to date, nothing to do")
-			ReportUpdateCheck()
-			os.Exit(0)
+		if cmd.Parent() == nil {
+			r := runner.New()
+			// Read here, before clearBuildOutputs deletes what outputsPresent looks for.
+			treeUnchanged = inputsUnchanged(r)
+			if treeUnchanged && outputsPresent(r) {
+				logger.Output("⇒ Up to date, nothing to do")
+				ReportUpdateCheck()
+				os.Exit(0)
+			}
 		}
 		return nil
 	},
@@ -173,6 +175,7 @@ func init() {
 // Execute runs the root command.
 func Execute() error {
 	defer emitBuildProfile()
+	defer removeGoLink()
 	return rootCmd.Execute()
 }
 
@@ -274,6 +277,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	if tl := GetTimeline(); tl != nil {
 		allSummary.Timeline = tl.Entries()
 	}
+	allSummary.Artifacts = builtArtifactSizes()
 
 	// Write the GitHub Step Summary after all modules complete
 	if writeErr := summary.Write(&allSummary); writeErr != nil {
@@ -314,6 +318,10 @@ func findGoModules() []string {
 			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" || name == "testdata") {
 				return filepath.SkipDir
 			}
+			// The fork checkout holds the standard library's modules, which the fork builds.
+			if isForkSubmodulePath(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if d.Name() == "go.mod" {
@@ -347,6 +355,29 @@ func runWithRunnerOnce(r runner.CommandRunner, isRetry bool, sd *summary.Summary
 		if WaitForOutdatedDeps(depChecker) {
 			logger.Info("")
 		}
+	}
+
+	// Vet and the tests read the inputs, and the inputs are what they answer
+	// about. An unchanged tree that lost its outputs has to build again, and
+	// asking that question again only re-runs a suite whose answer is on file.
+	// It is also the path that reaches the build with no coverage to report.
+	if treeUnchanged && !isRetry {
+		logger.Output("⇒ Tests and vet skipped: the tree has not changed since the last green run")
+		br, builtArtifacts, err := runBuildPhase(r, quiet)
+		if err != nil {
+			return err
+		}
+		if err := integration.Run(context.Background(), "tests"); err != nil {
+			return err
+		}
+		if err := runDatsPhase(quiet, builtArtifacts); err != nil {
+			return err
+		}
+		if sd != nil && br != nil {
+			sd.Benchmarks = br.Report
+			sd.BenchComp = br.Comparison
+		}
+		return nil
 	}
 
 	filesChanged, testResult, err := RunTestsWithCoverage(r, quiet)
@@ -443,6 +474,7 @@ func runBuildPhase(r runner.CommandRunner, quiet bool) (*benchResult, []datsArti
 			sourcePath: outPath,
 			name:       datsArtifactName(t.OutputName, hostos.GOOS()),
 		})
+		recordArtifactSize(outPath)
 	}
 
 	if !quiet {

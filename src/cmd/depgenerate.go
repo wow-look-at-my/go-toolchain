@@ -161,11 +161,11 @@ func goModCache() (string, error) {
 	return slashPath(strings.TrimSpace(out)), nil
 }
 
-// goOutput runs the go command for its stdout, under this host target: what it
+// goOutput runs the go command for its stdout, under the APE target: what it
 // reports has to describe the build that runs here.
 func goOutput(args ...string) (string, error) {
 	cmd := exec.Command("go", args...)
-	cmd.Env = append(os.Environ(), "GOOS="+hostos.GOOS(), "GOARCH="+runtime.GOARCH)
+	cmd.Env = append(os.Environ(), "GOOS=cosmo", "GOARCH="+runtime.GOARCH)
 	out, err := cmd.Output()
 	return string(out), err
 }
@@ -242,19 +242,23 @@ func pendingDepDirectives(all []generateDirective) []generateDirective {
 	return out
 }
 
-// generateForDeps runs the directives the dependencies still owe, ahead of every
-// phase that reads what they produce.
-//
-// The comment scan leads the pipeline on purpose: it reads bytes, so it answers
-// on a tree no compiler accepts. Its rule is an imported package whose extractor
-// decodes a parse table, though, and a dependency ships the directive that
-// writes that table rather than the table. So this runs and it runs before go
-// mod tidy: `go list` resolves an import without type-checking it, which is what
-// lets a package that does not compile yet name its own directory.
+// generateForDeps runs the directives the dependencies still owe, ahead of go
+// mod tidy and every phase that reads what they produce. Depth: docs/PIPELINE.md
 func generateForDeps(expectedHash string) error {
+	wrote, err := satisfyDepGenerate(expectedHash)
+	if err != nil || !wrote {
+		return err
+	}
+	// This process linked those packages before their output existed.
+	return reexecAfterDepGenerate()
+}
+
+// satisfyDepGenerate writes what the dependencies of the module in the working
+// directory still owe, when go.mod approves it. It answers whether it wrote.
+func satisfyDepGenerate(expectedHash string) (bool, error) {
 	deps, err := depGenerateDirectives()
 	if err != nil {
-		return nil
+		return false, nil
 	}
 	if len(deps) > 0 {
 		// The module index predates any file a directive wrote, in this run and every later run.
@@ -262,20 +266,19 @@ func generateForDeps(expectedHash string) error {
 	}
 	pending := pendingDepDirectives(deps)
 	if len(pending) == 0 {
-		return nil
+		return false, nil
 	}
 	if expectedHash == "skip" {
 		logger.Warn("⇒ Warning: a dependency still owes its generated output, and generate is skipped")
-		return nil
+		return false, nil
 	}
 	if err := checkDepApprovals(deps, pending); err != nil {
-		return err
+		return false, err
 	}
 	if err := satisfyDepDirectives(pending); err != nil {
-		return err
+		return false, err
 	}
-	// This process linked those packages before their output existed.
-	return reexecAfterDepGenerate()
+	return true, nil
 }
 
 // satisfyDepDirectives writes what the pending dependency directives owe, by
