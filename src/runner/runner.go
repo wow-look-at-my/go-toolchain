@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"os/exec"
@@ -151,20 +152,80 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		return nil, err
 	}
 
-	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: stderr, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter}
+	held := newBufferedPipe()
+	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: held, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrDrained: make(chan struct{})}
 
-	// A caller that sets StderrWriter reads stdout itself and leaves stderr to
-	// us, so drain it from here rather than from Wait. Waiting would deadlock:
-	// the child blocks on a full stderr pipe, so it never exits, so stdout
-	// never reaches EOF, so the caller never reaches the Wait that drains.
-	if cfg.StderrWriter != nil {
-		p.stderrDrained = make(chan struct{})
-		go func() {
-			defer close(p.stderrDrained)
-			io.Copy(&firstOutputWriter{target: cfg.StderrWriter, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}, stderr)
-		}()
+	// Console or writer still sees each line as it lands; held keeps a copy for
+	// a caller that reads Stderr itself.
+	var sink io.Writer = held
+	if live := cfg.liveStderr(); live != nil {
+		sink = io.MultiWriter(&firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}, held)
 	}
+	// A full stderr pipe stops the child exiting, so stdout never reaches EOF,
+	// so the caller never reaches the read or the Wait that would clear stderr.
+	// Draining from here breaks that standoff.
+	go func() {
+		defer close(p.stderrDrained)
+		defer held.Close()
+		io.Copy(sink, stderr)
+	}()
 	return p, nil
+}
+
+// liveStderr names where stderr goes as it arrives, or nil to only hold it.
+func (c *Config) liveStderr() io.Writer {
+	switch {
+	case c.StderrWriter != nil:
+		return c.StderrWriter
+	case !c.Quiet:
+		return os.Stderr
+	}
+	return nil
+}
+
+// bufferedPipe takes a write without blocking and serves it to a reader.
+// The child must never stall on stderr, whatever order the caller reads in,
+// so this buffer has no bound.
+type bufferedPipe struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	buf    bytes.Buffer
+	closed bool
+}
+
+func newBufferedPipe() *bufferedPipe {
+	b := &bufferedPipe{}
+	b.cond = sync.NewCond(&b.mu)
+	return b
+}
+
+func (b *bufferedPipe) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n, err := b.buf.Write(p)
+	b.cond.Broadcast()
+	return n, err
+}
+
+// Close reports EOF to a reader that has taken everything written.
+func (b *bufferedPipe) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.closed = true
+	b.cond.Broadcast()
+	return nil
+}
+
+func (b *bufferedPipe) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for b.buf.Len() == 0 && !b.closed {
+		b.cond.Wait()
+	}
+	if b.buf.Len() == 0 {
+		return 0, io.EOF
+	}
+	return b.buf.Read(p)
 }
 
 // firstOutputWriter wraps a writer and calls a callback before any write.
@@ -195,8 +256,7 @@ type process struct {
 	hadOutput    atomic.Bool
 	onFirst      func()
 	stdoutWriter io.Writer
-	stderrWriter io.Writer
-	// Non-nil when Run drains stderr; closed when that drain reaches EOF.
+	// Closed when Run's stderr drain reaches EOF.
 	stderrDrained chan struct{}
 }
 
@@ -205,43 +265,19 @@ func (p *process) Wait() error {
 		return p.err
 	}
 	if !p.quiet {
-		// Copy stdout/stderr concurrently so stderr (e.g. "go: downloading...") streams live instead of buffering.
+		// Stderr already went to its target as it arrived, so only stdout is left.
 		var stdoutTarget io.Writer = os.Stdout
 		if p.stdoutWriter != nil {
 			stdoutTarget = p.stdoutWriter
-		}
-		var stderrTarget io.Writer = os.Stderr
-		if p.stderrWriter != nil {
-			stderrTarget = p.stderrWriter
 		}
 		w := &firstOutputWriter{
 			target:    stdoutTarget,
 			hadOutput: &p.hadOutput,
 			callback:  p.onFirst,
 		}
-		wErr := &firstOutputWriter{
-			target:    stderrTarget,
-			hadOutput: &p.hadOutput,
-			callback:  p.onFirst,
-		}
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			io.Copy(w, p.stdoutPipe)
-		}()
-		if p.stderrDrained == nil {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				io.Copy(wErr, p.stderrPipe)
-			}()
-		}
-		wg.Wait()
+		io.Copy(w, p.stdoutPipe)
 	}
-	if p.stderrDrained != nil {
-		<-p.stderrDrained
-	}
+	<-p.stderrDrained
 	p.err = p.cmd.Wait()
 	p.done = true
 	return p.err

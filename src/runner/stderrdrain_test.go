@@ -43,6 +43,38 @@ func TestStderrDrainsWhileTheCallerReadsStdout(t *testing.T) {
 	require.Equal(t, lines*64, captured.Len())
 }
 
+// ReachablePackages runs go list quiet and reads only stdout. Stderr has to
+// keep moving anyway, or the child never exits and that read never returns.
+func TestQuietStdoutOnlyReadSurvivesAStderrFlood(t *testing.T) {
+	const lines = 8192
+	proc, err := Cmd("sh", "-c", floodScript(lines)).WithQuiet().Run(New())
+	require.NoError(t, err)
+
+	got := make(chan string, 1)
+	go func() {
+		out, _ := io.ReadAll(proc.Stdout())
+		got <- string(out)
+	}()
+
+	select {
+	case out := <-got:
+		require.Contains(t, out, "done")
+	case <-time.After(60 * time.Second):
+		t.Fatal("stdout never ended: the child is blocked writing stderr nobody reads")
+	}
+	require.NoError(t, proc.Wait())
+}
+
+// A quiet caller still gets everything the child wrote to stderr.
+func TestQuietCallerCanStillReadStderr(t *testing.T) {
+	proc, err := Cmd("sh", "-c", "printf 'held\\n' >&2").WithQuiet().Run(New())
+	require.NoError(t, err)
+	captured, err := io.ReadAll(proc.Stderr())
+	require.NoError(t, err)
+	require.Equal(t, "held\n", string(captured))
+	require.NoError(t, proc.Wait())
+}
+
 // Wait still reports the exit status, and stderr still arrives in full.
 func TestStderrWriterGetsEverythingBeforeWaitReturns(t *testing.T) {
 	var captured bytes.Buffer
