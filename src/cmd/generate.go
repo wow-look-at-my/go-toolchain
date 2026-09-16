@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
+	"github.com/wow-look-at-my/go-toolchain/src/gomod"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 )
 
@@ -145,8 +145,8 @@ func findGenerateDirectives(root string) ([]generateDirective, error) {
 			return err
 		}
 		if d.IsDir() {
-			// Skip vendor directories
-			if d.Name() == "vendor" {
+			// Vendored code and another module's tree carry their own directives.
+			if d.Name() == "vendor" || gomod.IsNestedModule(path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -273,8 +273,8 @@ func runDirective(d generateDirective, dir string, quiet bool) error {
 		logger.Info("\t%s", d.Command)
 	}
 
-	// A directive's tool must RUN here, so it targets the host. Depth: docs/PIPELINE.md
-	env := append(os.Environ(), "GOOS="+hostos.GOOS(), "GOARCH="+runtime.GOARCH)
+	// A directive's tool must RUN here, so it is an APE: the a single target the linked go command has, and a single that runs on every host.
+	env := append(os.Environ(), "GOOS=cosmo", "GOARCH="+runtime.GOARCH)
 	env = append(env,
 		"GOFILE="+filepath.Base(d.File),
 		fmt.Sprintf("GOLINE=%d", d.Line),

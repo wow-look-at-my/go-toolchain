@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
-	"github.com/wow-look-at-my/go-toolchain/src/cache"
 	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
 	"github.com/wow-look-at-my/go-toolchain/src/profile"
@@ -64,8 +63,8 @@ const reproducibleLDFlags = "-buildid="
 // It sits at the sole chokepoint that compiles anything, so a call site that
 // invents a target fails here instead of shipping a native binary.
 func checkPortableJob(job buildJob) error {
-	if job.forkGoroot == "" {
-		return fmt.Errorf("build for %s/%s has no gosmopolitan GOROOT: the fat APE and the wasm targets are the only outputs, and both compile with the fork", job.goos, job.goarch)
+	if len(job.goCmd) == 0 {
+		return fmt.Errorf("build for %s/%s names no go command: the fat APE and the wasm targets are the only outputs, and both compile with the fork this binary links", job.goos, job.goarch)
 	}
 	if job.goos == cosmoOS || (isWasmGOOS(job.goos) && job.goarch == wasmArch) {
 		return nil
@@ -86,13 +85,11 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	if err := checkPortableJob(job); err != nil {
 		return err
 	}
-	// A call site that forgets to fingerprint the toolchain fails loudly rather
-	// than reopening cross-toolchain cache poisoning.
-	if job.cacheNamespace == "" {
-		return fmt.Errorf("fork-toolchain build for %s/%s has no cache namespace; refusing to share the un-namespaced cache (see forkToolchainCacheNamespace)", job.goos, job.goarch)
+	if job.selfHosted {
+		return buildSelf(r, job, onFirstOutput)
 	}
 	// -trimpath: without it the build IDs record where the build ran, so each runner ships a different APE.
-	args := []string{"build", "-trimpath"}
+	args := append(append([]string{}, job.goCmd[1:]...), "build", "-trimpath")
 	// Dump the action graph for the build profile (a file per invocation;
 	// matrix targets each get their own). No-op when profiling is off.
 	if garg := profile.GraphArg(); garg != "" {
@@ -109,21 +106,19 @@ func runBuild(r runner.CommandRunner, job buildJob, onFirstOutput func()) error 
 	args = append(args, "-ldflags", ldflags)
 	// -o is the temp spelling; the commit below is what makes the target exist.
 	args = append(args, "-o", build.TempOutputPath(job.outputPath), job.srcPath)
-	forkGoBin := cosmoGoBinPath(job.forkGoroot)
 	// An ambient GOOS is the last way to ask for a native binary, so every variable below is assigned. No output has cgo.
-	cmd := runner.Cmd(forkGoBin, args...).
+	cmd := runner.Cmd(job.goCmd[0], args...).
 		WithEnv("GOTOOLCHAIN", "local").
-		WithEnv("GOROOT", job.forkGoroot).
-		WithEnv("PATH", forkFirstPath(job.forkGoroot, os.Getenv("PATH"), hostos.GOOS())).
-		WithEnv("CGO_ENABLED", "0").
-		WithEnv(cache.KeyNamespaceEnv, job.cacheNamespace)
+		WithEnv("GOROOT", job.goroot).
+		WithEnv("CGO_ENABLED", "0")
 	if job.goos == cosmoOS {
 		// "fat" is a pseudo-arch, and an inherited GOCOSMOFAT would silently
 		// produce a thin binary, so each is cleared.
 		cmd = cmd.WithEnv("GOOS", cosmoOS).
 			WithEnv("GOARCH", "").
 			WithEnv("GOCOSMOFAT", "").
-			WithEnv(cosmoPlatformsEnv, job.cosmoPlatforms)
+			WithEnv(cosmoPlatformsEnv, job.cosmoPlatforms).
+			WithEnv(apeAppendEnv, job.apeAppend)
 	} else {
 		cmd = cmd.WithEnv("GOOS", job.goos).WithEnv("GOARCH", job.goarch)
 	}

@@ -202,6 +202,11 @@ func TestIsNestedModule(t *testing.T) {
 	assert.False(t, IsNestedModule(filepath.Join(root, "plain")))
 	assert.True(t, IsNestedModule(filepath.Join(root, "nested")))
 	assert.False(t, IsNestedModule(filepath.Join(root, "does-not-exist")))
+
+	// A submodule with no go.mod at its root is another repository's tree.
+	writeFile(t, filepath.Join(root, "sub"), ".git", "gitdir: ../.git/modules/sub\n")
+	writeFile(t, filepath.Join(root, "sub", "test"), "x.go", "package x\n")
+	assert.True(t, IsNestedModule(filepath.Join(root, "sub")))
 }
 
 // A submodule's working tree carries .git as a file. An ordinary checkout keeps

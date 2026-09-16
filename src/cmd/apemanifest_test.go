@@ -103,10 +103,8 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	// The production spelling; NT adds .exe.
-	cosmoGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "FAT-APE")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -146,7 +144,7 @@ func TestDefaultMatrixBuildsOneMultiPlatformArtifact(t *testing.T) {
 
 	var cosmoCfg *runner.Config
 	for _, cfg := range mock.Calls() {
-		if cfg.Name == cosmoGo {
+		if isForkBuild(cfg, fakeGoroot) {
 			c := cfg
 			cosmoCfg = &c
 		}
@@ -166,10 +164,8 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 
 	mock := newTestPassMock(0)
 	origHandler := mock.Handler
-	// The production spelling; NT adds .exe.
-	cosmoGo := cosmoGoBinPath(fakeGoroot)
 	mock.Handler = func(cfg runner.Config) (runner.IProcess, error) {
-		if cfg.Name == cosmoGo && len(cfg.Args) > 0 && cfg.Args[0] == "build" {
+		if isForkBuild(cfg, fakeGoroot) {
 			writeBuildOutput(t, cfg, "FAT-APE")
 			return runner.MockProcess(nil, nil), nil
 		}
@@ -179,7 +175,7 @@ func TestCosmoPlatformsAllLeavesEnvUnset(t *testing.T) {
 
 	var cosmoCfg *runner.Config
 	for _, cfg := range mock.Calls() {
-		if cfg.Name == cosmoGo {
+		if isForkBuild(cfg, fakeGoroot) {
 			c := cfg
 			cosmoCfg = &c
 		}

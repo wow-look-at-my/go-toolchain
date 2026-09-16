@@ -9,6 +9,7 @@ import (
 
 	"github.com/wow-look-at-my/go-toolchain/src/build"
 	"github.com/wow-look-at-my/go-toolchain/src/logger"
+	"github.com/wow-look-at-my/go-toolchain/src/wasmexec"
 )
 
 // cosmoOS/cosmoFatArch: the pseudo-target for the fat APE, not a normal GOOS/GOARCH pair.
@@ -195,19 +196,17 @@ func resolvePlatformTargets(platforms []buildPlatform, hostTargets []build.Targe
 	return perPlatform, anyMains, nil
 }
 
-// copyWasmExecJS copies the fork toolchain's lib/wasm/wasm_exec.js (the JS
-// harness that loads and runs a GOOS=js wasm binary in a browser or Node)
-// into the output directory. The harness MUST byte-match the toolchain that
-// built the wasm artifact, which is why the build ships it rather than
-// leaving consumers to find a compatible copy.
-func copyWasmExecJS(forkGoroot, outDir string) (string, error) {
-	src := filepath.Join(forkGoroot, "lib", "wasm", "wasm_exec.js")
+// writeWasmExecJS writes the fork's lib/wasm/wasm_exec.js (the JS harness
+// that loads and runs a GOOS=js wasm binary in a browser or Node) into the
+// output directory. The harness MUST byte-match the toolchain that built the
+// wasm artifact, so this binary carries the copy of the fork it links.
+func writeWasmExecJS(outDir string) (string, error) {
 	dst := filepath.Join(outDir, "wasm_exec.js")
 	// Replace any stale copy (possibly a symlink) with a fresh real file.
 	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
 		return "", err
 	}
-	if err := copyFile(src, dst); err != nil {
+	if err := os.WriteFile(dst, wasmexec.Script, 0o644); err != nil {
 		return "", err
 	}
 	return dst, nil
