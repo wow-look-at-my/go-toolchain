@@ -299,17 +299,17 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
-      - name: Build this repo's APE here, streamed, with disk space sampled
+      - name: Probe each package's tests on NT, one process each
         if: matrix.origin == 'windows'
-        uses: wow-look-at-my/log-streamer/.github/actions/stream@master
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          stream-key: ${{ secrets.LOG_STREAMER_STREAM_KEY }}
-          name: windows
-          run: |
-            node .github/scripts/df-sampler.js &
-            "$RUNNER_TEMP/gt-ape.exe" matrix --no-benchmark -v
+          GO_TOOLCHAIN_LINKED_GO: "1"
+          GOTOOLCHAIN: local
+        run: |
+          set -uo pipefail
+          export GOROOT="$PWD/_gosmopolitan"
+          node .github/scripts/test-each-package.js "$RUNNER_TEMP/${{ matrix.gt }}"
+          exit 1
 
       - name: Build this repo's APE here
         if: matrix.origin != 'windows'
