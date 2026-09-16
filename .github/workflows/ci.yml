@@ -202,7 +202,8 @@ jobs:
       - name: Build and test
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: sh "$RUNNER_TEMP/gt-bootstrap"
+        # The same command the action runs, so identical compares like with like. see docs/CI.md
+        run: sh "$RUNNER_TEMP/gt-bootstrap" matrix --cosmo-platforms linux/amd64,darwin/arm64,windows/amd64
 
       - name: Hand off the from-scratch APE
         uses: wow-look-at-my/actions@cache-upload#latest
