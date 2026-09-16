@@ -33,12 +33,9 @@ func TestExecStdoutPipeWedgesOnALingeringGrandchild(t *testing.T) {
 
 // The runner bounds that wedge, so the same shape returns the output it got.
 func TestStdoutReadEndsWhenAGrandchildHoldsThePipe(t *testing.T) {
-	restore := drainGrace
-	drainGrace = 300 * time.Millisecond
-	defer func() { drainGrace = restore }()
-
 	// sh prints, then leaves a background sleep holding the same stdout.
-	proc, err := Cmd("sh", "-c", "echo hello; sleep 60 & exit 0").Run(New())
+	quick := &realRunner{grace: 300 * time.Millisecond}
+	proc, err := Cmd("sh", "-c", "echo hello; sleep 60 & exit 0").Run(quick)
 	require.NoError(t, err)
 
 	done := make(chan []byte, 1)
@@ -56,14 +53,11 @@ func TestStdoutReadEndsWhenAGrandchildHoldsThePipe(t *testing.T) {
 	require.NoError(t, proc.Wait())
 }
 
-// The ordinary case must still reach a real EOF, not wait out drainGrace.
+// The ordinary case must still reach a real EOF, not wait the grace out.
 func TestStdoutReachesEOFWithoutWaitingOutTheGrace(t *testing.T) {
-	restore := drainGrace
-	drainGrace = 30 * time.Second
-	defer func() { drainGrace = restore }()
-
+	slow := &realRunner{grace: 30 * time.Second}
 	start := time.Now()
-	proc, err := Cmd("sh", "-c", "echo quick").Run(New())
+	proc, err := Cmd("sh", "-c", "echo quick").Run(slow)
 	require.NoError(t, err)
 	out, err := io.ReadAll(proc.Stdout())
 	require.NoError(t, err)

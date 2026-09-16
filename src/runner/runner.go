@@ -115,7 +115,9 @@ func New() CommandRunner {
 	return &realRunner{}
 }
 
-type realRunner struct{}
+type realRunner struct {
+	grace time.Duration // zero means defaultDrainGrace
+}
 
 func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	cmd := exec.Command(cfg.Name, cfg.Args...)
@@ -138,8 +140,7 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 		}
 	}
 
-	// The pipes are ours, not StdoutPipe's: exec closes those at Wait, and this
-	// process must outlive that to bound a reader itself. See drainGrace.
+	// Ours, not StdoutPipe's: exec closes those at Wait, and reap outlives it.
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -163,9 +164,13 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	stdoutW.Close()
 	stderrW.Close()
 
+	grace := r.grace
+	if grace == 0 {
+		grace = defaultDrainGrace
+	}
 	outR, outW := io.Pipe()
 	errR, errW := io.Pipe()
-	p := &process{cmd: cmd, stdoutPipe: outR, stderrPipe: errR, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter, exited: make(chan struct{})}
+	p := &process{cmd: cmd, stdoutPipe: outR, stderrPipe: errR, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrWriter: cfg.StderrWriter, exited: make(chan struct{}), grace: grace}
 	go relay(stdoutR, outW)
 	go relay(stderrR, errW)
 	go p.reap(outW, errW)
@@ -178,18 +183,17 @@ func relay(src *os.File, dst *io.PipeWriter) {
 	dst.CloseWithError(err)
 }
 
-// drainGrace is how long a relay keeps going after the command exits.
-var drainGrace = 5 * time.Second
+// defaultDrainGrace is how long a relay runs on after the command exits.
+const defaultDrainGrace = 5 * time.Second
 
-// reap waits for the command, then ends any read still waiting on EOF.
-// A grandchild that inherited the child's stdout holds the OS pipe open, so
-// EOF never arrives there. That read sits inside a blocking syscall, which no
-// deadline and no close can interrupt, so the bound belongs on the io.Pipe
-// above it. The relay goroutine stays parked on a process that is already gone.
+// reap ends any read still waiting on EOF once the command is gone.
+// A grandchild holding the child's stdout keeps the OS pipe open, and that
+// read blocks inside a syscall no deadline or close can interrupt. So the
+// bound goes on the io.Pipe above it, and the relay stays parked.
 func (p *process) reap(writers ...*io.PipeWriter) {
 	p.waitErr = p.cmd.Wait()
 	close(p.exited)
-	time.Sleep(drainGrace)
+	time.Sleep(p.grace)
 	for _, w := range writers {
 		w.Close()
 	}
@@ -226,6 +230,7 @@ type process struct {
 	stderrWriter io.Writer
 	exited       chan struct{} // closed when reap has the exit status
 	waitErr      error         // read only after exited is closed
+	grace        time.Duration
 }
 
 func (p *process) Wait() error {
