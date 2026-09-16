@@ -35,7 +35,9 @@ func reexecUnderOwnBuild() error {
 	}
 	st.done()
 	if same {
-		_ = os.RemoveAll(dir)
+		// The build phase commits this binary instead of building it again.
+		fixedPointSelf = bin
+		fixedPointDir = dir
 		logger.Info("  this binary reproduces itself, so the run stays with it")
 		return nil
 	}
@@ -45,19 +47,23 @@ func reexecUnderOwnBuild() error {
 	return nil
 }
 
+// fixedPointDir holds fixedPointSelf until the run ends.
+var fixedPointDir string
+
+// removeFixedPointSelf deletes the fixed point's directory at the end of the run.
+func removeFixedPointSelf() {
+	if fixedPointDir == "" {
+		return
+	}
+	_ = os.RemoveAll(fixedPointDir)
+	fixedPointDir, fixedPointSelf = "", ""
+}
+
 // selfIsFixedPoint reports whether bin and this executable are the same bytes.
 func selfIsFixedPoint(bin string) (bool, error) {
 	exe, err := selfExecutableFunc()
 	if err != nil {
 		return false, err
 	}
-	self, err := fileHash(exe)
-	if err != nil {
-		return false, err
-	}
-	built, err := fileHash(bin)
-	if err != nil {
-		return false, err
-	}
-	return self == built, nil
+	return sameFile(exe, bin)
 }
