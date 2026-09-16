@@ -299,6 +299,24 @@ jobs:
           cp dist/go-toolchain "$RUNNER_TEMP/${{ matrix.gt }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.gt }}"
 
+      - name: Probe the test phase on NT
+        if: matrix.origin == 'windows'
+        shell: bash
+        env:
+          GO_TOOLCHAIN_LINKED_GO: "1"
+          GOTOOLCHAIN: local
+        run: |
+          set -uo pipefail
+          export GOROOT="$PWD/_gosmopolitan"
+          gt="$RUNNER_TEMP/${{ matrix.gt }}"
+          "$gt" go version
+          "$gt" go env GOROOT GOOS GOARCH GOCACHE GOTMPDIR
+          timeout -k 5 420 "$gt" go test -x -v -count=1 ./src/hostos
+          echo "plain exit=$?"
+          timeout -k 5 420 "$gt" go test -x -json -timeout=5m -p 2 -parallel 2 -coverprofile="$PWD/cover.out" -coverpkg=./... -count=1 ./src/hostos
+          echo "coverage exit=$?"
+          exit 1
+
       - name: Build this repo's APE here
         shell: bash
         env:
