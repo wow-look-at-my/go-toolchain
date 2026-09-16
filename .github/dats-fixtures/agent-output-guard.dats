@@ -52,7 +52,7 @@ tests:
 	# so the answer is asserted HERE, inside it, not only from the CI step
 	# outside. GUESSED means the probes failed and the fallback answered.
 	- desc: the APE detects this host by measurement, and names the host the shell names
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; printf "%s|%s\n" "$({outputs.gt.exe} version host | head -1)" "$(uname -s)"'
+	  cmd: 'gt=$PWD/gt-under-test.exe; printf "%s|%s\n" "$($gt version host | head -1)" "$(uname -s)"'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -70,7 +70,7 @@ tests:
 	# for the refusal. Windows has no classifier at all and says INOPERATIVE.
 	# A silent allow, on any host, is the regression this catches.
 	- desc: the guard answers on this host rather than going quiet
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env OPENCODE=1 {outputs.gt.exe} 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$out" | grep -q "guard is BLIND" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
+	  cmd: 'gt=$PWD/gt-under-test.exe; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env OPENCODE=1 $gt 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$out" | grep -q "guard is BLIND" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -81,7 +81,7 @@ tests:
 			0: "^(Linux\\|operative\\|refused|Darwin\\|(operative\\|refused|blind\\|allowed)|(MINGW|MSYS|CYGWIN).*\\|inoperative\\|allowed)$"
 
 	- desc: agent output guard answers a captured pipeline run under {matrix.marker}
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env {matrix.marker}=1 {outputs.gt.exe} 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$out" | grep -q "guard is BLIND" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; b=nobuild; printf "%s" "$out" | grep -q "Build successful" && b=built; printf "%s|%s|%s|%s\n" "$(uname -s)" "$g" "$r" "$b"'
+	  cmd: 'gt=$PWD/gt-under-test.exe; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; out=$(env {matrix.marker}=1 $gt 2>&1); g=operative; printf "%s" "$out" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$out" | grep -q "guard is BLIND" && g=blind; r=allowed; printf "%s" "$out" | grep -q "refused to run" && r=refused; b=nobuild; printf "%s" "$out" | grep -q "Build successful" && b=built; printf "%s|%s|%s|%s\n" "$(uname -s)" "$g" "$r" "$b"'
 	  timeout: 60s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -96,7 +96,7 @@ tests:
 	# version prints build metadata and no build result, so it is exempt from
 	# the guard along with cacheprog: a captured run under an agent answers.
 	- desc: version answers under {matrix.marker}
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; env {matrix.marker}=1 {outputs.gt.exe} version raw'
+	  cmd: 'gt=$PWD/gt-under-test.exe; env {matrix.marker}=1 $gt version raw'
 	  timeout: 30s
 	  matrix:
 		marker: [GROK_AGENT, OPENCODE]
@@ -116,7 +116,7 @@ tests:
 	# -binary arm. Otherwise the guard's allowance would let a whole pipeline
 	# run here, and ITS outcome, not the guard's, would decide the binary.
 	- desc: agent output guard names the agent and deletes the module's build outputs
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache} {outputs.probe}; cd {outputs.probe}; probe=$({outputs.gt.exe} 2>&1); cd {outputs.rundir}; if ! printf "%s" "$probe" | grep -q "refused to run"; then g=quiet; printf "%s" "$probe" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$probe" | grep -q "guard is BLIND" && g=blind; printf "%s|%s|kept|kept|unnamed|nodelete\n" "$(uname -s)" "$g"; exit 0; fi; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$({outputs.gt.exe} 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; n=unnamed; printf "%s" "$out" | grep -q "You are running under" && n=named; d=nodelete; printf "%s" "$out" | grep -q "have been DELETED" && d=announced; printf "%s|operative|%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$n" "$d"'
+	  cmd: 'gt=$PWD/gt-under-test.exe; mkdir -p {outputs.rundir} {outputs.gocache} {outputs.probe}; cd {outputs.probe}; probe=$($gt 2>&1); cd {outputs.rundir}; if ! printf "%s" "$probe" | grep -q "refused to run"; then g=quiet; printf "%s" "$probe" | grep -q "INOPERATIVE" && g=inoperative; printf "%s" "$probe" | grep -q "guard is BLIND" && g=blind; printf "%s|%s|kept|kept|unnamed|nodelete\n" "$(uname -s)" "$g"; exit 0; fi; printf "module example.com/stalebin\n\ngo 1.24\n" > go.mod; printf "package main\n\nfunc main() {}\n" > main.go; mkdir build; echo stale > build/stalebin; echo keep > build/checksums.txt; out=$($gt 2>&1); bin=kept; [ ! -e build/stalebin ] && bin=deleted; sums=gone; [ -f build/checksums.txt ] && sums=kept; n=unnamed; printf "%s" "$out" | grep -q "You are running under" && n=named; d=nodelete; printf "%s" "$out" | grep -q "have been DELETED" && d=announced; printf "%s|operative|%s|%s|%s|%s\n" "$(uname -s)" "$bin" "$sums" "$n" "$d"'
 	  timeout: 5m
 	  inputs:
 		env:
@@ -132,7 +132,7 @@ tests:
 	# the classifier reaches through isTerminal, and on a darwin host through the
 	# device path when the cosmo dispatcher cannot ask TCGETS.
 	- desc: a discarded run under CLAUDECODE is refused
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; {outputs.gt.exe} > /dev/null 2>err.txt; g=operative; grep -q "INOPERATIVE" err.txt && g=inoperative; grep -q "guard is BLIND" err.txt && g=blind; r=allowed; grep -q "refused to run" err.txt && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
+	  cmd: 'gt=$PWD/gt-under-test.exe; mkdir -p {outputs.rundir} {outputs.gocache}; cd {outputs.rundir}; $gt > /dev/null 2>err.txt; g=operative; grep -q "INOPERATIVE" err.txt && g=inoperative; grep -q "guard is BLIND" err.txt && g=blind; r=allowed; grep -q "refused to run" err.txt && r=refused; printf "%s|%s|%s\n" "$(uname -s)" "$g" "$r"'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -147,7 +147,7 @@ tests:
 	# polyglot format loads and dispatches wherever this fixture runs. --help
 	# exits before the pipeline phase, so it carries no agent marker.
 	- desc: the shipped APE prints usage under --help
-	  cmd: 'cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.gocache}; out=$({outputs.gt.exe} --help 2>&1); rc=$?; if printf "%s" "$out" | grep -q "Usage:"; then echo usage; else printf "%s|exit=%s|src=%s:%s|copy=%s:%s|%s\n" "$(uname -s)" "$rc" "$(wc -c < ./gt-under-test.exe)" "$(head -c 6 ./gt-under-test.exe | tr -c "[:alnum:]" .)" "$(wc -c < {outputs.gt.exe})" "$(head -c 6 {outputs.gt.exe} | tr -c "[:alnum:]" .)" "$(printf "%s" "$out" | head -c 300 | tr "\n" " ")"; fi'
+	  cmd: 'gt=$PWD/gt-under-test.exe; mkdir -p {outputs.gocache}; out=$($gt --help 2>&1); rc=$?; if printf "%s" "$out" | grep -q "Usage:"; then echo usage; else printf "%s|exit=%s|src=%s:%s|copy=%s:%s|%s\n" "$(uname -s)" "$rc" "$(wc -c < ./gt-under-test.exe)" "$(head -c 6 ./gt-under-test.exe | tr -c "[:alnum:]" .)" "$(wc -c < $gt)" "$(head -c 6 $gt | tr -c "[:alnum:]" .)" "$(printf "%s" "$out" | head -c 300 | tr "\n" " ")"; fi'
 	  timeout: 30s
 	  inputs:
 		env:
@@ -188,7 +188,7 @@ tests:
 	# of those wait for end of file, and the harness holds a socketpair open
 	# past its own exit, so the allowed case hangs until the timeout kills it.
 	- desc: agent output guard allows a plain run when the socket reader is the agent itself
-	  cmd: 'u=$(uname -s); case "$u" in Darwin|Linux) cp ./socketharness {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness.exe} {outputs.gt.exe} > h.txt 2>&1; v=missing; grep -q "HARNESS_GUARD_REFUSED=false" h.txt && v=allowed; printf "%s|%s\n" "$u" "$v"'
+	  cmd: 'u=$(uname -s); case "$u" in Darwin|Linux) cp ./socketharness {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; gt=$PWD/gt-under-test.exe; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness.exe} $gt > h.txt 2>&1; v=missing; grep -q "HARNESS_GUARD_REFUSED=false" h.txt && v=allowed; printf "%s|%s\n" "$u" "$v"'
 	  timeout: 60s
 	  inputs:
 		env:
@@ -198,7 +198,7 @@ tests:
 			0: "^((Linux|Darwin)\\|allowed|(MINGW|MSYS|CYGWIN).*\\|no-harness)$"
 
 	- desc: agent output guard still refuses a socket whose reader is not the agent
-	  cmd: 'u=$(uname -s); case "$u" in Darwin|Linux) cp ./socketharness {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; cp ./gt-under-test.exe {outputs.gt.exe}; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness.exe} --wrong-reader {outputs.gt.exe} > h.txt 2>&1; v=missing; grep -q "HARNESS_GUARD_REFUSED=true" h.txt && v=refused; printf "%s|%s\n" "$u" "$v"'
+	  cmd: 'u=$(uname -s); case "$u" in Darwin|Linux) cp ./socketharness {outputs.harness.exe};; *) printf "%s|no-harness\n" "$u"; exit 0;; esac; gt=$PWD/gt-under-test.exe; mkdir -p {outputs.rundir}; cd {outputs.rundir}; {outputs.harness.exe} --wrong-reader $gt > h.txt 2>&1; v=missing; grep -q "HARNESS_GUARD_REFUSED=true" h.txt && v=refused; printf "%s|%s\n" "$u" "$v"'
 	  timeout: 60s
 	  inputs:
 		env:

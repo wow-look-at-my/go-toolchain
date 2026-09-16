@@ -76,10 +76,9 @@ tests:
 	# The whole pipeline, driven by the APE, in a synthetic consumer module:
 	# tidy resolves testify, vet type-checks, the test runs, the build writes a
 	# binary. The module also carries the agent-output-guard fixture, which
-	# go-toolchain's own dats phase then runs sandboxed against the pristine
-	# copies staged beside it -- an APE rewrites its own file on first exec, so
-	# a copy of the one that ran the pipeline is no longer what a user gets.
-	# The harness is an APE too, so one copy serves linux and darwin.
+	# go-toolchain's own dats phase then runs sandboxed against the copies
+	# staged beside it. The harness is an APE too, so one copy serves linux
+	# and darwin.
 	- desc: the full pipeline runs in a tiny module on this host
 	  cmd: 'mkdir -p "$HOME"; cd "$(dirname {inputs.go.mod})"; chmod +x ./gt-under-test.exe ./socketharness; {shared.gt-ape.exe}'
 	  timeout: 20m
