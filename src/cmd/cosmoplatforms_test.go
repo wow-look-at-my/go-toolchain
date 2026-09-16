@@ -123,39 +123,10 @@ func TestPlatformList(t *testing.T) {
 	assert.Equal(t, "", platformList(nil))
 }
 
-// A toolchain that cannot restrict coverage must SAY SO. Reporting a slimmed
-// build that was not slimmed is the failure this warning exists to prevent.
+// The platform set reaches the fork as its own variable, and "all" leaves it unset.
 func TestCosmoPlatformsEnvValue(t *testing.T) {
 	t.Serial()
-	old := cosmoPlatformsSupportedFunc
-	defer func() { cosmoPlatformsSupportedFunc = old }()
 	platforms := []buildPlatform{{OS: "linux", Arch: "amd64"}, {OS: "darwin", Arch: "arm64"}}
-
-	t.Run("supported", func(t *testing.T) {
-		cosmoPlatformsSupportedFunc = func(string) bool { return true }
-		out := captureCombinedOutput(func() {
-			assert.Equal(t, "linux/amd64,darwin/arm64", cosmoPlatformsEnvValue("/fork", platforms))
-		})
-		assert.NotContains(t, out, "Warning")
-	})
-
-	t.Run("unsupported warns and leaves it unset", func(t *testing.T) {
-		cosmoPlatformsSupportedFunc = func(string) bool { return false }
-		var got string
-		out := captureCombinedOutput(func() { got = cosmoPlatformsEnvValue("/fork", platforms) })
-		assert.Equal(t, "", got, "an ignored variable must not be set at all")
-		assert.Contains(t, out, cosmoPlatformsEnv)
-		assert.Contains(t, out, "linux/amd64,darwin/arm64")
-	})
-
-	t.Run("all needs no probe", func(t *testing.T) {
-		cosmoPlatformsSupportedFunc = func(string) bool {
-			t.Fatal("the probe must not run when no platform set was requested")
-			return false
-		}
-		out := captureCombinedOutput(func() {
-			assert.Equal(t, "", cosmoPlatformsEnvValue("/fork", nil))
-		})
-		assert.NotContains(t, out, "Warning")
-	})
+	assert.Equal(t, "linux/amd64,darwin/arm64", cosmoPlatformsEnvValue(platforms))
+	assert.Equal(t, "", cosmoPlatformsEnvValue(nil))
 }

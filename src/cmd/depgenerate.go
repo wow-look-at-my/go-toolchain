@@ -161,11 +161,11 @@ func goModCache() (string, error) {
 	return slashPath(strings.TrimSpace(out)), nil
 }
 
-// goOutput runs the go command for its stdout, under this host target: what it
+// goOutput runs the go command for its stdout, under the APE target: what it
 // reports has to describe the build that runs here.
 func goOutput(args ...string) (string, error) {
 	cmd := exec.Command("go", args...)
-	cmd.Env = append(os.Environ(), "GOOS="+hostos.GOOS(), "GOARCH="+runtime.GOARCH)
+	cmd.Env = append(os.Environ(), "GOOS=cosmo", "GOARCH="+runtime.GOARCH)
 	out, err := cmd.Output()
 	return string(out), err
 }
