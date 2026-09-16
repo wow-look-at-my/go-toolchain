@@ -45,11 +45,13 @@ jobs:
 
       # buildhost has published nothing since the linked toolchain landed, so the binary is a master host-build's hand-off, which cache-upload keyed by run.
       - name: Restore a master host-build's hand-off
-        uses: actions/cache/restore@v4
+        uses: wow-look-at-my/actions@cache-download#latest
+        env:
+          GITHUB_RUN_ID: ${{ env.PROBE_HANDOFF_RUN }}
+          GITHUB_RUN_ATTEMPT: '1'
         with:
-          path: build/go-toolchain
-          key: cache-xfer-${{ env.PROBE_HANDOFF_RUN }}-host-go-toolchain-1
-          fail-on-cache-miss: true
+          name: host-go-toolchain
+          path: dist
 
       - name: Stage the binary
         shell: bash
