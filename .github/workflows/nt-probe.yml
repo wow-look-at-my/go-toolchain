@@ -1,0 +1,82 @@
+name: NT probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      binary:
+        description: 'go-toolchain to probe: a buildhost download URL, or "previous" for the last release'
+        required: false
+        default: previous
+      command:
+        description: 'What to run: "measure" (the test command with both pipes read, stderr counted ahead of stdout) or "pipeline" (matrix --no-benchmark, bounded)'
+        required: false
+        default: measure
+      minutes:
+        description: 'Bound on the probed command, in minutes'
+        required: false
+        default: '10'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # Runs on the NT host directly with a binary buildhost already has, so a probe never waits for host-build.
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: wow-look-at-my/actions@secret-server#latest
+
+      - name: Configure Go proxy
+        shell: bash
+        run: |
+          if [ -n "$GO_PROXY_CONFIG" ]; then
+            proxy=$(echo "$GO_PROXY_CONFIG" | base64 -d | jq -r '.proxy // empty')
+            if [ -n "$proxy" ]; then
+              echo "GOPROXY=${proxy}|direct" >> "$GITHUB_ENV"
+            fi
+          fi
+
+      - name: Fetch the binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='${{ inputs.binary }}'
+          if [ "$url" = previous ]; then
+            url="https://dl.pazer.build/go-toolchain?os=windows&arch=amd64"
+          fi
+          curl -fL --compressed "$url" -o "$RUNNER_TEMP/gt-probe.exe"
+          chmod +x "$RUNNER_TEMP/gt-probe.exe"
+          "$RUNNER_TEMP/gt-probe.exe" version
+
+      # The pipeline writes the fork checkout's generated files on its first run, which the direct test command needs.
+      - name: Run the pipeline, bounded
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          minutes='${{ inputs.minutes }}'
+          if [ '${{ inputs.command }}' = measure ]; then minutes=3; fi
+          timeout -k 5 $(( minutes * 60 )) "$RUNNER_TEMP/gt-probe.exe" matrix --no-benchmark -v
+          echo "pipeline exit=$?"
+
+      - name: Measure the test command's stderr ahead of its first stdout byte
+        if: inputs.command == 'measure'
+        shell: bash
+        env:
+          GO_TOOLCHAIN_LINKED_GO: "1"
+          GOTOOLCHAIN: local
+        run: |
+          set -uo pipefail
+          export GOROOT="$PWD/_gosmopolitan"
+          node .github/scripts/measure-test-stderr.js "$RUNNER_TEMP/gt-probe.exe" $("$RUNNER_TEMP/gt-probe.exe" go list ./...)
