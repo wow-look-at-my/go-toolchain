@@ -40,7 +40,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	if err != nil {
 		return err
 	}
-	forkGoroot, apePlatforms := forkEnv.goroot, forkEnv.coverage
+	apePlatforms := forkEnv.coverage
 
 	// Run tests with coverage before building (same as the default command)
 	if _, _, err := RunTestsWithCoverage(r, false); err != nil {
@@ -156,6 +156,7 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 			logger.Info("  OK   [%d/%d] %s %s", completed, len(jobs), result.job.outputPath, fmtDuration(result.duration))
 			if _, statErr := os.Stat(result.job.outputPath); statErr == nil {
 				builtFiles = append(builtFiles, result.job.outputPath)
+				recordArtifactSize(result.job.outputPath)
 			}
 		}
 	}
@@ -199,19 +200,14 @@ func runReleaseWithRunner(r runner.CommandRunner) (err error) {
 	}
 
 	// Consumers of a js/wasm artifact need the EXACT wasm_exec.js of the
-	// toolchain that built it. Ship the fork's copy next to the artifact:
-	// covered by checksums.txt and the CI artifact, but outside the buildhost
-	// publish set — "wasm_exec.js" cannot match the publish action's
-	// <binary>_{os}_{arch} filename pattern (pinned by
-	// TestWasmArtifactNamesInBuildhostPublishSet). Best-effort: a fork
-	// GOROOT without lib/wasm only warns.
-	if forkGoroot != "" && slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
-		if dst, err := copyWasmExecJS(forkGoroot, outputDir); err != nil {
-			logger.Warn("⇒ Warning: could not copy wasm_exec.js from the fork toolchain: %v (browser/Node consumers must take lib/wasm/wasm_exec.js from the matching toolchain themselves)", err)
-		} else {
-			logger.Info("  COPY wasm_exec.js <- %s", filepath.Join(forkGoroot, "lib", "wasm"))
-			builtFiles = append(builtFiles, dst)
+	// toolchain that built it.
+	if slices.ContainsFunc(jobs, func(j buildJob) bool { return j.goos == "js" }) {
+		dst, err := writeWasmExecJS(outputDir)
+		if err != nil {
+			return err
 		}
+		logger.Info("  WRITE wasm_exec.js")
+		builtFiles = append(builtFiles, dst)
 	}
 
 	// Generate sha256 checksums for release artifacts
