@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	runtimetrace "runtime/trace"
 	"sort"
 	"strings"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/wow-look-at-my/go-containers/set"
 	"github.com/wow-look-at-my/go-toolchain/src/buildtags"
-	"github.com/wow-look-at-my/go-toolchain/src/hostos"
 	gotrace "github.com/wow-look-at-my/go-toolchain/src/trace"
 	"golang.org/x/tools/go/analysis"
 
@@ -76,10 +74,10 @@ func RunWithProgress(fix bool, progress ProgressFunc) (bool, error) {
 	return fmtChanged || semanticChanged, err
 }
 
-// NeedDeps is unconditional: the fork's export data never decodes, so source is
-// the only path, not a fallback. Depth: docs/CI.md
+// loadMode type-checks the module's own source and reads each dependency as
+// the export data the compiler in this binary wrote. Depth: docs/CI.md
 func loadMode() packages.LoadMode {
-	return packages.LoadSyntax | packages.NeedModule | packages.NeedDeps
+	return packages.LoadSyntax | packages.NeedModule
 }
 
 // RunOnPattern executes all analyzers on packages matching pattern.
@@ -194,12 +192,6 @@ func vetSemantic(pattern string, ed Editor, progress ProgressFunc) (bool, error)
 	return finishSemantic(pattern, ed, progress, filesChanged, diagnostics)
 }
 
-// hostTargetEnv targets this machine, as src/test does: the fork's
-// GOOS=cosmo default has no cgo. Depth: docs/VET.md
-func hostTargetEnv() []string {
-	return append(os.Environ(), "GOOS="+hostos.GOOS(), "GOARCH="+runtime.GOARCH)
-}
-
 // vetOneConfig loads and analyzes the module under a single build-tag
 // configuration, appending diagnostics and recording every file it actually
 // parsed into analyzedFiles (module-relative, slash separated) so Verify can
@@ -210,10 +202,10 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 	filesChanged := false
 
 	report("type-check " + tagCfg.String())
+	// The fork's default target, cosmo, is the a single every artifact and test binary builds for.
 	cfg := &packages.Config{
 		Mode:  loadMode(),
 		Tests: true,
-		Env:   hostTargetEnv(),
 	}
 	if arg := tagCfg.Arg(); arg != "" {
 		cfg.BuildFlags = []string{"-tags", arg}
@@ -225,6 +217,12 @@ func vetOneConfig(patterns []string, tagCfg buildtags.Config, ed Editor, report 
 		f, err := parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
 		task.End()
 		return f, err
+	}
+
+	// Which go command answers the loader, and what it reads as GOROOT.
+	if goPath, lookErr := exec.LookPath("go"); lookErr == nil {
+		goroot, _ := exec.Command(goPath, "env", "GOROOT").Output()
+		logger.Info("vet: go command %s, GOROOT %s", goPath, strings.TrimSpace(string(goroot)))
 	}
 
 	loadStart := time.Now()
