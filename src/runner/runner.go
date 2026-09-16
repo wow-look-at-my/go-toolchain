@@ -155,15 +155,12 @@ func (r *realRunner) Run(cfg Config) (IProcess, error) {
 	held := newBufferedPipe()
 	p := &process{cmd: cmd, stdoutPipe: stdout, stderrPipe: held, quiet: cfg.Quiet, onFirst: cfg.OnFirstOutput, stdoutWriter: cfg.StdoutWriter, stderrDrained: make(chan struct{})}
 
-	// Console or writer still sees each line as it lands; held keeps a copy for
-	// a caller that reads Stderr itself.
+	// The console still sees each line; held keeps a copy for Stderr.
 	var sink io.Writer = held
 	if live := cfg.liveStderr(); live != nil {
 		sink = io.MultiWriter(&firstOutputWriter{target: live, hadOutput: &p.hadOutput, callback: cfg.OnFirstOutput}, held)
 	}
-	// A full stderr pipe stops the child exiting, so stdout never reaches EOF,
-	// so the caller never reaches the read or the Wait that would clear stderr.
-	// Draining from here breaks that standoff.
+	// Draining here stops a full stderr pipe wedging the child.
 	go func() {
 		defer close(p.stderrDrained)
 		defer held.Close()
@@ -183,9 +180,7 @@ func (c *Config) liveStderr() io.Writer {
 	return nil
 }
 
-// bufferedPipe takes a write without blocking and serves it to a reader.
-// The child must never stall on stderr, whatever order the caller reads in,
-// so this buffer has no bound.
+// bufferedPipe accepts a write without blocking and serves it to a reader.
 type bufferedPipe struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
