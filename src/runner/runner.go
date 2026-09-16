@@ -116,7 +116,7 @@ func New() CommandRunner {
 }
 
 type realRunner struct {
-	grace time.Duration // 0 selects defaultDrainGrace
+	grace time.Duration
 }
 
 func (r *realRunner) Run(cfg Config) (IProcess, error) {
